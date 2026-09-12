@@ -93,6 +93,13 @@ async def on_ready():
         except Exception as e:
             print(f"Could not hoist role in {guild.name}: {e}")
 
+    # Sanitize economy balances (clamp any non-owner balances)
+    try:
+        from cogs.economy import sanitize_economy_balances
+        await sanitize_economy_balances(bot)
+    except Exception as e:
+        print(f"Could not sanitize economy balances: {e}")
+
     # Start rotating status
     bot.loop.create_task(rotate_status())
     print("Bot is online and ready.")

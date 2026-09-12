@@ -8,6 +8,13 @@ from utils import db
 
 DB_PATH = db.DB_PATH
 
+# Maximum allowed balances for regular members and admins
+# Server Owner has unlimited bank & wallet capacity
+NON_OWNER_MAX_WALLET = 5_000_000   # 5 Million 🪙 max in wallet
+NON_OWNER_MAX_BANK   = 10_000_000  # 10 Million 🪙 max in bank
+
+_bot_instance: commands.Bot | None = None
+
 async def setup_tables():
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("""CREATE TABLE IF NOT EXISTS economy (
@@ -35,16 +42,55 @@ async def setup_tables():
         )""")
         await conn.commit()
 
-async def get_eco(user_id: int, guild_id: int):
+async def sanitize_economy_balances(bot: commands.Bot):
+    """Automatically scans database and clamps any non-owner balances exceeding limits."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            for guild in bot.guilds:
+                await conn.execute(
+                    """UPDATE economy 
+                       SET wallet = MIN(wallet, ?), 
+                           bank = MIN(bank, ?) 
+                       WHERE guild_id = ? AND user_id != ?""",
+                    (NON_OWNER_MAX_WALLET, NON_OWNER_MAX_BANK, guild.id, guild.owner_id)
+                )
+            await conn.commit()
+    except Exception as e:
+        print(f"Error during economy balance sanitization: {e}")
+
+async def get_eco(user_id: int, guild_id: int, is_owner: bool | None = None):
+    await ensure_eco(user_id, guild_id)
+    if is_owner is None:
+        if _bot_instance:
+            g = _bot_instance.get_guild(guild_id)
+            is_owner = (g.owner_id == user_id) if g else False
+        else:
+            is_owner = False
+
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
             "SELECT wallet, bank, last_daily, last_weekly, last_work FROM economy WHERE user_id=? AND guild_id=?",
             (user_id, guild_id)
         ) as cur:
             row = await cur.fetchone()
+
     if not row:
         return {"wallet": 0, "bank": 0, "last_daily": None, "last_weekly": None, "last_work": None}
-    return {"wallet": row[0], "bank": row[1], "last_daily": row[2], "last_weekly": row[3], "last_work": row[4]}
+
+    wallet, bank = row[0], row[1]
+    if not is_owner:
+        clamped_wallet = min(wallet, NON_OWNER_MAX_WALLET)
+        clamped_bank = min(bank, NON_OWNER_MAX_BANK)
+        if clamped_wallet != wallet or clamped_bank != bank:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                await conn.execute(
+                    "UPDATE economy SET wallet=?, bank=? WHERE user_id=? AND guild_id=?",
+                    (clamped_wallet, clamped_bank, user_id, guild_id)
+                )
+                await conn.commit()
+            wallet, bank = clamped_wallet, clamped_bank
+
+    return {"wallet": wallet, "bank": bank, "last_daily": row[2], "last_weekly": row[3], "last_work": row[4]}
 
 async def ensure_eco(user_id: int, guild_id: int):
     async with aiosqlite.connect(DB_PATH) as conn:
@@ -61,13 +107,26 @@ async def check_is_owner(interaction: discord.Interaction) -> bool:
         return True
     return False
 
-async def update_wallet(user_id: int, guild_id: int, amount: int):
+async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool | None = None):
     await ensure_eco(user_id, guild_id)
+    if is_owner is None:
+        if _bot_instance:
+            g = _bot_instance.get_guild(guild_id)
+            is_owner = (g.owner_id == user_id) if g else False
+        else:
+            is_owner = False
+
     async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute(
-            "UPDATE economy SET wallet = MAX(0, wallet + ?) WHERE user_id=? AND guild_id=?",
-            (amount, user_id, guild_id)
-        )
+        if amount > 0 and not is_owner:
+            await conn.execute(
+                "UPDATE economy SET wallet = MIN(?, MAX(0, wallet + ?)) WHERE user_id=? AND guild_id=?",
+                (NON_OWNER_MAX_WALLET, amount, user_id, guild_id)
+            )
+        else:
+            await conn.execute(
+                "UPDATE economy SET wallet = MAX(0, wallet + ?) WHERE user_id=? AND guild_id=?",
+                (amount, user_id, guild_id)
+            )
         await conn.commit()
 
 async def set_field(user_id: int, guild_id: int, field: str, value):
@@ -103,8 +162,14 @@ def parse_amount(amount_str: str, current: int) -> int | None:
             return int(float(amount_str[:-1]) * 1_000_000)
         except ValueError:
             return None
+    if amount_str.endswith("b"):
+        try:
+            return int(float(amount_str[:-1]) * 1_000_000_000)
+        except ValueError:
+            return None
     try:
-        return int(amount_str)
+        val = int(amount_str)
+        return val if val > 0 else None
     except ValueError:
         return None
 
@@ -112,28 +177,48 @@ class Economy(commands.Cog):
     """Advanced economy system with bank, rob, shop, and leaderboard."""
 
     def __init__(self, bot: commands.Bot):
+        global _bot_instance
         self.bot = bot
+        _bot_instance = bot
 
-    def _bal_embed(self, member: discord.Member, wallet: int, bank: int) -> discord.Embed:
+    @commands.Cog.listener()
+    async def on_ready(self):
+        await sanitize_economy_balances(self.bot)
+
+    def _bal_embed(self, member: discord.Member, wallet: int, bank: int, is_owner: bool = False) -> discord.Embed:
         embed = discord.Embed(
             title=f"💰 {member.display_name}'s Balance",
             color=0xFEE75C,
             timestamp=discord.utils.utcnow()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="👛 Wallet", value=f"**{wallet:,}** 🪙", inline=True)
-        embed.add_field(name="🏦 Bank", value=f"**{bank:,}** 🪙", inline=True)
+        wallet_limit_str = " (Unlimited 👑)" if is_owner else f" / {NON_OWNER_MAX_WALLET:,}"
+        bank_limit_str = " (Unlimited 👑)" if is_owner else f" / {NON_OWNER_MAX_BANK:,}"
+
+        embed.add_field(name="👛 Wallet", value=f"**{wallet:,}** 🪙\n*Limit: {wallet_limit_str}*", inline=True)
+        embed.add_field(name="🏦 Bank", value=f"**{bank:,}** 🪙\n*Capacity: {bank_limit_str}*", inline=True)
         embed.add_field(name="💎 Net Worth", value=f"**{wallet + bank:,}** 🪙", inline=False)
-        embed.set_footer(text="🐾 Meow Economy")
+        if is_owner:
+            embed.set_footer(text="👑 Server Owner • Infinite Bank & Wallet Capacity")
+        else:
+            embed.set_footer(text="🐾 Meow Economy")
         return embed
 
     @app_commands.command(name="balance", description="Check your or someone's balance.")
     @app_commands.describe(member="The member to check")
     async def balance(self, interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user
+        is_member_owner = False
+        if interaction.guild and interaction.guild.owner_id == member.id:
+            is_member_owner = True
+        elif await interaction.client.is_owner(member):
+            is_member_owner = True
+
         await ensure_eco(member.id, interaction.guild.id)
-        eco = await get_eco(member.id, interaction.guild.id)
-        await interaction.response.send_message(embed=self._bal_embed(member, eco["wallet"], eco["bank"]))
+        eco = await get_eco(member.id, interaction.guild.id, is_owner=is_member_owner)
+        await interaction.response.send_message(
+            embed=self._bal_embed(member, eco["wallet"], eco["bank"], is_owner=is_member_owner)
+        )
 
     @app_commands.command(name="daily", description="Claim your daily 500 coins.")
     async def daily(self, interaction: discord.Interaction):
@@ -262,60 +347,182 @@ class Economy(commands.Cog):
     async def pay(self, interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 1000000]):
         if member.id == interaction.user.id:
             return await interaction.response.send_message("You can't pay yourself!", ephemeral=True)
+        if member.bot:
+            return await interaction.response.send_message("You can't pay a bot!", ephemeral=True)
+
+        is_sender_owner = await check_is_owner(interaction)
+        is_target_owner = (interaction.guild and interaction.guild.owner_id == member.id)
+
         await ensure_eco(interaction.user.id, interaction.guild.id)
-        eco = await get_eco(interaction.user.id, interaction.guild.id)
-        if eco["wallet"] < amount:
-            return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
-        await update_wallet(interaction.user.id, interaction.guild.id, -amount)
-        await update_wallet(member.id, interaction.guild.id, amount)
+        await ensure_eco(member.id, interaction.guild.id)
+        sender_eco = await get_eco(interaction.user.id, interaction.guild.id, is_owner=is_sender_owner)
+        target_eco = await get_eco(member.id, interaction.guild.id, is_owner=is_target_owner)
+
+        if sender_eco["wallet"] < amount:
+            return await interaction.response.send_message(f"❌ You only have **{sender_eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
+
+        if not is_target_owner and target_eco["wallet"] + amount > NON_OWNER_MAX_WALLET:
+            space = max(0, NON_OWNER_MAX_WALLET - target_eco["wallet"])
+            return await interaction.response.send_message(
+                f"❌ {member.mention}'s wallet can only hold **{space:,}** more coins before hitting the wallet limit (**{NON_OWNER_MAX_WALLET:,}** 🪙).",
+                ephemeral=True
+            )
+
+        await update_wallet(interaction.user.id, interaction.guild.id, -amount, is_owner=is_sender_owner)
+        await update_wallet(member.id, interaction.guild.id, amount, is_owner=is_target_owner)
         embed = discord.Embed(description=f"✅ Sent **{amount:,}** 🪙 to {member.mention}!", color=0x2ECC71, timestamp=discord.utils.utcnow())
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit coins into your bank.")
-    @app_commands.describe(amount="Amount to deposit ('all', '5k', '1000')")
+    @app_commands.describe(amount="Amount to deposit ('all', '5k', '1m', '1000')")
     async def deposit(self, interaction: discord.Interaction, amount: str):
+        is_owner = await check_is_owner(interaction)
         await ensure_eco(interaction.user.id, interaction.guild.id)
-        eco = await get_eco(interaction.user.id, interaction.guild.id)
-        dep = parse_amount(amount, eco["wallet"])
-        if dep is None or dep <= 0:
-            return await interaction.response.send_message("❌ Please enter a valid positive number or `'all'`.", ephemeral=True)
-        if dep > eco["wallet"]:
-            return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
+        eco = await get_eco(interaction.user.id, interaction.guild.id, is_owner=is_owner)
+
+        if eco["wallet"] <= 0:
+            return await interaction.response.send_message("❌ You have no coins in your wallet to deposit.", ephemeral=True)
+
+        if not is_owner:
+            space = NON_OWNER_MAX_BANK - eco["bank"]
+            if space <= 0:
+                embed = discord.Embed(
+                    title="🏦 Bank Full!",
+                    description=(
+                        f"❌ Your bank is at maximum capacity (**{NON_OWNER_MAX_BANK:,}** 🪙)!\n"
+                        f"Regular members and Admins cannot exceed **{NON_OWNER_MAX_BANK:,}** 🪙 in the bank.\n\n"
+                        f"*(Only the **Server Owner** has unlimited bank capacity.)*"
+                    ),
+                    color=0xED4245
+                )
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+            amount_clean = amount.strip().lower()
+            if amount_clean in ("all", "max"):
+                dep = min(eco["wallet"], space)
+            else:
+                dep = parse_amount(amount, eco["wallet"])
+                if dep is None or dep <= 0:
+                    return await interaction.response.send_message("❌ Please enter a valid positive number or `'all'`.", ephemeral=True)
+                if dep > eco["wallet"]:
+                    return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
+                if dep > space:
+                    embed = discord.Embed(
+                        title="🏦 Bank Capacity Exceeded!",
+                        description=(
+                            f"❌ That deposit exceeds your bank capacity!\n\n"
+                            f"• **Bank Capacity:** `{NON_OWNER_MAX_BANK:,}` 🪙\n"
+                            f"• **Current Bank:** `{eco['bank']:,}` 🪙\n"
+                            f"• **Max You Can Deposit Right Now:** `{space:,}` 🪙\n\n"
+                            f"*(Only the **Server Owner** has unlimited bank capacity.)*"
+                        ),
+                        color=0xED4245
+                    )
+                    return await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            dep = parse_amount(amount, eco["wallet"])
+            if dep is None or dep <= 0:
+                return await interaction.response.send_message("❌ Please enter a valid positive number or `'all'`.", ephemeral=True)
+            if dep > eco["wallet"]:
+                return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
 
         async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute("UPDATE economy SET wallet=wallet-?, bank=bank+? WHERE user_id=? AND guild_id=?",
-                               (dep, dep, interaction.user.id, interaction.guild.id))
+            await conn.execute(
+                "UPDATE economy SET wallet = wallet - ?, bank = bank + ? WHERE user_id=? AND guild_id=?",
+                (dep, dep, interaction.user.id, interaction.guild.id)
+            )
             await conn.commit()
+
         embed = discord.Embed(
-            description=f"🏦 Successfully deposited **+{dep:,}** 🪙 into your bank!",
-            color=0x57F287
+            title="🏦 Deposit Successful",
+            description=f"Successfully deposited **+{dep:,}** 🪙 into your bank!",
+            color=0x57F287,
+            timestamp=discord.utils.utcnow()
         )
+        if is_owner:
+            embed.set_footer(text="👑 Server Owner • Unlimited Bank")
+        else:
+            new_bank = eco["bank"] + dep
+            embed.set_footer(text=f"🐾 Bank: {new_bank:,} / {NON_OWNER_MAX_BANK:,} 🪙")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="withdraw", description="Withdraw coins from your bank.")
-    @app_commands.describe(amount="Amount to withdraw ('all', '5k', '1000')")
+    @app_commands.describe(amount="Amount to withdraw ('all', '5k', '1m', '1000')")
     async def withdraw(self, interaction: discord.Interaction, amount: str):
+        is_owner = await check_is_owner(interaction)
         await ensure_eco(interaction.user.id, interaction.guild.id)
-        eco = await get_eco(interaction.user.id, interaction.guild.id)
-        amt = parse_amount(amount, eco["bank"])
-        if amt is None or amt <= 0:
-            return await interaction.response.send_message("❌ Please enter a valid positive number or `'all'`.", ephemeral=True)
-        if amt > eco["bank"]:
-            return await interaction.response.send_message(f"❌ You only have **{eco['bank']:,}** 🪙 in your bank.", ephemeral=True)
+        eco = await get_eco(interaction.user.id, interaction.guild.id, is_owner=is_owner)
+
+        if eco["bank"] <= 0:
+            return await interaction.response.send_message("❌ You have no coins in your bank to withdraw.", ephemeral=True)
+
+        if not is_owner:
+            space = NON_OWNER_MAX_WALLET - eco["wallet"]
+            if space <= 0:
+                embed = discord.Embed(
+                    title="👛 Wallet Full!",
+                    description=(
+                        f"❌ Your wallet is at maximum capacity (**{NON_OWNER_MAX_WALLET:,}** 🪙)!\n"
+                        f"Please spend some coins before withdrawing more.\n\n"
+                        f"*(Only the **Server Owner** has unlimited wallet capacity.)*"
+                    ),
+                    color=0xED4245
+                )
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+            amount_clean = amount.strip().lower()
+            if amount_clean in ("all", "max"):
+                amt = min(eco["bank"], space)
+            else:
+                amt = parse_amount(amount, eco["bank"])
+                if amt is None or amt <= 0:
+                    return await interaction.response.send_message("❌ Please enter a valid positive number or `'all'`.", ephemeral=True)
+                if amt > eco["bank"]:
+                    return await interaction.response.send_message(f"❌ You only have **{eco['bank']:,}** 🪙 in your bank.", ephemeral=True)
+                if amt > space:
+                    embed = discord.Embed(
+                        title="👛 Wallet Capacity Exceeded!",
+                        description=(
+                            f"❌ That withdrawal exceeds your wallet capacity!\n\n"
+                            f"• **Wallet Capacity:** `{NON_OWNER_MAX_WALLET:,}` 🪙\n"
+                            f"• **Current Wallet:** `{eco['wallet']:,}` 🪙\n"
+                            f"• **Max You Can Withdraw Right Now:** `{space:,}` 🪙\n\n"
+                            f"*(Only the **Server Owner** has unlimited wallet capacity.)*"
+                        ),
+                        color=0xED4245
+                    )
+                    return await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            amt = parse_amount(amount, eco["bank"])
+            if amt is None or amt <= 0:
+                return await interaction.response.send_message("❌ Please enter a valid positive number or `'all'`.", ephemeral=True)
+            if amt > eco["bank"]:
+                return await interaction.response.send_message(f"❌ You only have **{eco['bank']:,}** 🪙 in your bank.", ephemeral=True)
 
         async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute("UPDATE economy SET bank=bank-?, wallet=wallet+? WHERE user_id=? AND guild_id=?",
-                               (amt, amt, interaction.user.id, interaction.guild.id))
+            await conn.execute(
+                "UPDATE economy SET bank = bank - ?, wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                (amt, amt, interaction.user.id, interaction.guild.id)
+            )
             await conn.commit()
+
         embed = discord.Embed(
-            description=f"💸 Successfully withdrew **+{amt:,}** 🪙 from your bank!",
-            color=0x5865F2
+            title="💸 Withdrawal Successful",
+            description=f"Successfully withdrew **+{amt:,}** 🪙 from your bank into your wallet!",
+            color=0x5865F2,
+            timestamp=discord.utils.utcnow()
         )
+        if is_owner:
+            embed.set_footer(text="👑 Server Owner • Unlimited Wallet")
+        else:
+            new_wallet = eco["wallet"] + amt
+            embed.set_footer(text=f"🐾 Wallet: {new_wallet:,} / {NON_OWNER_MAX_WALLET:,} 🪙")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="richlist", description="Top 10 richest members in the server.")
     async def richlist(self, interaction: discord.Interaction):
         await interaction.response.defer()
+        await sanitize_economy_balances(self.bot)
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
                 "SELECT user_id, wallet+bank as net FROM economy WHERE guild_id=? ORDER BY net DESC LIMIT 10",
@@ -342,6 +549,7 @@ class Economy(commands.Cog):
             return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
 
         is_owner = await check_is_owner(interaction)
+        target_is_owner = (interaction.guild and interaction.guild.owner_id == member.id)
 
         if not is_owner:
             # 1. Admins cannot give money to themselves
@@ -360,14 +568,14 @@ class Economy(commands.Cog):
                 )
 
             # 3. Target balance cap for Admins (cannot pump anyone past 1,000,000)
-            target_eco = await get_eco(member.id, interaction.guild.id)
+            target_eco = await get_eco(member.id, interaction.guild.id, is_owner=target_is_owner)
             if (target_eco["wallet"] + target_eco["bank"]) >= 1_000_000:
                 return await interaction.response.send_message(
                     f"❌ **Cap Reached:** {member.mention} already has **{target_eco['wallet'] + target_eco['bank']:,}** 🪙.\nAdmins cannot add coins to members who have 1,000,000+ coins. Only the **Server Owner** can bypass this.",
                     ephemeral=True
                 )
 
-        await update_wallet(member.id, interaction.guild.id, amount)
+        await update_wallet(member.id, interaction.guild.id, amount, is_owner=target_is_owner or is_owner)
         embed = discord.Embed(
             description=f"✅ Successfully gave **{amount:,}** 🪙 to {member.mention}.",
             color=0x2ECC71,
