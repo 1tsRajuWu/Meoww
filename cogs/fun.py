@@ -261,10 +261,83 @@ class Fun(commands.Cog):
         embed.set_footer(text=f"Checked by {interaction.user.display_name} • Leave Tan alone rn")
         await interaction.response.send_message(embed=embed)
 
+    CATEGORY_MOODS = {
+        "all": [
+            ("🎲 Any Vibe", "any"),
+            ("🏆 Motivated / Inspired", "motivational"),
+            ("🔥 Hyped / Epic", "hyped"),
+            ("💖 Romantic / Smooth", "romantic"),
+            ("🧠 Deep / Philosophical", "philosophical"),
+            ("🥀 Sad / Heartbroken", "sad"),
+            ("😂 Funny / Chaotic", "funny"),
+        ],
+        "motivation": [
+            ("🎲 Any Vibe", "any"),
+            ("🏆 Motivated / Unstoppable", "motivational"),
+            ("🧠 Stoic Wisdom", "philosophical"),
+            ("🔥 Hyped / Pure Fire", "hyped"),
+        ],
+        "old_love": [
+            ("🎲 Any Vibe", "any"),
+            ("💖 Timeless & Poetic", "romantic"),
+            ("🥀 Tragic Romance", "sad"),
+            ("🧠 Deep Longing", "philosophical"),
+        ],
+        "romance": [
+            ("🎲 Any Vibe", "any"),
+            ("💖 Romantic & Sweet", "romantic"),
+            ("🥀 Tearjerker / Sad", "sad"),
+        ],
+        "rizz": [
+            ("🎲 Any Vibe", "any"),
+            ("😏 Smooth & Flirty", "romantic"),
+            ("😂 Cheesy & Funny", "funny"),
+        ],
+        "anime": [
+            ("🎲 Any Vibe", "any"),
+            ("🔥 Hyped / Epic Moments", "hyped"),
+            ("🧠 Deep / Philosophical", "philosophical"),
+            ("😂 Funny & Chaotic", "funny"),
+            ("🥀 Sad / Pain & Heartbreak", "sad"),
+        ],
+        "cartoons": [
+            ("🎲 Any Vibe", "any"),
+            ("🧠 Deep & Life Lessons", "philosophical"),
+            ("😂 Funny & Chaotic", "funny"),
+            ("🏆 Motivated & Inspiring", "motivational"),
+            ("🔥 Hyped & Epic", "hyped"),
+            ("🥀 Sad Moments", "sad"),
+        ],
+        "movies": [
+            ("🎲 Any Vibe", "any"),
+            ("🔥 Hyped & Action Packed", "hyped"),
+            ("🧠 Deep & Mind-Blowing", "philosophical"),
+            ("😂 Funny & Comedy", "funny"),
+        ],
+        "books": [
+            ("🎲 Any Vibe", "any"),
+            ("🧠 Deep & Literary", "philosophical"),
+            ("🏆 Inspiring & Courage", "motivational"),
+            ("🥀 Melancholy & Loss", "sad"),
+            ("🔥 Epic & Bold", "hyped"),
+        ],
+        "funny": [
+            ("🎲 Any Vibe", "any"),
+            ("😂 Chaotic Sitcom Comedy", "funny"),
+            ("🥀 Broke & Relatable Pain", "sad"),
+            ("🧠 Absurd Wisdom", "philosophical"),
+        ],
+        "other": [
+            ("🎲 Any Vibe", "any"),
+            ("🧠 Deep & Philosophical", "philosophical"),
+            ("🔥 Inspiring Light", "hyped"),
+        ],
+    }
+
     @app_commands.command(name="quote", description="Get iconic quotes from anime, cartoons, movies, novels, motivation, romance & more!")
     @app_commands.describe(
         category="Filter quotes by category",
-        mood="Filter quotes by mood or vibe"
+        mood="Filter quotes by mood (customized according to your category!)"
     )
     @app_commands.choices(
         category=[
@@ -279,25 +352,22 @@ class Fun(commands.Cog):
             app_commands.Choice(name="😏 Rizz & Pickup Lines", value="rizz"),
             app_commands.Choice(name="😂 Funny & Comedy", value="funny"),
             app_commands.Choice(name="🌟 Other & Philosophy", value="other"),
-        ],
-        mood=[
-            app_commands.Choice(name="🎲 Any Vibe", value="any"),
-            app_commands.Choice(name="🏆 Motivated / Inspired", value="motivational"),
-            app_commands.Choice(name="🔥 Hyped / Epic", value="hyped"),
-            app_commands.Choice(name="💖 Romantic / Smooth", value="romantic"),
-            app_commands.Choice(name="🧠 Deep / Philosophical", value="philosophical"),
-            app_commands.Choice(name="🥀 Sad / Heartbroken", value="sad"),
-            app_commands.Choice(name="😂 Funny / Chaotic", value="funny"),
         ]
     )
     async def quote(
         self,
         interaction: discord.Interaction,
         category: app_commands.Choice[str] = None,
-        mood: app_commands.Choice[str] = None
+        mood: str = None
     ):
         cat_val = category.value if category else "all"
-        mood_val = mood.value if mood else "any"
+        mood_val = mood.lower().strip() if mood else "any"
+
+        # Handle full choice label if passed
+        for _, m_val in self.CATEGORY_MOODS["all"]:
+            if m_val in mood_val:
+                mood_val = m_val
+                break
 
         pool = QUOTES
         if cat_val != "all":
@@ -371,6 +441,21 @@ class Fun(commands.Cog):
         embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
         await interaction.response.send_message(embed=embed)
+
+    @quote.autocomplete("mood")
+    async def quote_mood_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str
+    ) -> list[app_commands.Choice[str]]:
+        cat = getattr(interaction.namespace, "category", None) or "all"
+        mood_list = self.CATEGORY_MOODS.get(cat, self.CATEGORY_MOODS["all"])
+
+        choices = []
+        for label, val in mood_list:
+            if not current or current.lower() in label.lower() or current.lower() in val.lower():
+                choices.append(app_commands.Choice(name=label, value=val))
+        return choices[:25]
 
 
 TAN_STATUSES = [
