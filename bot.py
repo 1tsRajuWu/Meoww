@@ -31,6 +31,7 @@ INITIAL_COGS = [
     "cogs.games",
     "cogs.fun",
     "cogs.owo",
+    "cogs.leveling",
 ]
 
 import asyncio

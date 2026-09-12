@@ -64,6 +64,11 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="⭐ Levels, Roles & Activity",
+            value="`/rank` `/leaderboard` `/levelroles` `/addlevelrole` `/removelevelrole` `/levelsettings` `/setlevel` `/givexp` `/resetlevels`",
+            inline=False,
+        )
+        embed.add_field(
             name="🐱 Fun & Quotes",
             value="`/meow` `/meowsound` `/kms` `/tan` `/quote` `/addquote` `/customquote` `/customquotes` `/delquote`",
             inline=False,

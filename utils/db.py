@@ -23,6 +23,34 @@ async def setup():
             role_id INTEGER,
             PRIMARY KEY (message_id, emoji)
         )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS user_levels (
+            guild_id INTEGER,
+            user_id INTEGER,
+            xp INTEGER DEFAULT 0,
+            level INTEGER DEFAULT 0,
+            total_messages INTEGER DEFAULT 0,
+            voice_minutes INTEGER DEFAULT 0,
+            total_earned INTEGER DEFAULT 0,
+            last_message_ts REAL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS level_roles (
+            guild_id INTEGER,
+            level INTEGER,
+            role_id INTEGER,
+            PRIMARY KEY (guild_id, level)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS level_settings (
+            guild_id INTEGER PRIMARY KEY,
+            enabled INTEGER DEFAULT 1,
+            channel_id INTEGER DEFAULT 0,
+            dm_notifications INTEGER DEFAULT 0,
+            text_min_coins INTEGER DEFAULT 8,
+            text_max_coins INTEGER DEFAULT 15,
+            text_xp INTEGER DEFAULT 20,
+            vc_coins_per_min INTEGER DEFAULT 12,
+            vc_xp_per_min INTEGER DEFAULT 18
+        )''')
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):
