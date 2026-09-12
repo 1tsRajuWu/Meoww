@@ -5,135 +5,120 @@ import random
 import asyncio
 
 KMS_RESPONSES = [
-    ("🩸", "I just killed myself. Blood is literally EVERYWHERE. The walls, the floor, the ceiling fan is just redistributing it at this point."),
-    ("💀", "I have killed myself. My body is on the floor. Someone please step over it carefully, I just mopped."),
-    ("🩸", "Just ended it all. Blood is dripping down the walls like a horror movie. The vibes in here are IMMACULATE."),
-    ("☠️", "I stabbed myself 47 times and I feel GREAT about it. Blood pool forming. Very aesthetic. Very dark academia."),
-    ("🩸", "I killed myself and my ghost is still here because there's no wifi in the afterlife and I'm NOT leaving without my playlist."),
-    ("💀", "I have perished. My corpse is on the floor. The blood has reached the neighbour's apartment. They knocked. I can't answer. I'm dead."),
-    ("🩸", "Killed myself. Blood everywhere. Mom's gonna be so mad. Worth it."),
-    ("☠️", "I ended my life and my last thought was 'did I leave the oven on'. I did. The house is also on fire now. Thriving."),
-    ("💀", "Just killed myself. The blood splatter is honestly kind of beautiful. CSI would have a field day. Someone call them, I want the attention."),
-    ("🩸", "I have committed self-deletion. My body is decorating the floor. 10/10 interior design choice. Very red. Very bold."),
-    ("☠️", "Killed myself. Blood is seeping under the door. The neighbours are concerned. I cannot comfort them. I am deceased."),
-    ("💀", "I died. I killed myself and I died. Blood is absolutely everywhere. It's on the dog. The dog looks confused but make no mistake, this is her fault."),
-    ("🩸", "I jumped. It did not work out. There is blood on things that should not have blood on them. This is fine."),
-    ("☠️", "I am dead. I killed myself. The blood has formed a shape on the floor. It looks like a WiFi symbol. Even in death I crave connection."),
-    ("💀", "I have slain myself. The crime scene investigators will find 3 energy drink cans and a Discord tab open. They will understand."),
-    ("🩸", "Killed myself. Left a note. The note just says 'ratio'. Responders are confused. They should be."),
-    ("☠️", "I ended it. Blood is still pooling. It's been 4 minutes. There's a LOT of blood. Someone please tell my plants I'm sorry."),
-    ("💀", "I have self-terminated. My ghost watched the paramedics arrive and honestly their reaction was valid."),
-    ("🩸", "I killed myself and wrote 'lol' in blood on the wall. I want my funeral to have the same energy."),
-    ("☠️", "Self-destruction complete. Blood is on the ceiling somehow. I don't know how. I'm impressed with myself even in death."),
-    ("💀", "I perished. The blood is everywhere. It's on the keyboard. My last message to the world is now: `asdfjkl;`. Deep."),
-    ("🩸", "I killed myself dramatically. Slow motion fall. Hair flowing. Blood arcing perfectly. It was cinematic. 9/10."),
-    ("☠️", "I have ceased to exist. My bloodstain is shaped like a W. I won even in death."),
-    ("💀", "Killed myself. The blood ruined my hoodie. I'm somehow more upset about the hoodie."),
-    ("🩸", "I ended my life. My ghost immediately came back to check my notifs. 14 pings. This is why I did it."),
-    # Anime references
-    ("💥", "Yamcha pose in a crater. Saibaman blew up right in my face. Don't even bother gathering the Dragon Balls."),
-    ("🌪️", "Mr. Stark... I don't feel so good... *turns into dramatic anime dust drifting across the floor*"),
-    ("⛩️", "'Nah, I'd win' I said before getting sliced clean in half at the waist. Sukuna didn't even sweat."),
-    ("🍩", "Got donuted straight through the chest like Ace protecting Luffy. Tell mom I died with a smile. 🔥"),
-    ("🥫", "I died and got isekai'd, but I reincarnated as a broken vending machine. Pure skill issue."),
-    ("👁️", "Lelouch vi Britannia commands you... to wipe down the walls because my blood is everywhere."),
-    ("📓", "Light Yagami wrote my name in the Death Note while dramatically eating a potato chip."),
-    ("🌧️", "Standing alone in the pouring rain looking up at the sky like Vegeta after getting folded by Android 18."),
-    ("⚔️", "Fell off Wall Maria on day one of the Survey Corps. Levi didn't even turn his head."),
-    ("🕳️", "Caught in the Infinite Tsukuyomi except in my dream I still have zero coins and bad wifi."),
-    ("🧠", "Hit with Gojo's Unlimited Void. My brain has completely liquefied into soup. Absolute cinema."),
-    ("⏳", "Subaru died for the 89th time this afternoon. The respawn sound effect is ringing in my ears."),
-    ("🌊", "Gave the final 'Shinzo wo Sasageyo!' salute and immediately got eaten by a 15-meter titan."),
-    ("🩸", "Itachi poked my forehead with two fingers and whispered: 'Forgive me, maybe next time.' Perished."),
-    ("⚡", "Chidori straight through the heart. Kakashi didn't even remember my name."),
-    # Movie references
-    ("🥀", "Look what they did to my boy... Vito Corleone is sobbing over my bloodstained corpse."),
-    ("👍", "Sinking into the molten lava with a slow thumbs-up like the Terminator. Hasta la vista."),
-    ("❄️", "Rose couldn't make room on the floating wooden door. Freezing to death in the North Atlantic."),
-    ("🗡️", "Did a 40-second flashy sword spinning routine just to get casually shot by Indiana Jones."),
-    ("🦇", "You either die a hero, or you live long enough to see your code crash on production. I chose death."),
-    ("⚡", "Emperor Palpatine hit me with Unlimited Power. Electrocuted into ash. The dark side won."),
-    ("🌌", "Watched attack ships on fire off the shoulder of Orion... all those moments lost like tears in rain. Time to die."),
-    ("🧱", "Wile E. Coyote painted a tunnel on the wall. I ran full speed into it. Flat as a pancake."),
-    ("🎭", "Joker pushed me into a vat of toxic chemicals. Now I'm dead AND bright green."),
-    ("🥊", "Apollo Creed vs Ivan Drago moment. If I die, I die. And I died.")
+    # Anime Comedy Fails
+    ("💥", "Yamcha crater pose unlocked. The Saibaman didn't even use a named attack, he just looked at me aggressively. Don't even bother gathering the Dragon Balls."),
+    ("🥖", "'Nah, I'd win' I said with 100% confidence before getting sliced clean in half like a supermarket baguette. Sukuna is laughing in the corner."),
+    ("🌪️", "Mr. Stark... I don't feel so good... *turns into a cloud of Dorito dust and gets sucked directly into a Roomba*"),
+    ("🍩", "Got donuted straight through the chest like Ace protecting Luffy. Tell mom I died with a smile and zero coins in my wallet. 🔥"),
+    ("📓", "Light Yagami wrote my name in the Death Note, but had to erase it twice because he was laughing too hard at my haircut. 🥔"),
+    ("🚚", "Tried to do the Naruto run across the street, tripped on my own shoelace, and got hit by Truck-kun. Reincarnated as a broken toaster in another world."),
+    ("🌧️", "Stood in the pouring rain looking up at the sky like Vegeta after getting folded by an Android, but then my umbrella broke inside out."),
+    ("🧹", "Challenged Levi Ackerman to a fistfight because I thought 'he's only 5'3, what's the worst that could happen?'. Currently in ICU."),
+    ("🧠", "Hit with Gojo's Unlimited Void. My brain has completely dissolved into 2-minute Maggi noodles. Absolute cinema."),
+    ("⏳", "Subaru died for the 89th time this afternoon. The respawn sound effect is ringing in my ears on a 10-hour loop."),
+    ("👁️", "Lelouch vi Britannia commands you... to delete my browser search history immediately before the paramedics unlock my phone."),
+    ("🫡", "Gave an inspiring 10-minute anime speech about friendship and determination, and then immediately got stepped on by a 15-meter titan."),
+    ("👁️", "Tried to awaken my Mangekyo Sharingan by glaring aggressively into the bathroom mirror. Just ended up with dry eyes and a migraine."),
+    ("😴", "Caught in the Infinite Tsukuyomi except my dream is just me doing unpaid overtime with 250ms ping."),
+    ("🥫", "Died and got isekai'd, but I reincarnated as a dented vending machine in an empty parking lot. Pure skill issue."),
+    ("⚡", "Kakashi hit me with Chidori. He didn't even remember my name. Just called me 'NPC #4'."),
+
+    # Movie & Pop Culture Comedy
+    ("🚢", "Rose wouldn't scoot 2 inches to the left on that giant wooden door. Floating in freezing water re-evaluating my rizz. ❄️"),
+    ("👍", "Sinking into molten lava giving a slow thumbs-up like the Terminator. Hasta la vista, I forgot to turn off the stove. 🌋"),
+    ("🗡️", "Did a 40-second flashy sword spinning routine like Indiana Jones' opponent, just to get casually taken down with a pebble."),
+    ("🥀", "Look what they did to my boy... Vito Corleone took one look at my bank balance and began weeping openly."),
+    ("🛋️", "Fell down the stairs like Peter Griffin. Laying on the floor holding my knee going 'ssssss... aaaaahhh... ssssss... aaaaahhh' for 45 minutes."),
+    ("🧱", "Wile E. Coyote painted a hyper-realistic tunnel on the wall. I sprinted into it at full speed. Flat as a pancake."),
+    ("⚡", "Emperor Palpatine hit me with Unlimited Power because I interrupted his monologue to ask for the Wi-Fi password."),
+    ("🥊", "Apollo Creed vs Ivan Drago moment. He said 'If he dies, he dies.' And folks, I definitely died."),
+    ("🌌", "Watched attack ships on fire off the shoulder of Orion... all those moments lost like my sleep schedule. Time to die."),
+    ("📱", "You either die a hero, or you live long enough to see yourself get left on 'Delivered' for 14 hours."),
+    ("🎭", "Joker pushed me into a vat of toxic chemicals. Now I'm dead, broke, AND bright neon green."),
+
+    # Everyday Relatable & Meme Fails
+    ("🍽️", "Said 'You too!' when the waiter told me to enjoy my meal. Walked directly into oncoming traffic to escape the shame."),
+    ("🏜️", "Swallowed a dry Popeyes biscuit with no water. Throat is drier than the Sahara desert. Flatlining on the kitchen rug."),
+    ("🧱", "Stepped on a Lego brick in the pitch dark. My soul immediately detached from my body and ascended to the clouds."),
+    ("🦟", "A mosquito buzzed near my ear at 3 AM. I slapped myself in the face at Mach 3. Died of blunt force self-inflicted trauma."),
+    ("🚪", "Mom yelled my full government name including my middle name from downstairs. My heart simply stopped out of respect."),
+    ("🥤", "Choked on my own saliva while sitting completely still doing absolutely nothing. Peak human evolution."),
+    ("🪑", "Attempted a cool parkour roll off the bed, miscalculated gravity, and folded in half like a cheap lawn chair."),
+    ("🥔", "Opened the chip bag at 2 AM trying to be silent. The crunch echoed across three time zones. Mauled by the demons."),
+    ("📉", "Looked at my crypto portfolio for 2 seconds. The red candles blinded me. Currently decomposing."),
+    ("🧠", "Remembered an awkward conversation from 2019 while trying to fall asleep. My brain self-destructed from pure cringe."),
+    ("🎬", "My ghost watched the paramedics arrive, rate my dramatic slow-motion fall a 4/10, and leave without helping."),
+    ("🪽", "Drank Red Bull expecting wings. Just got severe heart palpitations and a one-way ticket to the pearly gates."),
+    ("☀️", "Accidentally opened Discord in light mode at 3 AM. Retinas incinerated on contact. Rest in peace."),
+    ("🪙", "Bet my life savings on coinflip, landed on tails when I called heads, and combusted into dust on the spot."),
+    ("📶", "Wifi went down for 4 minutes. Had to confront my own thoughts. Did not survive."),
+    ("🔋", "Phone fell on my face in bed from maximum height. Nose shattered. Life revoked.")
 ]
 
 OPENINGS = [
-    "I just killed myself.",
-    "I have self-deleted.",
-    "I just ended my whole existence.",
-    "I died. I killed myself and I died.",
-    "I have slain myself dramatically.",
-    "Just committed unalive.",
-    "I took the final exit.",
-    "Self-destruction protocol executed.",
-    "I have ceased all bodily operations.",
-    "I pulled the plug on my own life.",
-    "I went into the light. It was blinding.",
-    "I have departed this mortal realm.",
-    "I threw myself off the deep end.",
-    "I just flatlined on purpose.",
-    "Fell into a death scene with Japanese orchestra playing in the background.",
-    "I perished dramatically like a side character in an anime season finale.",
-    "Took a fatal blow from an invisible stand user.",
+    "I just self-deleted with maximum theatrical drama.",
+    "Fell into an unskippable 20-minute death cutscene.",
+    "Accidentally hit the self-destruct button on my own life.",
+    "I have departed the mortal lobby permanently.",
+    "Died of terminal, incurable cringe.",
+    "Flatlined in the most embarrassing way imaginable.",
+    "Perished like an unnamed anime background character in episode 1.",
+    "Took 9999 emotional damage from a single thought.",
+    "I threw myself into the abyss and the abyss threw me right back.",
+    "Fell into a slow-motion death scene with a Japanese orchestra playing.",
+    "Folded under pressure like a cheap umbrella in a typhoon.",
+    "Suffered a critical emotional malfunction.",
 ]
 
-BLOOD_SITUATIONS = [
-    "Blood is literally EVERYWHERE. The walls, the floor, the ceiling fan is just redistributing it.",
-    "Blood is dripping down the walls like a cheap horror movie set.",
-    "There's a pool of blood so deep someone called the Coast Guard.",
-    "Blood is on the keyboard, the monitor, and somehow inside the microwave.",
-    "The crime scene looks like a paint factory explosion, but red.",
-    "Blood splatter analyzed: 100% pure unfiltered drama.",
-    "Blood is seeping under the door into the hallway. The neighbours are panicking.",
-    "The room is drenched in blood. The aesthetic is terrifyingly vibrant.",
-    "Blood has painted a masterpiece on the wall that belongs in the Louvre.",
-    "Blood is flowing like a waterfall. Even Dracula would say this is too much.",
+COMEDY_SITUATIONS = [
+    "Laying on the floor in the iconic Peter Griffin stair-fall pose.",
+    "The crime scene looks like a Michael Bay action explosion with zero budget.",
+    "Surrounded by 4 empty energy drinks, an open Discord tab, and regrets.",
+    "The cat walked over my body, sniffed my forehead, and knocked over a glass of water.",
+    "A slow-motion 4K camera captured every millisecond of my dramatic downfall.",
+    "My ghost is currently floating above my body facepalming aggressively.",
+    "A sad violin soundtrack started playing from an unknown source in the ceiling.",
+    "Looking like a defeated video game boss slowly dissolving into red pixels.",
+    "The drama level in here is currently exceeding toxic Chernobyl limits.",
 ]
 
 ABSURD_DETAILS = [
-    "Someone please step over my corpse carefully, I literally just vacuumed.",
-    "Mom is going to be so furious about the white carpet.",
-    "The dog looked at my body, sighed, and went back to sleep.",
-    "My last words were literally 'nah, I'd win'. I in fact did not win.",
-    "Found in a crater Yamcha style. Saibaman won this round.",
-    "Left a suicide note on the fridge that just says 'skill issue'.",
-    "Paramedics arrived and immediately started rating my slow-motion fall 8.5/10.",
-    "My ghost watched the whole thing and honestly I'm disappointed in my form.",
-    "The blood ruined my limited-edition hoodie. Honestly more mad about that.",
-    "CSI showed up with crime tape and I'm posing my corpse for the cameras.",
-    "The coroner opened my tab and saw 54 unread Discord pings. He understood.",
-    "My ghost is currently haunting this exact channel. You're never getting rid of me.",
+    "Someone please delete my browser search history before the paramedics unlock my phone.",
+    "Mom walked in, looked at my corpse, and said 'it's because of that damn phone'.",
+    "The coroner opened my tab, saw 54 unread Discord pings, and whispered 'valid'.",
+    "Left a 2-word note on the fridge that just says 'skill issue'.",
+    "Paramedics arrived, hit the Yamcha pose in solidarity, and drove away.",
+    "My last words were literally 'watch this guys, trust me I know what I'm doing'.",
+    "CSI showed up with crime tape and I'm posing my corpse for better thumbnail angles.",
+    "My ghost is haunting this exact channel. You will never be free of me.",
+    "The dog sighed heavily, realized no one is feeding him dinner now, and walked away.",
 ]
 
 CLOSERS = [
-    "Goodbye cruel world. 💀",
-    "Tell my wifi router I loved it. 📶",
     "10/10 death scene, would perish again. 🎬",
-    "Press F to pay respects. 🕯️",
-    "My tombstone will read: 'He died as he lived: an idiot'. 🪦",
-    "Do not disturb, currently rotting. ☠️",
-    "Crying, screaming, throwing up, dying. Literally. 🩸",
-    "RIP me. Best to ever do it. 🌟",
-    "Sayonara cruel world. 🌸",
-    "Yare yare daze. 🧢",
-    "I'll be back (probably reincarnated as an isekai slime). 🤖",
-    "Gone but never forgotten (please forget me). 🖤",
+    "Sayonara cruel world, catch me in the next isekai. 🌸",
+    "Press F to pay respects or PayPal me funds. 🕯️",
+    "Tell my WiFi router I loved it like a brother. 📶",
+    "Tombstone will read: 'He died as he lived: making poor choices.' 🪦",
+    "Do not disturb, currently rotting and vibing. ☠️",
+    "Skill issue of cosmic, multidimensional proportions. 🌟",
+    "Yare yare daze... 🧢",
+    "Nah, I in fact did NOT win. 💀",
+    "Gg no re, life is uninstalled. 🎮",
 ]
 
 def get_kms_response():
-    # 65% chance of curated movie/anime reference or classic, 35% modular
-    if random.random() < 0.65:
+    # 70% chance of curated movie/anime/meme comedy reference, 30% modular
+    if random.random() < 0.70:
         return random.choice(KMS_RESPONSES)
     
-    icon = random.choice(["🩸", "💀", "☠️", "🪦", "😵"])
+    icon = random.choice(["💀", "☠️", "🪦", "😵", "🤡", "💥", "🎬"])
     opening = random.choice(OPENINGS)
-    blood = random.choice(BLOOD_SITUATIONS)
+    situation = random.choice(COMEDY_SITUATIONS)
     detail = random.choice(ABSURD_DETAILS)
     closer = random.choice(CLOSERS)
     
-    return icon, f"{opening} {blood} {detail} {closer}"
+    return icon, f"{opening} {situation} {detail} {closer}"
 
 CAT_SOUNDS = [
     ("meow_1.ogg", "🐾 Short Cute Meow", "Mew!"),
