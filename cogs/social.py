@@ -382,6 +382,37 @@ class Social(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            cmd_name = interaction.command.name if interaction.command else None
+            if cmd_name == "crash":
+                for mod in ["economy", "games"]:
+                    if not self.bot.is_module_enabled(interaction.guild_id, mod):
+                        await interaction.response.send_message(
+                            f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
+                            "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                            ephemeral=True
+                        )
+                        return False
+            elif cmd_name == "sellanimals":
+                for mod in ["social", "economy"]:
+                    if not self.bot.is_module_enabled(interaction.guild_id, mod):
+                        await interaction.response.send_message(
+                            f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
+                            "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                            ephemeral=True
+                        )
+                        return False
+            else:
+                if not self.bot.is_module_enabled(interaction.guild_id, "social"):
+                    await interaction.response.send_message(
+                        "⚠️ The **Social Roleplay** system is currently **turned off** on this server.\n"
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        ephemeral=True
+                    )
+                    return False
+        return True
+
     # ---------------------------------------------------------
     # 1. ANIMAL HUNTING & ZOO
     # ---------------------------------------------------------

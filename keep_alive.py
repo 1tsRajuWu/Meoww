@@ -24,7 +24,7 @@ AVAILABLE_MODULES = [
         "icon": "🎵",
         "category": "Entertainment",
         "desc": "High-res YouTube, SoundCloud, Spotify streaming, 24/7 Lo-Fi radio, queue, volume & lyrics.",
-        "commands": ["/play", "/radio", "/nowplaying", "/pause", "/resume", "/skip", "/stop", "/queue"]
+        "commands": ["/play", "/radio", "/nowplaying", "/pause", "/resume", "/skip", "/stop", "/queue", "/volume", "/songinfo", "/lyrics"]
     },
     {
         "id": "leveling",
@@ -32,7 +32,7 @@ AVAILABLE_MODULES = [
         "icon": "🏆",
         "category": "Progression",
         "desc": "Message length & voice XP rewards, level-up cards routed to #bot-cmd, rank titles & /rank.",
-        "commands": ["/rank", "/leaderboard", "/levelsettings", "/addlevelrole"]
+        "commands": ["/rank", "/leaderboard", "/levelsettings", "/setlevel", "/givexp", "/addlevelrole", "/removelevelrole", "/levelroles", "/resetlevels"]
     },
     {
         "id": "economy",
@@ -40,7 +40,7 @@ AVAILABLE_MODULES = [
         "icon": "💰",
         "category": "Economy",
         "desc": "Daily streak rewards, gambling, slots, blackjack, coinflip, shop, and inventory items.",
-        "commands": ["/balance", "/daily", "/work", "/rob", "/shop", "/buy", "/inventory", "/gamble", "/slots", "/blackjack", "/roulette"]
+        "commands": ["/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit", "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin"]
     },
     {
         "id": "moderation",
@@ -48,7 +48,7 @@ AVAILABLE_MODULES = [
         "icon": "🛡️",
         "category": "Management",
         "desc": "Administrative bans, kicks, timeouts, warnings, message purges, and automated audit logs in #logs.",
-        "commands": ["/ban", "/kick", "/mute", "/purge", "/warn", "/warnings"]
+        "commands": ["/ban", "/kick", "/mute", "/unmute", "/warn", "/warnings", "/clearwarnings", "/purge", "/modlog", "/lockdown", "/unlock", "/slowmode", "/addrole", "/removerole", "/announce"]
     },
     {
         "id": "automod",
@@ -56,7 +56,7 @@ AVAILABLE_MODULES = [
         "icon": "🤖",
         "category": "Security",
         "desc": "Real-time anti-spam flood protection, Discord invite filter, unauthorized link blocking.",
-        "commands": ["/automod status", "/automod toggle", "/automod setlog"]
+        "commands": ["/automod invites", "/automod antispam"]
     },
     {
         "id": "giveaway",
@@ -104,7 +104,7 @@ AVAILABLE_MODULES = [
         "icon": "🐾",
         "category": "Community",
         "desc": "Expressive action roleplay commands (hug, pat, cuddle, kiss, slap), /uwu text styler.",
-        "commands": ["/action <type>", "/uwu <text>"]
+        "commands": ["/action", "/uwu", "/marry", "/divorce", "/ship", "/hunt", "/zoo", "/sellanimals"]
     },
     {
         "id": "fun",
@@ -112,7 +112,7 @@ AVAILABLE_MODULES = [
         "icon": "🎭",
         "category": "Entertainment",
         "desc": "Real-time viral memes scraped from Reddit top feeds, 8ball, inspirational quotes.",
-        "commands": ["/meme", "/8ball", "/meow", "/quote", "/customquotes"]
+        "commands": ["/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote", "/addquote", "/customquote", "/customquotes", "/delquote"]
     },
     {
         "id": "games",
@@ -120,7 +120,7 @@ AVAILABLE_MODULES = [
         "icon": "🎮",
         "category": "Games",
         "desc": "Interactive Discord game sessions: TicTacToe, Rock-Paper-Scissors, Trivia, Mines, Crash, HighLow.",
-        "commands": ["/tictactoe", "/rps", "/trivia", "/mines", "/crash", "/highlow"]
+        "commands": ["/gamble", "/slots", "/blackjack", "/roulette", "/coinflip", "/dice", "/mines", "/crash", "/highlow", "/tictactoe", "/rps", "/trivia"]
     },
     {
         "id": "welcome",
@@ -128,7 +128,7 @@ AVAILABLE_MODULES = [
         "icon": "👋",
         "category": "Community",
         "desc": "New member join greetings and role assignment (kept OFF if using dedicated welcomer bot).",
-        "commands": ["/welcome setup", "/welcome test"]
+        "commands": ["/welcome set", "/welcome goodbye", "/welcome disable"]
     }
 ]
 
@@ -139,6 +139,16 @@ def generate_magic_token() -> str:
 
 def is_authenticated():
     return session.get("authenticated") is True
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "bot_ready": bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False)),
+        "guilds": len(BOT_INSTANCE.guilds) if BOT_INSTANCE else 0,
+        "latency_ms": round(BOT_INSTANCE.latency * 1000) if BOT_INSTANCE and BOT_INSTANCE.latency else None,
+        "timestamp": time.time()
+    })
 
 @app.route("/")
 def home():

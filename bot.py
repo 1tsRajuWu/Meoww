@@ -43,11 +43,15 @@ INITIAL_COGS = [
 bot.module_states = {}
 
 def is_module_enabled(guild_id: int, module_name: str) -> bool:
-    """Check module state in 0ms using in-memory RAM."""
+    """Check module state in 0ms using in-memory RAM, with sync DB fallback."""
     default_state = False if module_name == "welcome" else True
     guild_mods = bot.module_states.get(guild_id)
     if guild_mods is None:
-        return default_state
+        try:
+            guild_mods = db.get_guild_modules_sync(guild_id)
+            bot.module_states[guild_id] = guild_mods
+        except Exception:
+            return default_state
     return guild_mods.get(module_name, default_state)
 
 def set_module_state(guild_id: int, module_name: str, enabled: bool):
@@ -60,41 +64,51 @@ bot.is_module_enabled = is_module_enabled
 bot.set_module_state = set_module_state
 
 MODULE_COMMAND_MAP = {
-    # Music
+    # Music (11 commands)
     "play": "music", "radio": "music", "nowplaying": "music", "pause": "music", "resume": "music",
-    "skip": "music", "stop": "music", "queue": "music",
-    # Leveling
+    "skip": "music", "stop": "music", "queue": "music", "volume": "music", "songinfo": "music", "lyrics": "music",
+    # Leveling (9 commands)
     "rank": "leveling", "leaderboard": "leveling", "levelsettings": "leveling", "setlevel": "leveling",
-    "resetxp": "leveling", "addlevelrole": "leveling", "removelevelrole": "leveling", "levelroles": "leveling",
-    # Economy
-    "balance": "economy", "daily": "economy", "pay": "economy", "work": "economy", "crime": "economy",
-    "rob": "economy", "deposit": "economy", "withdraw": "economy", "gamble": "economy", "coinflip": "economy",
-    "blackjack": "economy", "slots": "economy", "roulette": "economy", "shop": "economy", "buy": "economy",
+    "givexp": "leveling", "resetlevels": "leveling", "addlevelrole": "leveling", "removelevelrole": "leveling", "levelroles": "leveling",
+    # Economy & Banking (13 commands)
+    "balance": "economy", "daily": "economy", "weekly": "economy", "work": "economy", "rob": "economy",
+    "pay": "economy", "deposit": "economy", "withdraw": "economy", "shop": "economy", "buy": "economy",
     "inventory": "economy", "richlist": "economy", "eco-admin": "economy",
-    # Moderation
+    # Casino & Games (12 commands - dual module check)
+    "gamble": ("economy", "games"), "slots": ("economy", "games"), "blackjack": ("economy", "games"),
+    "roulette": ("economy", "games"), "coinflip": ("economy", "games"), "dice": ("economy", "games"),
+    "mines": ("economy", "games"), "crash": ("economy", "games"), "highlow": ("economy", "games"),
+    "tictactoe": "games", "rps": "games", "trivia": "games",
+    # Moderation & Server Control (19 commands)
     "ban": "moderation", "kick": "moderation", "mute": "moderation", "unmute": "moderation",
-    "warn": "moderation", "warnings": "moderation", "delwarn": "moderation", "clearwarns": "moderation",
-    "purge": "moderation", "lock": "moderation", "unlock": "moderation", "slowmode": "moderation",
-    "modlogs": "moderation",
-    # Automod
+    "unban": "moderation", "warn": "moderation", "warnings": "moderation", "clearwarnings": "moderation",
+    "purge": "moderation", "modlog": "moderation", "lockdown": "moderation", "lockdown-server": "moderation",
+    "unlock": "moderation", "unlock-server": "moderation", "slowmode": "moderation", "addrole": "moderation",
+    "removerole": "moderation", "announce": "moderation", "reactionrole-add": "moderation",
+    # Automod (1 command)
     "automod": "automod",
-    # Giveaway
+    # Giveaway (1 command)
     "giveaway": "giveaway",
-    # Colors
+    # Colors (1 command)
     "color": "colors",
-    # TempVoice
+    # TempVoice (1 command)
     "tempvoice": "tempvoice",
-    # Starboard
+    # Starboard (1 command)
     "starboard": "starboard",
-    # Tickets
+    # Tickets (1 command)
     "ticket": "tickets",
-    # Social & Fun
-    "action": "social", "uwu": "social",
-    "meme": "fun", "8ball": "fun", "flip": "fun", "roll": "fun", "quote": "fun", "addquote": "fun",
-    # Games
-    "tictactoe": "games", "rps": "games", "hangman": "games", "trivia": "games", "wordle": "games",
-    # Welcome
-    "welcome": "welcome"
+    # Social & Animals (8 commands)
+    "action": "social", "uwu": "social", "marry": "social", "divorce": "social",
+    "ship": "social", "hunt": "social", "zoo": "social", "sellanimals": ("social", "economy"),
+    # Fun & Entertainment (11 commands)
+    "meme": "fun", "8ball": "fun", "meow": "fun", "meowsound": "fun", "tan": "fun", "kms": "fun",
+    "quote": "fun", "addquote": "fun", "customquote": "fun", "customquotes": "fun", "delquote": "fun",
+    # Welcome (1 command)
+    "welcome": "welcome",
+    # Core Utilities & System Info (Always accessible)
+    "help": None, "dashboard": None, "sync": None, "ping": None,
+    "serverinfo": None, "userinfo": None, "privacy": None, "tos": None,
+    "setavatar": None, "setbanner": None, "updatedb": None
 }
 
 # Global module toggle interceptor for all slash commands
@@ -106,18 +120,22 @@ async def global_module_check(interaction: discord.Interaction) -> bool:
     
     # Check root command name for subcommands (e.g. "giveaway" for "/giveaway start")
     root_cmd = interaction.command.root_parent.name if getattr(interaction.command, "root_parent", None) else interaction.command.name
-    if root_cmd in ["help", "dashboard", "sync", "ping"]:
+    if root_cmd in ["help", "dashboard", "sync", "ping", "serverinfo", "userinfo", "privacy", "tos", "setavatar", "setbanner", "updatedb"]:
         return True
     
-    module = MODULE_COMMAND_MAP.get(root_cmd) or MODULE_COMMAND_MAP.get(interaction.command.name)
-    if module and not bot.is_module_enabled(interaction.guild_id, module):
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f"⚠️ The **{module.title()}** system is currently **turned off** on this server.\n"
-                f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
-                ephemeral=True
-            )
-        return False
+    modules = MODULE_COMMAND_MAP.get(root_cmd) or MODULE_COMMAND_MAP.get(interaction.command.name)
+    if modules:
+        if isinstance(modules, str):
+            modules = (modules,)
+        for mod in modules:
+            if not bot.is_module_enabled(interaction.guild_id, mod):
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
+                        f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        ephemeral=True
+                    )
+                return False
     return True
 
 bot.tree.interaction_check = global_module_check

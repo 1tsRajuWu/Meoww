@@ -735,14 +735,31 @@ class Games(commands.Cog):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
             cmd_name = interaction.command.name if interaction.command else None
-            mod = "economy" if cmd_name in ["slots", "coinflip", "dice", "blackjack", "mines", "roulette", "highlow", "gamble"] else "games"
-            if not self.bot.is_module_enabled(interaction.guild_id, mod):
-                await interaction.response.send_message(
-                    f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
-                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
-                    ephemeral=True
-                )
-                return False
+            if cmd_name in ["slots", "coinflip", "dice", "blackjack", "mines", "roulette", "highlow", "gamble"]:
+                for mod in ["economy", "games"]:
+                    if not self.bot.is_module_enabled(interaction.guild_id, mod):
+                        await interaction.response.send_message(
+                            f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
+                            "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                            ephemeral=True
+                        )
+                        return False
+            elif cmd_name == "8ball":
+                if not self.bot.is_module_enabled(interaction.guild_id, "fun"):
+                    await interaction.response.send_message(
+                        "⚠️ The **Fun** system is currently **turned off** on this server.\n"
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        ephemeral=True
+                    )
+                    return False
+            else:
+                if not self.bot.is_module_enabled(interaction.guild_id, "games"):
+                    await interaction.response.send_message(
+                        "⚠️ The **Mini-Games Hub** is currently **turned off** on this server.\n"
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        ephemeral=True
+                    )
+                    return False
         return True
 
     def new_deck(self):

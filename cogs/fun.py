@@ -339,6 +339,17 @@ class Fun(commands.Cog):
         self.recent_sounds = []
         self.recent_quotes = []
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "fun"):
+                await interaction.response.send_message(
+                    "⚠️ The **Fun & Memes** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     @app_commands.command(name="meme", description="Get the best viral memes from Reddit and across the internet!")
     @app_commands.describe(
         category="Choose a meme genre (random, dank, gaming, anime, wholesome, relatable, tech)"

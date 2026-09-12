@@ -8,6 +8,19 @@ class ServerControl(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            cmd_name = interaction.command.name if interaction.command else None
+            if cmd_name not in ["serverinfo", "userinfo"]:
+                if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
+                    await interaction.response.send_message(
+                        "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        ephemeral=True
+                    )
+                    return False
+        return True
+
     @app_commands.command(name="serverinfo", description="Get comprehensive information about the server.")
     async def serverinfo(self, interaction: discord.Interaction):
         guild = interaction.guild

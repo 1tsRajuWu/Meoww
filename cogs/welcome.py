@@ -11,6 +11,17 @@ class Welcome(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "welcome"):
+                await interaction.response.send_message(
+                    "⚠️ The **Welcome** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     @welcome_group.command(name="set", description="Set the channel for welcome messages.")
     @app_commands.describe(channel="The channel to welcome members in")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -33,6 +44,8 @@ class Welcome(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(member.guild.id, "welcome"):
+            return
         channel_id = await db.get_setting(member.guild.id, "welcome_channel")
         if not channel_id:
             return
