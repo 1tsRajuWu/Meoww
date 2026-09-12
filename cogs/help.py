@@ -70,7 +70,7 @@ class Help(commands.Cog):
         )
         embed.add_field(
             name="🐱 Fun & Quotes",
-            value="`/meow` `/meowsound` `/kms` `/tan` `/quote` `/addquote` `/customquote` `/customquotes` `/delquote`",
+            value="`/meme` `/meow` `/meowsound` `/kms` `/tan` `/quote` `/addquote` `/customquote` `/customquotes` `/delquote`",
             inline=False,
         )
         embed.add_field(

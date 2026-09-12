@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import random
 import asyncio
+import aiohttp
 import aiosqlite
 import datetime
 from utils import db
@@ -201,6 +202,134 @@ class CustomQuoteView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
 
+# -------------------------------------------------------------------------
+# Meme System & Curated Viral Content
+# -------------------------------------------------------------------------
+
+MEME_SUBREDDITS = {
+    "random": ["memes", "dankmemes", "wholesomememes", "me_irl", "comedyheaven", "shitposting", "gaming"],
+    "dank": ["dankmemes", "shitposting"],
+    "gaming": ["gaming", "pcmasterrace"],
+    "anime": ["animemes", "goodanimemes"],
+    "wholesome": ["wholesomememes"],
+    "relatable": ["me_irl"],
+    "tech": ["ProgrammerHumor", "pcmasterrace"]
+}
+
+FALLBACK_MEMES = [
+    {
+        "title": "When the code works on the first try and you don't trust it",
+        "url": "https://i.imgur.com/2s8K6Hh.jpeg",
+        "author": "CodeCat",
+        "subreddit": "ProgrammerHumor",
+        "postLink": "https://reddit.com/r/ProgrammerHumor",
+        "ups": 18450
+    },
+    {
+        "title": "Task failed successfully",
+        "url": "https://i.imgur.com/8xV3a6k.jpeg",
+        "author": "BugHunter",
+        "subreddit": "memes",
+        "postLink": "https://reddit.com/r/memes",
+        "ups": 29800
+    },
+    {
+        "title": "Me watching the loading screen tips like they're ancient scriptures",
+        "url": "https://i.imgur.com/4qu9lkj.gif",
+        "author": "GamerCat",
+        "subreddit": "gaming",
+        "postLink": "https://reddit.com/r/gaming",
+        "ups": 14200
+    },
+    {
+        "title": "Bro really thought he had full control over his life schedule",
+        "url": "https://i.imgur.com/cc8u642.png",
+        "author": "NightOwl",
+        "subreddit": "me_irl",
+        "postLink": "https://reddit.com/r/me_irl",
+        "ups": 21300
+    },
+    {
+        "title": "My cat at 3 AM explaining why the empty bowl is an emergency",
+        "url": "https://i.imgur.com/rgkf914.png",
+        "author": "FelineOverlord",
+        "subreddit": "wholesomememes",
+        "postLink": "https://reddit.com/r/wholesomememes",
+        "ups": 31500
+    },
+    {
+        "title": "The GPU was the entire gaming PC",
+        "url": "https://i.redd.it/iu60iio3rsoh1.png",
+        "author": "PCBuilder",
+        "subreddit": "pcmasterrace",
+        "postLink": "https://reddit.com/r/pcmasterrace",
+        "ups": 10121
+    }
+]
+
+async def fetch_meme(category: str = "random") -> dict:
+    subreddits = MEME_SUBREDDITS.get(category.lower(), MEME_SUBREDDITS["random"])
+    sub = random.choice(subreddits)
+    url = f"https://meme-api.com/gimme/{sub}"
+    headers = {"User-Agent": "MeowDiscordBot/2.0 (by /u/1tsRajOwO)"}
+
+    try:
+        async with aiohttp.ClientSession(headers=headers) as session:
+            for _ in range(4):
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        # Ensure not NSFW, not spoiler, and has valid image url
+                        if not data.get("nsfw", False) and not data.get("spoiler", False) and data.get("url"):
+                            return data
+    except Exception as e:
+        print(f"Error fetching meme from {url}: {e}")
+
+    return random.choice(FALLBACK_MEMES)
+
+def build_meme_embed(meme_data: dict, category: str = "random") -> discord.Embed:
+    title = meme_data.get("title", "Fresh Meme")
+    url = meme_data.get("url", "")
+    subreddit = meme_data.get("subreddit", "memes")
+    author = meme_data.get("author", "unknown")
+    ups = meme_data.get("ups", 0)
+    post_link = meme_data.get("postLink", "")
+
+    embed = discord.Embed(
+        title=title[:256],
+        url=post_link if post_link else None,
+        color=0xFF4500,
+        timestamp=discord.utils.utcnow()
+    )
+    if url:
+        embed.set_image(url=url)
+
+    embed.set_author(
+        name=f"r/{subreddit} • u/{author}",
+        icon_url="https://www.redditstatic.com/desktop2x/img/favicon/android-icon-192x192.png"
+    )
+    ups_str = f"{ups:,}" if isinstance(ups, int) and ups > 0 else "Top Rated"
+    embed.set_footer(
+        text=f"👍 {ups_str} upvotes • Category: {category.title()} • 🐾 Meow Memes"
+    )
+    return embed
+
+class MemeView(discord.ui.View):
+    def __init__(self, category: str = "random", post_link: str = None):
+        super().__init__(timeout=300)
+        self.category = category
+        if post_link:
+            self.add_item(discord.ui.Button(label="Reddit Post", url=post_link, style=discord.ButtonStyle.link, emoji="🔗"))
+
+    @discord.ui.button(label="Next Meme", style=discord.ButtonStyle.primary, emoji="🔄", custom_id="next_meme_btn")
+    async def next_meme(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        meme_data = await fetch_meme(self.category)
+        embed = build_meme_embed(meme_data, self.category)
+        new_view = MemeView(category=self.category, post_link=meme_data.get("postLink"))
+        await interaction.edit_original_response(embed=embed, view=new_view)
+
+
 class Fun(commands.Cog):
     """Fun and entertainment commands."""
 
@@ -209,6 +338,27 @@ class Fun(commands.Cog):
         self.recent_tan = []
         self.recent_sounds = []
         self.recent_quotes = []
+
+    @app_commands.command(name="meme", description="Get the best viral memes from Reddit and across the internet!")
+    @app_commands.describe(
+        category="Choose a meme genre (random, dank, gaming, anime, wholesome, relatable, tech)"
+    )
+    @app_commands.choices(category=[
+        app_commands.Choice(name="🎲 Random (Best Overall)", value="random"),
+        app_commands.Choice(name="🔥 Dank Memes", value="dank"),
+        app_commands.Choice(name="🎮 Gaming Memes", value="gaming"),
+        app_commands.Choice(name="🎌 Anime Memes", value="anime"),
+        app_commands.Choice(name="💖 Wholesome Memes", value="wholesome"),
+        app_commands.Choice(name="💀 Relatable (me_irl)", value="relatable"),
+        app_commands.Choice(name="💻 Tech & Programming", value="tech")
+    ])
+    async def meme(self, interaction: discord.Interaction, category: app_commands.Choice[str] = None):
+        await interaction.response.defer()
+        cat_val = category.value if category else "random"
+        meme_data = await fetch_meme(cat_val)
+        embed = build_meme_embed(meme_data, cat_val)
+        view = MemeView(category=cat_val, post_link=meme_data.get("postLink"))
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="kms", description="Having a rough day? Let the world know dramatically.")
     async def kms(self, interaction: discord.Interaction):
