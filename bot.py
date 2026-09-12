@@ -70,14 +70,17 @@ async def on_ready():
     bot.tree.on_error = on_app_command_error
     
     try:
-        # Clear any guild-specific commands to prevent duplication with global commands
+        # 1. Sync commands directly to every guild the bot is in for 100% INSTANT availability (0 delay)
         for guild in bot.guilds:
-            bot.tree.clear_commands(guild=guild)
-            await bot.tree.sync(guild=guild)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f"Synced {len(synced)} command(s) directly to {guild.name} (instant).")
 
-        # Sync globally once (zero duplicates)
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} global command(s) with zero duplicates.")
+        # 2. Clear old global commands on Discord API so there are NEVER duplicate commands
+        app_id = bot.application_id or (bot.user.id if bot.user else None)
+        if app_id:
+            await bot.http.bulk_upsert_global_commands(app_id, payload=[])
+            print("Cleared global command cache on Discord API (zero duplicates).")
     except Exception as e:
         print(f"Slash command sync failed: {e}")
 

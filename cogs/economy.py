@@ -610,7 +610,6 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="setmoney", description="Set a member's exact wallet and bank balance (Owner only).")
     @app_commands.describe(member="Target member", wallet="New wallet balance", bank="New bank balance (optional)")
-    @app_commands.checks.has_permissions(administrator=True)
     async def setmoney(self, interaction: discord.Interaction, member: discord.Member, wallet: int, bank: int = None):
         if not await check_is_owner(interaction):
             return await interaction.response.send_message(
@@ -642,7 +641,6 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="resetmoney", description="Reset economy balances back to 0 (Owner only).")
     @app_commands.describe(member="Member to reset", reset_all="Reset all server balances?")
-    @app_commands.checks.has_permissions(administrator=True)
     async def resetmoney(self, interaction: discord.Interaction, member: discord.Member = None, reset_all: bool = False):
         if not await check_is_owner(interaction):
             return await interaction.response.send_message(
