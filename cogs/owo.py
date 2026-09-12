@@ -298,6 +298,11 @@ class CrashView(discord.ui.View):
         embed.set_footer(text=f"Played by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         await interaction.response.edit_message(embed=embed, view=self)
 
+    async def on_timeout(self):
+        if not self.ended:
+            self.ended = True
+            self.clear_items()
+
 
 # -------------------------------------------------------------
 # MARRIAGE VIEW (Accept / Decline Proposal)
@@ -308,6 +313,11 @@ class MarriageView(discord.ui.View):
         self.proposer = proposer
         self.target = target
         self.responded = False
+
+    async def on_timeout(self):
+        if not self.responded:
+            self.responded = True
+            self.clear_items()
 
     @discord.ui.button(label="💍 Accept Proposal", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):

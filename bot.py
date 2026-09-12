@@ -64,6 +64,11 @@ async def rotate_status():
 
 @bot.event
 async def on_ready():
+    if getattr(bot, "_has_started", False):
+        print("Bot reconnected to Discord gateway (ignoring duplicate on_ready).")
+        return
+    bot._has_started = True
+
     await db.setup()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     
@@ -110,14 +115,22 @@ async def on_ready():
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("You don't have permission to do that.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ You don't have permission to do that.", ephemeral=True)
     elif isinstance(error, app_commands.CommandOnCooldown):
-        await interaction.response.send_message(f"Command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"⏰ Command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
+    elif isinstance(error, app_commands.CheckFailure):
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Permission denied. You cannot execute this command.", ephemeral=True)
     else:
         # Don't leak stack traces to users, log it instead.
         print(f"Error in command {interaction.command.name if interaction.command else 'Unknown'}: {error}")
         if not interaction.response.is_done():
-            await interaction.response.send_message("An unexpected error occurred.", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ An unexpected error occurred. Please try again.", ephemeral=True)
+            except:
+                pass
 
 async def main():
     async with bot:
