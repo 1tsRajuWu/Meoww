@@ -824,16 +824,23 @@ class Games(commands.Cog):
 
         result = random.choice(["heads", "tails"])
         won = result == choice
-        await update_wallet(interaction.user.id, interaction.guild.id, bet if won else -bet)
+        change = bet if won else -bet
+        await update_wallet(interaction.user.id, interaction.guild.id, change)
+        new_wallet = eco["wallet"] + change
 
         embed = discord.Embed(
-            title="🪙 Coin Flip",
-            description=f"The coin landed on **{result.capitalize()}**!\n{'🎉 You **won** ' + str(bet) + ' 🪙!' if won else '💀 You **lost** ' + str(bet) + ' 🪙!'}",
-            color=0x2ECC71 if won else 0xFF3333,
+            title=f"🪙 Coin Flip — {'YOU WON! 🎉' if won else 'YOU LOST! 💀'}",
+            description=(
+                f"The coin landed on **{result.capitalize()}**!\n\n"
+                f"• **Your Pick:** `{choice.capitalize()}`\n"
+                f"• **Result:** `{result.capitalize()}`\n\n"
+                f"{'💰 **Profit:** `+' + f'{bet:,}' + '` 🪙' if won else '💸 **Lost:** `-' + f'{bet:,}' + '` 🪙'}\n"
+                f"💳 **New Wallet:** `{new_wallet:,}` 🪙"
+            ),
+            color=0x23a55a if won else 0xf23f43,
             timestamp=discord.utils.utcnow()
         )
-        embed.add_field(name="Your Pick", value=choice.capitalize(), inline=True)
-        embed.add_field(name="Result", value=result.capitalize(), inline=True)
+        embed.set_footer(text="🐾 Meow Casino • High Stakes" if won else "🐾 Meow Casino • Better luck next flip!")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="dice", description="Roll dice against the bot. Higher roll wins.")
@@ -849,18 +856,20 @@ class Games(commands.Cog):
 
         if player_roll > bot_roll:
             await update_wallet(interaction.user.id, interaction.guild.id, bet)
-            result = f"🎉 You win **{bet:,}** 🪙!"
-            color = 0x2ECC71
+            new_wallet = eco["wallet"] + bet
+            result = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
+            color = 0x23a55a
         elif player_roll < bot_roll:
             await update_wallet(interaction.user.id, interaction.guild.id, -bet)
-            result = f"💀 You lose **{bet:,}** 🪙!"
-            color = 0xFF3333
+            new_wallet = eco["wallet"] - bet
+            result = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
+            color = 0xf23f43
         else:
-            result = "🤝 It's a tie! Bet returned."
-            color = 0xFFD700
+            result = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{eco['wallet']:,}` 🪙"
+            color = 0xFEE75C
 
-        embed = discord.Embed(title="🎲 Dice Roll", color=color, timestamp=discord.utils.utcnow())
-        embed.add_field(name=f"Your Roll", value=f"🎲 **{player_roll}**", inline=True)
+        embed = discord.Embed(title="🎲 Dice Roll Challenge", color=color, timestamp=discord.utils.utcnow())
+        embed.add_field(name="Your Roll", value=f"🎲 **{player_roll}**", inline=True)
         embed.add_field(name="Bot's Roll", value=f"🎲 **{bot_roll}**", inline=True)
         embed.add_field(name="Outcome", value=result, inline=False)
         await interaction.response.send_message(embed=embed)
@@ -883,13 +892,15 @@ class Games(commands.Cog):
         wins = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
 
         if choice == bot_choice:
-            result, color = "🤝 It's a tie! Bet returned.", 0xFFD700
+            result, color = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{eco['wallet']:,}` 🪙", 0xFEE75C
         elif wins[choice] == bot_choice:
             await update_wallet(interaction.user.id, interaction.guild.id, bet)
-            result, color = f"🎉 You win **{bet:,}** 🪙!", 0x2ECC71
+            new_wallet = eco["wallet"] + bet
+            result, color = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0x23a55a
         else:
             await update_wallet(interaction.user.id, interaction.guild.id, -bet)
-            result, color = f"💀 You lose **{bet:,}** 🪙!", 0xFF3333
+            new_wallet = eco["wallet"] - bet
+            result, color = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0xf23f43
 
         embed = discord.Embed(title="✂️ Rock Paper Scissors", color=color, timestamp=discord.utils.utcnow())
         embed.add_field(name="Your Pick", value=f"{emoji[choice]} {choice.capitalize()}", inline=True)
