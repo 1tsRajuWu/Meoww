@@ -17,6 +17,24 @@ TICKET_CATEGORIES = {
         "slug": "report",
         "desc": "Report a member breaking rules, harassment, scamming, or toxicity"
     },
+    "cracking": {
+        "name": "Game Cracking",
+        "emoji": "🔓",
+        "slug": "cracking",
+        "desc": "Help with game cracking, installation errors, repacks, patches, or bypasses"
+    },
+    "trading": {
+        "name": "Trading",
+        "emoji": "🤝",
+        "slug": "trading",
+        "desc": "In-game trades, item exchange, trade middleman, or marketplace questions"
+    },
+    "games": {
+        "name": "Games",
+        "emoji": "🎮",
+        "slug": "games",
+        "desc": "Game recommendations, gameplay assistance, requests, or multiplayer"
+    },
     "economy": {
         "name": "Economy & Money Support",
         "emoji": "💰",
@@ -119,6 +137,26 @@ class TicketQuestionModal(discord.ui.Modal):
                     read_message_history=True
                 )
 
+        # Specialized role access for custom categories
+        if self.category_key == "cracking":
+            cracker_role = discord.utils.get(guild.roles, name="Cracker")
+            if cracker_role:
+                overwrites[cracker_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    attach_files=True,
+                    read_message_history=True
+                )
+        elif self.category_key == "trading":
+            trader_role = discord.utils.get(guild.roles, name="Non Profitable Trader") or discord.utils.get(guild.roles, name="Trader")
+            if trader_role:
+                overwrites[trader_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    attach_files=True,
+                    read_message_history=True
+                )
+
         # Category for Tickets
         cat = discord.utils.get(guild.categories, name="Tickets")
         if cat is None:
@@ -139,6 +177,9 @@ class TicketQuestionModal(discord.ui.Modal):
         color_map = {
             "general": 0x5865F2,
             "report": 0xED4245,
+            "cracking": 0xE74C3C,
+            "trading": 0x3498DB,
+            "games": 0x9B59B6,
             "economy": 0xF1C40F,
             "bug": 0xE67E22,
             "feedback": 0x2ECC71
@@ -179,6 +220,14 @@ class TicketQuestionModal(discord.ui.Modal):
             r = discord.utils.get(guild.roles, name=role_name)
             if r:
                 staff_pings.append(r.mention)
+        if self.category_key == "cracking":
+            cr = discord.utils.get(guild.roles, name="Cracker")
+            if cr and cr.mention not in staff_pings:
+                staff_pings.append(cr.mention)
+        elif self.category_key == "trading":
+            tr = discord.utils.get(guild.roles, name="Non Profitable Trader") or discord.utils.get(guild.roles, name="Trader")
+            if tr and tr.mention not in staff_pings:
+                staff_pings.append(tr.mention)
         ping_content = f"{interaction.user.mention} " + (" ".join(staff_pings) if staff_pings else "")
 
         await channel.send(
@@ -326,6 +375,9 @@ class Tickets(commands.Cog):
                 "Select a category below or click **Quick Ticket** to open a **private support ticket**.\n\n"
                 "> ❓ **General Support:** Ask questions about the server, roles, or rules\n"
                 "> 🚨 **Report a Member:** Report a member, harassment, rule violation, or toxicity\n"
+                "> 🔓 **Game Cracking:** Help with game cracking, repacks, patches, and errors\n"
+                "> 🤝 **Trading:** In-game trades, item exchange, middleman, or market deals\n"
+                "> 🎮 **Games:** Game recommendations, gameplay assistance, and requests\n"
                 "> 💰 **Economy Support:** Assistance with balances, coins, or shop purchases\n"
                 "> 🛠️ **Bug Reports:** Report bot glitches, errors, or technical bugs\n"
                 "> 💡 **Suggestions:** Share feedback and ideas to improve the server\n\n"
