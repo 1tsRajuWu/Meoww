@@ -744,7 +744,7 @@ class Games(commands.Cog):
 
     @app_commands.command(name="slots", description="Spin the slot machine!")
     @app_commands.describe(bet="Amount to bet")
-    async def slots(self, interaction: discord.Interaction, bet: app_commands.Range[int, 10, 50000]):
+    async def slots(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, None]):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
         if eco["wallet"] < bet:
@@ -786,7 +786,7 @@ class Games(commands.Cog):
         app_commands.Choice(name="Heads", value="heads"),
         app_commands.Choice(name="Tails", value="tails"),
     ])
-    async def coinflip(self, interaction: discord.Interaction, choice: str, bet: app_commands.Range[int, 10, 50000]):
+    async def coinflip(self, interaction: discord.Interaction, choice: str, bet: app_commands.Range[int, 1, None]):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
         if eco["wallet"] < bet:
@@ -808,7 +808,7 @@ class Games(commands.Cog):
 
     @app_commands.command(name="dice", description="Roll dice against the bot. Higher roll wins.")
     @app_commands.describe(bet="Amount to bet")
-    async def dice(self, interaction: discord.Interaction, bet: app_commands.Range[int, 10, 50000]):
+    async def dice(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, None]):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
         if eco["wallet"] < bet:
@@ -842,7 +842,7 @@ class Games(commands.Cog):
         app_commands.Choice(name="📄 Paper", value="paper"),
         app_commands.Choice(name="✂️ Scissors", value="scissors"),
     ])
-    async def rps(self, interaction: discord.Interaction, choice: str, bet: app_commands.Range[int, 10, 50000]):
+    async def rps(self, interaction: discord.Interaction, choice: str, bet: app_commands.Range[int, 1, None]):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
         if eco["wallet"] < bet:
@@ -869,7 +869,7 @@ class Games(commands.Cog):
 
     @app_commands.command(name="blackjack", description="Play blackjack against the bot.")
     @app_commands.describe(bet="Amount to bet")
-    async def blackjack(self, interaction: discord.Interaction, bet: app_commands.Range[int, 10, 50000]):
+    async def blackjack(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, None]):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
         if eco["wallet"] < bet:
@@ -979,7 +979,7 @@ class Games(commands.Cog):
     async def mines(
         self,
         interaction: discord.Interaction,
-        bet: app_commands.Range[int, 10, 50000],
+        bet: app_commands.Range[int, 1, None],
         mines: app_commands.Range[int, 1, 8] = 3
     ):
         if not interaction.guild:
@@ -1016,7 +1016,7 @@ class Games(commands.Cog):
     async def roulette(
         self,
         interaction: discord.Interaction,
-        bet: app_commands.Range[int, 10, 50000],
+        bet: app_commands.Range[int, 1, None],
         bet_on: str,
         number: app_commands.Range[int, 0, 36] = None
     ):
@@ -1105,7 +1105,7 @@ class Games(commands.Cog):
     async def highlow(
         self,
         interaction: discord.Interaction,
-        bet: app_commands.Range[int, 10, 50000]
+        bet: app_commands.Range[int, 1, None]
     ):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
@@ -1129,7 +1129,7 @@ class Games(commands.Cog):
         self,
         interaction: discord.Interaction,
         opponent: discord.Member = None,
-        bet: app_commands.Range[int, 0, 50000] = 0
+        bet: app_commands.Range[int, 0, None] = 0
     ):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)

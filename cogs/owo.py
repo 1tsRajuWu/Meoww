@@ -565,8 +565,8 @@ class OwO(commands.Cog):
     # 2. HIGH-STAKES CRASH GAME
     # ---------------------------------------------------------
     @app_commands.command(name="crash", description="High-stakes rocket crash game! Cash out before the rocket explodes!")
-    @app_commands.describe(bet="Amount of coins to bet (10 - 50,000)")
-    async def crash(self, interaction: discord.Interaction, bet: app_commands.Range[int, 10, 50000]):
+    @app_commands.describe(bet="Amount of coins to bet")
+    async def crash(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, None]):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
         if eco["wallet"] < bet:
