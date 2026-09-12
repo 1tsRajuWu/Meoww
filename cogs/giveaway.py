@@ -92,6 +92,7 @@ class Giveaway(commands.Cog):
         self.bot.add_view(GiveawayView())
 
     async def cog_load(self):
+        await db.setup()
         self.check_giveaways.start()
 
     def cog_unload(self):

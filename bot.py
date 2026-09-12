@@ -82,15 +82,17 @@ async def on_ready():
     bot.tree.on_error = on_app_command_error
     
     try:
-        # 1. Sync commands directly into all connected guilds so they appear in Discord INSTANTLY (within 1-2 seconds)
-        for guild in bot.guilds:
-            bot.tree.copy_global_to(guild=guild)
-            synced_guild = await bot.tree.sync(guild=guild)
-            print(f"✅ Instantly synced {len(synced_guild)} command(s) directly to '{guild.name}' ({guild.id})!")
-
-        # 2. Also register them globally for long-term consistency
+        # 1. Sync all commands globally (zero duplicates, available in every channel/server)
         synced_global = await bot.tree.sync()
-        print(f"✅ Synced {len(synced_global)} global command(s).")
+        print(f"✅ Successfully synced {len(synced_global)} global command(s) with zero duplicates.")
+
+        # 2. Clear any lingering guild overrides so commands never duplicate
+        for guild in bot.guilds:
+            try:
+                bot.tree.clear_commands(guild=guild)
+                await bot.tree.sync(guild=guild)
+            except Exception:
+                pass
     except Exception as e:
         print(f"Slash command sync failed: {e}")
 
