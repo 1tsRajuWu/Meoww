@@ -3,6 +3,7 @@ Tiny web server so free hosting platforms have something to 'see' as running,
 and so uptime-monitor services (like UptimeRobot) can ping the bot to help
 prevent it from sleeping on platforms that idle inactive services.
 """
+import os
 from flask import Flask
 from threading import Thread
 import socket
@@ -28,7 +29,7 @@ def find_free_port(start=8080):
 
 
 def run():
-    port = find_free_port()
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
 
