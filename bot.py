@@ -1,11 +1,20 @@
+import sys
 import os
 import asyncio
+import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 from utils import db
+
+# Force real-time unbuffered log streaming to Render / cloud console
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 load_dotenv()
 
@@ -215,7 +224,20 @@ async def on_ready():
 
     # Start rotating status
     bot.loop.create_task(rotate_status())
-    print("Bot is online and ready.")
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
+
+@bot.tree.error
+async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now_str}] ⚠️ App Command Error: {error} (Command: {interaction.command})", flush=True)
+
+@bot.event
+async def on_app_command_completion(interaction: discord.Interaction, command: app_commands.Command | app_commands.ContextMenu):
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = interaction.user
+    guild_name = interaction.guild.name if interaction.guild else "DMs"
+    print(f"[{now_str}] ⚡ Slash Command: /{command.qualified_name} executed by {user} ({user.id}) in {guild_name}", flush=True)
 
 @bot.tree.command(name="dashboard", description="Access the 1:1 Real-Time Web Admin Dashboard & Module Controller")
 @app_commands.default_permissions(administrator=True)

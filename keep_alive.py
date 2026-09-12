@@ -3,12 +3,20 @@ Real-Time Web Admin Dashboard & Keep-Alive Server for Meow Discord Bot.
 Enables administrators to toggle modules and features ON/OFF with 0-second (1:1 instant) latency.
 """
 import os
+import sys
 import time
 import secrets
 from threading import Thread
 import socket
+import datetime
 from flask import Flask, render_template, request, redirect, session, jsonify
 from utils.db import get_guild_modules_sync, set_guild_module_sync
+
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "meow_dashboard_secret_key_2026_secure")
