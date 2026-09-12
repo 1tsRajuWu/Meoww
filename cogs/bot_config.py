@@ -49,5 +49,19 @@ class BotConfig(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"An unexpected error occurred: {e}")
 
+    @app_commands.command(name="sync", description="Force re-sync slash commands with zero duplicates (Owner only).")
+    async def sync(self, interaction: discord.Interaction):
+        if not (interaction.guild and interaction.user.id == interaction.guild.owner_id):
+            return await interaction.response.send_message("❌ Only the **Server Owner** can run this command.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            for guild in self.bot.guilds:
+                self.bot.tree.clear_commands(guild=guild)
+                await self.bot.tree.sync(guild=guild)
+            synced = await self.bot.tree.sync()
+            await interaction.followup.send(f"✅ Successfully synced **{len(synced)}** global commands! All duplicates removed.")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Sync failed: {e}")
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(BotConfig(bot))

@@ -79,10 +79,13 @@ class Leveling(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # In-memory chat cooldowns: (guild_id, user_id) -> timestamp
+        # In-memory chat cooldowns: (guild_id, user_id) -> timestamp (10 seconds)
         self._chat_cooldowns: dict[tuple[int, int], float] = {}
-        # Start voice reward background loop
-        self.vc_reward_loop.start()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if not self.vc_reward_loop.is_running():
+            self.vc_reward_loop.start()
 
     def cog_unload(self):
         self.vc_reward_loop.cancel()
@@ -134,7 +137,7 @@ class Leveling(commands.Cog):
     async def get_user_data(self, guild_id: int, user_id: int) -> dict:
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
-                "SELECT xp, level, total_messages, voice_minutes, total_earned FROM user_levels WHERE guild_id=? AND user_id=?",
+                "SELECT xp, level, total_messages, voice_minutes, total_earned, last_message_ts FROM user_levels WHERE guild_id=? AND user_id=?",
                 (guild_id, user_id)
             ) as cur:
                 row = await cur.fetchone()
@@ -145,14 +148,16 @@ class Leveling(commands.Cog):
                 "level": 0,
                 "total_messages": 0,
                 "voice_minutes": 0,
-                "total_earned": 0
+                "total_earned": 0,
+                "last_message_ts": 0
             }
         return {
             "xp": row[0],
             "level": row[1],
             "total_messages": row[2],
             "voice_minutes": row[3],
-            "total_earned": row[4]
+            "total_earned": row[4],
+            "last_message_ts": row[5] if len(row) > 5 and row[5] is not None else 0
         }
 
     async def get_level_roles(self, guild_id: int) -> list[tuple[int, int]]:
@@ -255,23 +260,67 @@ class Leveling(commands.Cog):
         key = (message.guild.id, message.author.id)
         last_time = self._chat_cooldowns.get(key, 0)
 
-        # 45-second anti-spam cooldown for gaining coins & XP
-        if now - last_time < 45:
-            # Count total message without awarding coins/XP if sent during cooldown
+        # 10-second anti-spam cooldown for gaining coins & XP
+        if now - last_time < 10:
+            # Count message and keep activity timestamp active even during cooldown
             async with aiosqlite.connect(DB_PATH) as conn:
                 await conn.execute(
-                    """INSERT INTO user_levels (guild_id, user_id, total_messages)
-                       VALUES (?, ?, 1)
-                       ON CONFLICT(guild_id, user_id) DO UPDATE SET total_messages = total_messages + 1""",
-                    (message.guild.id, message.author.id)
+                    """INSERT INTO user_levels (guild_id, user_id, total_messages, last_message_ts)
+                       VALUES (?, ?, 1, ?)
+                       ON CONFLICT(guild_id, user_id) DO UPDATE SET 
+                           total_messages = total_messages + 1,
+                           last_message_ts = ?""",
+                    (message.guild.id, message.author.id, now, now)
                 )
                 await conn.commit()
             return
 
         self._chat_cooldowns[key] = now
 
-        coins = random.randint(settings["text_min_coins"], settings["text_max_coins"])
-        xp_gain = settings["text_xp"]
+        # Message Length Based Rewards:
+        content_len = len(message.content.strip()) if message.content else 0
+        # Attachments (photos, memes, clips) add 25 virtual characters of effort
+        if message.attachments:
+            content_len += len(message.attachments) * 25
+
+        # Anti-spam: Ignore very short messages (< 3 chars like '.', 'k', '??')
+        if content_len < 3:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                await conn.execute(
+                    """INSERT INTO user_levels (guild_id, user_id, total_messages, last_message_ts)
+                       VALUES (?, ?, 1, ?)
+                       ON CONFLICT(guild_id, user_id) DO UPDATE SET 
+                           total_messages = total_messages + 1,
+                           last_message_ts = ?""",
+                    (message.guild.id, message.author.id, now, now)
+                )
+                await conn.commit()
+            return
+
+        base_min = settings["text_min_coins"]
+        base_max = settings["text_max_coins"]
+        base_xp = settings["text_xp"]
+
+        # Scaled multipliers based on message length:
+        # - Very Short (3 - 14 chars, e.g. 'hello', 'gg'): 0.5x multiplier
+        # - Standard (15 - 49 chars, normal conversation): 1.0x baseline
+        # - Medium (50 - 119 chars, active discussion): 1.5x multiplier
+        # - Long (120 - 249 chars, detailed thoughts): 2.0x multiplier
+        # - Effort / Paragraph (250+ chars, capped at 2.5x to prevent essay spam): 2.5x multiplier
+        if content_len < 15:
+            multiplier = 0.5
+        elif content_len < 50:
+            multiplier = 1.0
+        elif content_len < 120:
+            multiplier = 1.5
+        elif content_len < 250:
+            multiplier = 2.0
+        else:
+            multiplier = 2.5
+
+        raw_coins = random.randint(base_min, base_max)
+        coins = max(1, int(round(raw_coins * multiplier)))
+        xp_gain = max(5, int(round(base_xp * multiplier)))
 
         try:
             await update_wallet(message.author.id, message.guild.id, coins)
@@ -308,6 +357,26 @@ class Leveling(commands.Cog):
         if new_lvl > old_lvl:
             await self.handle_level_up(message.guild, message.author, old_lvl, new_lvl, message.channel)
 
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        """When member connects to a voice channel, give them an initial 1-hour active window."""
+        if member.bot or not member.guild:
+            return
+        if before.channel is None and after.channel is not None:
+            now = time.time()
+            async with aiosqlite.connect(DB_PATH) as conn:
+                await conn.execute(
+                    """INSERT INTO user_levels (guild_id, user_id, last_message_ts)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(guild_id, user_id) DO UPDATE SET 
+                           last_message_ts = CASE 
+                               WHEN (? - last_message_ts) > 3600 THEN ?
+                               ELSE last_message_ts
+                           END""",
+                    (member.guild.id, member.id, now, now, now)
+                )
+                await conn.commit()
+
     # -------------------------------------------------------------------------
     # Voice Channel (VC) Reward Task Loop (every 60 seconds)
     # -------------------------------------------------------------------------
@@ -323,6 +392,7 @@ class Leveling(commands.Cog):
 
                 vc_coins = settings["vc_coins_per_min"]
                 vc_xp = settings["vc_xp_per_min"]
+                now = time.time()
 
                 channels = guild.voice_channels + getattr(guild, "stage_channels", [])
                 for vc in channels:
@@ -337,28 +407,43 @@ class Leveling(commands.Cog):
                         if member.voice and (member.voice.self_deaf or member.voice.deaf):
                             continue
 
+                        # AFK Check: If member hasn't sent a message in voice channel or anywhere in the server for > 1 hour (3600s), they are considered AFK and do not earn VC coins or XP
+                        async with aiosqlite.connect(DB_PATH) as conn:
+                            async with conn.execute(
+                                "SELECT xp, level, voice_minutes, total_earned, last_message_ts FROM user_levels WHERE guild_id=? AND user_id=?",
+                                (guild.id, member.id)
+                            ) as cur:
+                                row = await cur.fetchone()
+
+                        if not row:
+                            # Newly tracked member - start active
+                            async with aiosqlite.connect(DB_PATH) as conn:
+                                await conn.execute(
+                                    "INSERT INTO user_levels (guild_id, user_id, last_message_ts) VALUES (?, ?, ?)",
+                                    (guild.id, member.id, now)
+                                )
+                                await conn.commit()
+                            old_xp, old_lvl, v_mins, total_earned, last_msg_ts = 0, 0, 0, 0, now
+                        else:
+                            old_xp, old_lvl, v_mins, total_earned, last_msg_ts = row
+                            last_msg_ts = last_msg_ts or 0
+
+                        # If user hasn't sent a message in voice channel or anywhere for > 1 hour (3600s):
+                        if (now - last_msg_ts) > 3600:
+                            # User is AFK (>1 hour inactivity) - skip coin and XP rewards
+                            continue
+
                         try:
                             await update_wallet(member.id, guild.id, vc_coins)
                         except Exception as e:
                             print(f"VC coin deposit error: {e}")
 
+                        new_xp = old_xp + vc_xp
+                        new_vmins = v_mins + 1
+                        new_earned = total_earned + vc_coins
+                        new_lvl, _, _ = calculate_level_from_xp(new_xp)
+
                         async with aiosqlite.connect(DB_PATH) as conn:
-                            async with conn.execute(
-                                "SELECT xp, level, voice_minutes, total_earned FROM user_levels WHERE guild_id=? AND user_id=?",
-                                (guild.id, member.id)
-                            ) as cur:
-                                row = await cur.fetchone()
-
-                            if not row:
-                                old_xp, old_lvl, v_mins, total_earned = 0, 0, 0, 0
-                            else:
-                                old_xp, old_lvl, v_mins, total_earned = row
-
-                            new_xp = old_xp + vc_xp
-                            new_vmins = v_mins + 1
-                            new_earned = total_earned + vc_coins
-                            new_lvl, _, _ = calculate_level_from_xp(new_xp)
-
                             await conn.execute(
                                 """INSERT INTO user_levels (guild_id, user_id, xp, level, voice_minutes, total_earned)
                                    VALUES (?, ?, ?, ?, ?, ?)
@@ -455,6 +540,15 @@ class Leveling(commands.Cog):
         embed.add_field(
             name="🪙 Activity Earned",
             value=f"`{user_data['total_earned']:,}` 🪙",
+            inline=True
+        )
+        now_ts = time.time()
+        last_act = user_data.get("last_message_ts", 0)
+        is_user_afk = (now_ts - last_act > 3600) if last_act > 0 else True
+        status_text = "🟢 Active" if not is_user_afk else "💤 Inactive / AFK (>1h no msg)"
+        embed.add_field(
+            name="⚡ Status",
+            value=f"`{status_text}`",
             inline=True
         )
 
