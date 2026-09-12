@@ -261,7 +261,7 @@ class Fun(commands.Cog):
         embed.set_footer(text=f"Checked by {interaction.user.display_name} • Leave Tan alone rn")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="quote", description="Get iconic quotes from anime, movies, books, romance, rizz & more!")
+    @app_commands.command(name="quote", description="Get iconic quotes from anime, movies, novels, motivation, romance, rizz & more!")
     @app_commands.describe(
         category="Filter quotes by category",
         mood="Filter quotes by mood or vibe"
@@ -269,21 +269,24 @@ class Fun(commands.Cog):
     @app_commands.choices(
         category=[
             app_commands.Choice(name="🎲 Random (Anything)", value="all"),
+            app_commands.Choice(name="🏆 Motivation & Grind", value="motivation"),
+            app_commands.Choice(name="📜 Classic / Old Love", value="old_love"),
+            app_commands.Choice(name="📚 Novels & Literature", value="books"),
+            app_commands.Choice(name="💖 Romance", value="romance"),
+            app_commands.Choice(name="😏 Rizz & Pickup Lines", value="rizz"),
             app_commands.Choice(name="🍙 Anime", value="anime"),
             app_commands.Choice(name="🎬 Movies", value="movies"),
             app_commands.Choice(name="😂 Funny & Comedy", value="funny"),
-            app_commands.Choice(name="📚 Books & Literature", value="books"),
-            app_commands.Choice(name="💖 Romance", value="romance"),
-            app_commands.Choice(name="😏 Rizz & Pickup Lines", value="rizz"),
             app_commands.Choice(name="🌟 Other & Philosophy", value="other"),
         ],
         mood=[
             app_commands.Choice(name="🎲 Any Vibe", value="any"),
+            app_commands.Choice(name="🏆 Motivated / Inspired", value="motivational"),
             app_commands.Choice(name="🔥 Hyped / Epic", value="hyped"),
-            app_commands.Choice(name="🥀 Sad / Heartbroken", value="sad"),
-            app_commands.Choice(name="😂 Funny / Chaotic", value="funny"),
             app_commands.Choice(name="💖 Romantic / Smooth", value="romantic"),
             app_commands.Choice(name="🧠 Deep / Philosophical", value="philosophical"),
+            app_commands.Choice(name="🥀 Sad / Heartbroken", value="sad"),
+            app_commands.Choice(name="😂 Funny / Chaotic", value="funny"),
         ]
     )
     async def quote(
@@ -310,22 +313,39 @@ class Fun(commands.Cog):
 
         picked = random.choice(available)
         self.recent_quotes.append(picked["quote"])
-        if len(self.recent_quotes) > 20:
+        if len(self.recent_quotes) > 25:
             self.recent_quotes.pop(0)
 
         cat_colors = {
-            "anime": 0xFF6B81,
-            "movies": 0xF1C40F,
-            "funny": 0x2ECC71,
+            "motivation": 0xF39C12,
+            "old_love": 0xC2185B,
             "books": 0x9B59B6,
             "romance": 0xE91E63,
             "rizz": 0xFF7675,
+            "anime": 0xFF6B81,
+            "movies": 0xF1C40F,
+            "funny": 0x2ECC71,
             "other": 0x5865F2,
             "all": 0x5865F2
         }
         color = cat_colors.get(picked["category"], 0x5865F2)
 
+        cat_names = {
+            "motivation": "Motivation & Grind",
+            "old_love": "Classic / Old Love",
+            "books": "Novels & Literature",
+            "romance": "Romance",
+            "rizz": "Rizz",
+            "anime": "Anime",
+            "movies": "Movies",
+            "funny": "Funny & Comedy",
+            "other": "Philosophy & Wisdom",
+            "all": "All Categories"
+        }
+        cat_display = cat_names.get(picked["category"], picked["category"].capitalize())
+
         mood_badges = {
+            "motivational": "🏆 Motivated / Inspired",
             "hyped": "🔥 Hyped",
             "sad": "🥀 Sad Boy Hours",
             "funny": "😂 Chaotic Comedy",
@@ -339,14 +359,14 @@ class Fun(commands.Cog):
             color=color,
             timestamp=discord.utils.utcnow()
         )
-        embed.add_field(name="👤 Character / Speaker", value=f"**{picked['character']}**", inline=True)
-        embed.add_field(name="🎬 Source", value=f"*{picked['source']}*", inline=True)
-        embed.add_field(name="🏷️ Category", value=f"{picked['icon']} {picked['category'].capitalize()}", inline=True)
+        embed.add_field(name="👤 Character / Author", value=f"**{picked['character']}**", inline=True)
+        embed.add_field(name="🎬 Source / Novel", value=f"*{picked['source']}*", inline=True)
+        embed.add_field(name="🏷️ Category", value=f"{picked['icon']} {cat_display}", inline=True)
         if mood_text:
             embed.add_field(name="✨ Vibe", value=mood_text, inline=True)
 
         embed.set_author(name=f"{picked['icon']} Legendary Quote", icon_url=interaction.guild.me.display_avatar.url)
-        embed.set_footer(text=f"Requested by {interaction.user.display_name} • {picked['category'].capitalize()}")
+        embed.set_footer(text=f"Requested by {interaction.user.display_name} • {cat_display}")
 
         await interaction.response.send_message(embed=embed)
 
@@ -430,7 +450,7 @@ QUOTES = [
     {"quote": "Hasta la vista, baby. 😎", "character": "The Terminator", "source": "Terminator 2", "category": "movies", "mood": "hyped", "icon": "🦾"},
     {"quote": "Mama always said life was like a box of chocolates. You never know what you're gonna get.", "character": "Forrest Gump", "source": "Forrest Gump", "category": "movies", "mood": "philosophical", "icon": "🍫"},
 
-    # Books & Literature
+    # Books & Classic Novels
     {"quote": "Not all those who wander are lost.", "character": "J.R.R. Tolkien", "source": "The Fellowship of the Ring", "category": "books", "mood": "philosophical", "icon": "💍"},
     {"quote": "It does not do to dwell on dreams and forget to live.", "character": "Albus Dumbledore", "source": "Harry Potter", "category": "books", "mood": "philosophical", "icon": "⚡"},
     {"quote": "After all this time? — Always.", "character": "Severus Snape", "source": "Harry Potter and the Deathly Hallows", "category": "books", "mood": "sad", "icon": "🦌"},
@@ -441,17 +461,65 @@ QUOTES = [
     {"quote": "When you have eliminated the impossible, whatever remains, however improbable, must be the truth.", "character": "Sherlock Holmes", "source": "Arthur Conan Doyle", "category": "books", "mood": "philosophical", "icon": "🔍"},
     {"quote": "The mind is its own place, and in itself can make a heaven of hell, a hell of heaven.", "character": "John Milton", "source": "Paradise Lost", "category": "books", "mood": "philosophical", "icon": "📖"},
     {"quote": "If you want to know what a man's like, take a good look at how he treats his inferiors, not his equals.", "character": "Sirius Black", "source": "Harry Potter", "category": "books", "mood": "philosophical", "icon": "🐾"},
+    {"quote": "All human wisdom is contained in these two words: 'Wait' and 'Hope'.", "character": "Alexandre Dumas", "source": "The Count of Monte Cristo", "category": "books", "mood": "philosophical", "icon": "🗝️"},
+    {"quote": "Pain and suffering are always inevitable for a large intelligence and a deep heart.", "character": "Fyodor Dostoevsky", "source": "Crime and Punishment", "category": "books", "mood": "sad", "icon": "🪓"},
+    {"quote": "The secret of human existence lies not only in living, but in knowing what one lives for.", "character": "Fyodor Dostoevsky", "source": "The Brothers Karamazov", "category": "books", "mood": "philosophical", "icon": "🕯️"},
+    {"quote": "Until I feared I would lose it, I never loved to read. One does not love breathing.", "character": "Scout Finch", "source": "To Kill a Mockingbird by Harper Lee", "category": "books", "mood": "philosophical", "icon": "📖"},
+    {"quote": "Real courage is when you know you're licked before you begin, but you begin anyway and see it through no matter what.", "character": "Atticus Finch", "source": "To Kill a Mockingbird", "category": "books", "mood": "motivational", "icon": "🦉"},
+    {"quote": "Beware; for I am fearless, and therefore powerful.", "character": "The Creature", "source": "Frankenstein by Mary Shelley", "category": "books", "mood": "hyped", "icon": "⚡"},
+    {"quote": "It is a far, far better thing that I do, than I have ever done; it is a far, far better rest that I go to than I have ever known.", "character": "Sydney Carton", "source": "A Tale of Two Cities by Charles Dickens", "category": "books", "mood": "sad", "icon": "⏳"},
+    {"quote": "I am not afraid of storms, for I am learning how to sail my ship.", "character": "Amy March", "source": "Little Women by Louisa May Alcott", "category": "books", "mood": "motivational", "icon": "⛵"},
+    {"quote": "Stay gold, Ponyboy. Stay gold.", "character": "Johnny Cade", "source": "The Outsiders by S.E. Hinton", "category": "books", "mood": "sad", "icon": "🌅"},
 
-    # Romance
+    # Classic & Old Love Lines (Poetry, Literature & Timeless Romance)
+    {"quote": "Whatever our souls are made of, his and mine are the same.", "character": "Catherine Earnshaw", "source": "Wuthering Heights by Emily Brontë", "category": "old_love", "mood": "romantic", "icon": "🥀"},
+    {"quote": "I love you as certain dark things are to be loved, in secret, between the shadow and the soul.", "character": "Pablo Neruda", "source": "100 Love Sonnets", "category": "old_love", "mood": "romantic", "icon": "📜"},
+    {"quote": "Doubt thou the stars are fire; Doubt that the sun doth move; Doubt truth to be a liar; But never doubt I love.", "character": "William Shakespeare", "source": "Hamlet", "category": "old_love", "mood": "romantic", "icon": "🎭"},
+    {"quote": "I have loved you with a love that was more than love.", "character": "Edgar Allan Poe", "source": "Annabel Lee", "category": "old_love", "mood": "romantic", "icon": "🖤"},
+    {"quote": "My bounty is as boundless as the sea, my love as deep; the more I give to thee, the more I have, for both are infinite.", "character": "Juliet Capulet", "source": "Romeo and Juliet by Shakespeare", "category": "old_love", "mood": "romantic", "icon": "🌹"},
+    {"quote": "He stepped down, trying not to look long at her, as if she were the sun, yet he saw her, like the sun, even without looking.", "character": "Leo Tolstoy", "source": "Anna Karenina", "category": "old_love", "mood": "romantic", "icon": "☀️"},
+    {"quote": "To love or have loved, that is enough. Ask nothing further. There is no other pearl to be found in the dark folds of life.", "character": "Victor Hugo", "source": "Les Misérables", "category": "old_love", "mood": "romantic", "icon": "🕊️"},
+    {"quote": "Grow old along with me! The best is yet to be.", "character": "Robert Browning", "source": "Rabbi Ben Ezra", "category": "old_love", "mood": "romantic", "icon": "⏳"},
+    {"quote": "If I loved you less, I might be able to talk about it more.", "character": "Jane Austen", "source": "Emma", "category": "old_love", "mood": "romantic", "icon": "👒"},
+    {"quote": "In vain have I struggled. It will not do. My feelings will not be repressed. You must allow me to tell you how ardently I admire and love you.", "character": "Mr. Darcy", "source": "Pride and Prejudice by Jane Austen", "category": "old_love", "mood": "romantic", "icon": "🎩"},
+    {"quote": "Yours is the light by which my spirit's born: - you are my sun, my moon, and all my stars.", "character": "E.E. Cummings", "source": "Selected Poems", "category": "old_love", "mood": "romantic", "icon": "✨"},
+    {"quote": "I am yours, don't give myself back to me.", "character": "Rumi", "source": "Persian Poetry", "category": "old_love", "mood": "romantic", "icon": "🪶"},
+    {"quote": "You pierce my soul. I am half agony, half hope... I have loved none but you.", "character": "Captain Frederick Wentworth", "source": "Persuasion by Jane Austen", "category": "old_love", "mood": "romantic", "icon": "💌"},
+    {"quote": "I would rather share one lifetime with you than face all the ages of this world alone.", "character": "Arwen Undómiel", "source": "The Lord of the Rings by Tolkien", "category": "old_love", "mood": "romantic", "icon": "🧝‍♀️"},
+    {"quote": "If you live to be a hundred, I want to live to be a hundred minus one day so I never have to live without you.", "character": "A.A. Milne", "source": "Winnie the Pooh", "category": "old_love", "mood": "romantic", "icon": "🍯"},
+    {"quote": "You are my heart, my life, my one and only thought.", "character": "Arthur Conan Doyle", "source": "The White Company", "category": "old_love", "mood": "romantic", "icon": "💌"},
+
+    # Motivation, Grind & Discipline
+    {"quote": "You have power over your mind - not outside events. Realize this, and you will find strength.", "character": "Marcus Aurelius", "source": "Meditations", "category": "motivation", "mood": "motivational", "icon": "🏛️"},
+    {"quote": "The impediment to action advances action. What stands in the way becomes the way.", "character": "Marcus Aurelius", "source": "Meditations", "category": "motivation", "mood": "motivational", "icon": "🏛️"},
+    {"quote": "It is not the critic who counts; not the man who points out how the strong man stumbles... The credit belongs to the man who is actually in the arena.", "character": "Theodore Roosevelt", "source": "Citizenship in a Republic", "category": "motivation", "mood": "motivational", "icon": "🏟️"},
+    {"quote": "He who has a why to live can bear almost any how.", "character": "Friedrich Nietzsche", "source": "Twilight of the Idols", "category": "motivation", "mood": "motivational", "icon": "🧠"},
+    {"quote": "Do not pray for an easy life, pray for the strength to endure a difficult one.", "character": "Bruce Lee", "source": "Philosophy of Martial Arts", "category": "motivation", "mood": "motivational", "icon": "🥋"},
+    {"quote": "The master has failed more times than the beginner has even tried.", "character": "Stephen McCranie", "source": "Doodle Alley", "category": "motivation", "mood": "motivational", "icon": "⚔️"},
+    {"quote": "You don't get what you wish for; you get what you work for.", "character": "Kobe Bryant", "source": "Mamba Mentality", "category": "motivation", "mood": "motivational", "icon": "🐍"},
+    {"quote": "Don't count the days, make the days count.", "character": "Muhammad Ali", "source": "Boxing Philosophy", "category": "motivation", "mood": "motivational", "icon": "🥊"},
+    {"quote": "The man who moves a mountain begins by carrying away small stones.", "character": "Confucius", "source": "Analects", "category": "motivation", "mood": "motivational", "icon": "🏔️"},
+    {"quote": "If you're going through hell, keep going.", "character": "Winston Churchill", "source": "Historical Speeches", "category": "motivation", "mood": "motivational", "icon": "🔥"},
+    {"quote": "We must all suffer one of two things: the pain of discipline or the pain of regret and disappointment.", "character": "Jim Rohn", "source": "Personal Mastery", "category": "motivation", "mood": "motivational", "icon": "⚖️"},
+    {"quote": "No citizen has a right to be an amateur in the matter of physical training... what a disgrace it is for a man to grow old without seeing the beauty and strength of which his body is capable.", "character": "Socrates", "source": "Xenophon's Memorabilia", "category": "motivation", "mood": "motivational", "icon": "🏛️"},
+    {"quote": "A smooth sea never made a skilled sailor.", "character": "Franklin D. Roosevelt", "source": "Wisdom Lore", "category": "motivation", "mood": "motivational", "icon": "🌊"},
+    {"quote": "The only person you are destined to become is the person you decide to be.", "character": "Ralph Waldo Emerson", "source": "Self-Reliance", "category": "motivation", "mood": "motivational", "icon": "🌟"},
+    {"quote": "Pain is temporary. Quitting lasts forever.", "character": "Lance Armstrong", "source": "Athletic Lore", "category": "motivation", "mood": "motivational", "icon": "🚴"},
+    {"quote": "Fall seven times, stand up eight. (七転び八起き)", "character": "Japanese Proverb", "source": "Eastern Philosophy", "category": "motivation", "mood": "motivational", "icon": "🎋"},
+    {"quote": "Discipline equals freedom.", "character": "Jocko Willink", "source": "Discipline Equals Freedom", "category": "motivation", "mood": "motivational", "icon": "🪖"},
+    {"quote": "Hard choices, easy life. Easy choices, hard life.", "character": "Jerzy Gregorek", "source": "The Happy Body", "category": "motivation", "mood": "motivational", "icon": "🛡️"},
+    {"quote": "I am not what happened to me, I am what I choose to become.", "character": "Carl Jung", "source": "Psychological Reflections", "category": "motivation", "mood": "motivational", "icon": "🔮"},
+
+    # Modern Romance
     {"quote": "I'd rather die tomorrow than live a hundred years without knowing you.", "character": "John Smith", "source": "Pocahontas", "category": "romance", "mood": "romantic", "icon": "🍂"},
     {"quote": "You had me at 'hello'.", "character": "Dorothy Boyd", "source": "Jerry Maguire", "category": "romance", "mood": "romantic", "icon": "💌"},
     {"quote": "When you realize you want to spend the rest of your life with somebody, you want the rest of your life to start as soon as possible.", "character": "Harry Burns", "source": "When Harry Met Sally", "category": "romance", "mood": "romantic", "icon": "🥂"},
     {"quote": "No matter where in the world you are, I will find you again.", "character": "Taki Tachibana", "source": "Your Name (Kimi no Na wa)", "category": "romance", "mood": "romantic", "icon": "🌠"},
-    {"quote": "You have bewitched me, body and soul, and I love, I love, I love you.", "character": "Mr. Darcy", "source": "Pride and Prejudice", "category": "romance", "mood": "romantic", "icon": "🎩"},
     {"quote": "Winning that ticket was the best thing that ever happened to me... it brought me to you.", "character": "Jack Dawson", "source": "Titanic", "category": "romance", "mood": "sad", "icon": "🚢"},
     {"quote": "I want all of you, forever, everyday. You and me... everyday.", "character": "Noah Calhoun", "source": "The Notebook", "category": "romance", "mood": "romantic", "icon": "🌧️"},
     {"quote": "If I had a flower for every time I thought of you, I could walk through my garden forever.", "character": "Alfred Lord Tennyson", "source": "Poetry", "category": "romance", "mood": "romantic", "icon": "💐"},
     {"quote": "I swear I couldn't love you more than I do right now, and yet I know I will tomorrow.", "character": "Leo Christopher", "source": "Romance Lore", "category": "romance", "mood": "romantic", "icon": "💖"},
+    {"quote": "I fell in love the way you fall asleep: slowly, and then all at once.", "character": "Hazel Grace Lancaster", "source": "The Fault in Our Stars", "category": "romance", "mood": "romantic", "icon": "💫"},
 
     # Rizz & Smooth Pickup Lines
     {"quote": "Are you a magician? Because whenever I look at you, everyone else disappears. 🪄", "character": "Rizz Master", "source": "The Art of Rizz", "category": "rizz", "mood": "romantic", "icon": "✨"},
