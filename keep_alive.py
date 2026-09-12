@@ -40,7 +40,7 @@ AVAILABLE_MODULES = [
         "icon": "💰",
         "category": "Economy",
         "desc": "Daily streak rewards, gambling, slots, blackjack, coinflip, shop, and inventory items.",
-        "commands": ["/daily", "/gamble", "/slots", "/blackjack", "/shop", "/balance"]
+        "commands": ["/balance", "/daily", "/work", "/rob", "/shop", "/buy", "/inventory", "/gamble", "/slots", "/blackjack", "/roulette"]
     },
     {
         "id": "moderation",
@@ -111,16 +111,16 @@ AVAILABLE_MODULES = [
         "name": "Fun & Memes",
         "icon": "🎭",
         "category": "Entertainment",
-        "desc": "Real-time viral memes scraped from Reddit top feeds, 8ball, coinflips, dice, inspirational quotes.",
-        "commands": ["/meme", "/8ball", "/flip", "/roll", "/quote"]
+        "desc": "Real-time viral memes scraped from Reddit top feeds, 8ball, inspirational quotes.",
+        "commands": ["/meme", "/8ball", "/meow", "/quote", "/customquotes"]
     },
     {
         "id": "games",
         "name": "Mini-Games Hub",
         "icon": "🎮",
         "category": "Games",
-        "desc": "Interactive Discord game sessions: TicTacToe, Hangman, Rock-Paper-Scissors, Trivia, Wordle.",
-        "commands": ["/tictactoe", "/hangman", "/rps", "/trivia", "/wordle"]
+        "desc": "Interactive Discord game sessions: TicTacToe, Rock-Paper-Scissors, Trivia, Mines, Crash, HighLow.",
+        "commands": ["/tictactoe", "/rps", "/trivia", "/mines", "/crash", "/highlow"]
     },
     {
         "id": "welcome",

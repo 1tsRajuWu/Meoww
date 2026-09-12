@@ -91,6 +91,17 @@ class Giveaway(commands.Cog):
         # Register persistent view
         self.bot.add_view(GiveawayView())
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "giveaway"):
+                await interaction.response.send_message(
+                    "⚠️ The **Giveaway** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     async def cog_load(self):
         await db.setup()
         self.check_giveaways.start()

@@ -136,6 +136,17 @@ class Economy(commands.Cog):
         self.bot = bot
         _bot_instance = bot
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "economy"):
+                await interaction.response.send_message(
+                    "⚠️ The **Economy & Casino** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         await sanitize_economy_balances(self.bot)
@@ -542,6 +553,113 @@ class Economy(commands.Cog):
             else:
                 return await interaction.response.send_message("❌ Please choose a `member` to reset or set `reset_all: True`.", ephemeral=True)
 
+        await interaction.response.send_message(embed=embed)
+
+    DEFAULT_SHOP_ITEMS = [
+        {"name": "🍀 Lucky Clover", "price": 500, "desc": "A lucky four-leaf clover for good fortune."},
+        {"name": "🛡️ Rob Shield", "price": 1500, "desc": "Protects your wallet from robbers."},
+        {"name": "⚡ XP Booster", "price": 3000, "desc": "Supercharge your rank progression."},
+        {"name": "💎 VIP Pass", "price": 10000, "desc": "Exclusive VIP badge on your profile."},
+        {"name": "👑 Royal Crown", "price": 50000, "desc": "The ultimate prestige luxury crown."}
+    ]
+
+    @app_commands.command(name="shop", description="Browse items in the community shop.")
+    async def shop(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        embed = discord.Embed(
+            title="🛒 Community Shop",
+            description="Use `/buy <item_name>` to purchase any of the items below:\n",
+            color=0x5865F2,
+            timestamp=discord.utils.utcnow()
+        )
+
+        for item in self.DEFAULT_SHOP_ITEMS:
+            embed.add_field(
+                name=f"{item['name']} — `{item['price']:,}` 🪙",
+                value=item["desc"],
+                inline=False
+            )
+
+        embed.set_footer(text="🐾 Meow Shop • Use /inventory to view your items")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="buy", description="Purchase an item from the community shop.")
+    @app_commands.describe(item_name="Name of the item to buy")
+    async def buy(self, interaction: discord.Interaction, item_name: str):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        # Match item
+        matched = None
+        for item in self.DEFAULT_SHOP_ITEMS:
+            if item_name.lower() in item["name"].lower():
+                matched = item
+                break
+
+        if not matched:
+            valid_names = ", ".join([f"`{i['name']}`" for i in self.DEFAULT_SHOP_ITEMS])
+            return await interaction.response.send_message(f"❌ Item not found! Available items: {valid_names}", ephemeral=True)
+
+        await ensure_eco(interaction.user.id, interaction.guild.id)
+        eco = await get_eco(interaction.user.id, interaction.guild.id)
+
+        if eco["wallet"] < matched["price"]:
+            return await interaction.response.send_message(
+                f"❌ You need **{matched['price']:,}** 🪙, but you only have **{eco['wallet']:,}** 🪙 in your wallet.",
+                ephemeral=True
+            )
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("UPDATE economy SET wallet = wallet - ? WHERE user_id = ? AND guild_id = ?",
+                               (matched["price"], interaction.user.id, interaction.guild.id))
+            await conn.execute("INSERT INTO inventory (user_id, guild_id, item_name) VALUES (?, ?, ?)",
+                               (interaction.user.id, interaction.guild.id, matched["name"]))
+            await conn.commit()
+
+        embed = discord.Embed(
+            title="🛍️ Purchase Successful!",
+            description=(
+                f"You purchased **{matched['name']}** for **{matched['price']:,}** 🪙!\n\n"
+                f"🎒 Check your items anytime using `/inventory`."
+            ),
+            color=0x23a55a,
+            timestamp=discord.utils.utcnow()
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="inventory", description="View your purchased items and badges.")
+    @app_commands.describe(member="Member whose inventory to view")
+    async def inventory(self, interaction: discord.Interaction, member: discord.Member = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        target = member or interaction.user
+        items = []
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute("SELECT item_name FROM inventory WHERE user_id=? AND guild_id=?",
+                                   (target.id, interaction.guild.id)) as cur:
+                async for row in cur:
+                    items.append(row[0])
+
+        embed = discord.Embed(
+            title=f"🎒 {target.display_name}'s Inventory",
+            color=0x5865F2,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+
+        if items:
+            # Count item quantities
+            from collections import Counter
+            counts = Counter(items)
+            desc_lines = [f"• **{name}** ×`{count}`" for name, count in counts.items()]
+            embed.description = "\n".join(desc_lines)
+        else:
+            embed.description = "*Inventory is empty! Visit `/shop` to purchase items.*"
+
+        embed.set_footer(text="🐾 Meow Economy • /shop to browse")
         await interaction.response.send_message(embed=embed)
 
 

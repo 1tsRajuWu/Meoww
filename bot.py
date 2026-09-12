@@ -97,6 +97,31 @@ MODULE_COMMAND_MAP = {
     "welcome": "welcome"
 }
 
+# Global module toggle interceptor for all slash commands
+async def global_module_check(interaction: discord.Interaction) -> bool:
+    if not interaction.guild_id:
+        return True
+    if not interaction.command:
+        return True
+    
+    # Check root command name for subcommands (e.g. "giveaway" for "/giveaway start")
+    root_cmd = interaction.command.root_parent.name if getattr(interaction.command, "root_parent", None) else interaction.command.name
+    if root_cmd in ["help", "dashboard", "sync", "ping"]:
+        return True
+    
+    module = MODULE_COMMAND_MAP.get(root_cmd) or MODULE_COMMAND_MAP.get(interaction.command.name)
+    if module and not bot.is_module_enabled(interaction.guild_id, module):
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"⚠️ The **{module.title()}** system is currently **turned off** on this server.\n"
+                f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                ephemeral=True
+            )
+        return False
+    return True
+
+bot.tree.interaction_check = global_module_check
+
 import asyncio
 import random
 
@@ -143,25 +168,6 @@ async def on_ready():
             print(f"Loaded {len(bot.module_states[guild.id])} custom module states for {guild.name}.")
         except Exception as e:
             print(f"Could not load module states for {guild.name}: {e}")
-
-    # Set up global module toggle check for all slash commands
-    @bot.tree.interaction_check
-    async def global_module_check(interaction: discord.Interaction) -> bool:
-        if not interaction.guild_id:
-            return True
-        cmd_name = interaction.command.name if interaction.command else None
-        if not cmd_name or cmd_name in ["help", "dashboard", "sync", "ping"]:
-            return True
-        
-        module = MODULE_COMMAND_MAP.get(cmd_name)
-        if module and not bot.is_module_enabled(interaction.guild_id, module):
-            await interaction.response.send_message(
-                f"⚠️ The **{module.title()}** system is currently **turned off** on this server.\n"
-                f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com).",
-                ephemeral=True
-            )
-            return False
-        return True
 
     # Global error handler for app commands
     bot.tree.on_error = on_app_command_error

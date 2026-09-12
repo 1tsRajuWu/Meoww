@@ -19,6 +19,17 @@ class AutoMod(commands.Cog):
         self.settings_cache = {}  # {guild_id: {"block_invites": bool, "anti_spam": bool}}
         self.message_log = {}  # {(guild_id, user_id): [timestamps]}
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "automod"):
+                await interaction.response.send_message(
+                    "⚠️ The **Automod** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     async def get_settings(self, guild_id):
         if guild_id not in self.settings_cache:
             block_invites = await db.get_setting(guild_id, "automod_block_invites", False)

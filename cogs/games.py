@@ -732,6 +732,19 @@ class Games(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            cmd_name = interaction.command.name if interaction.command else None
+            mod = "economy" if cmd_name in ["slots", "coinflip", "dice", "blackjack", "mines", "roulette", "highlow", "gamble"] else "games"
+            if not self.bot.is_module_enabled(interaction.guild_id, mod):
+                await interaction.response.send_message(
+                    f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     def new_deck(self):
         cards = [str(i) for i in range(2, 11)] + ["J", "Q", "K", "A"]
         deck = cards * 4
@@ -1173,6 +1186,60 @@ class Games(commands.Cog):
         game_view = TicTacToeView(interaction.user, None, interaction.guild.id, bet)
         embed = game_view.make_embed()
         await interaction.response.send_message(embed=embed, view=game_view)
+
+    @app_commands.command(name="gamble", description="Roll the high-stakes 50/50 dice to double your coins!")
+    @app_commands.describe(bet="Coins to wager on the roll")
+    async def gamble(self, interaction: discord.Interaction, bet: app_commands.Range[int, 10, None]):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        await ensure_eco(interaction.user.id, interaction.guild.id)
+        eco = await get_eco(interaction.user.id, interaction.guild.id)
+        if eco["wallet"] < bet:
+            return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
+
+        user_roll = random.randint(1, 100)
+        bot_roll = random.randint(1, 100)
+
+        if user_roll > bot_roll:
+            winnings = bet
+            await update_wallet(interaction.user.id, interaction.guild.id, winnings)
+            new_bal = eco["wallet"] + winnings
+            embed = discord.Embed(
+                title="🎲 High-Stakes Gamble — YOU WON! 🎉",
+                description=(
+                    f"**Your Roll:** 🎲 `{user_roll}`\n"
+                    f"**Bot's Roll:** 🎲 `{bot_roll}`\n\n"
+                    f"💰 **Profit:** `+{winnings:,}` 🪙\n"
+                    f"💳 **New Wallet:** `{new_bal:,}` 🪙"
+                ),
+                color=0x23a55a
+            )
+        elif user_roll < bot_roll:
+            await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+            new_bal = eco["wallet"] - bet
+            embed = discord.Embed(
+                title="🎲 High-Stakes Gamble — YOU LOST! 💀",
+                description=(
+                    f"**Your Roll:** 🎲 `{user_roll}`\n"
+                    f"**Bot's Roll:** 🎲 `{bot_roll}`\n\n"
+                    f"💸 **Lost:** `-{bet:,}` 🪙\n"
+                    f"💳 **New Wallet:** `{new_bal:,}` 🪙"
+                ),
+                color=0xf23f43
+            )
+        else:
+            embed = discord.Embed(
+                title="🎲 High-Stakes Gamble — TIE! 🤝",
+                description=(
+                    f"Both rolled 🎲 `{user_roll}`!\n"
+                    f"Your **{bet:,}** 🪙 bet was refunded."
+                ),
+                color=0xfee75c
+            )
+
+        embed.set_footer(text=f"Gambler: {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):

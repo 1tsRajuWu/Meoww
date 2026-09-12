@@ -118,6 +118,17 @@ class Colors(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "colors"):
+                await interaction.response.send_message(
+                    "⚠️ The **Color Studio** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     @color_group.command(name="palette", description="Open the interactive color studio palette to pick a username color.")
     async def color_palette(self, interaction: discord.Interaction):
         embed = discord.Embed(

@@ -280,6 +280,17 @@ class Music(commands.Cog):
         self.bot = bot
         self.players: dict[int, GuildMusicPlayer] = {}
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "music"):
+                await interaction.response.send_message(
+                    "⚠️ The **Music & Radio** system is currently **turned off** on this server.\n"
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True
+                )
+                return False
+        return True
+
     def get_player(self, guild_id: int) -> GuildMusicPlayer:
         if guild_id not in self.players:
             self.players[guild_id] = GuildMusicPlayer(self.bot, guild_id)
