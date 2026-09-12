@@ -70,10 +70,14 @@ async def on_ready():
     bot.tree.on_error = on_app_command_error
     
     try:
+        # Clear any guild-specific commands to prevent duplication with global commands
         for guild in bot.guilds:
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            print(f"Synced {len(synced)} command(s) directly to {guild.name} (instant, no duplicates).")
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
+
+        # Sync globally once (zero duplicates)
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} global command(s) with zero duplicates.")
     except Exception as e:
         print(f"Slash command sync failed: {e}")
 
