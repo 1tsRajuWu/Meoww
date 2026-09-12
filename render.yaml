@@ -2,6 +2,7 @@ services:
   - type: web
     name: meow-discord-bot
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
