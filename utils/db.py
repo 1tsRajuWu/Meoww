@@ -45,11 +45,11 @@ async def setup():
             enabled INTEGER DEFAULT 1,
             channel_id INTEGER DEFAULT 0,
             dm_notifications INTEGER DEFAULT 0,
-            text_min_coins INTEGER DEFAULT 8,
-            text_max_coins INTEGER DEFAULT 15,
-            text_xp INTEGER DEFAULT 20,
-            vc_coins_per_min INTEGER DEFAULT 12,
-            vc_xp_per_min INTEGER DEFAULT 18
+            text_min_coins INTEGER DEFAULT 4,
+            text_max_coins INTEGER DEFAULT 10,
+            text_xp INTEGER DEFAULT 15,
+            vc_coins_per_min INTEGER DEFAULT 2,
+            vc_xp_per_min INTEGER DEFAULT 3
         )''')
         await db.commit()
 

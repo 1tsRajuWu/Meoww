@@ -16,8 +16,8 @@ DB_PATH = db.DB_PATH
 # -----------------------------------------------------------------------------
 
 def xp_needed_for_level(level: int) -> int:
-    """XP needed to advance from `level` to `level + 1`."""
-    return 5 * (level ** 2) + (50 * level) + 100
+    """XP needed to advance from `level` to `level + 1` (Hardened MMO-style scaling)."""
+    return 15 * (level ** 2) + (100 * level) + 250
 
 def total_xp_for_level(level: int) -> int:
     """Cumulative total XP required from level 0 to reach `level`."""
@@ -107,21 +107,25 @@ class Leveling(commands.Cog):
                 "enabled": 1,
                 "channel_id": 0,
                 "dm_notifications": 0,
-                "text_min_coins": 8,
-                "text_max_coins": 15,
-                "text_xp": 20,
-                "vc_coins_per_min": 12,
-                "vc_xp_per_min": 18
+                "text_min_coins": 4,
+                "text_max_coins": 10,
+                "text_xp": 15,
+                "vc_coins_per_min": 2,
+                "vc_xp_per_min": 3
             }
             async with aiosqlite.connect(DB_PATH) as conn:
                 await conn.execute(
                     """INSERT OR IGNORE INTO level_settings 
                        (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
-                       VALUES (?, 1, 0, 0, 8, 15, 20, 12, 18)""",
+                       VALUES (?, 1, 0, 0, 4, 10, 15, 2, 3)""",
                     (guild_id,)
                 )
                 await conn.commit()
             return default_settings
+
+        # Auto-balance legacy high defaults so VC leveling is properly hardened
+        vc_c = min(row[6], 2) if row[6] >= 10 else row[6]
+        vc_x = min(row[7], 3) if row[7] >= 15 else row[7]
 
         return {
             "enabled": row[0],
@@ -130,8 +134,8 @@ class Leveling(commands.Cog):
             "text_min_coins": row[3],
             "text_max_coins": row[4],
             "text_xp": row[5],
-            "vc_coins_per_min": row[6],
-            "vc_xp_per_min": row[7]
+            "vc_coins_per_min": vc_c,
+            "vc_xp_per_min": vc_x
         }
 
     async def get_user_data(self, guild_id: int, user_id: int) -> dict:
@@ -228,14 +232,24 @@ class Leveling(commands.Cog):
                 pass
 
         target_channel = None
+        # 1. Configured channel in /levelsettings
         if settings.get("channel_id"):
             target_channel = guild.get_channel(settings["channel_id"])
 
+        # 2. Priority: Dedicated bot commands channel (#cmd, #cmds, #bot-cmd, #bot-commands, #commands, #level-ups)
+        # Keeps general discussion channels completely clean and free of level-up spam!
         if not target_channel:
-            target_channel = channel
+            for ch_name in ("cmd", "cmds", "bot-cmd", "bot-commands", "commands", "level-ups", "bot"):
+                found = discord.utils.get(guild.text_channels, name=ch_name)
+                if found and found.permissions_for(guild.me).send_messages:
+                    target_channel = found
+                    break
 
+        # 3. Fallback: server system channel, or active channel only if no commands channel exists
         if not target_channel:
             target_channel = guild.system_channel
+        if not target_channel:
+            target_channel = channel
 
         if target_channel and target_channel.permissions_for(guild.me).send_messages:
             try:
@@ -773,7 +787,7 @@ class Leveling(commands.Cog):
             await conn.commit()
 
         target_ch = interaction.guild.get_channel(new_channel) if new_channel else None
-        ch_text = target_ch.mention if target_ch else "*Current Channel / System Channel*"
+        ch_text = target_ch.mention if target_ch else "*#cmd / Dedicated Commands Channel (Auto-detected)*"
 
         embed = discord.Embed(
             title="⚙️ Leveling & Reward Settings",
@@ -782,11 +796,11 @@ class Leveling(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.add_field(name="System Status", value="🟢 Enabled" if new_enabled else "🔴 Disabled", inline=True)
-        embed.add_field(name="Announcements", value=ch_text, inline=True)
+        embed.add_field(name="Announcements Channel", value=ch_text, inline=True)
         embed.add_field(name="DM Alerts", value="✅ Enabled" if new_dm else "❌ Disabled", inline=True)
-        embed.add_field(name="Text Rewards", value=f"`{new_tmin} - {new_tmax}` 🪙 + 20 XP / msg", inline=True)
-        embed.add_field(name="Voice (VC) Rewards", value=f"`{new_vc}` 🪙 + 18 XP / min", inline=True)
-        embed.set_footer(text="🐾 Server Leveling System")
+        embed.add_field(name="Text Rewards", value=f"`{new_tmin} - {new_tmax}` 🪙 + Length-scaled XP (10s cd)", inline=True)
+        embed.add_field(name="Voice (VC) Rewards", value=f"`{new_vc}` 🪙 + 3 XP / min *(Hardened, AFK >1h stops)*", inline=True)
+        embed.set_footer(text="🐾 Server Leveling System • Level up cards post to #cmd")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="setlevel", description="Set a member's level directly (Admin only).")
