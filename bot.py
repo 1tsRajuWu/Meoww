@@ -32,6 +32,7 @@ INITIAL_COGS = [
     "cogs.fun",
     "cogs.owo",
     "cogs.leveling",
+    "cogs.music",
 ]
 
 import asyncio

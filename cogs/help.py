@@ -59,6 +59,11 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="🎵 Music & Voice",
+            value="`/radio` `/play` `/pause` `/resume` `/skip` `/stop` `/queue` `/nowplaying` `/volume` `/songinfo` `/lyrics`",
+            inline=False,
+        )
+        embed.add_field(
             name="🐾 OwO Zoo & Actions",
             value="`/hunt` `/zoo` `/sellanimals` `/bonk` `/slap` `/hug` `/kiss` `/pat` `/punch` `/bite` `/cuddle` `/poke` `/feed` `/marry` `/divorce` `/ship` `/owo`",
             inline=False,
