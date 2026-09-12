@@ -49,21 +49,21 @@ def render_progress_bar(current: int, total: int, length: int = 10) -> str:
     return f"`[{'▰' * filled}{'▱' * empty}]` **{int(fraction * 100)}%**"
 
 def get_tier_info(level: int) -> tuple[str, str, int]:
-    """Returns (tier_name, badge_emoji, embed_color) based on level."""
+    """Returns (tier_name, badge_emoji, embed_color) based on level (modern titles, zero medals)."""
     if level >= 100:
-        return "Mythic Titan", "🌟", 0xFFD700
+        return "Mythic God", "🌟", 0xFFD700
     elif level >= 75:
-        return "Celestial Ascendant", "🔮", 0x9B59B6
+        return "Celestial Lord", "🪐", 0x00CEC9
     elif level >= 50:
-        return "Diamond Grandmaster", "👑", 0x00CEC9
+        return "Shadow Monarch", "👑", 0xE74C3C
     elif level >= 30:
-        return "Platinum Champion", "💎", 0x3498DB
+        return "Elite Champion", "💎", 0x9B59B6
     elif level >= 15:
-        return "Gold Veteran", "🥇", 0xF1C40F
+        return "Vanguard", "🗡️", 0x2ECC71
     elif level >= 5:
-        return "Silver Adventurer", "🥈", 0x95A5A6
+        return "Pathfinder", "⚡", 0x3498DB
     else:
-        return "Bronze Recruit", "🥉", 0xCD7F32
+        return "Initiate", "🐾", 0x95A5A6
 
 def format_minutes(minutes: int) -> str:
     """Formats voice minutes into human readable hours and minutes."""
@@ -205,10 +205,11 @@ class Leveling(commands.Cog):
         tier_name, badge, color = get_tier_info(new_level)
 
         embed = discord.Embed(
-            title=f"🎉 LEVEL UP! — Level {new_level}",
+            title=f"⚡ Ranked Up! — Level {new_level}",
             description=(
-                f"### Congratulations {member.mention}! 🚀\n\n"
-                f"You just ascended to **Level {new_level}** ({badge} **{tier_name}**)!\n"
+                f"### GG {member.mention}! 🔥\n"
+                f"You just ranked up to **Level {new_level}**!\n\n"
+                f"> 🏷️ **Rank Title:** {badge} **{tier_name}**"
             ),
             color=color,
             timestamp=discord.utils.utcnow()
@@ -629,7 +630,7 @@ class Leveling(commands.Cog):
         )
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
 
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        medals = ["👑", "💎", "⭐", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
         lines = []
 
         for idx, row in enumerate(rows):

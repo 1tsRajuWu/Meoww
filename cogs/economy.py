@@ -397,7 +397,7 @@ class Economy(commands.Cog):
                 rows = await cur.fetchall()
 
         embed = discord.Embed(title="🏆 Server Rich List", color=0xFFD700, timestamp=discord.utils.utcnow())
-        medals = ["🥇", "🥈", "🥉"]
+        medals = ["👑", "💎", "⭐"]
         desc = []
         for i, (uid, net) in enumerate(rows):
             member = interaction.guild.get_member(uid)
