@@ -366,12 +366,9 @@ class Fun(commands.Cog):
         embed.add_field(name="🎬 Work / Franchise", value=f"*{picked['source']}*", inline=True)
         if picked.get("ep"):
             embed.add_field(name="📺 Movie / Ep / Scene", value=f"📍 {picked['ep']}", inline=True)
-        embed.add_field(name="🏷️ Category", value=f"{picked['icon']} {cat_display}", inline=True)
-        if mood_text:
-            embed.add_field(name="✨ Vibe", value=mood_text, inline=True)
 
         embed.set_author(name=f"{picked['icon']} Legendary Quote", icon_url=interaction.guild.me.display_avatar.url)
-        embed.set_footer(text=f"Requested by {interaction.user.display_name} • {cat_display}")
+        embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
         await interaction.response.send_message(embed=embed)
 
