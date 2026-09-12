@@ -64,8 +64,8 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
-            name="🐱 Fun",
-            value="`/meow` `/meowsound` `/kms` `/tan` `/quote`",
+            name="🐱 Fun & Quotes",
+            value="`/meow` `/meowsound` `/kms` `/tan` `/quote` `/addquote` `/customquote` `/customquotes` `/delquote`",
             inline=False,
         )
         embed.add_field(

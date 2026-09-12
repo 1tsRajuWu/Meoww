@@ -3,6 +3,25 @@ from discord import app_commands
 from discord.ext import commands
 import random
 import asyncio
+import aiosqlite
+import datetime
+from utils import db
+
+DB_PATH = db.DB_PATH
+
+async def setup_custom_quotes_table():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute("""CREATE TABLE IF NOT EXISTS custom_quotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            user_id INTEGER,
+            quote TEXT,
+            author TEXT,
+            source TEXT,
+            category TEXT DEFAULT 'funny',
+            created_at TEXT
+        )""")
+        await conn.commit()
 
 KMS_RESPONSES = [
     # Anime Comedy Fails
@@ -135,6 +154,52 @@ CAT_SOUNDS = [
     ("purr.ogg", "🐾 Deep Cozy Engine Purr", "*purrrrrrrrr*"),
     ("purr_bertie.ogg", "🐾 Gentle Sleeping Purr", "*soft purr...*"),
 ]
+
+
+class CustomQuoteView(discord.ui.View):
+    def __init__(self, guild_id: int):
+        super().__init__(timeout=180)
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="🎲 Another Custom Quote", style=discord.ButtonStyle.secondary)
+    async def another_quote(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await setup_custom_quotes_table()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? ORDER BY RANDOM() LIMIT 1",
+                (self.guild_id,)
+            ) as cur:
+                row = await cur.fetchone()
+
+        if not row:
+            return await interaction.response.send_message("❌ No custom quotes found in this server!", ephemeral=True)
+
+        qid, uid, qtext, qauthor, qsource, qcat, qdate = row
+        submitter = interaction.guild.get_member(uid) if interaction.guild else None
+        sub_name = submitter.display_name if submitter else f"User {uid}"
+
+        cat_emojis = {
+            "funny": "😂",
+            "love": "💖",
+            "deep": "🧠",
+            "out_of_context": "🔥",
+            "legendary": "🏆"
+        }
+        icon = cat_emojis.get(qcat, "📜")
+
+        embed = discord.Embed(
+            title=f"{icon} Server Custom Quote #{qid}",
+            description=f"### “{qtext}”",
+            color=0xF1C40F,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.add_field(name="👤 Quoted", value=f"**{qauthor}**", inline=True)
+        if qsource:
+            embed.add_field(name="📍 Context / Source", value=f"*{qsource}*", inline=True)
+        embed.set_footer(text=f"Submitted by {sub_name} • {qdate}")
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
 
 class Fun(commands.Cog):
     """Fun and entertainment commands."""
@@ -342,6 +407,7 @@ class Fun(commands.Cog):
     @app_commands.choices(
         category=[
             app_commands.Choice(name="🎲 Random (Anything)", value="all"),
+            app_commands.Choice(name="📜 Server Custom Quotes", value="custom"),
             app_commands.Choice(name="🏆 Motivation & Grind", value="motivation"),
             app_commands.Choice(name="📜 Classic / Old Love", value="old_love"),
             app_commands.Choice(name="📚 Novels & Literature", value="books"),
@@ -361,6 +427,54 @@ class Fun(commands.Cog):
         mood: str = None
     ):
         cat_val = category.value if category else "all"
+
+        if cat_val == "custom":
+            if not interaction.guild:
+                return await interaction.response.send_message("❌ Server custom quotes are only available inside servers!", ephemeral=True)
+            await setup_custom_quotes_table()
+            async with aiosqlite.connect(DB_PATH) as conn:
+                async with conn.execute(
+                    "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? ORDER BY RANDOM() LIMIT 1",
+                    (interaction.guild.id,)
+                ) as cur:
+                    row = await cur.fetchone()
+            if not row:
+                embed = discord.Embed(
+                    title="📜 No Custom Quotes Yet!",
+                    description=(
+                        "This server doesn't have any custom quotes yet!\n\n"
+                        "Be the first to add one using `/addquote`!\n"
+                        "Example: `/addquote quote:I am inevitable author:Thanos source:Endgame`"
+                    ),
+                    color=0xFEE75C
+                )
+                return await interaction.response.send_message(embed=embed)
+
+            qid, uid, qtext, qauthor, qsource, qcat, qdate = row
+            submitter = interaction.guild.get_member(uid)
+            sub_name = submitter.display_name if submitter else f"User {uid}"
+
+            cat_emojis = {
+                "funny": "😂",
+                "love": "💖",
+                "deep": "🧠",
+                "out_of_context": "🔥",
+                "legendary": "🏆"
+            }
+            icon = cat_emojis.get(qcat, "📜")
+
+            embed = discord.Embed(
+                title=f"{icon} Server Custom Quote #{qid}",
+                description=f"### “{qtext}”",
+                color=0xF1C40F,
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="👤 Quoted", value=f"**{qauthor}**", inline=True)
+            if qsource:
+                embed.add_field(name="📍 Context / Source", value=f"*{qsource}*", inline=True)
+            embed.set_footer(text=f"Added by {sub_name} • {qdate}")
+            return await interaction.response.send_message(embed=embed, view=CustomQuoteView(interaction.guild.id))
+
         mood_val = mood.lower().strip() if mood else "any"
 
         # Handle full choice label if passed
@@ -456,6 +570,203 @@ class Fun(commands.Cog):
             if not current or current.lower() in label.lower() or current.lower() in val.lower():
                 choices.append(app_commands.Choice(name=label, value=val))
         return choices[:25]
+
+    # ---------------------------------------------------------
+    # CUSTOM QUOTES SYSTEM (Add, Ask, List, Delete)
+    # ---------------------------------------------------------
+    @app_commands.command(name="addquote", description="Add a custom quote to this server's collection!")
+    @app_commands.describe(
+        quote="The quote text",
+        author="Who said it (e.g. @Meoww, Raj, etc.)",
+        source="Context or where it was said (e.g. 'Late night VC', 'Minecraft')",
+        category="Quote category"
+    )
+    @app_commands.choices(category=[
+        app_commands.Choice(name="😂 Funny & Meme", value="funny"),
+        app_commands.Choice(name="💖 Romantic & Cute", value="love"),
+        app_commands.Choice(name="🧠 Deep & Wise", value="deep"),
+        app_commands.Choice(name="🔥 Out of Context", value="out_of_context"),
+        app_commands.Choice(name="🏆 Legendary Moment", value="legendary"),
+    ])
+    async def addquote(
+        self,
+        interaction: discord.Interaction,
+        quote: str,
+        author: str,
+        source: str = None,
+        category: str = "funny"
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Custom quotes can only be added in a server!", ephemeral=True)
+        await setup_custom_quotes_table()
+        quote = quote.strip()
+        author = author.strip()
+        source = source.strip() if source else None
+
+        if len(quote) < 2:
+            return await interaction.response.send_message("❌ Quote is too short!", ephemeral=True)
+        if len(quote) > 1000:
+            return await interaction.response.send_message("❌ Quote is too long! Max 1000 characters.", ephemeral=True)
+
+        now = discord.utils.utcnow().strftime("%B %d, %Y")
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cur = await conn.execute(
+                """INSERT INTO custom_quotes (guild_id, user_id, quote, author, source, category, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (interaction.guild.id, interaction.user.id, quote, author, source, category, now)
+            )
+            await conn.commit()
+            quote_id = cur.lastrowid
+
+        embed = discord.Embed(
+            title="✅ Custom Quote Added!",
+            description=(
+                f"### “{quote}”\n\n"
+                f"• **Speaker:** **{author}**\n"
+                + (f"• **Context / Source:** *{source}*\n" if source else "")
+                + f"• **Quote ID:** `#{quote_id}`\n\n"
+                f"*Anyone in the server can now ask for this quote using `/customquote`!*"
+            ),
+            color=0x57F287,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"Added by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="customquote", description="Ask for a server custom quote!")
+    @app_commands.describe(
+        quote_id="Look up a specific quote by ID",
+        member="Filter quotes submitted by a specific member"
+    )
+    async def customquote(
+        self,
+        interaction: discord.Interaction,
+        quote_id: int = None,
+        member: discord.Member = None
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Custom quotes can only be viewed in a server!", ephemeral=True)
+        await setup_custom_quotes_table()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if quote_id is not None:
+                async with conn.execute(
+                    "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? AND id=?",
+                    (interaction.guild.id, quote_id)
+                ) as cur:
+                    row = await cur.fetchone()
+                if not row:
+                    return await interaction.response.send_message(f"❌ No custom quote found with ID `#{quote_id}`.", ephemeral=True)
+            elif member is not None:
+                async with conn.execute(
+                    "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? AND user_id=? ORDER BY RANDOM() LIMIT 1",
+                    (interaction.guild.id, member.id)
+                ) as cur:
+                    row = await cur.fetchone()
+                if not row:
+                    return await interaction.response.send_message(f"❌ {member.mention} hasn't submitted any custom quotes yet!", ephemeral=True)
+            else:
+                async with conn.execute(
+                    "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? ORDER BY RANDOM() LIMIT 1",
+                    (interaction.guild.id,)
+                ) as cur:
+                    row = await cur.fetchone()
+                if not row:
+                    embed = discord.Embed(
+                        title="📜 No Custom Quotes Yet!",
+                        description=(
+                            "This server doesn't have any custom quotes yet!\n\n"
+                            "Be the first to add one using `/addquote`!\n"
+                            "Example: `/addquote quote:I am inevitable author:Thanos source:Endgame`"
+                        ),
+                        color=0xFEE75C
+                    )
+                    return await interaction.response.send_message(embed=embed)
+
+        qid, uid, qtext, qauthor, qsource, qcat, qdate = row
+        submitter = interaction.guild.get_member(uid)
+        sub_name = submitter.display_name if submitter else f"User {uid}"
+
+        cat_emojis = {
+            "funny": "😂",
+            "love": "💖",
+            "deep": "🧠",
+            "out_of_context": "🔥",
+            "legendary": "🏆"
+        }
+        icon = cat_emojis.get(qcat, "📜")
+
+        embed = discord.Embed(
+            title=f"{icon} Server Custom Quote #{qid}",
+            description=f"### “{qtext}”",
+            color=0xF1C40F,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.add_field(name="👤 Quoted", value=f"**{qauthor}**", inline=True)
+        if qsource:
+            embed.add_field(name="📍 Context / Source", value=f"*{qsource}*", inline=True)
+        embed.set_footer(text=f"Submitted by {sub_name} • {qdate}")
+        await interaction.response.send_message(embed=embed, view=CustomQuoteView(interaction.guild.id))
+
+    @app_commands.command(name="customquotes", description="List recent custom quotes added to this server.")
+    async def customquotes(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Custom quotes can only be viewed in a server!", ephemeral=True)
+        await setup_custom_quotes_table()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT id, quote, author, created_at FROM custom_quotes WHERE guild_id=? ORDER BY id DESC LIMIT 10",
+                (interaction.guild.id,)
+            ) as cur:
+                rows = await cur.fetchall()
+
+        if not rows:
+            return await interaction.response.send_message("❌ No custom quotes found in this server. Add some with `/addquote`!", ephemeral=True)
+
+        embed = discord.Embed(
+            title=f"📜 {interaction.guild.name}'s Custom Quotes",
+            description="Here are recent quotes added to this server:\n",
+            color=0xF1C40F,
+            timestamp=discord.utils.utcnow()
+        )
+        for qid, qtext, qauthor, qdate in rows:
+            short_text = qtext[:75] + ("..." if len(qtext) > 75 else "")
+            embed.description += f"• **`#{qid}`** “{short_text}” — *{qauthor}* ({qdate})\n"
+
+        embed.set_footer(text="🐾 Ask for any quote with /customquote [quote_id]")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="delquote", description="Delete a custom quote (Submitter, Admin, or Owner only).")
+    @app_commands.describe(quote_id="The ID of the quote to delete")
+    async def delquote(self, interaction: discord.Interaction, quote_id: int):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Custom quotes can only be deleted in a server!", ephemeral=True)
+        await setup_custom_quotes_table()
+        is_owner = (interaction.guild and interaction.guild.owner_id == interaction.user.id)
+        is_admin = interaction.user.guild_permissions.administrator
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT user_id, quote FROM custom_quotes WHERE guild_id=? AND id=?",
+                (interaction.guild.id, quote_id)
+            ) as cur:
+                row = await cur.fetchone()
+
+            if not row:
+                return await interaction.response.send_message(f"❌ Quote `#{quote_id}` not found.", ephemeral=True)
+
+            creator_id, quote_text = row
+            if interaction.user.id != creator_id and not is_admin and not is_owner:
+                return await interaction.response.send_message("❌ You can only delete your own quotes, unless you are an Admin!", ephemeral=True)
+
+            await conn.execute("DELETE FROM custom_quotes WHERE guild_id=? AND id=?", (interaction.guild.id, quote_id))
+            await conn.commit()
+
+        embed = discord.Embed(
+            title="🗑️ Quote Deleted",
+            description=f"✅ Successfully deleted quote `#{quote_id}`.",
+            color=0xED4245
+        )
+        await interaction.response.send_message(embed=embed)
 
 
 TAN_STATUSES = [
@@ -655,4 +966,5 @@ QUOTES = [
 
 
 async def setup(bot: commands.Bot):
+    await setup_custom_quotes_table()
     await bot.add_cog(Fun(bot))
