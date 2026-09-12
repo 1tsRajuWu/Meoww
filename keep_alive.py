@@ -22,7 +22,7 @@ app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "meow_dashboard_secret_key_2026_secure")
 
 BOT_INSTANCE = None
-ADMIN_PASSKEY = os.environ.get("ADMIN_PASSKEY", "meow_admin_2026")
+ADMIN_PASSKEY = os.environ.get("ADMIN_PASSKEY", "Him@2009@Meoww")
 MAGIC_TOKENS = {}
 
 AVAILABLE_MODULES = [
