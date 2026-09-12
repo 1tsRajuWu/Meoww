@@ -103,9 +103,10 @@ class Leveling(commands.Cog):
                 row = await cur.fetchone()
 
         if not row:
+            def_ch = 1547637176697757846 if guild_id == 1542278896148422676 else 0
             default_settings = {
                 "enabled": 1,
-                "channel_id": 0,
+                "channel_id": def_ch,
                 "dm_notifications": 0,
                 "text_min_coins": 4,
                 "text_max_coins": 10,
@@ -117,8 +118,8 @@ class Leveling(commands.Cog):
                 await conn.execute(
                     """INSERT OR IGNORE INTO level_settings 
                        (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
-                       VALUES (?, 1, 0, 0, 4, 10, 15, 2, 3)""",
-                    (guild_id,)
+                       VALUES (?, 1, ?, 0, 4, 10, 15, 2, 3)""",
+                    (guild_id, def_ch)
                 )
                 await conn.commit()
             return default_settings
@@ -237,16 +238,38 @@ class Leveling(commands.Cog):
         if settings.get("channel_id"):
             target_channel = guild.get_channel(settings["channel_id"])
 
-        # 2. Priority: Dedicated bot commands channel (#cmd, #cmds, #bot-cmd, #bot-commands, #commands, #level-ups)
-        # Keeps general discussion channels completely clean and free of level-up spam!
+        # 2. Priority: Dedicated bot commands channel (#bot-cmd: 1547637176697757846)
+        # Explicitly routes to public bot-cmd and avoids private/admin channels!
         if not target_channel:
-            for ch_name in ("cmd", "cmds", "bot-cmd", "bot-commands", "commands", "level-ups", "bot"):
-                found = discord.utils.get(guild.text_channels, name=ch_name)
-                if found and found.permissions_for(guild.me).send_messages:
-                    target_channel = found
-                    break
+            specific_ch = guild.get_channel(1547637176697757846)
+            if specific_ch and specific_ch.permissions_for(guild.me).send_messages:
+                target_channel = specific_ch
 
-        # 3. Fallback: server system channel, or active channel only if no commands channel exists
+        # 3. Dynamic priority: Look for member-accessible bot channels, excluding Admin/Staff categories
+        if not target_channel:
+            for ch in guild.text_channels:
+                cat_name = ch.category.name.lower() if ch.category else ""
+                if any(adm in cat_name for adm in ("admin", "staff", "mod", "ticket")):
+                    continue
+                cname = ch.name.lower()
+                if any(kw in cname for kw in ("bot-cmd", "botcmd", "bot_cmd", "bot-commands", "level-up", "levelups")):
+                    if ch.permissions_for(guild.me).send_messages:
+                        target_channel = ch
+                        break
+
+        # 4. Secondary fallback: Channels containing cmd/commands that are NOT in an admin category
+        if not target_channel:
+            for ch in guild.text_channels:
+                cat_name = ch.category.name.lower() if ch.category else ""
+                if any(adm in cat_name for adm in ("admin", "staff", "mod", "ticket")):
+                    continue
+                cname = ch.name.lower()
+                if any(kw in cname for kw in ("cmd", "cmds", "commands")):
+                    if ch.permissions_for(guild.me).send_messages:
+                        target_channel = ch
+                        break
+
+        # 5. Final Fallback: server system channel, or active channel
         if not target_channel:
             target_channel = guild.system_channel
         if not target_channel:
@@ -787,8 +810,8 @@ class Leveling(commands.Cog):
             )
             await conn.commit()
 
-        target_ch = interaction.guild.get_channel(new_channel) if new_channel else None
-        ch_text = target_ch.mention if target_ch else "*#cmd / Dedicated Commands Channel (Auto-detected)*"
+        target_ch = interaction.guild.get_channel(new_channel) if new_channel else interaction.guild.get_channel(1547637176697757846)
+        ch_text = target_ch.mention if target_ch else "*💬・bot-cmd (Auto-detected)*"
 
         embed = discord.Embed(
             title="⚙️ Leveling & Reward Settings",
@@ -801,7 +824,7 @@ class Leveling(commands.Cog):
         embed.add_field(name="DM Alerts", value="✅ Enabled" if new_dm else "❌ Disabled", inline=True)
         embed.add_field(name="Text Rewards", value=f"`{new_tmin} - {new_tmax}` 🪙 + Length-scaled XP (10s cd)", inline=True)
         embed.add_field(name="Voice (VC) Rewards", value=f"`{new_vc}` 🪙 + 3 XP / min *(Hardened, AFK >1h stops)*", inline=True)
-        embed.set_footer(text="🐾 Server Leveling System • Level up cards post to #cmd")
+        embed.set_footer(text="🐾 Server Leveling System • Level up cards post to 💬・bot-cmd")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="setlevel", description="Set a member's level directly (Admin only).")

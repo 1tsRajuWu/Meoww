@@ -25,11 +25,16 @@ class Welcome(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
+        channel = None
         channel_id = await db.get_setting(member.guild.id, "welcome_channel")
-        if not channel_id:
-            return
-        channel = member.guild.get_channel(channel_id)
+        if channel_id:
+            channel = member.guild.get_channel(int(channel_id))
         if not channel:
+            for ch in member.guild.text_channels:
+                if "welcome" in ch.name.lower():
+                    channel = ch
+                    break
+        if not channel or not channel.permissions_for(member.guild.me).send_messages:
             return
         embed = discord.Embed(
             title="Welcome!",
