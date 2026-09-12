@@ -81,20 +81,9 @@ async def on_ready():
     # Global error handler for app commands
     bot.tree.on_error = on_app_command_error
     
-    try:
-        # 1. Sync all commands globally (zero duplicates, available in every channel/server)
-        synced_global = await bot.tree.sync()
-        print(f"✅ Successfully synced {len(synced_global)} global command(s) with zero duplicates.")
-
-        # 2. Clear any lingering guild overrides so commands never duplicate
-        for guild in bot.guilds:
-            try:
-                bot.tree.clear_commands(guild=guild)
-                await bot.tree.sync(guild=guild)
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"Slash command sync failed: {e}")
+    # Commands are persistently registered globally with Discord API.
+    # Manual sync can be triggered at any time via /sync.
+    print("✅ Application commands active and ready for interactions.")
 
     # Auto-hoist the bot's role to just below @everyone so it can action anyone
     for guild in bot.guilds:
