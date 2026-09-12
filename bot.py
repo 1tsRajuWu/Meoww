@@ -30,9 +30,13 @@ INITIAL_COGS = [
     "cogs.economy",
     "cogs.games",
     "cogs.fun",
-    "cogs.owo",
+    "cogs.social",
     "cogs.leveling",
     "cogs.music",
+    "cogs.giveaway",
+    "cogs.colors",
+    "cogs.tempvoice",
+    "cogs.starboard",
 ]
 
 import asyncio
@@ -78,15 +82,15 @@ async def on_ready():
     bot.tree.on_error = on_app_command_error
     
     try:
-        # 1. Clear any guild-specific command overrides so they NEVER duplicate with global commands
+        # 1. Sync commands directly into all connected guilds so they appear in Discord INSTANTLY (within 1-2 seconds)
         for guild in bot.guilds:
-            bot.tree.clear_commands(guild=guild)
-            await bot.tree.sync(guild=guild)
-        print(f"Verified 0 guild command overrides across {len(bot.guilds)} guild(s).")
+            bot.tree.copy_global_to(guild=guild)
+            synced_guild = await bot.tree.sync(guild=guild)
+            print(f"✅ Instantly synced {len(synced_guild)} command(s) directly to '{guild.name}' ({guild.id})!")
 
-        # 2. Sync all commands globally (zero duplicates, available in every channel/server)
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} global command(s) with zero duplicates.")
+        # 2. Also register them globally for long-term consistency
+        synced_global = await bot.tree.sync()
+        print(f"✅ Synced {len(synced_global)} global command(s).")
     except Exception as e:
         print(f"Slash command sync failed: {e}")
 

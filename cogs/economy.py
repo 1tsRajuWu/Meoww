@@ -80,7 +80,11 @@ async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool
         )
         await conn.commit()
 
+ALLOWED_ECONOMY_FIELDS = {"wallet", "bank", "last_daily", "last_weekly", "last_work"}
+
 async def set_field(user_id: int, guild_id: int, field: str, value):
+    if field not in ALLOWED_ECONOMY_FIELDS:
+        raise ValueError(f"Security violation: Invalid economy field {field}")
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
             f"UPDATE economy SET {field}=? WHERE user_id=? AND guild_id=?",
@@ -407,7 +411,9 @@ class Economy(commands.Cog):
         embed.description = "\n".join(desc) if desc else "No data yet."
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="addmoney", description="Give coins to a member (Owner has unlimited power, Admins have strict limits).")
+    eco_admin = app_commands.Group(name="eco-admin", description="Admin & Owner economy management")
+
+    @eco_admin.command(name="add", description="Give coins to a member (Owner has unlimited power, Admins have strict limits).")
     @app_commands.describe(member="Target member", amount="Amount to give")
     @app_commands.checks.has_permissions(administrator=True)
     async def addmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
@@ -453,7 +459,7 @@ class Economy(commands.Cog):
             embed.set_footer(text=f"🛡️ Admin Grant by {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="removemoney", description="Remove coins from a member (Admin / Owner).")
+    @eco_admin.command(name="remove", description="Remove coins from a member (Admin / Owner).")
     @app_commands.describe(member="Target member", amount="Amount to remove")
     @app_commands.checks.has_permissions(administrator=True)
     async def removemoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
@@ -474,7 +480,7 @@ class Economy(commands.Cog):
             embed.set_footer(text="👑 Server Owner Override")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="setmoney", description="Set a member's exact wallet and bank balance (Owner only).")
+    @eco_admin.command(name="set", description="Set a member's exact wallet and bank balance (Owner only).")
     @app_commands.describe(member="Target member", wallet="New wallet balance", bank="New bank balance (optional)")
     async def setmoney(self, interaction: discord.Interaction, member: discord.Member, wallet: int, bank: int = None):
         if not await check_is_owner(interaction):
@@ -505,7 +511,7 @@ class Economy(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="resetmoney", description="Reset economy balances back to 0 (Owner only).")
+    @eco_admin.command(name="reset", description="Reset economy balances back to 0 (Owner only).")
     @app_commands.describe(member="Member to reset", reset_all="Reset all server balances?")
     async def resetmoney(self, interaction: discord.Interaction, member: discord.Member = None, reset_all: bool = False):
         if not await check_is_owner(interaction):

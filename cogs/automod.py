@@ -12,6 +12,8 @@ LINK_REGEX = re.compile(r"https?://\S+", re.IGNORECASE)
 class AutoMod(commands.Cog):
     """Basic auto-moderation: spam detection and invite/link filtering."""
 
+    automod_group = app_commands.Group(name="automod", description="Automod moderation filters")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.settings_cache = {}  # {guild_id: {"block_invites": bool, "anti_spam": bool}}
@@ -29,13 +31,13 @@ class AutoMod(commands.Cog):
         if guild_id in self.settings_cache:
             self.settings_cache[guild_id][key] = value
 
-    @app_commands.command(name="automod-invites", description="Toggle blocking of Discord invite links.")
+    @automod_group.command(name="invites", description="Toggle blocking of Discord invite links.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def automod_invites(self, interaction: discord.Interaction, enabled: bool):
         await self.update_setting(interaction.guild.id, "block_invites", enabled)
         await interaction.response.send_message(f"Invite link blocking: **{'ON' if enabled else 'OFF'}**")
 
-    @app_commands.command(name="automod-antispam", description="Toggle anti-spam (rapid message) detection.")
+    @automod_group.command(name="antispam", description="Toggle anti-spam (rapid message) detection.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def automod_antispam(self, interaction: discord.Interaction, enabled: bool):
         await self.update_setting(interaction.guild.id, "anti_spam", enabled)

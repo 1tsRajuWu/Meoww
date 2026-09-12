@@ -49,19 +49,46 @@ class BotConfig(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"An unexpected error occurred: {e}")
 
-    @app_commands.command(name="sync", description="Force re-sync slash commands with zero duplicates (Owner only).")
+    @app_commands.command(name="sync", description="Force re-sync all slash commands directly to this server.")
     async def sync(self, interaction: discord.Interaction):
-        if not (interaction.guild and interaction.user.id == interaction.guild.owner_id):
-            return await interaction.response.send_message("❌ Only the **Server Owner** can run this command.", ephemeral=True)
+        if not (interaction.guild and (interaction.user.id == interaction.guild.owner_id or interaction.user.guild_permissions.administrator)):
+            return await interaction.response.send_message("❌ Only server administrators or the owner can run this command.", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         try:
-            for guild in self.bot.guilds:
-                self.bot.tree.clear_commands(guild=guild)
-                await self.bot.tree.sync(guild=guild)
-            synced = await self.bot.tree.sync()
-            await interaction.followup.send(f"✅ Successfully synced **{len(synced)}** global commands! All duplicates removed.")
+            # Sync directly to current guild
+            self.bot.tree.copy_global_to(guild=interaction.guild)
+            synced_guild = await self.bot.tree.sync(guild=interaction.guild)
+            # Sync globally
+            synced_global = await self.bot.tree.sync()
+            await interaction.followup.send(
+                f"✅ **Slash Commands Synced!**\n"
+                f"• Synced **{len(synced_guild)}** commands directly to **{interaction.guild.name}** (Instant!)\n"
+                f"• Synced **{len(synced_global)}** global commands across Discord."
+            )
         except Exception as e:
             await interaction.followup.send(f"❌ Sync failed: {e}")
+
+    @app_commands.command(name="updatedb", description="Verify and update all bot database tables and default guild settings.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def updatedb(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            from utils import db
+            await db.setup()
+            if interaction.guild:
+                await db.set_setting(interaction.guild.id, "bot_cmd_channel_id", 1547637176697757846)
+                await db.set_setting(interaction.guild.id, "log_channel_id", 1546718348119773260)
+                await db.set_setting(interaction.guild.id, "fav_songs_channel_id", 1547683807916851240)
+            await interaction.followup.send(
+                "✅ **Database Successfully Updated!**\n"
+                "• All 13 database tables verified and created.\n"
+                "• Primary command channel set to `💬・bot-cmd` (`1547637176697757846`).\n"
+                "• Moderation logs bound to `logs` (`1546718348119773260`).\n"
+                "• Music showcase bound to `💬・fav-songs` (`1547683807916851240`).\n"
+                "• Economy and leveling tables ready."
+            )
+        except Exception as e:
+            await interaction.followup.send(f"❌ Database update failed: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BotConfig(bot))

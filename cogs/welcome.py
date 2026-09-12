@@ -6,24 +6,26 @@ from utils import db
 class Welcome(commands.Cog):
     """Welcome and goodbye messages."""
 
+    welcome_group = app_commands.Group(name="welcome", description="Welcome & goodbye message settings")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setwelcome", description="Set the channel for welcome messages.")
+    @welcome_group.command(name="set", description="Set the channel for welcome messages.")
     @app_commands.describe(channel="The channel to welcome members in")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setwelcome(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await db.set_setting(interaction.guild.id, "welcome_channel", channel.id)
         await interaction.response.send_message(f"Welcome messages will now be sent to {channel.mention}.")
 
-    @app_commands.command(name="setgoodbye", description="Set the channel for goodbye messages.")
+    @welcome_group.command(name="goodbye", description="Set the channel for goodbye messages.")
     @app_commands.describe(channel="The channel to say goodbye in")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setgoodbye(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await db.set_setting(interaction.guild.id, "goodbye_channel", channel.id)
         await interaction.response.send_message(f"Goodbye messages will now be sent to {channel.mention}.")
 
-    @app_commands.command(name="disablewelcome", description="Disable welcome messages in this server.")
+    @welcome_group.command(name="disable", description="Disable welcome messages in this server.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def disablewelcome(self, interaction: discord.Interaction):
         await db.set_setting(interaction.guild.id, "welcome_channel", None)

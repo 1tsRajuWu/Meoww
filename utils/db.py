@@ -23,6 +23,38 @@ async def setup():
             role_id INTEGER,
             PRIMARY KEY (message_id, emoji)
         )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS mod_cases (
+            case_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            case_type TEXT,
+            user_id INTEGER,
+            moderator_id INTEGER,
+            reason TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS economy (
+            user_id INTEGER,
+            guild_id INTEGER,
+            wallet INTEGER DEFAULT 0,
+            bank INTEGER DEFAULT 0,
+            last_daily TEXT,
+            last_weekly TEXT,
+            last_work TEXT,
+            PRIMARY KEY (user_id, guild_id)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            guild_id INTEGER,
+            item_name TEXT
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS shop (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            item_name TEXT,
+            price INTEGER,
+            role_id INTEGER
+        )''')
         await db.execute('''CREATE TABLE IF NOT EXISTS user_levels (
             guild_id INTEGER,
             user_id INTEGER,
@@ -51,6 +83,81 @@ async def setup():
             vc_coins_per_min INTEGER DEFAULT 2,
             vc_xp_per_min INTEGER DEFAULT 3
         )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS custom_quotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            user_id INTEGER,
+            quote TEXT,
+            author TEXT,
+            source TEXT,
+            category TEXT DEFAULT 'funny',
+            created_at TEXT
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS user_animals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            user_id INTEGER,
+            animal_name TEXT,
+            emoji TEXT,
+            tier TEXT,
+            count INTEGER DEFAULT 1,
+            UNIQUE(guild_id, user_id, animal_name)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS marriages (
+            guild_id INTEGER,
+            user1_id INTEGER,
+            user2_id INTEGER,
+            married_at TEXT,
+            PRIMARY KEY (guild_id, user1_id)
+        )''')
+
+        # Giveaway tables
+        await db.execute('''CREATE TABLE IF NOT EXISTS giveaways (
+            message_id INTEGER PRIMARY KEY,
+            channel_id INTEGER,
+            guild_id INTEGER,
+            prize TEXT,
+            winners INTEGER,
+            end_ts REAL,
+            host_id INTEGER,
+            ended INTEGER DEFAULT 0
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS giveaway_entries (
+            message_id INTEGER,
+            user_id INTEGER,
+            PRIMARY KEY (message_id, user_id)
+        )''')
+
+        # TempVoice (Join-to-Create) tables
+        await db.execute('''CREATE TABLE IF NOT EXISTS tempvoice_settings (
+            guild_id INTEGER PRIMARY KEY,
+            generator_channel_id INTEGER,
+            category_id INTEGER
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS tempvoice_channels (
+            channel_id INTEGER PRIMARY KEY,
+            owner_id INTEGER,
+            guild_id INTEGER
+        )''')
+
+        # Starboard tables
+        await db.execute('''CREATE TABLE IF NOT EXISTS starboard_settings (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER,
+            threshold INTEGER DEFAULT 3
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS starboard_posts (
+            original_message_id INTEGER PRIMARY KEY,
+            starboard_message_id INTEGER,
+            guild_id INTEGER,
+            stars_count INTEGER DEFAULT 0
+        )''')
+
+        # Seed default settings for main guild 1542278896148422676 (Hmm)
+        await db.execute('''INSERT OR IGNORE INTO level_settings 
+            (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
+            VALUES (1542278896148422676, 1, 1547637176697757846, 0, 4, 10, 15, 2, 3)''')
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):

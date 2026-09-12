@@ -13,7 +13,7 @@ DB_PATH = db.DB_PATH
 # -------------------------------------------------------------
 # DATABASE SETUP
 # -------------------------------------------------------------
-async def setup_owo_tables():
+async def setup_social_tables():
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("""CREATE TABLE IF NOT EXISTS user_animals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -374,10 +374,10 @@ class MarriageView(discord.ui.View):
 
 
 # -------------------------------------------------------------
-# OWO COG IMPLEMENTATION
+# SOCIAL & SAFARI COG IMPLEMENTATION
 # -------------------------------------------------------------
-class OwO(commands.Cog):
-    """OwO-style games, zoo hunting, social actions, marriage, and uwu speak!"""
+class Social(commands.Cog):
+    """Pet safari hunting, zoo collection, rocket crash game, social roleplay actions, and marriage system!"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -387,7 +387,7 @@ class OwO(commands.Cog):
     # ---------------------------------------------------------
     @app_commands.command(name="hunt", description="Go hunting in the wild and catch rare animals for your zoo!")
     async def hunt(self, interaction: discord.Interaction):
-        await setup_owo_tables()
+        await setup_social_tables()
         await ensure_eco(interaction.user.id, interaction.guild.id)
 
         # Catch 1 to 3 animals per hunt
@@ -447,7 +447,7 @@ class OwO(commands.Cog):
     @app_commands.describe(member="Member's zoo to view")
     async def zoo(self, interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user
-        await setup_owo_tables()
+        await setup_social_tables()
 
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
@@ -510,7 +510,7 @@ class OwO(commands.Cog):
         app_commands.Choice(name="Sell Everything (Full Liquidation)", value="all"),
     ])
     async def sellanimals(self, interaction: discord.Interaction, tier: str):
-        await setup_owo_tables()
+        await setup_social_tables()
 
         price_map = {}
         for t, list_a in ANIMALS.items():
@@ -647,7 +647,7 @@ class OwO(commands.Cog):
                 pass
 
     # ---------------------------------------------------------
-    # 3. OWO SOCIAL ROLEPLAY ACTIONS
+    # 3. SOCIAL ROLEPLAY ACTIONS
     # ---------------------------------------------------------
     async def _handle_action(self, interaction: discord.Interaction, action: str, member: discord.Member):
         if member.id == interaction.user.id:
@@ -666,55 +666,22 @@ class OwO(commands.Cog):
         embed.set_image(url=gif)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="bonk", description="Bonk a member with a giant squeaky cartoon hammer!")
-    @app_commands.describe(member="Member to bonk")
-    async def bonk(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "bonk", member)
-
-    @app_commands.command(name="slap", description="Slap some sense into a member!")
-    @app_commands.describe(member="Member to slap")
-    async def slap(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "slap", member)
-
-    @app_commands.command(name="hug", description="Give a warm, cozy hug to someone!")
-    @app_commands.describe(member="Member to hug")
-    async def hug(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "hug", member)
-
-    @app_commands.command(name="kiss", description="Give a sweet kiss to someone!")
-    @app_commands.describe(member="Member to kiss")
-    async def kiss(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "kiss", member)
-
-    @app_commands.command(name="pat", description="Give affectionate headpats to someone!")
-    @app_commands.describe(member="Member to pat")
-    async def pat(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "pat", member)
-
-    @app_commands.command(name="punch", description="Hit someone with a dramatic anime knockout punch!")
-    @app_commands.describe(member="Member to punch")
-    async def punch(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "punch", member)
-
-    @app_commands.command(name="bite", description="Take a playful little chomp out of someone!")
-    @app_commands.describe(member="Member to bite")
-    async def bite(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "bite", member)
-
-    @app_commands.command(name="cuddle", description="Cuddle up cozily with someone!")
-    @app_commands.describe(member="Member to cuddle")
-    async def cuddle(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "cuddle", member)
-
-    @app_commands.command(name="poke", description="Poke someone repeatedly on the cheek!")
-    @app_commands.describe(member="Member to poke")
-    async def poke(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "poke", member)
-
-    @app_commands.command(name="feed", description="Feed delicious treats to someone!")
-    @app_commands.describe(member="Member to feed")
-    async def feed(self, interaction: discord.Interaction, member: discord.Member):
-        await self._handle_action(interaction, "feed", member)
+    @app_commands.command(name="action", description="Perform an anime/social roleplay action with another member!")
+    @app_commands.describe(action="The roleplay action to perform", member="The member to interact with")
+    @app_commands.choices(action=[
+        app_commands.Choice(name="🔨 Bonk", value="bonk"),
+        app_commands.Choice(name="👋 Slap", value="slap"),
+        app_commands.Choice(name="🤗 Hug", value="hug"),
+        app_commands.Choice(name="💋 Kiss", value="kiss"),
+        app_commands.Choice(name="✨ Headpat", value="pat"),
+        app_commands.Choice(name="👊 Punch", value="punch"),
+        app_commands.Choice(name="🦷 Bite", value="bite"),
+        app_commands.Choice(name="🧸 Cuddle", value="cuddle"),
+        app_commands.Choice(name="👉 Poke", value="poke"),
+        app_commands.Choice(name="🍰 Feed", value="feed"),
+    ])
+    async def action(self, interaction: discord.Interaction, action: app_commands.Choice[str], member: discord.Member):
+        await self._handle_action(interaction, action.value, member)
 
     # ---------------------------------------------------------
     # 4. MARRIAGE & LOVE SYSTEM
@@ -722,7 +689,7 @@ class OwO(commands.Cog):
     @app_commands.command(name="marry", description="Propose marriage to another member!")
     @app_commands.describe(member="The lucky member to propose to")
     async def marry(self, interaction: discord.Interaction, member: discord.Member):
-        await setup_owo_tables()
+        await setup_social_tables()
         if member.id == interaction.user.id:
             return await interaction.response.send_message("❌ You can't marry yourself!", ephemeral=True)
         if member.bot:
@@ -748,7 +715,7 @@ class OwO(commands.Cog):
 
     @app_commands.command(name="divorce", description="Divorce your current spouse.")
     async def divorce(self, interaction: discord.Interaction):
-        await setup_owo_tables()
+        await setup_social_tables()
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute("SELECT user2_id, married_at FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, interaction.user.id)) as cur:
                 row = await cur.fetchone()
@@ -817,23 +784,23 @@ class OwO(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     # ---------------------------------------------------------
-    # 5. OWO SPEAK / UWUIFIER
+    # 5. AESTHETIC UWU TEXT TRANSLATOR
     # ---------------------------------------------------------
-    @app_commands.command(name="owo", description="Translate any sentence into cute OwO / UwU speak!")
-    @app_commands.describe(text="The message to OwO-ify")
-    async def owo(self, interaction: discord.Interaction, text: str):
+    @app_commands.command(name="uwu", description="Translate any sentence into cute aesthetic anime speak!")
+    @app_commands.describe(text="The message to translate")
+    async def uwu(self, interaction: discord.Interaction, text: str):
         # Basic substitution
-        owo_text = text.replace("r", "w").replace("l", "w").replace("R", "W").replace("L", "W")
-        owo_text = owo_text.replace("ove", "uv").replace("OVE", "UV")
+        uwu_text = text.replace("r", "w").replace("l", "w").replace("R", "W").replace("L", "W")
+        uwu_text = uwu_text.replace("ove", "uv").replace("OVE", "UV")
 
         faces = [
-            "(◕‿◕✿)", "(˶ᵔ ᵕ ᵔ˶)", "(⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄)", "OwO", "UwU", "nya~",
+            "(◕‿◕✿)", "(˶ᵔ ᵕ ᵔ˶)", "(⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄)", "✨", "UwU", "nya~",
             "(⑅˘͈ ᵕ ˘͈ )", "(っ˘з(˘⌣˘ )", "(*^ω^*)"
         ]
         face = random.choice(faces)
 
         # Stuttering
-        words = owo_text.split()
+        words = uwu_text.split()
         for i in range(len(words)):
             if len(words[i]) > 3 and random.random() < 0.25:
                 words[i] = f"{words[i][0]}-{words[i]}"
@@ -843,5 +810,5 @@ class OwO(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    await setup_owo_tables()
-    await bot.add_cog(OwO(bot))
+    await setup_social_tables()
+    await bot.add_cog(Social(bot))

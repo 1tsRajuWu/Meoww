@@ -359,12 +359,14 @@ class TicketControlsView(discord.ui.View):
 class Tickets(commands.Cog):
     """Category-based ticket system with problem description modals, claiming, and transcripts."""
 
+    ticket_group = app_commands.Group(name="ticket", description="Support ticket system commands")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         bot.add_view(TicketOpenView())
         bot.add_view(TicketControlsView())
 
-    @app_commands.command(name="ticket-setup", description="Post the modern category-based ticket creation panel in this channel.")
+    @ticket_group.command(name="setup", description="Post the modern category-based ticket creation panel in this channel.")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def ticket_setup(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -394,7 +396,7 @@ class Tickets(commands.Cog):
         await interaction.channel.send(embed=embed, view=TicketOpenView())
         await interaction.response.send_message("✅ Support ticket panel successfully created!", ephemeral=True)
 
-    @app_commands.command(name="ticket-add", description="Add a user to the current ticket.")
+    @ticket_group.command(name="add", description="Add a user to the current ticket.")
     @app_commands.describe(member="The member to add")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def ticket_add(self, interaction: discord.Interaction, member: discord.Member):
@@ -408,7 +410,7 @@ class Tickets(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="ticket-remove", description="Remove a user from the current ticket.")
+    @ticket_group.command(name="remove", description="Remove a user from the current ticket.")
     @app_commands.describe(member="The member to remove")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def ticket_remove(self, interaction: discord.Interaction, member: discord.Member):
