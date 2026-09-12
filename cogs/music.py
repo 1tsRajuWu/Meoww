@@ -16,11 +16,11 @@ FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn"
+    "options": "-vn -b:a 384k -ar 48000 -ac 2 -af aresample=48000:dither_method=triangular"
 }
 
 YTDL_OPTIONS = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=m4a]/bestaudio[ext=ogg]/bestaudio/best",
     "noplaylist": True,
     "nocheckcertificate": True,
     "ignoreerrors": False,
@@ -127,6 +127,7 @@ class GuildMusicPlayer:
         self.voice_client: discord.VoiceClient | None = None
         self.volume: float = 0.70
         self.is_paused: bool = False
+        self.bitrate_kbps: int = 128
         self.inactivity_task: asyncio.Task | None = None
 
     def cancel_inactivity_timer(self):
@@ -174,7 +175,21 @@ class GuildMusicPlayer:
                 options=FFMPEG_OPTIONS["options"]
             )
             vol_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
-            self.voice_client.play(vol_source, after=self.play_next)
+
+            # Determine maximum channel bitrate (up to 384 kbps) for studio Hi-Res audio
+            ch_bitrate = getattr(self.voice_client.channel, "bitrate", 128000)
+            self.bitrate_kbps = min(max(int(ch_bitrate / 1000), 128), 384)
+
+            self.voice_client.play(
+                vol_source,
+                after=self.play_next,
+                application="audio",
+                bitrate=self.bitrate_kbps,
+                fec=True,
+                expected_packet_loss=0.08,
+                bandwidth="full",
+                signal_type="music"
+            )
         except Exception as e:
             print(f"Error starting track {self.current.title}: {e}")
             self.play_next()
@@ -423,7 +438,13 @@ class Music(commands.Cog):
             player.play_next()
             embed = discord.Embed(
                 title="🎶 Now Playing",
-                description=f"### [{track.title}]({track.webpage_url})\n> ⏱️ **Duration:** `{format_duration(track.duration)}`\n> 👤 **Requested by:** {interaction.user.mention}\n> 🔊 **Voice Channel:** {vc.channel.mention}",
+                description=(
+                    f"### [{track.title}]({track.webpage_url})\n"
+                    f"> ⏱️ **Duration:** `{format_duration(track.duration)}`\n"
+                    f"> 👤 **Requested by:** {interaction.user.mention}\n"
+                    f"> 🔊 **Voice Channel:** {vc.channel.mention}\n"
+                    f"> 💎 **Audio Fidelity:** `Hi-Res ({player.bitrate_kbps} kbps • 48 kHz Opus Music)`"
+                ),
                 color=0x5865F2,
                 timestamp=discord.utils.utcnow()
             )
@@ -534,7 +555,13 @@ class Music(commands.Cog):
         dur = format_duration(cur.duration)
         embed = discord.Embed(
             title="🎶 Now Playing",
-            description=f"### [{cur.title}]({cur.webpage_url or ''})\n\n> ⏱️ **Duration:** `{dur}`\n> 👤 **Requested By:** `{cur.requester}`\n> 🔊 **Volume:** `{int(player.volume * 100)}%`",
+            description=(
+                f"### [{cur.title}]({cur.webpage_url or ''})\n\n"
+                f"> ⏱️ **Duration:** `{dur}`\n"
+                f"> 👤 **Requested By:** `{cur.requester}`\n"
+                f"> 🔊 **Volume:** `{int(player.volume * 100)}%`\n"
+                f"> 💎 **Audio Fidelity:** `Hi-Res ({player.bitrate_kbps} kbps • 48 kHz Opus Music)`"
+            ),
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
