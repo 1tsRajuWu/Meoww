@@ -55,7 +55,7 @@ class Help(commands.Cog):
         )
         embed.add_field(
             name="🎮 Games & Gambling",
-            value="`/crash` `/slots` `/coinflip` `/dice` `/rps` `/blackjack` `/trivia` `/8ball`",
+            value="`/crash` `/mines` `/roulette` `/highlow` `/tictactoe` `/blackjack` `/slots` `/coinflip` `/dice` `/rps` `/trivia` `/8ball`",
             inline=False,
         )
         embed.add_field(
