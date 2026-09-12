@@ -50,7 +50,7 @@ class Help(commands.Cog):
         )
         embed.add_field(
             name="💰 Economy",
-            value="`/balance` `/daily` `/weekly` `/work` `/pay` `/rob` `/deposit` `/withdraw` `/richlist` `/addmoney` `/removemoney`",
+            value="`/balance` `/daily` `/weekly` `/work` `/pay` `/rob` `/deposit` `/withdraw` `/richlist` `/addmoney` `/removemoney` `/setmoney` `/resetmoney`",
             inline=False,
         )
         embed.add_field(

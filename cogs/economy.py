@@ -54,11 +54,18 @@ async def ensure_eco(user_id: int, guild_id: int):
         )
         await conn.commit()
 
+async def check_is_owner(interaction: discord.Interaction) -> bool:
+    if interaction.guild and interaction.guild.owner_id == interaction.user.id:
+        return True
+    if await interaction.client.is_owner(interaction.user):
+        return True
+    return False
+
 async def update_wallet(user_id: int, guild_id: int, amount: int):
     await ensure_eco(user_id, guild_id)
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
-            "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+            "UPDATE economy SET wallet = MAX(0, wallet + ?) WHERE user_id=? AND guild_id=?",
             (amount, user_id, guild_id)
         )
         await conn.commit()
@@ -237,6 +244,8 @@ class Economy(commands.Cog):
         success = random.random() < 0.45  # 45% success rate
         if success:
             stolen = random.randint(int(victim["wallet"] * 0.1), int(victim["wallet"] * 0.4))
+            stolen = min(stolen, 50_000)
+            stolen = max(stolen, 10)
             await update_wallet(interaction.user.id, interaction.guild.id, stolen)
             await update_wallet(member.id, interaction.guild.id, -stolen)
             embed = discord.Embed(title="🦹 Successful Robbery!", description=f"You robbed **{stolen:,}** 🪙 from {member.mention}!", color=0x2ECC71)
@@ -325,20 +334,136 @@ class Economy(commands.Cog):
         embed.description = "\n".join(desc) if desc else "No data yet."
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="addmoney", description="Give coins to a member (Admin only).")
+    @app_commands.command(name="addmoney", description="Give coins to a member (Owner has unlimited power, Admins have strict limits).")
     @app_commands.describe(member="Target member", amount="Amount to give")
     @app_commands.checks.has_permissions(administrator=True)
     async def addmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
+
+        is_owner = await check_is_owner(interaction)
+
+        if not is_owner:
+            # 1. Admins cannot give money to themselves
+            if member.id == interaction.user.id:
+                return await interaction.response.send_message(
+                    "❌ **Permission Denied:** Admins cannot give coins to themselves! Only the **Server Owner** has that privilege.",
+                    ephemeral=True
+                )
+
+            # 2. Strict gift limit for Admins (Max 50,000 per command)
+            ADMIN_MAX_GIFT = 50_000
+            if amount > ADMIN_MAX_GIFT:
+                return await interaction.response.send_message(
+                    f"❌ **Limit Exceeded:** Admins can only grant up to **{ADMIN_MAX_GIFT:,}** 🪙 at a time.\nOnly the **Server Owner** can grant larger amounts.",
+                    ephemeral=True
+                )
+
+            # 3. Target balance cap for Admins (cannot pump anyone past 1,000,000)
+            target_eco = await get_eco(member.id, interaction.guild.id)
+            if (target_eco["wallet"] + target_eco["bank"]) >= 1_000_000:
+                return await interaction.response.send_message(
+                    f"❌ **Cap Reached:** {member.mention} already has **{target_eco['wallet'] + target_eco['bank']:,}** 🪙.\nAdmins cannot add coins to members who have 1,000,000+ coins. Only the **Server Owner** can bypass this.",
+                    ephemeral=True
+                )
+
         await update_wallet(member.id, interaction.guild.id, amount)
-        embed = discord.Embed(description=f"✅ Gave **{amount:,}** 🪙 to {member.mention}.", color=0x2ECC71)
+        embed = discord.Embed(
+            description=f"✅ Successfully gave **{amount:,}** 🪙 to {member.mention}.",
+            color=0x2ECC71,
+            timestamp=discord.utils.utcnow()
+        )
+        if is_owner:
+            embed.set_footer(text="👑 Server Owner Override • Unlimited Power")
+        else:
+            embed.set_footer(text=f"🛡️ Admin Grant by {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="removemoney", description="Remove coins from a member (Admin only).")
+    @app_commands.command(name="removemoney", description="Remove coins from a member (Admin / Owner).")
     @app_commands.describe(member="Target member", amount="Amount to remove")
     @app_commands.checks.has_permissions(administrator=True)
     async def removemoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
+
+        is_owner = await check_is_owner(interaction)
+        if not is_owner and amount > 100_000:
+            return await interaction.response.send_message("❌ Admins can only remove up to **100,000** 🪙 at once. Server Owner has no limit.", ephemeral=True)
+
         await update_wallet(member.id, interaction.guild.id, -amount)
-        embed = discord.Embed(description=f"✅ Removed **{amount:,}** 🪙 from {member.mention}.", color=0xFF3333)
+        embed = discord.Embed(
+            description=f"✅ Removed **{amount:,}** 🪙 from {member.mention}.",
+            color=0xFF3333,
+            timestamp=discord.utils.utcnow()
+        )
+        if is_owner:
+            embed.set_footer(text="👑 Server Owner Override")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="setmoney", description="Set a member's exact wallet and bank balance (Owner only).")
+    @app_commands.describe(member="Target member", wallet="New wallet balance", bank="New bank balance (optional)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def setmoney(self, interaction: discord.Interaction, member: discord.Member, wallet: int, bank: int = None):
+        if not await check_is_owner(interaction):
+            return await interaction.response.send_message(
+                "❌ **Permission Denied:** Only the **Server Owner** can directly set balances!",
+                ephemeral=True
+            )
+
+        wallet = max(0, wallet)
+        if bank is not None:
+            bank = max(0, bank)
+
+        await ensure_eco(member.id, interaction.guild.id)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if bank is not None:
+                await conn.execute("UPDATE economy SET wallet=?, bank=? WHERE user_id=? AND guild_id=?",
+                                   (wallet, bank, member.id, interaction.guild.id))
+            else:
+                await conn.execute("UPDATE economy SET wallet=? WHERE user_id=? AND guild_id=?",
+                                   (wallet, member.id, interaction.guild.id))
+            await conn.commit()
+
+        embed = discord.Embed(
+            title="👑 Balance Set by Server Owner",
+            description=f"Updated balances for {member.mention}:\n👛 **Wallet:** `{wallet:,}` 🪙" + (f"\n🏦 **Bank:** `{bank:,}` 🪙" if bank is not None else ""),
+            color=0xF1C40F,
+            timestamp=discord.utils.utcnow()
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="resetmoney", description="Reset economy balances back to 0 (Owner only).")
+    @app_commands.describe(member="Member to reset", reset_all="Reset all server balances?")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def resetmoney(self, interaction: discord.Interaction, member: discord.Member = None, reset_all: bool = False):
+        if not await check_is_owner(interaction):
+            return await interaction.response.send_message(
+                "❌ **Permission Denied:** Only the **Server Owner** can reset balances!",
+                ephemeral=True
+            )
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if reset_all:
+                await conn.execute("UPDATE economy SET wallet=0, bank=0 WHERE guild_id=?", (interaction.guild.id,))
+                await conn.commit()
+                embed = discord.Embed(
+                    title="🧹 Server Economy Reset",
+                    description="✅ The entire server economy has been reset to **0** 🪙 by the **Server Owner**.",
+                    color=0xED4245,
+                    timestamp=discord.utils.utcnow()
+                )
+            elif member:
+                await conn.execute("UPDATE economy SET wallet=0, bank=0 WHERE user_id=? AND guild_id=?", (member.id, interaction.guild.id))
+                await conn.commit()
+                embed = discord.Embed(
+                    title="🧹 Member Balance Reset",
+                    description=f"✅ Successfully reset balance for {member.mention} to **0** 🪙.",
+                    color=0xED4245,
+                    timestamp=discord.utils.utcnow()
+                )
+            else:
+                return await interaction.response.send_message("❌ Please choose a `member` to reset or set `reset_all: True`.", ephemeral=True)
+
         await interaction.response.send_message(embed=embed)
 
 
