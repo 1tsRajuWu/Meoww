@@ -54,8 +54,13 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
-            name="🎮 Games",
-            value="`/slots` `/coinflip` `/dice` `/rps` `/blackjack` `/trivia` `/8ball`",
+            name="🎮 Games & Gambling",
+            value="`/crash` `/slots` `/coinflip` `/dice` `/rps` `/blackjack` `/trivia` `/8ball`",
+            inline=False,
+        )
+        embed.add_field(
+            name="🐾 OwO Zoo & Actions",
+            value="`/hunt` `/zoo` `/sellanimals` `/bonk` `/slap` `/hug` `/kiss` `/pat` `/punch` `/bite` `/cuddle` `/poke` `/feed` `/marry` `/divorce` `/ship` `/owo`",
             inline=False,
         )
         embed.add_field(

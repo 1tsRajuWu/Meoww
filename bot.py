@@ -30,6 +30,7 @@ INITIAL_COGS = [
     "cogs.economy",
     "cogs.games",
     "cogs.fun",
+    "cogs.owo",
 ]
 
 import asyncio
