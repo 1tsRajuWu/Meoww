@@ -23,17 +23,18 @@ class Welcome(commands.Cog):
         await db.set_setting(interaction.guild.id, "goodbye_channel", channel.id)
         await interaction.response.send_message(f"Goodbye messages will now be sent to {channel.mention}.")
 
+    @app_commands.command(name="disablewelcome", description="Disable welcome messages in this server.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def disablewelcome(self, interaction: discord.Interaction):
+        await db.set_setting(interaction.guild.id, "welcome_channel", None)
+        await interaction.response.send_message("✅ Welcome messages have been disabled for this bot.")
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
-        channel = None
         channel_id = await db.get_setting(member.guild.id, "welcome_channel")
-        if channel_id:
-            channel = member.guild.get_channel(int(channel_id))
-        if not channel:
-            for ch in member.guild.text_channels:
-                if "welcome" in ch.name.lower():
-                    channel = ch
-                    break
+        if not channel_id:
+            return
+        channel = member.guild.get_channel(int(channel_id))
         if not channel or not channel.permissions_for(member.guild.me).send_messages:
             return
         embed = discord.Embed(
