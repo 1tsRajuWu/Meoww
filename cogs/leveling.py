@@ -290,6 +290,9 @@ class Leveling(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(message.guild.id, "leveling"):
+            return
+
         settings = await self.get_guild_settings(message.guild.id)
         if not settings["enabled"]:
             return
@@ -424,6 +427,9 @@ class Leveling(commands.Cog):
         """Runs every minute to reward active members in voice channels with coins and XP."""
         for guild in self.bot.guilds:
             try:
+                if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild.id, "leveling"):
+                    continue
+
                 settings = await self.get_guild_settings(guild.id)
                 if not settings["enabled"]:
                     continue

@@ -24,6 +24,9 @@ class Starboard(commands.Cog):
         if not guild:
             return
 
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild.id, "starboard"):
+            return
+
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute("SELECT channel_id, threshold FROM starboard_settings WHERE guild_id=?", (guild.id,)) as cur:
                 row = await cur.fetchone()

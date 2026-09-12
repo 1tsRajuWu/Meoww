@@ -18,6 +18,10 @@ class TempVoice(commands.Cog):
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         guild = member.guild
+        if not guild:
+            return
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild.id, "tempvoice"):
+            return
 
         # 1. User joins the generator channel
         if after.channel:

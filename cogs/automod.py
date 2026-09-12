@@ -50,6 +50,9 @@ class AutoMod(commands.Cog):
         if message.author.guild_permissions.manage_messages:
             return  # don't automod staff
 
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(message.guild.id, "automod"):
+            return
+
         settings = await self.get_settings(message.guild.id)
 
         # Invite link filter

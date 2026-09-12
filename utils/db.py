@@ -153,6 +153,14 @@ async def setup():
             stars_count INTEGER DEFAULT 0
         )''')
 
+        await db.execute('''CREATE TABLE IF NOT EXISTS guild_modules (
+            guild_id INTEGER,
+            module_name TEXT,
+            enabled INTEGER DEFAULT 1,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (guild_id, module_name)
+        )''')
+
         # Seed default settings for main guild 1542278896148422676 (Hmm)
         await db.execute('''INSERT OR IGNORE INTO level_settings 
             (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
@@ -200,3 +208,54 @@ async def add_mod_case(guild_id: int, case_type: str, user_id: int, moderator_id
             (guild_id, case_type, user_id, moderator_id, reason))
         await db.commit()
         return guild_case_num
+
+async def get_guild_modules(guild_id: int) -> dict:
+    """Retrieve all module toggle states for a guild asynchronously."""
+    modules = {}
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute('SELECT module_name, enabled FROM guild_modules WHERE guild_id = ?', (guild_id,)) as cursor:
+            async for row in cursor:
+                modules[row[0]] = bool(row[1])
+    return modules
+
+async def set_guild_module(guild_id: int, module_name: str, enabled: bool):
+    """Persist a module toggle state asynchronously."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('''INSERT INTO guild_modules (guild_id, module_name, enabled, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(guild_id, module_name) DO UPDATE SET
+                enabled = excluded.enabled,
+                updated_at = CURRENT_TIMESTAMP''',
+            (guild_id, module_name, 1 if enabled else 0))
+        await db.commit()
+
+def get_guild_modules_sync(guild_id: int) -> dict:
+    """Synchronous read for Flask web endpoints."""
+    import sqlite3
+    modules = {}
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT module_name, enabled FROM guild_modules WHERE guild_id = ?', (guild_id,))
+            for row in cursor.fetchall():
+                modules[row[0]] = bool(row[1])
+    except Exception as e:
+        print(f"Error fetching guild modules sync: {e}")
+    return modules
+
+def set_guild_module_sync(guild_id: int, module_name: str, enabled: bool):
+    """Synchronous write for Flask web endpoints."""
+    import sqlite3
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''INSERT INTO guild_modules (guild_id, module_name, enabled, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(guild_id, module_name) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    updated_at = CURRENT_TIMESTAMP''',
+                (guild_id, module_name, 1 if enabled else 0))
+            conn.commit()
+    except Exception as e:
+        print(f"Error updating guild module sync: {e}")
+

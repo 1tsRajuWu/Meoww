@@ -39,6 +39,64 @@ INITIAL_COGS = [
     "cogs.starboard",
 ]
 
+# Real-time in-memory module toggle cache: guild_id -> {module_name: bool}
+bot.module_states = {}
+
+def is_module_enabled(guild_id: int, module_name: str) -> bool:
+    """Check module state in 0ms using in-memory RAM."""
+    default_state = False if module_name == "welcome" else True
+    guild_mods = bot.module_states.get(guild_id)
+    if guild_mods is None:
+        return default_state
+    return guild_mods.get(module_name, default_state)
+
+def set_module_state(guild_id: int, module_name: str, enabled: bool):
+    """Update in-memory module state instantly."""
+    if guild_id not in bot.module_states:
+        bot.module_states[guild_id] = {}
+    bot.module_states[guild_id][module_name] = enabled
+
+bot.is_module_enabled = is_module_enabled
+bot.set_module_state = set_module_state
+
+MODULE_COMMAND_MAP = {
+    # Music
+    "play": "music", "radio": "music", "nowplaying": "music", "pause": "music", "resume": "music",
+    "skip": "music", "stop": "music", "queue": "music",
+    # Leveling
+    "rank": "leveling", "leaderboard": "leveling", "levelsettings": "leveling", "setlevel": "leveling",
+    "resetxp": "leveling", "addlevelrole": "leveling", "removelevelrole": "leveling", "levelroles": "leveling",
+    # Economy
+    "balance": "economy", "daily": "economy", "pay": "economy", "work": "economy", "crime": "economy",
+    "rob": "economy", "deposit": "economy", "withdraw": "economy", "gamble": "economy", "coinflip": "economy",
+    "blackjack": "economy", "slots": "economy", "roulette": "economy", "shop": "economy", "buy": "economy",
+    "inventory": "economy", "richlist": "economy", "eco-admin": "economy",
+    # Moderation
+    "ban": "moderation", "kick": "moderation", "mute": "moderation", "unmute": "moderation",
+    "warn": "moderation", "warnings": "moderation", "delwarn": "moderation", "clearwarns": "moderation",
+    "purge": "moderation", "lock": "moderation", "unlock": "moderation", "slowmode": "moderation",
+    "modlogs": "moderation",
+    # Automod
+    "automod": "automod",
+    # Giveaway
+    "giveaway": "giveaway",
+    # Colors
+    "color": "colors",
+    # TempVoice
+    "tempvoice": "tempvoice",
+    # Starboard
+    "starboard": "starboard",
+    # Tickets
+    "ticket": "tickets",
+    # Social & Fun
+    "action": "social", "uwu": "social",
+    "meme": "fun", "8ball": "fun", "flip": "fun", "roll": "fun", "quote": "fun", "addquote": "fun",
+    # Games
+    "tictactoe": "games", "rps": "games", "hangman": "games", "trivia": "games", "wordle": "games",
+    # Welcome
+    "welcome": "welcome"
+}
+
 import asyncio
 import random
 
@@ -78,6 +136,33 @@ async def on_ready():
     await db.setup()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     
+    # Load module toggle states from database
+    for guild in bot.guilds:
+        try:
+            bot.module_states[guild.id] = await db.get_guild_modules(guild.id)
+            print(f"Loaded {len(bot.module_states[guild.id])} custom module states for {guild.name}.")
+        except Exception as e:
+            print(f"Could not load module states for {guild.name}: {e}")
+
+    # Set up global module toggle check for all slash commands
+    @bot.tree.interaction_check
+    async def global_module_check(interaction: discord.Interaction) -> bool:
+        if not interaction.guild_id:
+            return True
+        cmd_name = interaction.command.name if interaction.command else None
+        if not cmd_name or cmd_name in ["help", "dashboard", "sync", "ping"]:
+            return True
+        
+        module = MODULE_COMMAND_MAP.get(cmd_name)
+        if module and not bot.is_module_enabled(interaction.guild_id, module):
+            await interaction.response.send_message(
+                f"⚠️ The **{module.title()}** system is currently **turned off** on this server.\n"
+                f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com).",
+                ephemeral=True
+            )
+            return False
+        return True
+
     # Global error handler for app commands
     bot.tree.on_error = on_app_command_error
     
@@ -107,6 +192,39 @@ async def on_ready():
     # Start rotating status
     bot.loop.create_task(rotate_status())
     print("Bot is online and ready.")
+
+@bot.tree.command(name="dashboard", description="Access the 1:1 Real-Time Web Admin Dashboard & Module Controller")
+@app_commands.default_permissions(administrator=True)
+async def dashboard_cmd(interaction: discord.Interaction):
+    if not interaction.guild_id:
+        await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only administrators can access the Web Dashboard.", ephemeral=True)
+        return
+    
+    from keep_alive import generate_magic_token
+    token = generate_magic_token()
+    dashboard_base = "https://meow-discord-bot.onrender.com"
+    magic_link = f"{dashboard_base}/login?token={token}"
+    
+    embed = discord.Embed(
+        title="🐾 Meow Control Center — Web Admin Dashboard",
+        description=(
+            "Manage all bot modules and features with **1:1 instant (0ms) real-time control**!\n\n"
+            f"🔑 **1-Click Magic Login Link (Valid 24h):**\n[👉 Click Here to Open Web Admin Dashboard]({magic_link})\n\n"
+            f"🌐 **Direct Dashboard URL:** `{dashboard_base}/dashboard`\n"
+            f"⚡ **Direct Passkey:** Configured in `.env` (`ADMIN_PASSKEY`)"
+        ),
+        color=0x5865F2
+    )
+    embed.set_footer(text="🔒 Keep your magic link private — it grants full admin access.")
+    
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label="Open Dashboard ⚡", url=magic_link, style=discord.ButtonStyle.link))
+    
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
@@ -142,9 +260,8 @@ async def main():
                 "or in your host's Environment Variables (Railway/Oracle)."
             )
 
-        # keep_alive() starts a tiny web server so free hosts (like Railway)
-        # can ping the bot and see it as "alive". Harmless if unused.
-        keep_alive()
+        # keep_alive() starts the Web Admin Dashboard and uptime keep-alive
+        keep_alive(bot)
 
         try:
             await bot.start(TOKEN)
