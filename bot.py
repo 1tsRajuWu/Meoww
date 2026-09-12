@@ -59,7 +59,7 @@ async def rotate_status():
         last_idx = idx
         name, atype = STATUSES[idx]
         await bot.change_presence(activity=discord.Activity(type=atype, name=name), status=discord.Status.dnd)
-        await asyncio.sleep(30)
+        await asyncio.sleep(3600)  # Rotate every 60 minutes
 
 @bot.event
 async def on_ready():
