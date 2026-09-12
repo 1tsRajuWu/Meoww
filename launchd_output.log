@@ -1,0 +1,14 @@
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off

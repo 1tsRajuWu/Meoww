@@ -1,0 +1,324 @@
+Starting Bot Daemon...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 45837 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46143 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46189 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46274 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46334 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46372 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+Task exception was never retrieved
+future: <Task finished name='CommandTree-invoker' coro=<CommandTree._from_interaction.<locals>.wrapper() done, defined at /Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/tree.py:1136> exception=NotFound('404 Not Found (error code: 10062): Unknown interaction')>
+Traceback (most recent call last):
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/commands.py", line 858, in _do_call
+    return await self._callback(self.binding, interaction, **params)  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/raj/Documents/discord-bot/cogs/games.py", line 169, in slots
+    await ensure_eco(interaction.user.id, interaction.guild.id)
+  File "/Users/raj/Documents/discord-bot/cogs/economy.py", line 51, in ensure_eco
+    await conn.execute(
+    ...<2 lines>...
+    )
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/aiosqlite/core.py", line 223, in execute
+    cursor = await self._execute(self._conn.execute, sql, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/aiosqlite/core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/aiosqlite/core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlite3.OperationalError: table economy has no column named guild_id
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/tree.py", line 1302, in _call
+    await command._invoke_with_namespace(interaction, namespace)
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/commands.py", line 884, in _invoke_with_namespace
+    return await self._do_call(interaction, transformed_values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/commands.py", line 877, in _do_call
+    raise CommandInvokeError(self, e) from e
+discord.app_commands.errors.CommandInvokeError: Command 'slots' raised an exception: OperationalError: table economy has no column named guild_id
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/tree.py", line 1138, in wrapper
+    await self._call(interaction)
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/app_commands/tree.py", line 1306, in _call
+    await self.on_error(interaction, e)
+  File "/Users/raj/Documents/discord-bot/bot.py", line 93, in on_app_command_error
+    await interaction.response.send_message("An unexpected error occurred.", ephemeral=True)
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/interactions.py", line 1085, in send_message
+    data = await adapter.create_interaction_response(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Users/raj/Documents/discord-bot/.venv/lib/python3.14/site-packages/discord/webhook/async_.py", line 224, in request
+    raise NotFound(response, data)
+discord.errors.NotFound: 404 Not Found (error code: 10062): Unknown interaction
+./run_daemon.sh: line 21: 46471 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46670 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 46806 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 47108 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 47468 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
+./run_daemon.sh: line 21: 47554 Terminated: 15          python bot.py
+Bot crashed or exited. Restarting in 5 seconds...
+Loaded cogs.moderation
+Loaded cogs.tickets
+Loaded cogs.server_control
+Loaded cogs.welcome
+Loaded cogs.reaction_roles
+Loaded cogs.automod
+Loaded cogs.help
+Loaded cogs.legal
+Loaded cogs.bot_config
+Loaded cogs.economy
+Loaded cogs.games
+Loaded cogs.fun
+ * Serving Flask app ''
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.4:8080
+[33mPress CTRL+C to quit[0m
