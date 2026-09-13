@@ -10,7 +10,7 @@ import urllib.parse
 from typing import Tuple, List, Dict, Any, Optional
 
 SPOTIFY_URL_REGEX = re.compile(
-    r"(?:https?:\/\/)?(?:open\.)?spotify\.com(?:\/[a-zA-Z]{2}(?:-[a-zA-Z]{2})?)?\/(track|album|playlist|artist)[/:]([a-zA-Z0-9]+)|spotify:(track|album|playlist|artist):([a-zA-Z0-9]+)|(?:https?:\/\/)?spotify\.link\/([a-zA-Z0-9]+)",
+    r"(?:https?:\/\/)?(?:open\.)?spotify\.com(?:\/[a-zA-Z\-]+)?\/(track|album|playlist|artist)[/:]([a-zA-Z0-9]+)|spotify:(track|album|playlist|artist):([a-zA-Z0-9]+)|(?:https?:\/\/)?spotify\.link\/([a-zA-Z0-9]+)",
     re.IGNORECASE
 )
 

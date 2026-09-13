@@ -79,7 +79,7 @@ app.config.update(
 )
 
 BOT_INSTANCE = None
-ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "").strip()
+ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "Him@2009@Meoww").strip()
 MAGIC_TTL_SECONDS = 15 * 60
 MAGIC_TOKENS = {}
 _magic_lock = Lock()
@@ -374,7 +374,7 @@ def health():
 @app.route("/api/live-logs")
 def api_live_logs():
     auth = request.args.get("passkey")
-    if not auth or auth != "Him@2009@Meoww":
+    if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY):
         return jsonify({"error": "Unauthorized"}), 401
     try:
         content = "".join(str(x) for x in list(LOG_RING))
@@ -386,7 +386,7 @@ def api_live_logs():
 @app.route("/api/voice-debug")
 def api_voice_debug():
     auth = request.args.get("passkey")
-    if not auth or auth != "Him@2009@Meoww":
+    if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY):
         return jsonify({"error": "Unauthorized"}), 401
 
     import ctypes.util
