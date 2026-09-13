@@ -140,7 +140,7 @@ async def rotate_status():
 #: not a cliff — it refills a slot at a time (the live guild gained roughly one
 #: command every few minutes) — so recovering a guild that is tens of commands
 #: behind takes repeated attempts over hours, not one retry.
-DRAIN_BUDGET_SECONDS = 4 * 3600
+DRAIN_BUDGET_SECONDS = 12 * 3600
 DRAIN_MAX_WAIT = 900.0
 
 #: Seam for the drain loop's wait, so tests can run it without sleeping.
@@ -153,52 +153,69 @@ async def drain_pending(
     *,
     first_delay: float,
     budget_seconds: float = DRAIN_BUDGET_SECONDS,
+    sync=None,
+    label: str | None = None,
 ) -> bool:
-    """Keep publishing a guild's pending commands until it is complete.
+    """Keep publishing a scope's pending commands until it is complete.
+
+    ``guild`` names the target for the log line and selects the default
+    synchroniser; a caller draining a different scope passes ``sync``/``label``
+    to reuse the same loop (see ``_sync_global``).
 
     Returns True once nothing is pending, False when the time budget ran out (the
     next boot continues where this left off).
     """
+    sync = sync or _sync_guild
+    label = label or guild.name
     loop = asyncio.get_running_loop()
     deadline = loop.time() + budget_seconds
     wait = first_delay
     while True:
         await _sleep(max(30.0, min(wait, DRAIN_MAX_WAIT)))
-        status = await _sync_guild(bot, guild)
+        status = await sync(bot, guild)
         if not status["pending"]:
             print(
-                f"[SYNC] ✅ {guild.name}: all {status['registered']} commands published.",
+                f"[SYNC] ✅ {label}: all {status['registered']} commands published.",
                 flush=True,
             )
             return True
         wait = status["retry_after"] or 300.0
         if loop.time() >= deadline:
             print(
-                f"[SYNC] ⚠️ {guild.name}: {status['pending']} command(s) still pending "
+                f"[SYNC] ⚠️ {label}: {status['pending']} command(s) still pending "
                 f"after {budget_seconds / 3600:.1f}h of retrying; a restart will carry on.",
                 flush=True,
             )
             return False
 
 
-def _schedule_command_drain(bot: commands.Bot, guild, delay: float) -> None:
-    """Queue the background drain for a guild that still has commands pending."""
+def _schedule_command_drain(
+    bot: commands.Bot, guild, delay: float, *, sync=None, label: str | None = None
+) -> None:
+    """Queue the background drain for a scope that still has commands pending."""
     async def _drain() -> None:
         try:
-            await drain_pending(bot, guild, first_delay=delay)
+            await drain_pending(
+                bot, guild, first_delay=delay, sync=sync, label=label
+            )
         except Exception as exc:
-            print(f"[SYNC] Drain failed for {guild.name}: {exc}", flush=True)
+            print(f"[SYNC] Drain failed for {label or guild.name}: {exc}", flush=True)
 
     asyncio.create_task(_drain())
 
 
-async def _registered_command_payloads(bot: commands.Bot, guild) -> list[dict] | None:
-    """What Discord already has for a guild, or None when it cannot be read."""
+async def _registered_command_payloads(bot: commands.Bot, guild=None) -> list[dict] | None:
+    """What Discord already has — for one guild, or globally when ``guild`` is None."""
+    scope = "the global scope's" if guild is None else f"{guild.name}'s"
     try:
-        remote = await bot.tree.fetch_commands(guild=guild)
+        remote = (
+            await bot.tree.fetch_commands()
+            if guild is None
+            else await bot.tree.fetch_commands(guild=guild)
+        )
         return [command.to_dict() for command in remote]
     except Exception as exc:
-        print(f"[SYNC] ⚠️ Could not read {guild.name}'s registered commands: {exc}", flush=True)
+        print(f"[SYNC] ⚠️ Could not read {scope} registered commands: {exc}", flush=True)
         return None
 
 
@@ -232,37 +249,48 @@ def _retry_delay(
     return max(floor, min(delay, ceiling))
 
 
-async def _publish_guild(
-    bot: commands.Bot, guild, payloads: dict[str, dict], names: list[str]
+async def _publish_scope(
+    bot: commands.Bot,
+    payloads: dict[str, dict],
+    names: list[str],
+    guild=None,
 ) -> tuple[bool, str, BaseException | None, int]:
     """Create/update only the named commands, one request each.
 
-    Deliberately **not** ``tree.sync(guild=...)``. That call is a bulk overwrite,
-    and Discord applies it destructively: it drops the guild's command list first
-    and then rebuilds it. When the daily write budget runs out part-way through
+    Deliberately **not** ``tree.sync(...)``. That call is a bulk overwrite, and
+    Discord applies it destructively: it drops the scope's command list first and
+    then rebuilds it. When the daily write budget runs out part-way through
     (error ``30034``) the deletes have already landed — which is exactly how this
     guild went from 74 commands to a single one, with nothing able to put them
     back until the window reset. An upsert only ever adds or replaces, so a
     rejected request can never take a command away.
 
+    With ``guild`` omitted the same upsert goes to Discord's **global** scope,
+    which every server the bot is in can see. Discord budgets the two scopes
+    separately, so that is a usable second lane when a guild's is spent.
+
     Returns ``(ok, detail, error, published)``.
     """
     published = 0
+    suffix = "" if guild is not None else " (global)"
     for name in names:
         payload = payloads.get(name)
         if payload is None:
             continue
         try:
-            await bot.http.upsert_guild_command(bot.application_id, guild.id, payload)
+            if guild is None:
+                await bot.http.upsert_global_command(bot.application_id, payload)
+            else:
+                await bot.http.upsert_guild_command(bot.application_id, guild.id, payload)
         except Exception as exc:
             return False, f"/{name}: {exc}", exc, published
         published += 1
-        print(f"[SYNC] ✅ /{name}", flush=True)
+        print(f"[SYNC] ✅ /{name}{suffix}", flush=True)
     return True, "", None, published
 
 
-async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
-    """Publish one guild's missing/changed commands.
+async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> dict:
+    """Publish a scope's missing/changed commands — one guild, or global.
 
     Returns ``{"registered", "pending", "published", "retry_after", "summary",
     "detail"}`` so a caller can decide between "done" and "try again later".
@@ -270,11 +298,12 @@ async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
     local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
     payloads = {command["name"]: command for command in local if command.get("name")}
     registered = await _registered_command_payloads(bot, guild)
+    scope = "global" if guild is None else guild.name
 
     if registered is None:
         # Could not read the current state, so send everything. Upserts are
         # additive, so the worst case is spending writes we did not need to.
-        print(f"[SYNC] {guild.name}: state unknown — publishing the whole tree.", flush=True)
+        print(f"[SYNC] {scope}: state unknown — publishing the whole tree.", flush=True)
         names = list(payloads)
         summary = f"{len(names)} command(s), state unknown"
         total = len(names)
@@ -289,7 +318,7 @@ async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
                 "retry_after": None, "summary": summary, "detail": "",
             }
 
-    ok, detail, error, published = await _publish_guild(bot, guild, payloads, names)
+    ok, detail, error, published = await _publish_scope(bot, payloads, names, guild)
     pending = len(names) - published
     return {
         "registered": total - pending,
@@ -300,6 +329,16 @@ async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
         "detail": detail,
         "ok": ok,
     }
+
+
+async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
+    """Publish one guild's missing/changed commands. See ``_sync_scope``."""
+    return await _sync_scope(bot, guild=guild, force=force)
+
+
+async def _sync_global(bot: commands.Bot, _guild=None, *, force: bool = False) -> dict:
+    """Publish missing/changed commands to Discord's global scope."""
+    return await _sync_scope(bot, force=force)
 
 
 async def sync_commands(
@@ -323,9 +362,36 @@ async def sync_commands(
 
     Never raises: a failed sync must not stop the bot coming online. A guild that
     still has commands pending is drained in the background afterwards, because
-    Discord's write budget refills slowly. Returns ``{guild name: commands}``.
+    Discord's write budget refills slowly. Returns ``{guild name: commands}``,
+    with the global scope under the key ``"(global)"``.
     """
     results: dict[str, int] = {}
+
+    # Discord budgets command writes **per scope**, and the global scope reaches
+    # every server the bot is in, so it is published first: a guild whose daily
+    # budget is spent still shows its commands. Read-compare-write means this
+    # costs nothing once the global tree matches.
+    global_status = await _sync_scope(bot)
+    results["(global)"] = global_status["registered"]
+    if not global_status["pending"]:
+        print(f"[SYNC] ✅ global: {global_status['summary']}.", flush=True)
+    else:
+        print(
+            f"[SYNC] global: {global_status['summary']} — published "
+            f"{global_status['published']}, {global_status['pending']} still pending.",
+            flush=True,
+        )
+        if drain and global_status["retry_after"] is not None:
+            wait = global_status["retry_after"]
+            print(
+                f"[SYNC] Draining the global scope in the background "
+                f"(next try in {wait:.0f}s).",
+                flush=True,
+            )
+            _schedule_command_drain(
+                bot, None, wait, sync=_sync_global, label="global"
+            )
+
     for guild in bot.guilds:
         status = await _sync_guild(bot, guild, force=force)
         results[guild.name] = status["registered"]
@@ -358,6 +424,12 @@ async def sync_commands(
     if not bot.guilds:
         print("[SYNC] Not in any guild yet — nothing to register.", flush=True)
     return results
+
+
+# Cogs reach the safe publisher through the bot instance. They must not
+# ``import bot``: this file is what the process runs, so it is ``__main__``, and
+# importing it again would re-execute the whole module on top of a second bot.
+bot.publish_commands = sync_commands
 
 
 @bot.event

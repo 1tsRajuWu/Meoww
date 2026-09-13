@@ -55,22 +55,35 @@ class BotConfig(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"An unexpected error occurred: {e}")
 
-    @app_commands.command(name="sync", description="Force re-sync all slash commands directly to this server.")
+    @app_commands.command(name="sync", description="Publish any missing or out-of-date slash commands.")
     async def sync(self, interaction: discord.Interaction):
         if not (interaction.guild and (interaction.user.id == interaction.guild.owner_id or interaction.user.guild_permissions.administrator)):
             return await interaction.response.send_message("❌ Only server administrators or the owner can run this command.", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        try:
-            # Sync directly to current guild
-            self.bot.tree.copy_global_to(guild=interaction.guild)
-            synced_guild = await self.bot.tree.sync(guild=interaction.guild)
-            # Sync globally
-            synced_global = await self.bot.tree.sync()
-            await interaction.followup.send(
-                f"✅ **Slash Commands Synced!**\n"
-                f"• Synced **{len(synced_guild)}** commands directly to **{interaction.guild.name}** (Instant!)\n"
-                f"• Synced **{len(synced_global)}** global commands across Discord."
+        # Deliberately *not* `tree.sync()` / `copy_global_to` + `tree.sync(guild=)`.
+        # Those are **bulk overwrites**, and Discord applies them destructively: the
+        # scope's whole command list is cleared before the new one is sent. A run
+        # that hits the daily write limit (error 30034) therefore loses every
+        # command it had not re-sent yet — this guild went from 74 commands to one
+        # exactly that way, and `/sync` was a second route to the same wipe. The
+        # publisher upserts only what is missing or out of date, so it can never
+        # take a command away.
+        publisher = getattr(self.bot, "publish_commands", None)
+        if publisher is None:
+            return await interaction.followup.send(
+                "❌ This bot build cannot publish commands. Restart the bot and try again."
             )
+        try:
+            results = await publisher(self.bot, force=True)
+            lines = ["✅ **Slash commands published** — nothing was removed."]
+            for name, count in results.items():
+                label = "Global (every server)" if name == "(global)" else name
+                lines.append(f"• {label}: **{count}** commands")
+            lines.append(
+                "\nHitting Discord's daily write limit is normal — the rest publish "
+                "themselves in the background as it refills."
+            )
+            await interaction.followup.send("\n".join(lines))
         except Exception as e:
             await interaction.followup.send(f"❌ Sync failed: {e}")
 

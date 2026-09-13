@@ -12,7 +12,10 @@ Two failures are pinned here.
    to one. The sync now upserts each missing/changed command individually, which
    can only ever add or replace.
 """
+import io
+import tokenize
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -45,16 +48,24 @@ class _FakeCommand:
 class _FakeHTTP:
     def __init__(self, fail_on=None, retry_after=None, fail_code=None):
         self.sent: list = []
+        self.global_sent: list = []
         self.fail_on = fail_on
         self.retry_after = retry_after
         self.fail_code = fail_code
 
-    async def upsert_guild_command(self, application_id, guild_id, payload):
-        del application_id, guild_id
-        self.sent.append(payload["name"])
+    def _record(self, bucket, payload):
+        bucket.append(payload["name"])
         if payload["name"] == self.fail_on:
             raise _SyncError(f"boom ({self.fail_code})", self.retry_after)
         return {"id": "1"}
+
+    async def upsert_guild_command(self, application_id, guild_id, payload):
+        del application_id, guild_id
+        return self._record(self.sent, payload)
+
+    async def upsert_global_command(self, application_id, payload):
+        del application_id
+        return self._record(self.global_sent, payload)
 
 
 class _FakeTree:
@@ -103,7 +114,10 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
         results = await bot_module.sync_commands(fake)
 
         self.assertEqual(http.sent, ["cmd0", "cmd1", "cmd2"] * 2)
-        self.assertEqual(results, {"Hmm": 3, "Second Server": 3})
+        self.assertEqual(
+            results, {"(global)": 3, "Hmm": 3, "Second Server": 3},
+            "the global scope is a second lane with its own write budget",
+        )
 
     async def test_only_missing_or_changed_commands_are_sent(self):
         """Discord allows 200 writes a day per guild, so unchanged ones are skipped."""
@@ -133,7 +147,8 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
         results = await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
         self.assertEqual(http.sent, [], "an unchanged tree was re-uploaded")
-        self.assertEqual(results, {"Hmm": 3})
+        self.assertEqual(http.global_sent, [], "an unchanged global tree was re-uploaded")
+        self.assertEqual(results, {"(global)": 3, "Hmm": 3})
 
     async def test_a_guild_whose_state_cannot_be_read_is_published_anyway(self):
         tree = _FakeTree(local_count=2, fetch_error=True)
@@ -152,12 +167,17 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         with mock.patch.object(
             bot_module, "_schedule_command_drain",
-            new=lambda _bot, _guild, delay: scheduled.append((_guild.name, delay)),
+            new=lambda _bot, _guild, delay, **_kwargs: scheduled.append(
+                (getattr(_guild, "name", "global"), delay)
+            ),
         ):
             await bot_module.sync_commands(_FakeBot([guild], tree, http))
 
         self.assertEqual(http.sent, ["cmd0", "cmd1"], "it kept going after the limit")
-        self.assertEqual(scheduled, [("Hmm", 430.0)])
+        self.assertEqual(
+            sorted(scheduled), [("Hmm", 430.0), ("global", 430.0)],
+            "both lanes wait out the window",
+        )
 
     async def test_an_ordinary_failure_does_not_queue_a_drain(self):
         tree = _FakeTree(local_count=2)
@@ -166,7 +186,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         with mock.patch.object(
             bot_module, "_schedule_command_drain",
-            new=lambda _bot, _guild, delay: scheduled.append(delay),
+            new=lambda _bot, _guild, delay, **_kwargs: scheduled.append(delay),
         ):
             await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
@@ -179,7 +199,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         with mock.patch.object(
             bot_module, "_schedule_command_drain",
-            new=lambda _bot, _guild, delay: scheduled.append(delay),
+            new=lambda _bot, _guild, delay, **_kwargs: scheduled.append(delay),
         ):
             await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, _FakeHTTP()))
 
@@ -245,12 +265,13 @@ class DrainingPendingCommands(unittest.IsolatedAsyncioTestCase):
         results = await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
         # Reported as a count of zero rather than raising into on_ready.
-        self.assertEqual(results, {"Hmm": 0})
+        self.assertEqual(results, {"(global)": 0, "Hmm": 0})
 
-    async def test_no_guilds_is_not_an_error(self):
+    async def test_no_guilds_still_publishes_the_global_scope(self):
+        """A bot in no guilds can still be found by the next invitation."""
         results = await bot_module.sync_commands(_FakeBot([], _FakeTree()))
 
-        self.assertEqual(results, {})
+        self.assertEqual(results, {"(global)": 3})
 
 
 class RetryDelay(unittest.TestCase):
@@ -390,6 +411,46 @@ class TheRealTreeRoundTrips(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             await bot.close()
+
+
+class TheSyncCommandIsNotDestructive(unittest.TestCase):
+    """`/sync` was a second route to the wipe the boot sync had already had.
+
+    It called `tree.sync(guild=...)` and then `tree.sync()` — both bulk
+    overwrites, which Discord applies by clearing the scope's command list and
+    rebuilding it, so a run that meets the daily write limit leaves the guild
+    with almost nothing. The command now goes through the upsert publisher.
+    """
+
+    def _sync_body(self) -> str:
+        """The command's actual code, with comments stripped.
+
+        Comments are removed first: the explanation of *why* the bulk sync is
+        forbidden names it, and a substring check on raw source would flag that.
+        """
+        source = (
+            Path(__file__).resolve().parent.parent / "cogs" / "bot_config.py"
+        ).read_text(encoding="utf-8")
+        code = tokenize.untokenize([
+            token for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type != tokenize.COMMENT
+        ])
+        return code.split("async def sync(self", 1)[1].split("async def ", 1)[0]
+
+    def test_it_never_bulk_overwrites(self):
+        body = self._sync_body()
+
+        self.assertNotIn("tree.sync(", body, "the destructive bulk sync is back in /sync")
+        self.assertNotIn("copy_global_to", body)
+
+    def test_it_uses_the_safe_publisher(self):
+        self.assertIn("publish_commands", self._sync_body())
+
+    def test_the_bot_exposes_the_publisher_to_cogs(self):
+        """Cogs must not import bot: it runs as `__main__`, so that re-executes it."""
+        source = (Path(__file__).resolve().parent.parent / "bot.py").read_text(encoding="utf-8")
+
+        self.assertIn("bot.publish_commands = sync_commands", source)
 
 
 if __name__ == "__main__":

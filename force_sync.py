@@ -128,11 +128,16 @@ def _ordered(names: list[str]) -> list[str]:
     return sorted(names, key=lambda name: (rank.get(name, len(PRIORITY)), name))
 
 
-def _upsert_many(path: str, token: str, payloads: dict, names: list[str]):
+def _upsert_many(
+    path: str, token: str, payloads: dict, names: list[str], *, patient_until: float = 0.0
+):
     """Upsert each command separately. Returns ``(ok, detail)``.
 
-    Stops at the first hard limit rather than retrying forever, and never deletes
-    anything, so a partial run always leaves the account better off than it found it.
+    Never deletes anything, so a partial run always leaves the account better off
+    than it found it. Normally it stops at the first hard limit; in patient mode
+    (``patient_until`` is a unix timestamp) it waits each window out and keeps
+    going, which is the only way through a spent daily budget, since Discord lets
+    a slot or two free at a time.
     """
     for name in names:
         payload = payloads.get(name)
@@ -145,6 +150,10 @@ def _upsert_many(path: str, token: str, payloads: dict, names: list[str]):
                 break
             if status == 429:
                 wait = _rate_limit_wait(body)
+                if wait > MAX_WAIT and time.time() < patient_until:
+                    print(f"   ⏳ /{name}: waiting out the window ({wait:.0f}s)", flush=True)
+                    time.sleep(wait + 2.0)
+                    continue
                 if wait > MAX_WAIT:
                     return False, f"/{name}: rate limited for {wait:.0f}s.{_limit_reason(body)}"
                 print(f"   ⏳ /{name}: waiting {wait:.0f}s", flush=True)
@@ -192,8 +201,11 @@ def _publish(label: str, path: str, token: str, commands: list[dict], args) -> i
             print(f"   dry run: would upsert {len(names)} command(s): "
                   f"{', '.join(names[:12])}" + (" …" if len(names) > 12 else ""))
             return 0
+        patient_until = time.time() + args.patient_seconds if args.patient else 0.0
         print(f"   upserting {len(names)} command(s)...")
-        ok, detail = _upsert_many(path, token, payloads, names)
+        ok, detail = _upsert_many(
+            path, token, payloads, names, patient_until=patient_until
+        )
 
     failures = 0
     if not ok:
@@ -221,6 +233,14 @@ def main() -> int:
     parser.add_argument(
         "--overwrite", action="store_true",
         help="WARNING: bulk overwrite. If Discord rejects it part-way, commands are lost.",
+    )
+    parser.add_argument(
+        "--patient", action="store_true",
+        help="keep waiting out the daily write window instead of stopping (slow but finishes)",
+    )
+    parser.add_argument(
+        "--patient-seconds", type=float, default=7200.0,
+        help="how long --patient keeps trying (default 2 hours)",
     )
     args = parser.parse_args()
 
@@ -257,8 +277,9 @@ def main() -> int:
 
     if failures:
         print("\nSome commands are still pending — a 30034 body means that scope's daily "
-              "write limit is spent. Try --global for a separate budget, re-run later, or "
-              "restart the bot: it publishes the pending commands on boot.")
+              "write limit is spent. Try --global for a separate budget, --patient to wait "
+              "the window out, re-run later, or restart the bot: it publishes the "
+              "pending commands on boot.")
     return 1 if failures else 0
 
 
