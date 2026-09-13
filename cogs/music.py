@@ -54,7 +54,7 @@ YTDL_OPTIONS = {
     "source_address": "0.0.0.0",
     "extractor_args": {
         "youtube": {
-            "player_client": ["tv", "android", "ios"],
+            "player_client": ["android", "web"],
         }
     }
 }
@@ -69,6 +69,11 @@ YTDL_FLAT_OPTIONS = {
     "no_warnings": True,
     "extract_flat": "in_playlist",
     "source_address": "0.0.0.0",
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "web"],
+        }
+    }
 }
 
 # Stream options: used ONLY for Phase-2 single-video stream URL extraction
@@ -84,7 +89,7 @@ YTDL_STREAM_OPTIONS = {
     "source_address": "0.0.0.0",
     "extractor_args": {
         "youtube": {
-            "player_client": ["tv", "android", "ios"],
+            "player_client": ["android", "web"],
         }
     }
 }
