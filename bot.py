@@ -1,6 +1,7 @@
 import sys
 import os
 import asyncio
+import random
 import datetime
 import discord
 from discord import app_commands
@@ -105,9 +106,6 @@ async def global_module_check(interaction: discord.Interaction) -> bool:
 
 bot.tree.interaction_check = global_module_check
 
-import asyncio
-import random
-
 STATUSES = [
     ("Meowing at the wall 🐈", discord.ActivityType.playing),
     ("Knocking over your water glass 🐾", discord.ActivityType.playing),
@@ -131,7 +129,10 @@ async def rotate_status():
         idx = random.choice(available)
         last_idx = idx
         name, atype = STATUSES[idx]
-        await bot.change_presence(activity=discord.Activity(type=atype, name=name), status=discord.Status.dnd)
+        try:
+            await bot.change_presence(activity=discord.Activity(type=atype, name=name), status=discord.Status.dnd)
+        except Exception as e:
+            print(f"Failed to update status: {e}")
         await asyncio.sleep(3600)  # Rotate every 60 minutes
 
 @bot.event

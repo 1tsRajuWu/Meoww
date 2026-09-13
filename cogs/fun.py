@@ -9,20 +9,6 @@ from utils.style import send_card, display_name
 
 DB_PATH = db.DB_PATH
 
-async def setup_custom_quotes_table():
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute("""CREATE TABLE IF NOT EXISTS custom_quotes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
-            user_id INTEGER,
-            quote TEXT,
-            author TEXT,
-            source TEXT,
-            category TEXT DEFAULT 'funny',
-            created_at TEXT
-        )""")
-        await conn.commit()
-
 CAT_SOUNDS = [
     ("meow_1.ogg", "🐾 Short Cute Meow", "Mew!"),
     ("meow_2.ogg", "🐾 Soft Domestic Meow", "Meoww~"),
@@ -47,7 +33,6 @@ class CustomQuoteView(discord.ui.View):
 
     @discord.ui.button(label="🎲 Another Custom Quote", style=discord.ButtonStyle.secondary)
     async def another_quote(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await setup_custom_quotes_table()
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
                 "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? ORDER BY RANDOM() LIMIT 1",
@@ -474,7 +459,6 @@ class Fun(commands.Cog):
         if cat_val == "custom":
             if not interaction.guild:
                 return await interaction.response.send_message("❌ Server custom quotes are only available inside servers!", ephemeral=True)
-            await setup_custom_quotes_table()
             async with aiosqlite.connect(DB_PATH) as conn:
                 async with conn.execute(
                     "SELECT id, user_id, quote, author, source, category, created_at FROM custom_quotes WHERE guild_id=? ORDER BY RANDOM() LIMIT 1",
@@ -647,7 +631,6 @@ class Fun(commands.Cog):
     ):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Custom quotes can only be added in a server!", ephemeral=True)
-        await setup_custom_quotes_table()
         quote = quote.strip()
         author = author.strip()
         source = source.strip() if source else None
@@ -695,7 +678,6 @@ class Fun(commands.Cog):
     ):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Custom quotes can only be viewed in a server!", ephemeral=True)
-        await setup_custom_quotes_table()
         async with aiosqlite.connect(DB_PATH) as conn:
             if quote_id is not None:
                 async with conn.execute(
@@ -759,7 +741,6 @@ class Fun(commands.Cog):
     async def customquote_list(self, interaction: discord.Interaction):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Custom quotes can only be viewed in a server!", ephemeral=True)
-        await setup_custom_quotes_table()
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
                 "SELECT id, quote, author, created_at FROM custom_quotes WHERE guild_id=? ORDER BY id DESC LIMIT 10",
@@ -788,7 +769,6 @@ class Fun(commands.Cog):
     async def customquote_delete(self, interaction: discord.Interaction, quote_id: int):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Custom quotes can only be deleted in a server!", ephemeral=True)
-        await setup_custom_quotes_table()
         is_owner = (interaction.guild and interaction.guild.owner_id == interaction.user.id)
         is_admin = interaction.user.guild_permissions.administrator
 
@@ -1014,5 +994,4 @@ QUOTES = [
 
 
 async def setup(bot: commands.Bot):
-    await setup_custom_quotes_table()
     await bot.add_cog(Fun(bot))

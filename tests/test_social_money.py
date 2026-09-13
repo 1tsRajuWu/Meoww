@@ -118,7 +118,6 @@ class _SocialCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         social_module.DB_PATH = path
         economy_module.DB_PATH = path
         await db.setup()
-        await social_module.setup_social_tables()
         self.cog = social_module.Social(bot=None)
 
     async def asyncTearDown(self):

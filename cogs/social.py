@@ -11,30 +11,6 @@ from utils.style import send_card, display_name
 DB_PATH = db.DB_PATH
 
 # -------------------------------------------------------------
-# DATABASE SETUP
-# -------------------------------------------------------------
-async def setup_social_tables():
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute("""CREATE TABLE IF NOT EXISTS user_animals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
-            user_id INTEGER,
-            animal_name TEXT,
-            emoji TEXT,
-            tier TEXT,
-            count INTEGER DEFAULT 1,
-            UNIQUE(guild_id, user_id, animal_name)
-        )""")
-        await conn.execute("""CREATE TABLE IF NOT EXISTS marriages (
-            guild_id INTEGER,
-            user1_id INTEGER,
-            user2_id INTEGER,
-            married_at TEXT,
-            PRIMARY KEY (guild_id, user1_id)
-        )""")
-        await conn.commit()
-
-# -------------------------------------------------------------
 # ANIMAL DATA (Tiers: Common, Uncommon, Rare, Epic, Mythic, Legendary)
 # -------------------------------------------------------------
 ANIMALS = {
@@ -423,7 +399,6 @@ class Social(commands.Cog):
     @app_commands.command(name="hunt", description="Go hunting in the wild and catch rare animals for your zoo!")
     @app_commands.checks.cooldown(1, HUNT_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     async def hunt(self, interaction: discord.Interaction):
-        await setup_social_tables()
         await ensure_eco(interaction.user.id, interaction.guild.id)
 
         # Catch 1 to 3 animals per hunt
@@ -483,7 +458,6 @@ class Social(commands.Cog):
     @app_commands.describe(member="Member's zoo to view")
     async def zoo(self, interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user
-        await setup_social_tables()
 
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
@@ -546,8 +520,6 @@ class Social(commands.Cog):
         app_commands.Choice(name="Sell Everything (Full Liquidation)", value="all"),
     ])
     async def sellanimals(self, interaction: discord.Interaction, tier: str):
-        await setup_social_tables()
-
         price_map = {}
         for list_a in ANIMALS.values():
             for _emoji, name, price in list_a:
@@ -769,7 +741,6 @@ class Social(commands.Cog):
     @app_commands.command(name="marry", description="Propose marriage to another member!")
     @app_commands.describe(member="The lucky member to propose to")
     async def marry(self, interaction: discord.Interaction, member: discord.Member):
-        await setup_social_tables()
         if member.id == interaction.user.id:
             return await interaction.response.send_message("❌ You can't marry yourself!", ephemeral=True)
         if member.bot:
@@ -795,7 +766,6 @@ class Social(commands.Cog):
 
     @app_commands.command(name="divorce", description="Divorce your current spouse.")
     async def divorce(self, interaction: discord.Interaction):
-        await setup_social_tables()
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute("SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, interaction.user.id)) as cur:
                 row = await cur.fetchone()
@@ -895,5 +865,4 @@ class Social(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    await setup_social_tables()
     await bot.add_cog(Social(bot))

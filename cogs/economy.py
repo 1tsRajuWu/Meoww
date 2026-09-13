@@ -14,31 +14,8 @@ DB_PATH = db.DB_PATH
 _bot_instance: commands.Bot | None = None
 
 async def setup_tables():
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute("""CREATE TABLE IF NOT EXISTS economy (
-            user_id INTEGER,
-            guild_id INTEGER,
-            wallet INTEGER DEFAULT 0,
-            bank INTEGER DEFAULT 0,
-            last_daily TEXT,
-            last_weekly TEXT,
-            last_work TEXT,
-            PRIMARY KEY (user_id, guild_id)
-        )""")
-        await conn.execute("""CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            guild_id INTEGER,
-            item_name TEXT
-        )""")
-        await conn.execute("""CREATE TABLE IF NOT EXISTS shop (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
-            item_name TEXT,
-            price INTEGER,
-            role_id INTEGER
-        )""")
-        await conn.commit()
+    # Tables are now created in utils/db.setup() to avoid duplication
+    pass
 
 async def sanitize_economy_balances(bot: commands.Bot):
     """Unlimited economy balances for all members."""
