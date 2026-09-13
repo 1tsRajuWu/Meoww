@@ -20,9 +20,17 @@ ffmpeg/yt-dlp are never invoked here: ``_build_source`` is exercised with the
 source classes mocked, and ``play_next`` is replaced with a recorder.
 """
 import asyncio
+import pathlib
 import unittest
 from types import SimpleNamespace
 from unittest import mock
+
+if not (pathlib.Path(__file__).resolve().parent.parent / "cogs" / "music.py").exists():
+    # Music is no longer in the tree (see the feature archive), so these tests
+    # cover a cog that does not exist. Skipping keeps the suite honest instead of
+    # erroring at import — and they come straight back to life the moment
+    # cogs/music.py is restored.
+    raise unittest.SkipTest("cogs/music.py is not in this build")
 
 from cogs import music as music_module
 from tests.support import TempDatabaseMixin

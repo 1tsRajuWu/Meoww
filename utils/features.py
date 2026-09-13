@@ -87,11 +87,12 @@ FEATURES: tuple[Feature, ...] = (
             "balance", "daily", "weekly", "work", "rob", "pay", "deposit",
             "withdraw", "shop", "buy", "inventory", "richlist", "eco-admin",
             "addmoney", "removemoney", "setmoney", "addbank", "loan", "repay",
+            "beg",
         ),
         commands=(
             "/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit",
             "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin",
-            "/loan", "/repay",
+            "/loan", "/repay", "/beg",
         ),
         cog="cogs.economy",
         help_key="economy",
@@ -191,11 +192,11 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "meme", "8ball", "meow", "meowsound", "tan", "kms", "quote",
-            "customquote", "rizz", "roast", "scam",
+            "customquote", "rizz", "roast", "scam", "aura",
         ),
         commands=(
             "/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote",
-            "/customquote", "/rizz", "/roast", "/scam",
+            "/customquote", "/rizz", "/roast", "/scam", "/aura", "/flex",
         ),
         cog="cogs.fun",
         help_key="fun",
@@ -240,6 +241,8 @@ FEATURES: tuple[Feature, ...] = (
 # casino pair (economy + games) and selling animals (social + economy).
 SHARED_GATES: Mapping[str, tuple[str, ...]] = {
     "gamble": ("economy", "games"),
+    # /flex reads wallet, bank and loan debt, so it needs both features on.
+    "flex": ("fun", "economy"),
     "slots": ("economy", "games"),
     "blackjack": ("economy", "games"),
     "roulette": ("economy", "games"),

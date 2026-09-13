@@ -4,7 +4,7 @@ from discord.ext import commands
 import random
 import aiohttp
 import aiosqlite
-from utils import db
+from utils import db, loans
 from utils.style import send_card, display_name
 
 DB_PATH = db.DB_PATH
@@ -873,6 +873,120 @@ class Fun(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Scam Defense Network")
+        await send_card(interaction, embed=embed)
+
+    # ---------------------------------------------------------
+    # More memes: /aura and /flex (flex reads the bank, so it can call out debt)
+    # ---------------------------------------------------------
+
+    @app_commands.command(name="aura", description="Scan someone's aura. The universe does not lie.")
+    @app_commands.describe(member="Who to scan (defaults to you)")
+    async def aura(self, interaction: discord.Interaction, member: discord.Member = None):
+        target = member or interaction.user
+        score = random.randint(-250, 999)
+
+        if score >= 900:
+            verdict = "🌟 **MYTHIC AURA.** People stand up when you walk in."
+        elif score >= 500:
+            verdict = "✨ **Elite aura.** Even your typos look intentional."
+        elif score >= 100:
+            verdict = "🙂 **Decent aura.** Room temperature, but in a good way."
+        elif score >= 0:
+            verdict = "😐 **Neutral aura.** The universe is still deciding about you."
+        else:
+            verdict = "💀 **Aura debt.** You said 'you too' to a waiter and lost points."
+
+        events = [
+            ("lost 40 aura", "explaining a joke nobody asked about"),
+            ("gained 60 aura", "walking away from an argument you could not win"),
+            ("lost 25 aura", "peeking at your own message after sending it"),
+            ("gained 90 aura", "saying nothing when it mattered most"),
+            ("lost 75 aura", "typing a whole paragraph and deleting it"),
+            ("gained 45 aura", "holding the door for someone running to it"),
+        ]
+        move, reason = random.choice(events)
+
+        embed = discord.Embed(
+            title="🔮 Aura Scan Complete",
+            description=(
+                f"### {target.display_name}\n\n"
+                f"> 📊 **Aura:** **{score:,}** points\n"
+                f"> {verdict}\n\n"
+                f"*Recent event: {move} for {reason}.*"
+            ),
+            color=0x9B59B6,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.set_footer(text=f"Scanned by {interaction.user.display_name} • Aura readings are final")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="flex", description="Flex your net worth — or get humbled by your own bank statement.")
+    @app_commands.describe(member="Who is flexing (defaults to you)")
+    async def flex(self, interaction: discord.Interaction, member: discord.Member = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Flexing is a server activity.", ephemeral=True)
+
+        target = member or interaction.user
+        wallet = bank = debt = 0
+        plan_id = None
+
+        # One read for the wallet, the bank and any live debt. A database that
+        # never ran the economy/loan migrations must not break the joke.
+        try:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                async with conn.execute(
+                    "SELECT wallet, bank FROM economy WHERE user_id=? AND guild_id=?",
+                    (target.id, interaction.guild.id),
+                ) as cur:
+                    row = await cur.fetchone()
+                if row:
+                    wallet, bank = int(row[0] or 0), int(row[1] or 0)
+                async with conn.execute(
+                    "SELECT repay_amount, plan FROM loans WHERE user_id=? AND guild_id=?",
+                    (target.id, interaction.guild.id),
+                ) as cur:
+                    loan = await cur.fetchone()
+                if loan:
+                    debt, plan_id = int(loan[0] or 0), loan[1]
+        except aiosqlite.Error as exc:
+            print(f"[FLEX] Could not read balances for {target.id}: {exc}", flush=True)
+
+        net = wallet + bank
+        if net >= 1_000_000:
+            tier = "🚁 **Certified whale.** The bank calls you for advice."
+        elif net >= 100_000:
+            tier = "💎 **Genuinely rich.** Even your wallet has a wallet."
+        elif net >= 20_000:
+            tier = "🤑 **Comfortable.** Still checks the price before ordering."
+        elif net >= 5_000:
+            tier = "🙂 **Doing okay.** One bad `/crash` from the shark's office."
+        elif net > 0:
+            tier = "🫠 **Working-class hero.** The coins are just passing through."
+        else:
+            tier = "🕳️ **Absolutely nothing.** Even the couch cushions came up empty."
+
+        debt_line = ""
+        if debt:
+            selected = loans.plan(plan_id)
+            debt_line = (
+                f"\n> 📉 Owes **{debt:,}** 🪙 on a {selected.emoji} **{selected.name}**"
+                f"\n> 🧾 Net after debt: **{net - debt:,}** 🪙"
+            )
+            if net - debt < 0:
+                debt_line += "\n> 🚨 Flexing borrowed money. That is not a flex, that is a warning."
+
+        embed = discord.Embed(
+            title=f"💸 {target.display_name}'s Flex Card",
+            description=f"### Net worth: **{net:,}** 🪙\n> {tier}{debt_line}",
+            color=0xFEE75C,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.add_field(name="👛 Wallet", value=f"**{wallet:,}** 🪙", inline=True)
+        embed.add_field(name="🏦 Bank", value=f"**{bank:,}** 🪙", inline=True)
+        embed.add_field(name="📉 Debt", value=f"**{debt:,}** 🪙", inline=True)
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.set_footer(text=f"Requested by {interaction.user.display_name} • /richlist decides the truth")
         await send_card(interaction, embed=embed)
 
 

@@ -72,6 +72,9 @@ HELP_MODULES = {
             "> `/deposit <amount>` — Deposit wallet coins into your bank\n"
             "> `/withdraw <amount>` — Withdraw bank coins into your wallet\n"
             "> `/richlist` — Server wealth leaderboard\n"
+            "> `/loan [amount] [plan]` — Borrow 🪙 from Meow Bank; your credit line grows with your level\n"
+            "> `/repay [amount]` — Pay a loan back in full or in part, from wallet or bank\n"
+            "> `/beg` — Beg for spare coins (2-minute cooldown, no dignity required)\n"
             "> `/eco-admin add / remove / set / reset` — Admin currency management"
         ),
         "color": 0x2ECC71,
@@ -131,7 +134,12 @@ HELP_MODULES = {
             "> `/quote [category] [mood]` — Iconic anime, cartoon, movie, and motivation quotes\n"
             "> `/customquote add / get / list / delete` — Server custom quote collection\n"
             "> `/meow` & `/meowsound` — Playful cat media\n"
-            "> `/kms` — Relatable funny life checks"
+            "> `/kms` — Relatable funny life checks\n"
+            "> `/rizz [target]` — Drop a pickup line & get your rizz score 🔥\n"
+            "> `/roast <member>` — Savage AI roast generator 💀\n"
+            "> `/scam` — Join a fake investment scheme (comedy only 😂)\n"
+            "> `/aura [member]` — Scan someone's aura and get an instant verdict 🔮\n"
+            "> `/flex [member]` — Flex your net worth; the bank statement settles the argument 💸"
         ),
         "color": 0xE74C3C,
         "emoji": "😆"

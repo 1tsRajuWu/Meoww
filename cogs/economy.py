@@ -5,7 +5,8 @@ import aiosqlite
 import asyncio
 import random
 import datetime
-from utils import db
+import time
+from utils import db, loans
 from utils.style import send_card, display_names
 
 DB_PATH = db.DB_PATH
@@ -164,6 +165,66 @@ def parse_amount(amount_str: str, current: int) -> int | None:
         return val if val > 0 else None
     except ValueError:
         return None
+
+async def member_level(user_id: int, guild_id: int) -> int:
+    """A member's level, or 0 when they have no row yet.
+
+    Drives the loan credit line. A missing table (an old database that never ran
+    the leveling migration) degrades to level 0 rather than taking /loan down
+    with it.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT level FROM user_levels WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            ) as cur:
+                row = await cur.fetchone()
+        return max(0, int(row[0] or 0)) if row else 0
+    except aiosqlite.Error as exc:
+        print(f"[LOANS] Could not read level for {user_id}: {exc}", flush=True)
+        return 0
+
+
+def _charge_late_fee(cur, user_id: int, guild_id: int, now: float) -> int:
+    """Apply the one-time overdue penalty inside the caller's transaction.
+
+    Returns the penalty that was charged (0 when nothing was due). The
+    ``late_fee_applied = 0`` guard means it can land exactly once, and the
+    surrounding ``BEGIN IMMEDIATE`` means only one writer can be in here at a
+    time — so a member cannot be penalised twice by two commands racing.
+    """
+    cur.execute(
+        """SELECT repay_amount FROM loans
+            WHERE user_id=? AND guild_id=? AND late_fee_applied = 0
+              AND due_ts > 0 AND due_ts < ?""",
+        (user_id, guild_id, now - loans.GRACE_SECONDS),
+    )
+    row = cur.fetchone()
+    if not row:
+        return 0
+    before = row[0]
+
+    cur.execute(
+        f"""UPDATE loans
+               SET repay_amount = repay_amount + {loans.late_fee_sql()},
+                   late_fee_applied = 1,
+                   status = 'overdue'
+             WHERE user_id=? AND guild_id=? AND late_fee_applied = 0""",
+        (user_id, guild_id),
+    )
+    if cur.rowcount != 1:
+        return 0
+
+    # Report the fee the database actually stored, rather than re-deriving it in
+    # Python where a rounding difference could drift from the SQL expression.
+    cur.execute(
+        "SELECT repay_amount FROM loans WHERE user_id=? AND guild_id=?",
+        (user_id, guild_id),
+    )
+    after = cur.fetchone()
+    return (after[0] - before) if after else 0
+
 
 class Economy(commands.Cog):
     """Advanced economy system with bank, rob, shop, and leaderboard."""
@@ -855,11 +916,19 @@ class Economy(commands.Cog):
     # -------------------------------------------------------------------------
     # Admin Economy Commands
     # -------------------------------------------------------------------------
+    #
+    # These handlers must not share a name with the /eco-admin group's methods
+    # (addmoney / removemoney / setmoney). Two definitions with the same name in
+    # one class body silently re-bind the attribute, so `/eco-admin add`, `remove`
+    # and `set` were registered but pointing at the wrong functions — and because
+    # only the last definition survives, the group's own implementations were
+    # unreachable dead code. Hence the _cmd suffix; the command name the user
+    # sees comes from the decorator, not the method name.
 
     @app_commands.command(name="addmoney", description="Add money to a member's wallet (Admin only).")
     @app_commands.describe(member="The member to give money to", amount="Amount to add")
     @app_commands.default_permissions(administrator=True)
-    async def addmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+    async def addmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         
@@ -881,7 +950,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="removemoney", description="Remove money from a member's wallet (Admin only).")
     @app_commands.describe(member="The member to remove money from", amount="Amount to remove")
     @app_commands.default_permissions(administrator=True)
-    async def removemoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+    async def removemoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         
@@ -903,7 +972,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="setmoney", description="Set a member's wallet to a specific amount (Admin only).")
     @app_commands.describe(member="The member to set money for", amount="New wallet amount")
     @app_commands.default_permissions(administrator=True)
-    async def setmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+    async def setmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         
@@ -955,161 +1024,295 @@ class Economy(commands.Cog):
         await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
-    # Bank Loan System
+    # Bank Loan System — the credit line grows with your level, and each plan
+    # trades the fee against the size of the loan and the length of the term.
     # -------------------------------------------------------------------------
 
-    @app_commands.command(name="loan", description="Take out a bank loan with 10% interest or check active loan status.")
-    @app_commands.describe(amount="Amount of coins to borrow (Max: 50,000)")
-    async def loan(self, interaction: discord.Interaction, amount: int = None):
+    LOAN_PLAN_CHOICES = [
+        app_commands.Choice(
+            name=f"{p.emoji} {p.name} • {int(p.rate * 100)}% • {p.term_days}d",
+            value=p.id,
+        )
+        for p in loans.PLANS
+    ]
+
+    def _loan_center_embed(self, interaction, level: int, row, now: float) -> discord.Embed:
+        """The `/loan` card: credit line, plans, and any active debt."""
+        rating_name, rating_emoji = loans.rating(level)
+        base = loans.credit_line(level)
+        nxt = loans.next_credit_line(level)
+
+        lines: list[str] = []
+        if row:
+            borrowed, debt, due_ts, stored_plan, status = row
+            selected = loans.plan(stored_plan)
+            secs = loans.secs_left(due_ts, now)
+            if status == "overdue" or secs < 0:
+                state = "🔴 **Overdue** — the penalty is already on the balance."
+            elif secs < 86400:
+                state = f"🟠 Due in ~**{max(1, int(secs // 3600))}h** — don't get caught out."
+            else:
+                state = f"🟢 In good standing • **{int(secs // 86400)}d** left"
+            lines.append(
+                f"### 💳 Active loan — {selected.emoji} {selected.name}\n"
+                f"> 🪙 **Borrowed:** {borrowed:,}\n"
+                f"> 📉 **Outstanding:** **{debt:,}** 🪙 (fee included)\n"
+                f"> 📅 **Due:** <t:{int(due_ts)}:R>\n"
+                f"> {state}\n\n"
+                f"Clear it with `/repay` — partial payments are fine."
+            )
+        else:
+            lines.append("### 🎉 No active loans\nYou are debt-free. Borrow whenever you like.")
+
+        credit_lines = [
+            f"### 📈 Credit line — {rating_emoji} {rating_name}",
+            f"> 🏅 **Level {level}** keeps **{base:,}** 🪙 of credit open for you",
+        ]
+        credit_lines.append(
+            f"> ⏭️ Level up for **{nxt:,}** 🪙 at level {level + 1}"
+            if nxt else "> 🏛️ You are at the maximum credit line"
+        )
+        credit_lines.append("")
+        credit_lines.extend(loans.format_plan_line(p, level) for p in loans.PLANS)
+        credit_lines.append("")
+        credit_lines.append("Borrow with `/loan amount:<coins> plan:<plan>`.")
+        lines.append("\n".join(credit_lines))
+
+        embed = discord.Embed(
+            title="🏦 Meow National Bank — Loan Center",
+            description="\n\n".join(lines),
+            color=0x3498DB,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="🐾 Missed loans add a 25% penalty and block new borrowing.")
+        return embed
+
+    @app_commands.command(name="loan", description="Borrow coins from Meow Bank — your credit line grows with your level.")
+    @app_commands.describe(
+        amount="Coins to borrow (leave blank to see your credit line and active loan)",
+        plan="Which plan to borrow on",
+    )
+    @app_commands.choices(plan=LOAN_PLAN_CHOICES)
+    async def loan(
+        self,
+        interaction: discord.Interaction,
+        amount: int = None,
+        plan: app_commands.Choice[str] = None,
+    ):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
 
         user_id = interaction.user.id
         guild_id = interaction.guild.id
-        await ensure_eco(user_id, guild_id)
+        plan_id = plan.value if plan else loans.DEFAULT_PLAN
+        selected = loans.plan(plan_id)
+        now = time.time()
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            async with conn.execute(
-                "SELECT amount, repay_amount, due_ts FROM loans WHERE user_id=? AND guild_id=?",
-                (user_id, guild_id)
-            ) as cur:
-                active_loan = await cur.fetchone()
+        await ensure_eco(user_id, guild_id)
+        level = await member_level(user_id, guild_id)
+        limit = loans.credit_limit(plan_id, level)
 
         if amount is None:
-            if not active_loan:
-                embed = discord.Embed(
-                    title="🏦 Meow National Bank — Loan Center",
-                    description=(
-                        "You currently have **no active loans**! 🎉\n\n"
-                        "> Need quick cash? Use `/loan <amount>` to borrow up to **50,000** 🪙.\n"
-                        "> Interest rate: **10%** flat fee.\n"
-                        "> Pay back anytime with `/repay [amount]`."
-                    ),
-                    color=0x3498DB,
-                    timestamp=discord.utils.utcnow()
-                )
-                embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                return await send_card(interaction, embed=embed)
-            
-            borrowed, to_repay, due_ts = active_loan
-            due_str = f"<t:{int(due_ts)}:R>" if due_ts else "Whenever you want"
-            embed = discord.Embed(
-                title="📋 Active Bank Loan",
-                description=(
-                    f"### 💳 Borrower: {interaction.user.mention}\n\n"
-                    f"> 🪙 **Original Loan:** **{borrowed:,}** coins\n"
-                    f"> 📉 **Outstanding Debt:** **{to_repay:,}** coins (includes 10% interest)\n"
-                    f"> ⏳ **Due:** {due_str}\n\n"
-                    f"Use `/repay` to pay off your debt when you have sufficient wallet funds!"
-                ),
-                color=0xE67E22,
-                timestamp=discord.utils.utcnow()
+            # Charge any overdue penalty first, so the card shows the real debt.
+            await asyncio.to_thread(
+                db.run_atomic,
+                lambda cur: _charge_late_fee(cur, user_id, guild_id, now),
             )
-            embed.set_thumbnail(url=interaction.user.display_avatar.url)
-            embed.set_footer(text="🐾 Pay on time to avoid the Meow Repo squad!")
-            return await send_card(interaction, embed=embed)
+            async with aiosqlite.connect(DB_PATH) as conn:
+                async with conn.execute(
+                    "SELECT amount, repay_amount, due_ts, plan, status FROM loans WHERE user_id=? AND guild_id=?",
+                    (user_id, guild_id)
+                ) as cur:
+                    active_loan = await cur.fetchone()
+
+            return await send_card(
+                interaction, embed=self._loan_center_embed(interaction, level, active_loan, now)
+            )
 
         # Taking out a new loan
-        if amount <= 0:
-            return await interaction.response.send_message("❌ Loan amount must be greater than 0.", ephemeral=True)
-        if amount > 50000:
-            return await interaction.response.send_message("❌ Bank loan ceiling is **50,000** 🪙 per member.", ephemeral=True)
-
-        if active_loan:
+        if amount < loans.MIN_LOAN:
             return await interaction.response.send_message(
-                f"❌ You already have an active loan! You must pay off your debt of **{active_loan[1]:,}** 🪙 using `/repay` first.",
+                f"❌ The smallest loan the bank writes is **{loans.MIN_LOAN:,}** 🪙.", ephemeral=True
+            )
+        if amount > limit:
+            return await interaction.response.send_message(
+                f"❌ Your **{selected.name}** limit is **{limit:,}** 🪙 at **Level {level}**.\n"
+                "> Level up to raise your credit line, or choose a plan with a smaller limit.\n"
+                "> Run `/loan` with no amount to see every plan.",
                 ephemeral=True
             )
 
-        interest = int(amount * 0.10)
-        repay_total = amount + interest
-        import time
-        due_time = time.time() + (7 * 86400)  # 7 days
+        fee = loans.interest(amount, plan_id)
+        owed = amount + fee
+        due_time = loans.due_at(now, plan_id)
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute(
-                "INSERT INTO loans (user_id, guild_id, amount, repay_amount, due_ts) VALUES (?, ?, ?, ?, ?)",
-                (user_id, guild_id, amount, repay_total, due_time)
+        # Insert and credit in one transaction. Two simultaneous borrows used to
+        # pass the same "no active loan" read and then both hit the wallet, and a
+        # duplicate insert raised an unhandled IntegrityError. BEGIN IMMEDIATE
+        # plus the PRIMARY KEY now makes the second caller see the first one.
+        def _borrow(cur):
+            _charge_late_fee(cur, user_id, guild_id, now)
+            cur.execute(
+                "SELECT 1 FROM loans WHERE user_id=? AND guild_id=?", (user_id, guild_id)
             )
-            await conn.execute(
+            if cur.fetchone():
+                return "exists"
+            cur.execute(
+                """INSERT INTO loans
+                       (user_id, guild_id, amount, repay_amount, due_ts, plan, status, taken_ts, late_fee_applied)
+                   VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 0)""",
+                (user_id, guild_id, amount, owed, due_time, selected.id, now),
+            )
+            cur.execute(
                 "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
-                (amount, user_id, guild_id)
+                (amount, user_id, guild_id),
             )
-            await conn.commit()
+            if cur.rowcount != 1:
+                raise RuntimeError("economy row vanished during loan disbursement")
+            return "ok"
+
+        outcome = await asyncio.to_thread(db.run_atomic, _borrow)
+        if outcome == "exists":
+            return await interaction.response.send_message(
+                "❌ You already have an active loan! Clear it with `/repay` before borrowing again.",
+                ephemeral=True
+            )
 
         embed = discord.Embed(
             title="🤝 Loan Approved!",
             description=(
-                f"### 🏦 Funds Disbursed: +**{amount:,}** 🪙\n\n"
+                f"### {selected.emoji} Funds Disbursed: +**{amount:,}** 🪙\n\n"
                 f"> 💵 **Credited to:** Wallet\n"
-                f"> 📈 **Total to Repay:** **{repay_total:,}** 🪙 (includes 10% interest)\n"
-                f"> 📅 **Due in:** 7 days (<t:{int(due_time)}:R>)\n\n"
-                f"Use `/repay [amount]` whenever you're ready to pay it back!"
+                f"> 📈 **Total to Repay:** **{owed:,}** 🪙 ({int(selected.rate * 100)}% fee)\n"
+                f"> 📅 **Due in {selected.term_days} day(s):** <t:{int(due_time)}:R>\n\n"
+                f"Use `/repay` whenever you're ready to pay it back!"
             ),
             color=0x2ECC71,
             timestamp=discord.utils.utcnow()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text="🐾 Thank you for banking with Meow Bank!")
+        embed.set_footer(text=f"🐾 Meow Bank • {selected.name} • pay on time or eat a 25% penalty")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="repay", description="Repay all or part of your outstanding bank loan.")
-    @app_commands.describe(amount="Amount to repay (Leave blank to pay entire loan)")
-    async def repay(self, interaction: discord.Interaction, amount: int = None):
+    @app_commands.command(name="repay", description="Repay your bank loan — in full or a bit at a time.")
+    @app_commands.describe(
+        amount="Coins to repay (leave blank to clear the whole debt)",
+        from_bank="Pay straight out of your bank instead of your wallet",
+    )
+    async def repay(
+        self,
+        interaction: discord.Interaction,
+        amount: int = None,
+        from_bank: bool = False,
+    ):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
 
         user_id = interaction.user.id
         guild_id = interaction.guild.id
+        now = time.time()
         await ensure_eco(user_id, guild_id)
-        eco = await get_eco(user_id, guild_id)
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            async with conn.execute(
-                "SELECT amount, repay_amount FROM loans WHERE user_id=? AND guild_id=?",
-                (user_id, guild_id)
-            ) as cur:
-                active_loan = await cur.fetchone()
+        source = "bank" if from_bank else "wallet"
 
-        if not active_loan:
-            return await interaction.response.send_message("🎉 You have no outstanding loans to repay!", ephemeral=True)
-
-        borrowed, remaining_debt = active_loan
-        pay_amount = remaining_debt if amount is None else amount
-
-        if pay_amount <= 0:
-            return await interaction.response.send_message("❌ Repay amount must be greater than 0.", ephemeral=True)
-
-        pay_amount = min(pay_amount, remaining_debt)
-
-        if eco["wallet"] < pay_amount:
-            return await interaction.response.send_message(
-                f"❌ Insufficient wallet funds! You need **{pay_amount:,}** 🪙, but only have **{eco['wallet']:,}** 🪙 in your wallet.\n"
-                "Withdraw funds from your bank with `/withdraw` first.",
-                ephemeral=True
+        def _repay(cur):
+            fee = _charge_late_fee(cur, user_id, guild_id, now)
+            cur.execute(
+                "SELECT amount, repay_amount, due_ts, plan FROM loans WHERE user_id=? AND guild_id=?",
+                (user_id, guild_id),
             )
+            row = cur.fetchone()
+            if not row:
+                return {"status": "none", "fee": fee}
+            borrowed, debt, due_ts, stored_plan = row
+            pay = debt if amount is None else min(int(amount), debt)
+            if pay <= 0:
+                return {"status": "invalid", "debt": debt, "fee": fee}
 
-        new_debt = remaining_debt - pay_amount
-
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute(
-                "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=?",
-                (pay_amount, user_id, guild_id)
+            # Conditional debit. A plain `wallet - ?` clamps at zero, so two
+            # simultaneous repayments could both "pay" coins that only existed
+            # once and the second one would clear the loan for free.
+            cur.execute(
+                f"UPDATE economy SET {source} = {source} - ? "
+                f"WHERE user_id=? AND guild_id=? AND {source} >= ?",
+                (pay, user_id, guild_id, pay),
             )
-            if new_debt <= 0:
-                await conn.execute("DELETE FROM loans WHERE user_id=? AND guild_id=?", (user_id, guild_id))
+            if cur.rowcount != 1:
+                cur.execute(
+                    "SELECT wallet, bank FROM economy WHERE user_id=? AND guild_id=?",
+                    (user_id, guild_id),
+                )
+                funds = cur.fetchone() or (0, 0)
+                return {
+                    "status": "insufficient",
+                    "debt": debt,
+                    "pay": pay,
+                    "fee": fee,
+                    "source": source,
+                    "wallet": funds[0],
+                    "bank": funds[1],
+                }
+
+            remaining = debt - pay
+            if remaining <= 0:
+                cur.execute("DELETE FROM loans WHERE user_id=? AND guild_id=?", (user_id, guild_id))
             else:
-                await conn.execute("UPDATE loans SET repay_amount=? WHERE user_id=? AND guild_id=?", (new_debt, user_id, guild_id))
-            await conn.commit()
+                cur.execute(
+                    "UPDATE loans SET repay_amount=?, status='active' WHERE user_id=? AND guild_id=?",
+                    (remaining, user_id, guild_id),
+                )
+            return {
+                "status": "paid",
+                "pay": pay,
+                "remaining": remaining,
+                "borrowed": borrowed,
+                "plan": loans.plan(stored_plan),
+                "fee": fee,
+                "source": source,
+            }
+
+        result = await asyncio.to_thread(db.run_atomic, _repay)
+        outcome = result.get("status")
+
+        if outcome == "none":
+            return await interaction.response.send_message(
+                "🎉 You have no outstanding loans to repay!", ephemeral=True
+            )
+        if outcome == "invalid":
+            return await interaction.response.send_message(
+                f"❌ Repay amount must be greater than 0. You owe **{result['debt']:,}** 🪙.",
+                ephemeral=True,
+            )
+        if outcome == "insufficient":
+            have = result["bank"] if result["source"] == "bank" else result["wallet"]
+            hint = (
+                "Try `/repay from_bank:True` to use your bank, or `/withdraw` first."
+                if result["source"] == "wallet"
+                else "Deposit some coins with `/deposit`, or repay from your wallet instead."
+            )
+            return await interaction.response.send_message(
+                f"❌ Insufficient funds in your **{result['source']}**! You need **{result['pay']:,}** 🪙 "
+                f"but only have **{have:,}** 🪙.\n> {hint}",
+                ephemeral=True,
+            )
+
+        pay_amount = result["pay"]
+        new_debt = result["remaining"]
+        selected = result["plan"]
+        fee_line = ""
+        if result["fee"]:
+            fee_line = f"\n> ⚠️ A late fee of **{result['fee']:,}** 🪙 was added for missing the due date."
 
         if new_debt <= 0:
             embed = discord.Embed(
                 title="🎉 Loan Fully Repaid!",
                 description=(
-                    f"### Congratulations {interaction.user.mention}!\n\n"
-                    f"You paid **{pay_amount:,}** 🪙 and **fully cleared your loan**!\n"
+                    f"### Congratulations {interaction.user.display_name}!\n\n"
+                    f"You paid **{pay_amount:,}** 🪙 and **fully cleared your {selected.name}**!\n"
                     f"> 🌟 **Your credit score is pristine.**\n"
                     f"> 🏦 You are eligible to borrow again anytime with `/loan`."
+                    + fee_line
                 ),
                 color=0x57F287,
                 timestamp=discord.utils.utcnow()
@@ -1120,13 +1323,69 @@ class Economy(commands.Cog):
                 description=(
                     f"### Payment Accepted: -**{pay_amount:,}** 🪙\n\n"
                     f"> 📉 **Remaining Debt:** **{new_debt:,}** 🪙\n"
+                    f"> 📄 **Plan:** {selected.emoji} {selected.name}\n"
                     f"Pay the rest whenever you're ready with `/repay`!"
+                    + fee_line
                 ),
                 color=0xF1C40F,
                 timestamp=discord.utils.utcnow()
             )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.set_footer(text="🐾 Meow Banking Services")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="beg", description="Beg the streets for spare coins. Dignity optional.")
+    @app_commands.checks.cooldown(1, 120.0, key=lambda i: (i.guild_id, i.user.id))
+    async def beg(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Begging works best in a server.", ephemeral=True)
+
+        await ensure_eco(interaction.user.id, interaction.guild.id)
+
+        roll = random.random()
+        if roll < 0.06:
+            # The whale: rare enough to feel great, small enough to not matter.
+            payout = 100
+            line = "A passing whale felt sorry for you and dropped **100** 🪙 without looking back. 🐋"
+        elif roll < 0.22:
+            payout = random.randint(1, 5)
+            line = random.choice([
+                "A stranger flicked a couple of coins at you without making eye contact.",
+                "Someone paid you to go away. It worked.",
+                "You found it in the couch cushions. Not yours, but nobody's counting.",
+            ])
+        elif roll < 0.34:
+            payout = 0
+            line = random.choice([
+                "Everyone walked past. One person filmed you. 📲",
+                "A kid gave you a button. It is not worth anything.",
+                "You got ignored so hard the pigeons felt bad for you.",
+                "Someone said 'get a job' and closed the door. 🚪",
+            ])
+        else:
+            payout = random.randint(5, 40)
+            line = random.choice([
+                "You held up an honest sign and the crowd delivered.",
+                "Three people, three coins, zero questions asked.",
+                "Somebody actually respects the hustle. Respect.",
+                "You did a little dance. It paid off. 🕺",
+            ])
+
+        if payout:
+            await update_wallet(interaction.user.id, interaction.guild.id, payout)
+
+        embed = discord.Embed(
+            title="🥺 Begging Results",
+            description=(
+                f"### {interaction.user.display_name} went begging\n\n"
+                f"> {line}\n"
+                f"> 🪙 **Earned:** **{payout:,}** coins"
+            ),
+            color=0x95A5A6,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="🐾 Beg cooldown: 2 minutes • /work pays better, you know")
         await send_card(interaction, embed=embed)
 
 

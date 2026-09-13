@@ -22,8 +22,14 @@ Opus format (251, ~130 kbps).
 None of these tests touch the network: results are hand-built the way yt-dlp's flat
 extraction presents them.
 """
+import pathlib
 import unittest
 from unittest import mock
+
+if not (pathlib.Path(__file__).resolve().parent.parent / "cogs" / "music.py").exists():
+    # Paired with the guard in test_music.py: the cog this covers was archived,
+    # so skip rather than failing to import.
+    raise unittest.SkipTest("cogs/music.py is not in this build")
 
 from cogs import music as M
 from tests.test_music import _FakeVoiceClient, _MusicCase, _track

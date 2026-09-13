@@ -17,6 +17,29 @@ def module_default_enabled(module_name: str) -> bool:
     return features.default_enabled(module_name)
 
 
+async def ensure_columns(db, table: str, columns: dict[str, str]) -> list[str]:
+    """Add any missing columns to an existing table, idempotently.
+
+    ``CREATE TABLE IF NOT EXISTS`` never changes a table that already exists, so
+    a live database (and every cloud-restored copy of it) would silently keep the
+    old shape when a feature adds a column. ``ALTER TABLE ... ADD COLUMN`` is
+    additive and safe to repeat, which is what makes upgrades work without
+    touching stored rows. ``table`` and the column names come from this file, not
+    from user input.
+    """
+    async with db.execute(f"PRAGMA table_info({table})") as cur:
+        existing = {row[1] for row in await cur.fetchall()}
+    added: list[str] = []
+    for name, declaration in columns.items():
+        if name in existing:
+            continue
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+        added.append(name)
+    if added:
+        print(f"[DB] Added column(s) {', '.join(added)} to {table}.", flush=True)
+    return added
+
+
 def connect(path: str | None = None) -> sqlite3.Connection:
     """Open a SQLite connection with a busy timeout so concurrent reads/writes
     from the bot and the web dashboard wait instead of failing with
@@ -223,8 +246,28 @@ async def setup():
             amount INTEGER,
             repay_amount INTEGER,
             due_ts REAL,
+            plan TEXT DEFAULT 'standard',
+            status TEXT DEFAULT 'active',
+            taken_ts REAL DEFAULT 0,
+            late_fee_applied INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, guild_id)
         )''')
+
+        # Loans taken before the plans/penalties existed have no plan or
+        # timestamp, and the term was never enforced. Backfill so an old loan
+        # behaves like a standard one taken at the moment it was written.
+        await ensure_columns(db, "loans", {
+            "plan": "TEXT DEFAULT 'standard'",
+            "status": "TEXT DEFAULT 'active'",
+            "taken_ts": "REAL DEFAULT 0",
+            "late_fee_applied": "INTEGER DEFAULT 0",
+        })
+        await db.execute(
+            "UPDATE loans SET plan='standard' WHERE plan IS NULL OR plan=''"
+        )
+        await db.execute(
+            "UPDATE loans SET status='active' WHERE status IS NULL OR status=''"
+        )
 
         # One-time migration: make the newly default-OFF modules actually OFF for
         # guilds that still have an old "enabled" value saved. Runs exactly once,
