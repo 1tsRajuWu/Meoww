@@ -136,23 +136,7 @@ HELP_MODULES = {
         "color": 0xE74C3C,
         "emoji": "😆"
     },
-    "music": {
-        "title": "🎵 Music & Radio",
-        "desc": (
-            "High-fidelity voice music with 24/7 radio, live filters and queue controls.\n\n"
-            "> `/play <song or link>` — YouTube/SoundCloud search, or any direct audio link\n"
-            "> `/radio <station>` — 24/7 non-stop stations (Lo-Fi, EDM, Synthwave, Anime, Jazz)\n"
-            "> `/pause` & `/resume` — Control playback\n"
-            "> `/skip` & `/stop` — Next track, or stop and leave voice\n"
-            "> `/queue` & `/nowplaying` — Queue, and current track with a now-playing card\n"
-            "> `/volume <percent>` — Volume from 1% to 150%\n"
-            "> `/filter <effect>` — Live DSP presets (Bassboost, Nightcore, Vaporwave, 8D)\n"
-            "> `/247 [channel]` — Keep the bot in a channel permanently (owner only)\n"
-            "> `/songinfo <query>` & `/lyrics <title> [artist]` — Track info and lyrics"
-        ),
-        "color": 0x1DB954,
-        "emoji": "🎵"
-    },
+
     "system": {
         "title": "⚙️ System & Server Control",
         "desc": (

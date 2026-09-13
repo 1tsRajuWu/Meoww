@@ -215,32 +215,6 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.games",
         help_key="games",
     ),
-    # Music is available always and deliberately has no dashboard switch, so it
-    # adds no card to the module list. Its commands are still *gated* under the
-    # "music" feature id, which keeps the global module check honest (an ungated
-    # command is exactly what tests/test_commands.py exists to catch).
-    Feature(
-        id="music",
-        name="Music & Radio",
-        icon="🎵",
-        category="Entertainment",
-        description=(
-            "YouTube/SoundCloud playback, 24/7 radio stations, live DSP filters, "
-            "queue controls and now-playing cards."
-        ),
-        gate_commands=(
-            "play", "pause", "resume", "skip", "stop", "queue", "nowplaying",
-            "volume", "filter", "radio", "247", "songinfo", "lyrics",
-        ),
-        commands=(
-            "/play", "/pause", "/resume", "/skip", "/stop", "/queue",
-            "/nowplaying", "/volume", "/filter", "/radio", "/247",
-            "/songinfo", "/lyrics",
-        ),
-        cog="cogs.music",
-        toggleable=False,
-        help_key="music",
-    ),
     # Not toggleable: core utilities always stay available. It has no dashboard
     # switch and no default state, but it still owns a help category.
     Feature(
