@@ -39,7 +39,7 @@ except Exception as _e:
 
 print(f"[MUSIC] Initialized. FFMPEG={FFMPEG_EXE}, OpusLoaded={discord.opus.is_loaded()}", flush=True)
 
-FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -err_detect ignore_err -probesize 32768 -analyzeduration 0"
 
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
@@ -49,8 +49,57 @@ YTDL_OPTIONS = {
     "logtostderr": False,
     "quiet": True,
     "no_warnings": True,
-    "default_search": "scsearch1",
+    "default_search": "ytsearch5",
     "source_address": "0.0.0.0",
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "ios", "tv"],
+            "player_skip": ["webpage", "configs"]
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Studio Audio Equalizer & Filters (Real-Time DSP Presets)
+# -----------------------------------------------------------------------------
+
+AUDIO_FILTERS = {
+    "normal": {
+        "name": "Normal (Studio Clean)",
+        "emoji": "🎵",
+        "ffmpeg": "",
+        "desc": "Original, uncompressed sound with flat frequency response."
+    },
+    "bassboost": {
+        "name": "Bass Boost",
+        "emoji": "🔊",
+        "ffmpeg": "bass=g=10:f=110:w=0.6",
+        "desc": "Deep low-end rumble and boosted sub-bass punch."
+    },
+    "nightcore": {
+        "name": "Nightcore",
+        "emoji": "🌙",
+        "ffmpeg": "asetrate=48000*1.25,aresample=48000,atempo=1.05",
+        "desc": "High-pitched, accelerated tempo electronic energy."
+    },
+    "vaporwave": {
+        "name": "Vaporwave",
+        "emoji": "🌊",
+        "ffmpeg": "asetrate=48000*0.82,aresample=48000,atempo=0.92",
+        "desc": "Slowed, pitched down, aesthetic retro chill."
+    },
+    "8d": {
+        "name": "8D Spatial Audio",
+        "emoji": "🎧",
+        "ffmpeg": "apulsator=hz=0.125",
+        "desc": "Dynamic 360-degree rotating binaural spatial panning."
+    },
+    "pop": {
+        "name": "Pop / Vocal Boost",
+        "emoji": "🎤",
+        "ffmpeg": "equalizer=f=1000:t=q:w=1:g=2,equalizer=f=3000:t=q:w=1:g=3",
+        "desc": "Enhanced vocal presence and elevated acoustic clarity."
+    }
 }
 
 # -----------------------------------------------------------------------------
@@ -152,6 +201,7 @@ class GuildMusicPlayer:
         self.bitrate_kbps: int = 128
         self.is_247: bool = False
         self.manual_stop: bool = False
+        self.current_filter: str = "normal"
         self.inactivity_task: asyncio.Task | None = None
         self.alone_task: asyncio.Task | None = None
         self._play_lock = asyncio.Lock()
@@ -244,20 +294,63 @@ class GuildMusicPlayer:
         def extract():
             opts = dict(YTDL_OPTIONS)
             target = track.webpage_url or track.title
-            if target.startswith("http://") or target.startswith("https://"):
-                opts["default_search"] = "auto"
-            else:
-                opts["default_search"] = "ytsearch1"
+            expected_sec = track.duration or 0
 
-            with yt_dlp.YoutubeDL(opts) as ytdl:
-                try:
-                    info = ytdl.extract_info(target, download=False)
-                    if "entries" in info and info["entries"]:
-                        return info["entries"][0].get("url")
-                    return info.get("url")
-                except Exception as e:
-                    print(f"[MUSIC] URL extraction failed for '{target}': {e}", flush=True)
-                    return None
+            # 1. Direct URL check (YouTube, SoundCloud, direct audio)
+            if target and (target.startswith("http://") or target.startswith("https://")):
+                if not ("spotify.com" in target or "spotify.link" in target):
+                    opts["default_search"] = "auto"
+                    with yt_dlp.YoutubeDL(opts) as ytdl:
+                        try:
+                            info = ytdl.extract_info(target, download=False)
+                            if "entries" in info and info["entries"]:
+                                return info["entries"][0].get("url")
+                            return info.get("url")
+                        except Exception as e:
+                            print(f"[MUSIC] Direct URL extraction failed for '{target}': {e}", flush=True)
+
+            # 2. Intelligent Waterfall Search across YouTube & SoundCloud
+            search_term = track.title
+            if target and not (target.startswith("http://") or target.startswith("https://")):
+                search_term = target
+
+            providers = ["ytsearch5:", "scsearch5:"]
+            for prefix in providers:
+                search_query = f"{prefix}{search_term}"
+                with yt_dlp.YoutubeDL(opts) as ytdl:
+                    try:
+                        info = ytdl.extract_info(search_query, download=False)
+                        entries = info.get("entries") or ([info] if info.get("url") else [])
+                        if not entries:
+                            continue
+
+                        # Duration matching: If expected duration > 60s, avoid teaser/preview clips (< 60s)
+                        if expected_sec > 60:
+                            candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 60]
+                            if candidates:
+                                candidates.sort(key=lambda e: abs(e.get("duration") - expected_sec))
+                                best = candidates[0]
+                                if best.get("webpage_url"):
+                                    track.webpage_url = best.get("webpage_url")
+                                return best.get("url")
+
+                        # General filter: avoid < 50s clips if longer candidates exist
+                        long_candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 50]
+                        if long_candidates:
+                            best = long_candidates[0]
+                            if best.get("webpage_url"):
+                                track.webpage_url = best.get("webpage_url")
+                            return best.get("url")
+
+                        if entries and entries[0]:
+                            best = entries[0]
+                            if best.get("webpage_url"):
+                                track.webpage_url = best.get("webpage_url")
+                            return best.get("url")
+                    except Exception as e:
+                        print(f"[MUSIC] Waterfall search failed for '{search_query}': {e}", flush=True)
+
+            return None
 
         return await loop.run_in_executor(None, extract)
 
@@ -296,24 +389,32 @@ class GuildMusicPlayer:
                 ch_bitrate = getattr(self.voice_client.channel, "bitrate", 128000)
                 self.bitrate_kbps = min(max(int(ch_bitrate / 1000), 64), 384)
 
+                filter_cfg = AUDIO_FILTERS.get(self.current_filter, AUDIO_FILTERS["normal"])
+                filter_args = filter_cfg.get("ffmpeg", "")
+
                 if discord.opus.is_loaded():
+                    ffmpeg_opts = "-vn"
+                    if filter_args:
+                        ffmpeg_opts += f" -af {filter_args}"
                     raw_source = discord.FFmpegPCMAudio(
                         stream_url,
                         executable=FFMPEG_EXE,
                         before_options=FFMPEG_BEFORE_OPTIONS,
-                        options="-vn"
+                        options=ffmpeg_opts
                     )
                     source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
-                    stream_mode = "PCM+libopus"
+                    stream_mode = f"PCM+libopus [{filter_cfg['name']}]"
                 else:
+                    vol_filter = f"volume={self.volume}"
+                    combined = f"{filter_args},{vol_filter}" if filter_args else vol_filter
                     source = discord.FFmpegOpusAudio(
                         stream_url,
                         executable=FFMPEG_EXE,
                         bitrate=self.bitrate_kbps,
                         before_options=FFMPEG_BEFORE_OPTIONS,
-                        options=f"-af volume={self.volume}"
+                        options=f"-af {combined}"
                     )
-                    stream_mode = "FFmpegOpus"
+                    stream_mode = f"FFmpegOpus [{filter_cfg['name']}]"
 
                 def _after(err):
                     if err:
@@ -337,13 +438,73 @@ class GuildMusicPlayer:
 
 
 # -----------------------------------------------------------------------------
-# Interactive Voice Controls View
+# Interactive Voice Controls View & DSP Equalizer
 # -----------------------------------------------------------------------------
+
+class FilterSelect(discord.ui.Select):
+    """Dynamic DSP Equalizer select dropdown for real-time audio shaping."""
+
+    def __init__(self, player: GuildMusicPlayer):
+        self.player = player
+        options = [
+            discord.SelectOption(
+                label=f["name"],
+                value=k,
+                emoji=f["emoji"],
+                description=f["desc"][:50],
+                default=(player.current_filter == k)
+            )
+            for k, f in AUDIO_FILTERS.items()
+        ]
+        super().__init__(
+            placeholder="🎛️ Equalizer & DSP Audio Filters...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="music_filter_select",
+            row=1
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        chosen_val = self.values[0]
+        self.player.current_filter = chosen_val
+        chosen = AUDIO_FILTERS.get(chosen_val, AUDIO_FILTERS["normal"])
+
+        vc = self.player.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()) and self.player.current and self.player.current.source_url:
+            try:
+                stream_url = self.player.current.source_url
+                filter_args = chosen.get("ffmpeg", "")
+                if discord.opus.is_loaded():
+                    opts = "-vn"
+                    if filter_args:
+                        opts += f" -af {filter_args}"
+                    raw = discord.FFmpegPCMAudio(stream_url, executable=FFMPEG_EXE, before_options=FFMPEG_BEFORE_OPTIONS, options=opts)
+                    src = discord.PCMVolumeTransformer(raw, volume=self.player.volume)
+                else:
+                    vol_f = f"volume={self.player.volume}"
+                    comb = f"{filter_args},{vol_f}" if filter_args else vol_f
+                    src = discord.FFmpegOpusAudio(stream_url, executable=FFMPEG_EXE, bitrate=self.player.bitrate_kbps, before_options=FFMPEG_BEFORE_OPTIONS, options=f"-af {comb}")
+
+                def _after(err):
+                    asyncio.run_coroutine_threadsafe(self.player.play_next(err), self.player.bot.loop)
+
+                vc.stop()
+                vc.play(src, after=_after)
+            except Exception as e:
+                print(f"[MUSIC] Filter live update error: {e}", flush=True)
+
+        await interaction.response.send_message(
+            f"{chosen['emoji']} Audio filter applied: **{chosen['name']}**!\n*{chosen['desc']}*",
+            ephemeral=True
+        )
+
 
 class MusicControlsView(discord.ui.View):
     def __init__(self, player: GuildMusicPlayer):
         super().__init__(timeout=None)
         self.player = player
+        self.add_item(FilterSelect(player))
 
     @discord.ui.button(label="Pause / Resume", style=discord.ButtonStyle.primary, emoji="⏯️", custom_id="music_pause_resume")
     async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -974,6 +1135,65 @@ class Music(commands.Cog):
         player = self.get_player(interaction.guild.id)
         player.volume = percent / 100.0
         await interaction.response.send_message(f"🔊 Playback volume set to **{percent}%**! (Applied to active and upcoming tracks)")
+
+    @app_commands.command(name="filter", description="Apply real-time audio filters (Bassboost, Nightcore, 8D, Vaporwave, etc.)")
+    @app_commands.describe(effect="Audio effect preset to apply")
+    @app_commands.choices(effect=[
+        app_commands.Choice(name="Normal (Clean Studio) 🎵", value="normal"),
+        app_commands.Choice(name="Bass Boost 🔊", value="bassboost"),
+        app_commands.Choice(name="Nightcore 🌙", value="nightcore"),
+        app_commands.Choice(name="Vaporwave 🌊", value="vaporwave"),
+        app_commands.Choice(name="8D Spatial Audio 🎧", value="8d"),
+        app_commands.Choice(name="Pop / Vocal Boost 🎤", value="pop"),
+    ])
+    async def filter_cmd(self, interaction: discord.Interaction, effect: str):
+        if not interaction.guild:
+            return
+        player = self.get_player(interaction.guild.id)
+        if not player.voice_client or not player.voice_client.is_connected():
+            return await interaction.response.send_message("❌ The bot is not currently in a voice channel.", ephemeral=True)
+
+        chosen = AUDIO_FILTERS.get(effect, AUDIO_FILTERS["normal"])
+        player.current_filter = effect
+
+        embed = discord.Embed(
+            title=f"{chosen['emoji']} Audio Filter Applied: {chosen['name']}",
+            description=(
+                f"**Effect Profile:** {chosen['desc']}\n\n"
+                f"> 🔊 **Status:** Active on current & upcoming tracks\n"
+                f"> 🎛️ **DSP Preset:** `{effect}`"
+            ),
+            color=0x9B59B6,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text="🐾 Server Equalizer • Use /filter effect:Normal to reset")
+
+        # Live re-apply if currently playing
+        vc = player.voice_client
+        if (vc.is_playing() or vc.is_paused()) and player.current and player.current.source_url:
+            try:
+                stream_url = player.current.source_url
+                filter_args = chosen.get("ffmpeg", "")
+                if discord.opus.is_loaded():
+                    opts = "-vn"
+                    if filter_args:
+                        opts += f" -af {filter_args}"
+                    raw = discord.FFmpegPCMAudio(stream_url, executable=FFMPEG_EXE, before_options=FFMPEG_BEFORE_OPTIONS, options=opts)
+                    src = discord.PCMVolumeTransformer(raw, volume=player.volume)
+                else:
+                    vol_f = f"volume={player.volume}"
+                    comb = f"{filter_args},{vol_f}" if filter_args else vol_f
+                    src = discord.FFmpegOpusAudio(stream_url, executable=FFMPEG_EXE, bitrate=player.bitrate_kbps, before_options=FFMPEG_BEFORE_OPTIONS, options=f"-af {comb}")
+
+                def _after(err):
+                    asyncio.run_coroutine_threadsafe(player.play_next(err), self.bot.loop)
+
+                vc.stop()
+                vc.play(src, after=_after)
+            except Exception as e:
+                print(f"[MUSIC] Filter live update error: {e}", flush=True)
+
+        await interaction.response.send_message(embed=embed)
 
     # -------------------------------------------------------------------------
     # Music Utilities: /songinfo, /lyrics
