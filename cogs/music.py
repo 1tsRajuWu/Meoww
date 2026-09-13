@@ -263,15 +263,16 @@ class GuildMusicPlayer:
             if self.text_channel:
                 try:
                     embed = discord.Embed(
-                        title="👋 Auto-Disconnected",
+                        title="💤  Left Voice — Inactive",
                         description=(
-                            "Left the voice channel after **5 minutes** of inactivity.\n\n"
-                            "*👑 Server owner can enable `/247` to keep Meow in voice permanently!*"
+                            "No music was playing for **5 minutes** so I left to save resources.\n\n"
+                            "> 🎵 `/play <song>` — start a new session anytime\n"
+                            "> 👑 `/247` — keep me here permanently *(server owner only)*"
                         ),
-                        color=0xED4245,
+                        color=0x5865F2,
                         timestamp=discord.utils.utcnow()
                     )
-                    embed.set_footer(text="🐾 Server Music Suite • Inactivity Policy")
+                    embed.set_footer(text="Meow • Auto-Disconnect • 5 min inactivity")
                     await send_card(self.text_channel, embed=embed)
                 except Exception:
                     pass
@@ -305,15 +306,16 @@ class GuildMusicPlayer:
                 if self.text_channel:
                     try:
                         embed = discord.Embed(
-                            title="👋 Auto-Disconnected",
+                            title="👥  Left Voice — Channel Empty",
                             description=(
-                                "Left the voice channel because everyone left (empty for **5 minutes**).\n\n"
-                                "*👑 Server owner can enable `/247` to keep Meow in voice permanently!*"
+                                "Everyone left the voice channel, so I left too after **5 minutes**.\n\n"
+                                "> 🎵 `/play <song>` — hop back in anytime!\n"
+                                "> 👑 `/247` — keep me here permanently *(server owner only)*"
                             ),
-                            color=0xED4245,
+                            color=0x5865F2,
                             timestamp=discord.utils.utcnow()
                         )
-                        embed.set_footer(text="🐾 Server Music Suite • Empty Channel Policy")
+                        embed.set_footer(text="Meow • Auto-Disconnect • Empty channel")
                         await send_card(self.text_channel, embed=embed)
                     except Exception:
                         pass
@@ -479,10 +481,22 @@ class GuildMusicPlayer:
                 print(f"[MUSIC] Exception starting track '{self.current.title}': {type(e).__name__}: {e}", flush=True)
                 if self.text_channel:
                     try:
-                        await self.text_channel.send(f"⚠️ Error streaming **{self.current.title}**: `{type(e).__name__}: {e}`. Advancing queue...")
+                        err_embed = discord.Embed(
+                            title="⚠️  Playback Error",
+                            description=(
+                                f"Couldn't stream **{self.current.title}**.\n"
+                                f"`{type(e).__name__}: {e}`\n\n"
+                                "> ⏭️ Skipping to the next track..."
+                            ),
+                            color=0xFEE75C,
+                            timestamp=discord.utils.utcnow()
+                        )
+                        err_embed.set_footer(text="Meow • Playback Engine")
+                        await self.text_channel.send(embed=err_embed)
                     except Exception:
                         pass
                 self.bot.loop.create_task(self.play_next())
+
 
 
 # -----------------------------------------------------------------------------
@@ -543,7 +557,11 @@ class FilterSelect(discord.ui.Select):
                 print(f"[MUSIC] Filter live update error: {e}", flush=True)
 
         await interaction.response.send_message(
-            f"{chosen['emoji']} Audio filter applied: **{chosen['name']}**!\n*{chosen['desc']}*",
+            embed=discord.Embed(
+                title=f"{chosen['emoji']}  Filter Applied — {chosen['name']}",
+                description=f"> {chosen['desc']}",
+                color=0x9B59B6
+            ),
             ephemeral=True
         )
 
@@ -558,60 +576,93 @@ class MusicControlsView(discord.ui.View):
     async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc = self.player.voice_client
         if not vc or not vc.is_connected():
-            return await interaction.response.send_message("❌ The bot is not currently in a voice channel.", ephemeral=True)
-
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245),
+                ephemeral=True
+            )
         if vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("⏸️ Music paused.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="⏸️ Paused.", color=0x5865F2),
+                ephemeral=True
+            )
         elif vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("▶️ Music resumed.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="▶️ Resumed.", color=0x57F287),
+                ephemeral=True
+            )
         else:
-            await interaction.response.send_message("❌ Nothing is currently playing.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Nothing is playing right now.", color=0xED4245),
+                ephemeral=True
+            )
 
     @discord.ui.button(label="Skip", style=discord.ButtonStyle.secondary, emoji="⏭️", custom_id="music_skip")
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc = self.player.voice_client
         if not vc or not vc.is_connected():
-            return await interaction.response.send_message("❌ The bot is not in a voice channel.", ephemeral=True)
-
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245),
+                ephemeral=True
+            )
         if vc.is_playing() or vc.is_paused():
             skipped_title = self.player.current.title if self.player.current else "Current track"
             vc.stop()
-            await interaction.response.send_message(f"⏭️ Skipped: **{skipped_title}**", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description=f"⏭️ Skipped **{skipped_title}**.",
+                    color=0x5865F2
+                ),
+                ephemeral=True
+            )
         else:
-            await interaction.response.send_message("❌ Nothing to skip.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Nothing to skip.", color=0xED4245),
+                ephemeral=True
+            )
 
     @discord.ui.button(label="Queue", style=discord.ButtonStyle.secondary, emoji="📜", custom_id="music_queue")
     async def view_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.player.current and not self.player.queue:
-            return await interaction.response.send_message("📭 The queue is completely empty!", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="📭 The queue is empty! Use `/play` to add songs.", color=0x5865F2),
+                ephemeral=True
+            )
 
-        embed = discord.Embed(title="🎶 Music Queue", color=0x5865F2)
+        embed = discord.Embed(title="📜  Music Queue", color=0x5865F2)
         if self.player.current:
             dur = format_duration(self.player.current.duration)
             web_url = self.player.current.webpage_url or ""
-            embed.description = f"**Now Playing:** 🎵 [{self.player.current.title}]({web_url}) `[{dur}]`\n\n### Upcoming Tracks:"
+            embed.description = (
+                f"**▶️ Now Playing**\n"
+                f"[{self.player.current.title}]({web_url}) `{dur}`\n\n"
+                f"**Up Next:**"
+            )
 
         lines = []
         for i, t in enumerate(self.player.queue[:8], start=1):
             dur = format_duration(t.duration)
-            lines.append(f"`{i}.` **{t.title}** `[{dur}]` • *Requested by {t.requester}*")
+            lines.append(f"`{i}.` {t.title} `{dur}`")
 
         if not lines:
-            embed.description += "\n*No upcoming tracks queued. Use `/play` to add more!*"
+            embed.description += "\n*Queue is empty — use `/play` to add more!*"
         else:
             embed.description += "\n" + "\n".join(lines)
             if len(self.player.queue) > 8:
-                embed.description += f"\n*...and {len(self.player.queue) - 8} more tracks.*"
+                embed.description += f"\n*+{len(self.player.queue) - 8} more tracks in queue*"
 
+        embed.set_footer(text=f"Meow • {len(self.player.queue)} track(s) queued")
         await send_card(interaction, embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️", custom_id="music_stop")
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc = self.player.voice_client
         if not vc or not vc.is_connected():
-            return await interaction.response.send_message("❌ The bot is not in a voice channel.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245),
+                ephemeral=True
+            )
 
         self.player.queue.clear()
         self.player.current = None
@@ -620,11 +671,23 @@ class MusicControlsView(discord.ui.View):
         if self.player.is_247:
             if vc.is_playing() or vc.is_paused():
                 vc.stop()
-            await interaction.response.send_message("⏹️ Playback stopped and queue cleared. (Staying in VC because **24/7 Mode** is enabled).", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description="⏹️ Stopped playback & cleared queue.\n> 💡 Staying in voice because **24/7 Mode** is on.",
+                    color=0x5865F2
+                ),
+                ephemeral=True
+            )
         else:
             await vc.disconnect()
             self.player.voice_client = None
-            await interaction.response.send_message("⏹️ Playback stopped, queue cleared, and disconnected from voice.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description="⏹️ Stopped, cleared queue, and left the voice channel.",
+                    color=0xED4245
+                ),
+                ephemeral=True
+            )
 
 
 # -----------------------------------------------------------------------------
@@ -804,18 +867,17 @@ class Music(commands.Cog):
             await db.set_247_setting(interaction.guild.id, target_ch.id, True)
 
             embed = discord.Embed(
-                title="👑 24/7 Voice Mode Enabled",
+                title="👑  24/7 Mode — Enabled",
                 description=(
-                    f"### Stay-Connected Active\n"
-                    f"> 🔊 **Voice Channel:** {target_ch.mention}\n"
-                    f"> 🛡️ **Configured By:** {interaction.user.mention}\n"
-                    f"> ⚡ **Auto-Disconnect:** `Disabled (Stays 24/7)`\n\n"
-                    f"🐾 *Meow will now stay in this voice channel permanently across idle periods and restarts.*"
+                    f"> 🔊 **Channel:** {target_ch.mention}\n"
+                    f"> 🛡️ **Set by:** {interaction.user.mention}\n"
+                    f"> ⚡ **Auto-disconnect:** Disabled\n\n"
+                    f"I'll stay here permanently through idle periods and restarts."
                 ),
                 color=0xF1C40F,
                 timestamp=discord.utils.utcnow()
             )
-            embed.set_footer(text="🐾 Server Music Suite • 24/7 Mode")
+            embed.set_footer(text="Meow • 24/7 Voice Mode")
             await send_card(interaction, embed=embed)
         else:
             player.is_247 = False
@@ -827,17 +889,16 @@ class Music(commands.Cog):
                 player.start_inactivity_timer()
 
             embed = discord.Embed(
-                title="⏹️ 24/7 Voice Mode Disabled",
+                title="⏹️  24/7 Mode — Disabled",
                 description=(
-                    f"### Standard Idle Policy Restored\n"
-                    f"> ⏱️ **Inactivity Timeout:** `5 Minutes`\n"
-                    f"> 🛡️ **Configured By:** {interaction.user.mention}\n"
-                    f"> ⚡ **Status:** Meow will now automatically disconnect after **5 minutes** of silence or when the channel is empty."
+                    f"> ⏱️ **Inactivity timeout:** 5 minutes\n"
+                    f"> 🛡️ **Set by:** {interaction.user.mention}\n\n"
+                    f"I'll automatically leave after **5 min** of silence or an empty channel."
                 ),
                 color=0xED4245,
                 timestamp=discord.utils.utcnow()
             )
-            embed.set_footer(text="🐾 Server Music Suite • 24/7 Mode")
+            embed.set_footer(text="Meow • 24/7 Voice Mode")
             await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
@@ -1041,46 +1102,44 @@ class Music(commands.Cog):
 
         if not is_currently_playing:
             await player.play_next()
+            src_tag = "Spotify" if spotify_first else "YouTube"
+            src_emoji = "🟢" if spotify_first else "🔴"
             embed = discord.Embed(
-                title="🎶 Now Playing",
-                description=(
-                    f"### [{track.title}]({track.webpage_url})\n"
-                    f"> ⏱️ **Duration:** `{format_duration(track.duration)}`\n"
-                    f"> 👤 **Requested by:** {interaction.user.mention}\n"
-                    f"> 🔊 **Voice Channel:** {vc.channel.mention}\n"
-                    f"> 💎 **Audio Fidelity:** `Hi-Res ({player.bitrate_kbps} kbps • 48 kHz Opus Music)`"
-                    + (f"\n> 🎧 **Source:** Spotify Track" if spotify_first else "")
-                ),
+                title="▶️  Now Playing",
+                description=f"**[{track.title}]({track.webpage_url})**",
                 color=0x1DB954 if spotify_first else 0x5865F2,
                 timestamp=discord.utils.utcnow()
             )
+            embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.duration)}`", inline=True)
+            embed.add_field(name="👤 Requested by", value=interaction.user.mention, inline=True)
+            embed.add_field(name=f"{src_emoji} Source", value=src_tag, inline=True)
+            embed.add_field(name="🔊 Channel", value=vc.channel.mention, inline=True)
+            embed.add_field(name="🎛️ Filter", value=AUDIO_FILTERS.get(player.current_filter, AUDIO_FILTERS["normal"])["name"], inline=True)
+            if spotify_queued_count > 0:
+                embed.add_field(name="💿 Playlist", value=f"+{spotify_queued_count} more queued", inline=True)
             if track.thumbnail:
                 embed.set_thumbnail(url=track.thumbnail)
-            if spotify_queued_count > 0:
-                embed.add_field(name="💿 Spotify Collection", value=f"Queued **+{spotify_queued_count} more songs** from Spotify!", inline=False)
-            embed.set_footer(text="🐾 Server Music Player • Use buttons below to control")
+            embed.set_footer(text="Meow • Use the buttons below to control playback")
             view = MusicControlsView(player)
             await interaction.followup.send(embed=embed, view=view)
         else:
             q_pos = len(player.queue)
             embed = discord.Embed(
-                title="✅ Added to Queue",
-                description=(
-                    f"### [{track.title}]({track.webpage_url})\n"
-                    f"> ⏱️ **Duration:** `{format_duration(track.duration)}`\n"
-                    f"> 🔢 **Position:** `#{q_pos}` in queue\n"
-                    f"> 👤 **Requested by:** {interaction.user.mention}"
-                    + (f"\n> 🎧 **Source:** Spotify Track" if spotify_first else "")
-                ),
-                color=0x1DB954 if spotify_first else 0x2ECC71,
+                title="✅  Added to Queue",
+                description=f"**[{track.title}]({track.webpage_url})**",
+                color=0x1DB954 if spotify_first else 0x57F287,
                 timestamp=discord.utils.utcnow()
             )
+            embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.duration)}`", inline=True)
+            embed.add_field(name="🔢 Position", value=f"#{q_pos} in queue", inline=True)
+            embed.add_field(name="👤 Requested by", value=interaction.user.mention, inline=True)
+            if spotify_queued_count > 0:
+                embed.add_field(name="💿 Playlist", value=f"+{spotify_queued_count} more queued", inline=False)
             if track.thumbnail:
                 embed.set_thumbnail(url=track.thumbnail)
-            if spotify_queued_count > 0:
-                embed.add_field(name="💿 Spotify Collection", value=f"Queued **+{spotify_queued_count} more songs** from Spotify!", inline=False)
-            embed.set_footer(text=f"🐾 Next track plays automatically • {len(player.queue)} in queue")
+            embed.set_footer(text=f"Meow • {len(player.queue)} track(s) in queue")
             await send_card(interaction, embed=embed)
+
 
     # -------------------------------------------------------------------------
     # Voice Controls: /pause, /resume, /skip, /stop, /queue, /nowplaying, /volume
@@ -1093,40 +1152,58 @@ class Music(commands.Cog):
             return await interaction.response.send_message("❌ The bot is not connected to a voice channel.", ephemeral=True)
         if vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("⏸️ Music playback has been paused.")
+            await interaction.response.send_message(
+                embed=discord.Embed(description="⏸️ Paused.", color=0x5865F2), ephemeral=True
+            )
         else:
-            await interaction.response.send_message("❌ Nothing is currently playing.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Nothing is currently playing.", color=0xED4245), ephemeral=True
+            )
 
     @app_commands.command(name="resume", description="Resume playback if paused.")
     async def resume(self, interaction: discord.Interaction):
         vc = interaction.guild.voice_client
         if not vc or not vc.is_connected():
-            return await interaction.response.send_message("❌ The bot is not connected to a voice channel.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245), ephemeral=True
+            )
         if vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("▶️ Music playback resumed.")
+            await interaction.response.send_message(
+                embed=discord.Embed(description="▶️ Resumed.", color=0x57F287), ephemeral=True
+            )
         else:
-            await interaction.response.send_message("❌ Music is not paused.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Nothing is paused.", color=0xED4245), ephemeral=True
+            )
 
     @app_commands.command(name="skip", description="Skip to the next song in queue.")
     async def skip(self, interaction: discord.Interaction):
         vc = interaction.guild.voice_client
         if not vc or not vc.is_connected():
-            return await interaction.response.send_message("❌ The bot is not in a voice channel.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245), ephemeral=True
+            )
 
         player = self.get_player(interaction.guild.id)
         if vc.is_playing() or vc.is_paused():
             skipped = player.current.title if player.current else "Current song"
             vc.stop()
-            await interaction.response.send_message(f"⏭️ Skipped: **{skipped}**")
+            await interaction.response.send_message(
+                embed=discord.Embed(description=f"⏭️ Skipped **{skipped}**.", color=0x5865F2), ephemeral=True
+            )
         else:
-            await interaction.response.send_message("❌ Nothing is currently playing to skip.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Nothing to skip.", color=0xED4245), ephemeral=True
+            )
 
     @app_commands.command(name="stop", description="Stop music, clear the queue, and disconnect from voice.")
     async def stop(self, interaction: discord.Interaction):
         vc = interaction.guild.voice_client
         if not vc or not vc.is_connected():
-            return await interaction.response.send_message("❌ The bot is not currently in a voice channel.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245), ephemeral=True
+            )
 
         player = self.get_player(interaction.guild.id)
         player.queue.clear()
@@ -1136,62 +1213,87 @@ class Music(commands.Cog):
         if player.is_247:
             if vc.is_playing() or vc.is_paused():
                 vc.stop()
-            await interaction.response.send_message("⏹️ Playback stopped and queue cleared. (Staying in voice because **24/7 Mode** is enabled).")
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description="⏹️ Stopped & cleared queue.\n> 💡 Staying in voice — **24/7 Mode** is on.",
+                    color=0x5865F2
+                )
+            )
         else:
             await vc.disconnect()
             player.voice_client = None
-            await interaction.response.send_message("⏹️ Playback stopped, queue cleared, and disconnected from voice.")
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description="⏹️ Stopped, cleared queue, and left the voice channel.",
+                    color=0xED4245
+                )
+            )
 
     @app_commands.command(name="queue", description="Display the current songs in the queue.")
     async def queue_cmd(self, interaction: discord.Interaction):
         player = self.get_player(interaction.guild.id)
         if not player.current and not player.queue:
-            return await interaction.response.send_message("📭 The queue is completely empty! Use `/play` or `/radio` to start music.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="📭 Queue is empty! Use `/play` or `/radio` to start.", color=0x5865F2),
+                ephemeral=True
+            )
 
-        embed = discord.Embed(title=f"🎶 {interaction.guild.name} — Music Queue", color=0x5865F2, timestamp=discord.utils.utcnow())
+        embed = discord.Embed(
+            title=f"📜  {interaction.guild.name} — Queue",
+            color=0x5865F2,
+            timestamp=discord.utils.utcnow()
+        )
         if player.current:
             dur = format_duration(player.current.duration)
-            embed.description = f"**Currently Playing:**\n🎵 **{player.current.title}** `[{dur}]`\n\n### Up Next:"
+            web = player.current.webpage_url or ""
+            embed.description = (
+                f"**▶️ Now Playing**\n"
+                f"[{player.current.title}]({web}) `{dur}`\n\n"
+                f"**Up Next:**"
+            )
 
         lines = []
         for i, t in enumerate(player.queue[:10], start=1):
             dur = format_duration(t.duration)
-            lines.append(f"`{i}.` **{t.title}** `[{dur}]` • *Req: {t.requester}*")
+            lines.append(f"`{i}.` {t.title} `{dur}` — *{t.requester}*")
 
         if not lines:
-            embed.description += "\n*Queue is clear! Use `/play <song>` to queue more tracks.*"
+            embed.description += "\n*Queue is clear — use `/play <song>` to add more.*"
         else:
             embed.description += "\n" + "\n".join(lines)
             if len(player.queue) > 10:
-                embed.description += f"\n*...and {len(player.queue) - 10} more songs in queue.*"
+                embed.description += f"\n*+{len(player.queue) - 10} more tracks*"
 
-        embed.set_footer(text=f"Total: {len(player.queue) + (1 if player.current else 0)} track(s) • 24/7 Mode: {'ON' if player.is_247 else 'OFF'}")
+        mode = "ON 👑" if player.is_247 else "OFF"
+        embed.set_footer(text=f"Meow • {len(player.queue) + (1 if player.current else 0)} track(s) • 24/7: {mode}")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="nowplaying", description="Show full info and controls for the currently playing track.")
     async def nowplaying(self, interaction: discord.Interaction):
         player = self.get_player(interaction.guild.id)
         if not player.current:
-            return await interaction.response.send_message("❌ Nothing is currently playing! Use `/play` or `/radio` to start.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Nothing is playing! Use `/play` or `/radio` to start.", color=0xED4245),
+                ephemeral=True
+            )
 
         cur = player.current
-        dur = format_duration(cur.duration)
+        filter_cfg = AUDIO_FILTERS.get(player.current_filter, AUDIO_FILTERS["normal"])
         embed = discord.Embed(
-            title="🎶 Now Playing",
-            description=(
-                f"### [{cur.title}]({cur.webpage_url or ''})\n\n"
-                f"> ⏱️ **Duration:** `{dur}`\n"
-                f"> 👤 **Requested By:** `{cur.requester}`\n"
-                f"> 🔊 **Volume:** `{int(player.volume * 100)}%`\n"
-                f"> 👑 **24/7 Mode:** `{ENABLED if player.is_247 else DISABLED}`\n"
-                f"> 💎 **Audio Fidelity:** `Hi-Res ({player.bitrate_kbps} kbps • 48 kHz Opus Music)`"
-            ),
+            title="▶️  Now Playing",
+            description=f"**[{cur.title}]({cur.webpage_url or ''})**",
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
+        embed.add_field(name="⏱️ Duration", value=f"`{format_duration(cur.duration)}`", inline=True)
+        embed.add_field(name="👤 Requested by", value=f"`{cur.requester}`", inline=True)
+        embed.add_field(name="🔊 Volume", value=f"`{int(player.volume * 100)}%`", inline=True)
+        embed.add_field(name=f"{filter_cfg['emoji']} Filter", value=filter_cfg["name"], inline=True)
+        embed.add_field(name="👑 24/7 Mode", value="`ON`" if player.is_247 else "`OFF`", inline=True)
+        embed.add_field(name="🎵 Quality", value=f"`{player.bitrate_kbps} kbps`", inline=True)
         if cur.thumbnail:
             embed.set_thumbnail(url=cur.thumbnail)
-        embed.set_footer(text="🐾 Server Music Suite")
+        embed.set_footer(text="Meow • Use buttons below to control")
         view = MusicControlsView(player)
         await interaction.response.send_message(embed=embed, view=view)
 
@@ -1199,11 +1301,20 @@ class Music(commands.Cog):
     @app_commands.describe(percent="Volume percentage between 1 and 150")
     async def volume(self, interaction: discord.Interaction, percent: int):
         if percent < 1 or percent > 150:
-            return await interaction.response.send_message("❌ Volume must be between `1%` and `150%`!", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ Volume must be between `1%` and `150%`.", color=0xED4245),
+                ephemeral=True
+            )
 
         player = self.get_player(interaction.guild.id)
         player.volume = percent / 100.0
-        await interaction.response.send_message(f"🔊 Playback volume set to **{percent}%**! (Applied to active and upcoming tracks)")
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                description=f"🔊 Volume set to **{percent}%**.",
+                color=0x57F287
+            ),
+            ephemeral=True
+        )
 
     @app_commands.command(name="filter", description="Apply real-time audio filters (Bassboost, Nightcore, 8D, Vaporwave, etc.)")
     @app_commands.describe(effect="Audio effect preset to apply")
@@ -1220,18 +1331,16 @@ class Music(commands.Cog):
             return
         player = self.get_player(interaction.guild.id)
         if not player.voice_client or not player.voice_client.is_connected():
-            return await interaction.response.send_message("❌ The bot is not currently in a voice channel.", ephemeral=True)
+            return await interaction.response.send_message(
+                embed=discord.Embed(description="❌ I'm not in a voice channel.", color=0xED4245), ephemeral=True
+            )
 
         chosen = AUDIO_FILTERS.get(effect, AUDIO_FILTERS["normal"])
         player.current_filter = effect
 
         embed = discord.Embed(
-            title=f"{chosen['emoji']} Audio Filter Applied: {chosen['name']}",
-            description=(
-                f"**Effect Profile:** {chosen['desc']}\n\n"
-                f"> 🔊 **Status:** Active on current & upcoming tracks\n"
-                f"> 🎛️ **DSP Preset:** `{effect}`"
-            ),
+            title=f"{chosen['emoji']}  Filter Applied — {chosen['name']}",
+            description=f"> {chosen['desc']}",
             color=0x9B59B6,
             timestamp=discord.utils.utcnow()
         )
