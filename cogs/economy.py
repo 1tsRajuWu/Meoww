@@ -852,7 +852,108 @@ class Economy(commands.Cog):
         embed.set_footer(text="🐾 Meow Economy • /shop to browse")
         await send_card(interaction, embed=embed)
 
+    # -------------------------------------------------------------------------
+    # Admin Economy Commands
+    # -------------------------------------------------------------------------
+
+    @app_commands.command(name="addmoney", description="Add money to a member's wallet (Admin only).")
+    @app_commands.describe(member="The member to give money to", amount="Amount to add")
+    @app_commands.default_permissions(administrator=True)
+    async def addmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
+        
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
+        
+        await ensure_eco(member.id, interaction.guild.id)
+        await update_wallet(member.id, interaction.guild.id, amount)
+        
+        embed = discord.Embed(
+            title="💰 Money Added",
+            description=f"Added **{amount:,}** 🪙 to {member.mention}'s wallet.",
+            color=0x57F287,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="removemoney", description="Remove money from a member's wallet (Admin only).")
+    @app_commands.describe(member="The member to remove money from", amount="Amount to remove")
+    @app_commands.default_permissions(administrator=True)
+    async def removemoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
+        
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
+        
+        await ensure_eco(member.id, interaction.guild.id)
+        await update_wallet(member.id, interaction.guild.id, -amount)
+        
+        embed = discord.Embed(
+            title="💸 Money Removed",
+            description=f"Removed **{amount:,}** 🪙 from {member.mention}'s wallet.",
+            color=0xED4245,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="setmoney", description="Set a member's wallet to a specific amount (Admin only).")
+    @app_commands.describe(member="The member to set money for", amount="New wallet amount")
+    @app_commands.default_permissions(administrator=True)
+    async def setmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
+        
+        if amount < 0:
+            return await interaction.response.send_message("❌ Amount cannot be negative.", ephemeral=True)
+        
+        await ensure_eco(member.id, interaction.guild.id)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE economy SET wallet = ? WHERE user_id=? AND guild_id=?",
+                (amount, member.id, interaction.guild.id)
+            )
+            await conn.commit()
+        
+        embed = discord.Embed(
+            title="💰 Wallet Set",
+            description=f"Set {member.mention}'s wallet to **{amount:,}** 🪙.",
+            color=0xF1C40F,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="addbank", description="Add money to a member's bank (Admin only).")
+    @app_commands.describe(member="The member to give bank money to", amount="Amount to add")
+    @app_commands.default_permissions(administrator=True)
+    async def addbank(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
+        
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
+        
+        await ensure_eco(member.id, interaction.guild.id)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE economy SET bank = bank + ? WHERE user_id=? AND guild_id=?",
+                (amount, member.id, interaction.guild.id)
+            )
+            await conn.commit()
+        
+        embed = discord.Embed(
+            title="🏦 Bank Money Added",
+            description=f"Added **{amount:,}** 🪙 to {member.mention}'s bank.",
+            color=0x57F287,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
+        await send_card(interaction, embed=embed)
+
 
 async def setup(bot: commands.Bot):
-    await setup_tables()
     await bot.add_cog(Economy(bot))
