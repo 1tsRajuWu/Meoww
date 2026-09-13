@@ -95,7 +95,7 @@ AVAILABLE_MODULES = [
         "icon": "🎵",
         "category": "Entertainment",
         "desc": "High-res YouTube, SoundCloud, Spotify streaming, 24/7 Lo-Fi radio, queue, volume & lyrics.",
-        "commands": ["/play", "/radio", "/nowplaying", "/pause", "/resume", "/skip", "/stop", "/queue", "/volume", "/songinfo", "/lyrics", "/247"]
+        "commands": ["/play", "/radio", "/nowplaying", "/filter", "/pause", "/resume", "/skip", "/stop", "/queue", "/volume", "/songinfo", "/lyrics", "/247"]
     },
     {
         "id": "leveling",
