@@ -242,6 +242,46 @@ would have spent six of them.
 
 ---
 
+## Who may run what
+
+Every command's audience is declared **once**, in `utils/permissions.py`, for a
+specific reason: a permission model spread over forty decorators in thirteen
+files cannot be reviewed, and it fails silently — a new command ships with no
+gate at all, or an admin-only command quietly loses its check.
+
+`COMMAND_ACCESS` maps each command (a name, or `group sub`) to one of twelve
+audiences: `EVERYONE`, `MODERATE`, `BAN`, `KICK`, `MESSAGES`, `CHANNELS`,
+`ROLES`, `GUILD`, `ADMIN`, `OWNER` (the server owner, checked in the callback),
+`SUBMITTER` (the author of a record) and `MARKET` (the market's own role).
+
+Two things follow from the table, and they are deliberately separate:
+
+* **Enforcement** stays where Discord and discord.py put it —
+  `@app_commands.checks.has_permissions(...)`, or a guard in the callback for the
+  three audiences Discord has no permission bit for.
+* **Visibility** is stamped before publishing:
+  `apply_declared_permissions(bot.tree)` sets each command's
+  `default_member_permissions` from the table, so a command is *hidden* from the
+  members who cannot use it rather than offered and then refused. (Discord's
+  picker cannot express "the members holding role X", which is why the market is
+  visible to everyone and refuses at use time instead.)
+
+`tests/test_permissions.py` loads the real cogs and holds the two together: it
+fails if a command has no declared audience, if a declaration outlives its
+command, and — by calling each command's own checks with a fake interaction
+holding only the declared permission — if a command refuses its audience or runs
+for someone with no permissions at all.
+
+Roles are a second, quieter escalation path, so `role_grant_problem` guards
+`/addrole`, `/removerole` and `/addlevelrole`: `@everyone` and managed roles are
+refused outright, a role at or above the actor's own highest role is refused, and
+a role carrying Administrator (or Manage Server/Roles/Channels/Webhooks, Ban,
+Kick, Mention Everyone) can only be handed out by an administrator. A moderator
+promoting another moderator to Staff still works — that is delegation, not
+escalation.
+
+---
+
 ## Adding or removing a feature
 
 Every feature is described **once**, in `utils/features.py`. The slash-command
@@ -267,9 +307,11 @@ python -m unittest discover -s tests -t .
 ```
 
 They cover the level math, the feature registry (including command-tree drift),
-module-state persistence and concurrency, backup encryption and integrity
+the permission table against every command's real checks, module-state
+persistence and concurrency, backup encryption and integrity
 checks, atomic money transactions, the market (provider parsing against captured
-live payloads, staleness gating, races on one wallet or one position), and the
+live payloads, staleness gating, races on one wallet or one position, the role
+gate), the legal documents rendering whole inside Discord's embed limits, and the
 Components V2 text budgets. Standard library only — no extra dependencies to
 install, and the network is never touched: every provider payload is canned.
 
