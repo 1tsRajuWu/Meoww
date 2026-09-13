@@ -11,7 +11,12 @@ FONT_DIR = os.path.join(
 )
 
 
-def _font(filename: str, size: int):
+def font(filename: str, size: int):
+    """Load a bundled font, falling back to Pillow's default rather than failing.
+
+    Public because the market chart draws with the same fonts and the same
+    resolution rules — two loaders would drift.
+    """
     try:
         return ImageFont.truetype(os.path.join(FONT_DIR, filename), size)
     except OSError:
@@ -71,9 +76,9 @@ async def generate_now_playing_card(
     draw.rounded_rectangle([0, 0, W, H], radius=20, fill=(26, 32, 44, 255), outline=(45, 55, 72, 255), width=2)
 
     # Load fonts (falls back to Pillow's default if an asset is missing)
-    font_title = _font("Roboto-Bold.ttf", 40)
-    font_artist = _font("Roboto-Regular.ttf", 24)
-    font_pill = _font("Roboto-Bold.ttf", 18)
+    font_title = font("Roboto-Bold.ttf", 40)
+    font_artist = font("Roboto-Regular.ttf", 24)
+    font_pill = font("Roboto-Bold.ttf", 18)
 
     # Load and place thumbnail
     if thumbnail_url:

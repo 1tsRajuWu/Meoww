@@ -98,6 +98,29 @@ FEATURES: tuple[Feature, ...] = (
         help_key="economy",
     ),
     Feature(
+        id="market",
+        name="Market",
+        icon="📈",
+        category="Economy",
+        description=(
+            "A live market priced by real exchanges: buy and sell crypto and "
+            "stocks with coins, and track your portfolio. Fills match the real "
+            "price 1:1, and trading is limited to a configured role."
+        ),
+        gate_commands=("market",),
+        commands=(
+            "/market board — Live prices for everything tradable",
+            "/market chart — Real candles with your average cost drawn on them",
+            "/market buy — Buy an instrument with coins",
+            "/market sell — Sell a position (quantity, %, or all)",
+            "/market portfolio — Your positions and their profit/loss",
+            "/market quote — One instrument in detail",
+            "/market history — Your recent fills",
+        ),
+        cog="cogs.market",
+        help_key="market",
+    ),
+    Feature(
         id="moderation",
         name="Moderation & Logs",
         icon="🛡️",
