@@ -20,9 +20,19 @@ All builders are defensive: Discord rejects oversized Components V2 messages
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
+import time
 
 import discord
+
+# Components V2 turns card text into ``TextDisplay`` components, and — unlike
+# legacy embeds, where mentions never notified — *mentions inside TextDisplay do
+# notify*. Before this module existed every card was an embed, so nothing pinged;
+# after the V2 upgrade every ``member.mention`` placed in a leaderboard started
+# tagging people. Cards therefore suppress mentions by default, and a caller that
+# genuinely wants to notify someone opts in explicitly with ``allowed_mentions``.
+NO_PINGS = discord.AllowedMentions.none()
 
 # --------------------------------------------------------------------------- #
 # Palette
@@ -376,22 +386,29 @@ def embeds_to_layout(embeds: list[discord.Embed], *, timeout: float | None = 180
 # --------------------------------------------------------------------------- #
 # Sending helpers
 # --------------------------------------------------------------------------- #
-async def send_panel(target, view: LayoutView, *, ephemeral: bool = False):
-    """Send a prebuilt Components V2 layout to an interaction or channel."""
-    kwargs = {"view": view}
+async def send_panel(target, view: LayoutView, *, ephemeral: bool = False, allowed_mentions=None):
+    """Send a prebuilt Components V2 layout to an interaction or channel.
+
+    Mentions are suppressed unless the caller passes ``allowed_mentions`` — see
+    the note on ``NO_PINGS`` for why V2 cards must not ping by accident.
+    """
+    kwargs = {"view": view, "allowed_mentions": allowed_mentions or NO_PINGS}
     if isinstance(target, discord.Interaction):
         if ephemeral:
             kwargs["ephemeral"] = True
         if target.response.is_done():
             return await target.followup.send(**kwargs)
         return await target.response.send_message(**kwargs)
-    return await target.send(view=view)
+    return await target.send(view=view, allowed_mentions=kwargs["allowed_mentions"])
 
 
-async def edit_to_panel(message: discord.Message, view: LayoutView):
+async def edit_to_panel(message: discord.Message, view: LayoutView, *, allowed_mentions=None):
     """Edit an existing message into a Components V2 layout."""
     try:
-        return await message.edit(content=None, embed=None, embeds=[], view=view)
+        return await message.edit(
+            content=None, embed=None, embeds=[], view=view,
+            allowed_mentions=allowed_mentions or NO_PINGS,
+        )
     except TypeError:
         return await message.edit(content=None, embed=None, view=view)
 
@@ -439,6 +456,7 @@ def _is_interaction(target) -> bool:
 async def _dispatch_send(target, payload: dict, ephemeral: bool):
     """Low-level send to an Interaction (response/followup) or any Messageable."""
     clean = {k: v for k, v in payload.items() if v is not None}
+    clean.setdefault("allowed_mentions", NO_PINGS)
     if _is_interaction(target):
         if ephemeral:
             clean["ephemeral"] = True
@@ -449,12 +467,19 @@ async def _dispatch_send(target, payload: dict, ephemeral: bool):
 
 
 async def _dispatch_edit(target, payload: dict):
-    """Low-level edit of an Interaction's message or a Message."""
+    """Low-level edit of an Interaction's message or a Message.
+
+    Note: explicit ``None`` values are preserved here on purpose — an edit that
+    upgrades a legacy embed to V2 must actively clear ``content``/``embed``, so
+    this deliberately does not filter them out the way the send path does.
+    """
+    clean = dict(payload)
+    clean.setdefault("allowed_mentions", NO_PINGS)
     if _is_interaction(target):
         if target.response.is_done():
-            return await target.edit_original_response(**payload)
-        return await target.response.edit_message(**payload)
-    return await target.edit(**payload)
+            return await target.edit_original_response(**clean)
+        return await target.response.edit_message(**clean)
+    return await target.edit(**clean)
 
 
 async def send_card(
@@ -536,3 +561,86 @@ async def edit_card(
 async def edit_to_card(message: discord.Message, *, embed: discord.Embed | None = None, content: str | None = None):
     """Edit a Message into a V2 card, falling back to a legacy edit."""
     return await edit_card(message, embed=embed, content=content)
+
+
+# --------------------------------------------------------------------------- #
+# Display names — real names for lists, never mentions
+# --------------------------------------------------------------------------- #
+# Leaderboards used to print ``member.mention``. That was harmless while cards
+# were embeds, but V2 promotes the text to a TextDisplay, where a mention pings.
+# ``guild.get_member`` also returns ``None`` whenever the Members intent is off,
+# which is how a rich list ended up showing raw snowflakes (``User 123…``).
+# These helpers resolve a plain-text name that is always safe to display.
+_NAME_CACHE: dict[tuple[int, int], tuple[float, str]] = {}
+_NAME_TTL = 900.0
+_NAME_CACHE_MAX = 4096
+
+
+def invalidate_name_cache() -> None:
+    """Drop cached display names (call on member update / leave)."""
+    _NAME_CACHE.clear()
+
+
+def member_cache_complete(client) -> bool:
+    """True only when *every* guild member is cached (Members intent on).
+
+    Without the intent the cache holds the bot itself plus anyone who has been
+    in voice, so ``guild.owner`` is ``None`` and ``role.members`` is near-empty.
+    Anything that reports a count or a total must ask first instead of printing
+    a confidently wrong number.
+    """
+    return bool(getattr(getattr(client, "intents", None), "members", False))
+
+
+async def display_name(guild, user_id: int, *, client=None) -> str:
+    """Return a plain-text display name for a guild member.
+
+    Resolution order: local cache -> member cache (Members intent) -> REST
+    ``fetch_member`` (works without the intent) -> global user -> ``User <id>``.
+    Never returns a mention, so it cannot ping and is safe inside a V2 card.
+    """
+    if not user_id:
+        return "Unknown"
+
+    guild_id = getattr(guild, "id", 0) or 0
+    key = (guild_id, user_id)
+    now = time.monotonic()
+    cached = _NAME_CACHE.get(key)
+    if cached and now - cached[0] < _NAME_TTL:
+        return cached[1]
+
+    name = None
+
+    if guild is not None:
+        member = guild.get_member(user_id)
+        if member is not None:
+            name = member.display_name
+
+    if not name and guild is not None:
+        try:
+            name = (await guild.fetch_member(user_id)).display_name
+        except Exception:
+            name = None
+
+    if not name:
+        api = client or getattr(getattr(guild, "_state", None), "client", None)
+        fetch_user = getattr(api, "fetch_user", None)
+        if fetch_user is not None:
+            try:
+                user = await fetch_user(user_id)
+                name = getattr(user, "display_name", None) or getattr(user, "name", None)
+            except Exception:
+                name = None
+
+    if not name:
+        name = f"User {user_id}"
+
+    if len(_NAME_CACHE) >= _NAME_CACHE_MAX:
+        _NAME_CACHE.clear()
+    _NAME_CACHE[key] = (now, name)
+    return name
+
+
+async def display_names(guild, user_ids, *, client=None) -> list[str]:
+    """Resolve many names at once (concurrently, so a top-10 is one round-trip)."""
+    return list(await asyncio.gather(*(display_name(guild, uid, client=client) for uid in user_ids)))

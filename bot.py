@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils import db
+from utils import db, features, modules
 
 # Force real-time unbuffered log streaming to Render / cloud console
 try:
@@ -20,133 +20,83 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+
+def _env_flag(name: str) -> bool:
+    """Read a 1/true/yes/on environment flag (default: off)."""
+    return os.getenv(name, "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Privileged intents stay OFF unless explicitly enabled. Requesting one the app
+# has not enabled in the Developer Portal makes Discord refuse the connection
+# entirely (discord.PrivilegedIntentsRequired), which would take the bot
+# offline. Turn them on at:
+#   Developer Portal -> your app -> Bot -> Privileged Gateway Intents
+# and then set the matching env var to 1.
 intents = discord.Intents.default()
-# intents.message_content = True
-# intents.members = True
+if _env_flag("ENABLE_MESSAGE_CONTENT_INTENT"):
+    intents.message_content = True
+if _env_flag("ENABLE_MEMBERS_INTENT"):
+    intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-INITIAL_COGS = [
-    "cogs.moderation",
-    "cogs.tickets",
-    "cogs.server_control",
-    "cogs.welcome",
-    "cogs.reaction_roles",
-    "cogs.automod",
-    "cogs.help",
-    "cogs.legal",
-    "cogs.bot_config",
-    "cogs.economy",
-    "cogs.games",
-    "cogs.fun",
-    "cogs.social",
-    "cogs.leveling",
-    "cogs.music",
-    "cogs.giveaway",
-    "cogs.colors",
-    "cogs.tempvoice",
-    "cogs.starboard",
-]
+# The cog list, the command->module gates and the default states all come from
+# utils/features.py. Add or retire a feature there, not here.
+INITIAL_COGS = features.cog_paths()
+MODULE_COMMAND_MAP = features.MODULE_COMMAND_MAP
+ALWAYS_ALLOWED_COMMANDS = features.ALWAYS_ALLOWED_COMMANDS
 
-# Real-time in-memory module toggle cache: guild_id -> {module_name: bool}
-bot.module_states = {}
+# Shared with the dashboard thread so both see exactly the same state.
+bot.module_states = modules.CACHE
 
 def is_module_enabled(guild_id: int, module_name: str) -> bool:
-    """Check module state in 0ms using in-memory RAM, with sync DB fallback.
+    """Whether a module is running for a guild (cached, thread-safe).
 
-    On a database hiccup we fall back to the shared module default (OFF for
-    giveaway/colors/tempvoice/welcome) instead of blindly returning True, so a
-    transient read error can never quietly start a disabled module.
+    Delegates to utils.modules, the single reader/writer of module state, so the
+    bot and the web dashboard can never disagree about a toggle.
     """
-    default_state = db.module_default_enabled(module_name)
-    guild_mods = bot.module_states.get(guild_id)
-    if guild_mods is None:
-        try:
-            guild_mods = db.get_guild_modules_sync(guild_id)
-            bot.module_states[guild_id] = guild_mods
-        except Exception as e:
-            print(f"[MODULES] ⚠️ Could not read module state for guild {guild_id}: {e}", flush=True)
-            return default_state
-    return guild_mods.get(module_name, default_state)
+    return modules.is_enabled(guild_id, module_name)
 
 def set_module_state(guild_id: int, module_name: str, enabled: bool):
-    """Update in-memory module state instantly."""
-    if guild_id not in bot.module_states:
-        bot.module_states[guild_id] = {}
-    bot.module_states[guild_id][module_name] = enabled
+    """Update cached module state instantly (no database write)."""
+    modules.apply_cached(guild_id, module_name, enabled)
 
 bot.is_module_enabled = is_module_enabled
 bot.set_module_state = set_module_state
 
-MODULE_COMMAND_MAP = {
-    # Music (12 commands)
-    "play": "music", "radio": "music", "nowplaying": "music", "pause": "music", "resume": "music",
-    "skip": "music", "stop": "music", "queue": "music", "volume": "music", "songinfo": "music", "lyrics": "music", "247": "music",
-    # Leveling (9 commands)
-    "rank": "leveling", "leaderboard": "leveling", "levelsettings": "leveling", "setlevel": "leveling",
-    "givexp": "leveling", "resetlevels": "leveling", "addlevelrole": "leveling", "removelevelrole": "leveling", "levelroles": "leveling",
-    # Economy & Banking (13 commands)
-    "balance": "economy", "daily": "economy", "weekly": "economy", "work": "economy", "rob": "economy",
-    "pay": "economy", "deposit": "economy", "withdraw": "economy", "shop": "economy", "buy": "economy",
-    "inventory": "economy", "richlist": "economy", "eco-admin": "economy",
-    # Casino & Games (12 commands - dual module check)
-    "gamble": ("economy", "games"), "slots": ("economy", "games"), "blackjack": ("economy", "games"),
-    "roulette": ("economy", "games"), "coinflip": ("economy", "games"), "dice": ("economy", "games"),
-    "mines": ("economy", "games"), "crash": ("economy", "games"), "highlow": ("economy", "games"),
-    "tictactoe": "games", "rps": "games", "trivia": "games",
-    # Moderation & Server Control (19 commands)
-    "ban": "moderation", "kick": "moderation", "mute": "moderation", "unmute": "moderation",
-    "unban": "moderation", "warn": "moderation", "warnings": "moderation", "clearwarnings": "moderation",
-    "purge": "moderation", "modlog": "moderation", "lockdown": "moderation", "lockdown-server": "moderation",
-    "unlock": "moderation", "unlock-server": "moderation", "slowmode": "moderation", "addrole": "moderation",
-    "removerole": "moderation", "announce": "moderation", "reactionrole-add": "moderation",
-    # Automod (1 command)
-    "automod": "automod",
-    # Giveaway (1 command)
-    "giveaway": "giveaway",
-    # Colors (1 command)
-    "color": "colors",
-    # TempVoice (1 command)
-    "tempvoice": "tempvoice",
-    # Starboard (1 command)
-    "starboard": "starboard",
-    # Tickets (1 command)
-    "ticket": "tickets",
-    # Social & Animals (8 commands)
-    "action": "social", "uwu": "social", "marry": "social", "divorce": "social",
-    "ship": "social", "hunt": "social", "zoo": "social", "sellanimals": ("social", "economy"),
-    # Fun & Entertainment (8 commands)
-    "meme": "fun", "8ball": "fun", "meow": "fun", "meowsound": "fun", "tan": "fun", "kms": "fun",
-    "quote": "fun", "customquote": "fun",
-    # Welcome (1 command)
-    "welcome": "welcome",
-    # Core Utilities & System Info (Always accessible)
-    "help": None, "dashboard": None, "sync": None, "ping": None,
-    "serverinfo": None, "userinfo": None, "privacy": None, "tos": None,
-    "setavatar": None, "setbanner": None, "updatedb": None
-}
-
 # Global module toggle interceptor for all slash commands
 async def global_module_check(interaction: discord.Interaction) -> bool:
-    if not interaction.guild_id:
-        return True
     if not interaction.command:
         return True
-    
-    # Check root command name for subcommands (e.g. "giveaway" for "/giveaway start")
-    root_cmd = interaction.command.root_parent.name if getattr(interaction.command, "root_parent", None) else interaction.command.name
-    if root_cmd in ["help", "dashboard", "sync", "ping", "serverinfo", "userinfo", "privacy", "tos", "setavatar", "setbanner", "updatedb"]:
+
+    if not interaction.guild_id:
+        # Most commands read guild-scoped state (wallet, level row, module
+        # toggle). Invoked from a DM they used to raise AttributeError on
+        # `interaction.guild.id` and answer "An unexpected error occurred";
+        # reply with the actual reason instead.
+        root = interaction.command.root_parent.name if getattr(interaction.command, "root_parent", None) else interaction.command.name
+        if root not in features.DM_ALLOWED_COMMANDS and interaction.command.name not in features.DM_ALLOWED_COMMANDS:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ This command only works inside a server.", ephemeral=True
+                )
+            return False
         return True
     
-    modules = MODULE_COMMAND_MAP.get(root_cmd) or MODULE_COMMAND_MAP.get(interaction.command.name)
-    if modules:
-        if isinstance(modules, str):
-            modules = (modules,)
-        for mod in modules:
-            if not bot.is_module_enabled(interaction.guild_id, mod):
+    # Check root command name for subcommands (e.g. "ticket" for "/ticket setup")
+    root_cmd = interaction.command.root_parent.name if getattr(interaction.command, "root_parent", None) else interaction.command.name
+    if root_cmd in ALWAYS_ALLOWED_COMMANDS:
+        return True
+
+    gated = MODULE_COMMAND_MAP.get(root_cmd) or MODULE_COMMAND_MAP.get(interaction.command.name)
+    if gated:
+        for module_id in gated:
+            if not bot.is_module_enabled(interaction.guild_id, module_id):
+                feature = features.get(module_id)
+                label = feature.name if feature else module_id.replace("_", " ").title()
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
-                        f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
+                        f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
                         f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
                         ephemeral=True
                     )
@@ -194,16 +144,25 @@ async def on_ready():
     await db.setup()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     
-    # Load module toggle states from database
+    # Validate the feature registry once so a malformed manifest is loud.
+    try:
+        problems = features.validate()
+        for problem in problems:
+            print(f"[FEATURES] ❌ {problem}", flush=True)
+        print(f"[FEATURES] ✅ {len(features.FEATURES)} features, "
+              f"{len(features.TOGGLEABLE_IDS)} toggleable, loaded from the registry.", flush=True)
+    except Exception as e:
+        print(f"[FEATURES] ⚠️ Registry validation failed: {e}", flush=True)
+
+    # Warm the shared module-state cache for every guild.
     for guild in bot.guilds:
         try:
-            bot.module_states[guild.id] = await db.get_guild_modules(guild.id)
-            print(f"Loaded {len(bot.module_states[guild.id])} custom module states for {guild.name}.")
+            states = modules.refresh(guild.id)
+            enabled = sum(1 for value in states.values() if value)
+            print(f"[MODULES] {enabled}/{len(states)} modules enabled for {guild.name}.", flush=True)
         except Exception as e:
             print(f"Could not load module states for {guild.name}: {e}")
 
-    # Global error handler for app commands
-    bot.tree.on_error = on_app_command_error
     
     # Commands are persistently registered globally with Discord API.
     # Manual sync can be triggered at any time via /sync.
@@ -241,11 +200,6 @@ async def on_ready():
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
 
-@bot.tree.error
-async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{now_str}] ⚠️ App Command Error: {error} (Command: {interaction.command})", flush=True)
-
 @bot.event
 async def on_app_command_completion(interaction: discord.Interaction, command: app_commands.Command | app_commands.ContextMenu):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -279,7 +233,7 @@ async def dashboard_cmd(interaction: discord.Interaction):
         body=(
             f"Welcome back, {interaction.user.mention}.\n"
             f"Instant module control for **{guild.name if guild else 'this server'}**.\n\n"
-            "- 🎛️ Toggle music, economy, tickets, automod, and more in real time\n"
+            "- 🎛️ Toggle economy, games, tickets, automod, and more in real time\n"
             "- 🔐 This sign-in link is **single-use** and expires in **15 minutes**\n"
             "- 🌙 Keep it private — it unlocks the full admin dashboard"
         ),
@@ -294,24 +248,76 @@ async def dashboard_cmd(interaction: discord.Interaction):
     )
     await send_panel(interaction, view, ephemeral=True)
 
+def _report_error(error: BaseException, interaction: discord.Interaction | None = None) -> None:
+    """Forward an unhandled command error to ERROR_WEBHOOK_URL, if configured.
+
+    Errors used to be swallowed into stdout, which is how a silently broken
+    module stayed broken for weeks. This is opt-in and never raises.
+    """
+    url = (os.getenv("ERROR_WEBHOOK_URL") or "").strip()
+    if not url:
+        return
+    try:
+        import json as _json
+        import threading
+        import urllib.request
+
+        where = "unknown"
+        if interaction is not None:
+            command = interaction.command.qualified_name if interaction.command else "unknown"
+            guild = interaction.guild.name if interaction.guild else "DMs"
+            where = f"/{command} by {interaction.user} in {guild}"
+        payload = _json.dumps({
+            "content": f"⚠️ **{type(error).__name__}** — {where}\n```{str(error)[:1500]}```"
+        }).encode("utf-8")
+
+        def _send():
+            try:
+                req = urllib.request.Request(
+                    url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
+                )
+                urllib.request.urlopen(req, timeout=8).close()
+            except Exception:
+                pass
+
+        threading.Thread(target=_send, daemon=True).start()
+    except Exception:
+        pass
+
+
+@bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
         if not interaction.response.is_done():
             await interaction.response.send_message("❌ You don't have permission to do that.", ephemeral=True)
     elif isinstance(error, app_commands.CommandOnCooldown):
         if not interaction.response.is_done():
-            await interaction.response.send_message(f"⏰ Command is on cooldown. Try again in {error.retry_after:.2f}s.", ephemeral=True)
+            secs = int(error.retry_after)
+            if secs >= 3600:
+                wait = f"{secs // 3600}h {(secs % 3600) // 60}m"
+            elif secs >= 60:
+                wait = f"{secs // 60}m {secs % 60}s"
+            else:
+                wait = f"{secs}s"
+            await interaction.response.send_message(f"⏰ Slow down! You can use this again in **{wait}**.", ephemeral=True)
     elif isinstance(error, app_commands.CheckFailure):
         if not interaction.response.is_done():
             await interaction.response.send_message("❌ Permission denied. You cannot execute this command.", ephemeral=True)
     else:
         # Don't leak stack traces to users, log it instead.
         print(f"Error in command {interaction.command.name if interaction.command else 'Unknown'}: {error}")
-        if not interaction.response.is_done():
-            try:
-                await interaction.response.send_message("❌ An unexpected error occurred. Please try again.", ephemeral=True)
-            except:
-                pass
+        _report_error(error, interaction)
+        message = "❌ An unexpected error occurred. Please try again."
+        try:
+            # A command that deferred and then failed never answered the user, so
+            # their client sat on "thinking…" forever. Answer via the followup in
+            # that case, the initial response otherwise.
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except Exception:
+            pass
 
 async def main():
     # 1. Restore persistent SQLite database from cloud before loading cogs or connecting
@@ -338,8 +344,24 @@ async def main():
         # keep_alive() starts the Web Admin Dashboard and uptime keep-alive
         keep_alive(bot)
 
+        if not bot.intents.message_content:
+            print(
+                "[INTENTS] Message Content intent is OFF: message text is invisible to the bot, "
+                "so AutoMod invite/link filtering cannot work and text XP uses the baseline rate. "
+                "Enable it in the Developer Portal and set ENABLE_MESSAGE_CONTENT_INTENT=1.",
+                flush=True,
+            )
+
         try:
             await bot.start(TOKEN)
+        except discord.PrivilegedIntentsRequired as e:
+            print(
+                "ERROR: A privileged intent was requested that is not enabled in the Discord "
+                "Developer Portal. Open your app -> Bot -> Privileged Gateway Intents and enable "
+                "it, or set ENABLE_MESSAGE_CONTENT_INTENT / ENABLE_MEMBERS_INTENT back to 0."
+                f" ({e})",
+                flush=True,
+            )
         except discord.LoginFailure:
             print("ERROR: Invalid DISCORD_TOKEN provided. Please check your .env file or host configuration.")
         except Exception as e:

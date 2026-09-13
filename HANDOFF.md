@@ -3,10 +3,28 @@
 ## What Changed and Why
 I have successfully audited and hardened the bot to ensure it acts as a robust, production-ready Discord moderation and utility service. 
 Please refer to the [CHANGELOG.md](./CHANGELOG.md) for a full breakdown, but the core highlights include:
-- **Database Backend**: Ported all flat JSON config and memory-based storage (warnings, reaction roles) into SQLite (`bot.db`) for true restart persistence.
+- **Database Backend**: Ported all flat JSON config and memory-based storage (warnings, server configuration) into SQLite (`bot.db`) for true restart persistence.
 - **Improved Error Handling**: Introduced a global error handler so invalid commands log gracefully rather than crash the thread or spam chat with Python tracebacks.
 - **New Utilities**: Added `/serverinfo`, `/userinfo`, and an optional moderation logging system (`/modlog`) to keep track of staff actions.
 - **Rate-limiting**: Mitigated abuse vectors by applying cooldowns to bulk/destructive commands (e.g. `/purge`).
+
+## Where things live
+
+| Concern | File |
+| --- | --- |
+| Every feature (id, name, icon, commands, default state, cog) | `utils/features.py` |
+| Module on/off state — the only cache, reader and writer | `utils/modules.py` |
+| SQLite schema, migrations and `run_atomic()` | `utils/db.py` |
+| XP/level math and the `MAX_LEVEL` ceiling | `utils/levels.py` |
+| Components V2 design system (`send_card`, `card`, semantic helpers) | `utils/style.py` |
+| Cloud backup (encrypted + rotated snapshots) | `utils/cloud_sync.py` |
+| Web dashboard (Flask, runs in a thread from `bot.py`) | `keep_alive.py` + `templates/` |
+| Archived features, kept but never imported | `deleted_features/` |
+| Tests | `tests/` — run `python -m unittest discover -s tests -t .` |
+
+**Adding or retiring a feature** is a single edit in `utils/features.py` (plus the
+cog itself). The command gates, dashboard cards, help menu and defaults all
+follow from it, and the test suite fails if any of them drift apart.
 
 ## Remaining Manual Steps (Deployment)
 To get this bot fully online, follow these precise steps:

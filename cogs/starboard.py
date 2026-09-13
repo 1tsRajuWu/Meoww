@@ -66,10 +66,7 @@ class Starboard(commands.Cog):
             return
 
         # Count stars
-        star_count = 0
-        for reaction in message.reactions:
-            if str(reaction.emoji) in ("⭐", "🌟", "✨"):
-                star_count += reaction.count
+        star_count = await self._count_stars(message)
 
         if star_count < threshold:
             return
@@ -82,9 +79,64 @@ class Starboard(commands.Cog):
                 existing = await cur.fetchone()
 
         header = f"⭐ **{star_count}** | {origin_channel.mention}"
+        embed = self._build_star_embed(message, header, origin_channel)
+
+        handled = False
+        if existing:
+            starboard_msg_id, _prev_stars = existing
+            try:
+                star_msg = await starboard_channel.fetch_message(starboard_msg_id)
+                await edit_card(star_msg, content=header, embed=embed)
+                async with aiosqlite.connect(DB_PATH) as conn:
+                    await conn.execute("UPDATE starboard_posts SET stars_count=? WHERE original_message_id=?", (star_count, message.id))
+                    await conn.commit()
+                handled = True
+            except discord.NotFound:
+                # The starboard copy was deleted (channel purged, message removed
+                # by hand). The row kept pointing at a dead message, so every later
+                # star hit the same NotFound and the post could never come back.
+                # Drop the stale row and fall through to re-post it.
+                async with aiosqlite.connect(DB_PATH) as conn:
+                    await conn.execute("DELETE FROM starboard_posts WHERE original_message_id=?", (message.id,))
+                    await conn.commit()
+            except Exception:
+                handled = True  # transient failure: don't risk a duplicate card
+
+        if not handled:
+            try:
+                star_msg = await send_card(starboard_channel, content=header, embed=embed)
+                async with aiosqlite.connect(DB_PATH) as conn:
+                    await conn.execute(
+                        "INSERT OR REPLACE INTO starboard_posts (original_message_id, starboard_message_id, guild_id, stars_count) VALUES (?, ?, ?, ?)",
+                        (message.id, star_msg.id, guild.id, star_count)
+                    )
+                    await conn.commit()
+            except Exception as e:
+                print(f"Failed to post to starboard: {e}")
+
+    async def _count_stars(self, message: discord.Message) -> int:
+        """Total star reactions on a message (one definition for add + remove)."""
+        return sum(
+            reaction.count
+            for reaction in message.reactions
+            if str(reaction.emoji) in ("⭐", "🌟", "✨")
+        )
+
+    def _build_star_embed(self, message: discord.Message, header: str, origin_channel) -> discord.Embed:
+        """Build the starboard card for a message."""
+        # The Message Content intent can be off, so `message.content` may be empty.
+        # Show something readable instead of a blank card.
+        if message.content:
+            description = message.content
+        elif message.attachments:
+            description = "\n".join(f"📎 {a.filename}" for a in message.attachments)
+        elif message.embeds:
+            description = "🔗 Shared a link"
+        else:
+            description = "*[message text unavailable]*"
 
         embed = discord.Embed(
-            description=message.content or "",
+            description=description,
             color=0xFEE75C,
             timestamp=message.created_at
         )
@@ -102,28 +154,103 @@ class Starboard(commands.Cog):
                 if emb.image:
                     embed.set_image(url=emb.image.url)
                     break
+        return embed
 
-        if existing:
-            starboard_msg_id, prev_stars = existing
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        """Re-sync the starboard when a star is removed.
+
+        Only additions used to be handled, so a card's count could only ever climb
+        and a featured post could never come back down.
+        """
+        if str(payload.emoji) not in ("⭐", "🌟", "✨"):
+            return
+
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild.id, "starboard"):
+            return
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute("SELECT channel_id, threshold FROM starboard_settings WHERE guild_id=?", (guild.id,)) as cur:
+                row = await cur.fetchone()
+            if not row:
+                return
+            starboard_ch_id, threshold = row
+            async with conn.execute(
+                "SELECT starboard_message_id FROM starboard_posts WHERE original_message_id=?",
+                (payload.message_id,)
+            ) as cur:
+                existing = await cur.fetchone()
+
+        starboard_channel = guild.get_channel(starboard_ch_id)
+        origin_channel = guild.get_channel(payload.channel_id)
+        if not starboard_channel or not origin_channel or origin_channel.id == starboard_ch_id:
+            return
+
+        try:
+            message = await origin_channel.fetch_message(payload.message_id)
+        except Exception:
+            return
+
+        star_count = await self._count_stars(message)
+
+        header = f"⭐ **{star_count}** | {origin_channel.mention}"
+        embed = self._build_star_embed(message, header, origin_channel)
+
+        if star_count >= threshold:
+            if not existing:
+                return
             try:
-                star_msg = await starboard_channel.fetch_message(starboard_msg_id)
+                star_msg = await starboard_channel.fetch_message(existing[0])
                 await edit_card(star_msg, content=header, embed=embed)
                 async with aiosqlite.connect(DB_PATH) as conn:
-                    await conn.execute("UPDATE starboard_posts SET stars_count=? WHERE original_message_id=?", (star_count, message.id))
-                    await conn.commit()
-            except Exception:
-                pass
-        else:
-            try:
-                star_msg = await send_card(starboard_channel, content=header, embed=embed)
-                async with aiosqlite.connect(DB_PATH) as conn:
                     await conn.execute(
-                        "INSERT INTO starboard_posts (original_message_id, starboard_message_id, guild_id, stars_count) VALUES (?, ?, ?, ?)",
-                        (message.id, star_msg.id, guild.id, star_count)
+                        "UPDATE starboard_posts SET stars_count=? WHERE original_message_id=?",
+                        (star_count, payload.message_id),
                     )
                     await conn.commit()
+            except discord.NotFound:
+                # The starboard copy was deleted by hand or by a channel purge.
+                # Drop the stale row and re-post, so the card and the channel both
+                # match reality. The add path already self-healed; this one used to
+                # keep the row pointing at a dead message forever.
+                async with aiosqlite.connect(DB_PATH) as conn:
+                    await conn.execute("DELETE FROM starboard_posts WHERE original_message_id=?", (payload.message_id,))
+                    await conn.commit()
+                try:
+                    star_msg = await send_card(starboard_channel, content=header, embed=embed)
+                    async with aiosqlite.connect(DB_PATH) as conn:
+                        await conn.execute(
+                            "INSERT OR REPLACE INTO starboard_posts (original_message_id, starboard_message_id, guild_id, stars_count) VALUES (?, ?, ?, ?)",
+                            (payload.message_id, star_msg.id, guild.id, star_count),
+                        )
+                        await conn.commit()
+                except Exception as e:
+                    print(f"Failed to re-post to starboard: {e}")
             except Exception as e:
-                print(f"Failed to post to starboard: {e}")
+                print(f"[STARBOARD] Could not update the card for {payload.message_id}: {e}")
+            return
+
+        if not existing:
+            return
+
+        # Fell below the threshold — retire the card so the channel matches reality.
+        try:
+            star_msg = await starboard_channel.fetch_message(existing[0])
+            await star_msg.delete()
+        except discord.NotFound:
+            pass  # already gone; the stale row below still needs dropping
+        except Exception as e:
+            # Could not remove the card (usually missing Manage Messages). Keep the
+            # row: a later sync can still edit this card, whereas dropping the row
+            # now would make the next star post a duplicate next to it.
+            print(f"[STARBOARD] Could not retire the card for {payload.message_id}: {e}")
+            return
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("DELETE FROM starboard_posts WHERE original_message_id=?", (payload.message_id,))
+            await conn.commit()
 
     @starboard_group.command(name="set", description="Set the Starboard showcase channel and reaction threshold.")
     @app_commands.describe(

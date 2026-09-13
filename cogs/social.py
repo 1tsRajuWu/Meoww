@@ -4,10 +4,9 @@ from discord.ext import commands
 import random
 import asyncio
 import aiosqlite
-import datetime
 from utils import db
-from cogs.economy import get_eco, update_wallet, ensure_eco, check_is_owner
-from utils.style import send_card
+from cogs.economy import get_eco, update_wallet, ensure_eco, take_stake
+from utils.style import send_card, display_name
 
 DB_PATH = db.DB_PATH
 
@@ -98,6 +97,10 @@ ANIMALS = {
         ("🔮", "Void Phantom", 50_000),
     ],
 }
+
+# /hunt hands out free coins and animals, so it needs a cooldown or it can be
+# spammed indefinitely.
+HUNT_COOLDOWN_SECONDS = 10 * 60
 
 TIER_COLORS = {
     "common": 0x95A5A6,
@@ -418,6 +421,7 @@ class Social(commands.Cog):
     # 1. ANIMAL HUNTING & ZOO
     # ---------------------------------------------------------
     @app_commands.command(name="hunt", description="Go hunting in the wild and catch rare animals for your zoo!")
+    @app_commands.checks.cooldown(1, HUNT_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     async def hunt(self, interaction: discord.Interaction):
         await setup_social_tables()
         await ensure_eco(interaction.user.id, interaction.guild.id)
@@ -463,7 +467,7 @@ class Social(commands.Cog):
 
         embed = discord.Embed(
             title="🌲 Hunting Expedition Results",
-            description=f"You ventured deep into the wilderness and brought back:\n",
+            description="You ventured deep into the wilderness and brought back:\n",
             color=TIER_COLORS[highest_tier],
             timestamp=discord.utils.utcnow()
         )
@@ -491,7 +495,7 @@ class Social(commands.Cog):
         if not rows:
             embed = discord.Embed(
                 title=f"🐾 {member.display_name}'s Zoo is Empty!",
-                description=f"No animals caught yet! Run `/hunt` to begin your wilderness safari.",
+                description="No animals caught yet! Run `/hunt` to begin your wilderness safari.",
                 color=0x95A5A6
             )
             return await send_card(interaction, embed=embed)
@@ -503,9 +507,9 @@ class Social(commands.Cog):
 
         # Lookup price map
         price_map = {}
-        for t, list_a in ANIMALS.items():
-            for e, n, p in list_a:
-                price_map[n] = p
+        for list_a in ANIMALS.values():
+            for _emoji, name, price in list_a:
+                price_map[name] = price
 
         for name, emoji, tier, count in rows:
             total_animals += count
@@ -545,44 +549,62 @@ class Social(commands.Cog):
         await setup_social_tables()
 
         price_map = {}
-        for t, list_a in ANIMALS.items():
-            for e, n, p in list_a:
-                price_map[n] = p
+        for list_a in ANIMALS.values():
+            for _emoji, name, price in list_a:
+                price_map[name] = price
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            if tier == "common":
-                query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier='common'"
-                delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier='common'"
-            elif tier == "uncommon":
-                query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier='uncommon'"
-                delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier='uncommon'"
-            elif tier == "rare":
-                query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier='rare'"
-                delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier='rare'"
-            elif tier == "common_uncommon":
-                query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier IN ('common', 'uncommon')"
-                delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier IN ('common', 'uncommon')"
-            else:
-                query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=?"
-                delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=?"
+        if tier == "common":
+            query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier='common'"
+            delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier='common'"
+        elif tier == "uncommon":
+            query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier='uncommon'"
+            delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier='uncommon'"
+        elif tier == "rare":
+            query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier='rare'"
+            delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier='rare'"
+        elif tier == "common_uncommon":
+            query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=? AND tier IN ('common', 'uncommon')"
+            delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=? AND tier IN ('common', 'uncommon')"
+        else:
+            query = "SELECT animal_name, count FROM user_animals WHERE guild_id=? AND user_id=?"
+            delete_query = "DELETE FROM user_animals WHERE guild_id=? AND user_id=?"
 
-            async with conn.execute(query, (interaction.guild.id, interaction.user.id)) as cur:
-                rows = await cur.fetchall()
+        await ensure_eco(interaction.user.id, interaction.guild.id)
 
+        def _sell(cur):
+            """Read, delete and pay inside one transaction.
+
+            The rows were read on one connection and the coins credited on
+            another, so two simultaneous sales of the same animals both computed
+            a price from the same rows — the first deleted them, the second
+            deleted nothing and was still paid.
+            """
+            cur.execute(query, (interaction.guild.id, interaction.user.id))
+            rows = cur.fetchall()
             if not rows:
-                return await interaction.response.send_message("❌ You don't have any animals in that category to sell!", ephemeral=True)
-
+                return None
             total_coins = 0
             total_count = 0
             for name, count in rows:
-                p = price_map.get(name, 50)
-                total_coins += p * count
+                total_coins += price_map.get(name, 50) * count
                 total_count += count
+            cur.execute(delete_query, (interaction.guild.id, interaction.user.id))
+            if cur.rowcount != len(rows):
+                raise RuntimeError(
+                    f"animal rows changed during sale ({cur.rowcount} of {len(rows)} removed)"
+                )
+            cur.execute(
+                "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                (total_coins, interaction.user.id, interaction.guild.id),
+            )
+            return total_coins, total_count
 
-            await conn.execute(delete_query, (interaction.guild.id, interaction.user.id))
-            await conn.commit()
-
-        await update_wallet(interaction.user.id, interaction.guild.id, total_coins)
+        sold = await asyncio.to_thread(db.run_atomic, _sell)
+        if not sold:
+            return await interaction.response.send_message(
+                "❌ You don't have any animals in that category to sell!", ephemeral=True
+            )
+        total_coins, total_count = sold
 
         embed = discord.Embed(
             title="💰 Animals Sold!",
@@ -604,8 +626,13 @@ class Social(commands.Cog):
         if eco["wallet"] < bet:
             return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
 
-        # Deduct bet upfront
-        await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        # Hold the stake atomically. A plain update_wallet(-bet) clamps at zero,
+        # so two /crash games fired at the same instant could each start without
+        # really paying for themselves.
+        if not await take_stake(interaction.user.id, interaction.guild.id, bet):
+            return await interaction.response.send_message(
+                "❌ You don't have enough coins to cover that bet.", ephemeral=True
+            )
 
         # Realistic crash curve
         if random.random() < 0.08:
@@ -655,7 +682,28 @@ class Social(commands.Cog):
             )
             try:
                 await msg.edit(embed=embed, view=view)
-            except:
+            except Exception as e:
+                # The card can no longer be updated (deleted, or the API refused).
+                # The round cannot be played, so end it and refund the stake. The
+                # old code returned here with the buttons still live, which let a
+                # player cash out at a multiplier the rocket may never have had.
+                print(f"[CRASH] Could not update the game card: {e}")
+                view.ended = True
+                view.clear_items()
+                await update_wallet(interaction.user.id, interaction.guild.id, bet)
+                void_embed = discord.Embed(
+                    title="🚀 Launch Aborted",
+                    description=(
+                        "The game card could not be updated, so the round was cancelled.\n"
+                        f"Your **{bet:,}** 🪙 bet has been **refunded**."
+                    ),
+                    color=0xFEE75C,
+                    timestamp=discord.utils.utcnow(),
+                )
+                try:
+                    await msg.edit(embed=void_embed, view=view)
+                except Exception:
+                    pass
                 return
 
         # If reached here without cashing out, rocket exploded
@@ -675,7 +723,7 @@ class Social(commands.Cog):
             crash_embed.set_footer(text=f"Played by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
             try:
                 await msg.edit(embed=crash_embed, view=view)
-            except:
+            except Exception:
                 pass
 
     # ---------------------------------------------------------
@@ -749,17 +797,18 @@ class Social(commands.Cog):
     async def divorce(self, interaction: discord.Interaction):
         await setup_social_tables()
         async with aiosqlite.connect(DB_PATH) as conn:
-            async with conn.execute("SELECT user2_id, married_at FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, interaction.user.id)) as cur:
+            async with conn.execute("SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, interaction.user.id)) as cur:
                 row = await cur.fetchone()
             if not row:
                 return await interaction.response.send_message("❌ You are not married to anyone!", ephemeral=True)
 
-            spouse_id, date = row
+            spouse_id = row[0]
             await conn.execute("DELETE FROM marriages WHERE guild_id=? AND (user1_id=? OR user2_id=?)", (interaction.guild.id, interaction.user.id, interaction.user.id))
             await conn.commit()
 
-        spouse = interaction.guild.get_member(spouse_id)
-        s_name = spouse.mention if spouse else f"<@{spouse_id}>"
+        # Plain name, not a mention: a mention inside a V2 card notifies, and an
+        # uncached spouse would otherwise render as a raw "<@id>".
+        s_name = await display_name(interaction.guild, spouse_id, client=interaction.client)
 
         embed = discord.Embed(
             title="📄 Divorce Finalized",
@@ -838,7 +887,11 @@ class Social(commands.Cog):
                 words[i] = f"{words[i][0]}-{words[i]}"
 
         result = " ".join(words) + f" {face}"
-        await interaction.response.send_message(f"> {result}")
+        # The text is member-supplied and sent as plain content, so without this
+        # a member could make the bot ping @everyone or a role for them.
+        await interaction.response.send_message(
+            f"> {result}", allowed_mentions=discord.AllowedMentions.none()
+        )
 
 
 async def setup(bot: commands.Bot):

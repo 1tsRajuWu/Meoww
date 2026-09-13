@@ -7,38 +7,24 @@ import time
 import asyncio
 from utils import db
 from cogs.economy import update_wallet
-from utils.style import send_card
+from utils.style import send_card, display_names, member_cache_complete
+from utils.levels import (
+    MAX_LEVEL,
+    MAX_XP,
+    calculate_level_from_xp,
+    clamp_xp,
+    total_xp_for_level,
+)
 
 DB_PATH = db.DB_PATH
 
 # -----------------------------------------------------------------------------
 # XP & Level Formula Mechanics
-# Standard balanced formula: XP needed for next level = 5 * (lvl^2) + (50 * lvl) + 100
+# The formula and the level cap live in utils/levels.py so the bot, the rank
+# card and the database integrity repair all share one implementation:
+#     xp_needed_for_level(L) = 15L^2 + 100L + 250
+#     total_xp_for_level(L)  = 5L^3 + 42.5L^2 + 202.5L   (capped at MAX_LEVEL)
 # -----------------------------------------------------------------------------
-
-def xp_needed_for_level(level: int) -> int:
-    """XP needed to advance from `level` to `level + 1` (Hardened MMO-style scaling)."""
-    return 15 * (level ** 2) + (100 * level) + 250
-
-def total_xp_for_level(level: int) -> int:
-    """Cumulative total XP required from level 0 to reach `level`."""
-    return sum(xp_needed_for_level(i) for i in range(level))
-
-def calculate_level_from_xp(total_xp: int) -> tuple[int, int, int]:
-    """
-    Given total cumulative XP, returns:
-    (current_level, xp_progress_in_current_level, xp_needed_for_next_level)
-    """
-    level = 0
-    remaining = total_xp
-    while True:
-        needed = xp_needed_for_level(level)
-        if remaining >= needed:
-            remaining -= needed
-            level += 1
-        else:
-            break
-    return level, remaining, needed
 
 def render_progress_bar(current: int, total: int, length: int = 10) -> str:
     """Renders a visual Unicode progress bar."""
@@ -136,17 +122,29 @@ class Leveling(commands.Cog):
                 await conn.commit()
             return default_settings
 
-        # Auto-balance legacy high defaults so VC leveling is properly hardened
-        vc_c = min(row[6], 2) if row[6] >= 10 else row[6]
-        vc_x = min(row[7], 3) if row[7] >= 15 else row[7]
+        # Auto-balance legacy high defaults so VC leveling is properly hardened.
+        # Older rows can hold NULL in any of these columns (they were added over
+        # time), so coerce rather than compare None — `None >= 10` would raise
+        # and take the whole reward path down for that guild.
+        vc_c = row[6] if row[6] is not None else 2
+        vc_x = row[7] if row[7] is not None else 3
+        if vc_c >= 10:
+            vc_c = 2
+        if vc_x >= 15:
+            vc_x = 3
+
+        t_min = row[3] if row[3] is not None else 4
+        t_max = row[4] if row[4] is not None else 10
+        if t_max < t_min:
+            t_max = t_min
 
         return {
-            "enabled": row[0],
-            "channel_id": row[1],
-            "dm_notifications": row[2],
-            "text_min_coins": row[3],
-            "text_max_coins": row[4],
-            "text_xp": row[5],
+            "enabled": row[0] if row[0] is not None else 1,
+            "channel_id": row[1] or 0,
+            "dm_notifications": row[2] if row[2] is not None else 0,
+            "text_min_coins": t_min,
+            "text_max_coins": t_max,
+            "text_xp": row[5] if row[5] is not None else 15,
             "vc_coins_per_min": vc_c,
             "vc_xp_per_min": vc_x
         }
@@ -203,6 +201,42 @@ class Leveling(commands.Cog):
                         print(f"Failed to award role {role_id}: {e}")
         return roles_unlocked
 
+    #: Dedicated bot-command channel used when an admin hasn't set one with
+    #: /levelsettings. Overridable per guild via the `bot_cmd_channel_id` setting.
+    BOT_CMD_CHANNEL_ID = 1547637176697757846
+
+    async def _resolve_announce_channel(self, guild: discord.Guild, settings: dict) -> discord.TextChannel | None:
+        """Where level-up cards are allowed to be posted.
+
+        Order: the channel an admin chose with /levelsettings, else the dedicated
+        bot-command channel. Returns ``None`` when neither exists or the bot can't
+        post there, and the caller then posts *nothing* — level-up cards used to
+        fall back to a name-matched "cmd" channel, the server system channel, or
+        even the channel the member happened to be chatting in, which scattered
+        them across the server.
+        """
+        candidates: list[int] = []
+
+        if settings.get("channel_id"):
+            candidates.append(int(settings["channel_id"]))
+
+        # bot_cmd_channel_id was written by /updatedb but never read anywhere, so
+        # the dedicated channel was hardcoded. Honour the setting when present.
+        try:
+            configured = await db.get_setting(guild.id, "bot_cmd_channel_id")
+        except Exception:
+            configured = None
+        candidates.append(int(configured) if configured else self.BOT_CMD_CHANNEL_ID)
+
+        me = getattr(guild, "me", None)
+        for channel_id in candidates:
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                continue
+            if me is None or channel.permissions_for(me).send_messages:
+                return channel
+        return None
+
     async def handle_level_up(
         self,
         guild: discord.Guild,
@@ -245,53 +279,27 @@ class Leveling(commands.Cog):
             except discord.Forbidden:
                 pass
 
-        target_channel = None
-        # 1. Configured channel in /levelsettings
-        if settings.get("channel_id"):
-            target_channel = guild.get_channel(settings["channel_id"])
-
-        # 2. Priority: Dedicated bot commands channel (#bot-cmd: 1547637176697757846)
-        # Explicitly routes to public bot-cmd and avoids private/admin channels!
-        if not target_channel:
-            specific_ch = guild.get_channel(1547637176697757846)
-            if specific_ch and specific_ch.permissions_for(guild.me).send_messages:
-                target_channel = specific_ch
-
-        # 3. Dynamic priority: Look for member-accessible bot channels, excluding Admin/Staff categories
-        if not target_channel:
-            for ch in guild.text_channels:
-                cat_name = ch.category.name.lower() if ch.category else ""
-                if any(adm in cat_name for adm in ("admin", "staff", "mod", "ticket")):
-                    continue
-                cname = ch.name.lower()
-                if any(kw in cname for kw in ("bot-cmd", "botcmd", "bot_cmd", "bot-commands", "level-up", "levelups")):
-                    if ch.permissions_for(guild.me).send_messages:
-                        target_channel = ch
-                        break
-
-        # 4. Secondary fallback: Channels containing cmd/commands that are NOT in an admin category
-        if not target_channel:
-            for ch in guild.text_channels:
-                cat_name = ch.category.name.lower() if ch.category else ""
-                if any(adm in cat_name for adm in ("admin", "staff", "mod", "ticket")):
-                    continue
-                cname = ch.name.lower()
-                if any(kw in cname for kw in ("cmd", "cmds", "commands")):
-                    if ch.permissions_for(guild.me).send_messages:
-                        target_channel = ch
-                        break
-
-        # 5. Final Fallback: server system channel, or active channel
-        if not target_channel:
-            target_channel = guild.system_channel
-        if not target_channel:
-            target_channel = channel
-
-        if target_channel and target_channel.permissions_for(guild.me).send_messages:
-            try:
-                await send_card(target_channel, embed=embed)
-            except Exception as e:
-                print(f"Could not send level up message: {e}")
+        # Level-up cards go to the dedicated command channel only — never the
+        # system channel and never "wherever the member happened to be chatting".
+        target_channel = await self._resolve_announce_channel(guild, settings)
+        if target_channel is None:
+            print(
+                f"[LEVELS] No announcement channel available in {guild.name}; "
+                f"level-up card for {member} was not posted.",
+                flush=True,
+            )
+            return
+        try:
+            # The one card that SHOULD reach someone: notify the member who
+            # levelled up, but never the unlocked roles (a role mention would
+            # ping every member who already holds it).
+            await send_card(
+                target_channel,
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            )
+        except Exception as e:
+            print(f"Could not send level up message: {e}")
 
     # -------------------------------------------------------------------------
     # Text Chat Reward Listener (on_message)
@@ -329,15 +337,27 @@ class Leveling(commands.Cog):
             return
 
         self._chat_cooldowns[key] = now
+        # A cooldown only matters for 10 seconds, but the dict held one entry per
+        # (guild, member) forever — a slow RAM leak on a busy server.
+        if len(self._chat_cooldowns) > 4096:
+            for stale in [k for k, ts in self._chat_cooldowns.items() if now - ts > 60]:
+                self._chat_cooldowns.pop(stale, None)
 
         # Message Length Based Rewards:
-        content_len = len(message.content.strip()) if message.content else 0
+        text = (message.content or "").strip()
+        # Without the Message Content privileged intent Discord delivers an
+        # empty string for every message. Treat that as an unreadable-but-real
+        # message (baseline reward) rather than a 0-character one, otherwise
+        # text XP would silently never fire at all.
+        text_readable = bool(text)
+        content_len = len(text)
         # Attachments (photos, memes, clips) add 25 virtual characters of effort
         if message.attachments:
             content_len += len(message.attachments) * 25
 
         # Anti-spam: Ignore very short messages (< 3 chars like '.', 'k', '??')
-        if content_len < 3:
+        # — but only when the text is actually visible to us.
+        if text_readable and content_len < 3:
             async with aiosqlite.connect(DB_PATH) as conn:
                 await conn.execute(
                     """INSERT INTO user_levels (guild_id, user_id, total_messages, last_message_ts)
@@ -360,7 +380,9 @@ class Leveling(commands.Cog):
         # - Medium (50 - 119 chars, active discussion): 1.5x multiplier
         # - Long (120 - 249 chars, detailed thoughts): 2.0x multiplier
         # - Effort / Paragraph (250+ chars, capped at 2.5x to prevent essay spam): 2.5x multiplier
-        if content_len < 15:
+        if not text_readable and not message.attachments:
+            multiplier = 1.0
+        elif content_len < 15:
             multiplier = 0.5
         elif content_len < 50:
             multiplier = 1.0
@@ -381,6 +403,9 @@ class Leveling(commands.Cog):
             print(f"Leveling coin deposit error: {e}")
 
         async with aiosqlite.connect(DB_PATH) as conn:
+            # BEGIN IMMEDIATE serialises concurrent writers, so two messages
+            # arriving together can't both read the same old XP and lose one.
+            await conn.execute("BEGIN IMMEDIATE")
             async with conn.execute(
                 "SELECT xp, level, total_messages, total_earned FROM user_levels WHERE guild_id=? AND user_id=?",
                 (message.guild.id, message.author.id)
@@ -392,7 +417,7 @@ class Leveling(commands.Cog):
             else:
                 old_xp, old_lvl, total_msgs, total_earned = row
 
-            new_xp = old_xp + xp_gain
+            new_xp = clamp_xp(old_xp + xp_gain)
             new_msgs = total_msgs + 1
             new_earned = total_earned + coins
             new_lvl, _, _ = calculate_level_from_xp(new_xp)
@@ -463,52 +488,52 @@ class Leveling(commands.Cog):
                         if member.voice and (member.voice.self_deaf or member.voice.deaf):
                             continue
 
-                        # AFK Check: If member hasn't sent a message in voice channel or anywhere in the server for > 1 hour (3600s), they are considered AFK and do not earn VC coins or XP
-                        async with aiosqlite.connect(DB_PATH) as conn:
-                            async with conn.execute(
+                        # Read, decide and write in ONE ``BEGIN IMMEDIATE``
+                        # transaction (the shared atomic helper). The old code read on
+                        # one connection and wrote on another, so a message arriving
+                        # in the same second could overwrite this minute's XP with a
+                        # stale value — and a brand-new member was inserted twice.
+                        def _vc_tick(cur):
+                            cur.execute(
                                 "SELECT xp, level, voice_minutes, total_earned, last_message_ts FROM user_levels WHERE guild_id=? AND user_id=?",
-                                (guild.id, member.id)
-                            ) as cur:
-                                row = await cur.fetchone()
+                                (guild.id, member.id),
+                            )
+                            row = cur.fetchone()
+                            if not row:
+                                # Newly tracked member - start active
+                                old_xp, old_lvl, v_mins, total_earned, last_msg_ts = 0, 0, 0, 0, now
+                            else:
+                                old_xp, old_lvl, v_mins, total_earned, last_msg_ts = row
+                                last_msg_ts = last_msg_ts or 0
 
-                        if not row:
-                            # Newly tracked member - start active
-                            async with aiosqlite.connect(DB_PATH) as conn:
-                                await conn.execute(
-                                    "INSERT INTO user_levels (guild_id, user_id, last_message_ts) VALUES (?, ?, ?)",
-                                    (guild.id, member.id, now)
-                                )
-                                await conn.commit()
-                            old_xp, old_lvl, v_mins, total_earned, last_msg_ts = 0, 0, 0, 0, now
-                        else:
-                            old_xp, old_lvl, v_mins, total_earned, last_msg_ts = row
-                            last_msg_ts = last_msg_ts or 0
+                            # AFK (>1h without a message anywhere) earns nothing.
+                            if (now - last_msg_ts) > 3600:
+                                return None
 
-                        # If user hasn't sent a message in voice channel or anywhere for > 1 hour (3600s):
-                        if (now - last_msg_ts) > 3600:
-                            # User is AFK (>1 hour inactivity) - skip coin and XP rewards
+                            new_xp = clamp_xp((old_xp or 0) + vc_xp)
+                            new_vmins = (v_mins or 0) + 1
+                            new_earned = (total_earned or 0) + vc_coins
+                            new_lvl, _, _ = calculate_level_from_xp(new_xp)
+
+                            cur.execute(
+                                """INSERT INTO user_levels (guild_id, user_id, xp, level, voice_minutes, total_earned, last_message_ts)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                                   ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                                       xp=?, level=?, voice_minutes=?, total_earned=?""",
+                                (guild.id, member.id, new_xp, new_lvl, new_vmins, new_earned, last_msg_ts,
+                                 new_xp, new_lvl, new_vmins, new_earned),
+                            )
+                            return old_lvl, new_lvl
+
+                        tick = await asyncio.to_thread(db.run_atomic, _vc_tick)
+                        if tick is None:
                             continue
+                        old_lvl, new_lvl = tick
 
                         try:
                             await update_wallet(member.id, guild.id, vc_coins)
                         except Exception as e:
                             print(f"VC coin deposit error: {e}")
-
-                        new_xp = old_xp + vc_xp
-                        new_vmins = v_mins + 1
-                        new_earned = total_earned + vc_coins
-                        new_lvl, _, _ = calculate_level_from_xp(new_xp)
-
-                        async with aiosqlite.connect(DB_PATH) as conn:
-                            await conn.execute(
-                                """INSERT INTO user_levels (guild_id, user_id, xp, level, voice_minutes, total_earned)
-                                   VALUES (?, ?, ?, ?, ?, ?)
-                                   ON CONFLICT(guild_id, user_id) DO UPDATE SET 
-                                       xp=?, level=?, voice_minutes=?, total_earned=?""",
-                                (guild.id, member.id, new_xp, new_lvl, new_vmins, new_earned,
-                                 new_xp, new_lvl, new_vmins, new_earned)
-                            )
-                            await conn.commit()
 
                         if new_lvl > old_lvl:
                             await self.handle_level_up(guild, member, old_lvl, new_lvl, None)
@@ -567,7 +592,9 @@ class Leveling(commands.Cog):
             elif next_role is None and level < req_lvl:
                 next_role = (req_lvl, r)
 
-        bar = render_progress_bar(current_xp, needed_xp, length=12)
+        at_max_level = level >= MAX_LEVEL
+        progress_text = "MAX LEVEL" if at_max_level else f"{current_xp:,} / {needed_xp:,} XP"
+        bar = "`[▰▰▰▰▰▰▰▰▰▰▰▰]` **MAX**" if at_max_level else render_progress_bar(current_xp, needed_xp, length=12)
 
         embed = discord.Embed(
             title=f"{badge} {target.display_name}'s Rank Card",
@@ -579,7 +606,7 @@ class Leveling(commands.Cog):
 
         embed.description = (
             f"### 🏆 **Level {level}** • **Rank #{rank_pos}** of {total_members}\n"
-            f"**Progress:** {current_xp:,} / {needed_xp:,} XP\n"
+            f"**Progress:** {progress_text}\n"
             f"{bar}\n"
         )
 
@@ -673,11 +700,13 @@ class Leveling(commands.Cog):
 
         medals = ["👑", "💎", "⭐", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
         lines = []
+        # Plain resolved names, not mentions — in a V2 card a mention notifies
+        # every member on the board just because someone asked for the rankings.
+        names = await display_names(interaction.guild, [row[0] for row in rows], client=interaction.client)
 
         for idx, row in enumerate(rows):
             uid, u_xp, u_lvl, u_msgs, u_vmins, u_earned = row
-            member = interaction.guild.get_member(uid)
-            display = member.mention if member else f"<@{uid}>"
+            display = names[idx]
             medal = medals[idx] if idx < len(medals) else f"`#{idx+1}`"
 
             if cat_val == "xp":
@@ -712,12 +741,16 @@ class Leveling(commands.Cog):
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
+        # ``role.members`` is only accurate when the Members intent is on;
+        # otherwise the cache holds almost nobody and every role would read
+        # "(0 members)". Report the count only when it can be trusted.
+        show_counts = member_cache_complete(interaction.client)
         for req_lvl, r_id in roles:
             role = interaction.guild.get_role(r_id)
             role_str = role.mention if role else f"`[Deleted Role ID {r_id}]`"
-            members_count = len(role.members) if role else 0
-            tier_name, badge, _ = get_tier_info(req_lvl)
-            embed.description += f"• **Level {req_lvl}** {badge} ➔ {role_str} *({members_count} members)*\n"
+            members_note = f" *({len(role.members)} members)*" if (show_counts and role) else ""
+            _, badge, _ = get_tier_info(req_lvl)
+            embed.description += f"• **Level {req_lvl}** {badge} ➔ {role_str}{members_note}\n"
 
         embed.set_footer(text="🐾 Roles are granted instantly when you level up!")
         await send_card(interaction, embed=embed)
@@ -828,8 +861,8 @@ class Leveling(commands.Cog):
             )
             await conn.commit()
 
-        target_ch = interaction.guild.get_channel(new_channel) if new_channel else interaction.guild.get_channel(1547637176697757846)
-        ch_text = target_ch.mention if target_ch else "*💬・bot-cmd (Auto-detected)*"
+        target_ch = interaction.guild.get_channel(new_channel) if new_channel else interaction.guild.get_channel(self.BOT_CMD_CHANNEL_ID)
+        ch_text = target_ch.mention if target_ch else "*💬・bot-cmd (no channel set)*"
 
         embed = discord.Embed(
             title="⚙️ Leveling & Reward Settings",
@@ -854,6 +887,11 @@ class Leveling(commands.Cog):
 
         if level < 0:
             return await interaction.response.send_message("❌ Level cannot be negative!", ephemeral=True)
+        if level > MAX_LEVEL:
+            return await interaction.response.send_message(
+                f"❌ The maximum level is **{MAX_LEVEL}**. Setting anything higher would break the leaderboard and rank cards.",
+                ephemeral=True
+            )
 
         total_xp = total_xp_for_level(level)
 
@@ -869,8 +907,10 @@ class Leveling(commands.Cog):
         unlocked = await self.check_and_award_roles(interaction.guild, member, level)
         role_msg = f" (Granted: {', '.join(r.name for r in unlocked)})" if unlocked else ""
 
+        # Plain name, not a mention: this is a public message, and the member is
+        # already told about a real level-up by the announcement card.
         await interaction.response.send_message(
-            f"✅ Successfully set {member.mention}'s level to **Level {level}** (`{total_xp:,}` XP){role_msg}."
+            f"✅ Successfully set **{member.display_name}**'s level to **Level {level}** (`{total_xp:,}` XP){role_msg}."
         )
 
     @app_commands.command(name="givexp", description="Award bonus XP to a member (Admin only).")
@@ -886,8 +926,13 @@ class Leveling(commands.Cog):
         user_data = await self.get_user_data(interaction.guild.id, member.id)
         old_xp = user_data["xp"]
         old_lvl = user_data["level"]
-        new_xp = old_xp + amount
+        new_xp = clamp_xp(old_xp + amount)
         new_lvl, _, _ = calculate_level_from_xp(new_xp)
+        if new_xp == old_xp:
+            return await interaction.response.send_message(
+                f"ℹ️ {member.mention} is already at the maximum of **Level {MAX_LEVEL}** (`{MAX_XP:,}` XP).",
+                ephemeral=True
+            )
 
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(
@@ -902,7 +947,7 @@ class Leveling(commands.Cog):
             await self.handle_level_up(interaction.guild, member, old_lvl, new_lvl, interaction.channel)
 
         await interaction.response.send_message(
-            f"✅ Awarded **+{amount:,} XP** to {member.mention}! Current Level: **{new_lvl}** (`{new_xp:,}` XP)."
+            f"✅ Awarded **+{amount:,} XP** to **{member.display_name}**! Current Level: **{new_lvl}** (`{new_xp:,}` XP)."
         )
 
     @app_commands.command(name="resetlevels", description="Reset leveling stats (Server Owner only).")

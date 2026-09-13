@@ -4,3 +4,5 @@ __pycache__
 .git
 .DS_Store
 *.log
+deleted_features
+tests

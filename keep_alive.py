@@ -11,7 +11,7 @@ from threading import Lock, Thread
 import socket
 import datetime
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
-from utils.db import get_guild_modules_sync, set_guild_module_sync, module_default_enabled
+from utils import features, modules
 
 LOG_RING = deque(maxlen=600)
 
@@ -79,7 +79,20 @@ app.config.update(
 )
 
 BOT_INSTANCE = None
-ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "Him@2009@Meoww").strip()
+# The passkey must come from the environment. A hardcoded default is a published
+# credential: anyone who read this repository could sign into any deployment that
+# never set the variable, and /api/set-module accepts the same passkey with no
+# session and no CSRF token. When it is unset the passkey is now empty, which
+# disables passkey login and every passkey endpoint (they all reject an empty
+# credential) while the /dashboard magic link keeps working.
+ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "").strip()
+if not ADMIN_PASSKEY:
+    print(
+        "[DASHBOARD] ADMIN_PASSKEY is not set — passkey login and the passkey API "
+        "endpoints are disabled. Admins can still sign in with the one-time link from "
+        "/dashboard in Discord. Set ADMIN_PASSKEY to enable passkey login.",
+        flush=True,
+    )
 MAGIC_TTL_SECONDS = 15 * 60
 MAGIC_TOKENS = {}
 _magic_lock = Lock()
@@ -88,122 +101,11 @@ _login_attempts = defaultdict(deque)  # ip -> timestamps
 LOGIN_WINDOW_SECONDS = 15 * 60
 LOGIN_MAX_ATTEMPTS = 5
 
-AVAILABLE_MODULES = [
-    {
-        "id": "music",
-        "name": "Music & Radio",
-        "icon": "🎵",
-        "category": "Entertainment",
-        "desc": "High-res YouTube, SoundCloud, Spotify streaming, 24/7 Lo-Fi radio, queue, volume & lyrics.",
-        "commands": ["/play", "/radio", "/nowplaying", "/filter", "/pause", "/resume", "/skip", "/stop", "/queue", "/volume", "/songinfo", "/lyrics", "/247"]
-    },
-    {
-        "id": "leveling",
-        "name": "Leveling & XP",
-        "icon": "🏆",
-        "category": "Progression",
-        "desc": "Message length & voice XP rewards, level-up cards routed to #bot-cmd, rank titles & /rank.",
-        "commands": ["/rank", "/leaderboard", "/levelsettings", "/setlevel", "/givexp", "/addlevelrole", "/removelevelrole", "/levelroles", "/resetlevels"]
-    },
-    {
-        "id": "economy",
-        "name": "Economy & Casino",
-        "icon": "💰",
-        "category": "Economy",
-        "desc": "Daily streak rewards, gambling, slots, blackjack, coinflip, shop, and inventory items.",
-        "commands": ["/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit", "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin"]
-    },
-    {
-        "id": "moderation",
-        "name": "Moderation & Logs",
-        "icon": "🛡️",
-        "category": "Management",
-        "desc": "Administrative bans, kicks, timeouts, warnings, message purges, and automated audit logs in #logs.",
-        "commands": ["/ban", "/kick", "/mute", "/unmute", "/warn", "/warnings", "/clearwarnings", "/purge", "/modlog", "/lockdown", "/unlock", "/slowmode", "/addrole", "/removerole", "/announce"]
-    },
-    {
-        "id": "automod",
-        "name": "Automod & Shield",
-        "icon": "🤖",
-        "category": "Security",
-        "desc": "Real-time anti-spam flood protection, Discord invite filter, unauthorized link blocking.",
-        "commands": ["/automod invites", "/automod antispam"]
-    },
-    {
-        "id": "giveaway",
-        "name": "Giveaway System",
-        "icon": "🎁",
-        "category": "Community",
-        "desc": "Interactive button entries, live countdown timers, cryptographically secure winner selection.",
-        "commands": ["/giveaway start", "/giveaway reroll", "/giveaway end"]
-    },
-    {
-        "id": "colors",
-        "name": "Color Studio & Roles",
-        "icon": "🎨",
-        "category": "Customization",
-        "desc": "Interactive aesthetic dropdown palette with 11 curated tones & custom #HEX role coloring.",
-        "commands": ["/color palette", "/color custom", "/color remove"]
-    },
-    {
-        "id": "tempvoice",
-        "name": "TempVoice (Join-to-Create)",
-        "icon": "🔊",
-        "category": "Voice",
-        "desc": "Dynamic private voice room creation on join, room locking, user limits, and auto-deletion.",
-        "commands": ["/tempvoice setup", "/tempvoice lock", "/tempvoice limit"]
-    },
-    {
-        "id": "starboard",
-        "name": "Starboard",
-        "icon": "⭐",
-        "category": "Community",
-        "desc": "Automated star reaction tracking, community showcase cards, attachment previews.",
-        "commands": ["/starboard set", "/starboard limit", "/starboard status"]
-    },
-    {
-        "id": "tickets",
-        "name": "Support Tickets",
-        "icon": "🎟️",
-        "category": "Support",
-        "desc": "Interactive dropdown ticket panels (General, Reports, Technical, Trading), private staff channels.",
-        "commands": ["/ticket setup"]
-    },
-    {
-        "id": "social",
-        "name": "Social Roleplay",
-        "icon": "🐾",
-        "category": "Community",
-        "desc": "Expressive action roleplay commands (hug, pat, cuddle, kiss, slap), /uwu text styler.",
-        "commands": ["/action", "/uwu", "/marry", "/divorce", "/ship", "/hunt", "/zoo", "/sellanimals"]
-    },
-    {
-        "id": "fun",
-        "name": "Fun & Memes",
-        "icon": "🎭",
-        "category": "Entertainment",
-        "desc": "Real-time viral memes scraped from Reddit top feeds, 8ball, inspirational quotes.",
-        "commands": ["/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote", "/customquote"]
-    },
-    {
-        "id": "games",
-        "name": "Mini-Games Hub",
-        "icon": "🎮",
-        "category": "Games",
-        "desc": "Interactive Discord game sessions: TicTacToe, Rock-Paper-Scissors, Trivia, Mines, Crash, HighLow.",
-        "commands": ["/gamble", "/slots", "/blackjack", "/roulette", "/coinflip", "/dice", "/mines", "/crash", "/highlow", "/tictactoe", "/rps", "/trivia"]
-    },
-    {
-        "id": "welcome",
-        "name": "Welcome System",
-        "icon": "👋",
-        "category": "Community",
-        "desc": "New member join greetings and role assignment (kept OFF if using dedicated welcomer bot).",
-        "commands": ["/welcome set", "/welcome goodbye", "/welcome disable"]
-    }
-]
-
-ALLOWED_MODULE_IDS = {m["id"] for m in AVAILABLE_MODULES}
+# Card metadata and the allow-list are derived from the feature registry so the
+# dashboard can never advertise a module the bot does not have (the old
+# hand-written copy is what let a removed module keep showing as a green card).
+AVAILABLE_MODULES = features.dashboard_modules()
+ALLOWED_MODULE_IDS = set(features.TOGGLEABLE_IDS)
 
 
 def _purge_magic_tokens():
@@ -270,6 +172,16 @@ def _login_allowed(ip: str) -> bool:
 
 def _record_login_failure(ip: str):
     with _login_lock:
+        # One deque per source address, forever, is a slow memory leak when a
+        # scanner walks through many addresses. Drop buckets that are outside the
+        # window once the map grows past anything a real deployment needs.
+        if len(_login_attempts) > 5000:
+            now = time.time()
+            for stale_ip in [
+                key for key, stamps in _login_attempts.items()
+                if not stamps or now - stamps[-1] > LOGIN_WINDOW_SECONDS
+            ]:
+                _login_attempts.pop(stale_ip, None)
         _login_attempts[ip].append(time.time())
 
 
@@ -401,13 +313,10 @@ def api_set_module():
         return jsonify({"success": False, "error": "Invalid guild_id"}), 400
 
     if module_id not in ALLOWED_MODULE_IDS:
-        return jsonify({"success": False, "error": f"Unknown module. Valid: {ALLOWED_MODULE_IDS}"}), 400
+        return jsonify({"success": False, "error": f"Unknown module. Valid: {sorted(ALLOWED_MODULE_IDS)}"}), 400
 
-    if not set_guild_module_sync(guild_id, module_id, enabled):
+    if not modules.set_enabled(guild_id, module_id, enabled):
         return jsonify({"success": False, "error": "DB write failed"}), 500
-
-    if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
-        BOT_INSTANCE.set_module_state(guild_id, module_id, enabled)
 
     _schedule_cloud_backup()
     return jsonify({"success": True, "guild_id": guild_id, "module": module_id, "enabled": enabled})
@@ -436,36 +345,25 @@ def api_voice_debug():
     vcs = []
     if BOT_INSTANCE:
         for vc in BOT_INSTANCE.voice_clients:
-            player_info = None
-            try:
-                music_cog = BOT_INSTANCE.get_cog("Music")
-                if music_cog and hasattr(music_cog, "players"):
-                    p = music_cog.players.get(vc.guild.id)
-                    if p:
-                        player_info = {
-                            "current": p.current.title if p.current else None,
-                            "queue_len": len(p.queue),
-                            "is_247": p.is_247,
-                            "volume": p.volume,
-                            "bitrate": p.bitrate_kbps
-                        }
-            except Exception as e:
-                player_info = {"error": str(e)}
-
+            # ``_player`` only exists on the music cog's VoiceClient subclass,
+            # which is currently archived. Reading it directly raised
+            # AttributeError on a plain client, so go through getattr — this
+            # endpoint must report on any voice client without assuming music.
+            player = getattr(vc, "_player", None)
+            connection = getattr(vc, "_connection", None)
             vcs.append({
                 "guild": vc.guild.name,
-                "channel": vc.channel.name,
+                "channel": getattr(vc.channel, "name", None),
                 "connected": vc.is_connected(),
                 "playing": vc.is_playing(),
                 "paused": vc.is_paused(),
                 "latency": vc.latency,
                 "average_latency": vc.average_latency,
                 "mode": getattr(vc, "mode", None),
-                "player_alive": bool(vc._player and vc._player.is_alive()),
-                "player_error": str(vc._player._current_error) if vc._player else None,
-                "dave_version": getattr(vc._connection, "dave_protocol_version", None),
-                "can_encrypt": getattr(vc._connection, "can_encrypt", None),
-                "player_state": player_info
+                "player_alive": bool(player and player.is_alive()),
+                "player_error": str(player._current_error) if player else None,
+                "dave_version": getattr(connection, "dave_protocol_version", None),
+                "can_encrypt": getattr(connection, "can_encrypt", None),
             })
 
     return jsonify({
@@ -601,20 +499,17 @@ def dashboard():
             bot_ping = round(BOT_INSTANCE.latency * 1000)
 
     try:
-        db_modules = get_guild_modules_sync(guild_id) if guild_id else {}
+        # The same cache the bot reads — not a second, independently-loaded copy.
+        states = modules.get_states(guild_id) if guild_id else modules.defaults()
     except Exception as e:
-        print(f"[DASHBOARD] ⚠️ Could not read saved module states: {e}", flush=True)
-        db_modules = {}
+        print(f"[DASHBOARD] ⚠️ Could not read module states: {e}", flush=True)
+        states = modules.defaults()
     modules_data = []
     active_count = 0
 
     for m in AVAILABLE_MODULES:
         m_id = m["id"]
-        default_state = module_default_enabled(m_id)
-        if BOT_INSTANCE and hasattr(BOT_INSTANCE, "module_states"):
-            is_enabled = BOT_INSTANCE.module_states.get(guild_id, {}).get(m_id, db_modules.get(m_id, default_state))
-        else:
-            is_enabled = db_modules.get(m_id, default_state)
+        is_enabled = bool(states.get(m_id, features.default_enabled(m_id)))
 
         if is_enabled:
             active_count += 1
@@ -665,11 +560,8 @@ def api_toggle():
 
     # Persist BEFORE updating memory. If the write fails we must not report
     # success, otherwise the toggle silently reverts on the next restart.
-    if not set_guild_module_sync(guild_id, module_id, enabled):
+    if not modules.set_enabled(guild_id, module_id, enabled):
         return jsonify({"success": False, "error": "Could not save that change. Please try again."}), 500
-
-    if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
-        BOT_INSTANCE.set_module_state(guild_id, module_id, enabled)
 
     _schedule_cloud_backup()
 
@@ -697,14 +589,7 @@ def api_toggle_all():
 
     session["guild_id"] = guild_id
 
-    failed = []
-    for m in AVAILABLE_MODULES:
-        m_id = m["id"]
-        if set_guild_module_sync(guild_id, m_id, enabled):
-            if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
-                BOT_INSTANCE.set_module_state(guild_id, m_id, enabled)
-        else:
-            failed.append(m_id)
+    failed = modules.set_many(guild_id, {m["id"]: enabled for m in AVAILABLE_MODULES})
 
     if failed:
         return jsonify({

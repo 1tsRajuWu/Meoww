@@ -2,12 +2,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
-import asyncio
 import aiohttp
 import aiosqlite
-import datetime
 from utils import db
-from utils.style import send_card
+from utils.style import send_card, display_name
 
 DB_PATH = db.DB_PATH
 
@@ -24,122 +22,6 @@ async def setup_custom_quotes_table():
             created_at TEXT
         )""")
         await conn.commit()
-
-KMS_RESPONSES = [
-    # Anime Comedy Fails
-    ("💥", "Yamcha crater pose unlocked. The Saibaman didn't even use a named attack, he just looked at me aggressively. Don't even bother gathering the Dragon Balls."),
-    ("🥖", "'Nah, I'd win' I said with 100% confidence before getting sliced clean in half like a supermarket baguette. Sukuna is laughing in the corner."),
-    ("🌪️", "Mr. Stark... I don't feel so good... *turns into a cloud of Dorito dust and gets sucked directly into a Roomba*"),
-    ("🍩", "Got donuted straight through the chest like Ace protecting Luffy. Tell mom I died with a smile and zero coins in my wallet. 🔥"),
-    ("📓", "Light Yagami wrote my name in the Death Note, but had to erase it twice because he was laughing too hard at my haircut. 🥔"),
-    ("🚚", "Tried to do the Naruto run across the street, tripped on my own shoelace, and got hit by Truck-kun. Reincarnated as a broken toaster in another world."),
-    ("🌧️", "Stood in the pouring rain looking up at the sky like Vegeta after getting folded by an Android, but then my umbrella broke inside out."),
-    ("🧹", "Challenged Levi Ackerman to a fistfight because I thought 'he's only 5'3, what's the worst that could happen?'. Currently in ICU."),
-    ("🧠", "Hit with Gojo's Unlimited Void. My brain has completely dissolved into 2-minute Maggi noodles. Absolute cinema."),
-    ("⏳", "Subaru died for the 89th time this afternoon. The respawn sound effect is ringing in my ears on a 10-hour loop."),
-    ("👁️", "Lelouch vi Britannia commands you... to delete my browser search history immediately before the paramedics unlock my phone."),
-    ("🫡", "Gave an inspiring 10-minute anime speech about friendship and determination, and then immediately got stepped on by a 15-meter titan."),
-    ("👁️", "Tried to awaken my Mangekyo Sharingan by glaring aggressively into the bathroom mirror. Just ended up with dry eyes and a migraine."),
-    ("😴", "Caught in the Infinite Tsukuyomi except my dream is just me doing unpaid overtime with 250ms ping."),
-    ("🥫", "Died and got isekai'd, but I reincarnated as a dented vending machine in an empty parking lot. Pure skill issue."),
-    ("⚡", "Kakashi hit me with Chidori. He didn't even remember my name. Just called me 'NPC #4'."),
-
-    # Movie & Pop Culture Comedy
-    ("🚢", "Rose wouldn't scoot 2 inches to the left on that giant wooden door. Floating in freezing water re-evaluating my rizz. ❄️"),
-    ("👍", "Sinking into molten lava giving a slow thumbs-up like the Terminator. Hasta la vista, I forgot to turn off the stove. 🌋"),
-    ("🗡️", "Did a 40-second flashy sword spinning routine like Indiana Jones' opponent, just to get casually taken down with a pebble."),
-    ("🥀", "Look what they did to my boy... Vito Corleone took one look at my bank balance and began weeping openly."),
-    ("🛋️", "Fell down the stairs like Peter Griffin. Laying on the floor holding my knee going 'ssssss... aaaaahhh... ssssss... aaaaahhh' for 45 minutes."),
-    ("🧱", "Wile E. Coyote painted a hyper-realistic tunnel on the wall. I sprinted into it at full speed. Flat as a pancake."),
-    ("⚡", "Emperor Palpatine hit me with Unlimited Power because I interrupted his monologue to ask for the Wi-Fi password."),
-    ("🥊", "Apollo Creed vs Ivan Drago moment. He said 'If he dies, he dies.' And folks, I definitely died."),
-    ("🌌", "Watched attack ships on fire off the shoulder of Orion... all those moments lost like my sleep schedule. Time to die."),
-    ("📱", "You either die a hero, or you live long enough to see yourself get left on 'Delivered' for 14 hours."),
-    ("🎭", "Joker pushed me into a vat of toxic chemicals. Now I'm dead, broke, AND bright neon green."),
-
-    # Everyday Relatable & Meme Fails
-    ("🍽️", "Said 'You too!' when the waiter told me to enjoy my meal. Walked directly into oncoming traffic to escape the shame."),
-    ("🏜️", "Swallowed a dry Popeyes biscuit with no water. Throat is drier than the Sahara desert. Flatlining on the kitchen rug."),
-    ("🧱", "Stepped on a Lego brick in the pitch dark. My soul immediately detached from my body and ascended to the clouds."),
-    ("🦟", "A mosquito buzzed near my ear at 3 AM. I slapped myself in the face at Mach 3. Died of blunt force self-inflicted trauma."),
-    ("🚪", "Mom yelled my full government name including my middle name from downstairs. My heart simply stopped out of respect."),
-    ("🥤", "Choked on my own saliva while sitting completely still doing absolutely nothing. Peak human evolution."),
-    ("🪑", "Attempted a cool parkour roll off the bed, miscalculated gravity, and folded in half like a cheap lawn chair."),
-    ("🥔", "Opened the chip bag at 2 AM trying to be silent. The crunch echoed across three time zones. Mauled by the demons."),
-    ("📉", "Looked at my crypto portfolio for 2 seconds. The red candles blinded me. Currently decomposing."),
-    ("🧠", "Remembered an awkward conversation from 2019 while trying to fall asleep. My brain self-destructed from pure cringe."),
-    ("🎬", "My ghost watched the paramedics arrive, rate my dramatic slow-motion fall a 4/10, and leave without helping."),
-    ("🪽", "Drank Red Bull expecting wings. Just got severe heart palpitations and a one-way ticket to the pearly gates."),
-    ("☀️", "Accidentally opened Discord in light mode at 3 AM. Retinas incinerated on contact. Rest in peace."),
-    ("🪙", "Bet my life savings on coinflip, landed on tails when I called heads, and combusted into dust on the spot."),
-    ("📶", "Wifi went down for 4 minutes. Had to confront my own thoughts. Did not survive."),
-    ("🔋", "Phone fell on my face in bed from maximum height. Nose shattered. Life revoked.")
-]
-
-OPENINGS = [
-    "I just self-deleted with maximum theatrical drama.",
-    "Fell into an unskippable 20-minute death cutscene.",
-    "Accidentally hit the self-destruct button on my own life.",
-    "I have departed the mortal lobby permanently.",
-    "Died of terminal, incurable cringe.",
-    "Flatlined in the most embarrassing way imaginable.",
-    "Perished like an unnamed anime background character in episode 1.",
-    "Took 9999 emotional damage from a single thought.",
-    "I threw myself into the abyss and the abyss threw me right back.",
-    "Fell into a slow-motion death scene with a Japanese orchestra playing.",
-    "Folded under pressure like a cheap umbrella in a typhoon.",
-    "Suffered a critical emotional malfunction.",
-]
-
-COMEDY_SITUATIONS = [
-    "Laying on the floor in the iconic Peter Griffin stair-fall pose.",
-    "The crime scene looks like a Michael Bay action explosion with zero budget.",
-    "Surrounded by 4 empty energy drinks, an open Discord tab, and regrets.",
-    "The cat walked over my body, sniffed my forehead, and knocked over a glass of water.",
-    "A slow-motion 4K camera captured every millisecond of my dramatic downfall.",
-    "My ghost is currently floating above my body facepalming aggressively.",
-    "A sad violin soundtrack started playing from an unknown source in the ceiling.",
-    "Looking like a defeated video game boss slowly dissolving into red pixels.",
-    "The drama level in here is currently exceeding toxic Chernobyl limits.",
-]
-
-ABSURD_DETAILS = [
-    "Someone please delete my browser search history before the paramedics unlock my phone.",
-    "Mom walked in, looked at my corpse, and said 'it's because of that damn phone'.",
-    "The coroner opened my tab, saw 54 unread Discord pings, and whispered 'valid'.",
-    "Left a 2-word note on the fridge that just says 'skill issue'.",
-    "Paramedics arrived, hit the Yamcha pose in solidarity, and drove away.",
-    "My last words were literally 'watch this guys, trust me I know what I'm doing'.",
-    "CSI showed up with crime tape and I'm posing my corpse for better thumbnail angles.",
-    "My ghost is haunting this exact channel. You will never be free of me.",
-    "The dog sighed heavily, realized no one is feeding him dinner now, and walked away.",
-]
-
-CLOSERS = [
-    "10/10 death scene, would perish again. 🎬",
-    "Sayonara cruel world, catch me in the next isekai. 🌸",
-    "Press F to pay respects or PayPal me funds. 🕯️",
-    "Tell my WiFi router I loved it like a brother. 📶",
-    "Tombstone will read: 'He died as he lived: making poor choices.' 🪦",
-    "Do not disturb, currently rotting and vibing. ☠️",
-    "Skill issue of cosmic, multidimensional proportions. 🌟",
-    "Yare yare daze... 🧢",
-    "Nah, I in fact did NOT win. 💀",
-    "Gg no re, life is uninstalled. 🎮",
-]
-
-def get_kms_response():
-    # 70% chance of curated movie/anime/meme comedy reference, 30% modular
-    if random.random() < 0.70:
-        return random.choice(KMS_RESPONSES)
-    
-    icon = random.choice(["💀", "☠️", "🪦", "😵", "🤡", "💥", "🎬"])
-    opening = random.choice(OPENINGS)
-    situation = random.choice(COMEDY_SITUATIONS)
-    detail = random.choice(ABSURD_DETAILS)
-    closer = random.choice(CLOSERS)
-    
-    return icon, f"{opening} {situation} {detail} {closer}"
 
 CAT_SOUNDS = [
     ("meow_1.ogg", "🐾 Short Cute Meow", "Mew!"),
@@ -177,8 +59,9 @@ class CustomQuoteView(discord.ui.View):
             return await interaction.response.send_message("❌ No custom quotes found in this server!", ephemeral=True)
 
         qid, uid, qtext, qauthor, qsource, qcat, qdate = row
-        submitter = interaction.guild.get_member(uid) if interaction.guild else None
-        sub_name = submitter.display_name if submitter else f"User {uid}"
+        # Resolved name, not ``get_member`` — the member cache is empty without
+        # the Members intent, which used to print "User 123…" to everyone.
+        sub_name = await display_name(interaction.guild, uid, client=interaction.client)
 
         cat_emojis = {
             "funny": "😂",
@@ -372,20 +255,18 @@ class Fun(commands.Cog):
         view = MemeView(category=cat_val, post_link=meme_data.get("postLink"))
         await interaction.followup.send(embed=embed, view=view)
 
-    @app_commands.command(name="kms", description="Having a rough day? Let the world know dramatically.")
+    @app_commands.command(name="kms", description="Rest in peace message")
     async def kms(self, interaction: discord.Interaction):
-        icon, message = get_kms_response()
-        
         embed = discord.Embed(
-            color=0xED4245,
+            color=0x1a1a1a,
             timestamp=discord.utils.utcnow()
         )
         embed.set_author(
-            name=f"{interaction.user.display_name} has perished",
+            name=f"{interaction.user.display_name}",
             icon_url=interaction.user.display_avatar.url
         )
-        embed.description = f"## {icon} {message}"
-        embed.set_footer(text=f"🐾 RIP {interaction.user.display_name} • Unlimited Drama", icon_url=interaction.user.display_avatar.url)
+        embed.description = f"## 🕯️ {interaction.user.mention} Killed Himself\n\n### May His Soul Rest In Peace 🕊️"
+        embed.set_footer(text="🐾 Rest In Peace", icon_url=interaction.user.display_avatar.url)
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         # Send publicly without any time limit (stays forever!)
@@ -613,8 +494,7 @@ class Fun(commands.Cog):
                 return await send_card(interaction, embed=embed)
 
             qid, uid, qtext, qauthor, qsource, qcat, qdate = row
-            submitter = interaction.guild.get_member(uid)
-            sub_name = submitter.display_name if submitter else f"User {uid}"
+            sub_name = await display_name(interaction.guild, uid, client=interaction.client)
 
             cat_emojis = {
                 "funny": "😂",
@@ -714,7 +594,12 @@ class Fun(commands.Cog):
             embed.add_field(name="📺 Movie / Ep / Scene", value=f"📍 {picked['ep']}", inline=True)
 
         embed.set_author(name=f"{picked['icon']} Legendary Quote", icon_url=interaction.guild.me.display_avatar.url)
-        embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+        # These labels were computed and then dropped, so the card never said which
+        # category the quote came from or what its vibe was.
+        footer_bits = [f"Requested by {interaction.user.display_name}", f"🏷️ {cat_display}"]
+        if mood_text:
+            footer_bits.append(f"🎭 {mood_text}")
+        embed.set_footer(text=" • ".join(footer_bits))
 
         await send_card(interaction, embed=embed)
 
@@ -847,8 +732,7 @@ class Fun(commands.Cog):
                     return await send_card(interaction, embed=embed)
 
         qid, uid, qtext, qauthor, qsource, qcat, qdate = row
-        submitter = interaction.guild.get_member(uid)
-        sub_name = submitter.display_name if submitter else f"User {uid}"
+        sub_name = await display_name(interaction.guild, uid, client=interaction.client)
 
         cat_emojis = {
             "funny": "😂",
@@ -910,7 +794,7 @@ class Fun(commands.Cog):
 
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
-                "SELECT user_id, quote FROM custom_quotes WHERE guild_id=? AND id=?",
+                "SELECT user_id FROM custom_quotes WHERE guild_id=? AND id=?",
                 (interaction.guild.id, quote_id)
             ) as cur:
                 row = await cur.fetchone()
@@ -918,7 +802,7 @@ class Fun(commands.Cog):
             if not row:
                 return await interaction.response.send_message(f"❌ Quote `#{quote_id}` not found.", ephemeral=True)
 
-            creator_id, quote_text = row
+            creator_id = row[0]
             if interaction.user.id != creator_id and not is_admin and not is_owner:
                 return await interaction.response.send_message("❌ You can only delete your own quotes, unless you are an Admin!", ephemeral=True)
 

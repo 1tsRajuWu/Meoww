@@ -68,7 +68,13 @@ class AutoMod(commands.Cog):
 
         # Invite link filter
         if settings["block_invites"] and INVITE_REGEX.search(message.content):
-            await message.delete()
+            # Deleting can fail (missing Manage Messages in this channel, message
+            # already gone). An unhandled raise here aborted the listener, so the
+            # notice and the rest of automod never ran.
+            try:
+                await message.delete()
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
             try:
                 await message.channel.send(
                     f"{message.author.mention}, invite links aren't allowed here.", delete_after=5
@@ -85,6 +91,21 @@ class AutoMod(commands.Cog):
             timestamps.append(now)
             self.message_log[key] = timestamps
 
+            # Prune users who have gone quiet, otherwise this dict grows forever
+            # (one entry per member who ever sent a message, held in RAM).
+            if len(self.message_log) > 5000:
+                for stale_key, stamps in list(self.message_log.items()):
+                    if not stamps or now - stamps[-1] > 60:
+                        del self.message_log[stale_key]
+                # Still over the cap (e.g. a burst from thousands of distinct
+                # accounts): drop the least-recently-seen trackers until we're back
+                # under it, so the dict has a hard ceiling.
+                if len(self.message_log) > 5000:
+                    over = len(self.message_log) - 5000
+                    oldest = sorted(self.message_log.items(), key=lambda kv: kv[1][-1] if kv[1] else 0.0)
+                    for old_key, _ in oldest[:over]:
+                        del self.message_log[old_key]
+
             if len(timestamps) >= 6:
                 try:
                     await message.author.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=5),
@@ -94,6 +115,10 @@ class AutoMod(commands.Cog):
                     )
                 except discord.Forbidden:
                     pass
+                except discord.HTTPException as e:
+                    # e.g. the target holds a role above the bot; don't let one
+                    # unmutable spammer take the listener down every message.
+                    print(f"[AUTOMOD] Could not time out {message.author}: {e}", flush=True)
                 self.message_log[key] = []
 
 async def setup(bot: commands.Bot):

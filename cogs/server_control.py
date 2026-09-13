@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.style import send_card
+from utils.style import send_card, display_name
 
 class ServerControl(commands.Cog):
     """Lockdown, slowmode, and role management."""
@@ -26,11 +26,21 @@ class ServerControl(commands.Cog):
     async def serverinfo(self, interaction: discord.Interaction):
         guild = interaction.guild
         created_ts = int(guild.created_at.timestamp())
-        
+
+        # ``guild.owner`` is ``get_member(owner_id)``, which is None without the
+        # Members intent — this card used to say "Server Owner: Unknown" on a
+        # server whose owner was sitting right there. Resolve the name instead.
+        owner = guild.owner
+        owner_name = (
+            owner.display_name
+            if owner
+            else await display_name(guild, guild.owner_id, client=interaction.client)
+        )
+
         embed = discord.Embed(
             title=f"🏰 {guild.name}",
             description=(
-                f"> 👑 **Server Owner:** {guild.owner.mention if guild.owner else 'Unknown'}\n"
+                f"> 👑 **Server Owner:** {owner_name}\n"
                 f"> 📅 **Created:** <t:{created_ts}:D> (<t:{created_ts}:R>)\n"
                 f"> 🆔 **Server ID:** `{guild.id}`"
             ),
@@ -246,7 +256,14 @@ class ServerControl(commands.Cog):
             embed.set_author(name=interaction.guild.name, icon_url=interaction.guild.icon.url)
         embed.set_footer(text=f"Announced by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         
-        await send_card(channel, embed=embed)
+        # Announcements are the one place a ping is the point: the text is written
+        # by an admin with Manage Server, so honour whatever they typed. Every
+        # other card stays silent by default.
+        await send_card(
+            channel,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(everyone=True, users=True, roles=True),
+        )
         await interaction.response.send_message(f"✅ Announcement posted in {channel.mention}!", ephemeral=True)
 
 async def setup(bot: commands.Bot):

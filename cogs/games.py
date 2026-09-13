@@ -3,9 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 import random
 import asyncio
-import aiosqlite
 from utils import db
-from cogs.economy import get_eco, update_wallet, ensure_eco
+from cogs.economy import get_eco, update_wallet, ensure_eco, settle_bet, take_stake
 from utils.style import send_card
 
 TRIVIA_QUESTIONS = [
@@ -22,6 +21,9 @@ TRIVIA_QUESTIONS = [
     ("What is the square root of 144?", "12", ["11", "12", "13", "14"]),
     ("Which planet has rings?", "saturn", ["Jupiter", "Saturn", "Uranus", "Neptune"]),
 ]
+
+# /trivia pays out without a stake, so it needs a cooldown or it can be farmed.
+TRIVIA_COOLDOWN_SECONDS = 3 * 60
 
 SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣", "⭐"]
 SLOT_MULTIPLIERS = {"🍒": 2, "🍋": 2.5, "🍊": 3, "🍇": 4, "⭐": 5, "💎": 10, "7️⃣": 20}
@@ -124,9 +126,32 @@ class BlackjackView(discord.ui.View):
         embed.set_footer(text="🐾 Meow Casino • 45s turn timer")
         return embed
 
+    async def _finish_hand(self) -> str:
+        """Play the dealer out and move the coins. Returns 'win' | 'push' | 'lose'.
+
+        Shared by the Stand button and the turn timer. Resolving the hand on
+        timeout matters because the stake is taken when the game is dealt: the
+        timer used to end the game without settling it, so a player who walked
+        away silently lost their bet with no message and no result.
+        """
+        self.finished = True
+        while self.hand_value(self.dealer_hand) < 17:
+            if not self.deck:
+                break
+            self.dealer_hand.append(self.deck.pop())
+        pv = self.hand_value(self.player_hand)
+        dv = self.hand_value(self.dealer_hand)
+        if dv > 21 or pv > dv:
+            await update_wallet(self.user_id, self.guild_id, self.bet * 2)
+            return "win"
+        if pv == dv:
+            await update_wallet(self.user_id, self.guild_id, self.bet)
+            return "push"
+        return "lose"
+
     async def on_timeout(self):
         if not self.finished:
-            self.finished = True
+            await self._finish_hand()
             self.clear_items()
 
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.success, emoji="🃏")
@@ -154,22 +179,8 @@ class BlackjackView(discord.ui.View):
         await self.do_stand(interaction)
 
     async def do_stand(self, interaction):
-        self.finished = True
-        while self.hand_value(self.dealer_hand) < 17:
-            if not self.deck:
-                break
-            self.dealer_hand.append(self.deck.pop())
-        pv = self.hand_value(self.player_hand)
-        dv = self.hand_value(self.dealer_hand)
+        result = await self._finish_hand()
         self.clear_items()
-        if dv > 21 or pv > dv:
-            await update_wallet(self.user_id, self.guild_id, self.bet * 2)
-            result = "win"
-        elif pv == dv:
-            await update_wallet(self.user_id, self.guild_id, self.bet)
-            result = "push"
-        else:
-            result = "lose"
         await interaction.response.edit_message(embed=self.make_embed(result), view=self)
 
 
@@ -507,6 +518,22 @@ class TicTacToeInviteView(discord.ui.View):
         self.bet = bet
         self.responded = False
 
+    def _take_both_stakes(self, cur):
+        """Take both wagers inside one holding transaction (see the caller)."""
+        cur.execute(
+            "SELECT COUNT(*) FROM economy WHERE guild_id=? AND user_id IN (?, ?) AND wallet >= ?",
+            (self.guild_id, self.p1.id, self.p2.id, self.bet),
+        )
+        if cur.fetchone()[0] != 2:
+            return False
+        cur.execute(
+            "UPDATE economy SET wallet = wallet - ? WHERE guild_id=? AND user_id IN (?, ?)",
+            (self.bet, self.guild_id, self.p1.id, self.p2.id),
+        )
+        if cur.rowcount != 2:
+            raise RuntimeError("stake update touched an unexpected number of rows")
+        return True
+
     @discord.ui.button(label="⚔️ Accept Challenge", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.p2.id:
@@ -516,15 +543,17 @@ class TicTacToeInviteView(discord.ui.View):
         self.responded = True
 
         if self.bet > 0:
-            eco1 = await get_eco(self.p1.id, self.guild_id)
-            eco2 = await get_eco(self.p2.id, self.guild_id)
-            if eco1["wallet"] < self.bet:
-                return await interaction.response.send_message(f"❌ {self.p1.mention} no longer has enough coins for the bet!", ephemeral=True)
-            if eco2["wallet"] < self.bet:
-                return await interaction.response.send_message(f"❌ You don't have enough coins for the bet ({self.bet:,} 🪙)!", ephemeral=True)
-
-            await update_wallet(self.p1.id, self.guild_id, -self.bet)
-            await update_wallet(self.p2.id, self.guild_id, -self.bet)
+            await ensure_eco(self.p1.id, self.guild_id)
+            await ensure_eco(self.p2.id, self.guild_id)
+            # Both stakes move in one transaction. Debiting them one after the
+            # other meant a failing second debit (a wallet that moved in between)
+            # still started the match, with only one player having paid into the pot.
+            both_paid = await asyncio.to_thread(db.run_atomic, self._take_both_stakes)
+            if not both_paid:
+                return await interaction.response.send_message(
+                    f"❌ One of the wallets no longer covers the **{self.bet:,}** 🪙 bet. Please send the challenge again.",
+                    ephemeral=True,
+                )
 
         game_view = TicTacToeView(self.p1, self.p2, self.guild_id, self.bet)
         embed = game_view.make_embed()
@@ -790,25 +819,30 @@ class Games(commands.Cog):
 
         if reels[0] == reels[1] == reels[2]:
             mult = SLOT_MULTIPLIERS[reels[0]]
-            payout = int(bet * mult)
-            net = payout - bet
-            await update_wallet(interaction.user.id, interaction.guild.id, net)
-            new_wallet = eco["wallet"] + net
+        elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
+            mult = 0.5
+        else:
+            mult = 0.0
+
+        # The stake is taken and the payout credited in one transaction, so the
+        # coins wagered here cannot be wagered again by a second invocation.
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while that was spinning — please try again.", ephemeral=True
+            )
+
+        payout = int(bet * mult)
+        net = payout - bet
+        new_wallet = eco["wallet"] + net
+        if mult >= 2:
             result = f"🎉 **JACKPOT!** All 3 matched! Won **+{payout:,}** 🪙! (`x{mult}`)"
             color = 0xFEE75C
             outcome_field = ("💰 Profit", f"**+{net:,}** 🪙")
-        elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
-            payout = int(bet * 0.5)
-            net = payout - bet
-            await update_wallet(interaction.user.id, interaction.guild.id, net)
-            new_wallet = eco["wallet"] + net
+        elif mult > 0:
             result = f"✨ **2 Symbols Matched!** Refunded half your bet: **+{payout:,}** 🪙."
             color = 0x5865F2
             outcome_field = ("💸 Partial Loss", f"**{net:,}** 🪙")
         else:
-            net = -bet
-            await update_wallet(interaction.user.id, interaction.guild.id, net)
-            new_wallet = eco["wallet"] + net
             result = f"💀 **No match!** You lost your **{bet:,}** 🪙 bet."
             color = 0xED4245
             outcome_field = ("💸 Lost", f"**-{bet:,}** 🪙")
@@ -835,8 +869,11 @@ class Games(commands.Cog):
 
         result = random.choice(["heads", "tails"])
         won = result == choice
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, 2.0 if won else 0.0):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while that was flipping — please try again.", ephemeral=True
+            )
         change = bet if won else -bet
-        await update_wallet(interaction.user.id, interaction.guild.id, change)
         new_wallet = eco["wallet"] + change
 
         embed = discord.Embed(
@@ -865,13 +902,17 @@ class Games(commands.Cog):
         player_roll = random.randint(1, 6)
         bot_roll = random.randint(1, 6)
 
-        if player_roll > bot_roll:
-            await update_wallet(interaction.user.id, interaction.guild.id, bet)
+        mult = 2.0 if player_roll > bot_roll else (0.0 if player_roll < bot_roll else 1.0)
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while the dice were rolling — please try again.", ephemeral=True
+            )
+
+        if mult == 2.0:
             new_wallet = eco["wallet"] + bet
             result = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
             color = 0x23a55a
-        elif player_roll < bot_roll:
-            await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        elif mult == 0.0:
             new_wallet = eco["wallet"] - bet
             result = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
             color = 0xf23f43
@@ -902,14 +943,18 @@ class Games(commands.Cog):
         emoji = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
         wins = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
 
-        if choice == bot_choice:
+        mult = 1.0 if choice == bot_choice else (2.0 if wins[choice] == bot_choice else 0.0)
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while that was playing — please try again.", ephemeral=True
+            )
+
+        if mult == 1.0:
             result, color = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{eco['wallet']:,}` 🪙", 0xFEE75C
-        elif wins[choice] == bot_choice:
-            await update_wallet(interaction.user.id, interaction.guild.id, bet)
+        elif mult == 2.0:
             new_wallet = eco["wallet"] + bet
             result, color = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0x23a55a
         else:
-            await update_wallet(interaction.user.id, interaction.guild.id, -bet)
             new_wallet = eco["wallet"] - bet
             result, color = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0xf23f43
 
@@ -927,7 +972,13 @@ class Games(commands.Cog):
         if eco["wallet"] < bet:
             return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙.", ephemeral=True)
 
-        await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        # Hold the stake up front, and refuse when the wallet no longer covers it:
+        # a plain debit clamps at zero, so a second game fired at the same instant
+        # could start without being paid for.
+        if not await take_stake(interaction.user.id, interaction.guild.id, bet):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while dealing — please try again.", ephemeral=True
+            )
 
         deck = self.new_deck()
         player = [deck.pop(), deck.pop()]
@@ -945,6 +996,7 @@ class Games(commands.Cog):
         await interaction.response.send_message(embed=view.make_embed(), view=view)
 
     @app_commands.command(name="trivia", description="Answer a trivia question for coins!")
+    @app_commands.checks.cooldown(1, TRIVIA_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     async def trivia(self, interaction: discord.Interaction):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         question, answer, options = random.choice(TRIVIA_QUESTIONS)
@@ -1042,7 +1094,10 @@ class Games(commands.Cog):
         if eco["wallet"] < bet:
             return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙.", ephemeral=True)
 
-        await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        if not await take_stake(interaction.user.id, interaction.guild.id, bet):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed before the game started — please try again.", ephemeral=True
+            )
 
         view = MinesView(interaction.user.id, interaction.guild.id, bet, mines)
         await interaction.response.send_message(embed=view.make_embed(), view=view)
@@ -1127,16 +1182,18 @@ class Games(commands.Cog):
         )
 
         payout = bet * mult
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, float(mult)):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while the wheel was spinning — please try again.", ephemeral=True
+            )
         if won:
             net = payout - bet
-            await update_wallet(interaction.user.id, interaction.guild.id, net)
             new_wallet = eco["wallet"] + net
             res_text = f"🎉 **YOU WON!** Multiplier: **{mult}x** ➔ **+{net:,}** 🪙 profit!"
             color = 0x57F287
             outcome_field = ("💰 Profit", f"**+{net:,}** 🪙")
         else:
             net = -bet
-            await update_wallet(interaction.user.id, interaction.guild.id, net)
             new_wallet = eco["wallet"] + net
             res_text = f"💀 **YOU LOST!** The ball landed on {color_emoji} **{landed_num}**."
             color = 0xED4245
@@ -1174,7 +1231,10 @@ class Games(commands.Cog):
         if eco["wallet"] < bet:
             return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙.", ephemeral=True)
 
-        await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        if not await take_stake(interaction.user.id, interaction.guild.id, bet):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed before the game started — please try again.", ephemeral=True
+            )
 
         view = HighLowView(interaction.user.id, interaction.guild.id, bet)
         await interaction.response.send_message(embed=view.make_embed(), view=view)
@@ -1226,8 +1286,10 @@ class Games(commands.Cog):
             embed.set_footer(text="🐾 Match invitation expires in 45s")
             return await interaction.response.send_message(embed=embed, view=invite_view)
 
-        if bet > 0:
-            await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        if bet > 0 and not await take_stake(interaction.user.id, interaction.guild.id, bet):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed before the match started — please try again.", ephemeral=True
+            )
 
         game_view = TicTacToeView(interaction.user, None, interaction.guild.id, bet)
         embed = game_view.make_embed()
@@ -1247,9 +1309,14 @@ class Games(commands.Cog):
         user_roll = random.randint(1, 100)
         bot_roll = random.randint(1, 100)
 
-        if user_roll > bot_roll:
+        mult = 2.0 if user_roll > bot_roll else (0.0 if user_roll < bot_roll else 1.0)
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while the dice were rolling — please try again.", ephemeral=True
+            )
+
+        if mult == 2.0:
             winnings = bet
-            await update_wallet(interaction.user.id, interaction.guild.id, winnings)
             new_bal = eco["wallet"] + winnings
             embed = discord.Embed(
                 title="🎲 High-Stakes Gamble — YOU WON! 🎉",
@@ -1261,8 +1328,7 @@ class Games(commands.Cog):
                 ),
                 color=0x23a55a
             )
-        elif user_roll < bot_roll:
-            await update_wallet(interaction.user.id, interaction.guild.id, -bet)
+        elif mult == 0.0:
             new_bal = eco["wallet"] - bet
             embed = discord.Embed(
                 title="🎲 High-Stakes Gamble — YOU LOST! 💀",

@@ -2,18 +2,19 @@ import aiosqlite
 import json
 import sqlite3
 
+from utils import features, levels
+
 DB_PATH = "bot.db"
 
-# Modules that stay OFF until an administrator explicitly turns them on.
-# This is the single source of truth for every module's default state; both the
-# bot (bot.is_module_enabled) and the web dashboard read it, so they can never
-# disagree about whether a disabled module should be running.
-DEFAULT_DISABLED_MODULES = {"welcome", "giveaway", "colors", "tempvoice"}
+# Module defaults now live in the feature registry (utils/features.py) so the
+# bot, the dashboard and the help menu can never disagree about which modules
+# start on. Kept as a module attribute for backwards compatibility.
+DEFAULT_DISABLED_MODULES = set(features.DEFAULT_DISABLED_MODULES)
 
 
 def module_default_enabled(module_name: str) -> bool:
     """Default enabled state for a module when the guild has no saved value."""
-    return module_name not in DEFAULT_DISABLED_MODULES
+    return features.default_enabled(module_name)
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:
@@ -23,6 +24,35 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path or DB_PATH, timeout=15.0)
     conn.execute("PRAGMA busy_timeout=15000")
     return conn
+
+
+def run_atomic(work):
+    """Run ``work(cursor)`` inside a single ``BEGIN IMMEDIATE`` transaction.
+
+    Any balance move must go through this helper. The old code hand-wrote the
+    same "begin / conditional update / check rowcount / commit" dance in nine
+    places, and every future money command had to remember to copy it or it
+    silently reintroduced the duplicate-coin race.
+
+    ``work`` receives a cursor so it can branch on ``cursor.rowcount`` (for
+    example, only crediting the receiver when the debit actually matched) and
+    its return value is passed back to the caller. Any exception rolls the
+    whole transaction back and re-raises.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=15.0, isolation_level=None)
+    try:
+        conn.execute("PRAGMA busy_timeout=15000")
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        try:
+            result = work(cursor)
+            conn.execute("COMMIT")
+            return result
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
 
 async def setup():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -209,6 +239,34 @@ async def setup():
                 "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v1', '1')"
             )
 
+        # One-time integrity repair: earlier builds let /setlevel and /givexp
+        # write unbounded XP (a 2.4-billion-XP "Level 1351" record is what broke
+        # the leaderboard and the rank card). Re-derive every row's level from
+        # its XP and clamp anything past the cap so stored data matches the
+        # formula the bot actually uses. Runs exactly once.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'levels_repaired_v1'"
+        ) as cur:
+            _levels_repaired = await cur.fetchone()
+        if not _levels_repaired:
+            fixed = 0
+            async with db.execute("SELECT guild_id, user_id, xp, level FROM user_levels") as cur:
+                rows = await cur.fetchall()
+            for guild_id, user_id, row_xp, row_level in rows:
+                good_xp = levels.clamp_xp(row_xp or 0)
+                good_level, _, _ = levels.calculate_level_from_xp(good_xp)
+                if good_xp != (row_xp or 0) or good_level != (row_level or 0):
+                    await db.execute(
+                        "UPDATE user_levels SET xp=?, level=? WHERE guild_id=? AND user_id=?",
+                        (good_xp, good_level, guild_id, user_id),
+                    )
+                    fixed += 1
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'levels_repaired_v1', '1')"
+            )
+            if fixed:
+                print(f"[LEVELS] Repaired {fixed} out-of-range level record(s).", flush=True)
+
         # Seed default settings for main guild 1542278896148422676 (Hmm)
         await db.execute('''INSERT OR IGNORE INTO level_settings 
             (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
@@ -223,7 +281,8 @@ async def get_setting(guild_id: int, key: str, default=None):
             if row:
                 try:
                     return json.loads(row[0])
-                except:
+                except (json.JSONDecodeError, TypeError):
+                    # Stored raw (pre-JSON rows) — hand it back as-is instead of raising.
                     return row[0]
             return default
 
@@ -245,43 +304,31 @@ async def add_mod_case(guild_id: int, case_type: str, user_id: int, moderator_id
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )''')
         
-        # Get the next case number for this guild
-        async with db.execute("SELECT COUNT(*) FROM mod_cases WHERE guild_id = ?", (guild_id,)) as cursor:
-            row = await cursor.fetchone()
-            guild_case_num = (row[0] if row else 0) + 1
-            
-        await db.execute('''INSERT INTO mod_cases 
-            (guild_id, case_type, user_id, moderator_id, reason) 
-            VALUES (?, ?, ?, ?, ?)''', 
+        # The case number shown to users must be the row's real id. It used to be
+        # `COUNT(*) + 1`, which two simultaneous cases could read identically and
+        # which drifted from the stored `case_id` as soon as any row was deleted —
+        # "Case #3" could point at case_id 57. `lastrowid` is the inserted row's
+        # own primary key, so the label always matches the record.
+        cursor = await db.execute('''INSERT INTO mod_cases
+            (guild_id, case_type, user_id, moderator_id, reason)
+            VALUES (?, ?, ?, ?, ?)''',
             (guild_id, case_type, user_id, moderator_id, reason))
         await db.commit()
-        return guild_case_num
+        return cursor.lastrowid
 
-async def get_guild_modules(guild_id: int) -> dict:
-    """Retrieve all module toggle states for a guild asynchronously."""
-    modules = {}
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute('SELECT module_name, enabled FROM guild_modules WHERE guild_id = ?', (guild_id,)) as cursor:
-            async for row in cursor:
-                modules[row[0]] = bool(row[1])
-    return modules
 
-async def set_guild_module(guild_id: int, module_name: str, enabled: bool):
-    """Persist a module toggle state asynchronously."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute('''INSERT INTO guild_modules (guild_id, module_name, enabled, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(guild_id, module_name) DO UPDATE SET
-                enabled = excluded.enabled,
-                updated_at = CURRENT_TIMESTAMP''',
-            (guild_id, module_name, 1 if enabled else 0))
-        await db.commit()
 
-def get_guild_modules_sync(guild_id: int) -> dict:
-    """Synchronous read for Flask web endpoints.
 
-    Raises on failure so callers can retry; silently returning {} would make a
-    module fall back to its default and appear to "turn itself back on".
+def read_guild_modules_sync(guild_id: int) -> dict:
+    """Synchronous read of every *saved* module row for a guild.
+
+    This is the only reader used by the app — both the asyncio bot path and the
+    Flask thread go through it (see ``utils.modules``), so there is a single
+    SQLite access pattern instead of two subtly different ones.
+
+    Raises on failure so callers can distinguish "no saved value" from "could
+    not read"; silently returning {} would make a module fall back to its
+    default and appear to "turn itself back on".
     """
     modules = {}
     conn = connect()
@@ -294,8 +341,13 @@ def get_guild_modules_sync(guild_id: int) -> dict:
         conn.close()
     return modules
 
-def set_guild_module_sync(guild_id: int, module_name: str, enabled: bool) -> bool:
-    """Synchronous write for Flask web endpoints. Returns True on success."""
+def write_guild_module_sync(guild_id: int, module_name: str, enabled: bool) -> bool:
+    """Synchronous write of one module toggle. Returns True on success.
+
+    This is the only writer in the codebase. The asyncio path in
+    ``utils.modules`` and the Flask endpoints both call it, so a toggle cannot
+    be persisted two different ways.
+    """
     conn = connect()
     try:
         cur = conn.cursor()

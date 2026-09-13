@@ -1,6 +1,21 @@
 import io
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import os
+from PIL import Image, ImageDraw, ImageFont
 import aiohttp
+
+#: Fonts are resolved next to this file rather than relative to the working
+#: directory. Started from another directory the old relative path silently
+#: stopped resolving, and the card quietly fell back to Pillow's tiny bitmap font.
+FONT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts"
+)
+
+
+def _font(filename: str, size: int):
+    try:
+        return ImageFont.truetype(os.path.join(FONT_DIR, filename), size)
+    except OSError:
+        return ImageFont.load_default()
 
 async def fetch_image(url: str) -> Image.Image:
     async with aiohttp.ClientSession() as session:
@@ -55,15 +70,10 @@ async def generate_now_playing_card(
     draw = ImageDraw.Draw(bg)
     draw.rounded_rectangle([0, 0, W, H], radius=20, fill=(26, 32, 44, 255), outline=(45, 55, 72, 255), width=2)
 
-    # Load fonts
-    try:
-        font_title = ImageFont.truetype("assets/fonts/Roboto-Bold.ttf", 40)
-        font_artist = ImageFont.truetype("assets/fonts/Roboto-Regular.ttf", 24)
-        font_pill = ImageFont.truetype("assets/fonts/Roboto-Bold.ttf", 18)
-    except IOError:
-        font_title = ImageFont.load_default()
-        font_artist = ImageFont.load_default()
-        font_pill = ImageFont.load_default()
+    # Load fonts (falls back to Pillow's default if an asset is missing)
+    font_title = _font("Roboto-Bold.ttf", 40)
+    font_artist = _font("Roboto-Regular.ttf", 24)
+    font_pill = _font("Roboto-Bold.ttf", 18)
 
     # Load and place thumbnail
     if thumbnail_url:

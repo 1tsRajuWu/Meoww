@@ -1,28 +1,10 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils import features as feature_registry
 from utils.style import send_panel, ACCENT, avatar_url, guild_banner
 
 HELP_MODULES = {
-    "music": {
-        "title": "🎵 Studio Hi-Res Music Suite",
-        "desc": (
-            "Audiophile-grade music streaming up to 384 kbps with triangular dithering and 24/7 radio stations!\n\n"
-            "> `/play <query>` — Stream audio from SoundCloud, YouTube, or direct links in studio Hi-Res\n"
-            "> `/radio <station>` — Start continuous 24/7 non-stop radio (Lo-Fi, Gaming EDM, Anime, Jazz, Synthwave, Pop)\n"
-            "> `/pause` & `/resume` — Pause or resume the active track\n"
-            "> `/skip` — Skip to the next queued song\n"
-            "> `/queue` — View upcoming queued tracks\n"
-            "> `/nowplaying` — Live track information, audio fidelity stats, and interactive control buttons\n"
-            "> `/volume <1-150>` — Adjust volume level\n"
-            "> `/stop` — Stop playback, clear queue, and leave VC\n"
-            "> `/247 [channel]` — Toggle 24/7 voice persistence (Owner only)\n"
-            "> `/songinfo <query>` — Search tracks with 600x600 album artwork and 30s audio previews\n"
-            "> `/lyrics <title>` — Look up full song lyrics"
-        ),
-        "color": 0x5865F2,
-        "emoji": "🎵"
-    },
     "moderation": {
         "title": "🔨 Moderation & Security",
         "desc": (
@@ -50,41 +32,6 @@ HELP_MODULES = {
         ),
         "color": 0xE67E22,
         "emoji": "🛡️"
-    },
-    "giveaway": {
-        "title": "🎉 Community Giveaways",
-        "desc": (
-            "Fair, cryptographically secure giveaways with live interactive entry buttons.\n\n"
-            "> `/giveaway start <duration> <winners> <prize> [channel]` — Launch a new giveaway with countdown\n"
-            "> `/giveaway end <message_id>` — Immediately conclude an active giveaway and roll winners\n"
-            "> `/giveaway reroll <message_id>` — Pick a new winner for an ended giveaway"
-        ),
-        "color": 0xF1C40F,
-        "emoji": "🎉"
-    },
-    "colors": {
-        "title": "🎨 Color Studio & Roles",
-        "desc": (
-            "Personalize your Discord username with vibrant preset or custom hex color roles.\n\n"
-            "> `/color palette` — Open the interactive color picker menu\n"
-            "> `/color custom <hex>` — Apply any custom HEX color code (e.g. `#FF007F`)\n"
-            "> `/color remove` — Remove your custom color role"
-        ),
-        "color": 0x06D6A0,
-        "emoji": "🎨"
-    },
-    "tempvoice": {
-        "title": "🔊 TempVoice (Join-to-Create)",
-        "desc": (
-            "Dynamic temporary voice lounges that automatically delete when empty.\n\n"
-            "> `/tempvoice setup [category]` — Set up the '➕ Join to Create' generator\n"
-            "> `/tempvoice lock` — Lock your channel so others cannot join\n"
-            "> `/tempvoice unlock` — Unlock your voice channel\n"
-            "> `/tempvoice limit <count>` — Set maximum member capacity (0-99)\n"
-            "> `/tempvoice rename <name>` — Customize your voice channel title"
-        ),
-        "color": 0x9B59B6,
-        "emoji": "🔊"
     },
     "starboard": {
         "title": "⭐ Community Starboard",
@@ -189,6 +136,23 @@ HELP_MODULES = {
         "color": 0xE74C3C,
         "emoji": "😆"
     },
+    "music": {
+        "title": "🎵 Music & Radio",
+        "desc": (
+            "High-fidelity voice music with 24/7 radio, live filters and queue controls.\n\n"
+            "> `/play <song or link>` — YouTube/SoundCloud search, or any direct audio link\n"
+            "> `/radio <station>` — 24/7 non-stop stations (Lo-Fi, EDM, Synthwave, Anime, Jazz)\n"
+            "> `/pause` & `/resume` — Control playback\n"
+            "> `/skip` & `/stop` — Next track, or stop and leave voice\n"
+            "> `/queue` & `/nowplaying` — Queue, and current track with a now-playing card\n"
+            "> `/volume <percent>` — Volume from 1% to 150%\n"
+            "> `/filter <effect>` — Live DSP presets (Bassboost, Nightcore, Vaporwave, 8D)\n"
+            "> `/247 [channel]` — Keep the bot in a channel permanently (owner only)\n"
+            "> `/songinfo <query>` & `/lyrics <title> [artist]` — Track info and lyrics"
+        ),
+        "color": 0x1DB954,
+        "emoji": "🎵"
+    },
     "system": {
         "title": "⚙️ System & Server Control",
         "desc": (
@@ -199,7 +163,7 @@ HELP_MODULES = {
             "> `/lockdown` & `/unlock` — Emergency channel lockdown controls\n"
             "> `/slowmode <seconds>` — Adjust channel chat cooldown\n"
             "> `/sync` — Force re-sync all slash commands directly to this server\n"
-            "> `/updatedb` — Verify all 13 database tables and default channels\n"
+            "> `/updatedb` — Verify all database tables and default channels\n"
             "> `/privacy` & `/tos` — Bot privacy policy and terms of service"
         ),
         "color": 0x95A5A6,
@@ -212,17 +176,26 @@ HELP_MODULES = {
 
 HELP_HOME_BODY = (
     "Your all-in-one command center. Pick a category below to open its full command list.\n\n"
-    "- 🎵 **Hi-Res Music** — streaming, radio, queue, lyrics\n"
     "- 🔨 **Moderation** — warns, bans, timeouts, logs\n"
     "- 🛡️ **Automod** — invite & flood protection\n"
-    "- 🎉 **Giveaways** — live entries and fair rolls\n"
-    "- 🎨 **Color Studio** — preset + custom hex roles\n"
-    "- 🔊 **TempVoice** — join-to-create rooms\n"
     "- ⭐ **Starboard** — community highlights\n"
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
+    "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
+    "- 🎵 **Music & Radio** — playback, 24/7 radio, live filters\n"
     "- 🎫 **Tickets** — private staff support"
 )
+
+# The category *structure* comes from the feature registry; the prose below
+# stays hand-written. This check makes drift loud instead of silent.
+_missing_keys = feature_registry.HELP_KEYS - set(HELP_MODULES)
+_extra_keys = set(HELP_MODULES) - feature_registry.HELP_KEYS
+if _missing_keys or _extra_keys:
+    print(
+        f"[HELP] ⚠️ Help menu and feature registry disagree — "
+        f"missing={sorted(_missing_keys)} extra={sorted(_extra_keys)}",
+        flush=True,
+    )
 
 TITLE_ID = 1101
 BODY_ID = 1102
@@ -231,13 +204,18 @@ BODY_ID = 1102
 class HelpSelectMenu(discord.ui.Select):
     def __init__(self):
         options = []
-        for key, data in HELP_MODULES.items():
+        # Iterate the registry so the menu order and membership always match the
+        # rest of the bot (a retired feature disappears from help automatically).
+        for feature in feature_registry.FEATURES:
+            data = HELP_MODULES.get(feature.help_key)
+            if not data:
+                continue
             label = data["title"].split(" ", 1)[1] if " " in data["title"] else data["title"]
             options.append(discord.SelectOption(
                 label=label[:100],
-                value=key,
+                value=feature.help_key,
                 emoji=data["emoji"],
-                description=f"Browse {key} commands"[:100],
+                description=f"Browse {feature.id} commands"[:100],
             ))
         super().__init__(
             placeholder="Browse a command category…",
@@ -247,7 +225,7 @@ class HelpSelectMenu(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        data = HELP_MODULES.get(self.values[0], HELP_MODULES["music"])
+        data = HELP_MODULES.get(self.values[0], next(iter(HELP_MODULES.values())))
         title = self.view.find_item(TITLE_ID)
         body = self.view.find_item(BODY_ID)
         if title:

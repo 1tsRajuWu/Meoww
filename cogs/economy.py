@@ -2,10 +2,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import aiosqlite
+import asyncio
 import random
 import datetime
 from utils import db
-from utils.style import send_card
+from utils.style import send_card, display_names
 
 DB_PATH = db.DB_PATH
 
@@ -81,6 +82,52 @@ async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool
         )
         await conn.commit()
 
+async def take_stake(user_id: int, guild_id: int, bet: int) -> bool:
+    """Debit a wager, refusing if the wallet no longer covers it.
+
+    Used by the multi-step games (blackjack, mines, high-low, tic-tac-toe) that
+    hold the stake for the length of the game. A plain ``update_wallet(-bet)``
+    clamps at zero, so a second bet fired at the same instant could start a
+    second game without paying for it.
+    """
+    return await settle_bet(user_id, guild_id, bet, 0.0)
+
+
+async def settle_bet(user_id: int, guild_id: int, bet: int, multiplier: float) -> bool:
+    """Hold the stake and pay out in one transaction — the only safe way to
+    resolve a casino bet.
+
+    Every instant game used to apply a *net delta* to a balance it had read
+    earlier (``wallet += bet`` on a win, ``-= bet`` on a loss). Because the stake
+    was never actually taken, the same coins could be wagered by several
+    simultaneous invocations and every win minted new coins. Here the stake is
+    debited conditionally, then the payout is credited, all inside one
+    ``BEGIN IMMEDIATE`` transaction, so a bet can only ever be backed by coins
+    that were really there.
+
+    ``multiplier``: 0 loses the stake, 1 is a push (stake returned), 2 doubles.
+    Returns False when the stake could not be taken (the wallet changed).
+    """
+    await ensure_eco(user_id, guild_id)
+    payout = int(bet * multiplier)
+
+    def _settle(cur):
+        cur.execute(
+            "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
+            (bet, user_id, guild_id, bet),
+        )
+        if cur.rowcount != 1:
+            return False
+        if payout > 0:
+            cur.execute(
+                "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                (payout, user_id, guild_id),
+            )
+        return True
+
+    return await asyncio.to_thread(db.run_atomic, _settle)
+
+
 ALLOWED_ECONOMY_FIELDS = {"wallet", "bank", "last_daily", "last_weekly", "last_work"}
 
 async def set_field(user_id: int, guild_id: int, field: str, value):
@@ -103,6 +150,18 @@ WORK_JOBS = [
     ("🎵 Street Musician", 50, 180),
     ("📸 Photography", 130, 320),
 ]
+
+# --------------------------------------------------------------------------- #
+# /rob tuning
+# --------------------------------------------------------------------------- #
+# The take and the penalty come from the *same* roll, so a robbery is no longer a
+# one-sided gamble: going for 2,000 coins costs you 200 if you get caught.
+ROB_SUCCESS_CHANCE = 0.45       # odds of a clean getaway
+ROB_FINE_RATIO = 0.10           # a failed attempt costs 10% of what you went for
+ROB_MIN_FINE = 25
+ROB_MAX_TAKE = 50_000
+ROB_COOLDOWN_SECONDS = 30 * 60  # per user, per server
+
 
 def parse_amount(amount_str: str, current: int) -> int | None:
     amount_str = amount_str.strip().lower()
@@ -198,8 +257,20 @@ class Economy(commands.Cog):
                 return await send_card(interaction, embed=embed, ephemeral=True)
 
         bonus = random.randint(450, 600)
-        await update_wallet(interaction.user.id, interaction.guild.id, bonus)
-        await set_field(interaction.user.id, interaction.guild.id, "last_daily", now.isoformat())
+        # Optimistic claim: only pay out if last_daily is still exactly what we
+        # read above. Two /daily fired at the same instant would otherwise both
+        # pass the cooldown check and pay out twice.
+        def _claim(cur):
+            cur.execute(
+                "UPDATE economy SET wallet = wallet + ?, last_daily = ? WHERE user_id=? AND guild_id=? AND last_daily IS ?",
+                (bonus, now.isoformat(), interaction.user.id, interaction.guild.id, eco["last_daily"])
+            )
+            return cur.rowcount
+
+        claimed = await asyncio.to_thread(db.run_atomic, _claim)
+        if claimed != 1:
+            embed = discord.Embed(description="⏰ **You've already claimed your daily!**", color=0xED4245)
+            return await send_card(interaction, embed=embed, ephemeral=True)
         embed = discord.Embed(
             title="📅 Daily Reward Claimed!",
             description=f"You received **+{bonus:,}** 🪙 coins in your wallet!",
@@ -227,8 +298,18 @@ class Economy(commands.Cog):
                 return await send_card(interaction, embed=embed, ephemeral=True)
 
         bonus = random.randint(1800, 2500)
-        await update_wallet(interaction.user.id, interaction.guild.id, bonus)
-        await set_field(interaction.user.id, interaction.guild.id, "last_weekly", now.isoformat())
+        # Same optimistic claim as /daily — see the comment there.
+        def _claim(cur):
+            cur.execute(
+                "UPDATE economy SET wallet = wallet + ?, last_weekly = ? WHERE user_id=? AND guild_id=? AND last_weekly IS ?",
+                (bonus, now.isoformat(), interaction.user.id, interaction.guild.id, eco["last_weekly"])
+            )
+            return cur.rowcount
+
+        claimed = await asyncio.to_thread(db.run_atomic, _claim)
+        if claimed != 1:
+            embed = discord.Embed(description="⏰ **You've already claimed your weekly!**", color=0xED4245)
+            return await send_card(interaction, embed=embed, ephemeral=True)
         embed = discord.Embed(
             title="📆 Weekly Reward Claimed!",
             description=f"You received **+{bonus:,}** 🪙 coins in your wallet!",
@@ -256,8 +337,18 @@ class Economy(commands.Cog):
 
         job, min_pay, max_pay = random.choice(WORK_JOBS)
         earned = random.randint(min_pay, max_pay)
-        await update_wallet(interaction.user.id, interaction.guild.id, earned)
-        await set_field(interaction.user.id, interaction.guild.id, "last_work", now.isoformat())
+        # Same optimistic claim as /daily — see the comment there.
+        def _claim(cur):
+            cur.execute(
+                "UPDATE economy SET wallet = wallet + ?, last_work = ? WHERE user_id=? AND guild_id=? AND last_work IS ?",
+                (earned, now.isoformat(), interaction.user.id, interaction.guild.id, eco["last_work"])
+            )
+            return cur.rowcount
+
+        claimed = await asyncio.to_thread(db.run_atomic, _claim)
+        if claimed != 1:
+            embed = discord.Embed(description="⏰ **You need to rest!** Try again shortly.", color=0xED4245)
+            return await send_card(interaction, embed=embed, ephemeral=True)
         embed = discord.Embed(
             title="💼 Shift Completed!",
             description=f"You worked as a **{job}** and earned **+{earned:,}** 🪙!",
@@ -267,8 +358,9 @@ class Economy(commands.Cog):
         embed.set_footer(text="🐾 Shift cooldown: 1 hour")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="rob", description="Attempt to rob another member's wallet.")
+    @app_commands.command(name="rob", description="Attempt to rob another member's wallet (a failed attempt costs 10% of what you went for).")
     @app_commands.describe(member="Who to rob")
+    @app_commands.checks.cooldown(1, ROB_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     async def rob(self, interaction: discord.Interaction, member: discord.Member):
         if member.id == interaction.user.id:
             return await interaction.response.send_message("You can't rob yourself!", ephemeral=True)
@@ -287,20 +379,70 @@ class Economy(commands.Cog):
             embed = discord.Embed(description="❌ You need at least **200** 🪙 in your wallet to attempt a robbery (bail money).", color=0xFF3333)
             return await send_card(interaction, embed=embed, ephemeral=True)
 
-        success = random.random() < 0.45  # 45% success rate
-        if success:
-            stolen = random.randint(int(victim["wallet"] * 0.1), int(victim["wallet"] * 0.4))
-            stolen = min(stolen, 50_000)
-            stolen = max(stolen, 10)
-            await update_wallet(interaction.user.id, interaction.guild.id, stolen)
-            await update_wallet(member.id, interaction.guild.id, -stolen)
-            embed = discord.Embed(title="🦹 Successful Robbery!", description=f"You robbed **{stolen:,}** 🪙 from {member.mention}!", color=0x2ECC71)
+        # One roll sets the stakes, so the reward and the risk scale together
+        # instead of "risk 100-300, win up to 50,000".
+        take = random.randint(int(victim["wallet"] * 0.1), int(victim["wallet"] * 0.4))
+        take = max(10, min(take, ROB_MAX_TAKE))
+        risk = max(ROB_MIN_FINE, int(round(take * ROB_FINE_RATIO)))
+
+        if random.random() < ROB_SUCCESS_CHANCE:
+            # Debit the victim conditionally inside one transaction, then credit the
+            # robber — otherwise the pair could mint coins (or take the victim's
+            # wallet below zero) if both wallets moved in between the reads above.
+            def _rob(cur):
+                cur.execute(
+                    "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
+                    (take, member.id, interaction.guild.id, take)
+                )
+                ok = cur.rowcount == 1
+                if ok:
+                    cur.execute(
+                        "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                        (take, interaction.user.id, interaction.guild.id)
+                    )
+                return ok
+
+            robbed_ok = await asyncio.to_thread(db.run_atomic, _rob)
+            if not robbed_ok:
+                embed = discord.Embed(title="🚔 Caught!", description=f"{member.mention}'s wallet changed mid-robbery — you got nothing!", color=0xFF3333)
+                return await send_card(interaction, embed=embed)
+            embed = discord.Embed(
+                title="🦹 Successful Robbery!",
+                description=(
+                    f"You robbed **{take:,}** 🪙 from {member.mention}!\n\n"
+                    f"> 🎯 **Take:** `{take:,}` 🪙\n"
+                    f"> ⚖️ **Risked if caught:** `{risk:,}` 🪙"
+                ),
+                color=0x2ECC71,
+            )
         else:
-            fine = random.randint(100, 300)
-            fine = min(fine, robber["wallet"])
-            await update_wallet(interaction.user.id, interaction.guild.id, -fine)
-            await update_wallet(member.id, interaction.guild.id, fine)
-            embed = discord.Embed(title="🚔 Caught!", description=f"You got caught robbing {member.mention} and paid a **{fine:,}** 🪙 fine!", color=0xFF3333)
+            fine = min(risk, robber["wallet"])  # you can't pay what you don't have
+            # Same conditional pattern in reverse: the robber pays the victim.
+            def _fine(cur):
+                cur.execute(
+                    "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
+                    (fine, interaction.user.id, interaction.guild.id, fine)
+                )
+                ok = cur.rowcount == 1
+                if ok:
+                    cur.execute(
+                        "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                        (fine, member.id, interaction.guild.id)
+                    )
+                return ok
+
+            paid = await asyncio.to_thread(db.run_atomic, _fine)
+            if paid:
+                detail = (
+                    f"You got caught robbing {member.mention} and paid a **{fine:,}** 🪙 fine!\n\n"
+                    f"> 🎯 **Attempted take:** `{take:,}` 🪙\n"
+                    f"> ⚖️ **Fine:** `{fine:,}` 🪙 ({int(ROB_FINE_RATIO * 100)}% of what you went for)"
+                )
+            else:
+                detail = f"You got caught robbing {member.mention}, but your wallet had already changed — the fine couldn't be collected."
+            embed = discord.Embed(title="🚔 Caught!", description=detail, color=0xFF3333)
+
+        embed.set_footer(text=f"🐾 Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(ROB_SUCCESS_CHANCE * 100)}%")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="pay", description="Transfer coins to another member.")
@@ -317,13 +459,33 @@ class Economy(commands.Cog):
         await ensure_eco(interaction.user.id, interaction.guild.id)
         await ensure_eco(member.id, interaction.guild.id)
         sender_eco = await get_eco(interaction.user.id, interaction.guild.id, is_owner=is_sender_owner)
-        target_eco = await get_eco(member.id, interaction.guild.id, is_owner=is_target_owner)
 
         if sender_eco["wallet"] < amount:
             return await interaction.response.send_message(f"❌ You only have **{sender_eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
 
-        await update_wallet(interaction.user.id, interaction.guild.id, -amount, is_owner=is_sender_owner)
-        await update_wallet(member.id, interaction.guild.id, amount, is_owner=is_target_owner)
+        # Debit and credit inside one transaction, and only if the balance still
+        # covers it. Two parallel /pay calls used to both pass the read above and
+        # duplicate coins.
+        def _pay(cur):
+            cur.execute(
+                "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
+                (amount, interaction.user.id, interaction.guild.id, amount)
+            )
+            moved = cur.rowcount
+            if moved == 1:
+                cur.execute(
+                    "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                    (amount, member.id, interaction.guild.id)
+                )
+            return moved
+
+        paid = await asyncio.to_thread(db.run_atomic, _pay)
+
+        if paid != 1:
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while that was processing — please try again.", ephemeral=True
+            )
+
         embed = discord.Embed(description=f"✅ Sent **{amount:,}** 🪙 to {member.mention}!", color=0x2ECC71, timestamp=discord.utils.utcnow())
         await send_card(interaction, embed=embed)
 
@@ -347,12 +509,22 @@ class Economy(commands.Cog):
             if dep > eco["wallet"]:
                 return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute(
-                "UPDATE economy SET wallet = wallet - ?, bank = bank + ? WHERE user_id=? AND guild_id=?",
-                (dep, dep, interaction.user.id, interaction.guild.id)
+        # Conditional + atomic: the balance is re-checked inside the statement, so
+        # two deposits fired at once can't both pass the read above and push the
+        # wallet negative.
+        def _deposit(cur):
+            cur.execute(
+                "UPDATE economy SET wallet = wallet - ?, bank = bank + ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
+                (dep, dep, interaction.user.id, interaction.guild.id, dep)
             )
-            await conn.commit()
+            return cur.rowcount
+
+        moved = await asyncio.to_thread(db.run_atomic, _deposit)
+
+        if moved != 1:
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while that was processing — please try again.", ephemeral=True
+            )
 
         embed = discord.Embed(
             title="🏦 Deposit Successful",
@@ -384,12 +556,20 @@ class Economy(commands.Cog):
             if amt > eco["bank"]:
                 return await interaction.response.send_message(f"❌ You only have **{eco['bank']:,}** 🪙 in your bank.", ephemeral=True)
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute(
-                "UPDATE economy SET bank = bank - ?, wallet = wallet + ? WHERE user_id=? AND guild_id=?",
-                (amt, amt, interaction.user.id, interaction.guild.id)
+        # Conditional + atomic, mirroring /deposit.
+        def _withdraw(cur):
+            cur.execute(
+                "UPDATE economy SET bank = bank - ?, wallet = wallet + ? WHERE user_id=? AND guild_id=? AND bank >= ?",
+                (amt, amt, interaction.user.id, interaction.guild.id, amt)
             )
-            await conn.commit()
+            return cur.rowcount
+
+        moved = await asyncio.to_thread(db.run_atomic, _withdraw)
+
+        if moved != 1:
+            return await interaction.response.send_message(
+                "❌ Your bank changed while that was processing — please try again.", ephemeral=True
+            )
 
         embed = discord.Embed(
             title="💸 Withdrawal Successful",
@@ -404,7 +584,6 @@ class Economy(commands.Cog):
     @app_commands.command(name="richlist", description="Top 10 richest members in the server.")
     async def richlist(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        await sanitize_economy_balances(self.bot)
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
                 "SELECT user_id, wallet+bank as net FROM economy WHERE guild_id=? ORDER BY net DESC LIMIT 10",
@@ -414,10 +593,11 @@ class Economy(commands.Cog):
 
         embed = discord.Embed(title="🏆 Server Rich List", color=0xFFD700, timestamp=discord.utils.utcnow())
         medals = ["👑", "💎", "⭐"]
+        # Plain resolved names, not mentions: a mention in a V2 card pings, and
+        # guild.get_member is empty without the Members intent (raw "User 123…").
+        names = await display_names(interaction.guild, [uid for uid, _ in rows], client=interaction.client)
         desc = []
-        for i, (uid, net) in enumerate(rows):
-            member = interaction.guild.get_member(uid)
-            name = member.display_name if member else f"User {uid}"
+        for i, ((uid, net), name) in enumerate(zip(rows, names)):
             medal = medals[i] if i < 3 else f"`#{i+1}`"
             desc.append(f"{medal} **{name}** — {net:,} 🪙")
         embed.description = "\n".join(desc) if desc else "No data yet."
@@ -482,12 +662,31 @@ class Economy(commands.Cog):
         if not is_owner and amount > 100_000:
             return await interaction.response.send_message("❌ Admins can only remove up to **100,000** 🪙 at once. Server Owner has no limit.", ephemeral=True)
 
-        await update_wallet(member.id, interaction.guild.id, -amount)
+        eco = await get_eco(member.id, interaction.guild.id)
+        available = max(0, int(eco["wallet"]))
+        if available == 0:
+            return await interaction.response.send_message(
+                f"❌ {member.display_name} has no coins in their wallet to remove.", ephemeral=True
+            )
+        removed = min(amount, available)
+        # Debit exactly the coins that are there. ``update_wallet(-amount)`` clamps
+        # at zero, so this confirmation used to claim it removed 10,000 coins from
+        # a wallet holding 50 — and two simultaneous removals could both "succeed".
+        if not await settle_bet(member.id, interaction.guild.id, removed, 0.0):
+            return await interaction.response.send_message(
+                "❌ Could not remove coins — that wallet changed. Please try again.", ephemeral=True
+            )
         embed = discord.Embed(
-            description=f"✅ Removed **{amount:,}** 🪙 from {member.mention}.",
+            description=f"✅ Removed **{removed:,}** 🪙 from {member.mention}.",
             color=0xFF3333,
             timestamp=discord.utils.utcnow()
         )
+        if removed < amount:
+            embed.add_field(
+                name="Partial removal",
+                value=f"They only held **{available:,}** 🪙, so that is all that was removed.",
+                inline=False,
+            )
         if is_owner:
             embed.set_footer(text="👑 Server Owner Override")
         await send_card(interaction, embed=embed)
@@ -612,12 +811,25 @@ class Economy(commands.Cog):
                 ephemeral=True
             )
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute("UPDATE economy SET wallet = wallet - ? WHERE user_id = ? AND guild_id = ?",
-                               (matched["price"], interaction.user.id, interaction.guild.id))
-            await conn.execute("INSERT INTO inventory (user_id, guild_id, item_name) VALUES (?, ?, ?)",
-                               (interaction.user.id, interaction.guild.id, matched["name"]))
-            await conn.commit()
+        # Charge only if the wallet still covers the price, and only insert the
+        # item when the charge actually happened (no free purchases under load).
+        def _buy(cur):
+            cur.execute(
+                "UPDATE economy SET wallet = wallet - ? WHERE user_id = ? AND guild_id = ? AND wallet >= ?",
+                (matched["price"], interaction.user.id, interaction.guild.id, matched["price"])
+            )
+            charged = cur.rowcount
+            if charged == 1:
+                cur.execute("INSERT INTO inventory (user_id, guild_id, item_name) VALUES (?, ?, ?)",
+                            (interaction.user.id, interaction.guild.id, matched["name"]))
+            return charged
+
+        bought = await asyncio.to_thread(db.run_atomic, _buy)
+
+        if bought != 1:
+            return await interaction.response.send_message(
+                "❌ Your wallet changed while that was processing — please try again.", ephemeral=True
+            )
 
         embed = discord.Embed(
             title="🛍️ Purchase Successful!",

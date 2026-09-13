@@ -1,8 +1,13 @@
 # Discord Bot — Full Setup Guide (Copy-Paste Friendly)
 
 This bot includes: moderation (ban/kick/mute/warn/purge), a full ticket system,
-server control (lockdown/slowmode/roles/announcements), welcome/goodbye
-messages, reaction roles, and basic auto-mod (spam + invite link filtering).
+server control (lockdown/slowmode/roles/announcements), leveling & XP, economy &
+casino games, a starboard, social/animal roleplay, and basic auto-mod (spam +
+invite link filtering).
+
+> Some features (Music, TempVoice, Welcome, Color Studio, Giveaways, Reaction
+> Roles) were retired and moved to `deleted_features/` — see that folder's
+> README to restore one.
 
 Follow these steps in order. Don't skip the permission steps — they're the
 most common reason a bot "doesn't work."
@@ -19,6 +24,17 @@ most common reason a bot "doesn't work."
 5. On the same Bot page, scroll to **Privileged Gateway Intents** and turn ON:
    - **Server Members Intent**
    - **Message Content Intent**
+
+   Then set these in your `.env` (and in your host's environment variables) so
+   the bot actually *requests* them:
+   ```
+   ENABLE_MESSAGE_CONTENT_INTENT=1
+   ENABLE_MEMBERS_INTENT=1
+   ```
+   They are off by default because requesting an intent the portal hasn't
+   enabled makes Discord refuse the whole connection. Without them the bot
+   still runs, but message text is invisible — auto-mod cannot filter invite
+   links and XP is awarded at the baseline rate.
 6. Go to **OAuth2 → URL Generator** in the sidebar.
    - Under **Scopes**, check `bot` and `applications.commands`.
    - Under **Bot Permissions**, check `Administrator` (simplest for an
@@ -39,15 +55,14 @@ discord-bot/
 ├── requirements.txt
 ├── Procfile
 ├── .env.example
-├── welcome_config.json
-├── reaction_roles.json
+├── deleted_features/        # archived features — not loaded by the bot
 └── cogs/
     ├── moderation.py
     ├── tickets.py
     ├── server_control.py
-    ├── welcome.py
-    ├── reaction_roles.py
     ├── automod.py
+    ├── economy.py
+    ├── leveling.py
     └── help.py
 ```
 
@@ -136,10 +151,41 @@ info or stops after a trial, switch to Option B.
 Type `/` in any channel and Discord will show you the full list, or run
 `/help` for a categorized summary. A few to try first:
 
-- `/setwelcome #general` — turns on welcome messages
+- `/rank` — shows your XP level card
 - `/lockdown` — locks the current channel
 - `/ban @someone spamming` — bans with a reason
 - `/automod-antispam enabled:true` — turns on spam auto-mute (on by default)
+
+---
+
+## Adding or removing a feature
+
+Every feature is described **once**, in `utils/features.py`. The slash-command
+gates, the dashboard cards, the default on/off state, the help-menu structure and
+the list of cogs to load are all *derived* from that registry — so adding a
+feature is one entry, not six edits in six files.
+
+1. Add a `Feature(...)` to `FEATURES` with its id, name, icon, category,
+   description, `gate_commands`, `commands` and `cog`.
+2. Gate its command with
+   `if not self.bot.is_module_enabled(interaction.guild_id, "<id>"): return`.
+3. Run the tests (below). They fail if a command is left ungated, if a gate
+   names a command that doesn't exist, or if the help menu and the registry
+   disagree.
+
+To retire a feature, delete its entry and move the cog into `deleted_features/`.
+Nothing else refers to it by name.
+
+### Running the tests
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
+They cover the level math, the feature registry (including command-tree drift),
+module-state persistence and concurrency, backup encryption and integrity
+checks, atomic money transactions, and the Components V2 text budgets. Standard
+library only — no extra dependencies to install.
 
 ---
 
@@ -187,9 +233,21 @@ bot's role → and switch to specific permissions instead: `Ban Members`,
   or in your host's environment variables.
 - The web dashboard requires `FLASK_SECRET_KEY` to be set; without it, a random
   key is used per process, so everyone is signed out on every restart.
+- **The dashboard has no default passkey.** If `ADMIN_PASSKEY` is unset, passkey
+  login and the passkey-authenticated endpoints (`/api/set-module`,
+  `/api/live-logs`, `/api/voice-debug`) are disabled; sign in with the one-time
+  link from `/dashboard` in Discord instead. Set `ADMIN_PASSKEY` to a strong,
+  unique value to enable passkey login.
 - Cloud backup is **disabled** unless both `GITHUB_BACKUP_TOKEN` and
   `GIST_BACKUP_ID` are set. Keep the backup Gist *secret*, since it contains the
   whole database.
+- **Always set `BACKUP_ENCRYPTION_KEY`.** Without it the uploaded snapshot is
+  plaintext base64 of the entire database (wallets, warnings, moderation cases),
+  so the Gist's secrecy is your only protection. With it, nothing readable ever
+  leaves the machine. Generate a key with
+  `python -c "from utils.cloud_sync import generate_key; print(generate_key())"`
+  and keep it somewhere safe — a lost key means the existing encrypted backups
+  cannot be restored.
 - If a token is ever exposed in a commit, **rotate/revoke it immediately** in the
   relevant provider's settings — deleting the file does not remove it from git
   history.

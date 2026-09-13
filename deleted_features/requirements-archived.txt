@@ -1,0 +1,5 @@
+# Pip packages that were ONLY used by the archived Music & Radio feature
+# (deleted_features/cogs/music.py). Removed from requirements.txt on 2026-09-13.
+# These also require a system-level `ffmpeg` binary.
+yt-dlp>=2024.0.0
+imageio-ffmpeg>=0.5.1

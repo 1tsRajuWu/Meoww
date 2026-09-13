@@ -8,14 +8,13 @@ This Privacy Policy explains how our Discord bot ("the Bot") collects, uses, and
 To provide moderation, ticketing, and server management features, the Bot collects and stores the following information:
 *   **Discord IDs:** We store Guild (Server) IDs, User IDs, Role IDs, and Channel IDs.
 *   **Moderation Data:** If you receive a warning via the Bot, the reason for the warning and your User ID are stored.
-*   **Server Configuration:** Settings such as custom welcome channels, mod-log channels, reaction role configurations, and AutoMod preferences are stored per-server.
+*   **Server Configuration:** Settings such as mod-log channels, leveling/XP configuration, starboard thresholds, and AutoMod preferences are stored per-server.
 *   **Message Content (Ephemeral):** The Bot reads message content for AutoMod features (e.g., spam and invite detection) and commands. *Message content is processed in real-time and is NEVER stored or logged persistently.*
 
 ## 2. How We Use Your Data
 The data collected is strictly used to provide the Bot's advertised features:
 *   Tracking user warnings for server moderators.
-*   Assigning roles automatically via Reaction Roles.
-*   Sending automated welcome/goodbye messages.
+*   Storing leveling/XP progress and economy balances.
 *   Managing support tickets.
 
 ## 3. Data Storage and Security

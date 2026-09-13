@@ -321,8 +321,18 @@ class TicketControlsView(discord.ui.View):
         await discord.utils.sleep_until(discord.utils.utcnow() + datetime.timedelta(seconds=5))
         try:
             await interaction.channel.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            # The panel just promised this channel would disappear. If the delete
+            # fails (usually a missing Manage Channels permission) the ticket stays
+            # open, so say so rather than leaving it a mystery.
+            print(f"[TICKETS] Could not delete ticket channel {interaction.channel.id}: {e}")
+            try:
+                await interaction.followup.send(
+                    "⚠️ I could not delete this channel (missing **Manage Channels**?). "
+                    "A staff member can remove it manually."
+                )
+            except Exception:
+                pass
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.success, custom_id="ticket_claim_btn", emoji="✋")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):

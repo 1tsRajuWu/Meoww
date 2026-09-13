@@ -88,7 +88,9 @@ class Moderation(commands.Cog):
         reason: str,
         case_id: int,
     ) -> discord.Embed:
-        emoji, color, verb, _ = ACTION_CONFIG.get(action_type, ("📋", 0x7289DA, "Actioned", "\u001b[1;37m"))
+        # This card keys off the action name and IDs, unlike _action_embed which
+        # puts the verb in its footer, so the verb slot is unused here.
+        emoji, color, _, _ = ACTION_CONFIG.get(action_type, ("📋", 0x7289DA, "Actioned", "\u001b[1;37m"))
 
         embed = discord.Embed(
             title=f"{emoji} {action_type} — Case #{case_id}",
@@ -147,11 +149,18 @@ class Moderation(commands.Cog):
         if not row:
             return
         channel = guild.get_channel(int(row[0]))
-        if channel:
-            try:
-                await send_card(channel, embed=self._log_embed(action_type, target, moderator, reason, case_id))
-            except discord.Forbidden:
-                pass
+        if channel is None:
+            # A stale log_channel_id (deleted channel, or a foreign ID written by
+            # an old /updatedb) used to make every log vanish without a trace.
+            print(
+                f"[MODLOG] Guild {guild.id} has log_channel_id={row[0]} but that channel "
+                f"does not exist; the '{action_type}' case was not logged."
+            )
+            return
+        try:
+            await send_card(channel, embed=self._log_embed(action_type, target, moderator, reason, case_id))
+        except discord.Forbidden:
+            print(f"[MODLOG] No permission to post in <#{row[0]}> (guild {guild.id}).")
 
     # ── commands ─────────────────────────────────────────────────────────────
 

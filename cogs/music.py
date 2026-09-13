@@ -1,5 +1,8 @@
+import math
 import os
+import re
 import shutil
+import time
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -7,8 +10,6 @@ import asyncio
 import aiohttp
 import yt_dlp
 import imageio_ffmpeg
-import random
-import datetime
 import difflib
 from utils import db
 from utils.style import send_card
@@ -43,23 +44,6 @@ print(f"[MUSIC] Initialized. FFMPEG={FFMPEG_EXE}, OpusLoaded={discord.opus.is_lo
 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -err_detect ignore_err -probesize 32768 -analyzeduration 0"
 
-YTDL_OPTIONS = {
-    "format": "bestaudio/best",
-    "noplaylist": True,
-    "nocheckcertificate": True,
-    "ignoreerrors": False,
-    "logtostderr": False,
-    "quiet": True,
-    "no_warnings": True,
-    "default_search": "ytsearch5",
-    "source_address": "0.0.0.0",
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["android", "web"],
-        }
-    }
-}
-
 # Flat options: fetch only metadata (title/duration/webpage_url), no stream URL extraction — very fast (~2s)
 YTDL_FLAT_OPTIONS = {
     "noplaylist": True,
@@ -70,17 +54,19 @@ YTDL_FLAT_OPTIONS = {
     "no_warnings": True,
     "extract_flat": "in_playlist",
     "source_address": "0.0.0.0",
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["android", "web"],
-        }
-    }
 }
 
-# Stream options: used ONLY for Phase-2 single-video stream URL extraction
-# No player_skip so yt-dlp can fully resolve the stream URL
+# Stream options: used ONLY for Phase-2 single-video stream URL extraction.
+#
+# The old hardcoded ``player_client: ["android", "web"]`` was the single biggest
+# quality bug in this cog: that client set exposes *only* YouTube's muxed 360p MP4
+# (format 18 — low-bitrate AAC inside a video container), so ``bestaudio/best``
+# fell back to a video stream and every song was demuxed and re-encoded from it.
+# yt-dlp's own defaults negotiate the audio-only Opus format (251, ~130 kbps),
+# which is exactly what Discord voice wants. Preferred explicitly so a future
+# format reshuffle can't quietly pick the m4a variant.
 YTDL_STREAM_OPTIONS = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=webm]/bestaudio/best",
     "noplaylist": True,
     "nocheckcertificate": True,
     "ignoreerrors": False,
@@ -88,12 +74,218 @@ YTDL_STREAM_OPTIONS = {
     "quiet": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["android", "web"],
-        }
-    }
 }
+
+# A freshly-resolved googlevideo URL stays valid for hours, so re-searching on
+# every track start was pure waste — and worse, the second search could land on a
+# different upload than the one the user was shown. Reuse until this many seconds.
+STREAM_URL_TTL = 1800
+
+# Words that mean "this is not the recording the user asked for". These are
+# disqualifying rather than a mild nudge: a spot-on duration match must never let
+# a slowed/reverbed or karaoke upload outrank the actual song.
+_JUNK_MARKERS = (
+    "cover", "karaoke", "instrumental", "remix", "mashup", "nightcore",
+    "sped up", "speed up", "slowed", "reverbed", "reverb", "chopped", "screwed",
+    "8d audio", "bass boost", "bass boosted", "reaction", "tribute",
+    "made popular by", "in the style of", "ai cover", "live cover",
+)
+_JUNK_PENALTY = 300.0
+
+
+def _junk_penalty(title_lower: str, target_lower: str) -> float:
+    """Penalty for markers meaning "this is a different recording".
+
+    Matching is word-bounded (“discover” is not a “cover”) and a marker the user
+    actually asked for is skipped, so searching for a remix still returns one.
+    """
+    total = 0.0
+    for marker in _JUNK_MARKERS:
+        if marker in target_lower:
+            continue
+        if re.search(rf"\b{re.escape(marker)}\b", title_lower):
+            total += _JUNK_PENALTY
+    return total
+
+
+def ytdl_extract(options: dict, target: str):
+    """Run a yt-dlp extraction, preferring the high-quality default clients.
+
+    If YouTube rejects the defaults (bot checks vary by network), retry once with
+    the legacy client set. That still yields the old low-quality stream, which
+    beats failing outright.
+    """
+    try:
+        with yt_dlp.YoutubeDL(options) as ytdl:
+            return ytdl.extract_info(target, download=False)
+    except Exception as e:
+        if options.get("extractor_args"):
+            raise
+        print(f"[MUSIC] Default extractor failed ({type(e).__name__}); retrying with legacy clients...", flush=True)
+        legacy = dict(options)
+        legacy["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+        with yt_dlp.YoutubeDL(legacy) as ytdl:
+            return ytdl.extract_info(target, download=False)
+
+
+def _similarity(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+
+# Spotify joins collaborators ("Daft Punk, Pharrell Williams") and marks featured
+# artists inline ("... feat. Nile Rodgers"). The upload lives on the primary
+# artist's channel, so everything from the first separator on is dropped.
+_ARTIST_SPLIT = re.compile(r"\s*(?:,|&|;|\bfeat\.?\b|\bft\.?\b|\bwith\b|\bx\b)\s*", re.IGNORECASE)
+
+
+def _clean_artist(artist: str | None) -> str | None:
+    """Reduce an artist string to the primary name, dropping placeholders."""
+    artist = (artist or "").strip()
+    if not artist:
+        return None
+    primary = _ARTIST_SPLIT.split(artist, 1)[0].strip()
+    if not primary or primary.lower() in ("unknown", "unknown artist", "various artists", "va"):
+        return None
+    return primary
+
+
+def _artist_from_query(query: str) -> str | None:
+    """Best-effort artist from an ``Artist - Title`` query.
+
+    The Spotify resolver already builds its search string this way, so plain text
+    queries shaped like that get the same treatment.
+    """
+    if not query or query.startswith(("http://", "https://")) or " - " not in query:
+        return None
+    head = query.split(" - ", 1)[0].strip()
+    return _clean_artist(head if len(head) <= 60 else None)
+
+
+def _artist_strength(entry: dict, artist: str | None) -> int:
+    """How confidently this upload belongs to the artist: 0 none, 1 likely, 2 own.
+
+    A channel that *is* the artist (or their VEVO/Topic feed, or a verified channel
+    carrying their name) counts as 2. A channel that merely mentions the name — the
+    fan re-upload case — counts as 1, so it can't outrank a real one.
+    """
+    artist = _clean_artist(artist)
+    if not artist:
+        return 0
+    tokens = [w for w in re.split(r"[^\w]+", artist.lower()) if len(w) > 1]
+    if not tokens:
+        return 0
+    joined = "".join(tokens)
+    channel = (entry.get("channel") or "").lower()
+    channel_flat = channel.replace(" ", "")
+    who = f"{channel} {entry.get('uploader') or ''}".lower()
+
+    if channel_flat in (joined, f"{joined}vevo", f"{joined}topic", f"{joined}-topic"):
+        return 2
+    if entry.get("channel_is_verified") and all(t in who for t in tokens):
+        return 2
+    if joined in who.replace(" ", ""):
+        return 1
+    return 0
+
+
+def _score_candidate(entry: dict, search_target: str, expected_sec: int) -> float:
+    """Lower is better. Rewards a real title match and an official-looking
+    upload, penalises covers/remixes and lengths that can't be the track."""
+    dur = entry.get("duration") or 0
+    title = entry.get("title") or ""
+    lowered = title.lower()
+    who = f"{entry.get('channel') or ''} {entry.get('uploader') or ''}".lower()
+    blob = f"{lowered} {who}"
+
+    sim = _similarity(search_target, title)
+    tokens = [w for w in re.split(r"[^\w]+", search_target.lower()) if len(w) > 2]
+    covered = sum(1 for w in tokens if w in blob) / len(tokens) if tokens else 0.0
+
+    official = 0.0
+    if "official audio" in lowered:
+        official += 25
+    if "topic" in who:
+        official += 30
+    if "provided to youtube" in lowered:
+        official += 15
+    if "lyric" in lowered:
+        official += 8
+    target_lower = search_target.lower()
+    junk = _junk_penalty(lowered, target_lower)
+    if "live" not in target_lower and re.search(r"\blive\b", lowered):
+        junk += _JUNK_PENALTY
+
+    # Popularity and verification: the canonical upload of a song is almost always
+    # the verified artist channel with the largest audience, which is exactly how a
+    # re-upload farm gets ruled out when the titles look alike.
+    audience = 0.0
+    if entry.get("channel_is_verified"):
+        audience -= 20
+    views = entry.get("view_count") or 0
+    if views > 0:
+        audience -= min(math.log10(views + 1) * 6, 54)
+
+    # Duration is a tiebreaker, not the deciding vote: an uncapped seconds-delta
+    # used to let any re-upload that happened to match the Spotify album length
+    # outrank the artist's own (shorter) radio edit.
+    dur_penalty = 0.0
+    if expected_sec > 0 and dur > 0:
+        delta = abs(dur - expected_sec)
+        tolerance = max(8, expected_sec * 0.05)
+        if delta > tolerance:
+            dur_penalty = min(delta - tolerance, 60)
+        if delta > 45:
+            dur_penalty += 40
+    if 0 < dur < 45:
+        dur_penalty += 200
+
+    return -(sim * 70) - (covered * 60) - official + audience + dur_penalty + junk
+
+
+def _best_match(entries: list, search_target: str, expected_sec: int = 0, artist: str | None = None):
+    """Pick the result that is actually the requested song.
+
+    Scoring is additive rather than a hard filter on the artist's own channel: a
+    filter is all-or-nothing, so when the only "artist" upload was a slowed remix
+    it would happily return that.
+    """
+    candidates = [e for e in entries if e]
+    if not candidates:
+        return None
+    artist = _clean_artist(artist)
+
+    def total(entry: dict) -> float:
+        score = _score_candidate(entry, search_target, expected_sec)
+        strength = _artist_strength(entry, artist)
+        if strength == 2:
+            score -= 120
+        elif strength == 1:
+            score -= 40
+        return score
+
+    return min(candidates, key=total)
+
+
+def _is_bot_block(err: Exception) -> bool:
+    """Recognise YouTube's anti-bot responses without false-positiving on words
+    like "bot" inside an unrelated error (e.g. "bootstrap")."""
+    msg = str(err).lower()
+    return any(s in msg for s in (
+        "429", "too many requests", "sign in to confirm", "not a bot",
+        "confirm you're not a bot", "confirm you\u2019re not a bot",
+    ))
+
+
+def _apply_stream_meta(track: "Track", info: dict) -> None:
+    """Record the codec/bitrate/freshness of a resolved stream on the track."""
+    codec = (info.get("acodec") or "").lower()
+    ext = (info.get("ext") or "").lower()
+    track.source_is_opus = codec == "opus" or (ext == "webm" and codec != "mp4a")
+    try:
+        track.source_abr = float(info.get("abr") or 0)
+    except (TypeError, ValueError):
+        track.source_abr = 0.0
+    track.resolved_at = time.monotonic()
 
 # -----------------------------------------------------------------------------
 # Studio Audio Equalizer & Filters (Real-Time DSP Presets)
@@ -213,7 +405,12 @@ class Track:
         thumbnail: str = None,
         webpage_url: str = None,
         is_radio: bool = False,
-        actual_title: str = None
+        actual_title: str = None,
+        search_query: str = None,
+        expected_artist: str = None,
+        source_is_opus: bool = False,
+        source_abr: float = 0.0,
+        resolved_at: float = 0.0
     ):
         self.title = title
         self.source_url = source_url
@@ -223,6 +420,16 @@ class Track:
         self.webpage_url = webpage_url
         self.is_radio = is_radio
         self.actual_title = actual_title
+        # The exact text this track was found with, reused verbatim if the stream
+        # URL has to be resolved again (re-deriving it from ``title`` used to
+        # search "Title - Artist" and could resolve to a different video).
+        self.search_query = search_query
+        self.expected_artist = expected_artist
+        # Codec/bitrate of the resolved source, so the player knows whether it can
+        # pass Opus through untouched or must re-encode.
+        self.source_is_opus = source_is_opus
+        self.source_abr = source_abr
+        self.resolved_at = resolved_at
 
 
 class GuildMusicPlayer:
@@ -243,6 +450,13 @@ class GuildMusicPlayer:
         self.inactivity_task: asyncio.Task | None = None
         self.alone_task: asyncio.Task | None = None
         self._play_lock = asyncio.Lock()
+        # The source currently handed to the voice client (kept so a volume change
+        # can update it live) and a generation counter, so the audio thread's
+        # after-callback can tell "the track finished" apart from "we replaced it".
+        self.source: discord.AudioSource | None = None
+        self._generation: int = 0
+        # Human-readable name of the branch ``_build_source`` produced, for logs.
+        self._engine: str = "FFmpegOpus"
 
     def cancel_inactivity_timer(self):
         if self.inactivity_task and not self.inactivity_task.done():
@@ -334,57 +548,34 @@ class GuildMusicPlayer:
         def extract():
             target = track.webpage_url or track.title
             expected_sec = track.duration or 0
-            search_term = track.title
+            # Reuse the query this track was originally found with. Deriving it from
+            # ``track.title`` reversed it to "Title - Artist", a different search that
+            # could resolve to a completely different upload than the one shown.
+            search_term = track.search_query or track.title
+            artist = track.expected_artist or _artist_from_query(search_term)
 
-            def _sim(a: str, b: str) -> float:
-                return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
-
-            def score(e):
-                dur = e.get("duration") or 0
-                title = (e.get("title") or "").lower()
-                uploader = (e.get("uploader") or "").lower()
-                channel = (e.get("channel") or "").lower()
-                
-                # Check how many words from the search target match
-                target_words = search_term.lower().split()
-                matches = sum(1 for w in target_words if w in title or w in uploader or w in channel)
-                word_match_ratio = matches / len(target_words) if target_words else 0
-                
-                dur_score = abs(dur - expected_sec) if expected_sec > 0 else 0
-                short_penalty = 3600 if (expected_sec > 60 and 0 < dur < 60) else 0
-                
-                # Give bonuses (negative penalty) to official audios and exact duration
-                bonus = 0
-                if "official audio" in title or "topic" in channel or "topic" in uploader:
-                    bonus += 15  # Equivalent to saving 15 seconds of error
-                if "lyric" in title:
-                    bonus += 5
-                if "official video" in title or "music video" in title:
-                    # Music videos often have long acting intros
-                    bonus -= 10
-                
-                sim_score = _sim(search_term, title) * 30 
-                word_match_bonus = word_match_ratio * 40
-                
-                final_score = dur_score + short_penalty - sim_score - word_match_bonus - bonus
-                return final_score
+            def remember(stream_info) -> str | None:
+                url = stream_info.get("url")
+                if not url:
+                    return None
+                if stream_info.get("webpage_url"):
+                    track.webpage_url = stream_info["webpage_url"]
+                _apply_stream_meta(track, stream_info)
+                return url
 
             # 1. Direct URL path (YouTube / SoundCloud / CDN link)
             if target and target.startswith(("http://", "https://")):
                 if not ("spotify.com" in target or "spotify.link" in target):
-                    opts = dict(YTDL_STREAM_OPTIONS)
-                    with yt_dlp.YoutubeDL(opts) as ytdl:
-                        try:
-                            info = ytdl.extract_info(target, download=False)
-                            if info:
-                                if "entries" in info and info["entries"]:
-                                    url = info["entries"][0].get("url")
-                                else:
-                                    url = info.get("url")
-                                if url:
-                                    return url
-                        except Exception as e:
-                            print(f"[MUSIC] Direct URL extraction failed for '{target}': {e}", flush=True)
+                    try:
+                        info = ytdl_extract(YTDL_STREAM_OPTIONS, target)
+                        if info:
+                            if "entries" in info and info["entries"]:
+                                info = info["entries"][0]
+                            url = remember(info)
+                            if url:
+                                return url
+                    except Exception as e:
+                        print(f"[MUSIC] Direct URL extraction failed for '{target}': {e}", flush=True)
                     # fall through to search if direct URL failed / no stream found
             elif target and not target.startswith(("http://", "https://")):
                 search_term = target
@@ -392,20 +583,19 @@ class GuildMusicPlayer:
             # 2. Two-phase search: Phase 1 flat (~2s) → pick best → Phase 2 stream extract (~3s)
             # DO NOT fallback to SoundCloud unless explicitly requested to prevent 'Wrong Song' bug
             prefixes = ["scsearch5:"] if search_term.startswith("scsearch") else ["ytsearch5:"]
-            
+
             for prefix in prefixes:
                 search_query = f"{prefix}{search_term}"
                 try:
                     # Phase 1: metadata only — fast
-                    with yt_dlp.YoutubeDL(YTDL_FLAT_OPTIONS) as ytdl:
-                        flat_info = ytdl.extract_info(search_query, download=False)
+                    flat_info = ytdl_extract(YTDL_FLAT_OPTIONS, search_query)
                     if not flat_info:
                         continue
                     entries = [e for e in (flat_info.get("entries") or []) if e]
                     if not entries:
                         continue
 
-                    best_meta = sorted(entries, key=score)[0]
+                    best_meta = _best_match(entries, search_term, expected_sec, artist)
                     best_url = best_meta.get("url") or best_meta.get("webpage_url")
                     if not best_url:
                         continue
@@ -417,28 +607,125 @@ class GuildMusicPlayer:
                     )
 
                     # Phase 2: stream URL extraction for the single winner
-                    with yt_dlp.YoutubeDL(YTDL_STREAM_OPTIONS) as ytdl:
-                        stream_info = ytdl.extract_info(best_url, download=False)
+                    stream_info = ytdl_extract(YTDL_STREAM_OPTIONS, best_url)
                     if not stream_info:
                         continue
                     if "entries" in stream_info and stream_info["entries"]:
                         stream_info = stream_info["entries"][0]
-                    if not stream_info:
-                        continue
-                    stream_url = stream_info.get("url")
-                    if stream_url:
-                        if stream_info.get("webpage_url"):
-                            track.webpage_url = stream_info["webpage_url"]
-                        return stream_url
+                    url = remember(stream_info)
+                    if url:
+                        return url
                 except Exception as e:
                     print(f"[MUSIC] 2-phase search failed for '{search_query}': {e}", flush=True)
-                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e) or "bot" in str(e).lower():
+                    if _is_bot_block(e):
                         raise Exception("YouTube blocked the server (Bot Detection/429 Too Many Requests). Please try again later or provide a direct SoundCloud link.")
 
             return None
 
         return await loop.run_in_executor(None, extract)
 
+
+    def _build_source(self, stream_url: str) -> discord.AudioSource:
+        """Build the ffmpeg source for the current filter + volume settings.
+
+        This was copy-pasted in three places (the player, `/filter` and the filter
+        dropdown) and all three carried the same bug: they called
+        ``voice_client.stop()`` and then played the rebuilt source, so the stop's
+        after-callback *also* advanced the queue and threw away a queued track.
+        """
+        filter_cfg = AUDIO_FILTERS.get(self.current_filter, AUDIO_FILTERS["normal"])
+        filter_args = filter_cfg.get("ffmpeg", "")
+
+        # Nothing to reshape, the source is already Opus, and it fits under the
+        # channel's bitrate: pass the packets through untouched. That keeps YouTube's
+        # full ~130 kbps audio instead of re-encoding it down to the channel rate,
+        # and skips an entire encode pass.
+        current = self.current
+        if (not filter_args
+                and abs(self.volume - 1.0) < 1e-6
+                and current is not None
+                and current.source_is_opus
+                and 0 < current.source_abr <= self.bitrate_kbps + 8):
+            self._engine = f"Opus+stream-copy ({current.source_abr:.0f}kbps source)"
+            return discord.FFmpegOpusAudio(
+                stream_url,
+                executable=FFMPEG_EXE,
+                codec="copy",
+                before_options=FFMPEG_BEFORE_OPTIONS
+            )
+
+        if discord.opus.is_loaded():
+            self._engine = "PCM+libopus"
+            ffmpeg_opts = "-vn"
+            if filter_args:
+                ffmpeg_opts += f" -af {filter_args}"
+            raw_source = discord.FFmpegPCMAudio(
+                stream_url,
+                executable=FFMPEG_EXE,
+                before_options=FFMPEG_BEFORE_OPTIONS,
+                options=ffmpeg_opts
+            )
+            # PCM goes through a volume transformer, so volume can change live.
+            return discord.PCMVolumeTransformer(raw_source, volume=self.volume)
+
+        # Without libopus the volume has to be baked into the ffmpeg command line,
+        # which is why changing it later restarts the stream.
+        vol_filter = f"volume={self.volume}"
+        combined = f"{filter_args},{vol_filter}" if filter_args else vol_filter
+        self._engine = f"FFmpegOpus re-encode [{filter_cfg['name']}]"
+        return discord.FFmpegOpusAudio(
+            stream_url,
+            executable=FFMPEG_EXE,
+            bitrate=self.bitrate_kbps,
+            before_options=FFMPEG_BEFORE_OPTIONS,
+            options=f"-af {combined}"
+        )
+
+    def _after_for(self, generation: int):
+        """After-callback owned by one source, so stale callbacks are ignored."""
+        def _after(err):
+            if generation != self._generation:
+                # This source was replaced on purpose (filter/volume restart, a
+                # skip, or a new track). A newer source owns playback now, so this
+                # signal is not a track ending and must not advance the queue.
+                return
+            if err:
+                print(f"[MUSIC] AudioPlayer thread error in guild {self.guild_id}: {err}", flush=True)
+            asyncio.run_coroutine_threadsafe(self.play_next(err), self.bot.loop)
+        return _after
+
+    def _start_source(self, source: discord.AudioSource) -> None:
+        self.voice_client.play(source, after=self._after_for(self._generation))
+        self.source = source
+
+    def restart_current(self) -> bool:
+        """Re-render the current track in place for a filter or volume change.
+
+        Returns False when nothing needed restarting (no track, no stream URL, or
+        the player is idle). ``vc.stop()`` fires the old source's after-callback,
+        which is why the generation is bumped first: otherwise the callback would
+        treat the deliberate stop as a finished song and skip ahead.
+        """
+        vc = self.voice_client
+        if not vc or not vc.is_connected():
+            return False
+        if not (vc.is_playing() or vc.is_paused()):
+            return False
+        if not self.current or not self.current.source_url:
+            return False
+        try:
+            source = self._build_source(self.current.source_url)
+        except Exception as e:
+            print(f"[MUSIC] Could not rebuild the audio source: {e}", flush=True)
+            return False
+        self._generation += 1
+        try:
+            vc.stop()
+        except Exception as e:
+            print(f"[MUSIC] Could not stop the old source: {e}", flush=True)
+            return False
+        self._start_source(source)
+        return True
 
     async def play_next(self, error=None):
         async with self._play_lock:
@@ -458,60 +745,53 @@ class GuildMusicPlayer:
             self.cancel_inactivity_timer()
             self.current = self.queue.pop(0)
 
-            # Re-resolve stream URL if necessary to prevent 403 Forbidden tokens
+            # Re-resolve stream URLs only when they are missing or stale: googlevideo
+            # links stay valid for hours, so re-searching a freshly extracted one was
+            # pure waste — and the second search could resolve to a different upload
+            # than the one the user was shown. Expired links still get refreshed here.
             stream_url = self.current.source_url
-            if not self.current.is_radio and (
+            freshly_resolved = (time.monotonic() - self.current.resolved_at) < STREAM_URL_TTL
+            needs_resolve = (
                 not stream_url
                 or "manifest.m3u8" in stream_url
-                or "googlevideo.com" in stream_url
                 or "soundcloud.cloud" in stream_url
-            ):
-                resolved = await self._resolve_stream_url(self.current)
+                or ("googlevideo.com" in stream_url and not freshly_resolved)
+            )
+            if not self.current.is_radio and needs_resolve:
+                try:
+                    resolved = await self._resolve_stream_url(self.current)
+                except Exception as e:
+                    # The extractor raises on bot-checks/429. This runs from the
+                    # audio thread's after-callback, so an escaping error used to
+                    # stall playback with only an asyncio log line.
+                    print(f"[MUSIC] Could not resolve '{self.current.title}': {e}", flush=True)
+                    resolved = None
                 if resolved:
                     stream_url = resolved
                     self.current.source_url = resolved
+
+            if not stream_url:
+                print(f"[MUSIC] No playable stream for '{self.current.title}'; skipping it.", flush=True)
+                self.bot.loop.create_task(self.play_next())
+                return
 
             try:
                 ch_bitrate = getattr(self.voice_client.channel, "bitrate", 128000)
                 self.bitrate_kbps = min(max(int(ch_bitrate / 1000), 64), 384)
 
-                filter_cfg = AUDIO_FILTERS.get(self.current_filter, AUDIO_FILTERS["normal"])
-                filter_args = filter_cfg.get("ffmpeg", "")
-
-                if discord.opus.is_loaded():
-                    ffmpeg_opts = "-vn"
-                    if filter_args:
-                        ffmpeg_opts += f" -af {filter_args}"
-                    raw_source = discord.FFmpegPCMAudio(
-                        stream_url,
-                        executable=FFMPEG_EXE,
-                        before_options=FFMPEG_BEFORE_OPTIONS,
-                        options=ffmpeg_opts
-                    )
-                    source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
-                    stream_mode = f"PCM+libopus [{filter_cfg['name']}]"
-                else:
-                    vol_filter = f"volume={self.volume}"
-                    combined = f"{filter_args},{vol_filter}" if filter_args else vol_filter
-                    source = discord.FFmpegOpusAudio(
-                        stream_url,
-                        executable=FFMPEG_EXE,
-                        bitrate=self.bitrate_kbps,
-                        before_options=FFMPEG_BEFORE_OPTIONS,
-                        options=f"-af {combined}"
-                    )
-                    stream_mode = f"FFmpegOpus [{filter_cfg['name']}]"
-
-                def _after(err):
-                    if err:
-                        print(f"[MUSIC] AudioPlayer thread error in guild {self.guild_id}: {err}", flush=True)
-                    asyncio.run_coroutine_threadsafe(self.play_next(err), self.bot.loop)
-
-                if self.voice_client.is_playing():
+                filter_name = AUDIO_FILTERS.get(self.current_filter, AUDIO_FILTERS["normal"])["name"]
+                source = self._build_source(stream_url)
+                # A new generation takes ownership of playback: whatever is playing
+                # is being replaced by us, so its after-callback must not advance
+                # the queue on top of this.
+                self._generation += 1
+                if self.voice_client.is_playing() or self.voice_client.is_paused():
                     self.voice_client.stop()
 
-                self.voice_client.play(source, after=_after)
-                print(f"[MUSIC] 🎶 Started playing '{self.current.title}' via {stream_mode} ({self.bitrate_kbps}kbps) in guild {self.guild_id}", flush=True)
+                self._start_source(source)
+                engine = self._engine
+
+                print(f"[MUSIC] 🎶 Started playing '{self.current.title}' via {engine} [{filter_name}] ({self.bitrate_kbps}kbps) in guild {self.guild_id}", flush=True)
 
             except Exception as e:
                 print(f"[MUSIC] Exception starting track '{self.current.title}': {type(e).__name__}: {e}", flush=True)
@@ -568,29 +848,7 @@ class FilterSelect(discord.ui.Select):
         self.player.current_filter = chosen_val
         chosen = AUDIO_FILTERS.get(chosen_val, AUDIO_FILTERS["normal"])
 
-        vc = self.player.voice_client
-        if vc and (vc.is_playing() or vc.is_paused()) and self.player.current and self.player.current.source_url:
-            try:
-                stream_url = self.player.current.source_url
-                filter_args = chosen.get("ffmpeg", "")
-                if discord.opus.is_loaded():
-                    opts = "-vn"
-                    if filter_args:
-                        opts += f" -af {filter_args}"
-                    raw = discord.FFmpegPCMAudio(stream_url, executable=FFMPEG_EXE, before_options=FFMPEG_BEFORE_OPTIONS, options=opts)
-                    src = discord.PCMVolumeTransformer(raw, volume=self.player.volume)
-                else:
-                    vol_f = f"volume={self.player.volume}"
-                    comb = f"{filter_args},{vol_f}" if filter_args else vol_f
-                    src = discord.FFmpegOpusAudio(stream_url, executable=FFMPEG_EXE, bitrate=self.player.bitrate_kbps, before_options=FFMPEG_BEFORE_OPTIONS, options=f"-af {comb}")
-
-                def _after(err):
-                    asyncio.run_coroutine_threadsafe(self.player.play_next(err), self.player.bot.loop)
-
-                vc.stop()
-                vc.play(src, after=_after)
-            except Exception as e:
-                print(f"[MUSIC] Filter live update error: {e}", flush=True)
+        self.player.restart_current()
 
         await interaction.response.send_message(
             embed=discord.Embed(
@@ -906,7 +1164,7 @@ class Music(commands.Cog):
                 title="👑  24/7 Mode — Enabled",
                 description=(
                     f"> 🔊 **Channel:** {target_ch.mention}\n"
-                    f"> 🛡️ **Set by:** {interaction.user.mention}\n"
+                    f"> 🛡️ **Set by:** {interaction.user.display_name}\n"
                     f"> ⚡ **Auto-disconnect:** Disabled\n\n"
                     f"I'll stay here permanently through idle periods and restarts."
                 ),
@@ -928,7 +1186,7 @@ class Music(commands.Cog):
                 title="⏹️  24/7 Mode — Disabled",
                 description=(
                     f"> ⏱️ **Inactivity timeout:** 5 minutes\n"
-                    f"> 🛡️ **Set by:** {interaction.user.mention}\n\n"
+                    f"> 🛡️ **Set by:** {interaction.user.display_name}\n\n"
                     f"I'll automatically leave after **5 min** of silence or an empty channel."
                 ),
                 color=0xED4245,
@@ -967,8 +1225,6 @@ class Music(commands.Cog):
         player.is_247 = is_247_db
 
         player.queue.clear()
-        if vc.is_playing() or vc.is_paused():
-            vc.stop()
 
         radio_track = Track(
             title=st_info["name"],
@@ -977,9 +1233,16 @@ class Music(commands.Cog):
             requester=interaction.user.display_name,
             is_radio=True
         )
-
         player.queue.append(radio_track)
-        await player.play_next()
+
+        # Let the stop's after-callback do the advancing. Calling play_next() here
+        # as well produced two advances: the second one found an empty queue, cleared
+        # `current`, and then /nowplaying, /queue and /skip all denied that the radio
+        # was playing while the stream was still going out.
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+        else:
+            await player.play_next()
 
         embed = discord.Embed(
             title=f"{st_info['icon']} 24/7 Radio Station Started",
@@ -987,7 +1250,7 @@ class Music(commands.Cog):
                 f"### {st_info['name']}\n"
                 f"{st_info['desc']}\n\n"
                 f"> 🔊 **Voice Channel:** {vc.channel.mention}\n"
-                f"> 👤 **Started By:** {interaction.user.mention}\n"
+                f"> 👤 **Started By:** {interaction.user.display_name}\n"
                 f"> ⚡ **Uptime:** 24/7 Continuous Non-Stop Stream"
             ),
             color=st_info["color"],
@@ -1043,87 +1306,65 @@ class Music(commands.Cog):
                         duration=int(st.get("duration_ms", 0) / 1000),
                         requester=interaction.user.display_name,
                         thumbnail=st.get("thumbnail"),
-                        webpage_url=st.get("query")
+                        webpage_url=st.get("query"),
+                        # Same query the first track used, so playlist entries don't
+                        # drift to "Title - Artist" (and a different video) later.
+                        search_query=st.get("query"),
+                        expected_artist=_clean_artist(st.get("artist"))
                     ))
                 spotify_queued_count = len(spotify_tracks) - 1
 
         def extract():
             # --- Direct URL path (YouTube link, SoundCloud link, audio URL) ---
             if search_target.startswith(("http://", "https://")):
-                with yt_dlp.YoutubeDL(YTDL_STREAM_OPTIONS) as ytdl:
-                    try:
-                        info = ytdl.extract_info(search_target, download=False)
-                        if info:
-                            if "entries" in info and info["entries"]:
-                                return info["entries"][0]
-                            return info
-                    except Exception as e:
-                        print(f"[MUSIC] Direct URL extraction error: {e}", flush=True)
-                        return None
+                try:
+                    info = ytdl_extract(YTDL_STREAM_OPTIONS, search_target)
+                except Exception as e:
+                    print(f"[MUSIC] Direct URL extraction error: {e}", flush=True)
+                    return None
+                if not info:
+                    return None
+                if "entries" in info and info["entries"]:
+                    return info["entries"][0]
+                return info
 
             # --- Search path: 2-phase for speed + accuracy ---
-            expected_sec = int(spotify_first.get("duration_ms", 0) / 1000) if spotify_first else 0
-
-            def _sim(a: str, b: str) -> float:
-                return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
-
-            def score(e):
-                dur = e.get("duration") or 0
-                title = (e.get("title") or "").lower()
-                uploader = (e.get("uploader") or "").lower()
-                channel = (e.get("channel") or "").lower()
-                
-                target_words = search_target.lower().split()
-                matches = sum(1 for w in target_words if w in title or w in uploader or w in channel)
-                word_match_ratio = matches / len(target_words) if target_words else 0
-                
-                dur_score = abs(dur - expected_sec) if expected_sec > 0 else 0
-                short_penalty = 3600 if (expected_sec > 60 and 0 < dur < 60) else 0
-                
-                bonus = 0
-                if "official audio" in title or "topic" in channel or "topic" in uploader:
-                    bonus += 15
-                if "lyric" in title:
-                    bonus += 5
-                if "official video" in title or "music video" in title:
-                    bonus -= 10
-                
-                sim_score = _sim(search_target, title) * 30 
-                word_match_bonus = word_match_ratio * 40
-                
-                final_score = dur_score + short_penalty - sim_score - word_match_bonus - bonus
-                return final_score
+            if spotify_first:
+                expected_sec = int(spotify_first.get("duration_ms", 0) / 1000)
+                artist = _clean_artist(spotify_first.get("artist"))
+            else:
+                expected_sec = 0
+                artist = _artist_from_query(search_target)
 
             # DO NOT fallback to SoundCloud unless explicitly requested to prevent 'Wrong Song' bug
             prefixes = ["scsearch5:"] if search_target.startswith("scsearch") else ["ytsearch5:"]
-                
+
             for prefix in prefixes:
                 search_query = f"{prefix}{search_target}"
                 try:
                     # Phase 1: fast flat metadata fetch — no stream resolution (~2s)
-                    with yt_dlp.YoutubeDL(YTDL_FLAT_OPTIONS) as ytdl:
-                        flat_info = ytdl.extract_info(search_query, download=False)
+                    flat_info = ytdl_extract(YTDL_FLAT_OPTIONS, search_query)
                     if not flat_info:
                         continue
                     entries = [e for e in (flat_info.get("entries") or []) if e]
                     if not entries:
                         continue
 
-                    best_meta = sorted(entries, key=score)[0]
+                    best_meta = _best_match(entries, search_target, expected_sec, artist)
                     candidate_url = best_meta.get("url") or best_meta.get("webpage_url")
                     if not candidate_url:
                         continue
 
                     print(
                         f"[MUSIC] Phase-1 pick: '{best_meta.get('title')}' "
-                        f"dur={best_meta.get('duration')}s sim={_sim(search_target, best_meta.get('title','')):.2f} "
+                        f"dur={best_meta.get('duration')}s "
+                        f"sim={_similarity(search_target, best_meta.get('title', '')):.2f} "
                         f"for query='{search_target}'",
                         flush=True
                     )
 
                     # Phase 2: extract stream URL for just the winner (~3s)
-                    with yt_dlp.YoutubeDL(YTDL_STREAM_OPTIONS) as ytdl:
-                        stream_info = ytdl.extract_info(candidate_url, download=False)
+                    stream_info = ytdl_extract(YTDL_STREAM_OPTIONS, candidate_url)
                     if not stream_info:
                         continue
                     if "entries" in stream_info and stream_info["entries"]:
@@ -1132,7 +1373,7 @@ class Music(commands.Cog):
                         return stream_info
                 except Exception as e:
                     print(f"[MUSIC] 2-phase search error for '{search_query}': {e}", flush=True)
-                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e) or "bot" in str(e).lower():
+                    if _is_bot_block(e):
                         raise Exception("YouTube blocked the server (Bot Detection/429 Too Many Requests). Please try again later or provide a direct SoundCloud link.")
 
             return None
@@ -1164,8 +1405,12 @@ class Music(commands.Cog):
             requester=interaction.user.display_name,
             thumbnail=track_thumb,
             webpage_url=webpage_url,
-            actual_title=actual_title if spotify_first and actual_title else None
+            actual_title=actual_title if spotify_first and actual_title else None,
+            search_query=search_target,
+            expected_artist=_clean_artist(spotify_first.get("artist")) if spotify_first else _artist_from_query(query)
         )
+        # The URL was extracted moments ago, so the player must not re-search it.
+        _apply_stream_meta(track, data)
 
         is_currently_playing = vc.is_playing() or vc.is_paused()
         player.queue.append(track)
@@ -1212,7 +1457,7 @@ class Music(commands.Cog):
             
             desc = (
                 f"**Track:** [{title_only}]({track.webpage_url})\n"
-                f"**Requested by:** {interaction.user.mention}\n"
+                f"**Requested by:** {interaction.user.display_name}\n"
                 f"**Duration:** {format_duration(track.duration)}\n"
                 f"**Position:** #{q_pos}"
             )
@@ -1409,11 +1654,22 @@ class Music(commands.Cog):
 
         player = self.get_player(interaction.guild.id)
         player.volume = percent / 100.0
+
+        # The PCM branch exposes a live volume transformer; the opus branch bakes
+        # the volume into the ffmpeg command line, so the stream has to be rebuilt
+        # for the change to be audible. Previously neither happened, so /volume
+        # silently did nothing at all until the next track started.
+        if isinstance(player.source, discord.PCMVolumeTransformer):
+            player.source.volume = player.volume
+            applied = True
+        else:
+            applied = player.restart_current()
+
+        description = f"🔊 Volume set to **{percent}%**."
+        if not applied:
+            description += "\n> Saved — it will apply to the next track."
         await interaction.response.send_message(
-            embed=discord.Embed(
-                description=f"🔊 Volume set to **{percent}%**.",
-                color=0x57F287
-            ),
+            embed=discord.Embed(description=description, color=0x57F287),
             ephemeral=True
         )
 
@@ -1447,30 +1703,11 @@ class Music(commands.Cog):
         )
         embed.set_footer(text="🐾 Server Equalizer • Use /filter effect:Normal to reset")
 
-        # Live re-apply if currently playing
-        vc = player.voice_client
-        if (vc.is_playing() or vc.is_paused()) and player.current and player.current.source_url:
-            try:
-                stream_url = player.current.source_url
-                filter_args = chosen.get("ffmpeg", "")
-                if discord.opus.is_loaded():
-                    opts = "-vn"
-                    if filter_args:
-                        opts += f" -af {filter_args}"
-                    raw = discord.FFmpegPCMAudio(stream_url, executable=FFMPEG_EXE, before_options=FFMPEG_BEFORE_OPTIONS, options=opts)
-                    src = discord.PCMVolumeTransformer(raw, volume=player.volume)
-                else:
-                    vol_f = f"volume={player.volume}"
-                    comb = f"{filter_args},{vol_f}" if filter_args else vol_f
-                    src = discord.FFmpegOpusAudio(stream_url, executable=FFMPEG_EXE, bitrate=player.bitrate_kbps, before_options=FFMPEG_BEFORE_OPTIONS, options=f"-af {comb}")
-
-                def _after(err):
-                    asyncio.run_coroutine_threadsafe(player.play_next(err), self.bot.loop)
-
-                vc.stop()
-                vc.play(src, after=_after)
-            except Exception as e:
-                print(f"[MUSIC] Filter live update error: {e}", flush=True)
+        # Rebuild the stream in place so the change is audible immediately. This
+        # used to stop the player and start the new source by hand, whose
+        # after-callback then skipped a queued track.
+        if not player.restart_current():
+            embed.set_footer(text="🐾 Server Equalizer • Saved — applies to the next track")
 
         await interaction.response.send_message(embed=embed)
 
@@ -1595,20 +1832,28 @@ class Music(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
-        is_fav_channel = (message.channel.id == 1547683807916851240) or ("fav-song" in message.channel.name.lower())
-        if not is_fav_channel:
+        # Match by name, not by one server's channel ID: the hardcoded ID meant
+        # this silently did nothing anywhere else (the same fault /updatedb had).
+        channel_name = getattr(message.channel, "name", "") or ""
+        if "fav-song" not in channel_name.lower():
             return
 
-        content = message.content.strip()
+        # `message.content` is empty without the Message Content intent, so this
+        # listener could never fire in practice. A posted link also arrives as an
+        # embed (and its artwork as an attachment), which needs no intent.
         music_domains = ("spotify.com", "music.apple.com", "soundcloud.com", "youtube.com/watch", "youtu.be")
-        if not any(dom in content for dom in music_domains):
+        links = [message.content or ""]
+        links += [e.url or "" for e in message.embeds]
+        links += [a.url or "" for a in message.attachments]
+        if not any(dom in link for link in links for dom in music_domains):
             return
 
-        try:
-            for emoji in ("❤️", "🔥", "🎧", "✨"):
+        for emoji in ("❤️", "🔥", "🎧", "✨"):
+            try:
                 await message.add_reaction(emoji)
-        except Exception:
-            pass
+            except Exception as e:
+                print(f"[MUSIC] Could not react in {channel_name}: {e}", flush=True)
+                return
 
 
 async def setup(bot: commands.Bot):

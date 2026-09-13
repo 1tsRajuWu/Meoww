@@ -1,7 +1,13 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiohttp
+
+#: The two seeded channel IDs below only exist in the home server. Writing them
+#: into any other guild pointed its moderation log at a channel that isn't there
+#: (so /modlog went silent) and its level-up card at a foreign channel.
+HOME_GUILD_ID = 1542278896148422676
+HOME_BOT_CMD_CHANNEL_ID = 1547637176697757846
+HOME_LOG_CHANNEL_ID = 1546718348119773260
 
 class BotConfig(commands.Cog):
     """Commands to configure the bot's own profile."""
@@ -75,17 +81,40 @@ class BotConfig(commands.Cog):
         try:
             from utils import db
             await db.setup()
+            notes = ["• All database tables verified and created."]
             if interaction.guild:
-                await db.set_setting(interaction.guild.id, "bot_cmd_channel_id", 1547637176697757846)
-                await db.set_setting(interaction.guild.id, "log_channel_id", 1546718348119773260)
-                await db.set_setting(interaction.guild.id, "fav_songs_channel_id", 1547683807916851240)
+                guild = interaction.guild
+                if guild.id == HOME_GUILD_ID:
+                    await db.set_setting(guild.id, "bot_cmd_channel_id", HOME_BOT_CMD_CHANNEL_ID)
+                    await db.set_setting(guild.id, "log_channel_id", HOME_LOG_CHANNEL_ID)
+                    notes.append(
+                        "• Command channel set to `💬・bot-cmd` and moderation logs to `logs`."
+                    )
+                else:
+                    logs = discord.utils.get(guild.text_channels, name="logs")
+                    if logs:
+                        await db.set_setting(guild.id, "log_channel_id", logs.id)
+                        notes.append(f"• Moderation logs bound to {logs.mention}.")
+                    else:
+                        notes.append(
+                            "• No `#logs` channel found here, so the log channel was left "
+                            "alone — set one with `/modlog`."
+                        )
+                    cmd_channel = (
+                        discord.utils.get(guild.text_channels, name="bot-cmd")
+                        or discord.utils.get(guild.text_channels, name="💬・bot-cmd")
+                    )
+                    if cmd_channel:
+                        await db.set_setting(guild.id, "bot_cmd_channel_id", cmd_channel.id)
+                        notes.append(f"• Level-up cards will post in {cmd_channel.mention}.")
+                    else:
+                        notes.append(
+                            "• No `#bot-cmd` channel found here, so level-up cards stay "
+                            "off until one exists."
+                        )
+            notes.append("• Economy and leveling tables ready.")
             await interaction.followup.send(
-                "✅ **Database Successfully Updated!**\n"
-                "• All 13 database tables verified and created.\n"
-                "• Primary command channel set to `💬・bot-cmd` (`1547637176697757846`).\n"
-                "• Moderation logs bound to `logs` (`1546718348119773260`).\n"
-                "• Music showcase bound to `💬・fav-songs` (`1547683807916851240`).\n"
-                "• Economy and leveling tables ready."
+                "✅ **Database Successfully Updated!**\n" + "\n".join(notes)
             )
         except Exception as e:
             await interaction.followup.send(f"❌ Database update failed: {e}")
