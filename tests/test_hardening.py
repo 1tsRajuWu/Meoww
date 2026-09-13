@@ -100,7 +100,10 @@ class ListenerHardening(unittest.TestCase):
 
     def test_vc_reward_write_is_atomic(self):
         source = _read("cogs/leveling.py")
-        self.assertIn("def _vc_tick(cur):", source)
+        # The per-minute payout is passed in as arguments, so the signature grew
+        # with the reward maths; what matters is that the read-decide-write still
+        # runs inside one ``db.run_atomic`` transaction.
+        self.assertIn("def _vc_tick(cur, xp_gain=", source)
         self.assertIn("await asyncio.to_thread(db.run_atomic, _vc_tick)", source)
 
     def test_chat_cooldown_map_is_pruned(self):

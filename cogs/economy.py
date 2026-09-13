@@ -6,7 +6,7 @@ import asyncio
 import random
 import datetime
 import time
-from utils import db, loans
+from utils import db, loans, shop
 from utils.style import send_card, display_names
 
 DB_PATH = db.DB_PATH
@@ -139,6 +139,7 @@ ROB_FINE_RATIO = 0.10           # a failed attempt costs 10% of what you went fo
 ROB_MIN_FINE = 25
 ROB_MAX_TAKE = 50_000
 ROB_COOLDOWN_SECONDS = 30 * 60  # per user, per server
+ROB_MAX_SUCCESS_CHANCE = 0.90   # a luck perk can never make a robbery certain
 
 
 def parse_amount(amount_str: str, current: int) -> int | None:
@@ -410,6 +411,19 @@ class Economy(commands.Cog):
         robber = await get_eco(interaction.user.id, interaction.guild.id)
         victim = await get_eco(member.id, interaction.guild.id)
 
+        # A Rob Shield now actually shields. The attempt is spent (the cooldown
+        # ticks), but nothing changes hands.
+        if await shop.has_shield(member.id, interaction.guild.id):
+            embed = discord.Embed(
+                title="🛡️ Shielded!",
+                description=(
+                    f"{member.mention} is behind a **Rob Shield**, so your attempt "
+                    "bounced straight off.\n\n> Nothing lost — but the cooldown still counts."
+                ),
+                color=0x5865F2,
+            )
+            return await send_card(interaction, embed=embed)
+
         if victim["wallet"] < 100:
             embed = discord.Embed(description=f"💸 {member.mention} is broke! Not worth robbing.", color=0xFF3333)
             return await send_card(interaction, embed=embed)
@@ -423,7 +437,12 @@ class Economy(commands.Cog):
         take = max(10, min(take, ROB_MAX_TAKE))
         risk = max(ROB_MIN_FINE, int(round(take * ROB_FINE_RATIO)))
 
-        if random.random() < ROB_SUCCESS_CHANCE:
+        # Luck from the shop adds straight onto the base odds, capped so no perk
+        # makes a heist a certainty.
+        luck = await shop.luck_points(interaction.user.id, interaction.guild.id)
+        success_chance = min(ROB_MAX_SUCCESS_CHANCE, ROB_SUCCESS_CHANCE + luck / 100.0)
+
+        if random.random() < success_chance:
             # Debit the victim conditionally inside one transaction, then credit the
             # robber — otherwise the pair could mint coins (or take the victim's
             # wallet below zero) if both wallets moved in between the reads above.
@@ -480,7 +499,8 @@ class Economy(commands.Cog):
                 detail = f"You got caught robbing {member.mention}, but your wallet had already changed — the fine couldn't be collected."
             embed = discord.Embed(title="🚔 Caught!", description=detail, color=0xFF3333)
 
-        embed.set_footer(text=f"🐾 Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(ROB_SUCCESS_CHANCE * 100)}%")
+        luck_note = f" (+{luck}% from perks)" if luck else ""
+        embed.set_footer(text=f"🐾 Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(success_chance * 100)}%{luck_note}")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="pay", description="Transfer coins to another member.")
@@ -793,14 +813,6 @@ class Economy(commands.Cog):
 
         await send_card(interaction, embed=embed)
 
-    DEFAULT_SHOP_ITEMS = [
-        {"name": "🍀 Lucky Clover", "price": 500, "desc": "A lucky four-leaf clover for good fortune."},
-        {"name": "🛡️ Rob Shield", "price": 1500, "desc": "Protects your wallet from robbers."},
-        {"name": "⚡ XP Booster", "price": 3000, "desc": "Supercharge your rank progression."},
-        {"name": "💎 VIP Pass", "price": 10000, "desc": "Exclusive VIP badge on your profile."},
-        {"name": "👑 Royal Crown", "price": 50000, "desc": "The ultimate prestige luxury crown."}
-    ]
-
     @app_commands.command(name="shop", description="Browse items in the community shop.")
     async def shop(self, interaction: discord.Interaction):
         if not interaction.guild:
@@ -808,19 +820,29 @@ class Economy(commands.Cog):
 
         embed = discord.Embed(
             title="🛒 Community Shop",
-            description="Use `/buy <item_name>` to purchase any of the items below:\n",
+            description=(
+                "Buy anything with `/buy <item>` — the perk starts the moment you pay.\n"
+                "The catalog runs in five price tiers, and the tiers are what the "
+                "perks are scaled to: higher tiers run longer and hit harder.\n"
+            ),
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
 
-        for item in self.DEFAULT_SHOP_ITEMS:
+        for tier in shop.tiers():
+            items = shop.items_in_tier(tier)
+            # A price *range*, because the tiers are anchored on round numbers and
+            # therefore overlap: tier 2 tops out above where tier 3 starts.
             embed.add_field(
-                name=f"{item['name']} — `{item['price']:,}` 🪙",
-                value=item["desc"],
-                inline=False
+                name=(
+                    f"{shop.TIER_NAMES[tier]} • "
+                    f"`{items[0].price:,}`-`{items[-1].price:,}` 🪙"
+                ),
+                value="\n".join(shop.shop_line(item) for item in items),
+                inline=False,
             )
 
-        embed.set_footer(text="🐾 Meow Shop • Use /inventory to view your items")
+        embed.set_footer(text="🐾 Meow Shop • /inventory shows your items and active perks")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="buy", description="Purchase an item from the community shop.")
@@ -829,51 +851,120 @@ class Economy(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
 
-        # Match item
-        matched = None
-        for item in self.DEFAULT_SHOP_ITEMS:
-            if item_name.lower() in item["name"].lower():
-                matched = item
-                break
+        # A purchase rate limit: it stops a double-click buying the same item
+        # twice and a script hammering the command. Checked before any work, and
+        # only *successful* purchases start the clock, so a typo cannot lock a
+        # member out of the shop.
+        waiting = shop.purchase_cooldown_remaining(interaction.user.id, interaction.guild.id)
+        if waiting > 0.05:
+            return await interaction.response.send_message(
+                f"⏳ One purchase at a time — you can buy again in **{waiting:.1f}s**.",
+                ephemeral=True,
+            )
 
-        if not matched:
-            valid_names = ", ".join([f"`{i['name']}`" for i in self.DEFAULT_SHOP_ITEMS])
-            return await interaction.response.send_message(f"❌ Item not found! Available items: {valid_names}", ephemeral=True)
+        matches = shop.find(item_name)
+        if not matches:
+            return await interaction.response.send_message(
+                f"❌ Nothing in the shop is called **{item_name}**. Use `/shop` for the catalog.",
+                ephemeral=True
+            )
+        if len(matches) > 1:
+            # Substring matching used to silently buy the first hit, so "/buy coin"
+            # could sell a Coin Charm when the Coin Doubler was meant.
+            names = ", ".join(f"`{item.name}`" for item in matches[:8])
+            return await interaction.response.send_message(
+                f"❓ **{item_name}** matches more than one item: {names}\n"
+                "Try a longer name.",
+                ephemeral=True
+            )
+        matched = matches[0]
+        price = matched.price
 
         await ensure_eco(interaction.user.id, interaction.guild.id)
         eco = await get_eco(interaction.user.id, interaction.guild.id)
 
-        if eco["wallet"] < matched["price"]:
+        if eco["wallet"] < price:
             return await interaction.response.send_message(
-                f"❌ You need **{matched['price']:,}** 🪙, but you only have **{eco['wallet']:,}** 🪙 in your wallet.",
+                f"❌ You need **{price:,}** 🪙, but you only have **{eco['wallet']:,}** 🪙 in your wallet.",
                 ephemeral=True
             )
 
-        # Charge only if the wallet still covers the price, and only insert the
-        # item when the charge actually happened (no free purchases under load).
+        now = time.time()
+        payout = shop.roll_payout(matched)
+
+        # Pay, record and apply the perk in ONE transaction: the charge, the
+        # inventory row, the timed effect (or the instant payout) all land
+        # together or not at all, so no purchase can take coins without granting
+        # the item, and two simultaneous buyers cannot both be served from
+        # wallet that only covers one.
         def _buy(cur):
+            if matched.unique:
+                cur.execute(
+                    "SELECT COUNT(*) FROM inventory WHERE user_id=? AND guild_id=? AND item_name=?",
+                    (interaction.user.id, interaction.guild.id, matched.name)
+                )
+                if cur.fetchone()[0]:
+                    return "owned"
             cur.execute(
                 "UPDATE economy SET wallet = wallet - ? WHERE user_id = ? AND guild_id = ? AND wallet >= ?",
-                (matched["price"], interaction.user.id, interaction.guild.id, matched["price"])
+                (price, interaction.user.id, interaction.guild.id, price)
             )
-            charged = cur.rowcount
-            if charged == 1:
-                cur.execute("INSERT INTO inventory (user_id, guild_id, item_name) VALUES (?, ?, ?)",
-                            (interaction.user.id, interaction.guild.id, matched["name"]))
-            return charged
+            if cur.rowcount != 1:
+                return "funds"
+            cur.execute(
+                "INSERT INTO inventory (user_id, guild_id, item_name) VALUES (?, ?, ?)",
+                (interaction.user.id, interaction.guild.id, matched.name)
+            )
+            shop.grant_on(cur, interaction.user.id, interaction.guild.id, matched, now)
+            if payout:
+                cur.execute(
+                    "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                    (payout, interaction.user.id, interaction.guild.id)
+                )
+            return "ok"
 
-        bought = await asyncio.to_thread(db.run_atomic, _buy)
+        outcome = await asyncio.to_thread(db.run_atomic, _buy)
 
-        if bought != 1:
+        if outcome == "owned":
+            return await interaction.response.send_message(
+                f"🎒 You already own **{matched.name}** — it is a permanent badge, "
+                "so a second one would do nothing.",
+                ephemeral=True
+            )
+        if outcome != "ok":
             return await interaction.response.send_message(
                 "❌ Your wallet changed while that was processing — please try again.", ephemeral=True
+            )
+
+        # The leveling listener caches multipliers for a few seconds; a fresh
+        # purchase must not sit behind a stale cache.
+        shop.invalidate(interaction.user.id, interaction.guild.id)
+        shop.note_purchase(interaction.user.id, interaction.guild.id, now)
+
+        if payout:
+            perk = f"\n> 🎟️ **Payout:** `+{payout:,}` 🪙"
+        elif matched.effect.badge:
+            perk = f"\n> ♾️ **Permanent:** {shop.describe_effect(matched)}"
+        else:
+            # What is *running*, not what the item's label says. Buying a weaker
+            # item while a stronger one is up converts the time it adds, so the
+            # label alone would over-state what the member just got.
+            running = ""
+            try:
+                running = await shop.active_summary(interaction.user.id, interaction.guild.id, now)
+            except Exception as exc:  # a read failure must not lose the receipt
+                print(f"[SHOP] Could not read active perks after a purchase: {exc}")
+            perk = (
+                f"\n> ⚡ **Active now:**\n{running}"
+                if running
+                else f"\n> ⚡ **Active now:** {shop.describe_effect(matched)}"
             )
 
         embed = discord.Embed(
             title="🛍️ Purchase Successful!",
             description=(
-                f"You purchased **{matched['name']}** for **{matched['price']:,}** 🪙!\n\n"
-                f"🎒 Check your items anytime using `/inventory`."
+                f"You purchased **{matched.name}** for **{price:,}** 🪙!{perk}\n\n"
+                f"🎒 Check your items and perks anytime using `/inventory`."
             ),
             color=0x23a55a,
             timestamp=discord.utils.utcnow()
@@ -909,6 +1000,40 @@ class Economy(commands.Cog):
             embed.description = "\n".join(desc_lines)
         else:
             embed.description = "*Inventory is empty! Visit `/shop` to purchase items.*"
+
+        # What the items are actually doing right now. Until this existed, buying
+        # a "Rob Shield" or an "XP Booster" put a line in the list above and
+        # changed nothing at all.
+        now = time.time()
+        effects = await shop.active_effects(target.id, interaction.guild.id, now)
+        owned = await shop.owned_items(target.id, interaction.guild.id)
+
+        if effects:
+            embed.add_field(
+                name="⚡ Active Perks",
+                value="\n".join(
+                    shop.describe_active(key, value, expires, now)
+                    for key, (value, expires) in sorted(effects.items())
+                ),
+                inline=False,
+            )
+        badges = [item for item in owned if item.effect.badge]
+        if badges:
+            embed.add_field(
+                name="👑 Permanent Badges",
+                value="\n".join(shop.badge_line(item) for item in badges),
+                inline=False,
+            )
+        if effects or badges:
+            totals = await shop.multipliers(target.id, interaction.guild.id, now)
+            embed.add_field(
+                name="📈 Right Now",
+                value=(
+                    f"• Activity earnings: **×{totals.coins:g}** coins, **×{totals.xp:g}** XP\n"
+                    f"• Rob luck: **+{totals.luck}**{'' if not totals.shield else ' • 🛡️ **shielded**'}"
+                ),
+                inline=False,
+            )
 
         embed.set_footer(text="🐾 Meow Economy • /shop to browse")
         await send_card(interaction, embed=embed)

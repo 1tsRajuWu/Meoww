@@ -127,6 +127,19 @@ async def setup():
             guild_id INTEGER,
             item_name TEXT
         )''')
+        # Timed shop perks (XP/coin multipliers, rob shields, luck). One row per
+        # member per effect, so re-buying extends the clock instead of stacking
+        # rows. Created here as well as in ``CREATE TABLE IF NOT EXISTS`` style so
+        # a database restored from a backup taken before this table existed gets
+        # it on the next boot.
+        await db.execute('''CREATE TABLE IF NOT EXISTS item_effects (
+            user_id INTEGER,
+            guild_id INTEGER,
+            effect TEXT,
+            value REAL DEFAULT 0,
+            expires_ts REAL DEFAULT 0,
+            PRIMARY KEY (user_id, guild_id, effect)
+        )''')
         await db.execute('''CREATE TABLE IF NOT EXISTS shop (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER,
@@ -268,6 +281,46 @@ async def setup():
         await db.execute(
             "UPDATE loans SET status='active' WHERE status IS NULL OR status=''"
         )
+
+        # The market. Positions and fills are per member per guild like the rest
+        # of the economy; ``market_quotes`` is the last board that was fetched, so
+        # a restart shows real prices (with their age) instead of an empty market
+        # — trading still refuses anything older than ``market.MAX_QUOTE_AGE_SECONDS``.
+        await db.execute('''CREATE TABLE IF NOT EXISTS market_holdings (
+            user_id INTEGER,
+            guild_id INTEGER,
+            symbol TEXT,
+            quantity REAL DEFAULT 0,
+            cost_coins REAL DEFAULT 0,
+            PRIMARY KEY (user_id, guild_id, symbol)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS market_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            guild_id INTEGER,
+            symbol TEXT,
+            side TEXT,
+            quantity REAL DEFAULT 0,
+            unit_price_coins REAL DEFAULT 0,
+            coins INTEGER DEFAULT 0,
+            realized INTEGER DEFAULT 0,
+            ts REAL DEFAULT 0
+        )''')
+        # Every observation the bot makes, so charts have a real series even for
+        # instruments whose source publishes no chart endpoint. Pruned on write.
+        await db.execute('''CREATE TABLE IF NOT EXISTS market_history (
+            symbol TEXT,
+            ts REAL,
+            price_usd REAL,
+            source TEXT
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS market_quotes (
+            symbol TEXT PRIMARY KEY,
+            price_usd REAL DEFAULT 0,
+            change_pct REAL,
+            source TEXT,
+            as_of REAL DEFAULT 0
+        )''')
 
         # One-time migration: make the newly default-OFF modules actually OFF for
         # guilds that still have an old "enabled" value saved. Runs exactly once,

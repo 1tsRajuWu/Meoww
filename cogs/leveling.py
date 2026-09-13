@@ -2,10 +2,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import aiosqlite
-import random
 import time
 import asyncio
-from utils import db
+from utils import db, rewards, shop
 from cogs.economy import update_wallet
 from utils.style import send_card, display_names, member_cache_complete
 from utils.levels import (
@@ -17,6 +16,12 @@ from utils.levels import (
 )
 
 DB_PATH = db.DB_PATH
+
+#: Ceilings on the configurable per-minute voice rates. Those settings are the
+#: *ceiling* a perfect channel reaches, not a flat salary, so an absurd legacy
+#: value is bounded here instead of being rewritten behind the admin's back.
+MAX_VC_COINS_PER_MIN = 50
+MAX_VC_XP_PER_MIN = 25
 
 # -----------------------------------------------------------------------------
 # XP & Level Formula Mechanics
@@ -68,6 +73,10 @@ class Leveling(commands.Cog):
         self.bot = bot
         # In-memory chat cooldowns: (guild_id, user_id) -> timestamp (10 seconds)
         self._chat_cooldowns: dict[tuple[int, int], float] = {}
+        # Anti-spam history (bounded fingerprints, never raw text) and the voice
+        # activity clock. Both prune themselves and never touch the database.
+        self._spam = rewards.SpamScreen()
+        self._pulse = rewards.PulseClock()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
@@ -122,16 +131,17 @@ class Leveling(commands.Cog):
                 await conn.commit()
             return default_settings
 
-        # Auto-balance legacy high defaults so VC leveling is properly hardened.
         # Older rows can hold NULL in any of these columns (they were added over
-        # time), so coerce rather than compare None — `None >= 10` would raise
-        # and take the whole reward path down for that guild.
-        vc_c = row[6] if row[6] is not None else 2
-        vc_x = row[7] if row[7] is not None else 3
-        if vc_c >= 10:
-            vc_c = 2
-        if vc_x >= 15:
-            vc_x = 3
+        # time), so coerce rather than compare None — `None >= 10` would raise and
+        # take the whole reward path down for that guild.
+        #
+        # Legacy rows used to be rewritten down here (10+ coins/min became 2),
+        # which made /levelsettings look like it ignored the admin: setting 12
+        # stored 12 and read back as 2. The payout is now the configured rate
+        # multiplied by an activity factor, so a silly legacy value is bounded by
+        # the documented cap rather than silently replaced.
+        vc_c = min(row[6] if row[6] is not None else 2, MAX_VC_COINS_PER_MIN)
+        vc_x = min(row[7] if row[7] is not None else 3, MAX_VC_XP_PER_MIN)
 
         t_min = row[3] if row[3] is not None else 4
         t_max = row[4] if row[4] is not None else 10
@@ -305,6 +315,23 @@ class Leveling(commands.Cog):
     # Text Chat Reward Listener (on_message)
     # -------------------------------------------------------------------------
 
+    async def _count_message(self, guild_id: int, user_id: int, now: float) -> None:
+        """Record a message that earns nothing (cooldown, or no content at all).
+
+        The message still counts toward the member's total and refreshes their
+        text activity timestamp; only the payout is skipped.
+        """
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                """INSERT INTO user_levels (guild_id, user_id, total_messages, last_message_ts)
+                   VALUES (?, ?, 1, ?)
+                   ON CONFLICT(guild_id, user_id) DO UPDATE SET 
+                       total_messages = total_messages + 1,
+                       last_message_ts = ?""",
+                (guild_id, user_id, now, now)
+            )
+            await conn.commit()
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
@@ -321,28 +348,6 @@ class Leveling(commands.Cog):
         key = (message.guild.id, message.author.id)
         last_time = self._chat_cooldowns.get(key, 0)
 
-        # 10-second anti-spam cooldown for gaining coins & XP
-        if now - last_time < 10:
-            # Count message and keep activity timestamp active even during cooldown
-            async with aiosqlite.connect(DB_PATH) as conn:
-                await conn.execute(
-                    """INSERT INTO user_levels (guild_id, user_id, total_messages, last_message_ts)
-                       VALUES (?, ?, 1, ?)
-                       ON CONFLICT(guild_id, user_id) DO UPDATE SET 
-                           total_messages = total_messages + 1,
-                           last_message_ts = ?""",
-                    (message.guild.id, message.author.id, now, now)
-                )
-                await conn.commit()
-            return
-
-        self._chat_cooldowns[key] = now
-        # A cooldown only matters for 10 seconds, but the dict held one entry per
-        # (guild, member) forever — a slow RAM leak on a busy server.
-        if len(self._chat_cooldowns) > 4096:
-            for stale in [k for k, ts in self._chat_cooldowns.items() if now - ts > 60]:
-                self._chat_cooldowns.pop(stale, None)
-
         # Message Length Based Rewards:
         text = (message.content or "").strip()
         # Without the Message Content privileged intent Discord delivers an
@@ -350,52 +355,58 @@ class Leveling(commands.Cog):
         # message (baseline reward) rather than a 0-character one, otherwise
         # text XP would silently never fire at all.
         text_readable = bool(text)
-        content_len = len(text)
-        # Attachments (photos, memes, clips) add 25 virtual characters of effort
-        if message.attachments:
-            content_len += len(message.attachments) * 25
+        attachments = len(message.attachments)
+        points = rewards.effort_points(len(text), attachments)
+        # An attachment is measurable effort even with no text to read.
+        measurable = text_readable or attachments > 0
 
-        # Anti-spam: Ignore very short messages (< 3 chars like '.', 'k', '??')
-        # — but only when the text is actually visible to us.
-        if text_readable and content_len < 3:
-            async with aiosqlite.connect(DB_PATH) as conn:
-                await conn.execute(
-                    """INSERT INTO user_levels (guild_id, user_id, total_messages, last_message_ts)
-                       VALUES (?, ?, 1, ?)
-                       ON CONFLICT(guild_id, user_id) DO UPDATE SET 
-                           total_messages = total_messages + 1,
-                           last_message_ts = ?""",
-                    (message.guild.id, message.author.id, now, now)
-                )
-                await conn.commit()
+        # Typing in a text channel while sat in voice is evidence the voice
+        # channel is alive, which is what keeps it earning (see the VC loop).
+        # Any message counts, including one that earns nothing.
+        voice = getattr(message.author, "voice", None)
+        if voice is not None and voice.channel is not None:
+            self._pulse.touch(voice.channel.id, now)
+
+        # Anti-spam gate 1: at most one reward per cooldown window. Gate 2: never
+        # pay for a message with nothing in it ('k', '.', '??'). Both only skip
+        # the payout — the message is still counted, and still activity.
+        too_soon = now - last_time < rewards.REWARD_COOLDOWN_SECONDS
+        too_small = text_readable and points < rewards.MIN_EFFORT_POINTS
+        if too_soon or too_small:
+            await self._count_message(message.guild.id, message.author.id, now)
             return
 
-        base_min = settings["text_min_coins"]
-        base_max = settings["text_max_coins"]
-        base_xp = settings["text_xp"]
+        self._chat_cooldowns[key] = now
+        # A cooldown only matters for a few seconds, but the dict held one entry
+        # per (guild, member) forever — a slow RAM leak on a busy server.
+        if len(self._chat_cooldowns) > 4096:
+            for stale in [k for k, ts in self._chat_cooldowns.items() if now - ts > 60]:
+                self._chat_cooldowns.pop(stale, None)
 
-        # Scaled multipliers based on message length:
-        # - Very Short (3 - 14 chars, e.g. 'hello', 'gg'): 0.5x multiplier
-        # - Standard (15 - 49 chars, normal conversation): 1.0x baseline
-        # - Medium (50 - 119 chars, active discussion): 1.5x multiplier
-        # - Long (120 - 249 chars, detailed thoughts): 2.0x multiplier
-        # - Effort / Paragraph (250+ chars, capped at 2.5x to prevent essay spam): 2.5x multiplier
-        if not text_readable and not message.attachments:
-            multiplier = 1.0
-        elif content_len < 15:
-            multiplier = 0.5
-        elif content_len < 50:
-            multiplier = 1.0
-        elif content_len < 120:
-            multiplier = 1.5
-        elif content_len < 250:
-            multiplier = 2.0
-        else:
-            multiplier = 2.5
+        # Anti-spam gate 3: the arithmetic. Reposting the same text, a sustained
+        # flood and an emoji-only "message" each cut the payout, and the effort
+        # curve decides where in the configured band the message lands. Nothing
+        # here blocks the message itself — /automod does that.
+        stats = self._spam.record(
+            message.guild.id, message.author.id, text if text_readable else None, now
+        )
 
-        raw_coins = random.randint(base_min, base_max)
-        coins = max(1, int(round(raw_coins * multiplier)))
-        xp_gain = max(5, int(round(base_xp * multiplier)))
+        payout = rewards.text_reward(
+            content_length=len(text),
+            attachments=attachments,
+            readable=measurable,
+            text_xp=settings["text_xp"],
+            text_min_coins=settings["text_min_coins"],
+            text_max_coins=settings["text_max_coins"],
+            duplicate_ratio=stats.duplicate_ratio,
+            tempo_ratio=stats.tempo_ratio,
+            low_signal=stats.low_signal,
+        )
+        # Shop perks (XP Boosters, Coin Charms, permanent badges) scale what
+        # activity earns. Cached for a few seconds in utils.shop, because this
+        # runs on every message.
+        perks = await shop.multipliers(message.author.id, message.guild.id, now)
+        coins, xp_gain = perks.scaled(payout.coins, payout.xp)
 
         try:
             await update_wallet(message.author.id, message.guild.id, coins)
@@ -437,23 +448,25 @@ class Leveling(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        """When member connects to a voice channel, give them an initial 1-hour active window."""
+        """Record observable voice activity for the anti-AFK maths.
+
+        There is no "who is speaking" event — Discord does not expose one — so the
+        evidence that a voice channel is alive is what it does send: someone
+        joining, leaving, moving, muting, unmuting, deafening, going live or
+        turning on a camera, plus anyone typing in a text channel while sat in
+        voice (handled in on_message). Those feed the freshness factor; a channel
+        with none of them for VC_DEAD_SECONDS stops paying anyone.
+
+        This used to write a free hour into ``last_message_ts`` on join, which let
+        a member sit alone in voice and be paid for an hour without ever sending a
+        message.
+        """
         if member.bot or not member.guild:
             return
-        if before.channel is None and after.channel is not None:
-            now = time.time()
-            async with aiosqlite.connect(DB_PATH) as conn:
-                await conn.execute(
-                    """INSERT INTO user_levels (guild_id, user_id, last_message_ts)
-                       VALUES (?, ?, ?)
-                       ON CONFLICT(guild_id, user_id) DO UPDATE SET 
-                           last_message_ts = CASE 
-                               WHEN (? - last_message_ts) > 3600 THEN ?
-                               ELSE last_message_ts
-                           END""",
-                    (member.guild.id, member.id, now, now, now)
-                )
-                await conn.commit()
+        now = time.time()
+        for channel in (before.channel, after.channel):
+            if channel is not None:
+                self._pulse.touch(channel.id, now)
 
     # -------------------------------------------------------------------------
     # Voice Channel (VC) Reward Task Loop (every 60 seconds)
@@ -461,7 +474,13 @@ class Leveling(commands.Cog):
 
     @tasks.loop(seconds=60)
     async def vc_reward_loop(self):
-        """Runs every minute to reward active members in voice channels with coins and XP."""
+        """Pay voice minutes by how active the channel demonstrably was.
+
+        Every gate and every factor lives in ``utils/rewards``: a member alone in
+        a channel earns nothing, a deafened or server-muted one earns nothing, and
+        a channel that has shown no sign of life for hours stops paying. The
+        configured per-minute rates are the ceiling, not a flat salary.
+        """
         for guild in self.bot.guilds:
             try:
                 if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild.id, "leveling"):
@@ -480,39 +499,66 @@ class Leveling(commands.Cog):
                     if guild.afk_channel and vc.id == guild.afk_channel.id:
                         continue
 
-                    for member in vc.members:
-                        if member.bot:
-                            continue
+                    # Anti-AFK gate 1: somebody else has to be in here. A member
+                    # alone in a channel is the classic farm, and no amount of
+                    # sitting in it is evidence of anything.
+                    humans = [m for m in vc.members if not m.bot and m.voice is not None]
+                    if len(humans) < rewards.VC_COMPANY_MIN:
+                        continue
+                    company = rewards.voice_company_factor(len(humans) - 1)
+                    # Anti-AFK gate 2: the channel itself must have shown a sign of
+                    # life recently. ``seen`` starts the clock for a channel the bot
+                    # has not observed before, so a restart does not read every
+                    # occupied channel as dead and stop paying real members.
+                    freshness = rewards.voice_freshness(self._pulse.seen(vc.id, now))
 
-                        # Anti-AFK: ignore users who are deafened
-                        if member.voice and (member.voice.self_deaf or member.voice.deaf):
+                    for member in humans:
+                        state = member.voice
+                        # Anti-AFK gate 3: can this member take part at all? Deafened
+                        # (not even receiving audio), server-muted or a suppressed
+                        # stage audience means no. Self-muted is half, because
+                        # push-to-talk and quiet listening are normal; on camera or
+                        # live is proof of presence and lifts the ceiling.
+                        presence = rewards.voice_presence(
+                            self_deaf=bool(getattr(state, "self_deaf", False)),
+                            deaf=bool(getattr(state, "deaf", False)),
+                            mute=bool(getattr(state, "mute", False)),
+                            self_mute=bool(getattr(state, "self_mute", False)),
+                            suppress=bool(getattr(state, "suppress", False)),
+                            self_video=bool(getattr(state, "self_video", False)),
+                            self_stream=bool(getattr(state, "self_stream", False)),
+                        )
+                        # The payout maths: the configured per-minute rate is the
+                        # ceiling, and this factor is how much of it was earned.
+                        factor = rewards.voice_factor(
+                            presence=presence, company=company, freshness=freshness
+                        )
+                        if factor <= 0.0:
                             continue
+                        payout = rewards.voice_reward(factor, vc_xp=vc_xp, vc_coins=vc_coins)
+                        perks = await shop.multipliers(member.id, guild.id, now)
+                        voice_coins, voice_xp = perks.scaled(payout.coins, payout.xp)
 
                         # Read, decide and write in ONE ``BEGIN IMMEDIATE``
                         # transaction (the shared atomic helper). The old code read on
                         # one connection and wrote on another, so a message arriving
                         # in the same second could overwrite this minute's XP with a
                         # stale value — and a brand-new member was inserted twice.
-                        def _vc_tick(cur):
+                        def _vc_tick(cur, xp_gain=voice_xp, coins=voice_coins):
                             cur.execute(
                                 "SELECT xp, level, voice_minutes, total_earned, last_message_ts FROM user_levels WHERE guild_id=? AND user_id=?",
                                 (guild.id, member.id),
                             )
                             row = cur.fetchone()
                             if not row:
-                                # Newly tracked member - start active
-                                old_xp, old_lvl, v_mins, total_earned, last_msg_ts = 0, 0, 0, 0, now
+                                old_xp, old_lvl, v_mins, total_earned, last_msg_ts = 0, 0, 0, 0, 0
                             else:
                                 old_xp, old_lvl, v_mins, total_earned, last_msg_ts = row
                                 last_msg_ts = last_msg_ts or 0
 
-                            # AFK (>1h without a message anywhere) earns nothing.
-                            if (now - last_msg_ts) > 3600:
-                                return None
-
-                            new_xp = clamp_xp((old_xp or 0) + vc_xp)
+                            new_xp = clamp_xp((old_xp or 0) + xp_gain)
                             new_vmins = (v_mins or 0) + 1
-                            new_earned = (total_earned or 0) + vc_coins
+                            new_earned = (total_earned or 0) + coins
                             new_lvl, _, _ = calculate_level_from_xp(new_xp)
 
                             cur.execute(
@@ -531,7 +577,7 @@ class Leveling(commands.Cog):
                         old_lvl, new_lvl = tick
 
                         try:
-                            await update_wallet(member.id, guild.id, vc_coins)
+                            await update_wallet(member.id, guild.id, voice_coins)
                         except Exception as e:
                             print(f"VC coin deposit error: {e}")
 
@@ -823,9 +869,9 @@ class Leveling(commands.Cog):
         channel="Channel for level up announcements (leave empty to announce where user sent message)",
         dm_notifications="Send level up celebrations directly to user's DMs?",
         enabled="Enable or disable the leveling and activity reward system",
-        text_min_coins="Minimum coins earned per text message (default 8)",
-        text_max_coins="Maximum coins earned per text message (default 15)",
-        vc_coins_per_min="Coins earned per minute active in VC (default 12)"
+        text_min_coins="Minimum coins per qualifying message (default 4)",
+        text_max_coins="Maximum coins per qualifying message (default 10)",
+        vc_coins_per_min=f"Coins per minute in voice, {MAX_VC_COINS_PER_MIN} max (default 2)"
     )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def levelsettings(
@@ -848,7 +894,10 @@ class Leveling(commands.Cog):
         new_dm = current["dm_notifications"] if dm_notifications is None else (1 if dm_notifications else 0)
         new_tmin = current["text_min_coins"] if text_min_coins is None else max(1, text_min_coins)
         new_tmax = current["text_max_coins"] if text_max_coins is None else max(new_tmin, text_max_coins)
-        new_vc = current["vc_coins_per_min"] if vc_coins_per_min is None else max(1, vc_coins_per_min)
+        new_vc = current["vc_coins_per_min"] if vc_coins_per_min is None else max(
+            1, min(MAX_VC_COINS_PER_MIN, vc_coins_per_min)
+        )
+        vc_xp = current["vc_xp_per_min"]
 
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(
@@ -873,8 +922,22 @@ class Leveling(commands.Cog):
         embed.add_field(name="System Status", value="🟢 Enabled" if new_enabled else "🔴 Disabled", inline=True)
         embed.add_field(name="Announcements Channel", value=ch_text, inline=True)
         embed.add_field(name="DM Alerts", value="✅ Enabled" if new_dm else "❌ Disabled", inline=True)
-        embed.add_field(name="Text Rewards", value=f"`{new_tmin} - {new_tmax}` 🪙 + Length-scaled XP (10s cd)", inline=True)
-        embed.add_field(name="Voice (VC) Rewards", value=f"`{new_vc}` 🪙 + 3 XP / min *(Hardened, AFK >1h stops)*", inline=True)
+        embed.add_field(
+            name="Text Rewards",
+            value=(
+                f"`{new_tmin} - {new_tmax}` 🪙 + {rewards.BASE_MULTIPLIER:g}×-{rewards.TOP_MULTIPLIER:g}× XP\n"
+                f"*effort-scaled, spam-discounted, {rewards.REWARD_COOLDOWN_SECONDS:g}s cooldown*"
+            ),
+            inline=True
+        )
+        embed.add_field(
+            name="Voice (VC) Rewards",
+            value=(
+                f"up to `{new_vc}` 🪙 + {vc_xp} XP / min\n"
+                "*needs company, undeafened, recent activity — solo earns nothing*"
+            ),
+            inline=True
+        )
         embed.set_footer(text="🐾 Server Leveling System • Level up cards post to 💬・bot-cmd")
         await send_card(interaction, embed=embed)
 
