@@ -383,6 +383,36 @@ def api_live_logs():
         return Response(f"Error fetching logs: {e}", mimetype="text/plain; charset=utf-8")
 
 
+@app.route("/api/set-module", methods=["POST"])
+def api_set_module():
+    """Passkey-authenticated module toggle — no CSRF required (internal use only)."""
+    data = request.get_json(silent=True) or {}
+    auth = data.get("passkey") or request.args.get("passkey", "")
+    if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+
+    guild_id_raw = data.get("guild_id")
+    module_id = data.get("module", "")
+    enabled = bool(data.get("enabled", False))
+
+    try:
+        guild_id = int(guild_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid guild_id"}), 400
+
+    if module_id not in ALLOWED_MODULE_IDS:
+        return jsonify({"success": False, "error": f"Unknown module. Valid: {ALLOWED_MODULE_IDS}"}), 400
+
+    if not set_guild_module_sync(guild_id, module_id, enabled):
+        return jsonify({"success": False, "error": "DB write failed"}), 500
+
+    if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
+        BOT_INSTANCE.set_module_state(guild_id, module_id, enabled)
+
+    _schedule_cloud_backup()
+    return jsonify({"success": True, "guild_id": guild_id, "module": module_id, "enabled": enabled})
+
+
 @app.route("/api/voice-debug")
 def api_voice_debug():
     auth = request.args.get("passkey")
