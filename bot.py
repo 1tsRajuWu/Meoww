@@ -52,14 +52,20 @@ INITIAL_COGS = [
 bot.module_states = {}
 
 def is_module_enabled(guild_id: int, module_name: str) -> bool:
-    """Check module state in 0ms using in-memory RAM, with sync DB fallback."""
-    default_state = False if module_name == "welcome" else True
+    """Check module state in 0ms using in-memory RAM, with sync DB fallback.
+
+    On a database hiccup we fall back to the shared module default (OFF for
+    giveaway/colors/tempvoice/welcome) instead of blindly returning True, so a
+    transient read error can never quietly start a disabled module.
+    """
+    default_state = db.module_default_enabled(module_name)
     guild_mods = bot.module_states.get(guild_id)
     if guild_mods is None:
         try:
             guild_mods = db.get_guild_modules_sync(guild_id)
             bot.module_states[guild_id] = guild_mods
-        except Exception:
+        except Exception as e:
+            print(f"[MODULES] ⚠️ Could not read module state for guild {guild_id}: {e}", flush=True)
             return default_state
     return guild_mods.get(module_name, default_state)
 

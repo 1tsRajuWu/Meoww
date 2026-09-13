@@ -40,6 +40,14 @@ class GiveawayView(discord.ui.View):
     async def enter_giveaway(self, interaction: discord.Interaction, button: discord.ui.Button):
         msg_id = interaction.message.id
 
+        # Button callbacks don't pass through the cog's interaction_check, so the
+        # module toggle has to be enforced here too.
+        bot = interaction.client
+        if interaction.guild_id and hasattr(bot, "is_module_enabled") and not bot.is_module_enabled(interaction.guild_id, "giveaway"):
+            return await interaction.response.send_message(
+                "⚠️ The **Giveaway** system is currently **turned off** on this server.", ephemeral=True
+            )
+
         async with aiosqlite.connect(DB_PATH) as conn:
             # Check if giveaway is still active
             async with conn.execute("SELECT prize, ended FROM giveaways WHERE message_id=?", (msg_id,)) as cur:
@@ -109,6 +117,10 @@ class Giveaway(commands.Cog):
 
                 for row in expired:
                     msg_id, ch_id, guild_id, prize, winners_count, end_ts, host_id = row
+                    # With the module turned off, stop processing giveaways in the
+                    # background so nothing keeps running behind the admin's back.
+                    if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild_id, "giveaway"):
+                        continue
                     await self._end_giveaway(msg_id, ch_id, guild_id, prize, winners_count, host_id)
         except Exception as e:
             print(f"Giveaway loop error: {e}")

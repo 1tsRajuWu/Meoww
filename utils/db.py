@@ -1,10 +1,36 @@
 import aiosqlite
 import json
+import sqlite3
 
 DB_PATH = "bot.db"
 
+# Modules that stay OFF until an administrator explicitly turns them on.
+# This is the single source of truth for every module's default state; both the
+# bot (bot.is_module_enabled) and the web dashboard read it, so they can never
+# disagree about whether a disabled module should be running.
+DEFAULT_DISABLED_MODULES = {"welcome", "giveaway", "colors", "tempvoice"}
+
+
+def module_default_enabled(module_name: str) -> bool:
+    """Default enabled state for a module when the guild has no saved value."""
+    return module_name not in DEFAULT_DISABLED_MODULES
+
+
+def connect(path: str | None = None) -> sqlite3.Connection:
+    """Open a SQLite connection with a busy timeout so concurrent reads/writes
+    from the bot and the web dashboard wait instead of failing with
+    'database is locked'."""
+    conn = sqlite3.connect(path or DB_PATH, timeout=15.0)
+    conn.execute("PRAGMA busy_timeout=15000")
+    return conn
+
 async def setup():
     async with aiosqlite.connect(DB_PATH) as db:
+        # WAL lets the web dashboard write while the bot reads, instead of both
+        # hitting 'database is locked' (which used to silently drop toggles).
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.execute("PRAGMA busy_timeout=15000")
         await db.execute('''CREATE TABLE IF NOT EXISTS warnings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER,
@@ -167,6 +193,22 @@ async def setup():
             enabled INTEGER DEFAULT 0
         )''')
 
+        # One-time migration: make the newly default-OFF modules actually OFF for
+        # guilds that still have an old "enabled" value saved. Runs exactly once,
+        # so an administrator can still turn them back on afterwards and have it
+        # stick.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'modules_default_off_v1'"
+        ) as cur:
+            _migrated = await cur.fetchone()
+        if not _migrated:
+            await db.execute(
+                "DELETE FROM guild_modules WHERE module_name IN ('giveaway', 'colors', 'tempvoice')"
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v1', '1')"
+            )
+
         # Seed default settings for main guild 1542278896148422676 (Hmm)
         await db.execute('''INSERT OR IGNORE INTO level_settings 
             (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
@@ -236,34 +278,40 @@ async def set_guild_module(guild_id: int, module_name: str, enabled: bool):
         await db.commit()
 
 def get_guild_modules_sync(guild_id: int) -> dict:
-    """Synchronous read for Flask web endpoints."""
-    import sqlite3
+    """Synchronous read for Flask web endpoints.
+
+    Raises on failure so callers can retry; silently returning {} would make a
+    module fall back to its default and appear to "turn itself back on".
+    """
     modules = {}
+    conn = connect()
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT module_name, enabled FROM guild_modules WHERE guild_id = ?', (guild_id,))
-            for row in cursor.fetchall():
-                modules[row[0]] = bool(row[1])
-    except Exception as e:
-        print(f"Error fetching guild modules sync: {e}")
+        cur = conn.cursor()
+        cur.execute('SELECT module_name, enabled FROM guild_modules WHERE guild_id = ?', (guild_id,))
+        for row in cur.fetchall():
+            modules[row[0]] = bool(row[1])
+    finally:
+        conn.close()
     return modules
 
-def set_guild_module_sync(guild_id: int, module_name: str, enabled: bool):
-    """Synchronous write for Flask web endpoints."""
-    import sqlite3
+def set_guild_module_sync(guild_id: int, module_name: str, enabled: bool) -> bool:
+    """Synchronous write for Flask web endpoints. Returns True on success."""
+    conn = connect()
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''INSERT INTO guild_modules (guild_id, module_name, enabled, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(guild_id, module_name) DO UPDATE SET
-                    enabled = excluded.enabled,
-                    updated_at = CURRENT_TIMESTAMP''',
-                (guild_id, module_name, 1 if enabled else 0))
-            conn.commit()
+        cur = conn.cursor()
+        cur.execute('''INSERT INTO guild_modules (guild_id, module_name, enabled, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(guild_id, module_name) DO UPDATE SET
+                enabled = excluded.enabled,
+                updated_at = CURRENT_TIMESTAMP''',
+            (guild_id, module_name, 1 if enabled else 0))
+        conn.commit()
+        return True
     except Exception as e:
-        print(f"Error updating guild module sync: {e}")
+        print(f"[MODULES] ❌ Failed to save {module_name}={enabled} for guild {guild_id}: {e}", flush=True)
+        return False
+    finally:
+        conn.close()
 
 async def get_247_setting(guild_id: int) -> tuple[bool, int]:
     """Returns (enabled, channel_id) for a guild."""

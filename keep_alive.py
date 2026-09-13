@@ -11,7 +11,7 @@ from threading import Lock, Thread
 import socket
 import datetime
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
-from utils.db import get_guild_modules_sync, set_guild_module_sync
+from utils.db import get_guild_modules_sync, set_guild_module_sync, module_default_enabled
 
 LOG_RING = deque(maxlen=600)
 
@@ -276,6 +276,22 @@ def _record_login_failure(ip: str):
 def _clear_login_failures(ip: str):
     with _login_lock:
         _login_attempts.pop(ip, None)
+
+
+def _schedule_cloud_backup():
+    """Push the database to the cloud right away after a change.
+
+    The periodic backup only runs every 25s, so a restart in that window would
+    restore an older snapshot and quietly undo the administrator's change.
+    """
+    try:
+        from utils.cloud_sync import backup_to_cloud_sync
+    except Exception:
+        return
+    try:
+        Thread(target=backup_to_cloud_sync, daemon=True).start()
+    except Exception as e:
+        print(f"[MODULES] Could not schedule cloud backup: {e}", flush=True)
 
 
 def _known_guilds():
@@ -554,13 +570,17 @@ def dashboard():
         if BOT_INSTANCE.latency:
             bot_ping = round(BOT_INSTANCE.latency * 1000)
 
-    db_modules = get_guild_modules_sync(guild_id) if guild_id else {}
+    try:
+        db_modules = get_guild_modules_sync(guild_id) if guild_id else {}
+    except Exception as e:
+        print(f"[DASHBOARD] ⚠️ Could not read saved module states: {e}", flush=True)
+        db_modules = {}
     modules_data = []
     active_count = 0
 
     for m in AVAILABLE_MODULES:
         m_id = m["id"]
-        default_state = False if m_id == "welcome" else True
+        default_state = module_default_enabled(m_id)
         if BOT_INSTANCE and hasattr(BOT_INSTANCE, "module_states"):
             is_enabled = BOT_INSTANCE.module_states.get(guild_id, {}).get(m_id, db_modules.get(m_id, default_state))
         else:
@@ -613,10 +633,15 @@ def api_toggle():
 
     session["guild_id"] = guild_id
 
+    # Persist BEFORE updating memory. If the write fails we must not report
+    # success, otherwise the toggle silently reverts on the next restart.
+    if not set_guild_module_sync(guild_id, module_id, enabled):
+        return jsonify({"success": False, "error": "Could not save that change. Please try again."}), 500
+
     if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
         BOT_INSTANCE.set_module_state(guild_id, module_id, enabled)
 
-    set_guild_module_sync(guild_id, module_id, enabled)
+    _schedule_cloud_backup()
 
     return jsonify({
         "success": True,
@@ -642,11 +667,24 @@ def api_toggle_all():
 
     session["guild_id"] = guild_id
 
+    failed = []
     for m in AVAILABLE_MODULES:
         m_id = m["id"]
-        if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
-            BOT_INSTANCE.set_module_state(guild_id, m_id, enabled)
-        set_guild_module_sync(guild_id, m_id, enabled)
+        if set_guild_module_sync(guild_id, m_id, enabled):
+            if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
+                BOT_INSTANCE.set_module_state(guild_id, m_id, enabled)
+        else:
+            failed.append(m_id)
+
+    if failed:
+        return jsonify({
+            "success": False,
+            "error": f"Could not save: {', '.join(failed)}",
+            "guild_id": guild_id,
+            "enabled": enabled,
+        }), 500
+
+    _schedule_cloud_backup()
 
     return jsonify({
         "success": True,

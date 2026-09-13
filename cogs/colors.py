@@ -24,6 +24,14 @@ async def apply_member_color(interaction: discord.Interaction, hex_code: str | N
     member = interaction.user
     guild = interaction.guild
 
+    # The palette dropdown is a View callback, which never passes through the
+    # cog's interaction_check, so enforce the module toggle here as well.
+    bot = interaction.client
+    if interaction.guild_id and hasattr(bot, "is_module_enabled") and not bot.is_module_enabled(interaction.guild_id, "colors"):
+        return await interaction.response.send_message(
+            "⚠️ The **Color Studio** system is currently **turned off** on this server.", ephemeral=True
+        )
+
     if not guild.me.guild_permissions.manage_roles:
         return await interaction.response.send_message("❌ The bot needs the **Manage Roles** permission to assign color roles.", ephemeral=True)
 

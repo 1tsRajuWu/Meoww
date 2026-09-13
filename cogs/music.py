@@ -247,7 +247,7 @@ class GuildMusicPlayer:
             if target.startswith("http://") or target.startswith("https://"):
                 opts["default_search"] = "auto"
             else:
-                opts["default_search"] = "scsearch1"
+                opts["default_search"] = "ytsearch1"
 
             with yt_dlp.YoutubeDL(opts) as ytdl:
                 try:
@@ -745,28 +745,47 @@ class Music(commands.Cog):
             opts = dict(YTDL_OPTIONS)
             if search_target.startswith("http://") or search_target.startswith("https://"):
                 opts["default_search"] = "auto"
-            else:
-                opts["default_search"] = "scsearch1"
+                with yt_dlp.YoutubeDL(opts) as ytdl:
+                    try:
+                        info = ytdl.extract_info(search_target, download=False)
+                        if "entries" in info and info["entries"]:
+                            return info["entries"][0]
+                        return info
+                    except Exception as e:
+                        print(f"[MUSIC] Direct URL extraction error: {e}", flush=True)
+                        return None
 
-            with yt_dlp.YoutubeDL(opts) as ytdl:
-                try:
-                    info = ytdl.extract_info(search_target, download=False)
-                    if "entries" in info and info["entries"]:
-                        return info["entries"][0]
-                    return info
-                except Exception as e:
-                    if not (search_target.startswith("http://") or search_target.startswith("https://")):
-                        opts["default_search"] = "ytsearch1"
-                        with yt_dlp.YoutubeDL(opts) as ytdl_fallback:
-                            try:
-                                fb_info = ytdl_fallback.extract_info(search_target, download=False)
-                                if "entries" in fb_info and fb_info["entries"]:
-                                    return fb_info["entries"][0]
-                                return fb_info
-                            except Exception:
-                                pass
-                    print(f"[MUSIC] YTDL error for query '{search_target}': {e}", flush=True)
-                    return None
+            expected_sec = int(spotify_first.get("duration_ms", 0) / 1000) if spotify_first else 0
+
+            # Prioritize YouTube for full official audio; fallback to SoundCloud
+            providers = ["ytsearch5:", "scsearch5:"]
+            for prefix in providers:
+                search_query = f"{prefix}{search_target}"
+                with yt_dlp.YoutubeDL(opts) as ytdl:
+                    try:
+                        info = ytdl.extract_info(search_query, download=False)
+                        entries = info.get("entries") or ([info] if info.get("url") else [])
+                        if not entries:
+                            continue
+
+                        # If expected duration is known (> 60s), reject short clips (< 60s) and find closest duration
+                        if expected_sec > 60:
+                            candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 60]
+                            if candidates:
+                                candidates.sort(key=lambda e: abs(e.get("duration") - expected_sec))
+                                return candidates[0]
+
+                        # For any general song search, avoid short snippet clips (< 50s) if longer full tracks exist
+                        long_candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 50]
+                        if long_candidates:
+                            return long_candidates[0]
+
+                        if entries and entries[0]:
+                            return entries[0]
+                    except Exception as e:
+                        print(f"[MUSIC] Error searching '{search_query}': {e}", flush=True)
+
+            return None
 
         data = await loop.run_in_executor(None, extract)
         if not data or not data.get("url"):
@@ -775,8 +794,8 @@ class Music(commands.Cog):
         track_title = (f"{spotify_first['title']} - {spotify_first['artist']}" if spotify_first else data.get("title", query))[:90]
         track_url = data.get("url")
         track_duration = data.get("duration", 0) or (int(spotify_first.get("duration_ms", 0) / 1000) if spotify_first else 0)
-        track_thumb = data.get("thumbnail") or (spotify_first.get("thumbnail") if spotify_first else None)
-        webpage_url = query if spotify_first else data.get("webpage_url", "")
+        track_thumb = (spotify_first.get("thumbnail") if spotify_first and spotify_first.get("thumbnail") else data.get("thumbnail"))
+        webpage_url = data.get("webpage_url") or (query if spotify_first else "")
 
         track = Track(
             title=track_title,

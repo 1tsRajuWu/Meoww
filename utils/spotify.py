@@ -76,8 +76,8 @@ def resolve_spotify(url: str) -> Tuple[Optional[str], List[Dict[str, Any]]]:
                 if entity_type == "track":
                     title = entity.get("name")
                     artists = [a.get("name") for a in entity.get("artists", []) if a.get("name")]
-                    artist_str = ", ".join(artists) if artists else "Unknown Artist"
-                    search_query = f"{title} {artist_str}".strip()
+                    artist_str = ", ".join(artists) if artists else ""
+                    search_query = f"{artist_str} - {title}".strip() if artist_str else title
                     thumb = None
                     try:
                         images = entity.get("visualIdentity", {}).get("image", [])
@@ -88,7 +88,7 @@ def resolve_spotify(url: str) -> Tuple[Optional[str], List[Dict[str, Any]]]:
 
                     results.append({
                         "title": title,
-                        "artist": artist_str,
+                        "artist": artist_str or "Unknown Artist",
                         "query": search_query,
                         "duration_ms": entity.get("duration", 0),
                         "thumbnail": thumb,
@@ -102,10 +102,11 @@ def resolve_spotify(url: str) -> Tuple[Optional[str], List[Dict[str, Any]]]:
                         t_title = t.get("title")
                         t_subtitle = t.get("subtitle") or ""
                         if t_title:
+                            t_query = f"{t_subtitle} - {t_title}".strip() if t_subtitle else t_title
                             results.append({
                                 "title": t_title,
                                 "artist": t_subtitle,
-                                "query": f"{t_title} {t_subtitle}".strip(),
+                                "query": t_query,
                                 "duration_ms": t.get("duration", 0),
                                 "thumbnail": None,
                                 "container": container_title,
