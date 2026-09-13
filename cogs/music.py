@@ -390,7 +390,11 @@ class GuildMusicPlayer:
                 search_term = target
 
             # 2. Two-phase search: Phase 1 flat (~2s) → pick best → Phase 2 stream extract (~3s)
-            for prefix in ["ytsearch5:", "scsearch5:"]:
+            prefixes = ["ytsearch5:", "scsearch5:"]
+            if search_term.startswith("ytsearch") or spotify_first:
+                prefixes = ["ytsearch5:"]  # DO NOT fallback to SoundCloud for Spotify or explicit YouTube queries to prevent 'Wrong Song' bug
+            
+            for prefix in prefixes:
                 search_query = f"{prefix}{search_term}"
                 try:
                     # Phase 1: metadata only — fast
@@ -429,6 +433,8 @@ class GuildMusicPlayer:
                         return stream_url
                 except Exception as e:
                     print(f"[MUSIC] 2-phase search failed for '{search_query}': {e}", flush=True)
+                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e):
+                        raise Exception("YouTube blocked the server (Bot Detection/429 Too Many Requests). Please try again later or provide a direct SoundCloud link.")
 
             return None
 
@@ -1089,7 +1095,11 @@ class Music(commands.Cog):
                 final_score = dur_score + short_penalty - sim_score - word_match_bonus - bonus
                 return final_score
 
-            for prefix in ["ytsearch5:", "scsearch5:"]:
+            prefixes = ["ytsearch5:", "scsearch5:"]
+            if search_target.startswith("ytsearch") or spotify_first:
+                prefixes = ["ytsearch5:"]
+                
+            for prefix in prefixes:
                 search_query = f"{prefix}{search_target}"
                 try:
                     # Phase 1: fast flat metadata fetch — no stream resolution (~2s)
@@ -1124,11 +1134,19 @@ class Music(commands.Cog):
                         return stream_info
                 except Exception as e:
                     print(f"[MUSIC] 2-phase search error for '{search_query}': {e}", flush=True)
+                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e):
+                        raise Exception("YouTube blocked the server (Bot Detection/429 Too Many Requests). Please try again later or provide a direct SoundCloud link.")
 
             return None
 
 
-        data = await loop.run_in_executor(None, extract)
+        try:
+            data = await loop.run_in_executor(None, extract)
+        except Exception as e:
+            return await interaction.edit_original_response(
+                content=f"❌ **Playback Failed:** {e}", embed=None, view=None
+            )
+            
         if not data or not data.get("url"):
             return await interaction.edit_original_response(
                 content="❌ Could not find or stream that track. Try a different title or direct link!", embed=None, view=None
