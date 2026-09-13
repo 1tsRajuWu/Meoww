@@ -474,6 +474,95 @@ def logout():
     return redirect("/dashboard" if is_authenticated() else "/login")
 
 
+# ---------------------------------------------------------------------------
+# Live market pages
+# ---------------------------------------------------------------------------
+# These serve **public market data and nothing else**: no member, no balance, no
+# position, no session, which is why they need no login. The interactive chart
+# lives here because this process already holds the price snapshot in memory.
+
+
+def _run_market(coro, timeout: float = 15.0):
+    """Run a market coroutine from a Flask thread.
+
+    On the bot's own loop when there is one, so the snapshot cache and the
+    in-flight refresh guard are the same ones the commands use — a second event
+    loop would happily fetch the board twice at once. A request must never hang
+    on a slow provider, hence the timeout.
+    """
+    import asyncio
+
+    loop = getattr(BOT_INSTANCE, "loop", None)
+    if loop is not None and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=timeout)
+    return asyncio.run(coro)
+
+
+@app.route("/market")
+def market_index():
+    """Bare ``/market`` shows the first instrument rather than a 404."""
+    return redirect("/market/BTC")
+
+
+@app.route("/market/<symbol>")
+def market_page(symbol: str):
+    """The live, interactive chart for one instrument."""
+    from utils import market as market_module
+
+    instrument = market_module.BY_SYMBOL.get(str(symbol or "").strip().upper())
+    if instrument is None:
+        return (
+            f"<h1>404 — {symbol} is not on the market</h1>"
+            "<p><a href='/market/BTC'>Open BTC instead</a></p>",
+            404,
+        )
+    return render_template(
+        "market_live.html",
+        symbol=instrument.symbol,
+        name=instrument.name,
+        kind=instrument.kind,
+        periods=list(market_module.PERIODS.items()),
+        default_period=market_module.DEFAULT_PERIOD,
+    )
+
+
+@app.route("/api/market/quotes")
+def api_market_quotes():
+    """Every instrument's price, with its age and source, as JSON."""
+    import time as _time
+
+    from utils import market as market_module
+
+    snap = _run_market(market_module.snapshot())
+    response = jsonify(market_module.quotes_payload(snap, _time.time()))
+    # Short enough that the page is live, long enough that a wall of tabs is not
+    # a wall of requests.
+    response.headers["Cache-Control"] = "public, max-age=5"
+    return response
+
+
+@app.route("/api/market/candles")
+def api_market_candles():
+    """One instrument's history as JSON, for the interactive chart."""
+    from utils import market as market_module
+
+    symbol = request.args.get("symbol", "BTC")
+    period = request.args.get("period", market_module.DEFAULT_PERIOD)
+    if period not in market_module.PERIODS:
+        period = market_module.DEFAULT_PERIOD
+    instrument = market_module.BY_SYMBOL.get(str(symbol).strip().upper())
+    if instrument is None:
+        return jsonify({"error": f"{symbol} is not on the market"}), 404
+    series = _run_market(
+        market_module.cached_candles(instrument.symbol, period), timeout=20.0
+    )
+    payload = market_module.series_payload(instrument.symbol, series, period)
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "public, max-age=30"
+    return response
+
+
 @app.route("/dashboard")
 def dashboard():
     if not is_authenticated():
