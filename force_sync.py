@@ -10,17 +10,21 @@ were missing, so there was no way to fix it from inside Discord at all.
 terminal, for when you want the commands live without waiting for a redeploy.
 
 **It only ever adds or replaces commands.** Each command is sent with its own
-upsert request, so a request that Discord rejects cannot take anything away. That
-matters more than it sounds: the previous approach used Discord's bulk overwrite,
-which rebuilds the whole command list — and when the daily write budget ran out
-part-way through, the deletes had already happened and the guild was left with a
-single command. Never use `--overwrite` unless you know the budget is available.
+upsert request, so a request Discord rejects cannot take anything away. That
+matters more than it sounds: Discord's *bulk* overwrite rebuilds the whole
+command list, and when the daily write budget ran out part-way through the
+deletes had already happened — the guild was left with a single command.
+
+Discord budgets writes **per scope**: the 200-a-day guild budget being spent
+says nothing about the global scope, which is a separate 100-command allowance.
+`--global` publishes there instead, which is the way out of a spent guild budget.
 
 Usage:
-    python force_sync.py              # upsert missing/changed commands
-    python force_sync.py --dry-run    # report only, change nothing
-    python force_sync.py --force      # re-send even when nothing differs
-    python force_sync.py --overwrite  # ⚠️  bulk overwrite (can wipe if interrupted)
+    python force_sync.py                 # upsert missing/changed commands, per guild
+    python force_sync.py --global        # publish to Discord's global scope instead
+    python force_sync.py --dry-run       # report only, change nothing
+    python force_sync.py --force         # re-send even when nothing differs
+    python force_sync.py --overwrite     # ⚠️  bulk overwrite (can wipe if interrupted)
 """
 from __future__ import annotations
 
@@ -42,7 +46,7 @@ PACE_SECONDS = 0.6
 #: than something to block a terminal on.
 MAX_WAIT = 60.0
 
-#: When a large batch has to stop early (the daily budget), the commands members
+#: When a large batch has to stop early (a spent budget), the commands members
 #: reach for first should already be back. Everything else follows in tree order.
 PRIORITY = (
     "help", "dashboard", "sync", "balance", "daily", "rank", "leaderboard",
@@ -90,7 +94,7 @@ def _rate_limit_wait(body) -> float:
 def _limit_reason(body) -> str:
     if isinstance(body, dict) and body.get("code") == 30034:
         return (
-            " Discord's daily application-command write limit (200 per guild) is "
+            " Discord's daily application-command write limit for this scope is "
             "spent; the rest will go through after it resets."
         )
     return ""
@@ -110,10 +114,8 @@ async def _build_commands(bot) -> list[dict]:
     return [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
 
 
-def _registered(app_id: str, guild_id: str, token: str) -> list[dict] | None:
-    status, registered = _request(
-        "GET", f"/applications/{app_id}/guilds/{guild_id}/commands", token
-    )
+def _registered(path: str, token: str) -> list[dict] | None:
+    status, registered = _request("GET", path, token)
     if not isinstance(registered, list):
         print(f"   ! could not list commands ({status}): {registered}")
         return None
@@ -126,20 +128,18 @@ def _ordered(names: list[str]) -> list[str]:
     return sorted(names, key=lambda name: (rank.get(name, len(PRIORITY)), name))
 
 
-def _upsert_many(app_id: str, guild_id: str, token: str, payloads: dict, names: list[str]):
+def _upsert_many(path: str, token: str, payloads: dict, names: list[str]):
     """Upsert each command separately. Returns ``(ok, detail)``.
 
     Stops at the first hard limit rather than retrying forever, and never deletes
-    anything, so a partial run always leaves the guild better off than it found it.
+    anything, so a partial run always leaves the account better off than it found it.
     """
     for name in names:
         payload = payloads.get(name)
         if payload is None:
             continue
         while True:
-            status, body = _request(
-                "POST", f"/applications/{app_id}/guilds/{guild_id}/commands", token, payload
-            )
+            status, body = _request("POST", path, token, payload)
             if status in (200, 201):
                 print(f"   ✅ /{name}", flush=True)
                 break
@@ -156,20 +156,68 @@ def _upsert_many(app_id: str, guild_id: str, token: str, payloads: dict, names: 
     return True, ""
 
 
-def _bulk_overwrite(app_id: str, guild_id: str, token: str, payload: list[dict]):
-    """⚠️ One PUT that replaces the guild's command list. Destructive if rejected."""
-    status, body = _request(
-        "PUT", f"/applications/{app_id}/guilds/{guild_id}/commands", token, payload
-    )
+def _bulk_overwrite(path: str, token: str, payload: list[dict]):
+    """⚠️ One PUT that replaces the scope's command list. Destructive if rejected."""
+    status, body = _request("PUT", path, token, payload)
     if status in (200, 201):
         return True, ""
     return False, f"{status} {body if isinstance(body, str) else json.dumps(body)}"
+
+
+def _publish(label: str, path: str, token: str, commands: list[dict], args) -> int:
+    """Sync one scope. Returns the number of failures."""
+    payloads = commands_sync.index(commands)
+    print(f"\n== {label}")
+
+    registered = _registered(path, token)
+    if registered is None:
+        return 1
+    missing, stale = commands_sync.diff(commands, registered)
+    print(f"   Discord has {len(registered)}: {commands_sync.summary(commands, registered)}")
+
+    if not missing and not stale and not args.force:
+        print("   nothing to do ✅")
+        return 0
+
+    names = _ordered(missing + stale)
+    if args.overwrite:
+        if args.dry_run:
+            print(f"   dry run: would bulk overwrite with {len(commands)} commands")
+            return 0
+        print("   ⚠️  bulk overwrite requested — Discord rebuilds the whole list, so an "
+              "interrupted run loses commands.")
+        ok, detail = _bulk_overwrite(path, token, commands)
+    else:
+        if args.dry_run:
+            print(f"   dry run: would upsert {len(names)} command(s): "
+                  f"{', '.join(names[:12])}" + (" …" if len(names) > 12 else ""))
+            return 0
+        print(f"   upserting {len(names)} command(s)...")
+        ok, detail = _upsert_many(path, token, payloads, names)
+
+    failures = 0
+    if not ok:
+        failures = 1
+        print(f"   ❌ stopped: {detail}", flush=True)
+
+    after = _registered(path, token)
+    if after is not None:
+        still_missing, still_stale = commands_sync.diff(commands, after)
+        left = _ordered(still_missing + still_stale)
+        print(f"   now registered: {len(after)}"
+              + (f", still pending: {len(left)} ({', '.join(left[:12])}"
+                 + (" …" if len(left) > 12 else "") + ")" if left else ", all up to date ✅"))
+    return failures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Register the slash-command tree with Discord.")
     parser.add_argument("--dry-run", action="store_true", help="report only, change nothing")
     parser.add_argument("--force", action="store_true", help="re-send even when nothing differs")
+    parser.add_argument(
+        "--global", dest="global_scope", action="store_true",
+        help="publish to Discord's global scope instead of each guild",
+    )
     parser.add_argument(
         "--overwrite", action="store_true",
         help="WARNING: bulk overwrite. If Discord rejects it part-way, commands are lost.",
@@ -187,69 +235,30 @@ def main() -> int:
         return 1
     app_id = str(application["id"])
 
-    status, guilds = _request("GET", "/users/@me/guilds", token)
-    if status != 200 or not isinstance(guilds, list):
-        print(f"Could not list the bot's guilds: {status} {guilds}")
-        return 1
-    if not guilds:
-        print("The bot is not in any guild — invite it first.")
-        return 0
-
     commands = asyncio.run(_build_commands(bot_module.bot))
-    payloads = commands_sync.index(commands)
     print(f"Local tree: {len(commands)} top-level commands.")
-    print(f"Guilds: {', '.join(str(g['name']) for g in guilds)}")
 
-    failures = 0
-    for guild in guilds:
-        guild_id, guild_name = str(guild["id"]), str(guild["name"])
-        print(f"\n== {guild_name} ({guild_id})")
-
-        registered = _registered(app_id, guild_id, token)
-        if registered is None:
-            failures += 1
-            continue
-        missing, stale = commands_sync.diff(commands, registered)
-        print(f"   Discord has {len(registered)}: {commands_sync.summary(commands, registered)}")
-
-        if not missing and not stale and not args.force:
-            print("   nothing to do ✅")
-            continue
-
-        names = _ordered(missing + stale)
-        if args.overwrite:
-            if args.dry_run:
-                print(f"   dry run: would bulk overwrite with {len(commands)} commands")
-                continue
-            print("   ⚠️  bulk overwrite requested — Discord rebuilds the whole list, so an "
-                  "interrupted run loses commands.")
-            ok, detail = _bulk_overwrite(app_id, guild_id, token, commands)
-        else:
-            if args.dry_run:
-                print(f"   dry run: would upsert {len(names)} command(s): {', '.join(names[:12])}"
-                      + (" …" if len(names) > 12 else ""))
-                continue
-            print(f"   upserting {len(names)} command(s)...")
-            ok, detail = _upsert_many(app_id, guild_id, token, payloads, names)
-
-        if not ok:
-            failures += 1
-            print(f"   ❌ stopped: {detail}", flush=True)
-
-        after = _registered(app_id, guild_id, token)
-        if after is not None:
-            still_missing, still_stale = commands_sync.diff(commands, after)
-            left = _ordered(still_missing + still_stale)
-            print(f"   now registered: {len(after)}"
-                  + (f", still pending: {len(left)} ({', '.join(left[:12])}"
-                     + (" …" if len(left) > 12 else "") + ")" if left else ", all up to date ✅"))
-            if left and not args.dry_run:
-                failures = failures or 1
+    if args.global_scope:
+        print("Scope: global (Discord allows 100 commands here, separate from a guild's budget)")
+        failures = _publish("global", f"/applications/{app_id}/commands", token, commands, args)
+    else:
+        status, guilds = _request("GET", "/users/@me/guilds", token)
+        if status != 200 or not isinstance(guilds, list):
+            print(f"Could not list the bot's guilds: {status} {guilds}")
+            return 1
+        if not guilds:
+            print("The bot is not in any guild — invite it first.")
+            return 0
+        print(f"Guilds: {', '.join(str(g['name']) for g in guilds)}")
+        failures = 0
+        for guild in guilds:
+            path = f"/applications/{app_id}/guilds/{guild['id']}/commands"
+            failures += _publish(f"{guild['name']} ({guild['id']})", path, token, commands, args)
 
     if failures:
-        print("\nSome commands are still pending — a 30034 body means Discord's daily "
-              "write limit is spent. Re-run this later, or run /sync in Discord, or "
-              "just restart the bot: it publishes the pending commands on boot.")
+        print("\nSome commands are still pending — a 30034 body means that scope's daily "
+              "write limit is spent. Try --global for a separate budget, re-run later, or "
+              "restart the bot: it publishes the pending commands on boot.")
     return 1 if failures else 0
 
 

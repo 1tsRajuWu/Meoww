@@ -21,14 +21,17 @@ SERVER_ONLY_KEYS = frozenset({
 
 #: Keys Discord **omits from its response when they still hold the default** — it
 #: simply doesn't echo them back. discord.py always sends them, so without this
-#: rule every unchanged command looks different and the bot re-uploads its whole
-#: tree on every boot, spending the 200-writes-a-day budget on nothing. Verified
-#: against a live guild's real payloads:
-#:     options: []            contexts: null        integration_types: null
-#:     option.required: false nsfw: false
-DEFAULTED_KEYS = frozenset({
-    "options", "contexts", "integration_types", "required", "nsfw",
-})
+#: rule every unchanged command looks different and re-uploads the whole tree on
+#: every boot, spending the write budget on nothing. Verified against live
+#: payloads: `options: []`, `option.required: false`, `nsfw: false`.
+DEFAULTED_KEYS = frozenset({"options", "required", "nsfw"})
+
+#: Keys Discord *resolves* for us. We send null (discord.py's default) and it
+#: stores its own value — an app installed to guilds and users comes back as
+#: `integration_types: [0, 1]`, which would otherwise look like a permanent
+#: difference. They are app-level settings, not per-command ones, so a null from
+#: us is never a change.
+RESOLVED_KEYS = frozenset({"contexts", "integration_types"})
 
 #: Deprecated fields discord.py still sends but Discord no longer returns.
 IGNORED_KEYS = frozenset({"dm_permission"})
@@ -55,7 +58,7 @@ def matches(local, remote) -> bool:
         if not isinstance(remote, dict):
             return False
         for key, value in local.items():
-            if key in SERVER_ONLY_KEYS or key in IGNORED_KEYS:
+            if key in SERVER_ONLY_KEYS or key in IGNORED_KEYS or key in RESOLVED_KEYS:
                 continue
             if key in DEFAULTED_KEYS and _is_empty(value):
                 # Empty and absent mean the same thing to Discord — but a value
