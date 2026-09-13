@@ -224,6 +224,14 @@ async def on_ready():
 
     # Start rotating status
     bot.loop.create_task(rotate_status())
+    
+    # Start persistent cloud database sync loop (every 25s)
+    try:
+        from utils.cloud_sync import start_cloud_sync_loop
+        start_cloud_sync_loop(bot)
+    except Exception as e:
+        print(f"[CLOUD SYNC] Failed to start loop: {e}", flush=True)
+
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
 
@@ -292,6 +300,13 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
                 pass
 
 async def main():
+    # 1. Restore persistent SQLite database from cloud before loading cogs or connecting
+    try:
+        from utils.cloud_sync import restore_from_cloud, backup_to_cloud_sync
+        await asyncio.to_thread(restore_from_cloud)
+    except Exception as e:
+        print(f"[CLOUD SYNC] Startup restore error: {e}", flush=True)
+
     async with bot:
         for cog in INITIAL_COGS:
             try:
@@ -315,6 +330,12 @@ async def main():
             print("ERROR: Invalid DISCORD_TOKEN provided. Please check your .env file or host configuration.")
         except Exception as e:
             print(f"ERROR: {e}")
+        finally:
+            try:
+                from utils.cloud_sync import backup_to_cloud_sync
+                await asyncio.to_thread(backup_to_cloud_sync)
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     asyncio.run(main())
