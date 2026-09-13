@@ -161,6 +161,12 @@ async def setup():
             PRIMARY KEY (guild_id, module_name)
         )''')
 
+        await db.execute('''CREATE TABLE IF NOT EXISTS music_247 (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER,
+            enabled INTEGER DEFAULT 0
+        )''')
+
         # Seed default settings for main guild 1542278896148422676 (Hmm)
         await db.execute('''INSERT OR IGNORE INTO level_settings 
             (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
@@ -258,4 +264,31 @@ def set_guild_module_sync(guild_id: int, module_name: str, enabled: bool):
             conn.commit()
     except Exception as e:
         print(f"Error updating guild module sync: {e}")
+
+async def get_247_setting(guild_id: int) -> tuple[bool, int]:
+    """Returns (enabled, channel_id) for a guild."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute('SELECT enabled, channel_id FROM music_247 WHERE guild_id = ?', (guild_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                return bool(row[0]), int(row[1] or 0)
+    return False, 0
+
+async def set_247_setting(guild_id: int, channel_id: int, enabled: bool):
+    """Save 24/7 setting for a guild."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('''INSERT INTO music_247 (guild_id, channel_id, enabled)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                enabled = excluded.enabled''',
+            (guild_id, channel_id, 1 if enabled else 0))
+        await db.commit()
+
+async def get_all_247_guilds() -> list[tuple[int, int]]:
+    """Returns list of (guild_id, channel_id) where 24/7 mode is enabled."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute('SELECT guild_id, channel_id FROM music_247 WHERE enabled = 1') as cur:
+            rows = await cur.fetchall()
+            return [(int(r[0]), int(r[1] or 0)) for r in rows]
 

@@ -8,6 +8,7 @@ import time
 import re
 import secrets
 from utils import db
+from utils.style import Panel, send_panel, edit_to_panel, ACCENT, SUCCESS, DANGER, GOLD, guild_icon, avatar_url
 
 DB_PATH = db.DB_PATH
 
@@ -59,26 +60,12 @@ class GiveawayView(discord.ui.View):
                 async with conn.execute("SELECT COUNT(*) FROM giveaway_entries WHERE message_id=?", (msg_id,)) as cur:
                     c_row = await cur.fetchone()
                     count = c_row[0] if c_row else 0
-                button.label = f"Enter Giveaway ({count})"
-                try:
-                    await interaction.message.edit(view=self)
-                except Exception:
-                    pass
                 return await interaction.response.send_message(f"🚪 You have left the giveaway for **{prize}**.", ephemeral=True)
             else:
                 # Add entry
                 await conn.execute("INSERT INTO giveaway_entries (message_id, user_id) VALUES (?, ?)", (msg_id, interaction.user.id))
                 await conn.commit()
-                # Count new total
-                async with conn.execute("SELECT COUNT(*) FROM giveaway_entries WHERE message_id=?", (msg_id,)) as cur:
-                    c_row = await cur.fetchone()
-                    count = c_row[0] if c_row else 0
-                button.label = f"Enter Giveaway ({count})"
-                try:
-                    await interaction.message.edit(view=self)
-                except Exception:
-                    pass
-                return await interaction.response.send_message(f"🎉 You have entered the giveaway for **{prize}**! Good luck!", ephemeral=True)
+                return await interaction.response.send_message(f"🎉 You're in for **{prize}**. Good luck!", ephemeral=True)
 
 
 class Giveaway(commands.Cog):
@@ -163,7 +150,15 @@ class Giveaway(commands.Cog):
             embed.set_footer(text="🐾 Server Giveaways • Ended")
             if msg:
                 try:
-                    await msg.edit(embed=embed, view=None)
+                    ended = Panel(
+                        title="Giveaway ended",
+                        body=f"**{prize}**\n\nNobody entered, so no winner was drawn.",
+                        accent=DANGER,
+                        thumbnail=guild_icon(guild),
+                        footer="Giveaway closed",
+                        timeout=None,
+                    )
+                    await edit_to_panel(msg, ended)
                 except Exception:
                     pass
             await channel.send(f"📢 The giveaway for **{prize}** ended, but nobody entered! 😢")
@@ -222,23 +217,29 @@ class Giveaway(commands.Cog):
 
         end_ts = int(time.time() + sec)
 
-        embed = discord.Embed(
-            title=f"🎉 GIVEAWAY: {prize}",
-            description=(
-                f"Click the button below to enter the giveaway!\n\n"
-                f"> 🎁 **Prize:** **{prize}**\n"
-                f"> 👑 **Winners:** `{winners}`\n"
-                f"> 👤 **Hosted By:** {interaction.user.mention}\n"
-                f"> ⏱️ **Ends:** <t:{end_ts}:R> (<t:{end_ts}:f>)\n\n"
-                f"Good luck to all participants! 🍀"
+        view = Panel(
+            title=f"Giveaway  ·  {prize}",
+            body=(
+                f"Tap **Enter** to join. Ends <t:{end_ts}:R>.\n\n"
+                f"- 🎁 **Prize:** **{prize}**\n"
+                f"- 👑 **Winners:** `{winners}`\n"
+                f"- 👤 **Host:** {interaction.user.mention}\n"
+                f"- ⏱️ **Closes:** <t:{end_ts}:f>"
             ),
-            color=0x5865F2,
-            timestamp=discord.utils.utcnow()
+            accent=GOLD,
+            thumbnail=guild_icon(interaction.guild) or avatar_url(interaction.user),
+            footer="Fair random draw  ·  enter once",
+            timeout=None,
         )
-        embed.set_footer(text="🐾 Click the button below to join!", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
-
-        view = GiveawayView()
-        msg = await target_ch.send(embed=embed, view=view)
+        view.add_row(
+            discord.ui.Button(
+                label="Enter Giveaway",
+                style=discord.ButtonStyle.primary,
+                emoji="🎉",
+                custom_id="giveaway_enter_btn",
+            )
+        )
+        msg = await send_panel(target_ch, view)
 
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(

@@ -604,8 +604,8 @@ class Fun(commands.Cog):
                     title="📜 No Custom Quotes Yet!",
                     description=(
                         "This server doesn't have any custom quotes yet!\n\n"
-                        "Be the first to add one using `/addquote`!\n"
-                        "Example: `/addquote quote:I am inevitable author:Thanos source:Endgame`"
+                        "Be the first to add one using `/customquote add`!\n"
+                        "Example: `/customquote add quote:I am inevitable author:Thanos source:Endgame`"
                     ),
                     color=0xFEE75C
                 )
@@ -733,9 +733,11 @@ class Fun(commands.Cog):
         return choices[:25]
 
     # ---------------------------------------------------------
-    # CUSTOM QUOTES SYSTEM (Add, Ask, List, Delete)
+    # CUSTOM QUOTES SYSTEM (Group: /customquote add, get, list, delete)
     # ---------------------------------------------------------
-    @app_commands.command(name="addquote", description="Add a custom quote to this server's collection!")
+    customquote_group = app_commands.Group(name="customquote", description="Server custom quotes collection & management")
+
+    @customquote_group.command(name="add", description="Add a custom quote to this server's collection!")
     @app_commands.describe(
         quote="The quote text",
         author="Who said it (e.g. @Meoww, Raj, etc.)",
@@ -749,7 +751,7 @@ class Fun(commands.Cog):
         app_commands.Choice(name="🔥 Out of Context", value="out_of_context"),
         app_commands.Choice(name="🏆 Legendary Moment", value="legendary"),
     ])
-    async def addquote(
+    async def customquote_add(
         self,
         interaction: discord.Interaction,
         quote: str,
@@ -786,7 +788,7 @@ class Fun(commands.Cog):
                 f"• **Speaker:** **{author}**\n"
                 + (f"• **Context / Source:** *{source}*\n" if source else "")
                 + f"• **Quote ID:** `#{quote_id}`\n\n"
-                f"*Anyone in the server can now ask for this quote using `/customquote`!*"
+                f"*Anyone in the server can now view this quote using `/customquote get id:{quote_id}`!*"
             ),
             color=0x57F287,
             timestamp=discord.utils.utcnow()
@@ -794,12 +796,12 @@ class Fun(commands.Cog):
         embed.set_footer(text=f"Added by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="customquote", description="Ask for a server custom quote!")
+    @customquote_group.command(name="get", description="Get a server custom quote by ID, member, or random!")
     @app_commands.describe(
         quote_id="Look up a specific quote by ID",
         member="Filter quotes submitted by a specific member"
     )
-    async def customquote(
+    async def customquote_get(
         self,
         interaction: discord.Interaction,
         quote_id: int = None,
@@ -836,8 +838,8 @@ class Fun(commands.Cog):
                         title="📜 No Custom Quotes Yet!",
                         description=(
                             "This server doesn't have any custom quotes yet!\n\n"
-                            "Be the first to add one using `/addquote`!\n"
-                            "Example: `/addquote quote:I am inevitable author:Thanos source:Endgame`"
+                            "Be the first to add one using `/customquote add`!\n"
+                            "Example: `/customquote add quote:I am inevitable author:Thanos source:Endgame`"
                         ),
                         color=0xFEE75C
                     )
@@ -868,8 +870,8 @@ class Fun(commands.Cog):
         embed.set_footer(text=f"Submitted by {sub_name} • {qdate}")
         await interaction.response.send_message(embed=embed, view=CustomQuoteView(interaction.guild.id))
 
-    @app_commands.command(name="customquotes", description="List recent custom quotes added to this server.")
-    async def customquotes(self, interaction: discord.Interaction):
+    @customquote_group.command(name="list", description="List recent custom quotes added to this server.")
+    async def customquote_list(self, interaction: discord.Interaction):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Custom quotes can only be viewed in a server!", ephemeral=True)
         await setup_custom_quotes_table()
@@ -881,7 +883,7 @@ class Fun(commands.Cog):
                 rows = await cur.fetchall()
 
         if not rows:
-            return await interaction.response.send_message("❌ No custom quotes found in this server. Add some with `/addquote`!", ephemeral=True)
+            return await interaction.response.send_message("❌ No custom quotes found in this server. Add some with `/customquote add`!", ephemeral=True)
 
         embed = discord.Embed(
             title=f"📜 {interaction.guild.name}'s Custom Quotes",
@@ -893,12 +895,12 @@ class Fun(commands.Cog):
             short_text = qtext[:75] + ("..." if len(qtext) > 75 else "")
             embed.description += f"• **`#{qid}`** “{short_text}” — *{qauthor}* ({qdate})\n"
 
-        embed.set_footer(text="🐾 Ask for any quote with /customquote [quote_id]")
+        embed.set_footer(text="🐾 View any quote with /customquote get [quote_id]")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="delquote", description="Delete a custom quote (Submitter, Admin, or Owner only).")
+    @customquote_group.command(name="delete", description="Delete a custom quote (Submitter, Admin, or Owner only).")
     @app_commands.describe(quote_id="The ID of the quote to delete")
-    async def delquote(self, interaction: discord.Interaction, quote_id: int):
+    async def customquote_delete(self, interaction: discord.Interaction, quote_id: int):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Custom quotes can only be deleted in a server!", ephemeral=True)
         await setup_custom_quotes_table()

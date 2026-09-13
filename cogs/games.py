@@ -780,8 +780,6 @@ class Games(commands.Cog):
         if eco["wallet"] < bet:
             return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙.", ephemeral=True)
 
-        await update_wallet(interaction.user.id, interaction.guild.id, -bet)
-
         reels = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
         display = (
             f"╔═══════════════════╗\n"
@@ -792,21 +790,33 @@ class Games(commands.Cog):
         if reels[0] == reels[1] == reels[2]:
             mult = SLOT_MULTIPLIERS[reels[0]]
             payout = int(bet * mult)
-            await update_wallet(interaction.user.id, interaction.guild.id, payout)
+            net = payout - bet
+            await update_wallet(interaction.user.id, interaction.guild.id, net)
+            new_wallet = eco["wallet"] + net
             result = f"🎉 **JACKPOT!** All 3 matched! Won **+{payout:,}** 🪙! (`x{mult}`)"
             color = 0xFEE75C
+            outcome_field = ("💰 Profit", f"**+{net:,}** 🪙")
         elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
             payout = int(bet * 0.5)
-            await update_wallet(interaction.user.id, interaction.guild.id, payout)
+            net = payout - bet
+            await update_wallet(interaction.user.id, interaction.guild.id, net)
+            new_wallet = eco["wallet"] + net
             result = f"✨ **2 Symbols Matched!** Refunded half your bet: **+{payout:,}** 🪙."
             color = 0x5865F2
+            outcome_field = ("💸 Partial Loss", f"**{net:,}** 🪙")
         else:
+            net = -bet
+            await update_wallet(interaction.user.id, interaction.guild.id, net)
+            new_wallet = eco["wallet"] + net
             result = f"💀 **No match!** You lost your **{bet:,}** 🪙 bet."
             color = 0xED4245
+            outcome_field = ("💸 Lost", f"**-{bet:,}** 🪙")
 
         embed = discord.Embed(title="🎰 Lucky Cat Slot Machine", color=color, timestamp=discord.utils.utcnow())
         embed.description = f"```\n{display}\n```\n{result}"
         embed.add_field(name="💰 Bet", value=f"**{bet:,}** 🪙", inline=True)
+        embed.add_field(name=outcome_field[0], value=outcome_field[1], inline=True)
+        embed.add_field(name="💳 New Wallet", value=f"**{new_wallet:,}** 🪙", inline=True)
         embed.set_footer(text="🐾 Meow Casino")
         await interaction.response.send_message(embed=embed)
 
@@ -1072,8 +1082,6 @@ class Games(commands.Cog):
         if eco["wallet"] < bet:
             return await interaction.response.send_message(f"❌ You only have **{eco['wallet']:,}** 🪙.", ephemeral=True)
 
-        await update_wallet(interaction.user.id, interaction.guild.id, -bet)
-
         landed_num = random.randint(0, 36)
         landed_color = ROULETTE_NUMBERS[landed_num]
         color_emoji = "🟢" if landed_color == "green" else ("🔴" if landed_color == "red" else "⚫")
@@ -1119,12 +1127,19 @@ class Games(commands.Cog):
 
         payout = bet * mult
         if won:
-            await update_wallet(interaction.user.id, interaction.guild.id, payout)
-            res_text = f"🎉 **YOU WON!** Multiplier: **{mult}x** ➔ **+{payout:,}** 🪙!"
+            net = payout - bet
+            await update_wallet(interaction.user.id, interaction.guild.id, net)
+            new_wallet = eco["wallet"] + net
+            res_text = f"🎉 **YOU WON!** Multiplier: **{mult}x** ➔ **+{net:,}** 🪙 profit!"
             color = 0x57F287
+            outcome_field = ("💰 Profit", f"**+{net:,}** 🪙")
         else:
+            net = -bet
+            await update_wallet(interaction.user.id, interaction.guild.id, net)
+            new_wallet = eco["wallet"] + net
             res_text = f"💀 **YOU LOST!** The ball landed on {color_emoji} **{landed_num}**."
             color = 0xED4245
+            outcome_field = ("💸 Lost", f"**-{bet:,}** 🪙")
 
         embed = discord.Embed(
             title="🎡 European Roulette Wheel",
@@ -1138,6 +1153,8 @@ class Games(commands.Cog):
         )
         embed.add_field(name="💰 Bet", value=f"**{bet:,}** 🪙", inline=True)
         embed.add_field(name="🎯 Bet Choice", value=f"**{bet_on.upper()}" + (f" ({number})" if number is not None else "") + "**", inline=True)
+        embed.add_field(name=outcome_field[0], value=outcome_field[1], inline=True)
+        embed.add_field(name="💳 New Wallet", value=f"**{new_wallet:,}** 🪙", inline=True)
         embed.set_footer(text=f"Played by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 

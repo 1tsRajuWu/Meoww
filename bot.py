@@ -73,9 +73,9 @@ bot.is_module_enabled = is_module_enabled
 bot.set_module_state = set_module_state
 
 MODULE_COMMAND_MAP = {
-    # Music (11 commands)
+    # Music (12 commands)
     "play": "music", "radio": "music", "nowplaying": "music", "pause": "music", "resume": "music",
-    "skip": "music", "stop": "music", "queue": "music", "volume": "music", "songinfo": "music", "lyrics": "music",
+    "skip": "music", "stop": "music", "queue": "music", "volume": "music", "songinfo": "music", "lyrics": "music", "247": "music",
     # Leveling (9 commands)
     "rank": "leveling", "leaderboard": "leveling", "levelsettings": "leveling", "setlevel": "leveling",
     "givexp": "leveling", "resetlevels": "leveling", "addlevelrole": "leveling", "removelevelrole": "leveling", "levelroles": "leveling",
@@ -109,9 +109,9 @@ MODULE_COMMAND_MAP = {
     # Social & Animals (8 commands)
     "action": "social", "uwu": "social", "marry": "social", "divorce": "social",
     "ship": "social", "hunt": "social", "zoo": "social", "sellanimals": ("social", "economy"),
-    # Fun & Entertainment (11 commands)
+    # Fun & Entertainment (8 commands)
     "meme": "fun", "8ball": "fun", "meow": "fun", "meowsound": "fun", "tan": "fun", "kms": "fun",
-    "quote": "fun", "addquote": "fun", "customquote": "fun", "customquotes": "fun", "delquote": "fun",
+    "quote": "fun", "customquote": "fun",
     # Welcome (1 command)
     "welcome": "welcome",
     # Core Utilities & System Info (Always accessible)
@@ -259,26 +259,34 @@ async def dashboard_cmd(interaction: discord.Interaction):
         return
     
     from keep_alive import generate_magic_token
-    token = generate_magic_token()
-    dashboard_base = "https://meow-discord-bot.onrender.com"
+    from utils.style import Panel, send_panel, ACCENT, avatar_url, guild_icon, guild_banner
+
+    token = generate_magic_token(interaction.guild_id)
+    dashboard_base = os.getenv("DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com").rstrip("/")
     magic_link = f"{dashboard_base}/login?token={token}"
-    
-    embed = discord.Embed(
-        title="🐾 Meow Control Center — Web Admin Dashboard",
-        description=(
-            "Manage all bot modules and features with **1:1 instant (0ms) real-time control**!\n\n"
-            f"🔑 **1-Click Magic Login Link (Valid 24h):**\n[👉 Click Here to Open Web Admin Dashboard]({magic_link})\n\n"
-            f"🌐 **Direct Dashboard URL:** `{dashboard_base}/dashboard`\n"
-            f"⚡ **Direct Passkey:** Configured in `.env` (`ADMIN_PASSKEY`)"
+    guild = interaction.guild
+    thumb = guild_icon(guild) or avatar_url(interaction.client.user)
+    gallery = [u for u in (guild_banner(guild),) if u]
+
+    view = Panel(
+        title="Meow Control Center",
+        body=(
+            f"Welcome back, {interaction.user.mention}.\n"
+            f"Instant module control for **{guild.name if guild else 'this server'}**.\n\n"
+            "- 🎛️ Toggle music, economy, tickets, automod, and more in real time\n"
+            "- 🔐 This sign-in link is **single-use** and expires in **15 minutes**\n"
+            "- 🌙 Keep it private — it unlocks the full admin dashboard"
         ),
-        color=0x5865F2
+        accent=ACCENT,
+        thumbnail=thumb,
+        gallery=gallery or None,
+        footer="Meow Admin  ·  one-time secure access",
+        timeout=None,
     )
-    embed.set_footer(text="🔒 Keep your magic link private — it grants full admin access.")
-    
-    view = discord.ui.View()
-    view.add_item(discord.ui.Button(label="Open Dashboard ⚡", url=magic_link, style=discord.ButtonStyle.link))
-    
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    view.add_row(
+        discord.ui.Button(label="Open Dashboard", url=magic_link, style=discord.ButtonStyle.link, emoji="⚡")
+    )
+    await send_panel(interaction, view, ephemeral=True)
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):

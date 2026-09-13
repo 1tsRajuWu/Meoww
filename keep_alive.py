@@ -6,7 +6,8 @@ import os
 import sys
 import time
 import secrets
-from threading import Thread
+from collections import defaultdict, deque
+from threading import Lock, Thread
 import socket
 import datetime
 from flask import Flask, render_template, request, redirect, session, jsonify
@@ -19,11 +20,36 @@ except Exception:
     pass
 
 app = Flask(__name__, template_folder="templates")
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "meow_dashboard_secret_key_2026_secure")
+_env_secret = (os.environ.get("FLASK_SECRET_KEY") or "").strip()
+if _env_secret:
+    app.secret_key = _env_secret
+else:
+    app.secret_key = secrets.token_hex(32)
+    print(
+        "[DASHBOARD] FLASK_SECRET_KEY is not set. Using a random key for this process "
+        "(sessions reset on restart). Set FLASK_SECRET_KEY in the environment.",
+        flush=True,
+    )
+
+_behind_https_host = bool(os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT"))
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=_behind_https_host,
+    SESSION_COOKIE_NAME="meow_session",
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=8),
+    MAX_CONTENT_LENGTH=16 * 1024,
+)
 
 BOT_INSTANCE = None
-ADMIN_PASSKEY = os.environ.get("ADMIN_PASSKEY", "Him@2009@Meoww")
+ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "").strip()
+MAGIC_TTL_SECONDS = 15 * 60
 MAGIC_TOKENS = {}
+_magic_lock = Lock()
+_login_lock = Lock()
+_login_attempts = defaultdict(deque)  # ip -> timestamps
+LOGIN_WINDOW_SECONDS = 15 * 60
+LOGIN_MAX_ATTEMPTS = 5
 
 AVAILABLE_MODULES = [
     {
@@ -32,7 +58,7 @@ AVAILABLE_MODULES = [
         "icon": "🎵",
         "category": "Entertainment",
         "desc": "High-res YouTube, SoundCloud, Spotify streaming, 24/7 Lo-Fi radio, queue, volume & lyrics.",
-        "commands": ["/play", "/radio", "/nowplaying", "/pause", "/resume", "/skip", "/stop", "/queue", "/volume", "/songinfo", "/lyrics"]
+        "commands": ["/play", "/radio", "/nowplaying", "/pause", "/resume", "/skip", "/stop", "/queue", "/volume", "/songinfo", "/lyrics", "/247"]
     },
     {
         "id": "leveling",
@@ -103,7 +129,7 @@ AVAILABLE_MODULES = [
         "name": "Support Tickets",
         "icon": "🎟️",
         "category": "Support",
-        "desc": "Interactive dropdown ticket panels (Game Cracking, Trading, General), private staff channels.",
+        "desc": "Interactive dropdown ticket panels (General, Reports, Technical, Trading), private staff channels.",
         "commands": ["/ticket setup"]
     },
     {
@@ -120,7 +146,7 @@ AVAILABLE_MODULES = [
         "icon": "🎭",
         "category": "Entertainment",
         "desc": "Real-time viral memes scraped from Reddit top feeds, 8ball, inspirational quotes.",
-        "commands": ["/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote", "/addquote", "/customquote", "/customquotes", "/delquote"]
+        "commands": ["/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote", "/customquote"]
     },
     {
         "id": "games",
@@ -140,80 +166,269 @@ AVAILABLE_MODULES = [
     }
 ]
 
-def generate_magic_token() -> str:
+ALLOWED_MODULE_IDS = {m["id"] for m in AVAILABLE_MODULES}
+
+
+def _purge_magic_tokens():
+    now = time.time()
+    expired = [token for token, meta in MAGIC_TOKENS.items() if meta["expires_at"] <= now]
+    for token in expired:
+        MAGIC_TOKENS.pop(token, None)
+
+
+def generate_magic_token(guild_id: int | None = None) -> str:
     token = secrets.token_urlsafe(32)
-    MAGIC_TOKENS[token] = time.time() + 86400
+    with _magic_lock:
+        _purge_magic_tokens()
+        MAGIC_TOKENS[token] = {
+            "expires_at": time.time() + MAGIC_TTL_SECONDS,
+            "guild_id": int(guild_id) if guild_id else None,
+        }
     return token
+
 
 def is_authenticated():
     return session.get("authenticated") is True
+
+
+def get_csrf_token() -> str:
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+def validate_csrf() -> bool:
+    expected = session.get("csrf_token")
+    provided = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+    if not expected or not provided:
+        return False
+    return secrets.compare_digest(str(expected), str(provided))
+
+
+def _client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:64]
+    return (request.remote_addr or "unknown")[:64]
+
+
+def _login_allowed(ip: str) -> bool:
+    now = time.time()
+    with _login_lock:
+        bucket = _login_attempts[ip]
+        while bucket and now - bucket[0] > LOGIN_WINDOW_SECONDS:
+            bucket.popleft()
+        return len(bucket) < LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_failure(ip: str):
+    with _login_lock:
+        _login_attempts[ip].append(time.time())
+
+
+def _clear_login_failures(ip: str):
+    with _login_lock:
+        _login_attempts.pop(ip, None)
+
+
+def _known_guilds():
+    if not BOT_INSTANCE:
+        return []
+    return [{"id": g.id, "name": g.name} for g in BOT_INSTANCE.guilds]
+
+
+def _resolve_guild_id(requested=None):
+    known = {g["id"] for g in _known_guilds()}
+    session_guild = session.get("guild_id")
+    pinned = session.get("auth_scope") == "guild" and session_guild
+
+    if pinned:
+        try:
+            gid = int(session_guild)
+        except (TypeError, ValueError):
+            gid = None
+        if gid is not None and (not known or gid in known):
+            return gid
+
+    candidates = []
+    if requested not in (None, "", 0):
+        try:
+            candidates.append(int(requested))
+        except (TypeError, ValueError):
+            pass
+    if session_guild:
+        try:
+            candidates.append(int(session_guild))
+        except (TypeError, ValueError):
+            pass
+    for gid in candidates:
+        if not known or gid in known:
+            return gid
+    if known:
+        return next(iter(known))
+    return None
+
+
+def _require_auth_api():
+    if not is_authenticated():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if not validate_csrf():
+        return jsonify({"success": False, "error": "Invalid or missing CSRF token"}), 403
+    return None
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    if request.headers.get("X-Forwarded-Proto", request.scheme) == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 @app.route("/health")
 def health():
     return jsonify({
         "status": "ok",
         "bot_ready": bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False)),
-        "guilds": len(BOT_INSTANCE.guilds) if BOT_INSTANCE else 0,
-        "latency_ms": round(BOT_INSTANCE.latency * 1000) if BOT_INSTANCE and BOT_INSTANCE.latency else None,
-        "timestamp": time.time()
+        "timestamp": int(time.time()),
     })
+
 
 @app.route("/")
 def home():
     user_agent = request.headers.get("User-Agent", "").lower()
-    if "uptimerobot" in user_agent or "bot" in user_agent or "curl" in user_agent:
+    if "uptimerobot" in user_agent or "curl" in user_agent:
         return "Meow Bot is alive and operational!"
     if is_authenticated():
         return redirect("/dashboard")
     return redirect("/login")
 
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     token = request.args.get("token")
     if token:
-        expires_at = MAGIC_TOKENS.get(token)
-        if expires_at and time.time() < expires_at:
+        with _magic_lock:
+            _purge_magic_tokens()
+            meta = MAGIC_TOKENS.pop(token, None)
+        if meta and time.time() < meta["expires_at"]:
+            session.clear()
             session["authenticated"] = True
             session.permanent = True
-            MAGIC_TOKENS.pop(token, None)
+            session["auth_scope"] = "guild" if meta.get("guild_id") else "global"
+            if meta.get("guild_id"):
+                session["guild_id"] = meta["guild_id"]
+            get_csrf_token()
             return redirect("/dashboard")
-        return render_template("login.html", error="Magic link has expired or is invalid.")
+        return render_template(
+            "login.html",
+            error="That sign-in link has expired or already been used. Run /dashboard in Discord for a new one.",
+            csrf_token=get_csrf_token(),
+            passkey_enabled=bool(ADMIN_PASSKEY),
+        )
 
     if request.method == "POST":
-        entered_passkey = request.form.get("passkey")
-        if entered_passkey == ADMIN_PASSKEY:
+        if not validate_csrf():
+            return render_template(
+                "login.html",
+                error="Your session expired. Please refresh and try again.",
+                csrf_token=get_csrf_token(),
+                passkey_enabled=bool(ADMIN_PASSKEY),
+            ), 403
+
+        ip = _client_ip()
+        if not _login_allowed(ip):
+            return render_template(
+                "login.html",
+                error="Too many failed attempts. Wait a few minutes and try again, or use /dashboard in Discord.",
+                csrf_token=get_csrf_token(),
+                passkey_enabled=bool(ADMIN_PASSKEY),
+            ), 429
+
+        if not ADMIN_PASSKEY:
+            _record_login_failure(ip)
+            return render_template(
+                "login.html",
+                error="Passkey login is disabled. Use /dashboard in Discord to open a one-time sign-in link.",
+                csrf_token=get_csrf_token(),
+                passkey_enabled=False,
+            )
+
+        entered_passkey = request.form.get("passkey") or ""
+        if secrets.compare_digest(entered_passkey, ADMIN_PASSKEY):
+            _clear_login_failures(ip)
+            session.clear()
             session["authenticated"] = True
             session.permanent = True
+            session["auth_scope"] = "global"
+            get_csrf_token()
             return redirect("/dashboard")
-        return render_template("login.html", error="Invalid admin passkey. Please try again.")
+
+        _record_login_failure(ip)
+        return render_template(
+            "login.html",
+            error="Invalid admin passkey. Please try again.",
+            csrf_token=get_csrf_token(),
+            passkey_enabled=True,
+        ), 401
 
     if is_authenticated():
         return redirect("/dashboard")
-    return render_template("login.html", error=None)
+    return render_template(
+        "login.html",
+        error=None,
+        csrf_token=get_csrf_token(),
+        passkey_enabled=bool(ADMIN_PASSKEY),
+    )
+
 
 @app.route("/logout")
 def logout():
-    session.pop("authenticated", None)
+    session.clear()
     return redirect("/login")
+
 
 @app.route("/dashboard")
 def dashboard():
     if not is_authenticated():
         return redirect("/login")
 
-    guild_id = 1542278896148422676
-    guild_name = "Hmm"
-    member_count = 1
-    bot_ping = 28
+    requested = request.args.get("guild_id")
+    guild_id = _resolve_guild_id(requested)
+    if guild_id is None:
+        guild_id = 0
+    session["guild_id"] = guild_id
+
+    guild_name = "Unknown server"
+    member_count = 0
+    bot_ping = 0
+    bot_ready = bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False))
 
     if BOT_INSTANCE:
         guild = BOT_INSTANCE.get_guild(guild_id)
         if guild:
             guild_name = guild.name
             member_count = guild.member_count or len(guild.members)
-        bot_ping = round(BOT_INSTANCE.latency * 1000) if BOT_INSTANCE.latency else 28
+        if BOT_INSTANCE.latency:
+            bot_ping = round(BOT_INSTANCE.latency * 1000)
 
-    db_modules = get_guild_modules_sync(guild_id)
+    db_modules = get_guild_modules_sync(guild_id) if guild_id else {}
     modules_data = []
     active_count = 0
 
@@ -244,23 +459,33 @@ def dashboard():
         guild_name=guild_name,
         member_count=member_count,
         bot_ping=bot_ping,
+        bot_ready=bot_ready,
         modules=modules_data,
         active_count=active_count,
-        total_count=len(AVAILABLE_MODULES)
+        total_count=len(AVAILABLE_MODULES),
+        csrf_token=get_csrf_token(),
+        guilds=_known_guilds(),
+        can_switch_guild=session.get("auth_scope") == "global",
     )
+
 
 @app.route("/api/toggle", methods=["POST"])
 def api_toggle():
-    if not is_authenticated():
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    denied = _require_auth_api()
+    if denied:
+        return denied
 
-    data = request.get_json() or {}
-    guild_id = data.get("guild_id", 1542278896148422676)
+    data = request.get_json(silent=True) or {}
+    guild_id = _resolve_guild_id(data.get("guild_id"))
     module_id = data.get("module")
     enabled = bool(data.get("enabled"))
 
-    if not module_id:
-        return jsonify({"success": False, "error": "Missing module ID"}), 400
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+    if module_id not in ALLOWED_MODULE_IDS:
+        return jsonify({"success": False, "error": "Unknown module"}), 400
+
+    session["guild_id"] = guild_id
 
     if BOT_INSTANCE and hasattr(BOT_INSTANCE, "set_module_state"):
         BOT_INSTANCE.set_module_state(guild_id, module_id, enabled)
@@ -275,14 +500,21 @@ def api_toggle():
         "sync_latency_ms": 0
     })
 
+
 @app.route("/api/toggle-all", methods=["POST"])
 def api_toggle_all():
-    if not is_authenticated():
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    denied = _require_auth_api()
+    if denied:
+        return denied
 
-    data = request.get_json() or {}
-    guild_id = data.get("guild_id", 1542278896148422676)
+    data = request.get_json(silent=True) or {}
+    guild_id = _resolve_guild_id(data.get("guild_id"))
     enabled = bool(data.get("enabled"))
+
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+
+    session["guild_id"] = guild_id
 
     for m in AVAILABLE_MODULES:
         m_id = m["id"]
@@ -297,6 +529,7 @@ def api_toggle_all():
         "sync_latency_ms": 0
     })
 
+
 def find_free_port(start=8080):
     for port in range(start, start + 20):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -307,9 +540,11 @@ def find_free_port(start=8080):
                 continue
     return start
 
+
 def run():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
 
 def keep_alive(bot=None):
     global BOT_INSTANCE
@@ -317,4 +552,3 @@ def keep_alive(bot=None):
     t = Thread(target=run)
     t.daemon = True
     t.start()
-

@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#090c10">
+    <meta name="robots" content="noindex, nofollow">
     <title>Meow Admin Authentication</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -24,7 +28,7 @@
 
         body {
             background-color: var(--bg);
-            background-image: 
+            background-image:
                 radial-gradient(at 50% 20%, rgba(88, 101, 242, 0.18) 0px, transparent 60%),
                 radial-gradient(at 100% 100%, rgba(235, 69, 158, 0.12) 0px, transparent 50%);
             color: var(--text-primary);
@@ -67,10 +71,11 @@
             margin-bottom: 6px;
         }
 
-        p {
+        .lead {
             color: var(--text-secondary);
             font-size: 13px;
             margin-bottom: 28px;
+            line-height: 1.5;
         }
 
         .input-group {
@@ -88,22 +93,48 @@
             margin-bottom: 8px;
         }
 
-        input[type="password"] {
+        .password-wrap {
+            position: relative;
+        }
+
+        input[type="password"],
+        input[type="text"] {
             width: 100%;
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 14px 16px;
+            padding: 14px 48px 14px 16px;
             color: #fff;
             font-size: 15px;
             font-family: "JetBrains Mono", monospace;
             outline: none;
-            transition: all 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        input[type="password"]:focus {
+        input:focus-visible {
             border-color: var(--accent);
             box-shadow: 0 0 16px var(--accent-glow);
+        }
+
+        .toggle-visibility {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .toggle-visibility:hover,
+        .toggle-visibility:focus-visible {
+            color: var(--text-primary);
+            outline: 2px solid var(--accent);
         }
 
         .btn-submit {
@@ -117,12 +148,23 @@
             font-weight: 700;
             cursor: pointer;
             box-shadow: 0 6px 20px var(--accent-glow);
-            transition: all 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s;
         }
 
         .btn-submit:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 28px var(--accent-glow);
+        }
+
+        .btn-submit:focus-visible {
+            outline: 2px solid #fff;
+            outline-offset: 3px;
+        }
+
+        .btn-submit:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .error-banner {
@@ -134,36 +176,66 @@
             font-size: 13px;
             font-weight: 600;
             margin-bottom: 20px;
+            text-align: left;
         }
 
         .hint {
             margin-top: 22px;
             font-size: 12px;
             color: #64748b;
+            line-height: 1.5;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { animation: none !important; transition: none !important; }
+        }
+
+        @media (max-width: 480px) {
+            .login-card { padding: 28px 20px; }
         }
     </style>
 </head>
 <body>
-    <div class="login-card">
-        <div class="bot-avatar">🐾</div>
+    <main class="login-card">
+        <div class="bot-avatar" aria-hidden="true">🐾</div>
         <h1>Meow Admin Portal</h1>
-        <p>Enter your secret admin passkey or use <code>/dashboard</code> in Discord for a 1-click magic link.</p>
+        <p class="lead">Sign in with your admin passkey, or run <code>/dashboard</code> in Discord for a one-time 15-minute link.</p>
 
         {% if error %}
-        <div class="error-banner">{{ error }}</div>
+        <div class="error-banner" role="alert">{{ error }}</div>
         {% endif %}
 
-        <form method="POST" action="/login">
+        {% if passkey_enabled %}
+        <form method="POST" action="/login" autocomplete="on">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="input-group">
                 <label for="passkey">Admin Passkey</label>
-                <input type="password" id="passkey" name="passkey" placeholder="••••••••••••" required autofocus>
+                <div class="password-wrap">
+                    <input type="password" id="passkey" name="passkey" placeholder="Enter passkey" required autofocus autocomplete="current-password" {% if error %}aria-invalid="true"{% endif %}>
+                    <button type="button" class="toggle-visibility" id="toggle-pass" aria-controls="passkey" aria-pressed="false">Show</button>
+                </div>
             </div>
-            <button type="submit" class="btn-submit">Authenticate ⚡</button>
+            <button type="submit" class="btn-submit">Sign in</button>
         </form>
+        {% else %}
+        <p class="error-banner" role="status">Passkey login is not configured. Use <code>/dashboard</code> in Discord.</p>
+        {% endif %}
 
-        <div class="hint">
-            Tip: In Discord, administrators can run <code>/dashboard</code> to generate an instant login button.
-        </div>
-    </div>
+        <p class="hint">
+            Administrators can run <code>/dashboard</code> in a server to get a single-use sign-in button. Do not share that link.
+        </p>
+    </main>
+    <script>
+        const toggle = document.getElementById("toggle-pass");
+        const input = document.getElementById("passkey");
+        if (toggle && input) {
+            toggle.addEventListener("click", () => {
+                const show = input.type === "password";
+                input.type = show ? "text" : "password";
+                toggle.textContent = show ? "Hide" : "Show";
+                toggle.setAttribute("aria-pressed", show ? "true" : "false");
+            });
+        }
+    </script>
 </body>
 </html>

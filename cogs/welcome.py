@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils import db
+from utils.style import Panel, send_panel, SUCCESS, NIGHT, avatar_url, guild_banner
 
 class Welcome(commands.Cog):
     """Welcome and goodbye messages."""
@@ -52,15 +53,21 @@ class Welcome(commands.Cog):
         channel = member.guild.get_channel(int(channel_id))
         if not channel or not channel.permissions_for(member.guild.me).send_messages:
             return
-        embed = discord.Embed(
-            title="Welcome!",
-            description=f"Welcome to **{member.guild.name}**, {member.mention}!\nWe're glad to have you.",
-            color=discord.Color.green(),
+        view = Panel(
+            title=f"Welcome to {member.guild.name}",
+            body=(
+                f"Hey {member.mention} — you just walked in.\n\n"
+                f"- You're member **#{member.guild.member_count:,}**\n"
+                "- Say hi, grab roles, and settle in\n"
+                "- Staff is around if you need anything"
+            ),
+            accent=SUCCESS,
+            thumbnail=avatar_url(member),
+            gallery=[guild_banner(member.guild)] if guild_banner(member.guild) else None,
+            footer=f"{member.guild.name}  ·  glad you're here",
+            timeout=None,
         )
-        if member.display_avatar:
-            embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text=f"Member #{member.guild.member_count}")
-        await channel.send(embed=embed)
+        await send_panel(channel, view)
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
@@ -70,11 +77,15 @@ class Welcome(commands.Cog):
         channel = member.guild.get_channel(channel_id)
         if not channel:
             return
-        embed = discord.Embed(
-            description=f"**{member}** has left the server.",
-            color=discord.Color.dark_grey(),
+        view = Panel(
+            title="Someone just left",
+            body=f"**{member}** is no longer in **{member.guild.name}**.",
+            accent=NIGHT,
+            thumbnail=avatar_url(member),
+            footer=f"{member.guild.member_count:,} members remaining",
+            timeout=None,
         )
-        await channel.send(embed=embed)
+        await send_panel(channel, view)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Welcome(bot))

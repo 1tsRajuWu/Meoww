@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#090c10">
+    <meta name="robots" content="noindex, nofollow">
     <title>Meow Control Center — Real-Time Admin Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,7 +25,6 @@
             --green: #23a55a;
             --green-glow: rgba(35, 165, 90, 0.3);
             --red: #f23f43;
-            --red-glow: rgba(242, 63, 67, 0.3);
             --radius-lg: 18px;
             --radius-md: 12px;
             --radius-sm: 8px;
@@ -37,7 +38,7 @@
 
         body {
             background-color: var(--bg);
-            background-image: 
+            background-image:
                 radial-gradient(at 0% 0%, rgba(88, 101, 242, 0.12) 0px, transparent 50%),
                 radial-gradient(at 100% 100%, rgba(35, 165, 90, 0.08) 0px, transparent 50%),
                 radial-gradient(at 50% 50%, rgba(20, 26, 38, 0.5) 0px, transparent 100%);
@@ -46,6 +47,21 @@
             min-height: 100vh;
             padding: 24px;
             overflow-x: hidden;
+        }
+
+        .skip-link {
+            position: absolute;
+            left: -999px;
+            top: 8px;
+            background: var(--accent);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            z-index: 2000;
+        }
+
+        .skip-link:focus {
+            left: 16px;
         }
 
         .container {
@@ -73,6 +89,7 @@
             display: flex;
             align-items: center;
             gap: 16px;
+            min-width: 0;
         }
 
         .bot-avatar {
@@ -85,6 +102,7 @@
             justify-content: center;
             font-size: 28px;
             box-shadow: 0 4px 20px var(--accent-glow);
+            flex-shrink: 0;
         }
 
         .brand-text h1 {
@@ -93,6 +111,7 @@
             letter-spacing: -0.5px;
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 10px;
         }
 
@@ -100,6 +119,7 @@
             color: var(--text-secondary);
             font-size: 13px;
             font-weight: 500;
+            word-break: break-word;
         }
 
         .status-badge {
@@ -120,6 +140,12 @@
             border: 1px solid rgba(35, 165, 90, 0.3);
         }
 
+        .badge-offline {
+            background: rgba(242, 63, 67, 0.15);
+            color: #ff6b6b;
+            border: 1px solid rgba(242, 63, 67, 0.3);
+        }
+
         .badge-pulse {
             width: 7px;
             height: 7px;
@@ -138,7 +164,27 @@
         .header-actions {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 12px;
+        }
+
+        .guild-select {
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            max-width: 240px;
+        }
+
+        .guild-select:focus-visible,
+        .btn:focus-visible,
+        .toggle-switch input:focus-visible + .slider {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
         }
 
         .btn {
@@ -153,7 +199,7 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: background 0.2s, border-color 0.2s, transform 0.2s;
             text-decoration: none;
         }
 
@@ -161,6 +207,12 @@
             background: var(--surface-hover);
             border-color: var(--accent);
             transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .btn-danger {
@@ -191,12 +243,6 @@
             align-items: center;
             gap: 16px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-            transition: transform 0.2s;
-        }
-
-        .metric-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255, 255, 255, 0.15);
         }
 
         .metric-icon {
@@ -247,11 +293,12 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
 
         .modules-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
             gap: 18px;
             margin-bottom: 40px;
         }
@@ -268,9 +315,13 @@
             justify-content: space-between;
             gap: 16px;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s, opacity 0.2s;
             position: relative;
-            overflow: hidden;
+        }
+
+        .module-card.busy {
+            opacity: 0.7;
+            pointer-events: none;
         }
 
         .module-card:hover {
@@ -290,6 +341,7 @@
             display: flex;
             align-items: center;
             gap: 14px;
+            min-width: 0;
         }
 
         .module-icon-box {
@@ -350,6 +402,7 @@
             align-items: center;
             padding-top: 14px;
             border-top: 1px solid rgba(255, 255, 255, 0.05);
+            gap: 8px;
         }
 
         .state-label {
@@ -361,13 +414,8 @@
             gap: 6px;
         }
 
-        .state-enabled {
-            color: #4ade80;
-        }
-
-        .state-disabled {
-            color: #ff6b6b;
-        }
+        .state-enabled { color: #4ade80; }
+        .state-disabled { color: #ff6b6b; }
 
         .toggle-switch {
             position: relative;
@@ -391,7 +439,7 @@
             right: 0;
             bottom: 0;
             background-color: rgba(255, 255, 255, 0.12);
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: background-color 0.25s, box-shadow 0.25s;
             border-radius: 34px;
             border: 1px solid var(--border);
         }
@@ -404,7 +452,7 @@
             left: 3px;
             bottom: 3px;
             background-color: white;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.25s;
             border-radius: 50%;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
         }
@@ -427,6 +475,7 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            max-width: min(360px, calc(100vw - 32px));
         }
 
         .toast {
@@ -442,81 +491,91 @@
             gap: 12px;
             font-size: 13px;
             font-weight: 600;
-            transform: translateY(30px);
-            opacity: 0;
             animation: slideIn 0.3s forwards cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .toast-success {
-            border-left-color: var(--green);
-        }
-
-        .toast-error {
-            border-left-color: var(--red);
-        }
+        .toast-success { border-left-color: var(--green); }
+        .toast-error { border-left-color: var(--red); }
 
         @keyframes slideIn {
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
         }
 
         @keyframes fadeOut {
-            to {
-                transform: translateY(-10px);
-                opacity: 0;
-            }
+            to { transform: translateY(-10px); opacity: 0; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { animation: none !important; transition: none !important; }
+            .module-card:hover { transform: none; }
+            .btn:hover { transform: none; }
         }
 
         @media (max-width: 768px) {
             body { padding: 16px; }
             .modules-grid { grid-template-columns: 1fr; }
             header { padding: 16px; }
+            .guild-select { max-width: 100%; width: 100%; }
+            .header-actions { width: 100%; }
         }
     </style>
 </head>
 <body>
+    <a class="skip-link" href="#modules">Skip to modules</a>
     <div class="container">
         <header>
             <div class="brand-section">
-                <div class="bot-avatar">🐾</div>
+                <div class="bot-avatar" aria-hidden="true">🐾</div>
                 <div class="brand-text">
-                    <h1>Meow Control Center <span class="status-badge badge-online"><span class="badge-pulse"></span> 1:1 Live Sync</span></h1>
-                    <p>Connected to <strong>{{ guild_name }}</strong> (ID: {{ guild_id }})</p>
+                    <h1>
+                        Meow Control Center
+                        {% if bot_ready %}
+                        <span class="status-badge badge-online"><span class="badge-pulse" aria-hidden="true"></span> Live</span>
+                        {% else %}
+                        <span class="status-badge badge-offline">Bot offline</span>
+                        {% endif %}
+                    </h1>
+                    <p>Connected to <strong>{{ guild_name }}</strong></p>
                 </div>
             </div>
             <div class="header-actions">
-                <a href="/logout" class="btn btn-danger">
-                    <span>🚪</span> Sign Out
-                </a>
+                {% if can_switch_guild and guilds and guilds|length > 1 %}
+                <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
+                <select id="guild-select" class="guild-select" aria-label="Select server" onchange="window.location.href='/dashboard?guild_id=' + encodeURIComponent(this.value)">
+                    {% for g in guilds %}
+                    <option value="{{ g.id }}" {{ "selected" if g.id == guild_id else "" }}>{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                <a href="/logout" class="btn btn-danger">Sign out</a>
             </div>
         </header>
 
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="metric-icon">⚡</div>
+                <div class="metric-icon" aria-hidden="true">⚡</div>
                 <div class="metric-info">
-                    <h3>Sync Latency</h3>
-                    <p>0 ms (Instant)</p>
+                    <h3>Sync</h3>
+                    <p>Instant</p>
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon">🎛️</div>
+                <div class="metric-icon" aria-hidden="true">🎛️</div>
                 <div class="metric-info">
                     <h3>Active Modules</h3>
                     <p id="metric-active">{{ active_count }} / {{ total_count }}</p>
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon">👥</div>
+                <div class="metric-icon" aria-hidden="true">👥</div>
                 <div class="metric-info">
                     <h3>Server Members</h3>
                     <p>{{ member_count }}</p>
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon">📡</div>
+                <div class="metric-icon" aria-hidden="true">📡</div>
                 <div class="metric-info">
                     <h3>Discord Ping</h3>
                     <p>{{ bot_ping }} ms</p>
@@ -524,11 +583,11 @@
             </div>
         </div>
 
-        <div class="section-header">
-            <h2><span>⚙️</span> Bot Systems & Module Manager</h2>
+        <div class="section-header" id="modules">
+            <h2>Bot systems</h2>
             <div class="bulk-controls">
-                <button class="btn" onclick="toggleAll(true)">⚡ Enable All</button>
-                <button class="btn" onclick="toggleAll(false)">⛔ Disable All</button>
+                <button type="button" class="btn" id="btn-enable-all">Enable all</button>
+                <button type="button" class="btn" id="btn-disable-all">Disable all</button>
             </div>
         </div>
 
@@ -537,16 +596,20 @@
             <div class="module-card" id="card-{{ mod.id }}">
                 <div class="module-header">
                     <div class="module-meta">
-                        <div class="module-icon-box">{{ mod.icon }}</div>
+                        <div class="module-icon-box" aria-hidden="true">{{ mod.icon }}</div>
                         <div class="module-titles">
-                            <h3>{{ mod.name }}</h3>
+                            <h3 id="title-{{ mod.id }}">{{ mod.name }}</h3>
                             <div class="module-category">{{ mod.category }}</div>
                         </div>
                     </div>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="toggle-{{ mod.id }}" 
+                        <input type="checkbox" id="toggle-{{ mod.id }}"
+                               class="module-toggle"
+                               data-module="{{ mod.id }}"
                                {{ "checked" if mod.enabled else "" }}
-                               onchange="onToggleChange('{{ mod.id }}', this.checked)">
+                               aria-labelledby="title-{{ mod.id }}"
+                               role="switch"
+                               aria-checked="{{ "true" if mod.enabled else "false" }}">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -558,26 +621,33 @@
                 </div>
                 <div class="module-footer">
                     <span class="state-label {{ "state-enabled" if mod.enabled else "state-disabled" }}" id="label-{{ mod.id }}">
-                        {{ "● ENABLED" if mod.enabled else "○ DISABLED" }}
+                        {{ "● Enabled" if mod.enabled else "○ Disabled" }}
                     </span>
-                    <span style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0ms in-memory</span>
                 </div>
             </div>
             {% endfor %}
         </div>
     </div>
 
-    <div id="toast-container"></div>
+    <div id="toast-container" aria-live="polite" aria-relevant="additions"></div>
 
     <script>
-        const GUILD_ID = {{ guild_id }};
+        const GUILD_ID = {{ guild_id|tojson }};
+        const CSRF_TOKEN = {{ csrf_token|tojson }};
+        const pending = new Set();
 
         function showToast(message, type = "success") {
             const container = document.getElementById("toast-container");
             const toast = document.createElement("div");
             toast.className = `toast toast-${type}`;
-            const icon = type === "success" ? "⚡" : "⚠️";
-            toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+            toast.setAttribute("role", type === "error" ? "alert" : "status");
+            const icon = document.createElement("span");
+            icon.setAttribute("aria-hidden", "true");
+            icon.textContent = type === "success" ? "✓" : "!";
+            const text = document.createElement("span");
+            text.textContent = message;
+            toast.appendChild(icon);
+            toast.appendChild(text);
             container.appendChild(toast);
 
             setTimeout(() => {
@@ -586,81 +656,94 @@
             }, 3000);
         }
 
-        async function onToggleChange(moduleId, isEnabled) {
+        function setLabel(moduleId, enabled) {
             const label = document.getElementById(`label-${moduleId}`);
-            
-            if (isEnabled) {
-                label.textContent = "● ENABLED";
-                label.className = "state-label state-enabled";
-            } else {
-                label.textContent = "○ DISABLED";
-                label.className = "state-label state-disabled";
+            const input = document.getElementById(`toggle-${moduleId}`);
+            if (label) {
+                label.textContent = enabled ? "● Enabled" : "○ Disabled";
+                label.className = enabled ? "state-label state-enabled" : "state-label state-disabled";
             }
+            if (input) input.setAttribute("aria-checked", enabled ? "true" : "false");
+        }
+
+        function updateActiveCount() {
+            const checkboxes = document.querySelectorAll(".module-toggle");
+            let active = 0;
+            checkboxes.forEach(cb => { if (cb.checked) active++; });
+            document.getElementById("metric-active").textContent = `${active} / ${checkboxes.length}`;
+        }
+
+        async function apiPost(url, body) {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": CSRF_TOKEN
+                },
+                credentials: "same-origin",
+                body: JSON.stringify(body)
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Request failed (${response.status})`);
+            }
+            return data;
+        }
+
+        async function onToggleChange(moduleId, isEnabled) {
+            if (pending.has(moduleId)) return;
+            pending.add(moduleId);
+            const card = document.getElementById(`card-${moduleId}`);
+            const input = document.getElementById(`toggle-${moduleId}`);
+            if (card) card.classList.add("busy");
+            setLabel(moduleId, isEnabled);
 
             try {
-                const response = await fetch("/api/toggle", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        guild_id: GUILD_ID,
-                        module: moduleId,
-                        enabled: isEnabled
-                    })
+                await apiPost("/api/toggle", {
+                    guild_id: GUILD_ID,
+                    module: moduleId,
+                    enabled: isEnabled
                 });
-
-                const data = await response.json();
-                if (data.success) {
-                    showToast(`${moduleId.toUpperCase()} ${isEnabled ? "enabled" : "disabled"} instantly (0ms delay)!`, "success");
-                    updateActiveCount();
-                } else {
-                    throw new Error(data.error || "Failed to update");
-                }
+                showToast(`${moduleId} ${isEnabled ? "enabled" : "disabled"}.`);
+                updateActiveCount();
             } catch (err) {
-                document.getElementById(`toggle-${moduleId}`).checked = !isEnabled;
-                label.textContent = !isEnabled ? "● ENABLED" : "○ DISABLED";
-                label.className = !isEnabled ? "state-label state-enabled" : "state-label state-disabled";
-                showToast(`Failed to update ${moduleId}: ${err.message}`, "error");
+                if (input) input.checked = !isEnabled;
+                setLabel(moduleId, !isEnabled);
+                showToast(`Could not update ${moduleId}: ${err.message}`, "error");
+            } finally {
+                pending.delete(moduleId);
+                if (card) card.classList.remove("busy");
             }
         }
 
         async function toggleAll(enable) {
-            if (!confirm(`Are you sure you want to ${enable ? "ENABLE" : "DISABLE"} all modules?`)) return;
+            const action = enable ? "enable" : "disable";
+            if (!window.confirm(`Are you sure you want to ${action} all modules for this server?`)) return;
+
+            const buttons = [document.getElementById("btn-enable-all"), document.getElementById("btn-disable-all")];
+            buttons.forEach(b => { if (b) b.disabled = true; });
 
             try {
-                const response = await fetch("/api/toggle-all", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        guild_id: GUILD_ID,
-                        enabled: enable
-                    })
+                await apiPost("/api/toggle-all", { guild_id: GUILD_ID, enabled: enable });
+                document.querySelectorAll(".module-toggle").forEach(cb => {
+                    cb.checked = enable;
+                    setLabel(cb.dataset.module, enable);
                 });
-
-                const data = await response.json();
-                if (data.success) {
-                    document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                        cb.checked = enable;
-                        const modId = cb.id.replace("toggle-", "");
-                        const label = document.getElementById(`label-${modId}`);
-                        if (label) {
-                            label.textContent = enable ? "● ENABLED" : "○ DISABLED";
-                            label.className = enable ? "state-label state-enabled" : "state-label state-disabled";
-                        }
-                    });
-                    updateActiveCount();
-                    showToast(`All modules ${enable ? "enabled" : "disabled"} with 0ms delay!`, "success");
-                }
+                updateActiveCount();
+                showToast(`All modules ${enable ? "enabled" : "disabled"}.`);
             } catch (err) {
-                showToast(`Failed bulk update: ${err.message}`, "error");
+                showToast(`Bulk update failed: ${err.message}`, "error");
+            } finally {
+                buttons.forEach(b => { if (b) b.disabled = false; });
             }
         }
 
-        function updateActiveCount() {
-            let active = 0;
-            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-            checkboxes.forEach(cb => { if (cb.checked) active++; });
-            document.getElementById("metric-active").textContent = `${active} / ${checkboxes.length}`;
-        }
+        document.querySelectorAll(".module-toggle").forEach(cb => {
+            cb.addEventListener("change", () => onToggleChange(cb.dataset.module, cb.checked));
+        });
+        document.getElementById("btn-enable-all").addEventListener("click", () => toggleAll(true));
+        document.getElementById("btn-disable-all").addEventListener("click", () => toggleAll(false));
     </script>
 </body>
 </html>

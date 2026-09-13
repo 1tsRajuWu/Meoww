@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import datetime
 import io
+from utils.style import Panel, send_panel, ACCENT, guild_icon, guild_banner, avatar_url
 
 TICKET_CATEGORIES = {
     "general": {
@@ -17,11 +18,11 @@ TICKET_CATEGORIES = {
         "slug": "report",
         "desc": "Report a member breaking rules, harassment, scamming, or toxicity"
     },
-    "cracking": {
-        "name": "Game Cracking",
-        "emoji": "🔓",
-        "slug": "cracking",
-        "desc": "Help with game cracking, installation errors, repacks, patches, or bypasses"
+    "technical": {
+        "name": "Technical / Setup Help",
+        "emoji": "🖥️",
+        "slug": "tech",
+        "desc": "Help with installs, launches, crashes, or other technical issues"
     },
     "trading": {
         "name": "Trading",
@@ -138,16 +139,7 @@ class TicketQuestionModal(discord.ui.Modal):
                 )
 
         # Specialized role access for custom categories
-        if self.category_key == "cracking":
-            cracker_role = discord.utils.get(guild.roles, name="Cracker")
-            if cracker_role:
-                overwrites[cracker_role] = discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    attach_files=True,
-                    read_message_history=True
-                )
-        elif self.category_key == "trading":
+        if self.category_key == "trading":
             trader_role = discord.utils.get(guild.roles, name="Non Profitable Trader") or discord.utils.get(guild.roles, name="Trader")
             if trader_role:
                 overwrites[trader_role] = discord.PermissionOverwrite(
@@ -177,7 +169,7 @@ class TicketQuestionModal(discord.ui.Modal):
         color_map = {
             "general": 0x5865F2,
             "report": 0xED4245,
-            "cracking": 0xE74C3C,
+            "technical": 0x1ABC9C,
             "trading": 0x3498DB,
             "games": 0x9B59B6,
             "economy": 0xF1C40F,
@@ -220,11 +212,7 @@ class TicketQuestionModal(discord.ui.Modal):
             r = discord.utils.get(guild.roles, name=role_name)
             if r:
                 staff_pings.append(r.mention)
-        if self.category_key == "cracking":
-            cr = discord.utils.get(guild.roles, name="Cracker")
-            if cr and cr.mention not in staff_pings:
-                staff_pings.append(cr.mention)
-        elif self.category_key == "trading":
+        if self.category_key == "trading":
             tr = discord.utils.get(guild.roles, name="Non Profitable Trader") or discord.utils.get(guild.roles, name="Trader")
             if tr and tr.mention not in staff_pings:
                 staff_pings.append(tr.mention)
@@ -267,18 +255,42 @@ class TicketCategorySelect(discord.ui.Select):
         await interaction.response.send_modal(modal)
 
 
-class TicketOpenView(discord.ui.View):
-    def __init__(self):
+class TicketOpenView(discord.ui.LayoutView):
+    def __init__(self, guild: discord.Guild | None = None):
         super().__init__(timeout=None)
-        self.add_item(TicketCategorySelect())
+        name = guild.name if guild else "Support"
+        cats = "\n".join(
+            f"- {info['emoji']} **{info['name']}** — {info['desc']}"
+            for info in TICKET_CATEGORIES.values()
+        )
+        heading = discord.ui.TextDisplay(
+            f"## {name} Help Desk\nPrivate tickets with staff. Pick a category or open a quick general ticket."
+        )
+        icon = guild_icon(guild)
+        parts = []
+        if icon:
+            parts.append(discord.ui.Section(heading, accessory=discord.ui.Thumbnail(icon)))
+        else:
+            parts.append(heading)
+        parts.append(discord.ui.TextDisplay(cats))
+        banner = guild_banner(guild)
+        if banner:
+            parts.append(discord.ui.MediaGallery(discord.MediaGalleryItem(banner)))
+        select_row = discord.ui.ActionRow()
+        select_row.add_item(TicketCategorySelect())
+        btn_row = discord.ui.ActionRow()
+        quick = discord.ui.Button(
+            label="Quick Ticket",
+            style=discord.ButtonStyle.primary,
+            custom_id="ticket_open_btn",
+            emoji="📩",
+        )
+        quick.callback = self.open_ticket
+        btn_row.add_item(quick)
+        parts.extend([select_row, btn_row, discord.ui.TextDisplay("-# Only you and staff can see your ticket")])
+        self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
 
-    @discord.ui.button(
-        label="Quick Ticket (General Support)",
-        style=discord.ButtonStyle.primary,
-        custom_id="ticket_open_btn",
-        emoji="📩"
-    )
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def open_ticket(self, interaction: discord.Interaction):
         modal = TicketQuestionModal(category_key="general")
         await interaction.response.send_modal(modal)
 
@@ -292,19 +304,20 @@ class TicketControlsView(discord.ui.View):
         # Check permissions
         is_staff = interaction.user.guild_permissions.manage_channels
         ch_topic = interaction.channel.topic or ""
-        is_creator = f"Author: {interaction.user.id}" in ch_topic or interaction.channel.name.endswith(interaction.user.name.lower()[:12])
+        is_creator = f"Author: {interaction.user.id}" in ch_topic
 
         if not (is_staff or is_creator):
             return await interaction.response.send_message("❌ Only staff or the ticket creator can close this ticket.", ephemeral=True)
 
-        embed = discord.Embed(
-            title="🔒 Closing Ticket",
-            description="This ticket has been marked as resolved and will automatically delete in **5 seconds**.\nThank you for contacting support!",
-            color=0xED4245,
-            timestamp=discord.utils.utcnow()
+        view = Panel(
+            title="Closing ticket",
+            body=f"Marked resolved by {interaction.user.mention}. This channel deletes in **5 seconds**.",
+            accent=0xED4245,
+            thumbnail=avatar_url(interaction.user),
+            footer="Thanks for reaching out",
+            timeout=None,
         )
-        embed.set_footer(text=f"Closed by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_panel(interaction, view)
         await discord.utils.sleep_until(discord.utils.utcnow() + datetime.timedelta(seconds=5))
         try:
             await interaction.channel.delete()
@@ -324,13 +337,14 @@ class TicketControlsView(discord.ui.View):
         button.style = discord.ButtonStyle.secondary
         await interaction.response.edit_message(view=self)
 
-        embed = discord.Embed(
-            title="✋ Ticket Claimed",
-            description=f"{interaction.user.mention} has claimed this ticket and will be handling your request!",
-            color=0xF1C40F,
-            timestamp=discord.utils.utcnow()
+        view = Panel(
+            title="Ticket claimed",
+            body=f"{interaction.user.mention} is handling this request.",
+            accent=0xF1C40F,
+            thumbnail=avatar_url(interaction.user),
+            timeout=None,
         )
-        await interaction.followup.send(embed=embed)
+        await send_panel(interaction, view)
 
     @discord.ui.button(label="Transcript", style=discord.ButtonStyle.secondary, custom_id="ticket_transcript_btn", emoji="📜")
     async def transcript(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -380,32 +394,8 @@ class Tickets(commands.Cog):
     @ticket_group.command(name="setup", description="Post the modern category-based ticket creation panel in this channel.")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def ticket_setup(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        embed = discord.Embed(
-            title="📩 Support & Help Desk",
-            description=(
-                "Need help, want to ask a question, or have an incident or bug to report?\n"
-                "Select a category below or click **Quick Ticket** to open a **private support ticket**.\n\n"
-                "> ❓ **General Support:** Ask questions about the server, roles, or rules\n"
-                "> 🚨 **Report a Member:** Report a member, harassment, rule violation, or toxicity\n"
-                "> 🔓 **Game Cracking:** Help with game cracking, repacks, patches, and errors\n"
-                "> 🤝 **Trading:** In-game trades, item exchange, middleman, or market deals\n"
-                "> 🎮 **Games:** Game recommendations, gameplay assistance, and requests\n"
-                "> 💰 **Economy Support:** Assistance with balances, coins, or shop purchases\n"
-                "> 🛠️ **Bug Reports:** Report bot glitches, errors, or technical bugs\n"
-                "> 💡 **Suggestions:** Share feedback and ideas to improve the server\n\n"
-                "🔒 *Your ticket is completely private between you and the server staff.*"
-            ),
-            color=0x2B2D31,
-            timestamp=discord.utils.utcnow()
-        )
-        if guild.icon:
-            embed.set_thumbnail(url=guild.icon.url)
-        embed.set_author(name=f"{guild.name} • Help Desk", icon_url=guild.icon.url if guild.icon else guild.me.display_avatar.url)
-        embed.set_footer(text="🐾 Select a category from the dropdown to explain your problem", icon_url=guild.me.display_avatar.url)
-
-        await interaction.channel.send(embed=embed, view=TicketOpenView())
-        await interaction.response.send_message("✅ Support ticket panel successfully created!", ephemeral=True)
+        await send_panel(interaction.channel, TicketOpenView(interaction.guild))
+        await interaction.response.send_message("✅ Support ticket panel posted.", ephemeral=True)
 
     @ticket_group.command(name="add", description="Add a user to the current ticket.")
     @app_commands.describe(member="The member to add")
