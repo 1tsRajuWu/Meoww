@@ -9,6 +9,7 @@ import yt_dlp
 import imageio_ffmpeg
 import random
 import datetime
+import difflib
 from utils import db
 from utils.style import send_card
 from utils.spotify import is_spotify_url, resolve_spotify
@@ -53,10 +54,22 @@ YTDL_OPTIONS = {
     "source_address": "0.0.0.0",
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "ios", "tv"],
+            "player_client": ["tv", "android", "ios"],
             "player_skip": ["webpage", "configs"]
         }
     }
+}
+
+# Flat options: fetch only metadata (title/duration/webpage_url), no stream URL extraction — very fast (~2s)
+YTDL_FLAT_OPTIONS = {
+    "noplaylist": True,
+    "nocheckcertificate": True,
+    "ignoreerrors": True,
+    "logtostderr": False,
+    "quiet": True,
+    "no_warnings": True,
+    "extract_flat": "in_playlist",
+    "source_address": "0.0.0.0",
 }
 
 # -----------------------------------------------------------------------------
@@ -291,14 +304,18 @@ class GuildMusicPlayer:
     async def _resolve_stream_url(self, track: Track) -> str | None:
         loop = asyncio.get_running_loop()
 
+        def _title_similarity(a: str, b: str) -> float:
+            return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
         def extract():
-            opts = dict(YTDL_OPTIONS)
             target = track.webpage_url or track.title
             expected_sec = track.duration or 0
+            search_term = track.title
 
             # 1. Direct URL check (YouTube, SoundCloud, direct audio)
             if target and (target.startswith("http://") or target.startswith("https://")):
                 if not ("spotify.com" in target or "spotify.link" in target):
+                    opts = dict(YTDL_OPTIONS)
                     opts["default_search"] = "auto"
                     with yt_dlp.YoutubeDL(opts) as ytdl:
                         try:
@@ -308,51 +325,61 @@ class GuildMusicPlayer:
                             return info.get("url")
                         except Exception as e:
                             print(f"[MUSIC] Direct URL extraction failed for '{target}': {e}", flush=True)
-
-            # 2. Intelligent Waterfall Search across YouTube & SoundCloud
-            search_term = track.title
-            if target and not (target.startswith("http://") or target.startswith("https://")):
+            elif target and not (target.startswith("http://") or target.startswith("https://")):
                 search_term = target
 
-            providers = ["ytsearch5:", "scsearch5:"]
-            for prefix in providers:
+            # 2. Two-phase search: Phase 1 = flat metadata only (fast ~2s), Phase 2 = single stream extract (~3s)
+            flat_opts = dict(YTDL_FLAT_OPTIONS)
+            stream_opts = dict(YTDL_OPTIONS)
+            stream_opts["default_search"] = "auto"
+
+            for prefix in ["ytsearch5:", "scsearch5:"]:
                 search_query = f"{prefix}{search_term}"
-                with yt_dlp.YoutubeDL(opts) as ytdl:
-                    try:
-                        info = ytdl.extract_info(search_query, download=False)
-                        entries = info.get("entries") or ([info] if info.get("url") else [])
-                        if not entries:
-                            continue
+                try:
+                    # Phase 1: get candidates with title/duration only (no stream URL)
+                    with yt_dlp.YoutubeDL(flat_opts) as ytdl:
+                        flat_info = ytdl.extract_info(search_query, download=False)
+                    entries = flat_info.get("entries") or []
+                    entries = [e for e in entries if e]
+                    if not entries:
+                        continue
 
-                        # Duration matching: If expected duration > 60s, avoid teaser/preview clips (< 60s)
-                        if expected_sec > 60:
-                            candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 60]
-                            if candidates:
-                                candidates.sort(key=lambda e: abs(e.get("duration") - expected_sec))
-                                best = candidates[0]
-                                if best.get("webpage_url"):
-                                    track.webpage_url = best.get("webpage_url")
-                                return best.get("url")
+                    # Score each candidate: duration match + title similarity
+                    def score(e):
+                        dur = e.get("duration") or 0
+                        title = e.get("title") or ""
+                        dur_score = abs(dur - expected_sec) if expected_sec > 0 else 0
+                        sim_score = _title_similarity(search_term, title)
+                        # Penalise clips shorter than 60s when we expect a full track
+                        short_penalty = 3600 if (expected_sec > 60 and dur > 0 and dur < 60) else 0
+                        return (dur_score + short_penalty, -sim_score)  # (lower dur_score, higher sim = better)
 
-                        # General filter: avoid < 50s clips if longer candidates exist
-                        long_candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 50]
-                        if long_candidates:
-                            best = long_candidates[0]
-                            if best.get("webpage_url"):
-                                track.webpage_url = best.get("webpage_url")
-                            return best.get("url")
+                    candidates = sorted(entries, key=score)
+                    best_meta = candidates[0]
+                    best_url = best_meta.get("url") or best_meta.get("webpage_url")
+                    if not best_url:
+                        continue
 
-                        if entries and entries[0]:
-                            best = entries[0]
-                            if best.get("webpage_url"):
-                                track.webpage_url = best.get("webpage_url")
-                            return best.get("url")
-                    except Exception as e:
-                        print(f"[MUSIC] Waterfall search failed for '{search_query}': {e}", flush=True)
+                    print(f"[MUSIC] Phase-1 winner: '{best_meta.get('title')}' (dur={best_meta.get('duration')}s) for '{search_term}'", flush=True)
+
+                    # Phase 2: extract stream URL for just this one result
+                    with yt_dlp.YoutubeDL(stream_opts) as ytdl:
+                        stream_info = ytdl.extract_info(best_url, download=False)
+                    if stream_info:
+                        if "entries" in stream_info and stream_info["entries"]:
+                            stream_info = stream_info["entries"][0]
+                        stream_url = stream_info.get("url")
+                        if stream_url:
+                            if stream_info.get("webpage_url"):
+                                track.webpage_url = stream_info["webpage_url"]
+                            return stream_url
+                except Exception as e:
+                    print(f"[MUSIC] 2-phase search failed for '{search_query}': {e}", flush=True)
 
             return None
 
         return await loop.run_in_executor(None, extract)
+
 
     async def play_next(self, error=None):
         async with self._play_lock:
@@ -903,8 +930,9 @@ class Music(commands.Cog):
                 spotify_queued_count = len(spotify_tracks) - 1
 
         def extract():
-            opts = dict(YTDL_OPTIONS)
+            # --- Direct URL path (YouTube link, SoundCloud link, audio URL) ---
             if search_target.startswith("http://") or search_target.startswith("https://"):
+                opts = dict(YTDL_OPTIONS)
                 opts["default_search"] = "auto"
                 with yt_dlp.YoutubeDL(opts) as ytdl:
                     try:
@@ -916,41 +944,63 @@ class Music(commands.Cog):
                         print(f"[MUSIC] Direct URL extraction error: {e}", flush=True)
                         return None
 
+            # --- Search path: 2-phase for speed + accuracy ---
             expected_sec = int(spotify_first.get("duration_ms", 0) / 1000) if spotify_first else 0
+            flat_opts = dict(YTDL_FLAT_OPTIONS)
+            stream_opts = dict(YTDL_OPTIONS)
+            stream_opts["default_search"] = "auto"
 
-            # Prioritize YouTube for full official audio; fallback to SoundCloud
-            providers = ["ytsearch5:", "scsearch5:"]
-            for prefix in providers:
+            def _title_sim(a: str, b: str) -> float:
+                return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+            for prefix in ["ytsearch5:", "scsearch5:"]:
                 search_query = f"{prefix}{search_target}"
-                with yt_dlp.YoutubeDL(opts) as ytdl:
-                    try:
-                        info = ytdl.extract_info(search_query, download=False)
-                        entries = info.get("entries") or ([info] if info.get("url") else [])
-                        if not entries:
-                            continue
+                try:
+                    # Phase 1: fast flat metadata fetch — no stream resolution (~2s)
+                    with yt_dlp.YoutubeDL(flat_opts) as ytdl:
+                        flat_info = ytdl.extract_info(search_query, download=False)
+                    entries = [e for e in (flat_info.get("entries") or []) if e]
+                    if not entries:
+                        continue
 
-                        # If expected duration is known (> 60s), reject short clips (< 60s) and find closest duration
-                        if expected_sec > 60:
-                            candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 60]
-                            if candidates:
-                                candidates.sort(key=lambda e: abs(e.get("duration") - expected_sec))
-                                return candidates[0]
+                    # Score: (duration distance + short-clip penalty, -title similarity)
+                    def score(e):
+                        dur = e.get("duration") or 0
+                        title = e.get("title") or ""
+                        dur_score = abs(dur - expected_sec) if expected_sec > 0 else 0
+                        sim = _title_sim(search_target, title)
+                        short_penalty = 3600 if (expected_sec > 60 and 0 < dur < 60) else 0
+                        return (dur_score + short_penalty, -sim)
 
-                        # For any general song search, avoid short snippet clips (< 50s) if longer full tracks exist
-                        long_candidates = [e for e in entries if e and e.get("duration") and e.get("duration") >= 50]
-                        if long_candidates:
-                            return long_candidates[0]
+                    best_meta = sorted(entries, key=score)[0]
+                    candidate_url = best_meta.get("url") or best_meta.get("webpage_url")
+                    if not candidate_url:
+                        continue
 
-                        if entries and entries[0]:
-                            return entries[0]
-                    except Exception as e:
-                        print(f"[MUSIC] Error searching '{search_query}': {e}", flush=True)
+                    print(
+                        f"[MUSIC] Phase-1 pick: '{best_meta.get('title')}' "
+                        f"dur={best_meta.get('duration')}s sim={_title_sim(search_target, best_meta.get('title','')):.2f} "
+                        f"for query='{search_target}'",
+                        flush=True
+                    )
+
+                    # Phase 2: extract stream URL for just the winner (~3s)
+                    with yt_dlp.YoutubeDL(stream_opts) as ytdl:
+                        stream_info = ytdl.extract_info(candidate_url, download=False)
+                    if stream_info:
+                        if "entries" in stream_info and stream_info["entries"]:
+                            stream_info = stream_info["entries"][0]
+                        if stream_info and stream_info.get("url"):
+                            return stream_info
+                except Exception as e:
+                    print(f"[MUSIC] 2-phase search error for '{search_query}': {e}", flush=True)
 
             return None
 
         data = await loop.run_in_executor(None, extract)
         if not data or not data.get("url"):
             return await interaction.followup.send("❌ Could not find or stream that track. Try a different title or direct link!", ephemeral=True)
+
 
         track_title = (f"{spotify_first['title']} - {spotify_first['artist']}" if spotify_first else data.get("title", query))[:90]
         track_url = data.get("url")
