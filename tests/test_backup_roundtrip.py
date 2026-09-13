@@ -3,8 +3,8 @@
 The bot restores bot.db from the cloud Gist before it starts, so if that path
 breaks, every rank, balance and warning is gone on the next deploy. These tests
 run a real SQLite file through the real code with a fake Gist standing in for
-GitHub, covering the plaintext format, the encrypted format, the upgrade from
-one to the other, and every way the restore can go wrong."""
+GitHub, covering the encrypted format, the legacy plaintext format, the upgrade
+from one to the other, and every way the restore can go wrong."""
 import asyncio
 import base64
 import json
@@ -40,6 +40,45 @@ class FakeResponse:
 
     def __exit__(self, *exc):
         return False
+
+
+class UnreachableGist:
+    """A Gist that cannot be read at all — a DNS blip, an expired token."""
+
+    def __init__(self, *args, **kwargs):
+        self.files: dict[str, str] = {}
+        self.patches = 0
+
+    @property
+    def names(self) -> set[str]:
+        return set()
+
+    def urlopen(self, req, timeout=None):
+        raise OSError("the Gist API is unreachable")
+
+
+class RejectingGist:
+    """A Gist whose writes are always refused (rate limit, read-only token)."""
+
+    def __init__(self, files: dict[str, str] | None = None, public: bool = False):
+        self.files = dict(files or {})
+        self.public = public
+        self.patches = 0
+
+    @property
+    def names(self) -> set[str]:
+        return set(self.files)
+
+    def urlopen(self, req, timeout=None):
+        method = (getattr(req, "method", None) or "GET").upper()
+        if method == "PATCH":
+            self.patches += 1
+            return FakeResponse(b'{"message":"rate limited"}', status=429)
+        body = json.dumps({
+            "public": self.public,
+            "files": {name: {"content": content} for name, content in self.files.items()},
+        }).encode("utf-8")
+        return FakeResponse(body)
 
 
 class FakeGist:
@@ -101,6 +140,8 @@ class BackupRoundTripCase(TempDatabaseMixin, unittest.TestCase):
         cs._last_sync_hash = None
         cs._last_snapshot_ts = 0.0
         cs._remote_checked = False
+        cs._restore_blocked_reason = None
+        cs._warned.clear()
 
     def _seed(self):
         conn = db.connect()
@@ -164,16 +205,38 @@ class BackupRoundTripCase(TempDatabaseMixin, unittest.TestCase):
         return cs.encryption_key()
 
     # -- the core promise: a redeploy keeps everyone's progress ----------- #
-    def test_plaintext_backup_survives_a_redeploy(self):
+    def test_backup_is_encrypted_even_without_a_configured_key(self):
+        """The whole point: nobody has to opt in for the Gist to be unreadable.
+
+        No BACKUP_ENCRYPTION_KEY is set here (setUp pops it), so this is exactly
+        the deployment that used to upload the database as plaintext.
+        """
+        self.assertIsNone(cs.explicit_encryption_key())
         gist = self._use(FakeGist())
         self.assertTrue(cs.backup_to_cloud_sync())
-        self.assertIn("bot.db.b64", gist.names)
+        self.assertIn("bot.db.enc", gist.names)
+        self.assertNotIn("bot.db.b64", gist.names, "the database was uploaded in plaintext")
 
         self._wipe_local_db()
         self.assertIsNone(self._read_back()[0], "precondition: local DB should be empty")
 
         self.assertTrue(cs.restore_from_cloud())
         self._assert_progress_intact()
+
+    def test_legacy_plaintext_backup_still_restores_and_is_then_retired(self):
+        """The upgrade path for a Gist that only holds the old plaintext file."""
+        payload = base64.b64encode(cs.snapshot_db_bytes()).decode()
+        gist = self._use(FakeGist({"bot.db.b64": payload}))
+
+        self._wipe_local_db()
+        self.assertTrue(cs.restore_from_cloud(), "legacy plaintext backup failed to restore")
+        self._assert_progress_intact()
+
+        # The next upload is encrypted and removes the readable copy.
+        self._reset_module_state()
+        self.assertTrue(cs.backup_to_cloud_sync())
+        self.assertIn("bot.db.enc", gist.names)
+        self.assertNotIn("bot.db.b64", gist.names, "the plaintext backup was left behind")
 
     def test_encrypted_backup_survives_a_redeploy(self):
         self._set_key()
@@ -186,24 +249,28 @@ class BackupRoundTripCase(TempDatabaseMixin, unittest.TestCase):
         self.assertTrue(cs.restore_from_cloud())
         self._assert_progress_intact()
 
-    def test_enabling_encryption_does_not_strand_the_old_plaintext_backup(self):
-        """The upgrade path: an existing plaintext Gist must still restore."""
-        gist = self._use(FakeGist())
-        self.assertTrue(cs.backup_to_cloud_sync())
-        self.assertIn("bot.db.b64", gist.names)
+    def test_turning_on_a_dedicated_key_does_not_strand_existing_snapshots(self):
+        """Snapshots already written with the derived key must keep restoring.
 
-        # Operator now adds a key and redeploys.
+        Otherwise adding BACKUP_ENCRYPTION_KEY later would quietly make every
+        backup taken before it unrecoverable.
+        """
+        gist = self._use(FakeGist())
+        uploaded = cs.snapshot_db_bytes()
+        self.assertTrue(cs.backup_to_cloud_sync())
+        self.assertIn("bot.db.enc", gist.names)
+        before = gist.files["bot.db.enc"]
+
+        # The operator now adds a dedicated key and redeploys.
         self._set_key()
         self._wipe_local_db()
 
-        self.assertTrue(cs.restore_from_cloud(), "legacy plaintext backup failed to restore")
+        self.assertTrue(cs.restore_from_cloud(), "a snapshot written with the derived key failed")
         self._assert_progress_intact()
-
-        # The next upload is encrypted and retires the plaintext copy.
-        self._reset_module_state()
-        self.assertTrue(cs.backup_to_cloud_sync())
-        self.assertIn("bot.db.enc", gist.names)
-        self.assertNotIn("bot.db.b64", gist.names)
+        # The new key must be able to read the old file too.
+        self.assertEqual(
+            cs._decode_candidate("bot.db.enc", before, cs.decryption_keys()), uploaded
+        )
 
     def test_bot_startup_order_restore_then_migrations_keeps_progress(self):
         """bot.main() restores first, then on_ready runs db.setup() migrations.
@@ -257,28 +324,81 @@ class BackupRoundTripCase(TempDatabaseMixin, unittest.TestCase):
         self.assertFalse(cs.restore_from_cloud())
         self._assert_progress_intact()
 
-    def test_restore_refuses_encrypted_backup_without_the_key(self):
-        key = self._set_key()
-        with open(db.DB_PATH, "rb") as f:
-            seed_bytes = f.read()
-        encrypted = base64.b64encode(cs.encrypt_bytes(seed_bytes, key)).decode()
-        os.environ.pop("BACKUP_ENCRYPTION_KEY", None)
+    def test_a_backup_written_with_an_unavailable_key_is_preserved(self):
+        """Changing the key must not silently destroy the only good backup.
 
-        self._use(FakeGist({"bot.db.enc": encrypted}))
-        self._wipe_local_db()
-        self.assertFalse(cs.restore_from_cloud())
-
-    def test_upload_refuses_to_clobber_encrypted_backups_when_key_is_missing(self):
-        """A missing env var must not overwrite readable backups with plaintext."""
-        encrypted = base64.b64encode(
-            cs.encrypt_bytes(b"SQLite format 3\x00" + b"\x00" * 64, self._set_key())
-        ).decode()
+        The wrong key means the restore cannot read the snapshot; the upload path
+        must then refuse to replace it, because that file may be the only copy of
+        everyone's progress left in the world.
+        """
+        seed_bytes = cs.snapshot_db_bytes()
+        old_key = base64.b64decode(cs.generate_key())
+        encrypted = base64.b64encode(cs.encrypt_bytes(seed_bytes, old_key)).decode()
+        os.environ["BACKUP_ENCRYPTION_KEY"] = cs.generate_key()  # a different, valid key
         gist = self._use(FakeGist({"bot.db.enc": encrypted}))
-        os.environ.pop("BACKUP_ENCRYPTION_KEY", None)
 
+        self._wipe_local_db()
+        self.assertFalse(cs.restore_from_cloud(), "restored with the wrong key")
+        self.assertIsNotNone(cs.restore_blocked_reason(), "the key mismatch went unrecorded")
+
+        before = dict(gist.files)
         self.assertFalse(cs.backup_to_cloud_sync())
         self.assertEqual(gist.patches, 0, "a refused upload must not call the API")
-        self.assertEqual(gist.names, {"bot.db.enc"}, "the encrypted backup was touched")
+        self.assertEqual(gist.files, before, "the unreadable backup was overwritten")
+
+    def test_a_failed_boot_restore_does_not_upload_over_the_backup(self):
+        """The nastiest data-loss path: the restore fails, the bot keeps running.
+
+        Anything earned after a failed restore makes the empty-database guard stop
+        applying, and the old code would then upload that partial database over a
+        backup holding everyone's real progress.
+        """
+        gist = self._use(FakeGist())
+        self.assertTrue(cs.backup_to_cloud_sync())
+        good_backup = dict(gist.files)
+
+        # A redeploy whose restore cannot reach GitHub at all.
+        self._wipe_local_db()
+        with mock.patch.object(cs.urllib.request, "urlopen", UnreachableGist().urlopen):
+            self.assertFalse(cs.restore_from_cloud())
+        self.assertIsNotNone(cs.restore_blocked_reason())
+
+        # Activity happens, so the database is no longer "empty"...
+        self._seed()
+        self.assertFalse(cs._db_looks_empty())
+
+        # ...and the upload still must not fire.
+        cs._remote_checked = True  # as if a later read had succeeded
+        self.assertFalse(cs.backup_to_cloud_sync())
+        self.assertEqual(gist.patches, 1, "only the setup upload was expected")
+        self.assertEqual(gist.files, good_backup, "the good backup was overwritten")
+
+    def test_upload_defers_until_the_remote_has_been_read_once(self):
+        """Writing to a Gist we could not read could replace a backup blindly."""
+        gist = self._use(FakeGist())
+        with mock.patch.object(cs.urllib.request, "urlopen", UnreachableGist().urlopen):
+            self.assertFalse(cs.backup_to_cloud_sync())
+        self.assertEqual(gist.patches, 0, "wrote to an unread Gist")
+        self.assertFalse(cs._remote_checked)
+
+        # The outage ends: the very next cycle uploads normally.
+        self.assertTrue(cs.backup_to_cloud_sync())
+        self.assertEqual(gist.patches, 1)
+
+    def test_failed_upload_is_retried_instead_of_being_marked_done(self):
+        """A refused PATCH must not record the database as already uploaded."""
+        gist = self._use(RejectingGist())
+        cs._last_snapshot_ts = 0.0
+        self.assertFalse(cs.backup_to_cloud_sync())
+        self.assertEqual(gist.patches, 1, "precondition: the write was attempted")
+        self.assertIsNone(cs._last_sync_hash)
+        self.assertEqual(cs._last_snapshot_ts, 0.0, "a snapshot that was never stored was claimed")
+
+        # Once the Gist accepts writes again, the same data goes up.
+        healthy = self._use(FakeGist())
+        self.assertTrue(cs.backup_to_cloud_sync())
+        self.assertIn("bot.db.enc", healthy.names)
+        self.assertTrue([n for n in healthy.names if n.startswith("bot-db-")])
 
     def test_upload_refuses_to_replace_a_backup_with_an_empty_database(self):
         """The signature of a failed restore: everything empty, backup present."""
@@ -320,6 +440,18 @@ class BackupRoundTripCase(TempDatabaseMixin, unittest.TestCase):
         self.assertFalse(cs.backup_to_cloud_sync())
         self.assertEqual(gist.patches, 0)
         self._assert_progress_intact()
+
+    def test_concurrent_uploads_do_not_interleave(self):
+        """The dashboard's on-demand backup must not race the periodic loop."""
+        gist = self._use(FakeGist())
+        self.assertTrue(cs._upload_lock.acquire(blocking=False))
+        try:
+            self.assertFalse(cs.backup_to_cloud_sync(), "two uploads ran at once")
+            self.assertEqual(gist.patches, 0)
+        finally:
+            cs._upload_lock.release()
+        self.assertTrue(cs.backup_to_cloud_sync(), "the lock was not released")
+        self.assertEqual(gist.patches, 1)
 
     def test_change_detection_skips_redundant_uploads(self):
         gist = self._use(FakeGist())
