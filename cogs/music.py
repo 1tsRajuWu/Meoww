@@ -390,9 +390,8 @@ class GuildMusicPlayer:
                 search_term = target
 
             # 2. Two-phase search: Phase 1 flat (~2s) → pick best → Phase 2 stream extract (~3s)
-            prefixes = ["ytsearch5:", "scsearch5:"]
-            if search_term.startswith("ytsearch") or spotify_first:
-                prefixes = ["ytsearch5:"]  # DO NOT fallback to SoundCloud for Spotify or explicit YouTube queries to prevent 'Wrong Song' bug
+            # DO NOT fallback to SoundCloud unless explicitly requested to prevent 'Wrong Song' bug
+            prefixes = ["scsearch5:"] if search_term.startswith("scsearch") else ["ytsearch5:"]
             
             for prefix in prefixes:
                 search_query = f"{prefix}{search_term}"
@@ -433,7 +432,7 @@ class GuildMusicPlayer:
                         return stream_url
                 except Exception as e:
                     print(f"[MUSIC] 2-phase search failed for '{search_query}': {e}", flush=True)
-                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e):
+                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e) or "bot" in str(e).lower():
                         raise Exception("YouTube blocked the server (Bot Detection/429 Too Many Requests). Please try again later or provide a direct SoundCloud link.")
 
             return None
@@ -1095,9 +1094,8 @@ class Music(commands.Cog):
                 final_score = dur_score + short_penalty - sim_score - word_match_bonus - bonus
                 return final_score
 
-            prefixes = ["ytsearch5:", "scsearch5:"]
-            if search_target.startswith("ytsearch") or spotify_first:
-                prefixes = ["ytsearch5:"]
+            # DO NOT fallback to SoundCloud unless explicitly requested to prevent 'Wrong Song' bug
+            prefixes = ["scsearch5:"] if search_target.startswith("scsearch") else ["ytsearch5:"]
                 
             for prefix in prefixes:
                 search_query = f"{prefix}{search_target}"
@@ -1134,7 +1132,7 @@ class Music(commands.Cog):
                         return stream_info
                 except Exception as e:
                     print(f"[MUSIC] 2-phase search error for '{search_query}': {e}", flush=True)
-                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e):
+                    if "429" in str(e) or "Too Many Requests" in str(e) or "Sign in" in str(e) or "bot" in str(e).lower():
                         raise Exception("YouTube blocked the server (Bot Detection/429 Too Many Requests). Please try again later or provide a direct SoundCloud link.")
 
             return None
