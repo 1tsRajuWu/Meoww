@@ -30,8 +30,8 @@ INITIAL_COGS = [
     "cogs.moderation",
     "cogs.tickets",
     "cogs.server_control",
-    # "cogs.welcome",        # DISABLED by user
-    # "cogs.reaction_roles", # DISABLED by user
+    "cogs.welcome",
+    "cogs.reaction_roles",
     "cogs.automod",
     "cogs.help",
     "cogs.legal",
@@ -41,10 +41,10 @@ INITIAL_COGS = [
     "cogs.fun",
     "cogs.social",
     "cogs.leveling",
-    # "cogs.music",          # DISABLED by user
-    # "cogs.giveaway",       # DISABLED by user
-    # "cogs.colors",         # DISABLED by user
-    # "cogs.tempvoice",      # DISABLED by user
+    "cogs.music",
+    "cogs.giveaway",
+    "cogs.colors",
+    "cogs.tempvoice",
     "cogs.starboard",
 ]
 
