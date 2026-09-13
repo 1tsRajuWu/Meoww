@@ -13,6 +13,7 @@ import difflib
 from utils import db
 from utils.style import send_card
 from utils.spotify import is_spotify_url, resolve_spotify
+from utils.card import generate_now_playing_card
 
 # -----------------------------------------------------------------------------
 # Audio & FFmpeg Configuration
@@ -1155,46 +1156,57 @@ class Music(commands.Cog):
 
         if not is_currently_playing:
             await player.play_next()
-            src_tag = "Spotify" if spotify_first else "YouTube"
-            src_emoji = "🟢" if spotify_first else "🔴"
-            embed = discord.Embed(
-                title="▶️  Now Playing",
-                description=f"**[{track.title}]({track.webpage_url})**",
-                color=0x1DB954 if spotify_first else 0x5865F2,
-                timestamp=discord.utils.utcnow()
+            
+            # Extract artist and title for the card
+            t_parts = track.title.split(" - ", 1)
+            if len(t_parts) == 2:
+                artist, title_only = t_parts[0], t_parts[1]
+            else:
+                artist, title_only = "Unknown Artist", track.title
+
+            card_buf = await generate_now_playing_card(
+                title=title_only,
+                artist=artist,
+                duration_str=format_duration(track.duration),
+                requester=interaction.user.display_name,
+                thumbnail_url=track.thumbnail or ""
             )
-            embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.duration)}`", inline=True)
-            embed.add_field(name="👤 Requested by", value=interaction.user.mention, inline=True)
-            embed.add_field(name=f"{src_emoji} Source", value=src_tag, inline=True)
+            
+            embed = discord.Embed(color=0x1DB954 if spotify_first else 0x5865F2)
+            embed.set_image(url="attachment://now_playing.png")
             if track.actual_title:
-                embed.add_field(name="🔍 Audio Match", value=f"`{track.actual_title[:35]}`", inline=True)
-            embed.add_field(name="🔊 Channel", value=vc.channel.mention, inline=True)
-            embed.add_field(name="🎛️ Filter", value=AUDIO_FILTERS.get(player.current_filter, AUDIO_FILTERS["normal"])["name"], inline=True)
+                embed.add_field(name="🔍 Audio Match", value=f"[{track.actual_title[:45]}]({track.webpage_url})", inline=True)
             if spotify_queued_count > 0:
                 embed.add_field(name="💿 Playlist", value=f"+{spotify_queued_count} more queued", inline=True)
-            if track.thumbnail:
-                embed.set_thumbnail(url=track.thumbnail)
-            embed.set_footer(text="Meow • Use the buttons below to control playback")
+                
             view = MusicControlsView(player)
-            await interaction.edit_original_response(content=None, embed=embed, view=view)
+            await interaction.edit_original_response(
+                content=None, 
+                embed=embed, 
+                view=view,
+                attachments=[discord.File(card_buf, "now_playing.png")]
+            )
         else:
             q_pos = len(player.queue)
-            embed = discord.Embed(
-                title="✅  Added to Queue",
-                description=f"**[{track.title}]({track.webpage_url})**",
-                color=0x1DB954 if spotify_first else 0x57F287,
-                timestamp=discord.utils.utcnow()
+            t_parts = track.title.split(" - ", 1)
+            title_only = t_parts[1] if len(t_parts) == 2 else track.title
+            
+            embed = discord.Embed(color=0x1DB954 if spotify_first else 0x57F287)
+            embed.set_author(name="Track Added to Queue")
+            
+            desc = (
+                f"**Track:** [{title_only}]({track.webpage_url})\n"
+                f"**Requested by:** {interaction.user.mention}\n"
+                f"**Duration:** {format_duration(track.duration)}\n"
+                f"**Position:** #{q_pos}"
             )
-            embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.duration)}`", inline=True)
-            embed.add_field(name="🔢 Position", value=f"#{q_pos} in queue", inline=True)
-            embed.add_field(name="👤 Requested by", value=interaction.user.mention, inline=True)
             if track.actual_title:
-                embed.add_field(name="🔍 Audio Match", value=f"`{track.actual_title[:35]}`", inline=True)
-            if spotify_queued_count > 0:
-                embed.add_field(name="💿 Playlist", value=f"+{spotify_queued_count} more queued", inline=False)
+                desc += f"\n**Audio Match:** `{track.actual_title[:35]}`"
+            
+            embed.description = desc
             if track.thumbnail:
                 embed.set_thumbnail(url=track.thumbnail)
-            embed.set_footer(text=f"Meow • {len(player.queue)} track(s) in queue")
+                
             await interaction.edit_original_response(content=None, embed=embed, view=None)
 
 
@@ -1334,27 +1346,41 @@ class Music(commands.Cog):
                 ephemeral=True
             )
 
+        await interaction.response.defer()
         cur = player.current
         filter_cfg = AUDIO_FILTERS.get(player.current_filter, AUDIO_FILTERS["normal"])
-        embed = discord.Embed(
-            title="▶️  Now Playing",
-            description=f"**[{cur.title}]({cur.webpage_url or ''})**",
-            color=0x5865F2,
-            timestamp=discord.utils.utcnow()
+        
+        # Extract artist and title for the card
+        t_parts = cur.title.split(" - ", 1)
+        if len(t_parts) == 2:
+            artist, title_only = t_parts[0], t_parts[1]
+        else:
+            artist, title_only = "Unknown Artist", cur.title
+
+        card_buf = await generate_now_playing_card(
+            title=title_only,
+            artist=artist,
+            duration_str=format_duration(cur.duration),
+            requester=cur.requester,
+            thumbnail_url=cur.thumbnail or ""
         )
-        embed.add_field(name="⏱️ Duration", value=f"`{format_duration(cur.duration)}`", inline=True)
-        embed.add_field(name="👤 Requested by", value=f"`{cur.requester}`", inline=True)
+
+        embed = discord.Embed(color=0x5865F2)
+        embed.set_image(url="attachment://now_playing.png")
+        
         if cur.actual_title:
-            embed.add_field(name="🔍 Audio Match", value=f"`{cur.actual_title[:35]}`", inline=True)
+            embed.add_field(name="🔍 Audio Match", value=f"[{cur.actual_title[:45]}]({cur.webpage_url})", inline=False)
+            
         embed.add_field(name="🔊 Volume", value=f"`{int(player.volume * 100)}%`", inline=True)
         embed.add_field(name=f"{filter_cfg['emoji']} Filter", value=filter_cfg["name"], inline=True)
         embed.add_field(name="👑 24/7 Mode", value="`ON`" if player.is_247 else "`OFF`", inline=True)
-        embed.add_field(name="🎵 Quality", value=f"`{player.bitrate_kbps} kbps`", inline=True)
-        if cur.thumbnail:
-            embed.set_thumbnail(url=cur.thumbnail)
-        embed.set_footer(text="Meow • Use buttons below to control")
+        
         view = MusicControlsView(player)
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(
+            embed=embed, 
+            view=view,
+            file=discord.File(card_buf, "now_playing.png")
+        )
 
     @app_commands.command(name="volume", description="Set playback volume (1% to 150%).")
     @app_commands.describe(percent="Volume percentage between 1 and 150")
