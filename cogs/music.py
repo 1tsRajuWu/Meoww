@@ -746,7 +746,7 @@ class Music(commands.Cog):
     async def _ensure_voice(self, interaction: discord.Interaction) -> discord.VoiceClient | None:
         """Connects to the user's voice channel or moves to it reliably."""
         if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.followup.send("❌ You must join a voice channel first to use music!", ephemeral=True)
+            await interaction.edit_original_response(content="❌ You must join a voice channel first to use music!", embed=None, view=None)
             return None
 
         target_channel = interaction.user.voice.channel
@@ -764,13 +764,13 @@ class Music(commands.Cog):
             try:
                 vc = await target_channel.connect(timeout=20.0, reconnect=True)
             except Exception as e:
-                await interaction.followup.send(f"❌ Failed to connect to voice: `{e}`", ephemeral=True)
+                await interaction.edit_original_response(content=f"❌ Failed to connect to voice: `{e}`", embed=None, view=None)
                 return None
         elif vc.channel.id != target_channel.id:
             try:
                 await vc.move_to(target_channel)
             except Exception as e:
-                await interaction.followup.send(f"❌ Failed to move to your voice channel: `{e}`", ephemeral=True)
+                await interaction.edit_original_response(content=f"❌ Failed to move to your voice channel: `{e}`", embed=None, view=None)
                 return None
 
         return vc
@@ -941,7 +941,7 @@ class Music(commands.Cog):
         app_commands.Choice(name="📻 Top 40 Pop Hits", value="pop"),
     ])
     async def radio(self, interaction: discord.Interaction, station: app_commands.Choice[str]):
-        await interaction.response.defer()
+        await interaction.response.send_message("📻 Tuning into radio station...")
         vc = await self._ensure_voice(interaction)
         if not vc:
             return
@@ -971,10 +971,10 @@ class Music(commands.Cog):
         await player.play_next()
 
         embed = discord.Embed(
-            title=f"{st_info["icon"]} 24/7 Radio Station Started",
+            title=f"{st_info['icon']} 24/7 Radio Station Started",
             description=(
-                f"### {st_info["name"]}\n"
-                f"{st_info["desc"]}\n\n"
+                f"### {st_info['name']}\n"
+                f"{st_info['desc']}\n\n"
                 f"> 🔊 **Voice Channel:** {vc.channel.mention}\n"
                 f"> 👤 **Started By:** {interaction.user.mention}\n"
                 f"> ⚡ **Uptime:** 24/7 Continuous Non-Stop Stream"
@@ -982,9 +982,9 @@ class Music(commands.Cog):
             color=st_info["color"],
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Server Radio • Click controls below to pause or stop")
+        embed.set_footer(text="Meow • Server Radio")
         view = MusicControlsView(player)
-        await interaction.followup.send(embed=embed, view=view)
+        await interaction.edit_original_response(content=None, embed=embed, view=view)
 
     # -------------------------------------------------------------------------
     # Full Voice Player: /play
@@ -993,7 +993,7 @@ class Music(commands.Cog):
     @app_commands.command(name="play", description="Play any song or stream from SoundCloud, YouTube, or audio link!")
     @app_commands.describe(query="Song title, artist name, or direct music link")
     async def play(self, interaction: discord.Interaction, query: str):
-        await interaction.response.defer()
+        await interaction.response.send_message(f"🔍 Searching for `{query[:60]}`...")
         vc = await self._ensure_voice(interaction)
         if not vc:
             return
@@ -1016,9 +1016,9 @@ class Music(commands.Cog):
         if is_spotify_url(query):
             entity_type, spotify_tracks = await loop.run_in_executor(None, resolve_spotify, query)
             if not spotify_tracks:
-                return await interaction.followup.send(
-                    "❌ Could not load Spotify metadata for that link. Please check that the track/playlist is public.",
-                    ephemeral=True
+                return await interaction.edit_original_response(
+                    content="❌ Could not load Spotify metadata for that link. Please check that the track/playlist is public.",
+                    embed=None, view=None
                 )
 
             spotify_first = spotify_tracks[0]
@@ -1124,7 +1124,9 @@ class Music(commands.Cog):
 
         data = await loop.run_in_executor(None, extract)
         if not data or not data.get("url"):
-            return await interaction.followup.send("❌ Could not find or stream that track. Try a different title or direct link!", ephemeral=True)
+            return await interaction.edit_original_response(
+                content="❌ Could not find or stream that track. Try a different title or direct link!", embed=None, view=None
+            )
 
         actual_title = data.get("title") or ""
         track_title = (f"{spotify_first['title']} - {spotify_first['artist']}" if spotify_first else actual_title or query)[:90]
@@ -1169,7 +1171,7 @@ class Music(commands.Cog):
                 embed.set_thumbnail(url=track.thumbnail)
             embed.set_footer(text="Meow • Use the buttons below to control playback")
             view = MusicControlsView(player)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.edit_original_response(content=None, embed=embed, view=view)
         else:
             q_pos = len(player.queue)
             embed = discord.Embed(
@@ -1188,7 +1190,7 @@ class Music(commands.Cog):
             if track.thumbnail:
                 embed.set_thumbnail(url=track.thumbnail)
             embed.set_footer(text=f"Meow • {len(player.queue)} track(s) in queue")
-            await send_card(interaction, embed=embed)
+            await interaction.edit_original_response(content=None, embed=embed, view=None)
 
 
     # -------------------------------------------------------------------------
