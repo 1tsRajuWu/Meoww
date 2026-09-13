@@ -3,26 +3,24 @@
 Why this exists: the bot only ever published its command tree when someone ran
 the `/sync` slash command — and `/sync` has to be registered before it can be
 used, so a tree that had drifted could never repair itself. The live guild was
-running **71 of its 93 commands**, with `/sync` and `/dashboard` among the 22 that
+running 71 of its 93 commands, with `/sync` and `/dashboard` among the 22 that
 were missing, so there was no way to fix it from inside Discord at all.
 
-`bot.py` now syncs on every boot (`sync_commands`). This script does the same job
-from a terminal, for when you want the commands live without waiting for a
-redeploy.
+`bot.py` publishes the tree on every boot. This script does the same job from a
+terminal, for when you want the commands live without waiting for a redeploy.
 
-It reads what Discord has first and only writes when something actually differs,
-because Discord allows **200 command writes per day per guild** and answers error
-``30034`` once that is spent — after which nothing registers at all until the
-window resets.
-
-Neither mode can delete a command this build doesn't know about: the payload is
-always the entire local tree.
+**It only ever adds or replaces commands.** Each command is sent with its own
+upsert request, so a request that Discord rejects cannot take anything away. That
+matters more than it sounds: the previous approach used Discord's bulk overwrite,
+which rebuilds the whole command list — and when the daily write budget ran out
+part-way through, the deletes had already happened and the guild was left with a
+single command. Never use `--overwrite` unless you know the budget is available.
 
 Usage:
-    python force_sync.py                 # bulk overwrite every guild (only if needed)
-    python force_sync.py --dry-run       # report only, change nothing
-    python force_sync.py --force         # write even when nothing differs
-    python force_sync.py --one-by-one    # paced upserts, to isolate one bad command
+    python force_sync.py              # upsert missing/changed commands
+    python force_sync.py --dry-run    # report only, change nothing
+    python force_sync.py --force      # re-send even when nothing differs
+    python force_sync.py --overwrite  # ⚠️  bulk overwrite (can wipe if interrupted)
 """
 from __future__ import annotations
 
@@ -38,11 +36,19 @@ import bot as bot_module
 from utils import commands_sync, features
 
 API = "https://discord.com/api/v10"
-#: Spacing between POSTs in --one-by-one mode.
-PACE_SECONDS = 1.0
-#: A 429 asking us to wait longer than this is treated as "the window is closed"
-#: rather than something to sit and block a terminal on.
+#: Spacing between upserts, to stay clear of per-route burst limits.
+PACE_SECONDS = 0.6
+#: A 429 asking for longer than this is treated as "the window is closed" rather
+#: than something to block a terminal on.
 MAX_WAIT = 60.0
+
+#: When a large batch has to stop early (the daily budget), the commands members
+#: reach for first should already be back. Everything else follows in tree order.
+PRIORITY = (
+    "help", "dashboard", "sync", "balance", "daily", "rank", "leaderboard",
+    "work", "pay", "loan", "repay", "beg", "crash", "slots", "coinflip",
+    "blackjack", "shop", "meme", "kms", "meow", "serverinfo", "userinfo",
+)
 
 
 def _request(method: str, path: str, token: str, payload=None):
@@ -72,8 +78,7 @@ def _request(method: str, path: str, token: str, payload=None):
         return 0, str(exc)
 
 
-def _rate_limit_wait(body) -> float | None:
-    """Seconds to wait for a 429, or None when no 429 detail is available."""
+def _rate_limit_wait(body) -> float:
     if isinstance(body, dict):
         try:
             return float(body.get("retry_after", 30.0))
@@ -83,9 +88,11 @@ def _rate_limit_wait(body) -> float | None:
 
 
 def _limit_reason(body) -> str:
-    """A friendly explanation for a 429 that is really the daily write cap."""
     if isinstance(body, dict) and body.get("code") == 30034:
-        return " Discord's daily application-command write limit (200/guild) is spent."
+        return (
+            " Discord's daily application-command write limit (200 per guild) is "
+            "spent; the rest will go through after it resets."
+        )
     return ""
 
 
@@ -113,60 +120,59 @@ def _registered(app_id: str, guild_id: str, token: str) -> list[dict] | None:
     return registered
 
 
-def _bulk_overwrite(app_id: str, guild_id: str, token: str, payload: list[dict]):
-    """One PUT that replaces the guild's command list with this tree."""
-    for attempt in range(1, 4):
-        status, body = _request(
-            "PUT", f"/applications/{app_id}/guilds/{guild_id}/commands", token, payload
-        )
-        if status in (200, 201):
-            return True, ""
-        if status == 429:
-            wait = _rate_limit_wait(body) or 30.0
-            if wait > MAX_WAIT:
-                return False, f"rate limited for another {wait:.0f}s.{_limit_reason(body)}"
-            print(f"   ⏳ rate limited, waiting {wait:.0f}s (attempt {attempt})", flush=True)
-            time.sleep(wait + 1.0)
+def _ordered(names: list[str]) -> list[str]:
+    """Names with the commands members reach for first moved to the front."""
+    rank = {name: index for index, name in enumerate(PRIORITY)}
+    return sorted(names, key=lambda name: (rank.get(name, len(PRIORITY)), name))
+
+
+def _upsert_many(app_id: str, guild_id: str, token: str, payloads: dict, names: list[str]):
+    """Upsert each command separately. Returns ``(ok, detail)``.
+
+    Stops at the first hard limit rather than retrying forever, and never deletes
+    anything, so a partial run always leaves the guild better off than it found it.
+    """
+    for name in names:
+        payload = payloads.get(name)
+        if payload is None:
             continue
-        detail = body if isinstance(body, str) else json.dumps(body)
-        return False, f"{status} {detail}"
-    return False, "still rate limited after retries"
-
-
-def _one_by_one(app_id: str, guild_id: str, token: str, payload: list[dict]) -> int:
-    """Upsert each command separately. Returns the number of failures."""
-    failures = 0
-    for command in payload:
-        for attempt in range(1, 4):
+        while True:
             status, body = _request(
-                "POST", f"/applications/{app_id}/guilds/{guild_id}/commands", token, command
+                "POST", f"/applications/{app_id}/guilds/{guild_id}/commands", token, payload
             )
             if status in (200, 201):
-                print(f"   ✅ /{command['name']}", flush=True)
+                print(f"   ✅ /{name}", flush=True)
                 break
             if status == 429:
-                wait = _rate_limit_wait(body) or 30.0
+                wait = _rate_limit_wait(body)
                 if wait > MAX_WAIT:
-                    print(f"   ❌ stopped: rate limited for another {wait:.0f}s."
-                          f"{_limit_reason(body)}", flush=True)
-                    return failures + 1
-                print(f"   ⏳ /{command['name']} rate limited, waiting {wait:.0f}s", flush=True)
+                    return False, f"/{name}: rate limited for {wait:.0f}s.{_limit_reason(body)}"
+                print(f"   ⏳ /{name}: waiting {wait:.0f}s", flush=True)
                 time.sleep(wait + 1.0)
                 continue
-            failures += 1
-            print(f"   ❌ /{command['name']}: {status} {body}", flush=True)
-            break
+            detail = body if isinstance(body, str) else json.dumps(body)
+            return False, f"/{name}: {status} {detail}"
         time.sleep(PACE_SECONDS)
-    return failures
+    return True, ""
+
+
+def _bulk_overwrite(app_id: str, guild_id: str, token: str, payload: list[dict]):
+    """⚠️ One PUT that replaces the guild's command list. Destructive if rejected."""
+    status, body = _request(
+        "PUT", f"/applications/{app_id}/guilds/{guild_id}/commands", token, payload
+    )
+    if status in (200, 201):
+        return True, ""
+    return False, f"{status} {body if isinstance(body, str) else json.dumps(body)}"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Register the slash-command tree with Discord.")
     parser.add_argument("--dry-run", action="store_true", help="report only, change nothing")
-    parser.add_argument("--force", action="store_true", help="write even when nothing differs")
+    parser.add_argument("--force", action="store_true", help="re-send even when nothing differs")
     parser.add_argument(
-        "--one-by-one", action="store_true",
-        help="POST each command instead of one bulk overwrite (slow, but isolates failures)",
+        "--overwrite", action="store_true",
+        help="WARNING: bulk overwrite. If Discord rejects it part-way, commands are lost.",
     )
     args = parser.parse_args()
 
@@ -190,6 +196,7 @@ def main() -> int:
         return 0
 
     commands = asyncio.run(_build_commands(bot_module.bot))
+    payloads = commands_sync.index(commands)
     print(f"Local tree: {len(commands)} top-level commands.")
     print(f"Guilds: {', '.join(str(g['name']) for g in guilds)}")
 
@@ -209,33 +216,40 @@ def main() -> int:
             print("   nothing to do ✅")
             continue
 
-        if args.dry_run:
-            mode = "one-by-one" if args.one_by_one else "bulk overwrite"
-            print(f"   dry run: would send {len(commands)} payload(s) via {mode}")
-            continue
-
-        if args.one_by_one:
-            print(f"   sending {len(commands)} command(s) one at a time...")
-            failures += _one_by_one(app_id, guild_id, token, commands)
-        else:
-            print(f"   bulk overwriting with {len(commands)} commands...")
+        names = _ordered(missing + stale)
+        if args.overwrite:
+            if args.dry_run:
+                print(f"   dry run: would bulk overwrite with {len(commands)} commands")
+                continue
+            print("   ⚠️  bulk overwrite requested — Discord rebuilds the whole list, so an "
+                  "interrupted run loses commands.")
             ok, detail = _bulk_overwrite(app_id, guild_id, token, commands)
-            if not ok:
-                failures += 1
-                print(f"   ❌ bulk overwrite failed: {detail}", flush=True)
-                print("      (retry with --one-by-one to isolate the offending command)")
+        else:
+            if args.dry_run:
+                print(f"   dry run: would upsert {len(names)} command(s): {', '.join(names[:12])}"
+                      + (" …" if len(names) > 12 else ""))
+                continue
+            print(f"   upserting {len(names)} command(s)...")
+            ok, detail = _upsert_many(app_id, guild_id, token, payloads, names)
+
+        if not ok:
+            failures += 1
+            print(f"   ❌ stopped: {detail}", flush=True)
 
         after = _registered(app_id, guild_id, token)
         if after is not None:
             still_missing, still_stale = commands_sync.diff(commands, after)
-            left = sorted(still_missing + still_stale)
+            left = _ordered(still_missing + still_stale)
             print(f"   now registered: {len(after)}"
-                  + (f", still not matching: {', '.join(left)}" if left else ", all up to date ✅"))
+                  + (f", still pending: {len(left)} ({', '.join(left[:12])}"
+                     + (" …" if len(left) > 12 else "") + ")" if left else ", all up to date ✅"))
+            if left and not args.dry_run:
+                failures = failures or 1
 
     if failures:
-        print(f"\n{failures} failure(s). A 30034 body means the daily "
-              "application-command write limit was reached; it resets on Discord's "
-              "clock, and the next bot restart (or /sync) will finish the job.")
+        print("\nSome commands are still pending — a 30034 body means Discord's daily "
+              "write limit is spent. Re-run this later, or run /sync in Discord, or "
+              "just restart the bot: it publishes the pending commands on boot.")
     return 1 if failures else 0
 
 

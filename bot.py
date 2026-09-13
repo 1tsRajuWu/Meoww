@@ -135,24 +135,6 @@ async def rotate_status():
             print(f"Failed to update status: {e}")
         await asyncio.sleep(3600)  # Rotate every 60 minutes
 
-def _retry_delay(exc: BaseException, *, floor: float = 60.0, ceiling: float = 1800.0):
-    """How long to wait before re-attempting a rejected sync, or None to stop.
-
-    Discord answers error ``30034`` when the 200-command-writes-a-day budget for a
-    guild is spent, and tells us when the window clears. A deploy that lands while
-    it is closed would otherwise leave its new commands unregistered until the
-    *next* restart, which is exactly how the guild ended up 22 commands behind.
-    """
-    if "30034" not in str(exc):
-        return None
-    reported = getattr(exc, "retry_after", None)
-    try:
-        delay = float(reported) if reported is not None else 600.0
-    except (TypeError, ValueError):
-        delay = 600.0
-    return max(floor, min(delay, ceiling))
-
-
 def _schedule_deferred_sync(bot: commands.Bot, delay: float, remaining: int) -> None:
     """Queue another sync attempt once Discord's write budget resets."""
     async def _later() -> None:
@@ -176,13 +158,65 @@ async def _registered_command_payloads(bot: commands.Bot, guild) -> list[dict] |
         return None
 
 
+def _is_write_budget_error(exc: BaseException) -> bool:
+    """Whether an exception is Discord's ``30034``: the daily write budget is spent.
+
+    ``discord.HTTPException.code`` carries Discord's error code straight out of the
+    response body, and ``str(exc)`` embeds it as "(error code: 30034)" as well, so
+    both are checked.
+    """
+    return getattr(exc, "code", None) == 30034 or "30034" in str(exc)
+
+
+def _retry_delay(
+    exc: BaseException, *, floor: float = 60.0, ceiling: float = 1800.0
+) -> float | None:
+    """How long to wait before retrying, or None when retrying cannot help.
+
+    Discord tells us when the write window clears, so a deploy that lands while it
+    is closed waits it out rather than leaving its new commands unregistered until
+    the next restart — which is how the guild ended up 22 commands behind in the
+    first place.
+    """
+    if not _is_write_budget_error(exc):
+        return None
+    reported = getattr(exc, "retry_after", None)
+    try:
+        delay = float(reported) if reported is not None else 600.0
+    except (TypeError, ValueError):
+        delay = 600.0
+    return max(floor, min(delay, ceiling))
+
+
+async def _publish_guild(
+    bot: commands.Bot, guild, payloads: dict[str, dict], names: list[str]
+) -> tuple[bool, str, BaseException | None]:
+    """Create/update only the named commands, one request each.
+
+    Deliberately **not** ``tree.sync(guild=...)``. That call is a bulk overwrite,
+    and Discord applies it destructively: it drops the guild's command list first
+    and then rebuilds it. When the daily write budget runs out part-way through
+    (error ``30034``) the deletes have already landed — which is exactly how this
+    guild went from 74 commands to a single one, with nothing able to put them
+    back until the window reset. An upsert only ever adds or replaces, so a
+    rejected request can never take a command away.
+
+    Returns ``(ok, detail, error)``.
+    """
+    for name in names:
+        payload = payloads.get(name)
+        if payload is None:
+            continue
+        try:
+            await bot.http.upsert_guild_command(bot.application_id, guild.id, payload)
+        except Exception as exc:
+            return False, f"/{name}: {exc}", exc
+        print(f"[SYNC] ✅ /{name}", flush=True)
+    return True, "", None
+
+
 async def sync_commands(
-    bot: commands.Bot,
-    *,
-    attempts: int = 3,
-    retry_wait: float = 5.0,
-    force: bool = False,
-    deferred_retries: int = 2,
+    bot: commands.Bot, *, force: bool = False, deferred_retries: int = 2
 ) -> dict[str, int]:
     """Publish the slash-command tree to every guild the bot is in.
 
@@ -192,11 +226,13 @@ async def sync_commands(
     theoretical: the live guild was sitting at **71 of 93** commands with `/sync`
     among the missing 22, so no amount of running `/sync` could have helped.
 
-    Before writing, the registered commands are fetched and compared. Discord
-    allows 200 command writes per day per guild and answers ``30034`` once that is
-    spent — after which nothing registers at all — so re-uploading an unchanged
-    tree on every boot would be actively harmful. A guild that already matches is
-    left alone.
+    Two safety rules, both earned the hard way:
+
+    * **Compare first.** Discord allows 200 command writes per day per guild and
+      answers ``30034`` once that is spent, so only commands that are actually
+      missing or changed are sent. An unchanged guild costs nothing.
+    * **Never bulk-overwrite.** See ``_publish_guild``: a bulk sync that is
+      rejected mid-flight has already deleted everything.
 
     Never raises: a failed sync must not stop the bot coming online, and the next
     boot or a `/sync` retries. Returns ``{guild name: commands registered}``.
@@ -204,53 +240,47 @@ async def sync_commands(
     results: dict[str, int] = {}
     for guild in bot.guilds:
         local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
+        payloads = {command["name"]: command for command in local if command.get("name")}
         registered = await _registered_command_payloads(bot, guild)
 
-        if registered is not None and not force:
-            if commands_sync.is_up_to_date(local, registered):
+        if registered is None:
+            # Could not read the current state, so send everything. Upserts are
+            # additive, so the worst case is spending writes we did not need to.
+            print(f"[SYNC] {guild.name}: state unknown — publishing the whole tree.", flush=True)
+            names = list(payloads)
+        else:
+            missing, stale = commands_sync.diff(local, registered)
+            if not missing and not stale and not force:
                 print(
                     f"[SYNC] ✅ {guild.name}: {commands_sync.summary(local, registered)}.",
                     flush=True,
                 )
                 results[guild.name] = len(registered)
                 continue
+            names = missing + stale
             print(
-                f"[SYNC] {guild.name}: {commands_sync.summary(local, registered)} — syncing…",
+                f"[SYNC] {guild.name}: {commands_sync.summary(local, registered)} — publishing…",
                 flush=True,
             )
 
-        for attempt in range(1, attempts + 1):
-            try:
-                synced = await bot.tree.sync(guild=guild)
-            except Exception as exc:
-                retry_after = getattr(exc, "retry_after", None)
-                wait = max(0.0, min(float(retry_after or retry_wait), 30.0))
-                print(
-                    f"[SYNC] ⚠️ Attempt {attempt}/{attempts} failed for {guild.name}: {exc}",
-                    flush=True,
-                )
-                delay = _retry_delay(exc)
-                if delay is not None:
-                    print(
-                        "[SYNC] Discord's daily application-command write budget is "
-                        "spent. Nothing is lost: the sync will be retried shortly, and "
-                        "a restart or /sync would also finish it.",
-                        flush=True,
-                    )
-                    if deferred_retries > 0:
-                        print(f"[SYNC] Retrying in {delay:.0f}s.", flush=True)
-                        _schedule_deferred_sync(bot, delay, deferred_retries - 1)
-                    break
-                if attempt == attempts:
-                    break
-                await asyncio.sleep(wait)
-            else:
-                results[guild.name] = len(synced)
-                print(
-                    f"[SYNC] ✅ {len(synced)} commands registered in {guild.name}.",
-                    flush=True,
-                )
-                break
+        ok, detail, error = await _publish_guild(bot, guild, payloads, names)
+        if ok:
+            done = (len(registered) if registered is not None else 0) + len(names)
+            results[guild.name] = done
+            print(f"[SYNC] ✅ {guild.name}: {done} commands registered.", flush=True)
+            continue
+
+        print(f"[SYNC] ⚠️ Stopped at {detail}", flush=True)
+        delay = _retry_delay(error) if error is not None else None
+        if delay is not None:
+            print(
+                "[SYNC] Discord's daily write budget is spent. Nothing was deleted — "
+                "the commands that went through stay, and the rest will be retried.",
+                flush=True,
+            )
+            if deferred_retries > 0:
+                print(f"[SYNC] Retrying in {delay:.0f}s.", flush=True)
+                _schedule_deferred_sync(bot, delay, deferred_retries - 1)
     if not bot.guilds:
         print("[SYNC] Not in any guild yet — nothing to register.", flush=True)
     return results

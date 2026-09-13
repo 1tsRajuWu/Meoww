@@ -1,14 +1,16 @@
-"""The bot has to register its own slash commands when it starts.
+"""The bot has to publish its own slash commands — safely.
 
-The only publishing path used to be the manual `/sync` slash command, and `/sync`
-is itself a slash command — so a tree that had drifted could never repair itself.
-That was the live state: 71 of 92 commands registered in the guild, with `/sync`
-among the 21 missing, which is why nothing anyone ran could bring the new commands
-back into view.
+Two failures are pinned here.
 
-`bot.sync_commands` replaces that: sync every guild on boot, don't let one guild's
-failure stop the others, respect a rate-limit backoff, and never raise into
-`on_ready`.
+1. **Nothing published the tree.** The only path was the manual `/sync` command,
+   which is itself a slash command, so a drifted tree could never repair itself.
+   The live guild ran 71 of 93 commands with `/sync` among the missing 22.
+
+2. **The bulk overwrite is destructive.** Discord rebuilds the guild's command
+   list on a bulk sync, so when the daily write budget ran out part-way through
+   (error 30034) the deletes had already landed: the guild went from 74 commands
+   to one. The sync now upserts each missing/changed command individually, which
+   can only ever add or replace.
 """
 import unittest
 from types import SimpleNamespace
@@ -21,16 +23,6 @@ import bot as bot_module
 from utils import commands_sync, features
 
 
-class _FakeCommand:
-    """A local command, as ``tree.get_commands()`` would hand it over."""
-
-    def __init__(self, name: str):
-        self.name = name
-
-    def to_dict(self, _tree=None):
-        return {"name": self.name, "description": "d"}
-
-
 class _SyncError(RuntimeError):
     """Stands in for discord.RateLimited: a message and a retry_after."""
 
@@ -39,34 +31,37 @@ class _SyncError(RuntimeError):
         self.retry_after = retry_after
 
 
-class _FakeTree:
-    def __init__(
-        self,
-        *,
-        count: int = 92,
-        fail_for=(),
-        fail_times: int = 0,
-        local_count: int = 3,
-        up_to_date: bool = False,
-        fetch_error: bool = False,
-        fail_code: str | None = None,
-        retry_after: float | None = None,
-    ):
-        self.calls: list = []
-        self.count = count
-        self.fail_for = set(fail_for)
-        self.fail_times = fail_times
-        self.fetch_error = fetch_error
-        self.fail_code = fail_code
+class _FakeCommand:
+    """A local command, as ``tree.get_commands()`` would hand it over."""
+
+    def __init__(self, name: str, description: str = "d"):
+        self.name = name
+        self.description = description
+
+    def to_dict(self, _tree=None):
+        return {"name": self.name, "description": self.description}
+
+
+class _FakeHTTP:
+    def __init__(self, fail_on=None, retry_after=None, fail_code=None):
+        self.sent: list = []
+        self.fail_on = fail_on
         self.retry_after = retry_after
+        self.fail_code = fail_code
+
+    async def upsert_guild_command(self, application_id, guild_id, payload):
+        del application_id, guild_id
+        self.sent.append(payload["name"])
+        if payload["name"] == self.fail_on:
+            raise _SyncError(f"boom ({self.fail_code})", self.retry_after)
+        return {"id": "1"}
+
+
+class _FakeTree:
+    def __init__(self, *, local_count: int = 3, registered=None, fetch_error: bool = False):
+        self.fetch_error = fetch_error
         self.local = [_FakeCommand(f"cmd{index}") for index in range(local_count)]
-        # An empty registry means "Discord has none of these", which is what most
-        # of these cases want: a sync with real work to do. The registered side
-        # holds command objects (like discord's AppCommand), not payloads, because
-        # that is what fetch_commands returns.
-        self.registered = [
-            _FakeCommand(command.name) for command in self.local
-        ] if up_to_date else []
+        self.registered = registered or []
 
     def get_commands(self):
         return self.local
@@ -77,132 +72,158 @@ class _FakeTree:
             raise RuntimeError("cannot read")
         return self.registered
 
-    async def sync(self, *, guild=None):
-        name = getattr(guild, "name", None)
-        self.calls.append(name)
-        if name in self.fail_for:
-            if self.fail_code:
-                raise _SyncError(f"boom ({self.fail_code})", self.retry_after)
-            raise RuntimeError("boom")
-        if self.fail_times > 0:
-            self.fail_times -= 1
-            raise RuntimeError("transient")
-        return [object()] * self.count
+    async def sync(self, *, guild=None):  # pragma: no cover - must never be called
+        raise AssertionError(
+            "the destructive bulk sync was used; a rejected bulk sync deletes the "
+            "guild's whole command list"
+        )
 
 
 class _FakeBot:
-    def __init__(self, guilds, tree):
+    def __init__(self, guilds, tree, http=None, application_id=999):
         self.guilds = guilds
         self.tree = tree
+        self.http = http or _FakeHTTP()
+        self.application_id = application_id
 
 
-def _guild(name: str):
-    return SimpleNamespace(name=name, id=1)
+def _guild(name: str, gid: int = 1):
+    return SimpleNamespace(name=name, id=gid)
+
+
+def _payloads(*names: str) -> list[dict]:
+    return [{"name": name, "description": "d"} for name in names]
 
 
 class SyncCommands(unittest.IsolatedAsyncioTestCase):
-    async def test_every_guild_is_synced_on_boot(self):
-        tree = _FakeTree(count=92)
-        fake = _FakeBot([_guild("Hmm"), _guild("Second Server")], tree)
+    async def test_every_guild_gets_its_commands(self):
+        http = _FakeHTTP()
+        fake = _FakeBot([_guild("Hmm"), _guild("Second Server", 2)], _FakeTree(), http)
 
-        results = await bot_module.sync_commands(fake, retry_wait=0.01)
+        results = await bot_module.sync_commands(fake)
 
-        self.assertEqual(tree.calls, ["Hmm", "Second Server"])
-        self.assertEqual(results, {"Hmm": 92, "Second Server": 92})
+        self.assertEqual(http.sent, ["cmd0", "cmd1", "cmd2"] * 2)
+        self.assertEqual(results, {"Hmm": 3, "Second Server": 3})
 
-    async def test_an_up_to_date_guild_is_left_alone(self):
-        """Discord allows 200 writes a day per guild, so no writes when equal."""
-        tree = _FakeTree(up_to_date=True)
-        fake = _FakeBot([_guild("Hmm")], tree)
+    async def test_only_missing_or_changed_commands_are_sent(self):
+        """Discord allows 200 writes a day per guild, so unchanged ones are skipped."""
+        tree = _FakeTree(local_count=3)
+        tree.registered = [_FakeCommand("cmd0"), _FakeCommand("cmd1")]
+        http = _FakeHTTP()
 
-        results = await bot_module.sync_commands(fake, retry_wait=0.01)
+        await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
-        self.assertEqual(tree.calls, [], "an unchanged tree was re-uploaded")
+        self.assertEqual(http.sent, ["cmd2"], "an unchanged command was re-uploaded")
+
+    async def test_a_changed_command_is_sent(self):
+        tree = _FakeTree(local_count=1)
+        tree.local = [_FakeCommand("loan", "new description")]
+        tree.registered = [_FakeCommand("loan", "old description")]
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
+
+        self.assertEqual(http.sent, ["loan"])
+
+    async def test_an_up_to_date_guild_costs_nothing(self):
+        tree = _FakeTree(local_count=3)
+        tree.registered = [_FakeCommand(command.name) for command in tree.local]
+        http = _FakeHTTP()
+
+        results = await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
+
+        self.assertEqual(http.sent, [], "an unchanged tree was re-uploaded")
         self.assertEqual(results, {"Hmm": 3})
+
+    async def test_a_guild_whose_state_cannot_be_read_is_published_anyway(self):
+        tree = _FakeTree(local_count=2, fetch_error=True)
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
+
+        self.assertEqual(http.sent, ["cmd0", "cmd1"])
 
     async def test_a_spent_write_budget_schedules_its_own_retry(self):
         """A deploy that lands while the window is closed must not give up."""
-        tree = _FakeTree(fail_for={"Hmm"}, fail_code="30034", retry_after=430.0)
-        fake = _FakeBot([_guild("Hmm")], tree)
+        tree = _FakeTree(local_count=3)
+        http = _FakeHTTP(fail_on="cmd1", fail_code="30034", retry_after=430.0)
         scheduled = []
 
         with mock.patch.object(
             bot_module, "_schedule_deferred_sync",
             new=lambda _bot, delay, remaining: scheduled.append((delay, remaining)),
         ):
-            await bot_module.sync_commands(fake, attempts=2, retry_wait=0.01)
+            await bot_module.sync_commands(
+                _FakeBot([_guild("Hmm")], tree, http), deferred_retries=2
+            )
 
-        self.assertEqual(scheduled, [(430.0, 1)], "no retry was queued for the spent budget")
+        self.assertEqual(http.sent, ["cmd0", "cmd1"], "it kept going after the limit")
+        self.assertEqual(scheduled, [(430.0, 1)])
 
     async def test_an_ordinary_failure_does_not_queue_a_retry(self):
-        tree = _FakeTree(fail_for={"Hmm"})
-        fake = _FakeBot([_guild("Hmm")], tree)
+        tree = _FakeTree(local_count=2)
+        http = _FakeHTTP(fail_on="cmd1", fail_code="500", retry_after=5.0)
         scheduled = []
 
         with mock.patch.object(
             bot_module, "_schedule_deferred_sync",
             new=lambda _bot, delay, remaining: scheduled.append((delay, remaining)),
         ):
-            await bot_module.sync_commands(fake, attempts=2, retry_wait=0.01)
+            await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
         self.assertEqual(scheduled, [])
 
     async def test_the_last_deferred_retry_does_not_reschedule_forever(self):
-        tree = _FakeTree(fail_for={"Hmm"}, fail_code="30034")
-        fake = _FakeBot([_guild("Hmm")], tree)
+        tree = _FakeTree(local_count=2)
+        http = _FakeHTTP(fail_on="cmd1", fail_code="30034", retry_after=430.0)
         scheduled = []
 
         with mock.patch.object(
             bot_module, "_schedule_deferred_sync",
             new=lambda _bot, delay, remaining: scheduled.append((delay, remaining)),
         ):
-            await bot_module.sync_commands(fake, attempts=1, deferred_retries=0)
+            await bot_module.sync_commands(
+                _FakeBot([_guild("Hmm")], tree, http), deferred_retries=0
+            )
 
         self.assertEqual(scheduled, [], "retries would never end")
 
-    async def test_a_guild_whose_state_cannot_be_read_is_synced_anyway(self):
-        tree = _FakeTree(fetch_error=True)
-        fake = _FakeBot([_guild("Hmm")], tree)
-
-        results = await bot_module.sync_commands(fake, retry_wait=0.01)
-
-        self.assertEqual(tree.calls, ["Hmm"])
-        self.assertEqual(results, {"Hmm": 92})
-
-    async def test_a_broken_guild_does_not_stop_the_others(self):
-        """One guild failing must not cost every other guild its commands."""
-        tree = _FakeTree(fail_for={"Broken"})
-        fake = _FakeBot([_guild("Broken"), _guild("Hmm")], tree)
-
-        results = await bot_module.sync_commands(fake, attempts=3, retry_wait=0.01)
-
-        self.assertEqual(results, {"Hmm": 92})
-        self.assertEqual(tree.calls.count("Broken"), 3, "the failure was not retried")
-
-    async def test_a_transient_failure_is_retried_and_succeeds(self):
-        tree = _FakeTree(fail_times=1)
-        fake = _FakeBot([_guild("Hmm")], tree)
-
-        results = await bot_module.sync_commands(fake, attempts=3, retry_wait=0.01)
-
-        self.assertEqual(results, {"Hmm": 92})
-        self.assertEqual(tree.calls, ["Hmm", "Hmm"])
-
     async def test_a_failure_never_escapes_into_on_ready(self):
-        """The bot must still come online when Discord refuses the sync."""
-        tree = _FakeTree(fail_for={"Hmm"})
-        fake = _FakeBot([_guild("Hmm")], tree)
+        tree = _FakeTree(local_count=2, fetch_error=True)
+        http = _FakeHTTP(fail_on="cmd0", fail_code="500")
 
-        results = await bot_module.sync_commands(fake, attempts=2, retry_wait=0.01)
+        results = await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
         self.assertEqual(results, {})
 
     async def test_no_guilds_is_not_an_error(self):
-        results = await bot_module.sync_commands(
-            _FakeBot([], _FakeTree()), retry_wait=0.01
-        )
+        results = await bot_module.sync_commands(_FakeBot([], _FakeTree()))
 
         self.assertEqual(results, {})
+
+
+class RetryDelay(unittest.TestCase):
+    """Only the spent write budget is worth waiting out."""
+
+    def test_the_daily_limit_uses_the_reported_window(self):
+        self.assertEqual(bot_module._retry_delay(_SyncError("boom (30034)", 430.0)), 430.0)
+
+    def test_the_daily_limit_falls_back_when_no_window_is_reported(self):
+        self.assertEqual(bot_module._retry_delay(_SyncError("boom (30034)")), 600.0)
+
+    def test_the_wait_is_clamped(self):
+        self.assertEqual(bot_module._retry_delay(_SyncError("boom (30034)", 99999.0)), 1800.0)
+        self.assertEqual(bot_module._retry_delay(_SyncError("boom (30034)", 1.0)), 60.0)
+
+    def test_discords_error_code_is_recognised(self):
+        class _WithCode(_SyncError):
+            code = 30034
+
+        self.assertEqual(bot_module._retry_delay(_WithCode("whatever")), 600.0)
+
+    def test_other_failures_are_not_retried(self):
+        for exc in (_SyncError("boom"), _SyncError("boom (500)", 5.0)):
+            self.assertIsNone(bot_module._retry_delay(exc))
 
 
 class CommandComparison(unittest.TestCase):
@@ -228,10 +249,11 @@ class CommandComparison(unittest.TestCase):
     def test_defaults_discord_omits_are_not_a_difference(self):
         """The exact payload discord.py sends for an unchanged `/help`.
 
-        Discord drops `options: []`, `contexts: null`, `integration_types: null`
-        and the deprecated `dm_permission` from its response. Treating those as a
-        change made every command look stale, which would re-upload the whole tree
-        on every boot and spend the daily write budget on nothing.
+        Discord drops `options: []`, `contexts: null`, `integration_types: null`,
+        `required: false` and the deprecated `dm_permission` from its response.
+        Treating those as a change made every command look stale, which would
+        re-upload the whole tree on every boot — verified against the live guild,
+        where 73 of 74 registered commands appeared "changed".
         """
         local = [{
             "name": "help", "description": "d", "options": [], "contexts": None,
@@ -245,20 +267,6 @@ class CommandComparison(unittest.TestCase):
         }]
 
         self.assertTrue(commands_sync.is_up_to_date(local, remote))
-
-    def test_removing_the_last_option_is_still_a_difference(self):
-        """Empty-vs-absent must not swallow a real removal."""
-        local = [{"name": "x", "description": "d", "options": []}]
-        remote = [{"name": "x", "description": "d",
-                   "options": [{"name": "gone", "type": 4}]}]
-
-        self.assertEqual(commands_sync.diff(local, remote), ([], ["x"]))
-
-    def test_a_value_where_we_send_nothing_is_still_a_difference(self):
-        local = [{"name": "x", "description": "d", "default_member_permissions": None}]
-        remote = [{"name": "x", "description": "d", "default_member_permissions": "8"}]
-
-        self.assertEqual(commands_sync.diff(local, remote), ([], ["x"]))
 
     def test_a_changed_description_is_stale(self):
         local = [{"name": "loan", "description": "new"}]
@@ -274,9 +282,22 @@ class CommandComparison(unittest.TestCase):
 
         self.assertEqual(commands_sync.diff(local, remote), ([], ["loan"]))
 
+    def test_removing_the_last_option_is_still_a_difference(self):
+        local = [{"name": "x", "description": "d", "options": []}]
+        remote = [{"name": "x", "description": "d",
+                   "options": [{"name": "gone", "type": 4}]}]
+
+        self.assertEqual(commands_sync.diff(local, remote), ([], ["x"]))
+
+    def test_a_value_where_we_send_nothing_is_still_a_difference(self):
+        local = [{"name": "x", "description": "d", "default_member_permissions": None}]
+        remote = [{"name": "x", "description": "d", "default_member_permissions": "8"}]
+
+        self.assertEqual(commands_sync.diff(local, remote), ([], ["x"]))
+
     def test_an_unregistered_command_is_missing(self):
-        local = [{"name": "beg", "description": "d"}, {"name": "loan", "description": "d"}]
-        remote = [{"name": "loan", "description": "d"}]
+        local = _payloads("beg", "loan")
+        remote = _payloads("loan")
 
         self.assertEqual(commands_sync.diff(local, remote), (["beg"], []))
 
