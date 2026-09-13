@@ -1052,11 +1052,12 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="addmoney", description="Add money to a member's wallet (Admin only).")
     @app_commands.describe(member="The member to give money to", amount="Amount to add")
-    @app_commands.default_permissions(administrator=True)
+    # A real check rather than a hand-rolled string compare: discord.py refuses
+    # the member before the callback runs, and the handler answers with the same
+    # "permission denied" card it uses everywhere else. `utils/permissions.py`
+    # stamps the picker visibility, and a test asserts the two agree.
+    @app_commands.checks.has_permissions(administrator=True)
     async def addmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
-        
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
         
@@ -1074,11 +1075,8 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="removemoney", description="Remove money from a member's wallet (Admin only).")
     @app_commands.describe(member="The member to remove money from", amount="Amount to remove")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def removemoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
-        
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
         
@@ -1096,11 +1094,8 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="setmoney", description="Set a member's wallet to a specific amount (Admin only).")
     @app_commands.describe(member="The member to set money for", amount="New wallet amount")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def setmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
-        
         if amount < 0:
             return await interaction.response.send_message("❌ Amount cannot be negative.", ephemeral=True)
         
@@ -1123,11 +1118,8 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="addbank", description="Add money to a member's bank (Admin only).")
     @app_commands.describe(member="The member to give bank money to", amount="Amount to add")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def addbank(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
-        
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
         

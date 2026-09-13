@@ -4,7 +4,7 @@ from discord.ext import commands, tasks
 import aiosqlite
 import time
 import asyncio
-from utils import db, rewards, shop
+from utils import db, permissions, rewards, shop
 from cogs.economy import update_wallet
 from utils.style import send_card, display_names, member_cache_complete
 from utils.levels import (
@@ -814,6 +814,13 @@ class Leveling(commands.Cog):
 
         if level < 1:
             return await interaction.response.send_message("❌ Level must be 1 or higher!", ephemeral=True)
+
+        # A level role is granted automatically and forever, so it is at least as
+        # sensitive as a one-off /addrole: wiring **Administrator** to level 1
+        # would hand the whole server out to anybody who chats for an hour.
+        problem = permissions.role_grant_problem(role, interaction.user, interaction.guild)
+        if problem:
+            return await interaction.response.send_message(f"❌ {problem}", ephemeral=True)
 
         if role.position >= interaction.guild.me.top_role.position:
             return await interaction.response.send_message(

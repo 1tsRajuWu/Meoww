@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils import commands_sync, db, features, modules
+from utils import commands_sync, db, features, modules, permissions
 
 # Force real-time unbuffered log streaming to Render / cloud console
 try:
@@ -462,6 +462,28 @@ async def on_ready():
             print(f"Could not load module states for {guild.name}: {e}")
 
     
+    # Stamp every command with the audience declared in utils/permissions.py
+    # *before* publishing, so what Discord offers in a member's picker matches
+    # what the command's own checks will actually let them do. Logged because a
+    # visibility change is a real change to what people see.
+    try:
+        changed = permissions.apply_declared_permissions(bot.tree)
+        if changed:
+            print(
+                f"[PERMISSIONS] {len(changed)} command(s) gated for the picker: "
+                f"{', '.join(sorted(changed))}",
+                flush=True,
+            )
+        missing = permissions.undeclared(bot.tree)
+        if missing:
+            print(
+                f"[PERMISSIONS] ⚠️ no declared audience for: {', '.join(missing)} "
+                "— add them to utils/permissions.py",
+                flush=True,
+            )
+    except Exception as e:
+        print(f"[PERMISSIONS] ⚠️ Could not apply declared permissions: {e}", flush=True)
+
     # Register the command tree with Discord (see sync_commands: relying on the
     # manual /sync command alone is how this server ended up missing 21 of its
     # commands, /sync included).

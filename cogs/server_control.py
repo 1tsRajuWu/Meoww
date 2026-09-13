@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils import permissions
 from utils.style import send_card, display_name
 
 class ServerControl(commands.Cog):
@@ -214,6 +215,13 @@ class ServerControl(commands.Cog):
     @app_commands.command(name="addrole", description="Add a role to a member.")
     @app_commands.checks.has_permissions(manage_roles=True)
     async def addrole(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+        # Two different hierarchy questions, and only the first one was asked
+        # here before: whether *I* may assign it, and whether *you* may. Without
+        # the second, a moderator with Manage Roles could grant Administrator to
+        # themselves or an alt.
+        problem = permissions.role_grant_problem(role, interaction.user, interaction.guild)
+        if problem:
+            return await interaction.response.send_message(f"❌ {problem}", ephemeral=True)
         if role >= interaction.guild.me.top_role:
             return await interaction.response.send_message("❌ I cannot assign a role higher than or equal to my own role.", ephemeral=True)
         await member.add_roles(role)
@@ -230,7 +238,10 @@ class ServerControl(commands.Cog):
     @app_commands.command(name="removerole", description="Remove a role from a member.")
     @app_commands.checks.has_permissions(manage_roles=True)
     async def removerole(self, interaction: discord.Interaction, member: discord.Member, role: discord.Role):
-        if role >= interaction.guild.me.top_role:
+        problem = permissions.role_grant_problem(role, interaction.user, interaction.guild)
+        if problem:
+            return await interaction.response.send_message(f"❌ {problem}", ephemeral=True)
+        if role >= interaction.guild.me.top_role:                    
             return await interaction.response.send_message("❌ I cannot remove a role higher than or equal to my own role.", ephemeral=True)
         await member.remove_roles(role)
 

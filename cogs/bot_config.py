@@ -56,9 +56,10 @@ class BotConfig(commands.Cog):
             await interaction.followup.send(f"An unexpected error occurred: {e}")
 
     @app_commands.command(name="sync", description="Publish any missing or out-of-date slash commands.")
+    # Declared rather than hand-rolled: the guild owner is always an
+    # administrator, so this is the same audience as the body check it replaces.
+    @app_commands.checks.has_permissions(administrator=True)
     async def sync(self, interaction: discord.Interaction):
-        if not (interaction.guild and (interaction.user.id == interaction.guild.owner_id or interaction.user.guild_permissions.administrator)):
-            return await interaction.response.send_message("❌ Only server administrators or the owner can run this command.", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         # Deliberately *not* `tree.sync()` / `copy_global_to` + `tree.sync(guild=)`.
         # Those are **bulk overwrites**, and Discord applies them destructively: the

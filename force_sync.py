@@ -37,7 +37,7 @@ import urllib.error
 import urllib.request
 
 import bot as bot_module
-from utils import commands_sync, features
+from utils import commands_sync, features, permissions
 
 API = "https://discord.com/api/v10"
 #: Spacing between upserts, to stay clear of per-route burst limits.
@@ -111,6 +111,11 @@ async def _build_commands(bot) -> list[dict]:
             await bot.load_extension(cog)
         except Exception as exc:  # a broken cog must not block the rest
             print(f"  ! could not load {cog}: {exc}", flush=True)
+    # Same stamp as the boot path, so a manual sync publishes the declared
+    # picker visibility rather than the pre-stamp payload.
+    changed = permissions.apply_declared_permissions(bot.tree)
+    if changed:
+        print(f"  · gated for the picker: {', '.join(sorted(changed))}", flush=True)
     return [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
 
 
