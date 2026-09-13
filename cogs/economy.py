@@ -954,6 +954,181 @@ class Economy(commands.Cog):
         embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
         await send_card(interaction, embed=embed)
 
+    # -------------------------------------------------------------------------
+    # Bank Loan System
+    # -------------------------------------------------------------------------
+
+    @app_commands.command(name="loan", description="Take out a bank loan with 10% interest or check active loan status.")
+    @app_commands.describe(amount="Amount of coins to borrow (Max: 50,000)")
+    async def loan(self, interaction: discord.Interaction, amount: int = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        user_id = interaction.user.id
+        guild_id = interaction.guild.id
+        await ensure_eco(user_id, guild_id)
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT amount, repay_amount, due_ts FROM loans WHERE user_id=? AND guild_id=?",
+                (user_id, guild_id)
+            ) as cur:
+                active_loan = await cur.fetchone()
+
+        if amount is None:
+            if not active_loan:
+                embed = discord.Embed(
+                    title="🏦 Meow National Bank — Loan Center",
+                    description=(
+                        "You currently have **no active loans**! 🎉\n\n"
+                        "> Need quick cash? Use `/loan <amount>` to borrow up to **50,000** 🪙.\n"
+                        "> Interest rate: **10%** flat fee.\n"
+                        "> Pay back anytime with `/repay [amount]`."
+                    ),
+                    color=0x3498DB,
+                    timestamp=discord.utils.utcnow()
+                )
+                embed.set_thumbnail(url=interaction.user.display_avatar.url)
+                return await send_card(interaction, embed=embed)
+            
+            borrowed, to_repay, due_ts = active_loan
+            due_str = f"<t:{int(due_ts)}:R>" if due_ts else "Whenever you want"
+            embed = discord.Embed(
+                title="📋 Active Bank Loan",
+                description=(
+                    f"### 💳 Borrower: {interaction.user.mention}\n\n"
+                    f"> 🪙 **Original Loan:** **{borrowed:,}** coins\n"
+                    f"> 📉 **Outstanding Debt:** **{to_repay:,}** coins (includes 10% interest)\n"
+                    f"> ⏳ **Due:** {due_str}\n\n"
+                    f"Use `/repay` to pay off your debt when you have sufficient wallet funds!"
+                ),
+                color=0xE67E22,
+                timestamp=discord.utils.utcnow()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            embed.set_footer(text="🐾 Pay on time to avoid the Meow Repo squad!")
+            return await send_card(interaction, embed=embed)
+
+        # Taking out a new loan
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Loan amount must be greater than 0.", ephemeral=True)
+        if amount > 50000:
+            return await interaction.response.send_message("❌ Bank loan ceiling is **50,000** 🪙 per member.", ephemeral=True)
+
+        if active_loan:
+            return await interaction.response.send_message(
+                f"❌ You already have an active loan! You must pay off your debt of **{active_loan[1]:,}** 🪙 using `/repay` first.",
+                ephemeral=True
+            )
+
+        interest = int(amount * 0.10)
+        repay_total = amount + interest
+        import time
+        due_time = time.time() + (7 * 86400)  # 7 days
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "INSERT INTO loans (user_id, guild_id, amount, repay_amount, due_ts) VALUES (?, ?, ?, ?, ?)",
+                (user_id, guild_id, amount, repay_total, due_time)
+            )
+            await conn.execute(
+                "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
+                (amount, user_id, guild_id)
+            )
+            await conn.commit()
+
+        embed = discord.Embed(
+            title="🤝 Loan Approved!",
+            description=(
+                f"### 🏦 Funds Disbursed: +**{amount:,}** 🪙\n\n"
+                f"> 💵 **Credited to:** Wallet\n"
+                f"> 📈 **Total to Repay:** **{repay_total:,}** 🪙 (includes 10% interest)\n"
+                f"> 📅 **Due in:** 7 days (<t:{int(due_time)}:R>)\n\n"
+                f"Use `/repay [amount]` whenever you're ready to pay it back!"
+            ),
+            color=0x2ECC71,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="🐾 Thank you for banking with Meow Bank!")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="repay", description="Repay all or part of your outstanding bank loan.")
+    @app_commands.describe(amount="Amount to repay (Leave blank to pay entire loan)")
+    async def repay(self, interaction: discord.Interaction, amount: int = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+
+        user_id = interaction.user.id
+        guild_id = interaction.guild.id
+        await ensure_eco(user_id, guild_id)
+        eco = await get_eco(user_id, guild_id)
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT amount, repay_amount FROM loans WHERE user_id=? AND guild_id=?",
+                (user_id, guild_id)
+            ) as cur:
+                active_loan = await cur.fetchone()
+
+        if not active_loan:
+            return await interaction.response.send_message("🎉 You have no outstanding loans to repay!", ephemeral=True)
+
+        borrowed, remaining_debt = active_loan
+        pay_amount = remaining_debt if amount is None else amount
+
+        if pay_amount <= 0:
+            return await interaction.response.send_message("❌ Repay amount must be greater than 0.", ephemeral=True)
+
+        pay_amount = min(pay_amount, remaining_debt)
+
+        if eco["wallet"] < pay_amount:
+            return await interaction.response.send_message(
+                f"❌ Insufficient wallet funds! You need **{pay_amount:,}** 🪙, but only have **{eco['wallet']:,}** 🪙 in your wallet.\n"
+                "Withdraw funds from your bank with `/withdraw` first.",
+                ephemeral=True
+            )
+
+        new_debt = remaining_debt - pay_amount
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=?",
+                (pay_amount, user_id, guild_id)
+            )
+            if new_debt <= 0:
+                await conn.execute("DELETE FROM loans WHERE user_id=? AND guild_id=?", (user_id, guild_id))
+            else:
+                await conn.execute("UPDATE loans SET repay_amount=? WHERE user_id=? AND guild_id=?", (new_debt, user_id, guild_id))
+            await conn.commit()
+
+        if new_debt <= 0:
+            embed = discord.Embed(
+                title="🎉 Loan Fully Repaid!",
+                description=(
+                    f"### Congratulations {interaction.user.mention}!\n\n"
+                    f"You paid **{pay_amount:,}** 🪙 and **fully cleared your loan**!\n"
+                    f"> 🌟 **Your credit score is pristine.**\n"
+                    f"> 🏦 You are eligible to borrow again anytime with `/loan`."
+                ),
+                color=0x57F287,
+                timestamp=discord.utils.utcnow()
+            )
+        else:
+            embed = discord.Embed(
+                title="💳 Partial Loan Payment Made",
+                description=(
+                    f"### Payment Accepted: -**{pay_amount:,}** 🪙\n\n"
+                    f"> 📉 **Remaining Debt:** **{new_debt:,}** 🪙\n"
+                    f"Pay the rest whenever you're ready with `/repay`!"
+                ),
+                color=0xF1C40F,
+                timestamp=discord.utils.utcnow()
+            )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="🐾 Meow Banking Services")
+        await send_card(interaction, embed=embed)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Economy(bot))

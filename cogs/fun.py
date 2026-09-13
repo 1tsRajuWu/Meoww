@@ -796,6 +796,85 @@ class Fun(commands.Cog):
         )
         await send_card(interaction, embed=embed)
 
+    # ---------------------------------------------------------
+    # Extra Funny Commands: /rizz, /roast, /scam
+    # ---------------------------------------------------------
+
+    @app_commands.command(name="rizz", description="Drop an elite pickup line on someone or test your rizz level!")
+    @app_commands.describe(target="The person you want to rizz up")
+    async def rizz(self, interaction: discord.Interaction, target: discord.Member = None):
+        target = target or interaction.user
+        rizz_lines = [
+            "Are you a campfire? Because you're hot and I want s'more. 🔥",
+            "Do you believe in love at first sight, or should I walk by again? 😏",
+            "Are you French? Because Eiffel for you. 🥐",
+            "Is your name Google? Because you have everything I’ve been searching for. 🔍",
+            "If you were a vegetable, you'd be a cute-cumber. 🥒",
+            "Are you Wi-Fi? Because I'm feeling a strong connection with zero lag. 📶",
+            "Are you lightning? Because you just struck my heart with 1.21 gigawatts. ⚡",
+            "Are you a magician? Because whenever I look at you, everyone else disappears. 🪄",
+            "Do you have a map? Because I just keep getting lost in your eyes. 🗺️",
+            "Are you a keyboard? Because you are definitely my type. ⌨️"
+        ]
+        line = random.choice(rizz_lines)
+        rizz_score = random.randint(40, 100)
+        
+        embed = discord.Embed(
+            title="✨ Unspoken Rizz Deployed!",
+            description=(
+                f"### To: {target.mention}\n\n"
+                f"> “*{line}*”\n\n"
+                f"📊 **Calculated Rizz Level:** **{rizz_score}%** ({'W Rizz 🔥' if rizz_score >= 75 else 'Mid Rizz 💀'})"
+            ),
+            color=0xFF69B4,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text=f"Rizz applied by {interaction.user.display_name}")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="roast", description="Deliver a savage, funny roast to a member.")
+    @app_commands.describe(member="The member to roast")
+    async def roast(self, interaction: discord.Interaction, member: discord.Member):
+        roasts = [
+            f"{member.mention}, you bring everyone so much joy... when you leave the voice channel. 🚪",
+            f"{member.mention}, I'd agree with you, but then we'd both be completely wrong. 🤷‍♂️",
+            f"{member.mention}, your secrets are always safe with me. I never even listen when you speak. 🤐",
+            f"{member.mention}, you are the human equivalent of a participation trophy. 🏆",
+            f"{member.mention}, I'm not insulting you, I'm just describing you accurately. 💀",
+            f"{member.mention}, if laughter is the best medicine, your face is curing worldwide diseases. 😂",
+            f"{member.mention}, you have the reaction time of a dial-up internet connection in 1998. ⏳",
+            f"{member.mention}, somewhere out there, a tree is working tirelessly to replace the oxygen you consume. Apologize to it. 🌳"
+        ]
+        picked_roast = random.choice(roasts)
+        embed = discord.Embed(
+            title="🔥 Savage Roast Incoming!",
+            description=picked_roast,
+            color=0xE74C3C,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.set_footer(text=f"Ordered by {interaction.user.display_name} • Emotionally damaged")
+        await send_card(interaction, embed=embed)
+
+    @app_commands.command(name="scam", description="Try a completely legit, totally not shady investment scheme.")
+    async def scam(self, interaction: discord.Interaction):
+        schemes = [
+            ("Free Nitro Generator 2026", "You clicked the link, your Discord account turned into a toaster, and your balance is unchanged. 🍞"),
+            ("MeowCoin Crypto ICO", "You invested 10,000 coins. The CEO fled to the Bahamas on a catamaran. 📉"),
+            ("Nigerian Cat Prince", "A royal cat promised you 10,000,000 coins if you send 100 first. You sent it. He meowed and blocked you. 🐾"),
+            ("100% Winrate Casino Hack", "The bot owner detected your hacker shades and charged you 0 coins for looking ridiculous. 🕶️")
+        ]
+        title, story = random.choice(schemes)
+        embed = discord.Embed(
+            title=f"🚨 100% Legit Opportunity: {title}",
+            description=f"> {story}\n\n*Moral of the story: Don't fall for Discord scams!*",
+            color=0xF39C12,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text="🐾 Meow Scam Defense Network")
+        await send_card(interaction, embed=embed)
+
 
 TAN_STATUSES = [
     ("📉", "Losing money in trading, don't disturb rn. Red candles everywhere."),

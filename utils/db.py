@@ -217,10 +217,13 @@ async def setup():
             PRIMARY KEY (guild_id, module_name)
         )''')
 
-        await db.execute('''CREATE TABLE IF NOT EXISTS music_247 (
-            guild_id INTEGER PRIMARY KEY,
-            channel_id INTEGER,
-            enabled INTEGER DEFAULT 0
+        await db.execute('''CREATE TABLE IF NOT EXISTS loans (
+            user_id INTEGER,
+            guild_id INTEGER,
+            amount INTEGER,
+            repay_amount INTEGER,
+            due_ts REAL,
+            PRIMARY KEY (user_id, guild_id)
         )''')
 
         # One-time migration: make the newly default-OFF modules actually OFF for

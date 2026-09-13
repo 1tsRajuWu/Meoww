@@ -86,10 +86,12 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=(
             "balance", "daily", "weekly", "work", "rob", "pay", "deposit",
             "withdraw", "shop", "buy", "inventory", "richlist", "eco-admin",
+            "addmoney", "removemoney", "setmoney", "addbank", "loan", "repay",
         ),
         commands=(
             "/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit",
             "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin",
+            "/loan", "/repay",
         ),
         cog="cogs.economy",
         help_key="economy",
@@ -189,11 +191,11 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "meme", "8ball", "meow", "meowsound", "tan", "kms", "quote",
-            "customquote",
+            "customquote", "rizz", "roast", "scam",
         ),
         commands=(
             "/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote",
-            "/customquote",
+            "/customquote", "/rizz", "/roast", "/scam",
         ),
         cog="cogs.fun",
         help_key="fun",
