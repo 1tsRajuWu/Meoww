@@ -170,14 +170,49 @@ class TestCatalog(unittest.TestCase):
         symbols = [item.symbol for item in market.INSTRUMENTS]
         self.assertEqual(len(symbols), len(set(symbols)))
         for item in market.INSTRUMENTS:
+            identifiers = [value for value in item.ids.values() if value]
+            self.assertTrue(identifiers, f"{item.symbol} has no provider id at all")
+            for value in identifiers:
+                self.assertIsInstance(value, str)
+                self.assertEqual(value, value.strip(), item.symbol)
             if item.kind == market.CRYPTO:
+                # Binance is the batched primary feed, so every coin needs it.
                 self.assertTrue(item.id_for("binance"), item.symbol)
-                self.assertTrue(item.id_for("kraken"), item.symbol)
-                self.assertTrue(item.id_for("coinbase"), item.symbol)
             else:
                 self.assertEqual(item.kind, market.STOCK)
                 self.assertTrue(item.id_for("tradingview"), item.symbol)
                 self.assertTrue(item.id_for("cnbc"), item.symbol)
+                self.assertIn(":", item.id_for("tradingview"), item.symbol)
+                # Nasdaq is asked which book to look in, and the answer decides
+                # whether the request is a chart or an HTTP 400.
+                self.assertIn(item.id_for("nasdaq_class"), ("stocks", "etf"), item.symbol)
+
+    def test_the_funds_declare_themselves_as_funds(self):
+        """Nasdaq answers a fund asked for as a share with HTTP 400, not an empty
+        series — which is how every ETF's chart was silently blank while the same
+        request for a share worked. Pinned against the live endpoint."""
+        funds = {
+            i.symbol for i in market.INSTRUMENTS if i.id_for("nasdaq_class") == "etf"
+        }
+        self.assertEqual(funds, {"SPY", "QQQ", "VOO", "IWM", "GLD"})
+        for symbol in funds:
+            # They lunch in the same book, so they are not ordinary shares.
+            self.assertEqual(market.BY_SYMBOL[symbol].kind, market.STOCK)
+
+    def test_the_catalog_is_broad_and_still_fits_the_board(self):
+        """More instruments is the request; a board Discord rejects is not."""
+        crypto = [i for i in market.INSTRUMENTS if i.kind == market.CRYPTO]
+        stocks = [i for i in market.INSTRUMENTS if i.kind == market.STOCK]
+        self.assertGreaterEqual(len(crypto), 20)
+        self.assertGreaterEqual(len(stocks), 25)
+        self.assertLessEqual(len(market.INSTRUMENTS), market.MAX_CATALOG_SIZE)
+        # The sixteen the first version shipped with must not have been dropped.
+        for symbol in ("BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "AAPL", "MSFT",
+                       "NVDA", "TSLA", "AMZN", "GOOGL", "META"):
+            self.assertIn(symbol, market.BY_SYMBOL)
+        # Every name is present, because the board renders it.
+        for item in market.INSTRUMENTS:
+            self.assertTrue(item.name.strip(), item.symbol)
 
     def test_find_prefers_an_exact_symbol_then_offers_the_matches(self):
         self.assertEqual(market.find("btc")[0].symbol, "BTC")
@@ -188,31 +223,76 @@ class TestCatalog(unittest.TestCase):
         # An ambiguous query returns every candidate so the caller can ask.
         self.assertGreater(len(market.find("A")), 1)
 
+    def test_the_help_menu_quotes_the_rate_it_prices_at(self):
+        """The help text spells the rate out as a literal, so nothing but a test
+        stops it advertising a rate the market no longer uses."""
+        from cogs import help as help_cog
+
+        text = help_cog.HELP_MODULES["market"]["desc"]
+        self.assertIn(f"{market.COINS_PER_USD:g} USD = {market.COINS_PER_USD:g} coin", text)
+        self.assertIn(market.treat_fee_label(), text)
+        self.assertNotIn("no fee", text)
+        self.assertNotIn("250 coins", text)
+        # And the period names it advertises are the ones the chart offers.
+        for period in market.PERIODS.values():
+            self.assertIn(period.label, text, period.label)
+
+    def test_a_coin_is_a_dollar(self):
+        """1:1: the board reads like a price board, not a conversion puzzle."""
+        self.assertEqual(market.COINS_PER_USD, 1)
+        self.assertEqual(market.PREVIOUS_COINS_PER_USD, 250)
+        self.assertEqual(quote("BTC", 100.0).mid_coins(), 100.0)
+        self.assertEqual(market.rate_rescale_factor(), 1 / 250)
+
     def test_fills_are_one_to_one_with_the_observed_price(self):
-        """No spread, on either side: the house takes nothing from a fill."""
+        """No spread, on either side: the fill price *is* the observed price."""
         q = quote("BTC", 100.0)
         self.assertEqual(q.mid_coins(), 100.0 * market.COINS_PER_USD)
         self.assertEqual(market.SPREAD, 0.0)
         self.assertEqual(q.buy_coins(), q.mid_coins())
         self.assertEqual(q.sell_coins(), q.mid_coins())
-        # A round trip at an unchanged price is therefore free, not a loss.
         self.assertEqual(q.sell_coins() / q.buy_coins() - 1, 0.0)
 
-    def test_a_real_move_is_the_same_move_in_coins(self):
-        """The whole point of 1:1 — +10% in dollars is +10% here."""
+    def test_the_treat_fee_is_proportional_and_never_vanishes(self):
+        self.assertEqual(market.treat_fee(0), 0)
+        self.assertEqual(market.treat_fee(-5), 0)
+        # A proportional cut…
+        self.assertEqual(market.treat_fee(10_000), round(10_000 * market.MEOW_TREAT_FEE))
+        # …with a floor of one treat, because a fee that rounds to nothing is not
+        # a fee and a fraction of a coin cannot be paid.
+        self.assertEqual(market.treat_fee(100), 1)
+        self.assertIn("%", market.treat_fee_label())
+
+    def test_a_real_move_is_the_same_move_in_coins_before_the_treat(self):
+        """The price side is exactly 1:1; the only cost is the named treat."""
         bought = quote("BTC", 100.0)
         later = quote("BTC", 110.0)
         coins_in = 25_000
-        quantity = market.buy_quantity(coins_in, bought.buy_coins())
-        coins_out = market.sell_proceeds(quantity, later.sell_coins())
-        self.assertAlmostEqual(coins_out / coins_in - 1, 0.10, places=6)
-        # And a loss is the real loss too, not a loss plus a fee.
-        worse = quote("BTC", 90.0)
-        coins_out = market.sell_proceeds(quantity, worse.sell_coins())
-        self.assertAlmostEqual(coins_out / coins_in - 1, -0.10, places=6)
+        notional = coins_in - market.treat_fee(coins_in)
+        quantity = market.buy_quantity(notional, bought.buy_coins())
+        gross = market.sell_proceeds(quantity, later.sell_coins())
+        # The gross return is the price move itself, to the rounding of the
+        # stored quantity (8 decimals), not a spread's worth less.
+        self.assertAlmostEqual(gross / notional - 1, 0.10, places=4)
+        # And net of the treat it is the same move minus the fee, never a spread.
+        net = market.sell_value(quantity, later.sell_coins())
+        self.assertEqual(net, gross - market.treat_fee(gross))
+        self.assertLess(net, gross)
+        # The wallet sees the real move minus the two treats — under 10%, and
+        # nowhere near the 8.9% the old two-sided spread turned it into.
+        wallet_return = net / coins_in - 1
+        self.assertLess(wallet_return, 0.10)
+        self.assertGreater(wallet_return, 0.10 - 0.01)
 
 
-class TestParsing(unittest.TestCase):
+class TestParsing(unittest.IsolatedAsyncioTestCase):
+    """Provider payloads, parsed exactly as they arrive.
+
+    The provider readers are ``async``, so this must be an async test case: a
+    plain ``TestCase`` holding ``async def test_...`` methods *returns* un-awaited
+    coroutines, and every one of them silently passes without asserting anything.
+    """
+
     def test_a_change_may_be_negative_or_zero_but_a_price_may_not(self):
         """The bug that made every falling market look flat."""
         self.assertEqual(market._as_number("-0.512"), -0.512)
@@ -496,10 +576,18 @@ class TestSettlement(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(fill.ok, fill.reason)
         self.assertEqual(fill.coins, 25_000)
-        self.assertAlmostEqual(fill.quantity, 25_000 / self.quote.buy_coins(), places=8)
+        # The whole outlay leaves the wallet, the treat comes out of it, and the
+        # rest buys units at the observed price.
+        self.assertEqual(fill.treat_coins, market.treat_fee(25_000))
+        self.assertAlmostEqual(
+            fill.quantity,
+            market.buy_quantity(25_000 - fill.treat_coins, self.quote.buy_coins()),
+            places=8,
+        )
         self.assertEqual(self._wallet(), 25_000)
         holding = (await market.holdings(TRADER, GUILD))["BTC"]
         self.assertAlmostEqual(holding.quantity, fill.quantity, places=8)
+        # The cost basis is everything that left the wallet, treats included.
         self.assertEqual(holding.cost_coins, 25_000)
         trades = await market.trade_history(TRADER, GUILD)
         self.assertEqual(trades[0]["side"], "buy")
@@ -515,8 +603,15 @@ class TestSettlement(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(
             holding.avg_cost_coins, 50_000 / holding.quantity, places=6
         )
-        # Equal to the fill price to within the stored quantity's precision.
-        self.assertAlmostEqual(holding.avg_cost_coins, self.quote.buy_coins(), places=3)
+        # Just above the fill price, by exactly the two treats spread over the
+        # position — that is the fee showing up honestly in the average cost.
+        self.assertGreater(holding.avg_cost_coins, self.quote.buy_coins())
+        treats = 2 * market.treat_fee(25_000)
+        self.assertAlmostEqual(
+            holding.avg_cost_coins,
+            self.quote.buy_coins() + treats / holding.quantity,
+            places=3,
+        )
 
     async def test_a_buy_is_refused_when_the_wallet_cannot_cover_it(self):
         self._seed_wallet(1_000)
@@ -566,7 +661,14 @@ class TestSettlement(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(fill.ok, fill.reason)
         self.assertAlmostEqual(fill.quantity, held.quantity / 2, places=8)
-        self.assertEqual(fill.coins, market.sell_proceeds(fill.quantity, self.quote.sell_coins()))
+        # Proceeds are the sell price net of the treat.
+        self.assertEqual(
+            fill.coins, market.sell_value(fill.quantity, self.quote.sell_coins())
+        )
+        self.assertEqual(
+            fill.coins,
+            market.sell_proceeds(fill.quantity, self.quote.sell_coins()) - fill.treat_coins,
+        )
         # Half the position leaves with half the cost, so the P/L is real.
         self.assertEqual(fill.realized, fill.coins - int(round(25_000 / 2)))
         after = (await market.holdings(TRADER, GUILD))["BTC"]
@@ -584,28 +686,69 @@ class TestSettlement(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fill.cost_after, 0.0)
         self.assertEqual(fill.avg_cost_coins, 0.0)
         self.assertEqual(await market.holdings(TRADER, GUILD), {})
-        # No spread: closing at the price you bought at returns the coins you
-        # spent, to within the one coin of integer rounding on the way out.
-        self.assertAlmostEqual(fill.coins, 25_000, delta=1)
+        # Closing at the price you bought at returns what the market paid for the
+        # units — the buy's treat bought fewer units, and the sell's treat comes
+        # off the proceeds, so the round trip costs the two treats and nothing else.
+        bought = market.buy_quantity(25_000 - market.treat_fee(25_000), self.quote.buy_coins())
+        self.assertEqual(
+            fill.coins, market.sell_value(bought, self.quote.sell_coins())
+        )
         self.assertEqual(fill.realized, fill.coins - 25_000)
 
-    async def test_a_round_trip_at_an_unchanged_price_leaves_the_wallet_whole(self):
+    async def test_a_round_trip_costs_exactly_the_two_treats(self):
+        """No spread: an unchanged price round trip loses the fee and only the fee."""
         self._seed_wallet(25_000)
-        await market.settle_buy(TRADER, GUILD, self.btc, 25_000, self.quote, T0)
-        await market.settle_sell(TRADER, GUILD, self.btc, 0.0, self.quote, T0, sell_all=True)
-        self.assertAlmostEqual(self._wallet(), 25_000, delta=1)
+        buy = await market.settle_buy(TRADER, GUILD, self.btc, 25_000, self.quote, T0)
+        sell = await market.settle_sell(
+            TRADER, GUILD, self.btc, 0.0, self.quote, T0, sell_all=True
+        )
+        self.assertTrue(buy.ok and sell.ok)
+        lost = 25_000 - self._wallet()
+        self.assertEqual(lost, buy.treat_coins + sell.treat_coins)
+        # Which is a fraction of a percent of the position, not a spread.
+        self.assertLess(lost, 25_000 * 0.01)
 
-    async def test_a_real_ten_percent_move_pays_ten_percent(self):
-        """The 1:1 promise, measured end to end through the real settlement."""
+    async def test_a_real_ten_percent_move_pays_ten_percent_minus_the_treat(self):
+        """The 1:1 promise measured end to end: the price move, less a named fee.
+
+        The move is reproduced exactly — a position bought at 100 and sold at 110
+        returns 10% of what the units cost — and the only thing between that and
+        the wallet is the Meow Treat fee, which is itemised on the receipt.
+        """
         self._seed_wallet(25_000)
-        await market.settle_buy(TRADER, GUILD, self.btc, 25_000, self.quote, T0)
+        buy_price = self.quote.buy_coins()
+        buy = await market.settle_buy(TRADER, GUILD, self.btc, 25_000, self.quote, T0)
         self.quote = quote("BTC", 110.0, as_of=T0, source="test")
         fill = await market.settle_sell(
             TRADER, GUILD, self.btc, 0.0, self.quote, T0, sell_all=True
         )
         self.assertTrue(fill.ok, fill.reason)
-        self.assertAlmostEqual(self._wallet() / 25_000 - 1, 0.10, places=4)
-        self.assertEqual(fill.realized, self._wallet() - 25_000)
+        self.assertEqual(fill.unit_price_coins, self.quote.sell_coins())  # 1:1 price
+        returned = self._wallet()
+        gross = market.sell_proceeds(buy.quantity, self.quote.sell_coins())
+        self.assertAlmostEqual(gross / buy.quantity / buy_price - 1, 0.10, places=4)
+        self.assertEqual(returned, gross - fill.treat_coins)
+        # Net of both treats it is ~9.45%, not the ~8.9% a spread would have cost.
+        self.assertAlmostEqual(returned / 25_000 - 1, 0.0945, places=3)
+        self.assertEqual(fill.realized, returned - 25_000)
+
+    async def test_a_loss_is_the_real_loss_and_not_a_loss_plus_a_fee(self):
+        """A -10% move is a -10% loss on the money invested, plus the treats."""
+        self._seed_wallet(25_000)
+        await market.settle_buy(TRADER, GUILD, self.btc, 25_000, self.quote, T0)
+        self.quote = quote("BTC", 90.0, as_of=T0, source="test")
+        await market.settle_sell(TRADER, GUILD, self.btc, 0.0, self.quote, T0, sell_all=True)
+        change = self._wallet() / 25_000 - 1
+        # The invested part moved exactly -10%…
+        notional = 25_000 - market.treat_fee(25_000)
+        units = market.buy_quantity(notional, 100.0)
+        gross = market.sell_proceeds(units, 90.0)
+        self.assertAlmostEqual(gross / notional - 1, -0.10, places=4)
+        # …and the wallet is that, less the two treats — never a spread on top.
+        expected = (gross - market.treat_fee(gross)) / 25_000 - 1
+        self.assertAlmostEqual(change, expected, places=6)
+        self.assertLess(change, -0.10)
+        self.assertGreater(change, -0.106)
 
     async def test_you_cannot_sell_more_than_you_hold(self):
         self._seed_wallet(50_000)
@@ -624,19 +767,25 @@ class TestSettlement(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         cheap = quote("BTC", 10.0, as_of=T0)          # 2,500 coins per unit
         await market.settle_buy(TRADER, GUILD, self.btc, 250_000, cheap, T0)
 
-        rich = quote("BTC", 100_000.0, as_of=T0)      # 24,875,000 coins a unit
-        first = await market.settle_sell(TRADER, GUILD, self.btc, 0.04, rich, T0)
-        self.assertTrue(first.ok, first.reason)
-        # Spends the ceiling exactly — the boundary is inclusive, and it is the
-        # *next* coin that is refused.
-        self.assertEqual(first.coins, market.MAX_DAILY_SELL_COINS)
-
-        second = await market.settle_sell(TRADER, GUILD, self.btc, 0.04, rich, T0)
-        self.assertEqual(second.reason, "daily_cap")
+        rich = quote("BTC", 100_000.0, as_of=T0)      # 100,000 coins a unit at 1:1
+        paid = 0
+        refused = None
+        for _ in range(6):
+            fill = await market.settle_sell(TRADER, GUILD, self.btc, 5.0, rich, T0)
+            if not fill.ok:
+                refused = fill.reason
+                break
+            paid += fill.coins
+            self.assertLessEqual(
+                await market.sold_coins_since(TRADER, GUILD, T0 - 1),
+                market.MAX_DAILY_SELL_COINS,
+            )
+        self.assertEqual(refused, "daily_cap")
+        self.assertGreater(paid, 0)
         self.assertEqual(
-            await market.sold_coins_since(TRADER, GUILD, T0 - 1), first.coins
+            await market.sold_coins_since(TRADER, GUILD, T0 - 1), paid
         )
-        # The position is untouched by a refused sale.
+        # The position is untouched by the refused sale.
         self.assertGreater((await market.holdings(TRADER, GUILD))["BTC"].quantity, 0)
 
     async def test_sold_coins_since_counts_only_sales(self):
@@ -1057,9 +1206,9 @@ class TestPortfolioAndHistory(_MarketCommands):
         )
         self.assertIn("BTC", rendered)
         self.assertIn("Unrealised", rendered)
-        # Bought at 100, marked at 120: the position is up 20%, exactly.
-        self.assertIn("+", rendered)
-        self.assertIn("20.00%", rendered)
+        # Bought at 100, marked at 120: up the real 20%, less the ~0.5% of treats
+        # the two fills cost — so just under 20, and never a spread on top.
+        self.assertRegex(rendered, r"\+19\.\d{2}%")
 
     async def test_an_empty_history_says_so(self):
         card = await self.history()
@@ -1186,6 +1335,17 @@ class TestHistoryProviders(unittest.TestCase):
         self.assertEqual(candles[0].low, 314.73)
         self.assertEqual(candles[1].close, 332.27)
 
+    def test_nasdaq_is_told_which_book_to_look_in(self):
+        """A fund asked for as a share is an HTTP 400, not an empty chart."""
+        for symbol, expected in (("SPY", "etf"), ("AAPL", "stocks")):
+            http = _FakeHTTP([("api.nasdaq.com", self.NASDAQ_CHART)])
+            asyncio.run(
+                market._nasdaq_chart(
+                    http, market.BY_SYMBOL[symbol], market.PERIODS["month"], T0
+                )
+            )
+            self.assertEqual(http.calls[-1][2]["assetclass"], expected, symbol)
+
     def test_a_history_source_that_answers_nonsense_is_a_failure(self):
         http = _FakeHTTP([("api.binance.com", {"not": "a list"})])
         with self.assertRaises(market.ProviderError):
@@ -1227,6 +1387,16 @@ class TestFetchCandles(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
             series = await market.fetch_candles(market.BY_SYMBOL["AAPL"], "month")
         self.assertEqual(series.source, "Nasdaq")
         self.assertEqual(series.axis_label, "daily candles")
+
+    async def test_a_fund_gets_a_chart_too(self):
+        """It used to end at zero candles: Yahoo refused the host and Nasdaq was
+        asked for the wrong book, so the live chart was blank for every ETF."""
+        routes = [("api.nasdaq.com", TestHistoryProviders.NASDAQ_CHART)]
+        with _patch_http(routes):
+            series = await market.fetch_candles(market.BY_SYMBOL["SPY"], "week")
+        self.assertIsNotNone(series)
+        self.assertEqual(series.source, "Nasdaq")
+        self.assertGreaterEqual(len(series.candles), 2)
 
     async def test_history_falls_back_to_what_the_bot_observed_itself(self):
         """The only history that exists for a source with no chart endpoint."""

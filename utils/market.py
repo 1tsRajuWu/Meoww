@@ -33,9 +33,15 @@ off the real market, which is what makes a rising asset worth holding. Fills
 happen **at the observed price on both sides** — ``buy_coins()`` and
 ``sell_coins()`` are the same number — so a real trader's percentage return is
 reproduced **1:1**: an asset that moved +10% in dollars moved +10% for a member
-holding it here, and a round trip at an unchanged price costs exactly nothing.
-No spread, no fee, no haircut; the only things standing between a member and a
-real price are the limits below.
+holding it here. Prices are quoted in the bot's currency at ``COINS_PER_USD``,
+which is **1** — one coin is one dollar, so the board reads like a price board
+rather than a conversion puzzle.
+
+The one thing taken is a **named, itemised fee**: ``MEOW_TREAT_FEE``, the house
+cat's cut, charged on top of a buy and out of a sell and burned rather than
+banked. It is printed on every receipt with the amount, so a member sees exactly
+what the treat cost and the fill price itself is never quietly worse than the
+market.
 
 **Trading is role-gated.** ``/market`` is restricted to the roles in
 ``access_role_ids()`` — by default the single role in
@@ -74,7 +80,43 @@ from utils import db
 #: one exchange rate prices the whole market. At 250, a share of stock lands
 #: between the shop's Pro and Prestige tiers and a thousandth of a Bitcoin is a
 #: sensible purchase rather than a rounding error.
-COINS_PER_USD = 250
+COINS_PER_USD = 1
+#: The rate this bot used before the change to 1:1. Every stored amount — a
+#: position's cost basis, a fill's unit price, a realised profit — is in coin
+#: units, so switching the rate without rescaling them would show every existing
+#: holder a 99.6% paper loss on a position that never moved. ``utils/db`` rescales
+#: those rows exactly once, guarded by a marker, from this value to the current
+#: one. A literal on purpose: it must never drift with the live rate.
+PREVIOUS_COINS_PER_USD = 250
+
+#: The house cat's cut, as a share of a fill. This is **a named, itemised fee
+#: rather than a spread**: the price a fill happens at is still 1:1 with the
+#: observed market, and the treat is a separate line on every receipt — charged on
+#: top of a buy and taken out of a sell, with at least one treat on any fill, and
+#: **burned** (it is a coin sink, which is the point of having a fee at all).
+MEOW_TREAT_FEE = 0.0025
+
+
+def treat_fee(coins: float) -> int:
+    """The treats owed on a fill of ``coins``.
+
+    Proportional, rounded to a whole coin, and never less than one on a fill that
+    actually happens — a fractional treat cannot be paid, and a fee that rounds
+    to nothing is not a fee.
+    """
+    if coins <= 0:
+        return 0
+    return max(1, int(round(coins * MEOW_TREAT_FEE)))
+
+
+def treat_fee_label() -> str:
+    """``0.25%`` — the fee as it is printed on a card."""
+    return f"{MEOW_TREAT_FEE * 100:g}%"
+
+
+def rate_rescale_factor() -> float:
+    """What to multiply a *pre-1:1* stored amount by to keep it correct."""
+    return COINS_PER_USD / PREVIOUS_COINS_PER_USD
 #: How much of a fill's value the market keeps. Zero: fills happen at the
 #: observed price on both sides, so a member's return *is* the asset's real
 #: return — buy 25,000 🪙 of something that moves +10% and the position is worth
@@ -200,46 +242,142 @@ class Instrument:
         return self.ids.get(provider)
 
 
-def _crypto(symbol: str, name: str, *, binance: str, kraken: str, coinbase: str) -> Instrument:
-    return Instrument(
-        symbol=symbol,
-        name=name,
-        kind=CRYPTO,
-        ids={
-            "binance": binance,
-            "kraken": kraken,
-            "coinbase": coinbase,
-            "tradingview": f"BINANCE:{binance}",
-        },
-    )
+def _crypto(
+    symbol: str,
+    name: str,
+    *,
+    binance: str | None = None,
+    kraken: str | None = None,
+    coinbase: str | None = None,
+) -> Instrument:
+    """A coin, and whatever each provider calls it.
+
+    Every provider id is optional: one that does not list a coin is simply never
+    asked about it, rather than being asked for a pair it will not answer. Binance
+    is the batched primary feed, TradingView mirrors it, and Kraken and Coinbase
+    are the fallbacks.
+    """
+    ids = {
+        key: value
+        for key, value in (("binance", binance), ("kraken", kraken), ("coinbase", coinbase))
+        if value
+    }
+    if binance:
+        ids["tradingview"] = f"BINANCE:{binance}"
+    return Instrument(symbol=symbol, name=name, kind=CRYPTO, ids=ids)
 
 
-def _stock(symbol: str, name: str, *, exchange: str = "NASDAQ") -> Instrument:
+def _stock(
+    symbol: str, name: str, *, exchange: str = "NASDAQ", etf: bool = False
+) -> Instrument:
+    """A share or a fund, and what each provider calls it.
+
+    ``etf`` matters because Nasdaq's chart endpoint asks which book to look in and
+    answers **HTTP 400 rather than an empty series** when told the wrong one — so
+    every ETF's chart came back blank while the same request for a share worked.
+    It is declared rather than probed: a wrong ticker and a wrong asset class are
+    different failures, and only one of them is worth retrying.
+    """
     return Instrument(
         symbol=symbol,
         name=name,
         kind=STOCK,
-        ids={"tradingview": f"{exchange}:{symbol}", "cnbc": symbol},
+        ids={
+            "tradingview": f"{exchange}:{symbol}",
+            "cnbc": symbol,
+            "nasdaq_class": "etf" if etf else "stocks",
+        },
     )
 
 
 #: What is for sale. Every entry is liquid and recognisable, because a market
-#: nobody can read is a market nobody trades.
+#: nobody can read is a market nobody trades — and every provider id below was
+#: checked against the live endpoint, since a wrong ticker does not raise, it just
+#: leaves one row reading ``unavailable`` forever.
 INSTRUMENTS: tuple[Instrument, ...] = (
+    # -- Crypto: the majors, the layer ones, and a few memes --------------- #
     _crypto("BTC", "Bitcoin", binance="BTCUSDT", kraken="XBTUSD", coinbase="BTC-USD"),
     _crypto("ETH", "Ethereum", binance="ETHUSDT", kraken="ETHUSD", coinbase="ETH-USD"),
     _crypto("SOL", "Solana", binance="SOLUSDT", kraken="SOLUSD", coinbase="SOL-USD"),
     _crypto("XRP", "XRP", binance="XRPUSDT", kraken="XRPUSD", coinbase="XRP-USD"),
+    _crypto("BNB", "BNB", binance="BNBUSDT", coinbase="BNB-USD"),
     _crypto("DOGE", "Dogecoin", binance="DOGEUSDT", kraken="DOGEUSD", coinbase="DOGE-USD"),
     _crypto("ADA", "Cardano", binance="ADAUSDT", kraken="ADAUSD", coinbase="ADA-USD"),
+    _crypto("AVAX", "Avalanche", binance="AVAXUSDT", kraken="AVAXUSD", coinbase="AVAX-USD"),
+    _crypto("LINK", "Chainlink", binance="LINKUSDT", kraken="LINKUSD", coinbase="LINK-USD"),
+    _crypto("DOT", "Polkadot", binance="DOTUSDT", kraken="DOTUSD", coinbase="DOT-USD"),
+    _crypto("LTC", "Litecoin", binance="LTCUSDT", kraken="LTCUSD", coinbase="LTC-USD"),
+    _crypto("BCH", "Bitcoin Cash", binance="BCHUSDT", kraken="BCHUSD", coinbase="BCH-USD"),
+    _crypto("XLM", "Stellar", binance="XLMUSDT", kraken="XLMUSD", coinbase="XLM-USD"),
+    _crypto("ATOM", "Cosmos", binance="ATOMUSDT", kraken="ATOMUSD", coinbase="ATOM-USD"),
+    _crypto("NEAR", "NEAR Protocol", binance="NEARUSDT", kraken="NEARUSD", coinbase="NEAR-USD"),
+    _crypto("UNI", "Uniswap", binance="UNIUSDT", kraken="UNIUSD", coinbase="UNI-USD"),
+    _crypto("AAVE", "Aave", binance="AAVEUSDT", kraken="AAVEUSD", coinbase="AAVE-USD"),
+    _crypto("SUI", "Sui", binance="SUIUSDT", kraken="SUIUSD", coinbase="SUI-USD"),
+    _crypto("APT", "Aptos", binance="APTUSDT", kraken="APTUSD", coinbase="APT-USD"),
+    _crypto("ARB", "Arbitrum", binance="ARBUSDT", kraken="ARBUSD", coinbase="ARB-USD"),
+    _crypto("OP", "Optimism", binance="OPUSDT", kraken="OPUSD", coinbase="OP-USD"),
+    _crypto("INJ", "Injective", binance="INJUSDT", kraken="INJUSD", coinbase="INJ-USD"),
+    _crypto("FIL", "Filecoin", binance="FILUSDT", kraken="FILUSD", coinbase="FIL-USD"),
+    _crypto("TRX", "TRON", binance="TRXUSDT", kraken="TRXUSD", coinbase="TRX-USD"),
+    _crypto("SHIB", "Shiba Inu", binance="SHIBUSDT", kraken="SHIBUSD", coinbase="SHIB-USD"),
+    _crypto("PEPE", "Pepe", binance="PEPEUSDT", kraken="PEPEUSD", coinbase="PEPE-USD"),
+    _crypto("TIA", "Celestia", binance="TIAUSDT", kraken="TIAUSD", coinbase="TIA-USD"),
+    _crypto("SEI", "Sei", binance="SEIUSDT", kraken="SEIUSD", coinbase="SEI-USD"),
+    _crypto("ALGO", "Algorand", binance="ALGOUSDT", kraken="ALGOUSD", coinbase="ALGO-USD"),
+    _crypto("ETC", "Ethereum Classic", binance="ETCUSDT", kraken="ETCUSD", coinbase="ETC-USD"),
+    # -- Stocks: megacaps, the chip complex, and the names people ask for -- #
     _stock("AAPL", "Apple"),
     _stock("MSFT", "Microsoft"),
     _stock("NVDA", "NVIDIA"),
-    _stock("TSLA", "Tesla"),
-    _stock("AMZN", "Amazon"),
     _stock("GOOGL", "Alphabet"),
+    _stock("AMZN", "Amazon"),
     _stock("META", "Meta"),
+    _stock("TSLA", "Tesla"),
+    _stock("NFLX", "Netflix"),
+    _stock("AMD", "AMD"),
+    _stock("INTC", "Intel"),
+    _stock("AVGO", "Broadcom"),
+    _stock("QCOM", "Qualcomm"),
+    _stock("TSM", "TSMC", exchange="NYSE"),
+    _stock("ORCL", "Oracle", exchange="NYSE"),
+    _stock("CRM", "Salesforce", exchange="NYSE"),
+    _stock("ADBE", "Adobe"),
+    _stock("PLTR", "Palantir", exchange="NASDAQ"),
+    _stock("COIN", "Coinbase"),
+    _stock("SHOP", "Shopify", exchange="NYSE"),
+    _stock("UBER", "Uber", exchange="NYSE"),
+    _stock("JPM", "JPMorgan", exchange="NYSE"),
+    _stock("BAC", "Bank of America", exchange="NYSE"),
+    _stock("V", "Visa", exchange="NYSE"),
+    _stock("MA", "Mastercard", exchange="NYSE"),
+    _stock("WMT", "Walmart", exchange="NYSE"),
+    _stock("COST", "Costco"),
+    _stock("KO", "Coca-Cola", exchange="NYSE"),
+    _stock("PEP", "PepsiCo", exchange="NASDAQ"),
+    _stock("MCD", "McDonald's", exchange="NYSE"),
+    _stock("NKE", "Nike", exchange="NYSE"),
+    _stock("DIS", "Disney", exchange="NYSE"),
+    _stock("BA", "Boeing", exchange="NYSE"),
+    _stock("XOM", "Exxon Mobil", exchange="NYSE"),
+    _stock("PFE", "Pfizer", exchange="NYSE"),
+    _stock("JNJ", "Johnson & Johnson", exchange="NYSE"),
+    _stock("UNH", "UnitedHealth", exchange="NYSE"),
+    _stock("BABA", "Alibaba", exchange="NYSE"),
+    # -- ETFs, because "the market" is not one stock ---------------------- #
+    _stock("SPY", "S&P 500 ETF", exchange="AMEX", etf=True),
+    _stock("QQQ", "Nasdaq 100 ETF", etf=True),
+    _stock("VOO", "Vanguard S&P 500", exchange="AMEX", etf=True),
+    _stock("IWM", "Russell 2000 ETF", exchange="AMEX", etf=True),
+    _stock("GLD", "Gold ETF", exchange="AMEX", etf=True),
 )
+
+#: How many instruments the catalog may hold before the board cannot fit in an
+#: embed. 25 fields, 1,024 characters each and 6,000 characters of text total,
+#: with each row costing roughly 60 characters once the symbol, name and price are
+#: rendered — so ~70 rows fit in three fields, and this is the guard rail rather
+#: than the limit. ``tests/test_market.py`` fails if the live catalog exceeds it.
+MAX_CATALOG_SIZE = 80
 
 BY_SYMBOL: dict[str, Instrument] = {item.symbol: item for item in INSTRUMENTS}
 
@@ -787,7 +925,11 @@ async def _nasdaq_chart(
     payload = await _get_json(
         session,
         f"https://api.nasdaq.com/api/quote/{instrument.symbol}/chart",
-        params={"assetclass": "stocks", "fromdate": start, "todate": end},
+        params={
+            "assetclass": instrument.id_for("nasdaq_class") or "stocks",
+            "fromdate": start,
+            "todate": end,
+        },
     )
     data = payload.get("data") if isinstance(payload, dict) else None
     rows = data.get("chart") if isinstance(data, dict) else None
@@ -978,6 +1120,112 @@ async def fetch_candles(
 
 
 # --------------------------------------------------------------------------- #
+# The live page
+# --------------------------------------------------------------------------- #
+#: How long a chart's candles are reused for one browser tab. The page polls, and
+#: every poll would otherwise be an outbound provider request, so the cache is the
+#: difference between a chart somebody leaves open and a rate limit.
+CANDLE_CACHE_SECONDS = 60.0
+_candles_cache: dict[tuple[str, str], tuple[float, CandleSeries]] = {}
+
+
+async def cached_candles(
+    symbol: str, period_key: str = DEFAULT_PERIOD, *, now: float | None = None
+) -> CandleSeries | None:
+    """Candles for a symbol, served from a short cache when one is warm."""
+    instrument = BY_SYMBOL.get((symbol or "").strip().upper())
+    if instrument is None:
+        return None
+    key = (instrument.symbol, period_key if period_key in PERIODS else DEFAULT_PERIOD)
+    now = time.time() if now is None else now
+    hit = _candles_cache.get(key)
+    if hit is not None and now - hit[0] < CANDLE_CACHE_SECONDS:
+        return hit[1]
+    series = await fetch_candles(instrument, key[1], now=now)
+    if series is not None:
+        _candles_cache[key] = (now, series)
+    return series
+
+
+def quotes_payload(snap: Snapshot, now: float | None = None) -> dict:
+    """The whole board as JSON, for the live page.
+
+    Every number carries its own age and source, exactly like the card: a live
+    page that hides how old a price is would be inventing certainty.
+    """
+    now = time.time() if now is None else now
+    rows = []
+    for instrument in INSTRUMENTS:
+        quote = snap.quote(instrument.symbol)
+        row: dict[str, Any] = {
+            "symbol": instrument.symbol,
+            "name": instrument.name,
+            "kind": instrument.kind,
+            "available": quote is not None,
+        }
+        if quote is not None:
+            row.update(
+                price_usd=quote.price_usd,
+                coins=quote.mid_coins(),
+                change_pct=quote.change_pct,
+                source=quote.source,
+                age_seconds=round(quote.age(now), 1),
+                tradable=quote.tradable(now),
+            )
+        rows.append(row)
+    return {
+        "as_of": snap.as_of,
+        "age_seconds": round(snap.age(now), 1),
+        "sources": list(snap.sources()),
+        "missing": list(snap.missing()),
+        "coins_per_usd": COINS_PER_USD,
+        "treat_fee": MEOW_TREAT_FEE,
+        "treat_fee_label": treat_fee_label(),
+        "max_quote_age_seconds": MAX_QUOTE_AGE_SECONDS,
+        "periods": {
+            key: {"label": period.label, "days": period.calendar_days}
+            for key, period in PERIODS.items()
+        },
+        "quotes": rows,
+    }
+
+
+def series_payload(
+    symbol: str, series: CandleSeries | None, period_key: str = DEFAULT_PERIOD
+) -> dict:
+    """One instrument's history as JSON, **in coins**, and where it came from.
+
+    Coins rather than dollars because coins are what the page draws and what a
+    member trades in; ``coins_per_usd`` travels with the quotes payload for
+    anyone who wants the dollar figure back.
+    """
+    instrument = BY_SYMBOL.get((symbol or "").strip().upper())
+    payload: dict[str, Any] = {
+        "symbol": (instrument.symbol if instrument else (symbol or "").upper()),
+        "name": instrument.name if instrument else None,
+        "kind": instrument.kind if instrument else None,
+        "period": period_key,
+        "source": series.source if series else None,
+        "axis_label": series.axis_label if series else None,
+        "observed": bool(series and series.source == "this bot's own polling"),
+        "candles": [],
+    }
+    if series is not None:
+        payload["candles"] = [
+            {
+                "ts": candle.ts,
+                "open": candle.open * COINS_PER_USD,
+                "high": candle.high * COINS_PER_USD,
+                "low": candle.low * COINS_PER_USD,
+                "close": candle.close * COINS_PER_USD,
+                "flat": candle.flat,
+            }
+            for candle in series.candles
+        ]
+    return payload
+
+
+# --------------------------------------------------------------------------- #
 # Fetching and caching
 # --------------------------------------------------------------------------- #
 _snapshot: Snapshot | None = None
@@ -998,6 +1246,7 @@ def reset() -> None:
     _refreshing = False
     _last_attempt = 0.0
     _last_error = None
+    _candles_cache.clear()
 
 
 def last_error() -> str | None:
@@ -1167,6 +1416,16 @@ def sell_proceeds(quantity: float, unit_price_coins: float) -> int:
     return int(round(quantity * unit_price_coins))
 
 
+def sell_value(quantity: float, unit_price_coins: float) -> int:
+    """What selling ``quantity`` at ``unit_price_coins`` actually pays, treats out.
+
+    The one function the cards should call: a position's worth is what you would
+    receive, not the gross price times the size, and the difference is the treat.
+    """
+    gross = sell_proceeds(quantity, unit_price_coins)
+    return max(0, gross - treat_fee(gross))
+
+
 def cost_basis_portion(cost_coins: float, quantity: float, sold: float) -> float:
     """The share of the position's cost that ``sold`` represents.
 
@@ -1194,6 +1453,10 @@ class Fill:
     realized: int = 0
     quantity_after: float = 0.0
     cost_after: float = 0.0
+    #: The Meow Treat fee taken on this fill. Also included in ``coins`` (a buy
+    #: spends it, a sell pays it out of the proceeds) and kept separately so every
+    #: receipt can itemise it instead of hiding it.
+    treat_coins: int = 0
 
     @property
     def avg_cost_coins(self) -> float:
@@ -1407,7 +1670,15 @@ async def settle_buy(
         return Fill(False, "stale", instrument.symbol)
 
     unit_price = quote.buy_coins()
-    quantity = buy_quantity(coins, unit_price)
+    # The member names what leaves their wallet; the treat comes out of it first,
+    # so the position is bought with the rest. The whole outlay — treats included —
+    # becomes the cost basis, which is what makes closing at an unchanged price
+    # show exactly the treat as a loss rather than a free round trip.
+    treat = treat_fee(coins)
+    notional = coins - treat
+    if notional <= 0:
+        return Fill(False, "too_small", instrument.symbol)
+    quantity = buy_quantity(notional, unit_price)
     if quantity <= 0:
         return Fill(False, "too_small", instrument.symbol)
 
@@ -1435,6 +1706,7 @@ async def settle_buy(
             coins=coins,
             quantity_after=new_quantity,
             cost_after=new_cost,
+            treat_coins=treat,
         )
 
     return await asyncio.to_thread(db.run_atomic, _buy)
@@ -1475,7 +1747,9 @@ async def settle_sell(
             # Selling all but a crumb would leave an untradable position behind.
             wanted = held
 
-        proceeds = sell_proceeds(wanted, unit_price)
+        gross = sell_proceeds(wanted, unit_price)
+        treat = treat_fee(gross)
+        proceeds = gross - treat
         if proceeds < 1:
             return Fill(False, "too_small", instrument.symbol)
 
@@ -1531,6 +1805,7 @@ async def settle_sell(
             realized=realized,
             quantity_after=new_quantity,
             cost_after=new_cost,
+            treat_coins=treat,
         )
 
     return await asyncio.to_thread(db.run_atomic, _sell)

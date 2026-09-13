@@ -11,6 +11,7 @@ wallet cannot drift apart.
 """
 from __future__ import annotations
 
+import os
 import time
 
 import discord
@@ -23,6 +24,48 @@ from utils.style import send_card
 
 #: How many trades `/market history` shows.
 HISTORY_LIMIT = 10
+
+#: Discord refuses an embed whose field value exceeds 1,024 characters, and a
+#: board of eighty instruments is far past that — so the board is paginated into
+#: as many fields as it needs rather than being cut off mid-row.
+FIELD_LIMIT = 1024
+
+#: Where the live chart page is served. The same host as the dashboard, because
+#: that is the process that already has the market in memory.
+DASHBOARD_BASE = os.getenv(
+    "DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com"
+).rstrip("/")
+
+
+def live_chart_url(symbol: str) -> str:
+    """The interactive page for one instrument."""
+    return f"{DASHBOARD_BASE}/market/{symbol.upper()}"
+
+
+def tradingview_url(instrument: "market.Instrument") -> str:
+    """The instrument on TradingView, for anyone who wants the full toolkit."""
+    ticker = instrument.id_for("tradingview")
+    if ticker:
+        return f"https://www.tradingview.com/chart/?symbol={ticker}"
+    return f"https://www.tradingview.com/symbols/{instrument.symbol}/"
+
+
+def chunk_lines(lines: list[str], limit: int = FIELD_LIMIT) -> list[str]:
+    """Pack ``lines`` into field-sized blocks, never splitting a row."""
+    blocks: list[str] = []
+    current: list[str] = []
+    size = 0
+    for line in lines:
+        extra = len(line) + (1 if current else 0)
+        if current and size + extra > limit:
+            blocks.append("\n".join(current))
+            current, size = [line], len(line)
+            continue
+        current.append(line)
+        size += extra
+    if current:
+        blocks.append("\n".join(current))
+    return blocks
 
 
 def fmt_qty(quantity: float) -> str:
@@ -217,7 +260,8 @@ class Market(commands.Cog):
             if quote is None:
                 cost += holding.cost_coins
                 continue
-            value += holding.quantity * quote.sell_coins()
+            # Net of the treat: what selling today would actually pay.
+            value += market.sell_value(holding.quantity, quote.sell_coins())
             cost += holding.cost_coins
         return held, value, cost
 
@@ -256,9 +300,12 @@ class Market(commands.Cog):
             title="📈 Market Board",
             description=(
                 f"{status}\n"
-                "Fills happen at the observed price, both sides — **no spread, no "
-                "fee**, so a real move is the same move here.\n"
-                f"`1 USD = {market.COINS_PER_USD:,} 🪙`"
+                "Fills happen at the observed price, both sides — **no spread**.\n"
+                f"The only charge is the **{market.treat_fee_label()} Meow Treat fee** 🐾, "
+                "itemised on every fill.\n"
+                f"`1 USD = {market.COINS_PER_USD:,} 🪙` • "
+                f"**{len(market.INSTRUMENTS)}** instruments • "
+                f"[live chart]({DASHBOARD_BASE}/market/BTC)"
             ),
             color=0x2ECC71,
             timestamp=discord.utils.utcnow(),
@@ -276,7 +323,12 @@ class Market(commands.Cog):
                     f"**{instrument.symbol}** · {instrument.name} — "
                     f"`{fmt_coins(quote.mid_coins())}` 🪙{fmt_change(quote.change_pct)}"
                 )
-            embed.add_field(name=label, value="\n".join(lines), inline=False)
+            for index, block in enumerate(chunk_lines(lines)):
+                embed.add_field(
+                    name=label if index == 0 else f"{label} (cont.)",
+                    value=block,
+                    inline=False,
+                )
 
         held, value, cost = await self._positions_value(
             interaction.user.id, interaction.guild.id, snap, now
@@ -286,7 +338,7 @@ class Market(commands.Cog):
             embed.add_field(
                 name="💼 Your Positions",
                 value=(
-                    f"• Value at sell price: **{fmt_coins(value)}** 🪙\n"
+                    f"• Value at sell price (after treats): **{fmt_coins(value)}** 🪙\n"
                     f"• Cost: **{fmt_coins(cost)}** 🪙\n"
                     f"• Unrealised: **{profit:+,.0f}** 🪙 "
                     f"({(profit / cost * 100) if cost else 0:+.2f}%)"
@@ -342,7 +394,9 @@ class Market(commands.Cog):
                 f"• Buy at **{fmt_coins(snapshot_quote.buy_coins())}** 🪙 per unit\n"
                 f"• Sell at **{fmt_coins(snapshot_quote.sell_coins())}** 🪙 per unit\n"
                 "• Both sides are the observed price — *no spread*, so your "
-                "return is the market's return."
+                "return is the market's return.\n"
+                f"• 🐾 **{market.treat_fee_label()} Meow Treat fee** on each fill "
+                f"(min 1 🪙) — **{market.treat_fee(10_000)}** 🪙 on a 10,000 🪙 fill."
             ),
             inline=False,
         )
@@ -350,7 +404,7 @@ class Market(commands.Cog):
             instrument.symbol
         )
         if held and held.quantity > 0:
-            value = held.quantity * snapshot_quote.sell_coins()
+            value = market.sell_value(held.quantity, snapshot_quote.sell_coins())
             profit = value - held.cost_coins
             percent = (profit / held.cost_coins * 100) if held.cost_coins else 0.0
             embed.add_field(
@@ -449,8 +503,9 @@ class Market(commands.Cog):
             timestamp=discord.utils.utcnow(),
         )
         if holding and holding.quantity > 0:
-            value = holding.quantity * (
-                snapshot_quote.sell_coins() if snapshot_quote else price_coins
+            value = market.sell_value(
+                holding.quantity,
+                snapshot_quote.sell_coins() if snapshot_quote else price_coins,
             )
             profit = value - holding.cost_coins
             percent = (profit / holding.cost_coins * 100) if holding.cost_coins else 0.0
@@ -464,6 +519,19 @@ class Market(commands.Cog):
                 ),
                 inline=False,
             )
+        # The image is a snapshot of one moment; the page is the same prices,
+        # live, with a crosshair and a what-if calculator. Both are offered,
+        # because a card cannot update and a page cannot be reacted to.
+        embed.add_field(
+            name="🔗 Live & interactive",
+            value=(
+                f"• [**Open the live chart**]({live_chart_url(instrument.symbol)}) "
+                "— it refreshes itself every few seconds\n"
+                f"• [Full TradingView chart]({tradingview_url(instrument)}) "
+                "— every indicator and tool"
+            ),
+            inline=False,
+        )
         embed.set_image(url="attachment://chart.png")
         embed.set_footer(
             text=f"🐾 {series.source} • {len(series.candles)} points • /market sell {instrument.symbol} all"
@@ -540,7 +608,9 @@ class Market(commands.Cog):
                 f"### +{fmt_qty(fill.quantity)} {instrument.symbol}\n"
                 f"Spent **{fill.coins:,}** 🪙 at "
                 f"**{fmt_coins(fill.unit_price_coins)}** 🪙 per unit.\n"
-                "*The observed market price — no spread.*"
+                f"*The observed market price — no spread. That outlay includes the "
+                f"**{fmt_coins(fill.treat_coins)}** 🪙 Meow Treat fee 🐾 "
+                f"({market.treat_fee_label()}), and it is part of your cost basis.*"
             ),
             color=0x2ECC71,
             timestamp=discord.utils.utcnow(),
@@ -651,7 +721,8 @@ class Market(commands.Cog):
                 f"### −{fmt_qty(fill.quantity)} {instrument.symbol}\n"
                 f"Received **{fill.coins:,}** 🪙 at "
                 f"**{fmt_coins(fill.unit_price_coins)}** 🪙 per unit.\n"
-                "*The observed market price — no spread, so this is real P/L.*"
+                f"*The observed market price — no spread, so this is real P/L, after "
+                f"the **{fmt_coins(fill.treat_coins)}** 🪙 Meow Treat fee 🐾.*"
             ),
             color=0xED4245,
             timestamp=discord.utils.utcnow(),
@@ -703,7 +774,7 @@ class Market(commands.Cog):
                     f"@ {fmt_coins(holding.avg_cost_coins)} 🪙 — *no live price*"
                 )
                 continue
-            position_value = holding.quantity * snapshot_quote.sell_coins()
+            position_value = market.sell_value(holding.quantity, snapshot_quote.sell_coins())
             profit = position_value - holding.cost_coins
             change = (profit / holding.cost_coins * 100) if holding.cost_coins else 0.0
             lines.append(

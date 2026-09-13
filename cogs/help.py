@@ -88,16 +88,19 @@ HELP_MODULES = {
             "cannot be fetched, trading pauses rather than guessing.\n\n"
             "> `/market board` — Live prices for every instrument\n"
             "> `/market quote <symbol>` — One instrument in detail, with a 24h sparkline\n"
-            "> `/market chart <symbol> [24h|7d|30d]` — Real candles, with your average cost drawn on them\n"
+            "> `/market chart <symbol> [24 hours|7 days|30 days]` — Real candles, "
+            "with your average cost drawn on them\n"
             "> `/market buy <symbol> <coins>` — Buy with coins\n"
             "> `/market sell <symbol> <amount|50%|all>` — Sell back, with real profit/loss\n"
             "> `/market portfolio` — What you hold and what it is worth\n"
             "> `/market history` — Your recent fills\n\n"
-            # Mirrors utils.market.COINS_PER_USD; kept as a literal so the help
-            # menu stays free of the market's HTTP dependencies.
-            "*250 coins = 1 USD • fills happen at the observed market price on "
-            "both sides — no spread, no fee, so a real move is the same move "
-            "here.*"
+            # Mirrors utils.market.COINS_PER_USD and MEOW_TREAT_FEE; kept as
+            # literals so the help menu stays free of the market's HTTP
+            # dependencies. ``tests/test_market.py`` fails if they drift.
+            "*1 USD = 1 coin • fills happen at the observed market price on both "
+            "sides, so a real move is the same move here, and the only charge is "
+            "the 0.25% Meow Treat fee — at least 1 coin, itemised on every "
+            "receipt, and burned.*"
         ),
         "color": 0x2ECC71,
         "emoji": "📈"

@@ -322,6 +322,36 @@ async def setup():
             as_of REAL DEFAULT 0
         )''')
 
+        # One-time migration for the 1:1 rate change (250 coins per dollar became
+        # 1). Every stored market amount is in coin units, so without this every
+        # existing holder's cost basis would be 250x the value of their position —
+        # a 99.6% paper loss on a position that never moved. The fills are rescaled
+        # too, so `/market history` and the rolling daily buyback ceiling stay in
+        # the current unit. Guarded by a marker, so it runs exactly once even
+        # across restores of an older database.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'market_rate_1to1_v1'"
+        ) as cur:
+            _market_rescaled = await cur.fetchone()
+        if not _market_rescaled:
+            from utils import market  # local: utils.market imports utils.db
+
+            factor = market.rate_rescale_factor()
+            if factor != 1.0:
+                await db.execute(
+                    "UPDATE market_holdings SET cost_coins = cost_coins * ?", (factor,)
+                )
+                await db.execute(
+                    "UPDATE market_trades SET unit_price_coins = unit_price_coins * ?, "
+                    "coins = CAST(ROUND(coins * ?) AS INTEGER), "
+                    "realized = CAST(ROUND(realized * ?) AS INTEGER)",
+                    (factor, factor, factor),
+                )
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) "
+                "VALUES (0, 'market_rate_1to1_v1', '1')"
+            )
+
         # One-time migration: make the newly default-OFF modules actually OFF for
         # guilds that still have an old "enabled" value saved. Runs exactly once,
         # so an administrator can still turn them back on afterwards and have it
