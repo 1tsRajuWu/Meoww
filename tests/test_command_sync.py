@@ -340,6 +340,57 @@ class CommandComparison(unittest.TestCase):
 
         self.assertTrue(commands_sync.is_up_to_date(local, remote))
 
+    def test_discords_string_encoding_is_not_a_change(self):
+        """The eight permission-gated commands re-uploaded on every boot.
+
+        discord.py sends `default_member_permissions: 8` and Discord stores and
+        returns `"8"`. Comparing them directly made `/dashboard`, `/leaderboard`,
+        `/addmoney`, `/removemoney`, `/setmoney`, `/addbank`, `/roulette` and
+        `/rps` permanently "out of date" — captured from the live application.
+        """
+        local = [{"name": "addmoney", "description": "d", "default_member_permissions": 8,
+                  "integration_types": None, "options": []}]
+        remote = [{"id": "1", "application_id": "9", "version": "2", "type": 1,
+                   "name": "addmoney", "description": "d",
+                   "default_member_permissions": "8", "integration_types": [0, 1],
+                   "nsfw": False}]
+
+        self.assertTrue(commands_sync.is_up_to_date(local, remote))
+
+    def test_a_stripped_variation_selector_is_not_a_change(self):
+        """Discord drops U+FE0F, so `/rps` looked stale on every boot.
+
+        Captured from the live application: we send `"✂️ Scissors"` (U+2702
+        U+FE0F) and Discord returns `"✂ Scissors"` (U+2702).
+        """
+        local = [{"name": "rps", "description": "d", "options": [
+            {"type": 3, "name": "choice", "description": "c", "choices": [
+                {"name": "✂️ Scissors", "value": "scissors"}]}]}]
+        remote = [{"id": "1", "type": 1, "name": "rps", "description": "d", "options": [
+            {"type": 3, "name": "choice", "description": "c", "choices": [
+                {"name": "✂ Scissors", "value": "scissors"}]}]}]
+
+        self.assertTrue(commands_sync.is_up_to_date(local, remote))
+
+    def test_a_real_emoji_change_is_still_a_change(self):
+        local = [{"name": "x", "description": "d", "options": [
+            {"choices": [{"name": "✂️ Scissors", "value": "scissors"}]}]}]
+        remote = [{"name": "x", "description": "d", "options": [
+            {"choices": [{"name": "🪨 Rock", "value": "rock"}]}]}]
+
+        self.assertEqual(commands_sync.diff(local, remote), ([], ["x"]))
+
+    def test_a_genuinely_different_permission_bitfield_is_still_a_change(self):
+        local = [{"name": "x", "description": "d", "default_member_permissions": 8}]
+        remote = [{"name": "x", "description": "d", "default_member_permissions": "1024"}]
+
+        self.assertEqual(commands_sync.diff(local, remote), ([], ["x"]))
+
+    def test_a_boolean_is_never_coerced_to_a_string(self):
+        """`True == 1` in Python, so booleans need their own guard."""
+        self.assertFalse(commands_sync.matches(True, "1"))
+        self.assertFalse(commands_sync.matches(False, "0"))
+
     def test_a_changed_description_is_stale(self):
         local = [{"name": "loan", "description": "new"}]
         remote = [{"name": "loan", "description": "old", "id": "1"}]

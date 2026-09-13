@@ -36,6 +36,18 @@ RESOLVED_KEYS = frozenset({"contexts", "integration_types"})
 #: Deprecated fields discord.py still sends but Discord no longer returns.
 IGNORED_KEYS = frozenset({"dm_permission"})
 
+#: Unicode variation selectors (U+FE00–U+FE0F). Discord **strips these when it
+#: stores a command**, so a choice named `"✂️ Scissors"` comes back as
+#: `"✂ Scissors"`. Without this the command looked permanently out of date — the
+#: live application reported `/rps`, `/leaderboard` and `/roulette` as changed on
+#: every single boot, which spends the daily write budget re-uploading a change
+#: that can never be made. Stripping is safe: a real emoji edit still differs.
+_VARIATION_SELECTORS = str.maketrans({chr(code): None for code in range(0xFE00, 0xFE10)})
+
+
+def _without_variation_selectors(value: str) -> str:
+    return value.translate(_VARIATION_SELECTORS)
+
 
 def _is_empty(value) -> bool:
     """``None``, an empty container or ``False`` — what Discord would omit."""
@@ -43,6 +55,31 @@ def _is_empty(value) -> bool:
         return True
     if isinstance(value, (list, dict, tuple, set)):
         return len(value) == 0
+    return False
+
+
+def _same_value(local, remote) -> bool:
+    """Whether one leaf value matches, allowing for Discord's string encoding.
+
+    Discord returns snowflake-shaped values as **strings** while discord.py sends
+    integers: `/eco-admin`'s `default_member_permissions` goes out as ``8`` and
+    comes back as ``"8"``. Comparing those directly made every permission-gated
+    command look permanently out of date — verified live, where exactly the eight
+    gated commands (`dashboard`, `leaderboard`, `addmoney`, `removemoney`,
+    `setmoney`, `addbank`, `roulette`, `rps`) re-uploaded on *every* boot and
+    spent the daily write budget on a change that never happened. Strings are also
+    compared without their variation selectors, which Discord drops (see below).
+    """
+    if local == remote:
+        return True
+    if isinstance(local, bool) or isinstance(remote, bool):
+        return False
+    if isinstance(local, int) and isinstance(remote, str):
+        return str(local) == remote
+    if isinstance(local, str) and isinstance(remote, int):
+        return local == str(remote)
+    if isinstance(local, str) and isinstance(remote, str):
+        return _without_variation_selectors(local) == _without_variation_selectors(remote)
     return False
 
 
@@ -78,7 +115,7 @@ def matches(local, remote) -> bool:
         if not isinstance(remote, list) or len(local) != len(remote):
             return False
         return all(matches(one, two) for one, two in zip(local, remote))
-    return local == remote
+    return _same_value(local, remote)
 
 
 def index(commands) -> dict[str, dict]:
