@@ -20,8 +20,12 @@ class LogTee:
         self.target = target
 
     def write(self, s):
-        if s:
-            LOG_RING.append(s)
+        if s is not None:
+            if isinstance(s, bytes):
+                s_str = s.decode("utf-8", errors="replace")
+            else:
+                s_str = str(s)
+            LOG_RING.append(s_str)
         try:
             self.target.write(s)
         except Exception:
@@ -356,7 +360,11 @@ def api_live_logs():
     auth = request.args.get("passkey")
     if not auth or auth != "Him@2009@Meoww":
         return jsonify({"error": "Unauthorized"}), 401
-    return Response("".join(LOG_RING), mimetype="text/plain")
+    try:
+        content = "".join(str(x) for x in list(LOG_RING))
+        return Response(content, mimetype="text/plain; charset=utf-8")
+    except Exception as e:
+        return Response(f"Error fetching logs: {e}", mimetype="text/plain; charset=utf-8")
 
 
 @app.route("/api/voice-debug")
