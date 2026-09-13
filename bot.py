@@ -135,17 +135,61 @@ async def rotate_status():
             print(f"Failed to update status: {e}")
         await asyncio.sleep(3600)  # Rotate every 60 minutes
 
-def _schedule_deferred_sync(bot: commands.Bot, delay: float, remaining: int) -> None:
-    """Queue another sync attempt once Discord's write budget resets."""
-    async def _later() -> None:
-        try:
-            await asyncio.sleep(delay)
-            print(f"[SYNC] Retrying after the cooldown ({delay:.0f}s)…", flush=True)
-            await sync_commands(bot, deferred_retries=remaining)
-        except Exception as exc:
-            print(f"[SYNC] Deferred retry failed: {exc}", flush=True)
+#: How long the background drain keeps trying to publish pending commands, and
+#: the longest it will wait between cycles. Discord's 200-writes-a-day budget is
+#: not a cliff — it refills a slot at a time (the live guild gained roughly one
+#: command every few minutes) — so recovering a guild that is tens of commands
+#: behind takes repeated attempts over hours, not one retry.
+DRAIN_BUDGET_SECONDS = 4 * 3600
+DRAIN_MAX_WAIT = 900.0
 
-    asyncio.create_task(_later())
+#: Seam for the drain loop's wait, so tests can run it without sleeping.
+_sleep = asyncio.sleep
+
+
+async def drain_pending(
+    bot: commands.Bot,
+    guild,
+    *,
+    first_delay: float,
+    budget_seconds: float = DRAIN_BUDGET_SECONDS,
+) -> bool:
+    """Keep publishing a guild's pending commands until it is complete.
+
+    Returns True once nothing is pending, False when the time budget ran out (the
+    next boot continues where this left off).
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + budget_seconds
+    wait = first_delay
+    while True:
+        await _sleep(max(30.0, min(wait, DRAIN_MAX_WAIT)))
+        status = await _sync_guild(bot, guild)
+        if not status["pending"]:
+            print(
+                f"[SYNC] ✅ {guild.name}: all {status['registered']} commands published.",
+                flush=True,
+            )
+            return True
+        wait = status["retry_after"] or 300.0
+        if loop.time() >= deadline:
+            print(
+                f"[SYNC] ⚠️ {guild.name}: {status['pending']} command(s) still pending "
+                f"after {budget_seconds / 3600:.1f}h of retrying; a restart will carry on.",
+                flush=True,
+            )
+            return False
+
+
+def _schedule_command_drain(bot: commands.Bot, guild, delay: float) -> None:
+    """Queue the background drain for a guild that still has commands pending."""
+    async def _drain() -> None:
+        try:
+            await drain_pending(bot, guild, first_delay=delay)
+        except Exception as exc:
+            print(f"[SYNC] Drain failed for {guild.name}: {exc}", flush=True)
+
+    asyncio.create_task(_drain())
 
 
 async def _registered_command_payloads(bot: commands.Bot, guild) -> list[dict] | None:
@@ -190,7 +234,7 @@ def _retry_delay(
 
 async def _publish_guild(
     bot: commands.Bot, guild, payloads: dict[str, dict], names: list[str]
-) -> tuple[bool, str, BaseException | None]:
+) -> tuple[bool, str, BaseException | None, int]:
     """Create/update only the named commands, one request each.
 
     Deliberately **not** ``tree.sync(guild=...)``. That call is a bulk overwrite,
@@ -201,8 +245,9 @@ async def _publish_guild(
     back until the window reset. An upsert only ever adds or replaces, so a
     rejected request can never take a command away.
 
-    Returns ``(ok, detail, error)``.
+    Returns ``(ok, detail, error, published)``.
     """
+    published = 0
     for name in names:
         payload = payloads.get(name)
         if payload is None:
@@ -210,13 +255,55 @@ async def _publish_guild(
         try:
             await bot.http.upsert_guild_command(bot.application_id, guild.id, payload)
         except Exception as exc:
-            return False, f"/{name}: {exc}", exc
+            return False, f"/{name}: {exc}", exc, published
+        published += 1
         print(f"[SYNC] ✅ /{name}", flush=True)
-    return True, "", None
+    return True, "", None, published
+
+
+async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
+    """Publish one guild's missing/changed commands.
+
+    Returns ``{"registered", "pending", "published", "retry_after", "summary",
+    "detail"}`` so a caller can decide between "done" and "try again later".
+    """
+    local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
+    payloads = {command["name"]: command for command in local if command.get("name")}
+    registered = await _registered_command_payloads(bot, guild)
+
+    if registered is None:
+        # Could not read the current state, so send everything. Upserts are
+        # additive, so the worst case is spending writes we did not need to.
+        print(f"[SYNC] {guild.name}: state unknown — publishing the whole tree.", flush=True)
+        names = list(payloads)
+        summary = f"{len(names)} command(s), state unknown"
+        total = len(names)
+    else:
+        missing, stale = commands_sync.diff(local, registered)
+        names = missing + stale
+        summary = commands_sync.summary(local, registered)
+        total = len(registered) + len(names)
+        if not names and not force:
+            return {
+                "registered": len(registered), "pending": 0, "published": 0,
+                "retry_after": None, "summary": summary, "detail": "",
+            }
+
+    ok, detail, error, published = await _publish_guild(bot, guild, payloads, names)
+    pending = len(names) - published
+    return {
+        "registered": total - pending,
+        "pending": pending,
+        "published": published,
+        "retry_after": _retry_delay(error) if error is not None else None,
+        "summary": summary,
+        "detail": detail,
+        "ok": ok,
+    }
 
 
 async def sync_commands(
-    bot: commands.Bot, *, force: bool = False, deferred_retries: int = 2
+    bot: commands.Bot, *, force: bool = False, drain: bool = True
 ) -> dict[str, int]:
     """Publish the slash-command tree to every guild the bot is in.
 
@@ -234,53 +321,40 @@ async def sync_commands(
     * **Never bulk-overwrite.** See ``_publish_guild``: a bulk sync that is
       rejected mid-flight has already deleted everything.
 
-    Never raises: a failed sync must not stop the bot coming online, and the next
-    boot or a `/sync` retries. Returns ``{guild name: commands registered}``.
+    Never raises: a failed sync must not stop the bot coming online. A guild that
+    still has commands pending is drained in the background afterwards, because
+    Discord's write budget refills slowly. Returns ``{guild name: commands}``.
     """
     results: dict[str, int] = {}
     for guild in bot.guilds:
-        local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
-        payloads = {command["name"]: command for command in local if command.get("name")}
-        registered = await _registered_command_payloads(bot, guild)
+        status = await _sync_guild(bot, guild, force=force)
+        results[guild.name] = status["registered"]
 
-        if registered is None:
-            # Could not read the current state, so send everything. Upserts are
-            # additive, so the worst case is spending writes we did not need to.
-            print(f"[SYNC] {guild.name}: state unknown — publishing the whole tree.", flush=True)
-            names = list(payloads)
-        else:
-            missing, stale = commands_sync.diff(local, registered)
-            if not missing and not stale and not force:
-                print(
-                    f"[SYNC] ✅ {guild.name}: {commands_sync.summary(local, registered)}.",
-                    flush=True,
-                )
-                results[guild.name] = len(registered)
-                continue
-            names = missing + stale
-            print(
-                f"[SYNC] {guild.name}: {commands_sync.summary(local, registered)} — publishing…",
-                flush=True,
-            )
-
-        ok, detail, error = await _publish_guild(bot, guild, payloads, names)
-        if ok:
-            done = (len(registered) if registered is not None else 0) + len(names)
-            results[guild.name] = done
-            print(f"[SYNC] ✅ {guild.name}: {done} commands registered.", flush=True)
+        if not status["pending"]:
+            print(f"[SYNC] ✅ {guild.name}: {status['summary']}.", flush=True)
             continue
 
-        print(f"[SYNC] ⚠️ Stopped at {detail}", flush=True)
-        delay = _retry_delay(error) if error is not None else None
-        if delay is not None:
+        print(
+            f"[SYNC] {guild.name}: {status['summary']} — published "
+            f"{status['published']}, {status['pending']} still pending.",
+            flush=True,
+        )
+        if status.get("detail"):
+            print(f"[SYNC] ⚠️ Stopped at {status['detail']}", flush=True)
+        # Only a spent write budget is worth retrying on a timer; anything else
+        # (a rejected payload, a permissions problem) would just repeat forever.
+        if status["retry_after"] is not None:
             print(
-                "[SYNC] Discord's daily write budget is spent. Nothing was deleted — "
-                "the commands that went through stay, and the rest will be retried.",
+                "[SYNC] Discord's daily application-command write budget is spent. "
+                "Nothing was deleted — the commands that went through stay, and the "
+                "rest will be published as the budget refills.",
                 flush=True,
             )
-            if deferred_retries > 0:
-                print(f"[SYNC] Retrying in {delay:.0f}s.", flush=True)
-                _schedule_deferred_sync(bot, delay, deferred_retries - 1)
+            if drain:
+                wait = status["retry_after"]
+                print(f"[SYNC] Draining in the background (next try in {wait:.0f}s).", flush=True)
+                _schedule_command_drain(bot, guild, wait)
+
     if not bot.guilds:
         print("[SYNC] Not in any guild yet — nothing to register.", flush=True)
     return results

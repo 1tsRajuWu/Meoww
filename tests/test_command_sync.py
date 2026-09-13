@@ -143,50 +143,100 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd0", "cmd1"])
 
-    async def test_a_spent_write_budget_schedules_its_own_retry(self):
+    async def test_a_spent_write_budget_schedules_the_background_drain(self):
         """A deploy that lands while the window is closed must not give up."""
         tree = _FakeTree(local_count=3)
         http = _FakeHTTP(fail_on="cmd1", fail_code="30034", retry_after=430.0)
         scheduled = []
+        guild = _guild("Hmm")
 
         with mock.patch.object(
-            bot_module, "_schedule_deferred_sync",
-            new=lambda _bot, delay, remaining: scheduled.append((delay, remaining)),
+            bot_module, "_schedule_command_drain",
+            new=lambda _bot, _guild, delay: scheduled.append((_guild.name, delay)),
         ):
-            await bot_module.sync_commands(
-                _FakeBot([_guild("Hmm")], tree, http), deferred_retries=2
-            )
+            await bot_module.sync_commands(_FakeBot([guild], tree, http))
 
         self.assertEqual(http.sent, ["cmd0", "cmd1"], "it kept going after the limit")
-        self.assertEqual(scheduled, [(430.0, 1)])
+        self.assertEqual(scheduled, [("Hmm", 430.0)])
 
-    async def test_an_ordinary_failure_does_not_queue_a_retry(self):
+    async def test_an_ordinary_failure_does_not_queue_a_drain(self):
         tree = _FakeTree(local_count=2)
         http = _FakeHTTP(fail_on="cmd1", fail_code="500", retry_after=5.0)
         scheduled = []
 
         with mock.patch.object(
-            bot_module, "_schedule_deferred_sync",
-            new=lambda _bot, delay, remaining: scheduled.append((delay, remaining)),
+            bot_module, "_schedule_command_drain",
+            new=lambda _bot, _guild, delay: scheduled.append(delay),
         ):
             await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
-        self.assertEqual(scheduled, [])
+        self.assertEqual(scheduled, [], "an ordinary error is not a budget problem")
 
-    async def test_the_last_deferred_retry_does_not_reschedule_forever(self):
-        tree = _FakeTree(local_count=2)
-        http = _FakeHTTP(fail_on="cmd1", fail_code="30034", retry_after=430.0)
+    async def test_a_complete_guild_is_not_drained(self):
+        tree = _FakeTree(local_count=3)
+        tree.registered = [_FakeCommand(command.name) for command in tree.local]
         scheduled = []
 
         with mock.patch.object(
-            bot_module, "_schedule_deferred_sync",
-            new=lambda _bot, delay, remaining: scheduled.append((delay, remaining)),
+            bot_module, "_schedule_command_drain",
+            new=lambda _bot, _guild, delay: scheduled.append(delay),
         ):
-            await bot_module.sync_commands(
-                _FakeBot([_guild("Hmm")], tree, http), deferred_retries=0
-            )
+            await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, _FakeHTTP()))
 
-        self.assertEqual(scheduled, [], "retries would never end")
+        self.assertEqual(scheduled, [])
+
+
+class DrainingPendingCommands(unittest.IsolatedAsyncioTestCase):
+    """The budget refills a slot at a time, so the drain keeps trying."""
+
+    def setUp(self):
+        self.slept = []
+
+    async def _drain(self, statuses, *, budget=None):
+        async def fake_sleep(seconds):
+            self.slept.append(seconds)
+
+        calls = list(statuses)
+
+        async def fake_sync(_bot, _guild, **_kwargs):
+            return calls.pop(0) if calls else {"pending": 0, "registered": 0, "retry_after": None}
+
+        for patch in (
+            mock.patch.object(bot_module, "_sleep", new=fake_sleep),
+            mock.patch.object(bot_module, "_sync_guild", new=fake_sync),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        kwargs = {"budget_seconds": budget} if budget is not None else {}
+        return await bot_module.drain_pending(
+            _FakeBot([], _FakeTree()), _guild("Hmm"), first_delay=430.0, **kwargs
+        )
+
+    async def test_it_stops_once_everything_is_published(self):
+        done = await self._drain([
+            {"pending": 5, "registered": 88, "retry_after": 300.0},
+            {"pending": 0, "registered": 93, "retry_after": None},
+        ])
+
+        self.assertTrue(done)
+        self.assertEqual(len(self.slept), 2)
+        self.assertEqual(self.slept[0], 430.0, "the reported window was not honoured")
+        self.assertEqual(self.slept[1], 300.0)
+
+    async def test_it_gives_up_when_the_time_budget_runs_out(self):
+        done = await self._drain(
+            [{"pending": 5, "registered": 88, "retry_after": 300.0}], budget=0.0
+        )
+
+        self.assertFalse(done, "the drain would never end")
+
+    async def test_the_wait_between_cycles_is_bounded(self):
+        await self._drain(
+            [{"pending": 5, "registered": 88, "retry_after": 99_999.0},
+             {"pending": 0, "registered": 93, "retry_after": None}],
+        )
+
+        self.assertLessEqual(self.slept[0], bot_module.DRAIN_MAX_WAIT)
 
     async def test_a_failure_never_escapes_into_on_ready(self):
         tree = _FakeTree(local_count=2, fetch_error=True)
@@ -194,7 +244,8 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         results = await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
-        self.assertEqual(results, {})
+        # Reported as a count of zero rather than raising into on_ready.
+        self.assertEqual(results, {"Hmm": 0})
 
     async def test_no_guilds_is_not_an_error(self):
         results = await bot_module.sync_commands(_FakeBot([], _FakeTree()))
