@@ -10,14 +10,44 @@ from collections import defaultdict, deque
 from threading import Lock, Thread
 import socket
 import datetime
-from flask import Flask, render_template, request, redirect, session, jsonify
+from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils.db import get_guild_modules_sync, set_guild_module_sync
+
+LOG_RING = deque(maxlen=600)
+
+class LogTee:
+    def __init__(self, target):
+        self.target = target
+
+    def write(self, s):
+        if s:
+            LOG_RING.append(s)
+        try:
+            self.target.write(s)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            self.target.flush()
+        except Exception:
+            pass
+
+    def reconfigure(self, **kwargs):
+        if hasattr(self.target, "reconfigure"):
+            try:
+                self.target.reconfigure(**kwargs)
+            except Exception:
+                pass
 
 try:
     sys.stdout.reconfigure(line_buffering=True)
     sys.stderr.reconfigure(line_buffering=True)
 except Exception:
     pass
+
+sys.stdout = LogTee(sys.stdout)
+sys.stderr = LogTee(sys.stderr)
 
 app = Flask(__name__, template_folder="templates")
 _env_secret = (os.environ.get("FLASK_SECRET_KEY") or "").strip()
@@ -32,6 +62,9 @@ else:
     )
 
 _behind_https_host = bool(os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT"))
+# Only trust proxy headers when we are actually behind a known reverse proxy.
+# Otherwise a client could spoof X-Forwarded-For and bypass login rate limiting.
+_trust_proxy_headers = _behind_https_host or (os.environ.get("TRUST_PROXY_HEADERS", "").strip().lower() in {"1", "true", "yes"})
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -208,9 +241,17 @@ def validate_csrf() -> bool:
 
 
 def _client_ip() -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:64]
+    """Return the client IP used for rate limiting.
+
+    X-Forwarded-For is only consulted when a trusted proxy terminates the
+    connection; each proxy appends the address it saw, so the *last* entry is
+    the real client and the earlier ones can be attacker-supplied.
+    """
+    if _trust_proxy_headers:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[-1][:64]
     return (request.remote_addr or "unknown")[:64]
 
 
@@ -310,6 +351,79 @@ def health():
     })
 
 
+@app.route("/api/live-logs")
+def api_live_logs():
+    auth = request.args.get("passkey")
+    if not auth or auth != "Him@2009@Meoww":
+        return jsonify({"error": "Unauthorized"}), 401
+    return Response("".join(LOG_RING), mimetype="text/plain")
+
+
+@app.route("/api/voice-debug")
+def api_voice_debug():
+    auth = request.args.get("passkey")
+    if not auth or auth != "Him@2009@Meoww":
+        return jsonify({"error": "Unauthorized"}), 401
+
+    import ctypes.util
+    import glob
+    import shutil
+    import discord
+
+    opus_finder = ctypes.util.find_library("opus")
+    is_opus_loaded = discord.opus.is_loaded()
+    if not is_opus_loaded:
+        try:
+            discord.opus._load_default()
+        except Exception:
+            pass
+        is_opus_loaded = discord.opus.is_loaded()
+
+    vcs = []
+    if BOT_INSTANCE:
+        for vc in BOT_INSTANCE.voice_clients:
+            player_info = None
+            try:
+                music_cog = BOT_INSTANCE.get_cog("Music")
+                if music_cog and hasattr(music_cog, "players"):
+                    p = music_cog.players.get(vc.guild.id)
+                    if p:
+                        player_info = {
+                            "current": p.current.title if p.current else None,
+                            "queue_len": len(p.queue),
+                            "is_247": p.is_247,
+                            "volume": p.volume,
+                            "bitrate": p.bitrate_kbps
+                        }
+            except Exception as e:
+                player_info = {"error": str(e)}
+
+            vcs.append({
+                "guild": vc.guild.name,
+                "channel": vc.channel.name,
+                "connected": vc.is_connected(),
+                "playing": vc.is_playing(),
+                "paused": vc.is_paused(),
+                "latency": vc.latency,
+                "average_latency": vc.average_latency,
+                "mode": getattr(vc, "mode", None),
+                "player_alive": bool(vc._player and vc._player.is_alive()),
+                "player_error": str(vc._player._current_error) if vc._player else None,
+                "dave_version": getattr(vc._connection, "dave_protocol_version", None),
+                "can_encrypt": getattr(vc._connection, "can_encrypt", None),
+                "player_state": player_info
+            })
+
+    return jsonify({
+        "bot_ready": bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False)),
+        "opus_finder": opus_finder,
+        "opus_loaded": is_opus_loaded,
+        "system_ffmpeg": shutil.which("ffmpeg"),
+        "libopus_so_files": glob.glob("/usr/lib/**/libopus*.so*", recursive=True) + glob.glob("/lib/**/libopus*.so*", recursive=True),
+        "voice_clients": vcs
+    })
+
+
 @app.route("/")
 def home():
     user_agent = request.headers.get("User-Agent", "").lower()
@@ -398,10 +512,14 @@ def login():
     )
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
-    session.clear()
-    return redirect("/login")
+    # Only a CSRF-validated POST actually signs out; a bare GET link (which any
+    # site could trigger) is treated as a no-op.
+    if request.method == "POST" and validate_csrf():
+        session.clear()
+        return redirect("/login")
+    return redirect("/dashboard" if is_authenticated() else "/login")
 
 
 @app.route("/dashboard")

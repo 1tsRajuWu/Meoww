@@ -12,13 +12,19 @@ import hashlib
 import urllib.request
 import json
 
-_ENC_BYTES = [42, 37, 34, 18, 7, 14, 59, 36, 23, 43, 1, 24, 125, 38, 2, 24, 55, 59, 63, 23, 59, 9, 24, 117, 127, 28, 126, 63, 120, 120, 121, 1, 43, 61, 126, 57, 7, 116, 125, 33]
-def _get_default_token():
-    return "".join(chr(c ^ 77) for c in _ENC_BYTES)
-
-GITHUB_TOKEN = os.environ.get("GITHUB_BACKUP_TOKEN") or _get_default_token()
-GIST_ID = os.environ.get("GIST_BACKUP_ID", "742a66df907a853fdd4bff31733119fe")
+# SECURITY: credentials must come from the environment only.
+# Never hardcode a GitHub token (or any secret) here again — this file is public.
+GITHUB_TOKEN = (os.environ.get("GITHUB_BACKUP_TOKEN") or "").strip()
+GIST_ID = (os.environ.get("GIST_BACKUP_ID") or "").strip()
 DB_PATH = "bot.db"
+
+if not GITHUB_TOKEN or not GIST_ID:
+    print(
+        "[CLOUD SYNC] ⚠️ GITHUB_BACKUP_TOKEN / GIST_BACKUP_ID not set. "
+        "Cloud backup is DISABLED, so bot.db will not survive a redeploy. "
+        "Set both environment variables to re-enable it.",
+        flush=True,
+    )
 
 _last_sync_hash = None
 
@@ -48,6 +54,13 @@ def restore_from_cloud() -> bool:
         with urllib.request.urlopen(req, timeout=12) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         
+        if data.get("public"):
+            print(
+                "[CLOUD SYNC] 🔓 WARNING: the backup Gist is PUBLIC — anyone with its URL "
+                "can read the database (levels, economy, warnings). Make it secret.",
+                flush=True,
+            )
+
         files = data.get("files", {})
         if "bot.db.b64" not in files:
             print("[CLOUD SYNC] ⚠️ No bot.db.b64 file found in Gist.", flush=True)

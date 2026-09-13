@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import re
+from utils.style import send_card
 
 PRESET_COLORS = [
     ("🌸 Sakura Pink", "#FFB7B2", "Soft pastel Japanese cherry blossom pink"),
@@ -82,9 +83,9 @@ async def apply_member_color(interaction: discord.Interaction, hex_code: str | N
     embed.set_footer(text="🐾 Server Color Studio • Use /color remove to reset", icon_url=member.display_avatar.url)
 
     if interaction.response.is_done():
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_card(interaction, embed=embed, ephemeral=True)
     else:
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await send_card(interaction, embed=embed, ephemeral=True)
 
 
 class ColorSelectMenu(discord.ui.Select):

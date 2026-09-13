@@ -7,6 +7,7 @@ import aiosqlite
 import datetime
 from utils import db
 from cogs.economy import get_eco, update_wallet, ensure_eco, check_is_owner
+from utils.style import send_card
 
 DB_PATH = db.DB_PATH
 
@@ -472,7 +473,7 @@ class Social(commands.Cog):
 
         embed.description += f"\n🪙 You also scavenged **+{bonus:,}** coins from the wild!"
         embed.set_footer(text="🐾 Tip: Run /zoo to inspect your collection or /sellanimals to cash out!")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="zoo", description="View your or another member's caught animals collection.")
     @app_commands.describe(member="Member's zoo to view")
@@ -493,7 +494,7 @@ class Social(commands.Cog):
                 description=f"No animals caught yet! Run `/hunt` to begin your wilderness safari.",
                 color=0x95A5A6
             )
-            return await interaction.response.send_message(embed=embed)
+            return await send_card(interaction, embed=embed)
 
         # Organize by tier
         tier_buckets = {"legendary": [], "mythic": [], "epic": [], "rare": [], "uncommon": [], "common": []}
@@ -529,7 +530,7 @@ class Social(commands.Cog):
                 )
 
         embed.set_footer(text="🐾 Meow Zoo • Run /sellanimals to exchange animals for coins")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="sellanimals", description="Sell caught zoo animals for coins.")
     @app_commands.describe(tier="Which tier to sell")
@@ -590,7 +591,7 @@ class Social(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Market")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------
     # 2. HIGH-STAKES CRASH GAME
@@ -695,7 +696,7 @@ class Social(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_image(url=gif)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="action", description="Perform an anime/social roleplay action with another member!")
     @app_commands.describe(action="The roleplay action to perform", member="The member to interact with")
@@ -766,7 +767,7 @@ class Social(commands.Cog):
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="ship", description="Calculate the romantic compatibility between two members!")
     @app_commands.describe(user1="First member", user2="Second member")
@@ -812,7 +813,7 @@ class Social(commands.Cog):
             color=color,
             timestamp=discord.utils.utcnow()
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------
     # 5. AESTHETIC UWU TEXT TRANSLATOR

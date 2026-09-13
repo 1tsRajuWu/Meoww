@@ -6,6 +6,7 @@ import asyncio
 import aiosqlite
 from utils import db
 from cogs.economy import get_eco, update_wallet, ensure_eco
+from utils.style import send_card
 
 TRIVIA_QUESTIONS = [
     ("What is the capital of France?", "paris", ["London", "Berlin", "Paris", "Madrid"]),
@@ -818,7 +819,7 @@ class Games(commands.Cog):
         embed.add_field(name=outcome_field[0], value=outcome_field[1], inline=True)
         embed.add_field(name="💳 New Wallet", value=f"**{new_wallet:,}** 🪙", inline=True)
         embed.set_footer(text="🐾 Meow Casino")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="coinflip", description="Bet on heads or tails.")
     @app_commands.describe(choice="heads or tails", bet="Amount to bet")
@@ -851,7 +852,7 @@ class Games(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Casino • High Stakes" if won else "🐾 Meow Casino • Better luck next flip!")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="dice", description="Roll dice against the bot. Higher roll wins.")
     @app_commands.describe(bet="Amount to bet")
@@ -882,7 +883,7 @@ class Games(commands.Cog):
         embed.add_field(name="Your Roll", value=f"🎲 **{player_roll}**", inline=True)
         embed.add_field(name="Bot's Roll", value=f"🎲 **{bot_roll}**", inline=True)
         embed.add_field(name="Outcome", value=result, inline=False)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="rps", description="Rock Paper Scissors vs the bot (with a bet).")
     @app_commands.describe(choice="Your choice", bet="Amount to bet")
@@ -916,7 +917,7 @@ class Games(commands.Cog):
         embed.add_field(name="Your Pick", value=f"{emoji[choice]} {choice.capitalize()}", inline=True)
         embed.add_field(name="Bot's Pick", value=f"{emoji[bot_choice]} {bot_choice.capitalize()}", inline=True)
         embed.add_field(name="Outcome", value=result, inline=False)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="blackjack", description="Play blackjack against the bot.")
     @app_commands.describe(bet="Amount to bet")
@@ -1016,7 +1017,7 @@ class Games(commands.Cog):
         embed.add_field(name="❓ Question", value=f"> {question}", inline=False)
         embed.add_field(name="🔮 Answer", value=f"**{answer}**", inline=False)
         embed.set_footer(text=f"Asked by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
     # NEW ADVANCE GAMES
@@ -1156,7 +1157,7 @@ class Games(commands.Cog):
         embed.add_field(name=outcome_field[0], value=outcome_field[1], inline=True)
         embed.add_field(name="💳 New Wallet", value=f"**{new_wallet:,}** 🪙", inline=True)
         embed.set_footer(text=f"Played by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="highlow", description="Climb the Card Ladder! Guess if the next card is Higher, Lower, or Equal.")
     @app_commands.describe(bet="Amount to bet")
@@ -1284,7 +1285,7 @@ class Games(commands.Cog):
             )
 
         embed.set_footer(text=f"Gambler: {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):

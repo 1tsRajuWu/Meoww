@@ -7,6 +7,7 @@ import aiohttp
 import aiosqlite
 import datetime
 from utils import db
+from utils.style import send_card
 
 DB_PATH = db.DB_PATH
 
@@ -388,7 +389,7 @@ class Fun(commands.Cog):
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         # Send publicly without any time limit (stays forever!)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="meow", description="Get a random meow and a cat pic!")
     async def meow(self, interaction: discord.Interaction):
@@ -418,7 +419,7 @@ class Fun(commands.Cog):
             embed.description = "Couldn't find a cat pic, so I guess you just get text. Meow."
             
         embed.set_footer(text="🐾 Meow")
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="meowsound", description="Listen to a real cat meow audio clip!")
     async def meowsound(self, interaction: discord.Interaction):
@@ -460,7 +461,7 @@ class Fun(commands.Cog):
             embed.set_thumbnail(url=interaction.guild.me.display_avatar.url)
 
         file = discord.File(file_path, filename=sound_file)
-        await interaction.followup.send(embed=embed, file=file)
+        await send_card(interaction, embed=embed, file=file)
 
     @app_commands.command(name="tan", description="Check what Tan is currently doing.")
     async def tan(self, interaction: discord.Interaction):
@@ -485,7 +486,7 @@ class Fun(commands.Cog):
         )
         embed.set_author(name="🐾 Tan Status Report", icon_url=interaction.guild.me.display_avatar.url)
         embed.set_footer(text=f"Checked by {interaction.user.display_name} • Leave Tan alone rn")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     CATEGORY_MOODS = {
         "all": [
@@ -609,7 +610,7 @@ class Fun(commands.Cog):
                     ),
                     color=0xFEE75C
                 )
-                return await interaction.response.send_message(embed=embed)
+                return await send_card(interaction, embed=embed)
 
             qid, uid, qtext, qauthor, qsource, qcat, qdate = row
             submitter = interaction.guild.get_member(uid)
@@ -715,7 +716,7 @@ class Fun(commands.Cog):
         embed.set_author(name=f"{picked['icon']} Legendary Quote", icon_url=interaction.guild.me.display_avatar.url)
         embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @quote.autocomplete("mood")
     async def quote_mood_autocomplete(
@@ -794,7 +795,7 @@ class Fun(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text=f"Added by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @customquote_group.command(name="get", description="Get a server custom quote by ID, member, or random!")
     @app_commands.describe(
@@ -843,7 +844,7 @@ class Fun(commands.Cog):
                         ),
                         color=0xFEE75C
                     )
-                    return await interaction.response.send_message(embed=embed)
+                    return await send_card(interaction, embed=embed)
 
         qid, uid, qtext, qauthor, qsource, qcat, qdate = row
         submitter = interaction.guild.get_member(uid)
@@ -896,7 +897,7 @@ class Fun(commands.Cog):
             embed.description += f"• **`#{qid}`** “{short_text}” — *{qauthor}* ({qdate})\n"
 
         embed.set_footer(text="🐾 View any quote with /customquote get [quote_id]")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @customquote_group.command(name="delete", description="Delete a custom quote (Submitter, Admin, or Owner only).")
     @app_commands.describe(quote_id="The ID of the quote to delete")
@@ -929,7 +930,7 @@ class Fun(commands.Cog):
             description=f"✅ Successfully deleted quote `#{quote_id}`.",
             color=0xED4245
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
 
 TAN_STATUSES = [

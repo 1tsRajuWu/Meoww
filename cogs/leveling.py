@@ -7,6 +7,7 @@ import time
 import asyncio
 from utils import db
 from cogs.economy import update_wallet
+from utils.style import send_card
 
 DB_PATH = db.DB_PATH
 
@@ -240,7 +241,7 @@ class Leveling(commands.Cog):
 
         if settings.get("dm_notifications"):
             try:
-                await member.send(embed=embed)
+                await send_card(member, embed=embed)
             except discord.Forbidden:
                 pass
 
@@ -288,7 +289,7 @@ class Leveling(commands.Cog):
 
         if target_channel and target_channel.permissions_for(guild.me).send_messages:
             try:
-                await target_channel.send(embed=embed)
+                await send_card(target_channel, embed=embed)
             except Exception as e:
                 print(f"Could not send level up message: {e}")
 
@@ -619,7 +620,7 @@ class Leveling(commands.Cog):
             embed.add_field(name="🎖️ Level Roles", value="\n".join(role_info), inline=False)
 
         embed.set_footer(text=f"Total Cumulative XP: {total_xp:,} XP")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="leaderboard", description="View the server's top ranked members!")
     @app_commands.describe(category="Filter leaderboard by category")
@@ -690,7 +691,7 @@ class Leveling(commands.Cog):
 
         embed.description = "\n\n".join(lines)
         embed.set_footer(text="🐾 Chat in text or chill in VC to climb the ranks!")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="levelroles", description="Show all configured level roles and rewards in this server.")
     async def levelroles(self, interaction: discord.Interaction):
@@ -719,7 +720,7 @@ class Leveling(commands.Cog):
             embed.description += f"• **Level {req_lvl}** {badge} ➔ {role_str} *({members_count} members)*\n"
 
         embed.set_footer(text="🐾 Roles are granted instantly when you level up!")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
     # Admin / Management Commands
@@ -758,7 +759,7 @@ class Leveling(commands.Cog):
             ),
             color=0x57F287
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="removelevelrole", description="Remove a role reward for a level.")
     @app_commands.describe(level="The level whose role reward should be removed")
@@ -842,7 +843,7 @@ class Leveling(commands.Cog):
         embed.add_field(name="Text Rewards", value=f"`{new_tmin} - {new_tmax}` 🪙 + Length-scaled XP (10s cd)", inline=True)
         embed.add_field(name="Voice (VC) Rewards", value=f"`{new_vc}` 🪙 + 3 XP / min *(Hardened, AFK >1h stops)*", inline=True)
         embed.set_footer(text="🐾 Server Leveling System • Level up cards post to 💬・bot-cmd")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="setlevel", description="Set a member's level directly (Admin only).")
     @app_commands.describe(member="Member to modify", level="New level to set")
@@ -923,7 +924,7 @@ class Leveling(commands.Cog):
                     description="✅ All member levels, XP, and activity stats have been reset to **0** by the **Server Owner**.",
                     color=0xED4245
                 )
-                return await interaction.response.send_message(embed=embed)
+                return await send_card(interaction, embed=embed)
             elif member:
                 await conn.execute("DELETE FROM user_levels WHERE guild_id=? AND user_id=?", (interaction.guild.id, member.id))
                 await conn.commit()
@@ -932,7 +933,7 @@ class Leveling(commands.Cog):
                     description=f"✅ Successfully reset leveling stats for {member.mention}.",
                     color=0xED4245
                 )
-                return await interaction.response.send_message(embed=embed)
+                return await send_card(interaction, embed=embed)
             else:
                 return await interaction.response.send_message("❌ Please specify a `member` to reset or set `reset_all: True`.", ephemeral=True)
 

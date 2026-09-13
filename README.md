@@ -177,3 +177,20 @@ bot's role → and switch to specific permissions instead: `Ban Members`,
 `Kick Members`, `Moderate Members`, `Manage Channels`, `Manage Roles`,
 `Manage Messages`, `Manage Guild`, `Send Messages`, `Read Message History`,
 `Add Reactions`. That's everything this bot actually uses.
+
+---
+
+## Security
+
+- **Never commit secrets.** `DISCORD_TOKEN`, `FLASK_SECRET_KEY`, `ADMIN_PASSKEY`,
+  `GITHUB_BACKUP_TOKEN`, and `GIST_BACKUP_ID` all live in `.env` (git-ignored)
+  or in your host's environment variables.
+- The web dashboard requires `FLASK_SECRET_KEY` to be set; without it, a random
+  key is used per process, so everyone is signed out on every restart.
+- Cloud backup is **disabled** unless both `GITHUB_BACKUP_TOKEN` and
+  `GIST_BACKUP_ID` are set. Keep the backup Gist *secret*, since it contains the
+  whole database.
+- If a token is ever exposed in a commit, **rotate/revoke it immediately** in the
+  relevant provider's settings — deleting the file does not remove it from git
+  history.
+

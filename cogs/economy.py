@@ -5,6 +5,7 @@ import aiosqlite
 import random
 import datetime
 from utils import db
+from utils.style import send_card
 
 DB_PATH = db.DB_PATH
 
@@ -176,7 +177,7 @@ class Economy(commands.Cog):
 
         await ensure_eco(member.id, interaction.guild.id)
         eco = await get_eco(member.id, interaction.guild.id, is_owner=is_member_owner)
-        await interaction.response.send_message(
+        await send_card(interaction, 
             embed=self._bal_embed(member, eco["wallet"], eco["bank"], is_owner=is_member_owner)
         )
 
@@ -194,7 +195,7 @@ class Economy(commands.Cog):
                 remaining = 86400 - diff.total_seconds()
                 h, m = divmod(int(remaining // 60), 60)
                 embed = discord.Embed(description=f"⏰ **You've already claimed your daily!**\nCome back in **{h}h {m}m**.", color=0xED4245)
-                return await interaction.response.send_message(embed=embed, ephemeral=True)
+                return await send_card(interaction, embed=embed, ephemeral=True)
 
         bonus = random.randint(450, 600)
         await update_wallet(interaction.user.id, interaction.guild.id, bonus)
@@ -206,7 +207,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Come back in 24 hours for your next reward!")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="weekly", description="Claim your weekly 2000 coins.")
     async def weekly(self, interaction: discord.Interaction):
@@ -223,7 +224,7 @@ class Economy(commands.Cog):
                 d, rem = divmod(int(remaining), 86400)
                 h = rem // 3600
                 embed = discord.Embed(description=f"⏰ **You've already claimed your weekly!**\nCome back in **{d}d {h}h**.", color=0xED4245)
-                return await interaction.response.send_message(embed=embed, ephemeral=True)
+                return await send_card(interaction, embed=embed, ephemeral=True)
 
         bonus = random.randint(1800, 2500)
         await update_wallet(interaction.user.id, interaction.guild.id, bonus)
@@ -235,7 +236,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Come back in 7 days for your next reward!")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="work", description="Work a job to earn coins.")
     async def work(self, interaction: discord.Interaction):
@@ -251,7 +252,7 @@ class Economy(commands.Cog):
                 remaining = 3600 - diff.total_seconds()
                 m = int(remaining // 60)
                 embed = discord.Embed(description=f"⏰ **You need to rest!**\nYou can work again in **{m} minute(s)**.", color=0xED4245)
-                return await interaction.response.send_message(embed=embed, ephemeral=True)
+                return await send_card(interaction, embed=embed, ephemeral=True)
 
         job, min_pay, max_pay = random.choice(WORK_JOBS)
         earned = random.randint(min_pay, max_pay)
@@ -264,7 +265,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Shift cooldown: 1 hour")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="rob", description="Attempt to rob another member's wallet.")
     @app_commands.describe(member="Who to rob")
@@ -281,10 +282,10 @@ class Economy(commands.Cog):
 
         if victim["wallet"] < 100:
             embed = discord.Embed(description=f"💸 {member.mention} is broke! Not worth robbing.", color=0xFF3333)
-            return await interaction.response.send_message(embed=embed)
+            return await send_card(interaction, embed=embed)
         if robber["wallet"] < 200:
             embed = discord.Embed(description="❌ You need at least **200** 🪙 in your wallet to attempt a robbery (bail money).", color=0xFF3333)
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
+            return await send_card(interaction, embed=embed, ephemeral=True)
 
         success = random.random() < 0.45  # 45% success rate
         if success:
@@ -300,7 +301,7 @@ class Economy(commands.Cog):
             await update_wallet(interaction.user.id, interaction.guild.id, -fine)
             await update_wallet(member.id, interaction.guild.id, fine)
             embed = discord.Embed(title="🚔 Caught!", description=f"You got caught robbing {member.mention} and paid a **{fine:,}** 🪙 fine!", color=0xFF3333)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="pay", description="Transfer coins to another member.")
     @app_commands.describe(member="Who to pay", amount="Amount to send")
@@ -324,7 +325,7 @@ class Economy(commands.Cog):
         await update_wallet(interaction.user.id, interaction.guild.id, -amount, is_owner=is_sender_owner)
         await update_wallet(member.id, interaction.guild.id, amount, is_owner=is_target_owner)
         embed = discord.Embed(description=f"✅ Sent **{amount:,}** 🪙 to {member.mention}!", color=0x2ECC71, timestamp=discord.utils.utcnow())
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit coins into your bank.")
     @app_commands.describe(amount="Amount to deposit ('all', '5k', '1m', '1000')")
@@ -361,7 +362,7 @@ class Economy(commands.Cog):
         )
         new_bank = eco["bank"] + dep
         embed.set_footer(text=f"🐾 Bank: {new_bank:,} 🪙 • Unlimited Capacity")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="withdraw", description="Withdraw coins from your bank.")
     @app_commands.describe(amount="Amount to withdraw ('all', '5k', '1m', '1000')")
@@ -398,7 +399,7 @@ class Economy(commands.Cog):
         )
         new_wallet = eco["wallet"] + amt
         embed.set_footer(text=f"🐾 Wallet: {new_wallet:,} 🪙 • Unlimited Capacity")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="richlist", description="Top 10 richest members in the server.")
     async def richlist(self, interaction: discord.Interaction):
@@ -420,7 +421,7 @@ class Economy(commands.Cog):
             medal = medals[i] if i < 3 else f"`#{i+1}`"
             desc.append(f"{medal} **{name}** — {net:,} 🪙")
         embed.description = "\n".join(desc) if desc else "No data yet."
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     eco_admin = app_commands.Group(name="eco-admin", description="Admin & Owner economy management")
 
@@ -468,7 +469,7 @@ class Economy(commands.Cog):
             embed.set_footer(text="👑 Server Owner Override • Unlimited Power")
         else:
             embed.set_footer(text=f"🛡️ Admin Grant by {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @eco_admin.command(name="remove", description="Remove coins from a member (Admin / Owner).")
     @app_commands.describe(member="Target member", amount="Amount to remove")
@@ -489,7 +490,7 @@ class Economy(commands.Cog):
         )
         if is_owner:
             embed.set_footer(text="👑 Server Owner Override")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @eco_admin.command(name="set", description="Set a member's exact wallet and bank balance (Owner only).")
     @app_commands.describe(member="Target member", wallet="New wallet balance", bank="New bank balance (optional)")
@@ -520,7 +521,7 @@ class Economy(commands.Cog):
             color=0xF1C40F,
             timestamp=discord.utils.utcnow()
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @eco_admin.command(name="reset", description="Reset economy balances back to 0 (Owner only).")
     @app_commands.describe(member="Member to reset", reset_all="Reset all server balances?")
@@ -553,7 +554,7 @@ class Economy(commands.Cog):
             else:
                 return await interaction.response.send_message("❌ Please choose a `member` to reset or set `reset_all: True`.", ephemeral=True)
 
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     DEFAULT_SHOP_ITEMS = [
         {"name": "🍀 Lucky Clover", "price": 500, "desc": "A lucky four-leaf clover for good fortune."},
@@ -583,7 +584,7 @@ class Economy(commands.Cog):
             )
 
         embed.set_footer(text="🐾 Meow Shop • Use /inventory to view your items")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="buy", description="Purchase an item from the community shop.")
     @app_commands.describe(item_name="Name of the item to buy")
@@ -627,7 +628,7 @@ class Economy(commands.Cog):
             color=0x23a55a,
             timestamp=discord.utils.utcnow()
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="inventory", description="View your purchased items and badges.")
     @app_commands.describe(member="Member whose inventory to view")
@@ -660,7 +661,7 @@ class Economy(commands.Cog):
             embed.description = "*Inventory is empty! Visit `/shop` to purchase items.*"
 
         embed.set_footer(text="🐾 Meow Economy • /shop to browse")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):

@@ -4,6 +4,7 @@ from discord.ext import commands
 import aiosqlite
 import datetime
 from utils import db
+from utils.style import send_card
 
 # Action type config: emoji, color, verb, ansi_color
 ACTION_CONFIG = {
@@ -148,7 +149,7 @@ class Moderation(commands.Cog):
         channel = guild.get_channel(int(row[0]))
         if channel:
             try:
-                await channel.send(embed=self._log_embed(action_type, target, moderator, reason, case_id))
+                await send_card(channel, embed=self._log_embed(action_type, target, moderator, reason, case_id))
             except discord.Forbidden:
                 pass
 
@@ -173,11 +174,11 @@ class Moderation(commands.Cog):
             dm = discord.Embed(color=0xFFD700, title="⚠️ You have been warned", timestamp=discord.utils.utcnow())
             dm.add_field(name="Server", value=interaction.guild.name, inline=True)
             dm.add_field(name="Reason", value=reason, inline=False)
-            await member.send(embed=dm)
+            await send_card(member, embed=dm)
         except discord.Forbidden:
             pass
 
-        await interaction.followup.send(embed=self._action_embed("Warn", member, interaction.user, reason, case_id))
+        await send_card(interaction, embed=self._action_embed("Warn", member, interaction.user, reason, case_id))
         await self._send_log(interaction.guild, "Warn", member, interaction.user, reason, case_id)
 
     @app_commands.command(name="ban", description="Ban a member from the server.")
@@ -191,14 +192,14 @@ class Moderation(commands.Cog):
             dm = discord.Embed(color=0xFF3333, title="🔨 You have been banned", timestamp=discord.utils.utcnow())
             dm.add_field(name="Server", value=interaction.guild.name, inline=True)
             dm.add_field(name="Reason", value=reason, inline=False)
-            await member.send(embed=dm)
+            await send_card(member, embed=dm)
         except discord.Forbidden:
             pass
 
         try:
             await member.ban(reason=f"{interaction.user}: {reason}", delete_message_days=delete_days)
             case_id = await db.add_mod_case(interaction.guild.id, "Ban", member.id, interaction.user.id, reason)
-            await interaction.followup.send(embed=self._action_embed("Ban", member, interaction.user, reason, case_id))
+            await send_card(interaction, embed=self._action_embed("Ban", member, interaction.user, reason, case_id))
             await self._send_log(interaction.guild, "Ban", member, interaction.user, reason, case_id)
         except discord.Forbidden:
             await interaction.followup.send(
@@ -216,14 +217,14 @@ class Moderation(commands.Cog):
             dm = discord.Embed(color=0xFF8C00, title="👢 You have been kicked", timestamp=discord.utils.utcnow())
             dm.add_field(name="Server", value=interaction.guild.name, inline=True)
             dm.add_field(name="Reason", value=reason, inline=False)
-            await member.send(embed=dm)
+            await send_card(member, embed=dm)
         except discord.Forbidden:
             pass
 
         try:
             await member.kick(reason=f"{interaction.user}: {reason}")
             case_id = await db.add_mod_case(interaction.guild.id, "Kick", member.id, interaction.user.id, reason)
-            await interaction.followup.send(embed=self._action_embed("Kick", member, interaction.user, reason, case_id))
+            await send_card(interaction, embed=self._action_embed("Kick", member, interaction.user, reason, case_id))
             await self._send_log(interaction.guild, "Kick", member, interaction.user, reason, case_id)
         except discord.Forbidden:
             await interaction.followup.send("❌ I cannot kick this member — move my role above theirs.", ephemeral=True)
@@ -239,7 +240,7 @@ class Moderation(commands.Cog):
         try:
             await member.timeout(duration, reason=f"{interaction.user}: {full_reason}")
             case_id = await db.add_mod_case(interaction.guild.id, "Mute", member.id, interaction.user.id, full_reason)
-            await interaction.followup.send(embed=self._action_embed("Mute", member, interaction.user, full_reason, case_id))
+            await send_card(interaction, embed=self._action_embed("Mute", member, interaction.user, full_reason, case_id))
             await self._send_log(interaction.guild, "Mute", member, interaction.user, full_reason, case_id)
         except discord.Forbidden:
             await interaction.followup.send("❌ I cannot mute this member — move my role above theirs.", ephemeral=True)
@@ -252,7 +253,7 @@ class Moderation(commands.Cog):
         try:
             await member.timeout(None, reason=f"Unmuted by {interaction.user}")
             case_id = await db.add_mod_case(interaction.guild.id, "Unmute", member.id, interaction.user.id, "Timeout removed")
-            await interaction.followup.send(embed=self._action_embed("Unmute", member, interaction.user, "Timeout removed", case_id))
+            await send_card(interaction, embed=self._action_embed("Unmute", member, interaction.user, "Timeout removed", case_id))
             await self._send_log(interaction.guild, "Unmute", member, interaction.user, "Timeout removed", case_id)
         except discord.Forbidden:
             await interaction.followup.send("❌ I cannot unmute this member.", ephemeral=True)
@@ -266,7 +267,7 @@ class Moderation(commands.Cog):
             user = await self.bot.fetch_user(int(user_id))
             await interaction.guild.unban(user, reason=f"Unbanned by {interaction.user}: {reason}")
             case_id = await db.add_mod_case(interaction.guild.id, "Unban", user.id, interaction.user.id, reason)
-            await interaction.followup.send(embed=self._action_embed("Unban", user, interaction.user, reason, case_id))
+            await send_card(interaction, embed=self._action_embed("Unban", user, interaction.user, reason, case_id))
             await self._send_log(interaction.guild, "Unban", user, interaction.user, reason, case_id)
         except ValueError:
             await interaction.followup.send("❌ Invalid user ID.", ephemeral=True)
@@ -297,7 +298,7 @@ class Moderation(commands.Cog):
         else:
             embed.description = "\n".join([f"`#{row[0]}` — {row[1]}" for row in rows])
             embed.set_footer(text=f"Total: {len(rows)} warning(s)")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="clearwarnings", description="Clear all warnings for a member.")
     @app_commands.describe(member="Member to clear")
@@ -313,7 +314,7 @@ class Moderation(commands.Cog):
             description=f"✅ Cleared all warnings for {member.mention}.",
             color=0x2ECC71,
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="purge", description="Delete recent messages in the channel.")
     @app_commands.describe(amount="Number of messages to delete (1-100)")
@@ -325,7 +326,7 @@ class Moderation(commands.Cog):
             description=f"🗑️ Deleted **{len(deleted)}** message(s).",
             color=0xFF3333,
         )
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="modlog", description="Set the channel for moderation logs.")
     @app_commands.describe(channel="The channel to send logs to")
@@ -341,7 +342,7 @@ class Moderation(commands.Cog):
             description=f"📋 Moderation logs will now be sent to {channel.mention}.",
             color=0x2ECC71,
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):

@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import aiosqlite
 from utils import db
+from utils.style import send_card
 
 DB_PATH = db.DB_PATH
 
@@ -130,7 +131,7 @@ class TempVoice(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Server Voice Hub • Powered by Meow")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     async def _get_member_temp_channel(self, member: discord.Member) -> discord.VoiceChannel | None:
         if not member.voice or not member.voice.channel:

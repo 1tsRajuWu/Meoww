@@ -1,3 +1,5 @@
+import os
+import shutil
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,12 +10,34 @@ import imageio_ffmpeg
 import random
 import datetime
 from utils import db
+from utils.style import send_card
+from utils.spotify import is_spotify_url, resolve_spotify
 
 # -----------------------------------------------------------------------------
 # Audio & FFmpeg Configuration
 # -----------------------------------------------------------------------------
 
-FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+system_ffmpeg = shutil.which("ffmpeg")
+if system_ffmpeg:
+    FFMPEG_EXE = system_ffmpeg
+else:
+    FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+
+# Ensure binary has execute permissions
+if FFMPEG_EXE and os.path.exists(FFMPEG_EXE):
+    try:
+        os.chmod(FFMPEG_EXE, 0o755)
+    except Exception:
+        pass
+
+# Ensure Opus shared library is loaded if available on host
+try:
+    if not discord.opus.is_loaded():
+        discord.opus._load_default()
+except Exception as _e:
+    pass
+
+print(f"[MUSIC] Initialized. FFMPEG={FFMPEG_EXE}, OpusLoaded={discord.opus.is_loaded()}", flush=True)
 
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
@@ -168,7 +192,7 @@ class GuildMusicPlayer:
                         timestamp=discord.utils.utcnow()
                     )
                     embed.set_footer(text="🐾 Server Music Suite • Inactivity Policy")
-                    await self.text_channel.send(embed=embed)
+                    await send_card(self.text_channel, embed=embed)
                 except Exception:
                     pass
 
@@ -210,7 +234,7 @@ class GuildMusicPlayer:
                             timestamp=discord.utils.utcnow()
                         )
                         embed.set_footer(text="🐾 Server Music Suite • Empty Channel Policy")
-                        await self.text_channel.send(embed=embed)
+                        await send_card(self.text_channel, embed=embed)
                     except Exception:
                         pass
 
@@ -272,31 +296,41 @@ class GuildMusicPlayer:
                 ch_bitrate = getattr(self.voice_client.channel, "bitrate", 128000)
                 self.bitrate_kbps = min(max(int(ch_bitrate / 1000), 64), 384)
 
-                source = discord.FFmpegOpusAudio(
-                    stream_url,
-                    executable=FFMPEG_EXE,
-                    bitrate=self.bitrate_kbps,
-                    before_options=FFMPEG_BEFORE_OPTIONS,
-                    options=f"-af volume={self.volume}"
-                )
+                if discord.opus.is_loaded():
+                    raw_source = discord.FFmpegPCMAudio(
+                        stream_url,
+                        executable=FFMPEG_EXE,
+                        before_options=FFMPEG_BEFORE_OPTIONS,
+                        options="-vn"
+                    )
+                    source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
+                    stream_mode = "PCM+libopus"
+                else:
+                    source = discord.FFmpegOpusAudio(
+                        stream_url,
+                        executable=FFMPEG_EXE,
+                        bitrate=self.bitrate_kbps,
+                        before_options=FFMPEG_BEFORE_OPTIONS,
+                        options=f"-af volume={self.volume}"
+                    )
+                    stream_mode = "FFmpegOpus"
 
                 def _after(err):
                     if err:
                         print(f"[MUSIC] AudioPlayer thread error in guild {self.guild_id}: {err}", flush=True)
-                    fut = asyncio.run_coroutine_threadsafe(self.play_next(err), self.bot.loop)
-                    try:
-                        fut.result(0.2)
-                    except Exception:
-                        pass
+                    asyncio.run_coroutine_threadsafe(self.play_next(err), self.bot.loop)
+
+                if self.voice_client.is_playing():
+                    self.voice_client.stop()
 
                 self.voice_client.play(source, after=_after)
-                print(f"[MUSIC] 🎶 Started playing '{self.current.title}' at {self.bitrate_kbps}kbps in guild {self.guild_id}", flush=True)
+                print(f"[MUSIC] 🎶 Started playing '{self.current.title}' via {stream_mode} ({self.bitrate_kbps}kbps) in guild {self.guild_id}", flush=True)
 
             except Exception as e:
-                print(f"[MUSIC] Exception starting track '{self.current.title}': {e}", flush=True)
+                print(f"[MUSIC] Exception starting track '{self.current.title}': {type(e).__name__}: {e}", flush=True)
                 if self.text_channel:
                     try:
-                        await self.text_channel.send(f"⚠️ Error streaming **{self.current.title}**: `{e}`. Advancing queue...")
+                        await self.text_channel.send(f"⚠️ Error streaming **{self.current.title}**: `{type(e).__name__}: {e}`. Advancing queue...")
                     except Exception:
                         pass
                 self.bot.loop.create_task(self.play_next())
@@ -362,7 +396,7 @@ class MusicControlsView(discord.ui.View):
             if len(self.player.queue) > 8:
                 embed.description += f"\n*...and {len(self.player.queue) - 8} more tracks.*"
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await send_card(interaction, embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️", custom_id="music_stop")
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -573,7 +607,7 @@ class Music(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
             embed.set_footer(text="🐾 Server Music Suite • 24/7 Mode")
-            await interaction.response.send_message(embed=embed)
+            await send_card(interaction, embed=embed)
         else:
             player.is_247 = False
             player.manual_stop = False
@@ -595,7 +629,7 @@ class Music(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
             embed.set_footer(text="🐾 Server Music Suite • 24/7 Mode")
-            await interaction.response.send_message(embed=embed)
+            await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
     # 24/7 Voice Radio Command
@@ -679,42 +713,70 @@ class Music(commands.Cog):
 
         loop = asyncio.get_running_loop()
 
+        # Check for Spotify links
+        spotify_first = None
+        spotify_queued_count = 0
+        search_target = query
+
+        if is_spotify_url(query):
+            entity_type, spotify_tracks = await loop.run_in_executor(None, resolve_spotify, query)
+            if not spotify_tracks:
+                return await interaction.followup.send(
+                    "❌ Could not load Spotify metadata for that link. Please check that the track/playlist is public.",
+                    ephemeral=True
+                )
+
+            spotify_first = spotify_tracks[0]
+            search_target = spotify_first["query"]
+
+            if entity_type in ("album", "playlist") and len(spotify_tracks) > 1:
+                for st in spotify_tracks[1:]:
+                    player.queue.append(Track(
+                        title=f"{st['title']} - {st['artist']}"[:90],
+                        source_url="",
+                        duration=int(st.get("duration_ms", 0) / 1000),
+                        requester=interaction.user.display_name,
+                        thumbnail=st.get("thumbnail"),
+                        webpage_url=st.get("query")
+                    ))
+                spotify_queued_count = len(spotify_tracks) - 1
+
         def extract():
             opts = dict(YTDL_OPTIONS)
-            if query.startswith("http://") or query.startswith("https://"):
+            if search_target.startswith("http://") or search_target.startswith("https://"):
                 opts["default_search"] = "auto"
             else:
                 opts["default_search"] = "scsearch1"
 
             with yt_dlp.YoutubeDL(opts) as ytdl:
                 try:
-                    info = ytdl.extract_info(query, download=False)
+                    info = ytdl.extract_info(search_target, download=False)
                     if "entries" in info and info["entries"]:
                         return info["entries"][0]
                     return info
                 except Exception as e:
-                    if not (query.startswith("http://") or query.startswith("https://")):
+                    if not (search_target.startswith("http://") or search_target.startswith("https://")):
                         opts["default_search"] = "ytsearch1"
                         with yt_dlp.YoutubeDL(opts) as ytdl_fallback:
                             try:
-                                fb_info = ytdl_fallback.extract_info(query, download=False)
+                                fb_info = ytdl_fallback.extract_info(search_target, download=False)
                                 if "entries" in fb_info and fb_info["entries"]:
                                     return fb_info["entries"][0]
                                 return fb_info
                             except Exception:
                                 pass
-                    print(f"[MUSIC] YTDL error for query '{query}': {e}", flush=True)
+                    print(f"[MUSIC] YTDL error for query '{search_target}': {e}", flush=True)
                     return None
 
         data = await loop.run_in_executor(None, extract)
         if not data or not data.get("url"):
             return await interaction.followup.send("❌ Could not find or stream that track. Try a different title or direct link!", ephemeral=True)
 
-        track_title = data.get("title", query)[:90]
+        track_title = (f"{spotify_first['title']} - {spotify_first['artist']}" if spotify_first else data.get("title", query))[:90]
         track_url = data.get("url")
-        track_duration = data.get("duration", 0)
-        track_thumb = data.get("thumbnail")
-        webpage_url = data.get("webpage_url", "")
+        track_duration = data.get("duration", 0) or (int(spotify_first.get("duration_ms", 0) / 1000) if spotify_first else 0)
+        track_thumb = data.get("thumbnail") or (spotify_first.get("thumbnail") if spotify_first else None)
+        webpage_url = query if spotify_first else data.get("webpage_url", "")
 
         track = Track(
             title=track_title,
@@ -738,12 +800,15 @@ class Music(commands.Cog):
                     f"> 👤 **Requested by:** {interaction.user.mention}\n"
                     f"> 🔊 **Voice Channel:** {vc.channel.mention}\n"
                     f"> 💎 **Audio Fidelity:** `Hi-Res ({player.bitrate_kbps} kbps • 48 kHz Opus Music)`"
+                    + (f"\n> 🎧 **Source:** Spotify Track" if spotify_first else "")
                 ),
-                color=0x5865F2,
+                color=0x1DB954 if spotify_first else 0x5865F2,
                 timestamp=discord.utils.utcnow()
             )
             if track.thumbnail:
                 embed.set_thumbnail(url=track.thumbnail)
+            if spotify_queued_count > 0:
+                embed.add_field(name="💿 Spotify Collection", value=f"Queued **+{spotify_queued_count} more songs** from Spotify!", inline=False)
             embed.set_footer(text="🐾 Server Music Player • Use buttons below to control")
             view = MusicControlsView(player)
             await interaction.followup.send(embed=embed, view=view)
@@ -751,14 +816,22 @@ class Music(commands.Cog):
             q_pos = len(player.queue)
             embed = discord.Embed(
                 title="✅ Added to Queue",
-                description=f"### [{track.title}]({track.webpage_url})\n> ⏱️ **Duration:** `{format_duration(track.duration)}`\n> 🔢 **Position:** `#{q_pos}` in queue\n> 👤 **Requested by:** {interaction.user.mention}",
-                color=0x2ECC71,
+                description=(
+                    f"### [{track.title}]({track.webpage_url})\n"
+                    f"> ⏱️ **Duration:** `{format_duration(track.duration)}`\n"
+                    f"> 🔢 **Position:** `#{q_pos}` in queue\n"
+                    f"> 👤 **Requested by:** {interaction.user.mention}"
+                    + (f"\n> 🎧 **Source:** Spotify Track" if spotify_first else "")
+                ),
+                color=0x1DB954 if spotify_first else 0x2ECC71,
                 timestamp=discord.utils.utcnow()
             )
             if track.thumbnail:
                 embed.set_thumbnail(url=track.thumbnail)
+            if spotify_queued_count > 0:
+                embed.add_field(name="💿 Spotify Collection", value=f"Queued **+{spotify_queued_count} more songs** from Spotify!", inline=False)
             embed.set_footer(text=f"🐾 Next track plays automatically • {len(player.queue)} in queue")
-            await interaction.followup.send(embed=embed)
+            await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
     # Voice Controls: /pause, /resume, /skip, /stop, /queue, /nowplaying, /volume
@@ -844,7 +917,7 @@ class Music(commands.Cog):
                 embed.description += f"\n*...and {len(player.queue) - 10} more songs in queue.*"
 
         embed.set_footer(text=f"Total: {len(player.queue) + (1 if player.current else 0)} track(s) • 24/7 Mode: {'ON' if player.is_247 else 'OFF'}")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="nowplaying", description="Show full info and controls for the currently playing track.")
     async def nowplaying(self, interaction: discord.Interaction):
@@ -938,7 +1011,7 @@ class Music(commands.Cog):
             )
 
         embed.set_footer(text="🐾 Server Music Explorer • Powered by iTunes & Apple Music")
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="lyrics", description="Look up lyrics for any song.")
     @app_commands.describe(title="Title of the song", artist="Artist of the song (optional)")
@@ -993,7 +1066,7 @@ class Music(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Server Lyrics Finder • Powered by Lyrics.ovh")
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
     # Auto-Showcase in 💬・fav-songs (1547683807916851240)

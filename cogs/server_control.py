@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.style import send_card
 
 class ServerControl(commands.Cog):
     """Lockdown, slowmode, and role management."""
@@ -66,7 +67,7 @@ class ServerControl(commands.Cog):
             inline=True
         )
         embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="userinfo", description="Get detailed information about a user.")
     @app_commands.describe(member="The member to inspect (leave empty for yourself)")
@@ -113,7 +114,7 @@ class ServerControl(commands.Cog):
             embed.add_field(name=f"🎭 Roles [{len(roles)}]", value=role_text, inline=False)
 
         embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="lockdown", description="Lock this channel so regular members cannot send messages.")
     @app_commands.checks.has_permissions(manage_channels=True)
@@ -126,7 +127,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Security")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="unlock", description="Unlock this channel for all members.")
     @app_commands.checks.has_permissions(manage_channels=True)
@@ -139,7 +140,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Security")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="lockdown-server", description="Lock ALL text channels in the server.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -160,7 +161,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Security")
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="unlock-server", description="Unlock ALL text channels in the server.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -181,7 +182,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Meow Security")
-        await interaction.followup.send(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="slowmode", description="Set slowmode delay for this channel (seconds, 0 to disable).")
     @app_commands.describe(seconds="Delay in seconds (0 to 21600)")
@@ -198,7 +199,7 @@ class ServerControl(commands.Cog):
                 description=f"⏱️ **Slowmode set to `{seconds}` second(s)** by {interaction.user.mention}.",
                 color=0x5865F2
             )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="addrole", description="Add a role to a member.")
     @app_commands.checks.has_permissions(manage_roles=True)
@@ -214,7 +215,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text=f"Actioned by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="removerole", description="Remove a role from a member.")
     @app_commands.checks.has_permissions(manage_roles=True)
@@ -230,7 +231,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text=f"Actioned by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="announce", description="Send a styled announcement embed to a channel.")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -245,7 +246,7 @@ class ServerControl(commands.Cog):
             embed.set_author(name=interaction.guild.name, icon_url=interaction.guild.icon.url)
         embed.set_footer(text=f"Announced by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         
-        await channel.send(embed=embed)
+        await send_card(channel, embed=embed)
         await interaction.response.send_message(f"✅ Announcement posted in {channel.mention}!", ephemeral=True)
 
 async def setup(bot: commands.Bot):

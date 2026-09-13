@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import datetime
 import io
-from utils.style import Panel, send_panel, ACCENT, guild_icon, guild_banner, avatar_url
+from utils.style import Panel, send_panel, ACCENT, guild_icon, guild_banner, avatar_url, send_card
 
 TICKET_CATEGORIES = {
     "general": {
@@ -409,7 +409,7 @@ class Tickets(commands.Cog):
             description=f"✅ {member.mention} has been added to the ticket by {interaction.user.mention}.",
             color=0x57F287
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @ticket_group.command(name="remove", description="Remove a user from the current ticket.")
     @app_commands.describe(member="The member to remove")
@@ -423,7 +423,7 @@ class Tickets(commands.Cog):
             description=f"🚪 {member.mention} has been removed from the ticket by {interaction.user.mention}.",
             color=0xED4245
         )
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):

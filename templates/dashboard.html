@@ -226,6 +226,11 @@
             border-color: var(--red);
         }
 
+        .logout-form {
+            display: inline-flex;
+            margin: 0;
+        }
+
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -548,7 +553,10 @@
                     {% endfor %}
                 </select>
                 {% endif %}
-                <a href="/logout" class="btn btn-danger">Sign out</a>
+                <form method="POST" action="/logout" class="logout-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-danger">Sign out</button>
+                </form>
             </div>
         </header>
 
@@ -564,7 +572,7 @@
                 <div class="metric-icon" aria-hidden="true">🎛️</div>
                 <div class="metric-info">
                     <h3>Active Modules</h3>
-                    <p id="metric-active">{{ active_count }} / {{ total_count }}</p>
+                    <p id="metric-active" aria-live="polite">{{ active_count }} / {{ total_count }}</p>
                 </div>
             </div>
             <div class="metric-card">
@@ -634,7 +642,15 @@
     <script>
         const GUILD_ID = {{ guild_id|tojson }};
         const CSRF_TOKEN = {{ csrf_token|tojson }};
+        const MODULE_NAMES = {
+            {% for mod in modules %}{{ mod.id|tojson }}: {{ mod.name|tojson }}{% if not loop.last %},{% endif %}
+            {% endfor %}
+        };
         const pending = new Set();
+
+        function moduleName(moduleId) {
+            return MODULE_NAMES[moduleId] || moduleId;
+        }
 
         function showToast(message, type = "success") {
             const container = document.getElementById("toast-container");
@@ -685,6 +701,12 @@
             });
             let data = {};
             try { data = await response.json(); } catch (_) {}
+            if (response.status === 401) {
+                // Session expired — send the user back to sign in again.
+                showToast("Your session expired. Redirecting to sign in…", "error");
+                setTimeout(() => { window.location.href = "/login"; }, 1200);
+                throw new Error("Session expired");
+            }
             if (!response.ok || !data.success) {
                 throw new Error(data.error || `Request failed (${response.status})`);
             }
@@ -705,12 +727,14 @@
                     module: moduleId,
                     enabled: isEnabled
                 });
-                showToast(`${moduleId} ${isEnabled ? "enabled" : "disabled"}.`);
+                showToast(`${moduleName(moduleId)} ${isEnabled ? "enabled" : "disabled"}.`);
                 updateActiveCount();
             } catch (err) {
                 if (input) input.checked = !isEnabled;
                 setLabel(moduleId, !isEnabled);
-                showToast(`Could not update ${moduleId}: ${err.message}`, "error");
+                if (err.message !== "Session expired") {
+                    showToast(`Could not update ${moduleName(moduleId)}: ${err.message}`, "error");
+                }
             } finally {
                 pending.delete(moduleId);
                 if (card) card.classList.remove("busy");
@@ -733,7 +757,9 @@
                 updateActiveCount();
                 showToast(`All modules ${enable ? "enabled" : "disabled"}.`);
             } catch (err) {
-                showToast(`Bulk update failed: ${err.message}`, "error");
+                if (err.message !== "Session expired") {
+                    showToast(`Bulk update failed: ${err.message}`, "error");
+                }
             } finally {
                 buttons.forEach(b => { if (b) b.disabled = false; });
             }

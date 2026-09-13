@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import os
+from utils.style import send_card
 
 class Legal(commands.Cog):
     """Terms of Service and Privacy Policy."""
@@ -25,7 +26,7 @@ class Legal(commands.Cog):
             description=content[:4096],  # Ensure it doesn't exceed Discord's limits
             color=discord.Color.blue()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await send_card(interaction, embed=embed, ephemeral=True)
 
     @app_commands.command(name="tos", description="View the Bot's Terms of Service.")
     async def tos(self, interaction: discord.Interaction):
@@ -35,7 +36,7 @@ class Legal(commands.Cog):
             description=content[:4096],
             color=discord.Color.blue()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await send_card(interaction, embed=embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Legal(bot))

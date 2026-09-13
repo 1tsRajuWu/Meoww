@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import aiosqlite
 from utils import db
+from utils.style import send_card, edit_card
 
 DB_PATH = db.DB_PATH
 
@@ -106,7 +107,7 @@ class Starboard(commands.Cog):
             starboard_msg_id, prev_stars = existing
             try:
                 star_msg = await starboard_channel.fetch_message(starboard_msg_id)
-                await star_msg.edit(content=header, embed=embed)
+                await edit_card(star_msg, content=header, embed=embed)
                 async with aiosqlite.connect(DB_PATH) as conn:
                     await conn.execute("UPDATE starboard_posts SET stars_count=? WHERE original_message_id=?", (star_count, message.id))
                     await conn.commit()
@@ -114,7 +115,7 @@ class Starboard(commands.Cog):
                 pass
         else:
             try:
-                star_msg = await starboard_channel.send(content=header, embed=embed)
+                star_msg = await send_card(starboard_channel, content=header, embed=embed)
                 async with aiosqlite.connect(DB_PATH) as conn:
                     await conn.execute(
                         "INSERT INTO starboard_posts (original_message_id, starboard_message_id, guild_id, stars_count) VALUES (?, ?, ?, ?)",
@@ -150,7 +151,7 @@ class Starboard(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Server Starboard • Powered by Meow")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
     @starboard_group.command(name="status", description="Check current Starboard configuration.")
     async def starboard_status(self, interaction: discord.Interaction):
@@ -175,7 +176,7 @@ class Starboard(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="🐾 Server Starboard")
-        await interaction.response.send_message(embed=embed)
+        await send_card(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):
