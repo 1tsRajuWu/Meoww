@@ -206,7 +206,8 @@ class Track:
         requester: str = "Someone",
         thumbnail: str = None,
         webpage_url: str = None,
-        is_radio: bool = False
+        is_radio: bool = False,
+        actual_title: str = None
     ):
         self.title = title
         self.source_url = source_url
@@ -215,6 +216,7 @@ class Track:
         self.thumbnail = thumbnail
         self.webpage_url = webpage_url
         self.is_radio = is_radio
+        self.actual_title = actual_title
 
 
 class GuildMusicPlayer:
@@ -333,10 +335,33 @@ class GuildMusicPlayer:
 
             def score(e):
                 dur = e.get("duration") or 0
-                title = e.get("title") or ""
+                title = (e.get("title") or "").lower()
+                uploader = (e.get("uploader") or "").lower()
+                channel = (e.get("channel") or "").lower()
+                
+                # Check how many words from the search target match
+                target_words = search_term.lower().split()
+                matches = sum(1 for w in target_words if w in title or w in uploader or w in channel)
+                word_match_ratio = matches / len(target_words) if target_words else 0
+                
                 dur_score = abs(dur - expected_sec) if expected_sec > 0 else 0
                 short_penalty = 3600 if (expected_sec > 60 and 0 < dur < 60) else 0
-                return (dur_score + short_penalty, -_sim(search_term, title))
+                
+                # Give bonuses (negative penalty) to official audios and exact duration
+                bonus = 0
+                if "official audio" in title or "topic" in channel or "topic" in uploader:
+                    bonus += 15  # Equivalent to saving 15 seconds of error
+                if "lyric" in title:
+                    bonus += 5
+                if "official video" in title or "music video" in title:
+                    # Music videos often have long acting intros
+                    bonus -= 10
+                
+                sim_score = _sim(search_term, title) * 30 
+                word_match_bonus = word_match_ratio * 40
+                
+                final_score = dur_score + short_penalty - sim_score - word_match_bonus - bonus
+                return final_score
 
             # 1. Direct URL path (YouTube / SoundCloud / CDN link)
             if target and target.startswith(("http://", "https://")):
@@ -1033,10 +1058,30 @@ class Music(commands.Cog):
 
             def score(e):
                 dur = e.get("duration") or 0
-                title = e.get("title") or ""
+                title = (e.get("title") or "").lower()
+                uploader = (e.get("uploader") or "").lower()
+                channel = (e.get("channel") or "").lower()
+                
+                target_words = search_target.lower().split()
+                matches = sum(1 for w in target_words if w in title or w in uploader or w in channel)
+                word_match_ratio = matches / len(target_words) if target_words else 0
+                
                 dur_score = abs(dur - expected_sec) if expected_sec > 0 else 0
                 short_penalty = 3600 if (expected_sec > 60 and 0 < dur < 60) else 0
-                return (dur_score + short_penalty, -_sim(search_target, title))
+                
+                bonus = 0
+                if "official audio" in title or "topic" in channel or "topic" in uploader:
+                    bonus += 15
+                if "lyric" in title:
+                    bonus += 5
+                if "official video" in title or "music video" in title:
+                    bonus -= 10
+                
+                sim_score = _sim(search_target, title) * 30 
+                word_match_bonus = word_match_ratio * 40
+                
+                final_score = dur_score + short_penalty - sim_score - word_match_bonus - bonus
+                return final_score
 
             for prefix in ["ytsearch5:", "scsearch5:"]:
                 search_query = f"{prefix}{search_target}"
@@ -1081,8 +1126,8 @@ class Music(commands.Cog):
         if not data or not data.get("url"):
             return await interaction.followup.send("❌ Could not find or stream that track. Try a different title or direct link!", ephemeral=True)
 
-
-        track_title = (f"{spotify_first['title']} - {spotify_first['artist']}" if spotify_first else data.get("title", query))[:90]
+        actual_title = data.get("title") or ""
+        track_title = (f"{spotify_first['title']} - {spotify_first['artist']}" if spotify_first else actual_title or query)[:90]
         track_url = data.get("url")
         track_duration = data.get("duration", 0) or (int(spotify_first.get("duration_ms", 0) / 1000) if spotify_first else 0)
         track_thumb = (spotify_first.get("thumbnail") if spotify_first and spotify_first.get("thumbnail") else data.get("thumbnail"))
@@ -1094,7 +1139,8 @@ class Music(commands.Cog):
             duration=track_duration,
             requester=interaction.user.display_name,
             thumbnail=track_thumb,
-            webpage_url=webpage_url
+            webpage_url=webpage_url,
+            actual_title=actual_title if spotify_first and actual_title else None
         )
 
         is_currently_playing = vc.is_playing() or vc.is_paused()
@@ -1113,6 +1159,8 @@ class Music(commands.Cog):
             embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.duration)}`", inline=True)
             embed.add_field(name="👤 Requested by", value=interaction.user.mention, inline=True)
             embed.add_field(name=f"{src_emoji} Source", value=src_tag, inline=True)
+            if track.actual_title:
+                embed.add_field(name="🔍 Audio Match", value=f"`{track.actual_title[:35]}`", inline=True)
             embed.add_field(name="🔊 Channel", value=vc.channel.mention, inline=True)
             embed.add_field(name="🎛️ Filter", value=AUDIO_FILTERS.get(player.current_filter, AUDIO_FILTERS["normal"])["name"], inline=True)
             if spotify_queued_count > 0:
@@ -1133,6 +1181,8 @@ class Music(commands.Cog):
             embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.duration)}`", inline=True)
             embed.add_field(name="🔢 Position", value=f"#{q_pos} in queue", inline=True)
             embed.add_field(name="👤 Requested by", value=interaction.user.mention, inline=True)
+            if track.actual_title:
+                embed.add_field(name="🔍 Audio Match", value=f"`{track.actual_title[:35]}`", inline=True)
             if spotify_queued_count > 0:
                 embed.add_field(name="💿 Playlist", value=f"+{spotify_queued_count} more queued", inline=False)
             if track.thumbnail:
@@ -1287,6 +1337,8 @@ class Music(commands.Cog):
         )
         embed.add_field(name="⏱️ Duration", value=f"`{format_duration(cur.duration)}`", inline=True)
         embed.add_field(name="👤 Requested by", value=f"`{cur.requester}`", inline=True)
+        if cur.actual_title:
+            embed.add_field(name="🔍 Audio Match", value=f"`{cur.actual_title[:35]}`", inline=True)
         embed.add_field(name="🔊 Volume", value=f"`{int(player.volume * 100)}%`", inline=True)
         embed.add_field(name=f"{filter_cfg['emoji']} Filter", value=filter_cfg["name"], inline=True)
         embed.add_field(name="👑 24/7 Mode", value="`ON`" if player.is_247 else "`OFF`", inline=True)
