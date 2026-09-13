@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils import db, features, modules
+from utils import commands_sync, db, features, modules
 
 # Force real-time unbuffered log streaming to Render / cloud console
 try:
@@ -135,6 +135,127 @@ async def rotate_status():
             print(f"Failed to update status: {e}")
         await asyncio.sleep(3600)  # Rotate every 60 minutes
 
+def _retry_delay(exc: BaseException, *, floor: float = 60.0, ceiling: float = 1800.0):
+    """How long to wait before re-attempting a rejected sync, or None to stop.
+
+    Discord answers error ``30034`` when the 200-command-writes-a-day budget for a
+    guild is spent, and tells us when the window clears. A deploy that lands while
+    it is closed would otherwise leave its new commands unregistered until the
+    *next* restart, which is exactly how the guild ended up 22 commands behind.
+    """
+    if "30034" not in str(exc):
+        return None
+    reported = getattr(exc, "retry_after", None)
+    try:
+        delay = float(reported) if reported is not None else 600.0
+    except (TypeError, ValueError):
+        delay = 600.0
+    return max(floor, min(delay, ceiling))
+
+
+def _schedule_deferred_sync(bot: commands.Bot, delay: float, remaining: int) -> None:
+    """Queue another sync attempt once Discord's write budget resets."""
+    async def _later() -> None:
+        try:
+            await asyncio.sleep(delay)
+            print(f"[SYNC] Retrying after the cooldown ({delay:.0f}s)…", flush=True)
+            await sync_commands(bot, deferred_retries=remaining)
+        except Exception as exc:
+            print(f"[SYNC] Deferred retry failed: {exc}", flush=True)
+
+    asyncio.create_task(_later())
+
+
+async def _registered_command_payloads(bot: commands.Bot, guild) -> list[dict] | None:
+    """What Discord already has for a guild, or None when it cannot be read."""
+    try:
+        remote = await bot.tree.fetch_commands(guild=guild)
+        return [command.to_dict() for command in remote]
+    except Exception as exc:
+        print(f"[SYNC] ⚠️ Could not read {guild.name}'s registered commands: {exc}", flush=True)
+        return None
+
+
+async def sync_commands(
+    bot: commands.Bot,
+    *,
+    attempts: int = 3,
+    retry_wait: float = 5.0,
+    force: bool = False,
+    deferred_retries: int = 2,
+) -> dict[str, int]:
+    """Publish the slash-command tree to every guild the bot is in.
+
+    Nothing used to do this automatically, and the one path that existed — the
+    manual `/sync` slash command — has to be registered before it can be used, so
+    a bot whose tree had drifted could never repair itself. That is not
+    theoretical: the live guild was sitting at **71 of 93** commands with `/sync`
+    among the missing 22, so no amount of running `/sync` could have helped.
+
+    Before writing, the registered commands are fetched and compared. Discord
+    allows 200 command writes per day per guild and answers ``30034`` once that is
+    spent — after which nothing registers at all — so re-uploading an unchanged
+    tree on every boot would be actively harmful. A guild that already matches is
+    left alone.
+
+    Never raises: a failed sync must not stop the bot coming online, and the next
+    boot or a `/sync` retries. Returns ``{guild name: commands registered}``.
+    """
+    results: dict[str, int] = {}
+    for guild in bot.guilds:
+        local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
+        registered = await _registered_command_payloads(bot, guild)
+
+        if registered is not None and not force:
+            if commands_sync.is_up_to_date(local, registered):
+                print(
+                    f"[SYNC] ✅ {guild.name}: {commands_sync.summary(local, registered)}.",
+                    flush=True,
+                )
+                results[guild.name] = len(registered)
+                continue
+            print(
+                f"[SYNC] {guild.name}: {commands_sync.summary(local, registered)} — syncing…",
+                flush=True,
+            )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                synced = await bot.tree.sync(guild=guild)
+            except Exception as exc:
+                retry_after = getattr(exc, "retry_after", None)
+                wait = max(0.0, min(float(retry_after or retry_wait), 30.0))
+                print(
+                    f"[SYNC] ⚠️ Attempt {attempt}/{attempts} failed for {guild.name}: {exc}",
+                    flush=True,
+                )
+                delay = _retry_delay(exc)
+                if delay is not None:
+                    print(
+                        "[SYNC] Discord's daily application-command write budget is "
+                        "spent. Nothing is lost: the sync will be retried shortly, and "
+                        "a restart or /sync would also finish it.",
+                        flush=True,
+                    )
+                    if deferred_retries > 0:
+                        print(f"[SYNC] Retrying in {delay:.0f}s.", flush=True)
+                        _schedule_deferred_sync(bot, delay, deferred_retries - 1)
+                    break
+                if attempt == attempts:
+                    break
+                await asyncio.sleep(wait)
+            else:
+                results[guild.name] = len(synced)
+                print(
+                    f"[SYNC] ✅ {len(synced)} commands registered in {guild.name}.",
+                    flush=True,
+                )
+                break
+    if not bot.guilds:
+        print("[SYNC] Not in any guild yet — nothing to register.", flush=True)
+    return results
+
+
 @bot.event
 async def on_ready():
     if getattr(bot, "_has_started", False):
@@ -165,9 +286,10 @@ async def on_ready():
             print(f"Could not load module states for {guild.name}: {e}")
 
     
-    # Commands are persistently registered globally with Discord API.
-    # Manual sync can be triggered at any time via /sync.
-    print("✅ Application commands active and ready for interactions.")
+    # Register the command tree with Discord (see sync_commands: relying on the
+    # manual /sync command alone is how this server ended up missing 21 of its
+    # commands, /sync included).
+    await sync_commands(bot)
 
     # Auto-hoist the bot's role to just below @everyone so it can action anyone
     for guild in bot.guilds:

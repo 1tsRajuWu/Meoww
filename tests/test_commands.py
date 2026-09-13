@@ -71,6 +71,28 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
         uncovered = sorted(defined - features.ALWAYS_ALLOWED_COMMANDS - set(features.MODULE_COMMAND_MAP))
         self.assertEqual(uncovered, [], f"commands in bot.py that are neither gated nor core: {uncovered}")
 
+    def test_the_tree_stays_within_discords_command_cap(self):
+        """Discord allows 100 global CHAT_INPUT commands, and the same per guild.
+
+        Subcommands nest inside their parent command and don't cost anything, but
+        every top-level command spends one of the 100 — and going over makes
+        Discord reject the whole sync, which is how commands silently stop
+        appearing. Keep some headroom rather than discovering this at the cap.
+        """
+        self.assertLessEqual(
+            len(self.registered), 100,
+            f"{len(self.registered)} top-level commands; Discord's cap is 100",
+        )
+
+    def test_sync_is_itself_a_registered_command(self):
+        """Regression: `/sync` is the manual repair path, so it has to exist.
+
+        The live guild was missing 21 of its 92 commands with `/sync` among them,
+        which left no way to register anything from inside Discord. The bot now
+        syncs on boot, but the manual fallback must stay reachable.
+        """
+        self.assertIn("sync", self.registered)
+
 
 if __name__ == "__main__":
     unittest.main()
