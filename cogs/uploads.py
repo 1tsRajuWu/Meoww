@@ -67,6 +67,78 @@ def _suffix(filename: str) -> str:
     return "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
 
 
+#: Discord rejects an embed whose title is longer than this, with an HTTP 400.
+#: Measured in UTF-16 units, so an emoji costs two.
+EMBED_TITLE_MAX: int = 256
+
+#: Discord rejects message content longer than this, in the same units.
+CONTENT_MAX: int = 2000
+
+#: Discord rejects a thread name longer than this, in the same units.
+THREAD_NAME_MAX: int = 100
+
+
+def _units(text: str) -> int:
+    """How Discord counts ``text``: astral characters cost two, not one.
+
+    ``len()`` says a 256-character title is fine, but Discord counts UTF-16
+    units, so one emoji makes it 257 and the embed is refused. Measuring the
+    same way the API does is what keeps a clamp from sitting exactly on the
+    boundary it is supposed to stay under.
+    """
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _fit(text: str, limit: int) -> str:
+    """``text`` trimmed to ``limit`` UTF-16 units, with an ellipsis if cut."""
+    if _units(text) <= limit:
+        return text
+    kept: list[str] = []
+    used = 0
+    for char in text:
+        size = _units(char)
+        if used + size > limit - 1:  # leave one unit for the ellipsis
+            break
+        kept.append(char)
+        used += size
+    return "".join(kept).rstrip() + "…"
+
+
+def _label(prefix: str, text: str) -> str:
+    """A name that is always short enough for Discord to accept.
+
+    A member-supplied ``title`` (or a long attachment filename) is not bounded
+    by anything Discord enforces on the option, so an over-long one used to
+    make ``channel.send`` raise and the link the member had just uploaded was
+    never delivered. Truncating is the difference between a slightly shortened
+    title and no message at all.
+    """
+    return _fit(prefix + (" ".join(text.split()) or "upload"), EMBED_TITLE_MAX)
+
+
+def _reason(exc: object) -> str:
+    """One line of failure text, bounded so the error card always fits."""
+    text = " ".join(str(exc).split()) or exc.__class__.__name__
+    return text[:300]
+
+
+def build_failure_text(errors: list[str]) -> str:
+    """The "nothing accepted the file" card, always inside Discord's limit.
+
+    A failure here means the member's upload was wasted, so the explanation
+    has to arrive.  An unbounded service error would push the message over
+    2,000 characters and the follow-up itself would be rejected, leaving the
+    member with no answer at all.
+    """
+    detail = "\n".join(f"• {e}" for e in errors) or "• every service refused the file"
+    return _fit(
+        f"❌ **Upload failed** — no host accepted the file.\n\n{detail}\n\n"
+        "Try again in a minute, or use `/upload-big` for a file.kiwi "
+        "link you can upload through yourself.",
+        CONTENT_MAX,
+    )
+
+
 def _service_order(service: str, is_video: bool) -> list[str]:
     """Which hosts to try, in order, for the requested service."""
     if service == "streamable":
@@ -213,17 +285,13 @@ class Uploads(commands.Cog):
             _unlink(tmp_path)
 
         if link is None:
-            detail = "\n".join(f"• {e}" for e in errors) or "• every service refused the file"
             return await interaction.followup.send(
-                f"❌ **Upload failed** — no host accepted the file.\n\n{detail}\n\n"
-                "Try again in a minute, or use `/upload-big` for a file.kiwi "
-                "link you can upload through yourself.",
-                ephemeral=True,
+                build_failure_text(errors), ephemeral=True,
             )
 
         # --- post in the upload channel ---
         embed = discord.Embed(
-            title=f"📎 {title or file.filename}",
+            title=_label("📎 ", title or file.filename),
             description=(
                 f"Uploaded by {interaction.user.mention}\n"
                 f"**Service:** {used_service}\n"
@@ -251,7 +319,10 @@ class Uploads(commands.Cog):
 
         try:
             msg = await channel.send(embed=embed)
-        except discord.Forbidden:
+        except discord.HTTPException as exc:
+            # The file is already uploaded.  Whatever Discord objected to, the
+            # member must still get the link rather than a silent failure.
+            print(f"[UPLOAD] Channel post rejected: {exc}", flush=True)
             return await interaction.followup.send(
                 f"✅ Uploaded, but I can't post in {channel.mention} — here's "
                 f"your link:\n{link}",
@@ -261,7 +332,7 @@ class Uploads(commands.Cog):
         # --- create a thread for this upload ---
         try:
             thread = await msg.create_thread(
-                name=f"📎 {title or file.filename}"[:100],
+                name=_fit(_label("📎 ", title or file.filename), THREAD_NAME_MAX),
                 auto_archive_duration=1440,  # 24 hours
                 reason=f"Upload by {interaction.user.display_name}",
             )
@@ -286,7 +357,7 @@ class Uploads(commands.Cog):
                 "\n\n⚠️ **Open the link and drag your file in** — the upload "
                 "isn't finished until you do."
             )
-        await interaction.followup.send(confirm, ephemeral=True)
+        await interaction.followup.send(_fit(confirm, CONTENT_MAX), ephemeral=True)
 
     @app_commands.command(
         name="upload-big",
@@ -308,12 +379,14 @@ class Uploads(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        folder_title = title or f"Upload by {interaction.user.display_name}"
+        folder_title = " ".join((title or f"Upload by {interaction.user.display_name}").split())
         try:
-            result = await asyncio.to_thread(file_kiwi.create_folder, folder_title, "send")
+            result = await asyncio.to_thread(
+                file_kiwi.create_folder, folder_title[:120], "send",
+            )
         except Exception as exc:
             return await interaction.followup.send(
-                f"❌ **file.kiwi failed:** {exc}\n\n"
+                f"❌ **file.kiwi failed:** {_reason(exc)}\n\n"
                 "That is usually a network hiccup. Try again in a moment, or "
                 "use `/upload` for files up to 100 MB — those are uploaded for "
                 "you straight away.",
@@ -340,7 +413,7 @@ class Uploads(commands.Cog):
             )
 
         embed = discord.Embed(
-            title=f"📁 {folder_title}",
+            title=_label("📁 ", folder_title),
             description=(
                 f"Requested by {interaction.user.mention}\n"
                 f"**Service:** file.kiwi\n\n"
@@ -365,16 +438,17 @@ class Uploads(commands.Cog):
 
         try:
             msg = await channel.send(embed=embed)
-        except discord.Forbidden:
+        except discord.HTTPException as exc:
+            print(f"[UPLOAD] Channel post rejected: {exc}", flush=True)
             return await interaction.followup.send(
                 f"✅ Link ready:\n{result.folder_url}\n\n"
-                "I can't post in the upload channel, so keep this link.",
+                "I can't post it in the upload channel, so keep this link.",
                 ephemeral=True,
             )
 
         try:
             thread = await msg.create_thread(
-                name=f"📁 {folder_title}"[:100],
+                name=_fit(_label("📁 ", folder_title), THREAD_NAME_MAX),
                 auto_archive_duration=1440,
                 reason=f"Upload by {interaction.user.display_name}",
             )
@@ -389,11 +463,14 @@ class Uploads(commands.Cog):
             print(f"[UPLOAD] Thread creation failed: {exc}", flush=True)
 
         await interaction.followup.send(
-            f"✅ **file.kiwi** link ready!\n"
-            f"🔗 {result.folder_url}\n\n"
-            f"⚠️ Open it in your browser and **drag your file in** — the upload "
-            f"isn't finished until you do.\n"
-            f"📺 Posted in {channel.mention} with a thread.",
+            _fit(
+                f"✅ **file.kiwi** link ready!\n"
+                f"🔗 {result.folder_url}\n\n"
+                f"⚠️ Open it in your browser and **drag your file in** — the upload "
+                f"isn't finished until you do.\n"
+                f"📺 Posted in {channel.mention} with a thread.",
+                CONTENT_MAX,
+            ),
             ephemeral=True,
         )
 
@@ -458,7 +535,7 @@ def _resolve_link(
             try:
                 result = streamable.upload(path, filename)
             except Exception as exc:  # noqa: BLE001 - report and fall through
-                errors.append(f"Streamable: {exc}")
+                errors.append(f"Streamable: {_reason(exc)}")
                 continue
             if result:
                 return result.url, "Streamable", False
@@ -467,7 +544,7 @@ def _resolve_link(
             try:
                 result = catbox.upload(path, filename)
             except Exception as exc:  # noqa: BLE001 - report and fall through
-                errors.append(f"catbox: {exc}")
+                errors.append(f"catbox: {_reason(exc)}")
                 continue
             if result:
                 return result.link, "catbox", False
@@ -476,7 +553,7 @@ def _resolve_link(
             try:
                 result = file_kiwi.create_folder(filename, "send")
             except Exception as exc:  # noqa: BLE001 - report and fall through
-                errors.append(f"file.kiwi: {exc}")
+                errors.append(f"file.kiwi: {_reason(exc)}")
                 continue
             if result:
                 return result.folder_url, "file.kiwi", True
