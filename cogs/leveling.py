@@ -941,7 +941,7 @@ class Leveling(commands.Cog):
             name="Voice (VC) Rewards",
             value=(
                 f"up to `{new_vc}` 🪙 + {vc_xp} XP / min\n"
-                "*needs company, undeafened, recent activity — solo earns nothing*"
+                "*needs undeafened + recent activity — solo earns at reduced rate*"
             ),
             inline=True
         )

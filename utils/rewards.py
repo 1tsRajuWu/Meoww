@@ -249,7 +249,8 @@ class SpamScreen:
 # Voice
 # --------------------------------------------------------------------------- #
 #: Non-bot humans a channel needs (including the member) before it pays at all.
-VC_COMPANY_MIN = 2
+#: Changed from 2 to 1 so solo VC users still earn (at reduced rate).
+VC_COMPANY_MIN = 1
 #: How long a channel can go with no observable event and still pay full rate.
 VC_FULL_SECONDS = 1200.0
 #: Past this much total silence in the channel, nobody earns.
@@ -292,11 +293,11 @@ def voice_presence(
 def voice_company_factor(companions: int) -> float:
     """Worth of having ``companions`` other humans in the channel.
 
-    Zero when alone — a member sitting by themselves is the classic AFK farm —
-    then rising logarithmically: a pair is worth 0.78, four people the full 1.0.
+    Solo (0 companions) earns at 0.35 rate instead of nothing, so voice
+    time is still tracked for rank. Pairs earn 0.78, four people the full 1.0.
     """
     if companions < 1:
-        return 0.0
+        return 0.35
     return 0.55 + 0.45 * min(1.0, math.log(companions + 1) / math.log(4))
 
 

@@ -150,13 +150,20 @@ class TestRewardMath(unittest.TestCase):
         self.assertGreater(payout.coins, 0)
 
     # -- voice: the anti-AFK gates ----------------------------------------- #
-    def test_solo_members_earn_nothing(self):
-        self.assertEqual(rewards.voice_company_factor(0), 0.0)
+    def test_solo_members_earn_at_reduced_rate(self):
+        # Solo users now earn at 0.35 rate instead of nothing, so voice
+        # time is tracked for rank even when alone in a channel.
+        solo = rewards.voice_company_factor(0)
+        self.assertAlmostEqual(solo, 0.35)
         factor = rewards.voice_factor(
-            presence=1.0, company=rewards.voice_company_factor(0), freshness=1.0
+            presence=1.0, company=solo, freshness=1.0
         )
-        self.assertEqual(factor, 0.0)
-        self.assertEqual(rewards.voice_reward(factor, vc_xp=3, vc_coins=2).xp, 0)
+        self.assertGreater(factor, 0.0)
+        payout = rewards.voice_reward(factor, vc_xp=3, vc_coins=2)
+        self.assertGreater(payout.xp, 0)
+        # Solo rate should be less than group rate
+        group = rewards.voice_company_factor(2)
+        self.assertGreater(group, solo)
 
     def test_company_grows_logarithmically_and_caps_at_one(self):
         factors = [rewards.voice_company_factor(n) for n in (1, 2, 3, 4, 40)]
@@ -481,13 +488,14 @@ class TestLevelingCallbacks(_LevelingCase):
         self.assertIsNone(_row(CHATTER), "a voice join created a levels row")
         self.assertEqual(self.cog._pulse.age(vc.id, self.clock.now), 0.0)
 
-    async def test_solo_member_in_voice_earns_nothing(self):
+    async def test_solo_member_in_voice_earns_at_reduced_rate(self):
+        # Solo users now earn at 0.35 rate instead of nothing.
         _, _, _ = self._scene((CHATTER, {}))
 
         await self._tick()
 
-        self.assertEqual(_wallet(CHATTER), 0, "a solo member was paid")
-        self.assertIsNone(_row(CHATTER), "a solo member accrued voice minutes")
+        self.assertGreater(_wallet(CHATTER), 0, "a solo member was not paid")
+        self.assertIsNotNone(_row(CHATTER), "a solo member did not accrue voice minutes")
 
     async def test_a_pair_in_voice_is_paid_and_the_minute_is_counted(self):
         _, _, (chatter, spammer) = self._scene((CHATTER, {}), (SPAMMER, {}))
