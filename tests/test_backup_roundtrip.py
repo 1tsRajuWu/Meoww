@@ -167,6 +167,61 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("bot.db", fake.files)
 
 
+class DeleteRequestShape(unittest.TestCase):
+    """The pruner's DELETE has to be one Supabase actually accepts.
+
+    The in-memory fake bucket accepted anything, so the retention rule passed
+    its test for weeks while production deleted nothing: Supabase answers a
+    bodiless DELETE that claims to carry JSON with
+    ``400 Body cannot be empty when content-type is set to 'application/json'``.
+    This pins the request itself, not a fake's opinion of it.
+    """
+
+    def _capture(self):
+        captured: dict = {}
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(req, timeout=None):
+            captured["method"] = req.get_method()
+            captured["headers"] = {k.lower(): v for k, v in req.header_items()}
+            captured["data"] = req.data
+            captured["url"] = req.full_url
+            return FakeResponse()
+
+        return captured, fake_urlopen
+
+    def test_delete_is_not_sent_as_json(self):
+        captured, fake_urlopen = self._capture()
+        with mock.patch.object(cs, "SUPABASE_URL", "https://test.supabase.co"), \
+             mock.patch.object(cs, "SUPABASE_KEY", "test-key"), \
+             mock.patch.object(cs.urllib.request, "urlopen", side_effect=fake_urlopen):
+            self.assertTrue(cs._storage_delete("bot-db-old.db"))
+        self.assertEqual(captured["method"], "DELETE")
+        self.assertNotIn("content-type", captured["headers"])
+        self.assertIsNone(captured["data"])
+        self.assertTrue(captured["url"].endswith("/bot-db-old.db"))
+        self.assertIn("authorization", captured["headers"])
+
+    def test_a_refused_delete_is_reported_not_swallowed(self):
+        import urllib.error
+
+        def refuse(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 400, "nope", {}, None)
+
+        with mock.patch.object(cs, "SUPABASE_URL", "https://test.supabase.co"), \
+             mock.patch.object(cs, "SUPABASE_KEY", "test-key"), \
+             mock.patch.object(cs.urllib.request, "urlopen", side_effect=refuse):
+            self.assertFalse(cs._storage_delete("bot-db-old.db"))
+
+
 class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.use_temp_database("backup_test.db")
@@ -215,18 +270,77 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(fake.files), call_count)
 
     def test_backup_refuses_when_db_looks_empty(self):
-        """An empty database must not overwrite a real backup."""
-        cs._remote_checked = True
-        cs._restore_blocked_reason = None
-        # bot.db exists but is empty (no economy/level rows)
-        fake = _FakeSupabase()
-        fake.files["bot.db"] = b"SQLite format 3\x00" + b"\x00" * 200
+        """A near-empty database must not overwrite a real backup.
 
-        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
-             mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)):
-            result = cs.backup_to_cloud_sync()
+        This is the case that wiped the live server: an instance that had never
+        looked at the bucket wrote its own almost-empty database over the
+        backup. The guard has to hold even though nothing called restore.
+        """
+        cs._remote_checked = False          # nobody consulted the bucket yet
+        cs._cloud_has_data = False
+        cs._restore_blocked_reason = None
+        _make_db(cs.db_path())
+        fake = _FakeSupabase()
+        fake.files["bot.db"] = b"SQLite format 3\x00" + b"\x00" * 2_000
+        before = bytes(fake.files["bot.db"])
+
+        result = self._backup_into(fake)
 
         self.assertFalse(result)
+        self.assertEqual(fake.files["bot.db"], before)
+
+    def test_backup_is_allowed_on_a_genuinely_new_server(self):
+        """Nothing to protect means the first backup must go through."""
+        cs._remote_checked = False
+        cs._cloud_has_data = False
+        _make_db(cs.db_path())
+        fake = _FakeSupabase()
+        self.assertTrue(self._backup_into(fake))
+        self.assertIn("bot.db", fake.files)
+
+    def test_backup_refuses_when_the_bucket_cannot_be_listed(self):
+        """Being unable to check the bucket is not permission to overwrite it."""
+        cs._remote_checked = False
+        _make_db(cs.db_path())
+        fake = _FakeSupabase()
+        with mock.patch.object(cs, "_storage_list_raw", return_value=None), \
+             mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)):
+            self.assertFalse(cs.backup_to_cloud_sync())
+        self.assertNotIn("bot.db", fake.files)
+
+    def test_backup_refuses_an_unreadable_database(self):
+        """A file that is not SQLite is not an empty server — it is damage."""
+        with open(cs.db_path(), "wb") as fh:
+            fh.write(b"this is not a database at all" * 100)
+        cs._remote_checked = True   # the state a running instance is in
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        fake = _FakeSupabase()
+        self.assertFalse(self._backup_into(fake))
+        self.assertNotIn("bot.db", fake.files)
+
+    def test_a_full_wipe_is_held_back_and_then_accepted(self):
+        """Even a database emptied to zero rows is saved once it stays empty.
+
+        Without this, a deliberate reset could never be persisted and the next
+        restart would restore the rows the admin just deleted.
+        """
+        _make_db(cs.db_path())
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute("DELETE FROM economy")
+        conn.execute("DELETE FROM user_levels")
+        conn.commit()
+        conn.close()
+        cs._remote_checked = True   # the state a running instance is in
+        cs._remote_checked = True
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {"economy": 10, "user_levels": 10}
+        fake = _FakeSupabase()
+
+        outcomes = [self._backup_into(fake) for _ in range(cs.SHRINK_GRACE_TICKS)]
+        self.assertEqual(outcomes, [False] * (cs.SHRINK_GRACE_TICKS - 1) + [True])
+        self.assertIn("bot.db", fake.files)
 
     def test_backup_refuses_when_restore_blocked(self):
         cs._restore_blocked_reason = "test block"
@@ -276,14 +390,18 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     def test_stranger_instance_may_not_overwrite_the_backup(self):
         """A second host with its own database must not replace the cloud copy."""
         _make_db(cs.db_path())
+        cs._remote_checked = True
         cs._cloud_has_data = True
         cs._restored_from = None  # never restored: not a descendant of the backup
         fake = _FakeSupabase()
+        fake.files["bot.db"] = b"SQLite format 3\x00" + b"\x00" * 2_000
+        before = bytes(fake.files["bot.db"])
         self.assertFalse(self._backup_into(fake))
-        self.assertNotIn("bot.db", fake.files)
+        self.assertEqual(fake.files["bot.db"], before)
 
     def test_descendant_instance_may_write(self):
         _make_db(cs.db_path())
+        cs._remote_checked = True   # the state a running instance is in
         cs._cloud_has_data = True
         cs._restored_from = "bot.db"
         cs._restored_counts = {"economy": 1, "user_levels": 1}
@@ -294,6 +412,8 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     def test_wiped_database_is_held_back_then_accepted(self):
         """A collapse is not uploaded immediately, and not blocked forever."""
         _make_db(cs.db_path())
+        cs._remote_checked = True   # the state a running instance is in
+        cs._remote_checked = True
         cs._cloud_has_data = True
         cs._restored_from = "bot.db"
         cs._restored_counts = {"economy": 10, "user_levels": 10}
@@ -309,6 +429,8 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     def test_another_live_instance_blocks_the_upload(self):
         _make_db(cs.db_path())
+        cs._remote_checked = True   # the state a running instance is in
+        cs._remote_checked = True
         cs._cloud_has_data = True
         cs._restored_from = "bot.db"
         cs._restored_counts = {}
@@ -321,6 +443,8 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     def test_a_stale_lease_can_be_taken_over(self):
         _make_db(cs.db_path())
+        cs._remote_checked = True   # the state a running instance is in
+        cs._remote_checked = True
         cs._cloud_has_data = True
         cs._restored_from = "bot.db"
         cs._restored_counts = {}
@@ -333,6 +457,9 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     def test_backup_prunes_old_snapshots(self):
         _make_db(cs.db_path())
+        cs._remote_checked = True
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
         fake = _FakeSupabase()
         # Pre-fill with too many snapshots
         for i in range(10):

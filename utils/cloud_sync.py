@@ -157,16 +157,29 @@ def _storage_upload(name: str, data: bytes) -> bool:
 
 
 def _storage_delete(name: str) -> bool:
-    """Delete a file from the bucket."""
+    """Delete a file from the bucket.
+
+    No ``Content-Type`` here on purpose: Supabase Storage answers a bodiless
+    DELETE that *claims* to carry JSON with ``400 Body cannot be empty when
+    content-type is set to 'application/json'``. The shared ``_headers()`` sets
+    exactly that, so every prune silently did nothing while reporting success by
+    returning False nobody looked at — the bucket grew forever and the "keep the
+    newest five snapshots" rule was never once enforced.
+    """
     try:
         req = urllib.request.Request(
             _storage_url(name),
-            headers=_headers(),
+            headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
             method="DELETE",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.status in (200, 204)
-    except Exception:
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(200).decode("utf-8", "replace").strip()
+        print(f"[CLOUD SYNC] ⚠️ Could not delete '{name}': HTTP {exc.code} {detail}", flush=True)
+        return False
+    except Exception as exc:
+        print(f"[CLOUD SYNC] ⚠️ Could not delete '{name}': {exc}", flush=True)
         return False
 
 
@@ -260,6 +273,24 @@ def _row_counts(path: str | None = None) -> dict[str, int]:
 
 def _total_rows(counts: dict[str, int] | None = None) -> int:
     return sum((counts if counts is not None else _row_counts()).values())
+
+
+def _db_readable(path: str | None = None) -> bool:
+    """True when the file opens as SQLite at all.
+
+    An *empty* database and an *unopenable* one are different answers: empty is
+    a state a server can legitimately be in, unreadable means the file is not a
+    database and must never be uploaded over a good backup.
+    """
+    try:
+        conn = sqlite3.connect(path or db_path(), timeout=5.0)
+        try:
+            conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
+            return True
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
 
 
 def restore_from_cloud(attempts: int = 3) -> bool:
@@ -492,18 +523,41 @@ def _lease_touch(force: bool = False) -> None:
 # Upload decision
 # --------------------------------------------------------------------------- #
 
+def _consult_bucket() -> str | None:
+    """Look at the bucket once and record what it holds.
+
+    The decision must not depend on the caller having remembered to restore
+    first: ``keep_alive``'s dashboard can ask for a backup on its own thread, and
+    a guard that only exists on the startup path is a guard with a way around it.
+    """
+    global _remote_checked, _cloud_has_data
+
+    objects = _storage_list_raw()
+    if objects is None:
+        return (
+            "the bucket could not be listed, so uploading could replace a "
+            "backup this instance cannot see"
+        )
+    _remote_checked = True
+    _cloud_has_data = bool(objects)
+    return None
+
+
 def upload_refusal_reason(decide: bool = True) -> str | None:
     """Why this process must not write to the bucket, or None when it may.
 
     Every rule here exists because the alternative loses somebody's coins:
 
-    1. An empty database never replaces a bucket that may hold one.
+    0. A failed startup restore blocks writes outright — an instance that could
+       not read the only copy must never write over it.
+    1. The bucket is consulted before the first write, whatever the call order.
     2. Only a descendant of the backup may overwrite it — an instance that
        never restored is a stranger, and its database is not the truth.
-    3. A collapse in row counts is held back for a few checks (long enough for
-       a restart or a halfway write to sort itself out) and then accepted,
-       because a genuinely reset server must be able to save again.
-    4. One host writes; a second live instance is told to keep its hands off.
+    3. A database that will not open is never uploaded over a working one.
+    4. A collapse in row counts is held back for a few checks (long enough for
+       a restart or a half-finished write to sort itself out) and then accepted,
+       because a server that really was reset has to be able to save again.
+    5. One host writes; a second live instance is told to keep its hands off.
 
     ``decide=False`` answers the same question without spending a grace tick,
     for callers that are only reporting (``/dbstatus``).
@@ -515,13 +569,10 @@ def upload_refusal_reason(decide: bool = True) -> str | None:
     if _restore_blocked_reason:
         return _restore_blocked_reason
 
-    local_total = _total_rows()
-
-    if local_total == 0 and _remote_checked:
-        return (
-            "this instance holds no economy/level rows while the bucket may "
-            "already hold a backup"
-        )
+    if not _remote_checked:
+        problem = _consult_bucket()
+        if problem:
+            return problem
 
     if _cloud_has_data and _restored_from is None:
         return (
@@ -529,6 +580,10 @@ def upload_refusal_reason(decide: bool = True) -> str | None:
             "not a descendant of the one being protected"
         )
 
+    if not _db_readable():
+        return "the local database could not be read as SQLite"
+
+    local_total = _total_rows()
     restored_total = _total_rows(_restored_counts)
     if not ALLOW_SHRINK and restored_total >= MIN_MEANINGFUL_ROWS:
         if local_total * 2 < restored_total:
@@ -595,9 +650,13 @@ def _backup_inner() -> bool:
         _storage_upload(f"{SNAPSHOT_PREFIX}{stamp}{SNAPSHOT_SUFFIX}", raw)
         _last_snapshot_ts = now
 
-        objects = _storage_list()
-        for old in _snapshot_names(objects)[BACKUP_KEEP:]:
-            _storage_delete(old)
+        stale = _snapshot_names(_storage_list())[BACKUP_KEEP:]
+        pruned = sum(1 for old in stale if _storage_delete(old))
+        if stale:
+            print(
+                f"[CLOUD SYNC] 🧹 Pruned {pruned}/{len(stale)} old snapshot(s).",
+                flush=True,
+            )
 
     _last_sync_hash = current_hash
     print(
