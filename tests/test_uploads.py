@@ -206,6 +206,68 @@ class TestServiceOrder(unittest.TestCase):
         self.assertEqual(_service_order("nonsense", False)[0], "catbox")
 
 
+from cogs.uploads import (
+    CONTENT_MAX,
+    EMBED_TITLE_MAX,
+    _label,
+    _reason,
+    build_failure_text,
+)
+
+
+class TestLabelFitsDiscord(unittest.TestCase):
+    """Discord rejects a title over 256 chars *after* the file is uploaded.
+
+    The member has already spent the bandwidth at that point, so an
+    over-long title (or attachment filename) must not be able to stop the
+    link from arriving.
+    """
+
+    def test_long_title_is_truncated(self):
+        self.assertLessEqual(len(_label("📎 ", "A" * 400)), EMBED_TITLE_MAX)
+
+    def test_long_filename_is_truncated(self):
+        self.assertLessEqual(
+            len(_label("📎 ", "z" * 300 + ".png")), EMBED_TITLE_MAX,
+        )
+
+    def test_exactly_at_the_limit_is_kept(self):
+        text = "B" * (EMBED_TITLE_MAX - len("📎 "))
+        self.assertEqual(_label("📎 ", text), "📎 " + text)
+
+    def test_short_title_is_untouched(self):
+        self.assertEqual(_label("📎 ", "My clip"), "📎 My clip")
+
+    def test_whitespace_only_gets_a_placeholder(self):
+        self.assertTrue(_label("📎 ", "   ").strip())
+
+    def test_markdown_newlines_are_collapsed(self):
+        self.assertNotIn("\n", _label("📎 ", "a\nb"))
+
+
+class TestFailureCard(unittest.TestCase):
+    """The explanation has to fit, or the follow-up is rejected too."""
+
+    def test_fits_discord_content_limit(self):
+        errors = [f"catbox: {'E' * 5000}", f"file.kiwi: {'F' * 5000}"]
+        self.assertLessEqual(len(build_failure_text(errors)), CONTENT_MAX)
+
+    def test_names_every_host_that_was_tried(self):
+        text = build_failure_text(["catbox: nope", "file.kiwi: nope"])
+        self.assertIn("catbox", text)
+        self.assertIn("file.kiwi", text)
+
+    def test_says_something_when_there_is_no_detail(self):
+        self.assertIn("refused", build_failure_text([]))
+
+    def test_reason_is_one_bounded_line(self):
+        self.assertLessEqual(len(_reason(RuntimeError("x\n" + "y" * 5000))), 300)
+        self.assertNotIn("\n", _reason(RuntimeError("a\nb")))
+
+    def test_reason_handles_an_exception_with_no_message(self):
+        self.assertTrue(_reason(RuntimeError()))
+
+
 class TestInfoEmbed(unittest.TestCase):
     """The pinned/sticky instructions must match what the bot really does."""
 
