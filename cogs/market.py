@@ -355,8 +355,7 @@ class Market(commands.Cog):
                 f"The only charge is the **{market.treat_fee_label()} Meow Treat fee** 🐾, "
                 "itemised on every fill.\n"
                 f"`1 USD = {market.COINS_PER_USD:,} 🪙` • "
-                f"**{len(instruments)}** instruments • "
-                f"[live chart]({DASHBOARD_BASE}/market/BTC)"
+                f"**{len(instruments)}** instruments"
             ),
             color=0x2ECC71,
             timestamp=discord.utils.utcnow(),
