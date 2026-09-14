@@ -103,6 +103,120 @@ class TestCloudSyncStatus(unittest.TestCase):
             self.assertFalse(bool(cs.SUPABASE_URL and cs.SUPABASE_KEY))
 
 
+class _Avatar:
+    url = "https://cdn.example/avatar.png"
+
+
+class _Me:
+    display_avatar = _Avatar()
+
+
+class _Guild:
+    me = _Me()
+    id = 777
+    name = "Hmm"
+
+
+class _User:
+    display_name = "RAJ"
+    display_avatar = _Avatar()
+
+
+class _Response:
+    async def defer(self, **kwargs):
+        pass
+
+
+class _Followup:
+    def __init__(self):
+        self.embeds = []
+
+    async def send(self, **kwargs):
+        self.embeds.append(kwargs.get("embed"))
+
+
+class _FakeInteraction:
+    """Just enough of an interaction to drive the real callback."""
+
+    def __init__(self):
+        self.response = _Response()
+        self.followup = _Followup()
+        self.guild = _Guild()
+        self.user = _User()
+        self.guild_id = 777
+
+
+class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
+    """The card talks to Supabase and reads SQLite — not on the event loop.
+
+    Called inline, this held the loop (and with it every other command and the
+    gateway heartbeat) for the length of a round trip: measured at 507 ms with a
+    stand-in for the network, and the real Supabase has answered in seconds.
+    """
+
+    async def asyncSetUp(self):
+        import threading  # noqa: F401  (documented in the assertion below)
+        self._dir = tempfile.mkdtemp()
+        from utils import db
+        self._original_db_path = db.DB_PATH
+        db.DB_PATH = os.path.join(self._dir, "card.db")
+        conn = sqlite3.connect(db.DB_PATH)
+        conn.execute("CREATE TABLE economy (user_id INTEGER, wallet INTEGER)")
+        conn.execute("INSERT INTO economy VALUES (1, 100)")
+        conn.commit()
+        conn.close()
+
+    async def asyncTearDown(self):
+        import shutil
+        from utils import db
+        db.DB_PATH = self._original_db_path
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    async def test_the_decision_is_computed_in_a_worker_thread(self):
+        import threading
+        from unittest.mock import patch
+        from cogs.server_control import ServerControl
+        from utils import cloud_sync as cs
+
+        seen = {}
+
+        def fake_refusal(decide=True):
+            seen["thread"] = threading.current_thread()
+            seen["decide"] = decide
+            return "blocked for the test"
+
+        interaction = _FakeInteraction()
+        cog = ServerControl(bot=MagicMock())
+        with patch.object(cs, "upload_refusal_reason", side_effect=fake_refusal), \
+             patch.object(cs, "_storage_list", return_value=[]):
+            await ServerControl.dbstatus.callback(cog, interaction)
+
+        self.assertIn("thread", seen, "the card never asked whether uploads are allowed")
+        self.assertNotEqual(
+            seen["thread"], threading.main_thread(),
+            "the refusal was computed on the event loop, which blocks every command",
+        )
+        self.assertFalse(seen["decide"], "reporting must not spend a shrink grace tick")
+        embed = interaction.followup.embeds[-1]
+        field = next(f for f in embed.fields if "Sync Status" in f.name)
+        self.assertIn("blocked for the test", field.value)
+
+    async def test_the_card_still_renders_without_supabase_configured(self):
+        """The import of asyncio must not live inside the Supabase branch."""
+        from unittest.mock import patch
+        from cogs.server_control import ServerControl
+        from utils import cloud_sync as cs
+
+        interaction = _FakeInteraction()
+        cog = ServerControl(bot=MagicMock())
+        with patch.object(cs, "SUPABASE_URL", ""), \
+             patch.object(cs, "SUPABASE_KEY", ""):
+            await ServerControl.dbstatus.callback(cog, interaction)
+        embed = interaction.followup.embeds[-1]
+        field = next(f for f in embed.fields if "Supabase Backup" in f.name)
+        self.assertIn("Not configured", field.value)
+
+
 class TestPermissionDeclared(unittest.TestCase):
     """The dbstatus command is declared as admin-only."""
 

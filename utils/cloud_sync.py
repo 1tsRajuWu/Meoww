@@ -357,6 +357,11 @@ def _restore_once() -> str:
         candidates.append(CURRENT_FILE)
     candidates.extend(_snapshot_names(objects))
 
+    #: An empty backup is a worse answer than a full one, but it is still an
+    #: answer: a server whose backups have never held a row must be able to
+    #: come back up and save again, rather than being blocked forever.
+    empty_fallback: tuple[str, bytes, dict[str, int]] | None = None
+
     for name in candidates:
         data = _storage_download(name)
         if data is None:
@@ -373,34 +378,31 @@ def _restore_once() -> str:
         with open(temp, "wb") as f:
             f.write(data)
 
-        # The downloaded file must actually open and hold the tables we count,
-        # or we would swap in a corrupt database and lose everything on the
-        # next upload. Verify before the swap, not after.
+        # The downloaded file must hold the tables we count before it replaces a
+        # working database, or a corrupt copy would be swapped in and lose
+        # everything on the next upload.
         counts = _row_counts(temp)
         if _total_rows(counts) == 0:
             print(
-                f"[CLOUD SYNC] ⚠️ '{name}' restored but holds no economy/level "
-                "rows — trying the next candidate.",
+                f"[CLOUD SYNC] ⚠️ '{name}' holds no economy/level rows — "
+                "trying the next candidate.",
                 flush=True,
             )
             _remove(temp)
-            counts = {}
-            # Keep looking: an empty snapshot is worse than an older full one.
+            if empty_fallback is None:
+                # Newest empty candidate, kept in case every backup is empty.
+                empty_fallback = (name, data, counts)
             continue
 
-        # Remove stale WAL/SHM before swapping, or SQLite replays the old,
-        # empty write-ahead log over the restored file.
-        for suffix in ("-wal", "-shm"):
-            _remove(db_path() + suffix)
+        _install(name, data, counts, temp=temp)
+        return "restored"
 
-        os.replace(temp, db_path())
-        _last_sync_hash = hashlib.sha256(data).hexdigest()
-        _restored_from = name
-        _restored_counts = counts
-        _clear_block()
+    if empty_fallback is not None:
+        name, data, counts = empty_fallback
+        _install(name, data, counts)
         print(
-            f"[CLOUD SYNC] ✅ Restored '{name}' ({len(data):,} bytes) — "
-            + ", ".join(f"{t}={n}" for t, n in counts.items()),
+            "[CLOUD SYNC] ⚠️ Every backup is empty — that is the truth for this "
+            "server, so saving is allowed again.",
             flush=True,
         )
         return "restored"
@@ -410,6 +412,41 @@ def _restore_once() -> str:
     # would replace them with whatever this process happens to hold.
     _block_uploads("no usable backup could be restored, but the bucket holds one")
     return "failed"
+
+
+def _install(
+    name: str,
+    data: bytes,
+    counts: dict[str, int],
+    temp: str | None = None,
+) -> None:
+    """Swap a downloaded backup into place and record where it came from.
+
+    ``temp`` is the copy the caller already wrote and counted; reusing it keeps
+    the counts that were verified and the bytes that are installed the same file.
+    """
+    global _last_sync_hash, _restored_from, _restored_counts
+
+    temp = temp or f"{db_path()}.tmp"
+    if not os.path.exists(temp):
+        with open(temp, "wb") as f:
+            f.write(data)
+
+    # Remove stale WAL/SHM before the swap, or SQLite replays the old, empty
+    # write-ahead log over the restored file.
+    for suffix in ("-wal", "-shm"):
+        _remove(db_path() + suffix)
+
+    os.replace(temp, db_path())
+    _last_sync_hash = hashlib.sha256(data).hexdigest()
+    _restored_from = name
+    _restored_counts = counts
+    _clear_block()
+    print(
+        f"[CLOUD SYNC] ✅ Restored '{name}' ({len(data):,} bytes) — "
+        + ", ".join(f"{t}={n}" for t, n in counts.items()),
+        flush=True,
+    )
 
 
 def _remove(path: str) -> None:

@@ -269,6 +269,28 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # No new files should have been created
         self.assertEqual(len(fake.files), call_count)
 
+    def test_an_empty_backup_is_still_an_answer(self):
+        """A server whose backups never held a row must not be blocked forever.
+
+        The restore prefers a full snapshot over an empty one, but if *every*
+        backup is empty that is the truth about this server — refusing it left
+        uploads permanently blocked, so a brand-new deployment could never save
+        anything at all.
+        """
+        fake = _FakeSupabase()
+        with open(cs.db_path(), "rb") as fh:      # valid SQLite, zero rows
+            fake.files["bot.db"] = fh.read()
+        os.remove(cs.db_path())
+
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download",
+                               side_effect=lambda n, quiet=False: fake.download(n) or b""):
+            self.assertTrue(cs.restore_from_cloud(), "an empty backup is still restorable")
+
+        self.assertIsNone(cs._restore_blocked_reason)
+        self.assertEqual(cs._restored_from, "bot.db")
+        self.assertTrue(self._backup_into(fake), "the server must be able to save again")
+
     def test_backup_refuses_when_db_looks_empty(self):
         """A near-empty database must not overwrite a real backup.
 

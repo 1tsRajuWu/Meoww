@@ -282,6 +282,8 @@ class ServerControl(commands.Cog):
     @app_commands.command(name="dbstatus", description="Show database health: last backup, table row counts, and Supabase connection.")
     @app_commands.checks.has_permissions(administrator=True)
     async def dbstatus(self, interaction: discord.Interaction):
+        import asyncio  # imported here, not inside one branch: every path needs it
+
         await interaction.response.defer(ephemeral=True)
 
         # --- local database stats ---
@@ -323,7 +325,6 @@ class ServerControl(commands.Cog):
         supa_ok = bool(SUPABASE_URL and SUPABASE_KEY)
         cloud_files: list[dict] = []
         if supa_ok:
-            import asyncio
             cloud_files = await asyncio.to_thread(_storage_list)
 
         # --- build the embed ---
@@ -381,7 +382,11 @@ class ServerControl(commands.Cog):
         # Sync status. The refusal reason is the *whole* decision — an upload
         # silently not happening is how a backup turns out to be days old, so
         # this card is the place a human can see why.
-        refusal = upload_refusal_reason(decide=False)
+        #
+        # It talks to Supabase and reads SQLite, so it runs in a worker thread:
+        # called inline it holds the event loop — and therefore every other
+        # command, and the gateway heartbeat — for the length of a round trip.
+        refusal = await asyncio.to_thread(upload_refusal_reason, False)
         if refusal:
             sync_status = f"🛑 Not uploading: {refusal}"
         elif _remote_checked and _last_sync_hash:
