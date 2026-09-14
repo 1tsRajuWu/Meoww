@@ -1014,7 +1014,8 @@ class Leveling(commands.Cog):
                 if new_lvl > old_lvl:
                     await self.handle_level_up(interaction.guild, member, old_lvl, new_lvl, interaction.channel)
             return await request_approval(
-                interaction, member, "🪙 XP", amount, execute
+                interaction, member, "🪙 XP", amount, execute,
+                limit=ADMIN_GIVEXP_LIMIT,
             )
 
         user_data = await self.get_user_data(interaction.guild.id, member.id)

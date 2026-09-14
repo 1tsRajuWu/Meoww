@@ -1191,7 +1191,8 @@ class Economy(commands.Cog):
                 await ensure_eco(member.id, interaction.guild.id)
                 await update_wallet(member.id, interaction.guild.id, amount)
             return await request_approval(
-                interaction, member, "💰 coins", amount, execute
+                interaction, member, "💰 coins", amount, execute,
+                limit=ADMIN_ADDMONEY_LIMIT,
             )
 
         await ensure_eco(member.id, interaction.guild.id)
@@ -1220,7 +1221,8 @@ class Economy(commands.Cog):
                 await ensure_eco(member.id, interaction.guild.id)
                 await update_wallet(member.id, interaction.guild.id, -amount)
             return await request_approval(
-                interaction, member, "💰 coins (removal)", amount, execute
+                interaction, member, "💰 coins (removal)", amount, execute,
+                limit=ADMIN_ADDMONEY_LIMIT,
             )
 
         await ensure_eco(member.id, interaction.guild.id)
@@ -1254,7 +1256,8 @@ class Economy(commands.Cog):
                     )
                     await conn.commit()
             return await request_approval(
-                interaction, member, "💰 coins (set)", amount, execute
+                interaction, member, "💰 coins (set)", amount, execute,
+                limit=ADMIN_SETMONEY_LIMIT,
             )
 
         await ensure_eco(member.id, interaction.guild.id)

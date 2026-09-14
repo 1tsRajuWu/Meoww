@@ -141,7 +141,7 @@ class Uploads(commands.Cog):
         if service == "auto":
             if is_video and streamable.available():
                 service = "streamable"
-            elif file.size > FILE_KIWI_THRESHOLD and file_kiwi.create_folder.__module__:
+            elif file.size > FILE_KIWI_THRESHOLD:
                 service = "filekiwi"
             else:
                 service = "fileio"

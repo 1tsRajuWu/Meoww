@@ -54,6 +54,7 @@ class ApprovalView(discord.ui.View):
         self.amount = amount
         self.guild = guild
         self.approved = None
+        self.message: discord.Message | None = None
 
     @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success, emoji="✅")
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -101,16 +102,16 @@ class ApprovalView(discord.ui.View):
         """Auto-deny if no response within 5 minutes."""
         if self.approved is None:
             self.approved = False
-            # Try to edit the original message
-            try:
-                embed = discord.Embed(
-                    title="⏰ Timed Out",
-                    description="Approval request timed out — automatically denied.",
-                    color=0x95A5A6,
-                )
-                # Can't edit without message reference, just log it
-            except Exception:
-                pass
+            if self.message:
+                try:
+                    embed = discord.Embed(
+                        title="⏰ Timed Out",
+                        description="Approval request timed out — automatically denied.",
+                        color=0x95A5A6,
+                    )
+                    await self.message.edit(embed=embed, view=None)
+                except Exception:
+                    pass
 
 
 async def request_approval(
@@ -119,6 +120,8 @@ async def request_approval(
     action_type: str,
     amount: int,
     execute_fn,
+    *,
+    limit: int = 0,
 ) -> bool:
     """Request owner approval for an admin action over the limit.
 
@@ -128,14 +131,16 @@ async def request_approval(
         action_type: Description of what's being given (e.g., "🪙 XP", "💰 coins")
         amount: The amount being given
         execute_fn: Async function to call if approved
+        limit: The relevant limit value to display in messages
 
     Returns:
         True if approved and executed, False otherwise
     """
+    display_limit = limit or ADMIN_GIVEXP_LIMIT
     if OWNER_USER_ID == 0:
         # No owner configured — deny by default
         await interaction.response.send_message(
-            f"❌ Amount exceeds the limit (**{ADMIN_GIVEXP_LIMIT:,}** {action_type}). "
+            f"❌ Amount exceeds the limit (**{display_limit:,}** {action_type}). "
             "The bot owner has not configured `OWNER_USER_ID` for approvals.",
             ephemeral=True,
         )
@@ -145,7 +150,7 @@ async def request_approval(
     if owner is None:
         # Owner not in this server
         await interaction.response.send_message(
-            f"❌ Amount exceeds the limit (**{ADMIN_GIVEXP_LIMIT:,}** {action_type}). "
+            f"❌ Amount exceeds the limit (**{display_limit:,}** {action_type}). "
             "The bot owner is not in this server.",
             ephemeral=True,
         )
@@ -165,7 +170,7 @@ async def request_approval(
         description=(
             f"**{interaction.user.display_name}** wants to give "
             f"**{amount:,}** {action_type} to **{target.display_name}**.\n\n"
-            f"This exceeds the admin limit of **{ADMIN_GIVEXP_LIMIT:,}** {action_type}.\n"
+            f"This exceeds the admin limit of **{display_limit:,}** {action_type}.\n"
             f"**{owner.mention}**, please approve or deny this action."
         ),
         color=0xF1C40F,
@@ -178,14 +183,23 @@ async def request_approval(
         embed=embed,
         view=view,
     )
+    # Store message reference for timeout handler
+    view.message = await interaction.original_response()
 
     # Wait for owner to decide
     await view.wait()
 
     if view.approved:
         # Execute the action
-        await execute_fn()
-        return True
+        try:
+            await execute_fn()
+            return True
+        except Exception as exc:
+            await interaction.followup.send(
+                f"❌ Approved but execution failed: {exc}",
+                ephemeral=True,
+            )
+            return False
     else:
         if view.approved is None:
             # Timed out

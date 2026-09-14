@@ -276,11 +276,10 @@ def backup_to_cloud_sync() -> bool:
                     except Exception:
                         pass
                 conn.close()
-                if row_count == 0 and _remote_checked:
-                    # We have no data but we already checked the remote
-                    # This likely means the restore failed or we're starting fresh
-                    # Don't overwrite the cloud backup!
-                    _warn_once("[CLOUD SYNC] ⚠️ Local database has no user data — skipping backup to protect cloud copy.")
+                if row_count == 0 and _last_sync_hash is not None:
+                    # We have no data BUT we successfully restored something from the remote
+                    # This means the restore gave us an empty DB — don't overwrite the cloud copy
+                    _warn_once("[CLOUD SYNC] ⚠️ Local database has no user data after restore — skipping backup to protect cloud copy.")
                     return False
             except Exception:
                 pass
