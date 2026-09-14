@@ -61,6 +61,8 @@ def create_folder(title: str = "File upload", mode: str | None = None) -> Folder
         data=payload,
         headers={
             "Content-Type": "application/json",
+            "User-Agent": "MeowDiscordBot/2.0",
+            "Accept": "application/json",
         },
         method="POST",
     )

@@ -136,18 +136,27 @@ class Uploads(commands.Cog):
         is_video = _is_video(file.filename, file.content_type)
         link: str | None = None
         used_service: str = ""
+        errors: list[str] = []
 
-        # Auto mode: pick the best service
+        # Auto mode: file.kiwi first (most reliable), then Streamable for videos, file.io last
         if service == "auto":
-            if is_video and streamable.available():
-                service = "streamable"
-            elif file.size > FILE_KIWI_THRESHOLD:
-                service = "filekiwi"
-            else:
-                service = "fileio"
+            service = "filekiwi"  # Default: file.kiwi for everything
 
-        # Streamable for videos
-        if service == "streamable" and is_video and streamable.available():
+        # 1. Try file.kiwi first (works for everything, no size limit)
+        if link is None and service in ("filekiwi", "auto"):
+            folder_title = title or file.filename
+            try:
+                result = await asyncio.to_thread(
+                    file_kiwi.create_folder, folder_title, "send"
+                )
+                if result:
+                    link = result.folder_url
+                    used_service = "file.kiwi"
+            except Exception as exc:
+                errors.append(f"file.kiwi: {exc}")
+
+        # 2. Try Streamable for videos (if file.kiwi failed or user chose streamable)
+        if link is None and is_video and service in ("streamable", "auto") and streamable.available():
             suffix = "." + file.filename.rsplit(".", 1)[-1] if "." in file.filename else ".mp4"
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(data)
@@ -159,24 +168,16 @@ class Uploads(commands.Cog):
                 if result:
                     link = result.url
                     used_service = "Streamable"
+            except Exception as exc:
+                errors.append(f"Streamable: {exc}")
             finally:
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
 
-        # file.kiwi for large files (creates a folder link)
-        if link is None and service == "filekiwi":
-            folder_title = title or file.filename
-            result = await asyncio.to_thread(
-                file_kiwi.create_folder, folder_title, "send"
-            )
-            if result:
-                link = result.folder_url
-                used_service = "file.kiwi"
-
-        # Fallback to file.io (non-video, or other services failed/unavailable)
-        if link is None and service != "filekiwi":
+        # 3. Fallback to file.io (last resort)
+        if link is None and service in ("fileio", "auto"):
             suffix = "." + file.filename.rsplit(".", 1)[-1] if "." in file.filename else ""
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(data)
@@ -186,6 +187,8 @@ class Uploads(commands.Cog):
                 if result:
                     link = result.link
                     used_service = "file.io"
+            except Exception as exc:
+                errors.append(f"file.io: {exc}")
             finally:
                 try:
                     os.unlink(tmp_path)
@@ -193,39 +196,12 @@ class Uploads(commands.Cog):
                     pass
 
         if link is None:
-            # Build a helpful error message based on what we tried
-            tried_services = []
-            if is_video and streamable.available():
-                tried_services.append("Streamable")
-            if service != "filekiwi" and not is_video:
-                tried_services.append("file.io")
-            if service == "streamable" or (service == "auto" and is_video and streamable.available()):
-                tried_services.append("Streamable")
-            if service == "fileio" or (service == "auto" and not is_video and not (file.size > FILE_KIWI_THRESHOLD)):
-                tried_services.append("file.io")
-
-            error_msg = (
-                "❌ **Upload failed.**\n\n"
-            )
-            if tried_services:
-                error_msg += (
-                    f"Tried: **{', '.join(tried_services)}** — all failed.\n"
-                )
-                if is_video and streamable.available():
-                    error_msg += (
-                        "• **Streamable**: Service may be down or rate-limiting.\n"
-                        "• Try again later, or use `/upload-big` for file.kiwi.\n"
-                    )
-                else:
-                    error_msg += (
-                        "• The external service may be temporarily unavailable.\n"
-                        "• Try again later, or use `/upload-big` for file.kiwi.\n"
-                    )
+            error_msg = "❌ **Upload failed.**\n\n"
+            if errors:
+                error_msg += "Errors encountered:\n" + "\n".join(f"• {e}" for e in errors)
             else:
-                error_msg += (
-                    "All upload services are unavailable.\n"
-                    "• Try again later, or use `/upload-big` for file.kiwi.\n"
-                )
+                error_msg += "All upload services returned no link."
+            error_msg += "\n\nTry again later or use `/upload-big` for file.kiwi."
             await interaction.followup.send(error_msg, ephemeral=True)
             return
 

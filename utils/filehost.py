@@ -67,6 +67,8 @@ def upload(path: str) -> UploadResult | None:
         data=body,
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "MeowDiscordBot/2.0",
+            "Accept": "application/json",
         },
         method="POST",
     )
