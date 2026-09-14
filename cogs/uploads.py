@@ -193,10 +193,41 @@ class Uploads(commands.Cog):
                     pass
 
         if link is None:
-            return await interaction.followup.send(
-                "❌ Upload failed. Please try again later or use `/upload-big` for file.kiwi.",
-                ephemeral=True,
+            # Build a helpful error message based on what we tried
+            tried_services = []
+            if is_video and streamable.available():
+                tried_services.append("Streamable")
+            if service != "filekiwi" and not is_video:
+                tried_services.append("file.io")
+            if service == "streamable" or (service == "auto" and is_video and streamable.available()):
+                tried_services.append("Streamable")
+            if service == "fileio" or (service == "auto" and not is_video and not (file.size > FILE_KIWI_THRESHOLD)):
+                tried_services.append("file.io")
+
+            error_msg = (
+                "❌ **Upload failed.**\n\n"
             )
+            if tried_services:
+                error_msg += (
+                    f"Tried: **{', '.join(tried_services)}** — all failed.\n"
+                )
+                if is_video and streamable.available():
+                    error_msg += (
+                        "• **Streamable**: Service may be down or rate-limiting.\n"
+                        "• Try again later, or use `/upload-big` for file.kiwi.\n"
+                    )
+                else:
+                    error_msg += (
+                        "• The external service may be temporarily unavailable.\n"
+                        "• Try again later, or use `/upload-big` for file.kiwi.\n"
+                    )
+            else:
+                error_msg += (
+                    "All upload services are unavailable.\n"
+                    "• Try again later, or use `/upload-big` for file.kiwi.\n"
+                )
+            await interaction.followup.send(error_msg, ephemeral=True)
+            return
 
         # --- post in the upload channel ---
         embed = discord.Embed(
@@ -279,13 +310,23 @@ class Uploads(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         folder_title = title or f"Upload by {interaction.user.display_name}"
-        result = await asyncio.to_thread(
-            file_kiwi.create_folder, folder_title, "send"
-        )
+        try:
+            result = await asyncio.to_thread(
+                file_kiwi.create_folder, folder_title, "send"
+            )
+        except Exception as exc:
+            return await interaction.followup.send(
+                f"❌ **file.kiwi failed:** {exc}\n\n"
+                "This is usually a network or service issue. Try again in a moment,"
+                " or use `/upload` for smaller files via Streamable or file.io.",
+                ephemeral=True,
+            )
 
         if result is None:
             return await interaction.followup.send(
-                "❌ Could not create file.kiwi folder. Please try again later.",
+                "❌ **file.kiwi** returned no link.\n\n"
+                "The service may be down or rate-limiting. Try again later, "
+                "or use `/upload` for smaller files via Streamable or file.io.",
                 ephemeral=True,
             )
 
