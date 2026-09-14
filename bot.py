@@ -490,6 +490,107 @@ async def on_ready():
     except Exception as e:
         print(f"[CLOUD SYNC] Failed to start loop: {e}", flush=True)
 
+    # Auto-announce updates to the upload channel on every deploy with changes
+    try:
+        from utils import version
+        conn = db.connect()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kv_store (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        last_hash = version.get_last_hash(conn)
+        current_hash = version._changelog_hash()
+        if current_hash and current_hash != last_hash:
+            changelog_text = version._changelog_since_last(last_hash)
+            if changelog_text:
+                channel = bot.get_channel(version.UPLOAD_CHANNEL_ID)
+                if channel:
+                    # Post update announcement
+                    embed = discord.Embed(
+                        title="🆕 Bot Updated!",
+                        description=(
+                            "A new version has been deployed with changes.\n\n"
+                            f"{changelog_text[:3800]}"  # Discord embed limit
+                        ),
+                        color=0x57F287,
+                        timestamp=discord.utils.utcnow(),
+                    )
+                    embed.set_footer(text="🐾 Meow Bot • Auto-Update")
+                    try:
+                        await channel.send(embed=embed)
+                        print(f"[UPDATE] Posted update announcement to #{channel.name}", flush=True)
+                    except Exception as e:
+                        print(f"[UPDATE] Failed to post update: {e}", flush=True)
+                version.set_last_hash(conn, current_hash)
+        conn.close()
+    except Exception as e:
+        print(f"[UPDATE] Update announcement error: {e}", flush=True)
+
+    # Auto-post sticky upload info message in the upload channel
+    UPLOAD_CHANNEL_ID = 1548959110467289169
+    try:
+        channel = bot.get_channel(UPLOAD_CHANNEL_ID)
+        if channel:
+            # Check if there's already a pinned info message from the bot
+            has_info = False
+            try:
+                async for msg in channel.history(limit=50):
+                    if msg.author == bot.user and msg.embeds:
+                        for embed in msg.embeds:
+                            if "Upload Big Files" in (embed.title or ""):
+                                has_info = True
+                                break
+                    if has_info:
+                        break
+            except Exception:
+                pass
+
+            if not has_info:
+                # Post the upload info embed
+                embed = discord.Embed(
+                    title="📎 How to Upload Big Files",
+                    description=(
+                        "Discord's native upload limit is **25 MB** (free) / **50 MB** (boosted).\n"
+                        "This bot lets you upload bigger files using external hosting:\n\n"
+                        "**🎬 Videos** → Uploaded to **Streamable** — Discord plays them inline!\n"
+                        "**📁 Other files** → Uploaded to **file.io** — one-click download link\n"
+                        "**📁 Large files** → Use **file.kiwi** — no size limit, E2E encrypted!\n\n"
+                        "**How to use:**\n"
+                        "1. Run `/upload` and attach your file\n"
+                        "2. Optionally add a title and choose a service\n"
+                        "3. The bot posts the link here and creates a thread for discussion\n\n"
+                        "**For very large files (100MB+):**\n"
+                        "• Use `/upload-big` to get a **file.kiwi** link\n"
+                        "• Open the link in your browser to upload\n"
+                        "• Files are E2E encrypted and auto-expire in 24 hours\n\n"
+                        "**Limits:**\n"
+                        "• Direct uploads: **100 MB** max\n"
+                        "• file.kiwi: **No file size limit** (up to 999 GiB!)\n"
+                        "• Supported video formats: MP4, WebM, MOV, AVI, MKV\n"
+                        "• All other file types are supported\n"
+                        "• File.io links expire in **14 days** (download before then!)\n\n"
+                        "**Tips:**\n"
+                        "• Add a title so people know what the file is\n"
+                        "• Each upload gets its own thread — use it for questions\n"
+                        "• Videos on Streamable auto-play in Discord — no click needed!\n"
+                        "• file.kiwi is perfect for huge files — fully encrypted!"
+                    ),
+                    color=0x5865F2,
+                    timestamp=discord.utils.utcnow(),
+                )
+                embed.set_footer(text="🐾 Meow Bot • File Upload System")
+
+                try:
+                    msg = await channel.send(embed=embed)
+                    await msg.pin()
+                    print(f"[UPLOAD] Posted upload info message to #{channel.name}", flush=True)
+                except Exception as e:
+                    print(f"[UPLOAD] Failed to post info message: {e}", flush=True)
+    except Exception as e:
+        print(f"[UPLOAD] Sticky message error: {e}", flush=True)
+
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
 

@@ -136,4 +136,20 @@ def resolve_spotify(url: str) -> Tuple[Optional[str], List[Dict[str, Any]]]:
     except Exception as e:
         print(f"[SPOTIFY] oEmbed fallback error for '{url}': {e}", flush=True)
 
+    # Final fallback: Try to extract from URL pattern
+    try:
+        # For track URLs, try to guess from URL structure
+        if entity_type == "track":
+            print(f"[SPOTIFY] Using URL pattern fallback for track '{url}'", flush=True)
+            return "track", [{
+                "title": "Spotify Track",
+                "artist": "Unknown Artist",
+                "query": clean,
+                "duration_ms": 0,
+                "thumbnail": None,
+                "container": None,
+            }]
+    except Exception as e:
+        print(f"[SPOTIFY] URL pattern fallback error for '{url}': {e}", flush=True)
+
     return None, []

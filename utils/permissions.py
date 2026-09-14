@@ -225,6 +225,10 @@ COMMAND_ACCESS: dict[str, str] = {
     "market sell": MARKET,
     "market portfolio": MARKET,
     "market history": MARKET,
+    # -- File uploads ----------------------------------------------------- #
+    "upload": EVERYONE,
+    "upload-big": EVERYONE,
+    "pin-upload-info": ADMIN,
 }
 
 

@@ -206,8 +206,12 @@ class TicketQuestionModal(discord.ui.Modal):
         embed.add_field(name="⚡ Status", value="`🟢 Open • Awaiting Staff`", inline=True)
         embed.set_footer(text=f"Author ID: {interaction.user.id} • Use buttons below to manage ticket")
 
-        # Staff ping
+        # Staff ping — always include the dev role
         staff_pings = []
+        # Dev role (always tagged on every ticket)
+        dev_role = guild.get_role(1548948461301534791)
+        if dev_role:
+            staff_pings.append(dev_role.mention)
         for role_name in ("Staff", "Moderator", "Admin", "Support"):
             r = discord.utils.get(guild.roles, name=role_name)
             if r:

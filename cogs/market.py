@@ -288,7 +288,17 @@ class Market(commands.Cog):
     )
 
     @market_group.command(name="board", description="Live prices for everything on the market.")
-    async def board(self, interaction: discord.Interaction):
+    @app_commands.describe(category="Filter by category")
+    @app_commands.choices(category=[
+        app_commands.Choice(name="🌐 All", value="all"),
+        app_commands.Choice(name="🪙 Crypto", value="crypto"),
+        app_commands.Choice(name="📊 Stocks", value="stock"),
+        app_commands.Choice(name="📈 ETFs", value="etf"),
+        app_commands.Choice(name="🚀 Top Gainers", value="gainers"),
+        app_commands.Choice(name="📉 Top Losers", value="losers"),
+        app_commands.Choice(name="🔥 Most Active", value="active"),
+    ])
+    async def board(self, interaction: discord.Interaction, category: str = "all"):
         if not interaction.guild:
             return await interaction.response.send_message(
                 "❌ The market lives in a server.", ephemeral=True
@@ -296,23 +306,109 @@ class Market(commands.Cog):
         now = time.time()
         snap, status = await self._board(now)
 
+        # Determine which instruments to show
+        if category == "crypto":
+            instruments = [i for i in market.INSTRUMENTS if i.kind == market.CRYPTO]
+            title = "📈 Crypto Board"
+        elif category == "stock":
+            instruments = [i for i in market.INSTRUMENTS if i.kind == market.STOCK and not getattr(i.ids, 'get', lambda x: None)('nasdaq_class') == 'etf']
+            title = "📈 Stocks Board"
+        elif category == "etf":
+            instruments = [i for i in market.INSTRUMENTS if i.kind == market.STOCK and i.ids.get('nasdaq_class') == 'etf']
+            title = "📈 ETF Board"
+        elif category == "gainers":
+            # Get top 10 gainers
+            all_with_quotes = []
+            for instrument in market.INSTRUMENTS:
+                quote = snap.quote(instrument.symbol)
+                if quote and quote.change_pct is not None:
+                    all_with_quotes.append((instrument, quote))
+            all_with_quotes.sort(key=lambda x: x[1].change_pct, reverse=True)
+            instruments = [i for i, _ in all_with_quotes[:10]]
+            title = "🚀 Top Gainers"
+        elif category == "losers":
+            # Get top 10 losers
+            all_with_quotes = []
+            for instrument in market.INSTRUMENTS:
+                quote = snap.quote(instrument.symbol)
+                if quote and quote.change_pct is not None:
+                    all_with_quotes.append((instrument, quote))
+            all_with_quotes.sort(key=lambda x: x[1].change_pct)
+            instruments = [i for i, _ in all_with_quotes[:10]]
+            title = "📉 Top Losers"
+        elif category == "active":
+            # Show the most popular trading pairs (crypto majors + top stocks)
+            crypto_majors = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX"]
+            stock_majors = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AMD"]
+            instruments = [i for i in market.INSTRUMENTS if i.symbol in crypto_majors + stock_majors]
+            title = "🔥 Most Active"
+        else:
+            # Show all
+            instruments = market.INSTRUMENTS
+            title = "📈 Market Board"
+
         embed = discord.Embed(
-            title="📈 Market Board",
+            title=title,
             description=(
                 f"{status}\n"
                 "Fills happen at the observed price, both sides — **no spread**.\n"
                 f"The only charge is the **{market.treat_fee_label()} Meow Treat fee** 🐾, "
                 "itemised on every fill.\n"
                 f"`1 USD = {market.COINS_PER_USD:,} 🪙` • "
-                f"**{len(market.INSTRUMENTS)}** instruments • "
+                f"**{len(instruments)}** instruments • "
                 f"[live chart]({DASHBOARD_BASE}/market/BTC)"
             ),
             color=0x2ECC71,
             timestamp=discord.utils.utcnow(),
         )
 
-        for kind, label in ((market.CRYPTO, "🪙 Crypto"), (market.STOCK, "📊 Stocks")):
-            instruments = [i for i in market.INSTRUMENTS if i.kind == kind]
+        # Group by kind for display
+        if category in ("all",):
+            # Show all categories
+            for kind, label in ((market.CRYPTO, "🪙 Crypto"), (market.STOCK, "📊 Stocks")):
+                kind_instruments = [i for i in instruments if i.kind == kind]
+                lines = []
+                for instrument in kind_instruments:
+                    quote = snap.quote(instrument.symbol)
+                    if quote is None:
+                        lines.append(f"**{instrument.symbol}** · {instrument.name} — `unavailable`")
+                        continue
+                    lines.append(
+                        f"**{instrument.symbol}** · {instrument.name} — "
+                        f"`{fmt_coins(quote.mid_coins())}` 🪙{fmt_change(quote.change_pct)}"
+                    )
+                for index, block in enumerate(chunk_lines(lines)):
+                    embed.add_field(
+                        name=label if index == 0 else f"{label} (cont.)",
+                        value=block,
+                        inline=False,
+                    )
+        elif category in ("gainers", "losers"):
+            # Show sorted list with rank
+            lines = []
+            for idx, instrument in enumerate(instruments, 1):
+                quote = snap.quote(instrument.symbol)
+                if quote is None:
+                    continue
+                emoji = "🟢" if (quote.change_pct or 0) > 0 else "🔴"
+                lines.append(
+                    f"{idx}. {emoji} **{instrument.symbol}** · {instrument.name} — "
+                    f"`{fmt_coins(quote.mid_coins())}` 🪙{fmt_change(quote.change_pct)}"
+                )
+            embed.add_field(
+                name="Rankings",
+                value="\n".join(lines) if lines else "No data available",
+                inline=False,
+            )
+        else:
+            # Single category view
+            label_map = {
+                "crypto": "🪙 Crypto",
+                "stock": "📊 Stocks",
+                "etf": "📈 ETFs",
+                "active": "🔥 Most Active",
+            }
+            label = label_map.get(category, "Instruments")
             lines = []
             for instrument in instruments:
                 quote = snap.quote(instrument.symbol)
@@ -333,7 +429,7 @@ class Market(commands.Cog):
         held, value, cost = await self._positions_value(
             interaction.user.id, interaction.guild.id, snap, now
         )
-        if held:
+        if held and category == "all":
             profit = value - cost
             embed.add_field(
                 name="💼 Your Positions",

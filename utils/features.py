@@ -258,6 +258,19 @@ FEATURES: tuple[Feature, ...] = (
         toggleable=False,
         help_key="system",
     ),
+    Feature(
+        id="uploads",
+        name="File Uploads",
+        icon="📎",
+        category="Core",
+        description=(
+            "Upload big files via Streamable (video), file.io, or file.kiwi (large files)."
+        ),
+        gate_commands=("upload", "upload-big", "pin-upload-info"),
+        commands=("/upload", "/upload-big", "/pin-upload-info"),
+        cog="cogs.uploads",
+        enabled_by_default=True,
+    ),
 )
 
 # Commands that require *several* features at once to be enabled. These are the

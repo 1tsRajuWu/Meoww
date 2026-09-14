@@ -89,7 +89,14 @@ HELP_MODULES = {
             "A real market, priced by real exchanges — Binance and TradingView, with "
             "Kraken, Coinbase and CNBC as backups. No invented numbers: if a price "
             "cannot be fetched, trading pauses rather than guessing.\n\n"
-            "> `/market board` — Live prices for every instrument\n"
+            "> `/market board [category]` — Live prices with filters:\n"
+            "  • `🌐 All` — Every instrument\n"
+            "  • `🪙 Crypto` — Coins only\n"
+            "  • `📊 Stocks` — Shares only\n"
+            "  • `📈 ETFs` — Funds only\n"
+            "  • `🚀 Top Gainers` — Best performers\n"
+            "  • `📉 Top Losers` — Worst performers\n"
+            "  • `🔥 Most Active` — Popular pairs\n"
             "> `/market quote <symbol>` — One instrument in detail, with a 24h sparkline\n"
             "> `/market chart <symbol> [24 hours|7 days|30 days]` — Real candles, "
             "with your average cost drawn on them\n"
@@ -173,6 +180,22 @@ HELP_MODULES = {
         "emoji": "😆"
     },
 
+    "uploads": {
+        "title": "📎 File Uploads",
+        "desc": (
+            "Upload big files that exceed Discord's native limit.\n\n"
+            "> `/upload <file> [title] [service]` — Upload a file (auto-selects best service)\n"
+            "> `/upload-big [title]` — Get a file.kiwi link for very large files (100MB+)\n"
+            "> `/pin-upload-info` — Pin the upload instructions (admin)\n\n"
+            "**Services:**\n"
+            "• **Streamable** — Videos auto-play in Discord\n"
+            "• **file.io** — Other files with download link (expires in 14 days)\n"
+            "• **file.kiwi** — No file size limit, E2E encrypted (up to 999 GiB!)\n\n"
+            "Each upload creates a thread for discussion."
+        ),
+        "color": 0x5865F2,
+        "emoji": "📎"
+    },
     "system": {
         "title": "⚙️ System & Server Control",
         "desc": (
