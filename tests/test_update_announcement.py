@@ -1,5 +1,10 @@
 """The deploy announcement must be short enough to actually send.
 
+The digest half is pinned below; the other half — that the changelog hash is
+written *only* once Discord has accepted the message — is pinned in
+``TestAnnouncementOrdering``, because a bare ``except`` around that send is
+what made every update note vanish.
+
 Discord rejects an embed whose description is longer than 4,096 characters
 with an HTTP 400, and the send used to be wrapped in a bare ``except`` while
 the changelog hash was stored regardless — so an oversized or failed
@@ -7,9 +12,76 @@ announcement was marked as delivered and never retried. These tests pin the
 digest itself: it stays inside the limit, it names the newest entries, and it
 drops the markdown that means nothing outside the file.
 """
+import ast
 import unittest
+from pathlib import Path
 
 from utils import version
+
+BOT_PY = Path(__file__).resolve().parent.parent / "bot.py"
+
+
+def _calls(node, name):
+    """Every call to ``something.name(...)`` inside ``node``."""
+    return [
+        n for n in ast.walk(node)
+        if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == name
+    ]
+
+
+def _parent_map(tree):
+    parents = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+    return parents
+
+
+class TestAnnouncementOrdering(unittest.TestCase):
+    """The hash records that a note was *delivered*, not that one was owed.
+
+    It used to be written after the post attempt but unconditionally, so a
+    missing channel, a rejected embed or a restart mid-announcement consumed
+    the note and no later boot ever retried it. The write must stay inside the
+    ``try`` that wraps the send.
+    """
+
+    def setUp(self):
+        self.src = BOT_PY.read_text(errors="replace")
+        self.tree = ast.parse(self.src)
+        self.parents = _parent_map(self.tree)
+
+    def test_the_hash_is_stored_at_all(self):
+        self.assertTrue(_calls(self.tree, "set_last_hash"), "announcement never records")
+
+    def _guarding_try(self, node):
+        """The nearest ``try`` above ``node`` whose body contains a send."""
+        while node in self.parents:
+            node = self.parents[node]
+            if isinstance(node, ast.Try) and any(
+                _calls(stmt, "send") for stmt in node.body
+            ):
+                return node
+        return None
+
+    def test_every_store_sits_inside_the_try_that_sends(self):
+        for store in _calls(self.tree, "set_last_hash"):
+            self.assertIsNotNone(
+                self._guarding_try(store),
+                "set_last_hash is reachable when the send fails",
+            )
+
+    def test_the_send_happens_before_the_store(self):
+        stores = _calls(self.tree, "set_last_hash")
+        self.assertTrue(stores)
+        for store in stores:
+            guard = self._guarding_try(store)
+            sends = [n for stmt in guard.body for n in _calls(stmt, "send")]
+            self.assertTrue(sends, "the guarded block never sends")
+            self.assertLess(
+                max(n.lineno for n in sends), store.lineno,
+                "the hash is written before the message is sent",
+            )
 
 SAMPLE = """# Changelog
 
