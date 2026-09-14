@@ -217,6 +217,10 @@ COMMAND_ACCESS: dict[str, str] = {
     "setbanner": OWNER,
     "dashboard": ADMIN,
     "dbstatus": ADMIN,
+    # -- Activity Tracker: everyone checks their own stats ---------------- #
+    "activity": EVERYONE,
+    "activity-top": EVERYONE,
+    "activity-channel": EVERYONE,
     # -- The market: one role, nothing else -------------------------------- #
     "market board": MARKET,
     "market quote": MARKET,
@@ -225,10 +229,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "market sell": MARKET,
     "market portfolio": MARKET,
     "market history": MARKET,
-    # -- File uploads ----------------------------------------------------- #
-    "upload": EVERYONE,
-    "upload-big": EVERYONE,
-    "pin-upload-info": ADMIN,
 }
 
 

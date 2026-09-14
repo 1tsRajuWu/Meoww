@@ -180,21 +180,17 @@ HELP_MODULES = {
         "emoji": "😆"
     },
 
-    "uploads": {
-        "title": "📎 File Uploads",
+    "tracker": {
+        "title": "📊 Activity Tracker",
         "desc": (
-            "Upload big files that exceed Discord's native limit.\n\n"
-            "> `/upload <file> [title] [service]` — Upload a file (auto-selects best service)\n"
-            "> `/upload-big [title]` — Get a file.kiwi link for very large files (100MB+)\n"
-            "> `/pin-upload-info` — Pin the upload instructions (admin)\n\n"
-            "**Services:**\n"
-            "• **catbox** — The file is uploaded for real, permanent link (up to 200 MB)\n"
-            "• **Streamable** — Videos play inline in Discord\n"
-            "• **file.kiwi** — No size limit; you finish the upload in your browser\n\n"
-            "Each upload gets its own thread for discussion."
+            "Per-day, per-channel message and voice time tracking with a 365-day rolling window.\n\n"
+            "> `/activity [member] [period]` — Your personal message & voice stats\n"
+            "> `/activity-top [category] [period]` — Server-wide leaderboards\n"
+            "> `/activity-channel [channel] [period]` — Per-channel breakdown\n\n"
+            "*Periods: Today, This Week, This Month, This Year (365d), All Time*"
         ),
         "color": 0x5865F2,
-        "emoji": "📎"
+        "emoji": "📊"
     },
     "system": {
         "title": "⚙️ System & Server Control",
@@ -226,7 +222,8 @@ HELP_HOME_BODY = (
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
     "- 🎵 **Music & Radio** — playback, 24/7 radio, live filters\n"
-    "- 🎫 **Tickets** — private staff support"
+    "- 🎫 **Tickets** — private staff support\n"
+    "- 📊 **Activity Tracker** — per-channel msg & voice stats"
 )
 
 # The category *structure* comes from the feature registry; the prose below

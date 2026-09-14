@@ -419,6 +419,30 @@ async def setup():
             (guild_id, enabled, channel_id, dm_notifications, text_min_coins, text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min)
             VALUES (1542278896148422676, 1, 1547637176697757846, 0, 4, 10, 15, 2, 3)''')
 
+        # ── Activity Tracker: per-day, per-channel message & voice tracking ──
+        # 365-day rolling window with exact counts per channel.
+        await db.execute('''CREATE TABLE IF NOT EXISTS activity_messages (
+            guild_id INTEGER,
+            user_id INTEGER,
+            channel_id INTEGER,
+            date TEXT,
+            count INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, channel_id, date)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS activity_voice (
+            guild_id INTEGER,
+            user_id INTEGER,
+            channel_id INTEGER,
+            date TEXT,
+            seconds INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, channel_id, date)
+        )''')
+        # Indexes for the most common leaderboard / summary queries
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_act_msg_guild_date ON activity_messages(guild_id, date)')
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_act_vc_guild_date ON activity_voice(guild_id, date)')
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_act_msg_user ON activity_messages(guild_id, user_id, date)')
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_act_vc_user ON activity_voice(guild_id, user_id, date)')
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):

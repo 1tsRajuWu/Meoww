@@ -241,6 +241,25 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.games",
         help_key="games",
     ),
+    Feature(
+        id="tracker",
+        name="Activity Tracker",
+        icon="📊",
+        category="Community",
+        description=(
+            "Per-day, per-channel message and voice time tracking with a "
+            "365-day rolling window. View your activity, leaderboards, and "
+            "channel breakdowns."
+        ),
+        gate_commands=(
+            "activity", "activity-top", "activity-channel",
+        ),
+        commands=(
+            "/activity", "/activity-top", "/activity-channel",
+        ),
+        cog="cogs.tracker",
+        help_key="tracker",
+    ),
     # Not toggleable: core utilities always stay available. It has no dashboard
     # switch and no default state, but it still owns a help category.
     Feature(
@@ -257,19 +276,6 @@ FEATURES: tuple[Feature, ...] = (
         ),
         toggleable=False,
         help_key="system",
-    ),
-    Feature(
-        id="uploads",
-        name="File Uploads",
-        icon="📎",
-        category="Core",
-        description=(
-            "Upload big files via catbox, Streamable (video), or file.kiwi (large files)."
-        ),
-        gate_commands=("upload", "upload-big", "pin-upload-info"),
-        commands=("/upload", "/upload-big", "/pin-upload-info"),
-        cog="cogs.uploads",
-        enabled_by_default=True,
     ),
 )
 
