@@ -92,6 +92,29 @@ class Tracker(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        # Scan every occupied VC and start tracking everyone who is already in
+        # one. Without this, a bot restart loses all in-memory join timestamps
+        # and any member who was in VC before the restart earns nothing until
+        # they leave and rejoin.
+        now = time.time()
+        tracked = 0
+        for guild in self.bot.guilds:
+            if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(
+                guild.id, "tracker"
+            ):
+                continue
+            for vc in guild.voice_channels:
+                for member in vc.members:
+                    if member.bot or member.voice is None:
+                        continue
+                    self._vc_join[guild.id][member.id][vc.id] = now
+                    tracked += 1
+        if tracked:
+            print(
+                f"[TRACKER] Scanned {len(self.bot.guilds)} guild(s): "
+                f"tracking {tracked} member(s) already in voice.",
+                flush=True,
+            )
         if not self._vc_flush_loop.is_running():
             self._vc_flush_loop.start()
 
@@ -148,6 +171,11 @@ class Tracker(commands.Cog):
             before.channel is None or before.channel.id != after.channel.id
         ):
             self._vc_join[guild_id][user_id][after.channel.id] = now
+            print(
+                f"[TRACKER] VC JOIN: {member.display_name} -> #{after.channel.name} "
+                f"(guild {guild_id})",
+                flush=True,
+            )
 
         # User left a VC
         if before.channel is not None and (
@@ -161,9 +189,21 @@ class Tracker(commands.Cog):
             if join_ts is not None:
                 duration = max(0, int(now - join_ts))
                 if duration > 0:
+                    print(
+                        f"[TRACKER] VC LEAVE: {member.display_name} left "
+                        f"#{before.channel.name} after {duration}s "
+                        f"(guild {guild_id})",
+                        flush=True,
+                    )
                     await self._flush_voice(
                         guild_id, user_id, before.channel.id, duration
                     )
+            else:
+                print(
+                    f"[TRACKER] VC LEAVE: {member.display_name} left "
+                    f"#{before.channel.name} (no join timestamp tracked)",
+                    flush=True,
+                )
 
     async def _flush_voice(
         self, guild_id: int, user_id: int, channel_id: int, seconds: int
@@ -187,6 +227,7 @@ class Tracker(commands.Cog):
     @tasks.loop(seconds=VOICE_FLUSH_INTERVAL)
     async def _vc_flush_loop(self):
         now = time.time()
+        flushed = 0
         for guild_id, users in list(self._vc_join.items()):
             for user_id, channels in list(users.items()):
                 for channel_id, join_ts in list(channels.items()):
@@ -195,6 +236,7 @@ class Tracker(commands.Cog):
                         await self._flush_voice(
                             guild_id, user_id, channel_id, elapsed
                         )
+                        flushed += 1
                         current_ts = (
                             self._vc_join.get(guild_id, {})
                             .get(user_id, {})
@@ -202,6 +244,11 @@ class Tracker(commands.Cog):
                         )
                         if current_ts is not None and current_ts == join_ts:
                             self._vc_join[guild_id][user_id][channel_id] = now
+        if flushed:
+            print(
+                f"[TRACKER] Flushed {flushed} VC session(s) to database.",
+                flush=True,
+            )
 
         if now - self._last_cleanup > CLEANUP_INTERVAL:
             self._last_cleanup = now
