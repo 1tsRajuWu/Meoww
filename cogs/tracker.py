@@ -229,7 +229,14 @@ class Tracker(commands.Cog):
 
         # Leave
         if before.channel and (not after.channel or before.channel.id != after.channel.id):
-            jts = self._vc_join.get(gid, {}).get(uid, {}).pop(before.channel.id, None)
+            jts = None
+            if gid in self._vc_join and uid in self._vc_join[gid]:
+                jts = self._vc_join[gid][uid].pop(before.channel.id, None)
+                # Clean up empty entries to prevent memory leak
+                if not self._vc_join[gid][uid]:
+                    del self._vc_join[gid][uid]
+                if not self._vc_join[gid]:
+                    del self._vc_join[gid]
             if jts is not None:
                 dur = max(0, int(now - jts))
                 if dur > 0:
@@ -263,9 +270,11 @@ class Tracker(commands.Cog):
                     if elapsed >= 60:
                         await self._write_voice(gid, uid, cid, elapsed)
                         flushed += 1
-                        cur = self._vc_join.get(gid, {}).get(uid, {}).get(cid)
+                        guild_map = self._vc_join.get(gid)
+                        user_map = guild_map.get(uid) if guild_map else None
+                        cur = user_map.get(cid) if user_map else None
                         if cur is not None and cur == jts:
-                            self._vc_join[gid][uid][cid] = now
+                            user_map[cid] = now
         if flushed:
             print(f"[TRACKER] Flushed {flushed} VC session(s).", flush=True)
 
