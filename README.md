@@ -411,7 +411,7 @@ bot's role → and switch to specific permissions instead: `Ban Members`,
 ## Security
 
 - **Never commit secrets.** `DISCORD_TOKEN`, `FLASK_SECRET_KEY`, `ADMIN_PASSKEY`,
-  `GITHUB_BACKUP_TOKEN`, and `GIST_BACKUP_ID` all live in `.env` (git-ignored)
+  `SUPABASE_URL`, and `SUPABASE_SERVICE_KEY` all live in `.env` (git-ignored)
   or in your host's environment variables.
 - The web dashboard requires `FLASK_SECRET_KEY` to be set; without it, a random
   key is used per process, so everyone is signed out on every restart.
@@ -420,28 +420,14 @@ bot's role → and switch to specific permissions instead: `Ban Members`,
   `/api/live-logs`, `/api/voice-debug`) are disabled; sign in with the one-time
   link from `/dashboard` in Discord instead. Set `ADMIN_PASSKEY` to a strong,
   unique value to enable passkey login.
-- Cloud backup is **disabled** unless both `GITHUB_BACKUP_TOKEN` and
-  `GIST_BACKUP_ID` are set. Keep the backup Gist *secret* anyway, as defence in
-  depth rather than as the only protection.
-- Backups are **always encrypted** before they leave the machine
-  (XSalsa20-Poly1305, with a SHA-256 integrity check re-verified on the way
-  back). Plaintext is never uploaded, so a leaked Gist URL exposes no wallet,
-  warning or moderation case. The key is `BACKUP_ENCRYPTION_KEY` when you set
-  one, and otherwise one derived from `GITHUB_BACKUP_TOKEN` — which never reaches
-  the Gist — so encryption works out of the box.
-- `BACKUP_ENCRYPTION_KEY` is therefore **optional**, for operators who want to
-  rotate the key independently of the token:
-  `python -c "from utils.cloud_sync import generate_key; print(generate_key())"`.
-  Use the *same* token and key everywhere the bot runs: a snapshot is only
-  readable by a bot holding the key that wrote it.
-- If a backup cannot be decrypted — a changed key, a rotated token — the bot
-  **stops uploading** and says so, instead of overwriting the snapshot that still
-  holds everyone's progress. Put the key back to resume; the old file is intact.
-- Recovering access after rotating `GITHUB_BACKUP_TOKEN`:
-  `python -c "from utils.cloud_sync import base64_key_for_token;
-  print(base64_key_for_token('THE_OLD_TOKEN'))"` prints the value to set as
-  `BACKUP_ENCRYPTION_KEY`, which makes the snapshots written under that token
-  readable again.
+- Cloud backup is **disabled** unless both `SUPABASE_URL` and
+  `SUPABASE_SERVICE_KEY` are set. The storage bucket is private and requires
+  the service-role key to read or write, so no application-layer encryption
+  is needed.
+- Backups are stored as raw SQLite binaries in a private Supabase Storage
+  bucket (`bot-backups`). The current state is always at `bot.db`, with
+  hourly snapshots (`bot-db-YYYYMMDD-HHMMSS.db`) for point-in-time restore.
+  Up to 5 snapshots are kept; older ones are pruned automatically.
 - If a token is ever exposed in a commit, **rotate/revoke it immediately** in the
   relevant provider's settings — deleting the file does not remove it from git
   history.
