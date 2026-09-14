@@ -209,8 +209,11 @@ class TestServiceOrder(unittest.TestCase):
 from cogs.uploads import (
     CONTENT_MAX,
     EMBED_TITLE_MAX,
+    THREAD_NAME_MAX,
+    _fit,
     _label,
     _reason,
+    _units,
     build_failure_text,
 )
 
@@ -232,11 +235,40 @@ class TestLabelFitsDiscord(unittest.TestCase):
         )
 
     def test_exactly_at_the_limit_is_kept(self):
-        text = "B" * (EMBED_TITLE_MAX - len("📎 "))
+        text = "B" * (EMBED_TITLE_MAX - _units("📎 "))
         self.assertEqual(_label("📎 ", text), "📎 " + text)
 
     def test_short_title_is_untouched(self):
         self.assertEqual(_label("📎 ", "My clip"), "📎 My clip")
+
+    def test_measured_the_way_discord_measures(self):
+        """A 256-character title holding one emoji is 257 units to Discord."""
+        self.assertEqual(_units("📎 "), 3)
+        self.assertEqual(len("📎 "), 2)
+
+    def test_emoji_heavy_title_still_fits(self):
+        """The boundary is units, not code points: 400 emoji would overflow."""
+        label = _label("📎 ", "🎬" * 400)
+        self.assertLessEqual(_units(label), EMBED_TITLE_MAX)
+
+    def test_emoji_heavy_filename_still_fits(self):
+        self.assertLessEqual(_units(_label("📁 ", "🎬" * 400)), EMBED_TITLE_MAX)
+
+    def test_a_single_emoji_is_never_cut_in_half(self):
+        """Trimming mid-surrogate would produce a replacement character."""
+        out = _fit("🎬" * 10, 5)
+        self.assertNotIn("\ufffd", out)
+        self.assertLessEqual(_units(out), 5)
+
+    def test_thread_name_fits_its_own_limit(self):
+        name = _fit(_label("📎 ", "🎬" * 400), THREAD_NAME_MAX)
+        self.assertLessEqual(_units(name), THREAD_NAME_MAX)
+
+    def test_fit_leaves_a_short_string_alone(self):
+        self.assertEqual(_fit("hello", 100), "hello")
+
+    def test_fit_still_returns_something_for_a_tiny_limit(self):
+        self.assertTrue(_fit("hello", 1))
 
     def test_whitespace_only_gets_a_placeholder(self):
         self.assertTrue(_label("📎 ", "   ").strip())
@@ -250,7 +282,11 @@ class TestFailureCard(unittest.TestCase):
 
     def test_fits_discord_content_limit(self):
         errors = [f"catbox: {'E' * 5000}", f"file.kiwi: {'F' * 5000}"]
-        self.assertLessEqual(len(build_failure_text(errors)), CONTENT_MAX)
+        self.assertLessEqual(_units(build_failure_text(errors)), CONTENT_MAX)
+
+    def test_fits_with_an_emoji_heavy_reason(self):
+        errors = [f"catbox: {'🔥' * 4000}"]
+        self.assertLessEqual(_units(build_failure_text(errors)), CONTENT_MAX)
 
     def test_names_every_host_that_was_tried(self):
         text = build_failure_text(["catbox: nope", "file.kiwi: nope"])
@@ -279,6 +315,15 @@ class TestInfoEmbed(unittest.TestCase):
 
     def test_keeps_title_used_by_startup_check(self):
         self.assertEqual(build_info_embed().title, "📎 How to Upload Big Files")
+
+    def test_fits_discords_embed_limits(self):
+        """The sticky post is pinned on every boot; a rejected embed is a silent
+        failure, since the only symptom is that nothing appears."""
+        embed = build_info_embed()
+        self.assertLessEqual(_units(embed.title or ""), EMBED_TITLE_MAX)
+        self.assertLessEqual(_units(embed.description or ""), 4096)
+        self.assertLessEqual(_units(embed.footer.text or ""), 2048)
+        self.assertLessEqual(len(embed.fields), 25)
 
 
 if __name__ == "__main__":

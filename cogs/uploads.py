@@ -67,10 +67,40 @@ def _suffix(filename: str) -> str:
 
 
 #: Discord rejects an embed whose title is longer than this, with an HTTP 400.
+#: Measured in UTF-16 units, so an emoji costs two.
 EMBED_TITLE_MAX: int = 256
 
-#: Discord rejects message content longer than this.
+#: Discord rejects message content longer than this, in the same units.
 CONTENT_MAX: int = 2000
+
+#: Discord rejects a thread name longer than this, in the same units.
+THREAD_NAME_MAX: int = 100
+
+
+def _units(text: str) -> int:
+    """How Discord counts ``text``: astral characters cost two, not one.
+
+    ``len()`` says a 256-character title is fine, but Discord counts UTF-16
+    units, so one emoji makes it 257 and the embed is refused. Measuring the
+    same way the API does is what keeps a clamp from sitting exactly on the
+    boundary it is supposed to stay under.
+    """
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _fit(text: str, limit: int) -> str:
+    """``text`` trimmed to ``limit`` UTF-16 units, with an ellipsis if cut."""
+    if _units(text) <= limit:
+        return text
+    kept: list[str] = []
+    used = 0
+    for char in text:
+        size = _units(char)
+        if used + size > limit - 1:  # leave one unit for the ellipsis
+            break
+        kept.append(char)
+        used += size
+    return "".join(kept).rstrip() + "…"
 
 
 def _label(prefix: str, text: str) -> str:
@@ -82,11 +112,7 @@ def _label(prefix: str, text: str) -> str:
     never delivered. Truncating is the difference between a slightly shortened
     title and no message at all.
     """
-    room = EMBED_TITLE_MAX - len(prefix)
-    text = " ".join(text.split()) or "upload"
-    if len(text) > room:
-        text = text[: max(room - 1, 1)].rstrip() + "…"
-    return prefix + text
+    return _fit(prefix + (" ".join(text.split()) or "upload"), EMBED_TITLE_MAX)
 
 
 def _reason(exc: object) -> str:
@@ -104,11 +130,12 @@ def build_failure_text(errors: list[str]) -> str:
     member with no answer at all.
     """
     detail = "\n".join(f"• {e}" for e in errors) or "• every service refused the file"
-    return (
+    return _fit(
         f"❌ **Upload failed** — no host accepted the file.\n\n{detail}\n\n"
         "Try again in a minute, or use `/upload-big` for a file.kiwi "
-        "link you can upload through yourself."
-    )[:CONTENT_MAX]
+        "link you can upload through yourself.",
+        CONTENT_MAX,
+    )
 
 
 def _service_order(service: str, is_video: bool) -> list[str]:
@@ -285,7 +312,7 @@ class Uploads(commands.Cog):
         # --- create a thread for this upload ---
         try:
             thread = await msg.create_thread(
-                name=_label("📎 ", title or file.filename)[:100],
+                name=_fit(_label("📎 ", title or file.filename), THREAD_NAME_MAX),
                 auto_archive_duration=1440,  # 24 hours
                 reason=f"Upload by {interaction.user.display_name}",
             )
@@ -310,7 +337,7 @@ class Uploads(commands.Cog):
                 "\n\n⚠️ **Open the link and drag your file in** — the upload "
                 "isn't finished until you do."
             )
-        await interaction.followup.send(confirm[:CONTENT_MAX], ephemeral=True)
+        await interaction.followup.send(_fit(confirm, CONTENT_MAX), ephemeral=True)
 
     @app_commands.command(
         name="upload-big",
@@ -399,7 +426,7 @@ class Uploads(commands.Cog):
 
         try:
             thread = await msg.create_thread(
-                name=_label("📁 ", folder_title)[:100],
+                name=_fit(_label("📁 ", folder_title), THREAD_NAME_MAX),
                 auto_archive_duration=1440,
                 reason=f"Upload by {interaction.user.display_name}",
             )
@@ -414,13 +441,14 @@ class Uploads(commands.Cog):
             print(f"[UPLOAD] Thread creation failed: {exc}", flush=True)
 
         await interaction.followup.send(
-            (
+            _fit(
                 f"✅ **file.kiwi** link ready!\n"
                 f"🔗 {result.folder_url}\n\n"
                 f"⚠️ Open it in your browser and **drag your file in** — the upload "
                 f"isn't finished until you do.\n"
-                f"📺 Posted in {channel.mention} with a thread."
-            )[:CONTENT_MAX],
+                f"📺 Posted in {channel.mention} with a thread.",
+                CONTENT_MAX,
+            ),
             ephemeral=True,
         )
 
