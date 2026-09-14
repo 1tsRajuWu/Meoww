@@ -499,6 +499,34 @@ def _run_market(coro, timeout: float = 15.0):
     return asyncio.run(coro)
 
 
+@app.route("/market")
+def market_index():
+    """Bare ``/market`` shows the first instrument rather than a 404."""
+    return redirect("/market/BTC")
+
+
+@app.route("/market/<symbol>")
+def market_page(symbol: str):
+    """The live, interactive chart for one instrument."""
+    from utils import market as market_module
+
+    instrument = market_module.BY_SYMBOL.get(str(symbol or "").strip().upper())
+    if instrument is None:
+        return (
+            f"<h1>404 — {symbol} is not on the market</h1>"
+            "<p><a href='/market/BTC'>Open BTC instead</a></p>",
+            404,
+        )
+    return render_template(
+        "market_live.html",
+        symbol=instrument.symbol,
+        name=instrument.name,
+        kind=instrument.kind,
+        periods=list(market_module.PERIODS.items()),
+        default_period=market_module.DEFAULT_PERIOD,
+    )
+
+
 @app.route("/api/market/quotes")
 def api_market_quotes():
     """Every instrument's price, with its age and source, as JSON."""
