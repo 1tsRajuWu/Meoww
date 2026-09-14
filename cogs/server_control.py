@@ -321,7 +321,8 @@ class ServerControl(commands.Cog):
         supa_ok = bool(SUPABASE_URL and SUPABASE_KEY)
         cloud_files: list[dict] = []
         if supa_ok:
-            cloud_files = _storage_list()
+            import asyncio
+            cloud_files = await asyncio.to_thread(_storage_list)
 
         # --- build the embed ---
         embed = discord.Embed(
@@ -353,7 +354,6 @@ class ServerControl(commands.Cog):
             ]
             if current:
                 size_b = current.get("metadata", {}).get("size", 0)
-                updated = current.get("updated_at", "")
                 embed.add_field(
                     name="☁️ Supabase Backup",
                     value=(
