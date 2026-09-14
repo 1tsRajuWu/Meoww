@@ -1,8 +1,8 @@
 """`/upload` — upload big files and share them in the server.
 
-Discord's native upload limit is 25 MB (free) / 50 MB (boosted).  This
-command lets members upload larger files by hosting them on external
-services:
+Discord's own attachment limit depends on the server's boost level and is
+usually too small for a video.  This command lets members upload larger
+files by hosting them on external services:
 
 * **Videos** → Streamable (Discord auto-plays the link inline) when
   credentials are configured, otherwise catbox
@@ -73,9 +73,14 @@ async def _in_upload_thread(func, *args):
 #: Max file size for Discord native uploads (free tier).
 MAX_NATIVE_SIZE: int = 25 * 1024 * 1024  # 25 MB
 
-#: Discord's practical attachment ceiling — the biggest file a member can
-#: hand to the bot in the first place.
-ABSOLUTE_MAX_SIZE: int = 100 * 1024 * 1024  # 100 MB
+#: The biggest file ``/upload`` will carry itself. This is not a Discord limit:
+#: it is what the host the bytes go to will take. catbox needs no credentials
+#: and answers range requests, so Discord plays a video it hosts inline — and it
+#: stops at 200 MB per file. The old flat 100 MB refused files catbox would have
+#: accepted happily: a 123 MB clip was turned away with a pointer at
+#: ``/upload-big``, so the member had to drag it into an empty file.kiwi folder
+#: by hand and then watch file.kiwi try and fail to preview it.
+MAX_HOSTED_SIZE: int = catbox.MAX_SIZE
 
 #: Video MIME types that should go to Streamable.
 VIDEO_MIMES: frozenset[str] = frozenset({
@@ -198,9 +203,10 @@ def build_info_embed() -> discord.Embed:
     embed = discord.Embed(
         title="📎 How to Upload Big Files",
         description=(
-            "Discord's native upload limit is **25 MB** (free) / **50 MB** "
-            "(boosted). This bot uploads bigger files to a real host and posts "
-            "the link here.\n\n"
+            "Discord's own attachment limit depends on the server's boost "
+            "level, and it is usually too small for a video. Attach whatever "
+            "you can and this bot uploads it to a real host and posts the link "
+            "here.\n\n"
             "**How to use**\n"
             "1. Run `/upload` and attach your file\n"
             "2. Optionally add a title\n"
@@ -212,7 +218,7 @@ def build_info_embed() -> discord.Embed:
             "• **file.kiwi** — no size limit, but you finish the upload in your "
             "browser (nothing is sent until you drag the file in). Links last "
             "24 hours and the upload is E2E encrypted.\n\n"
-            "**Bigger than 100 MB?**\n"
+            f"**Bigger than {MAX_HOSTED_SIZE // (1024 * 1024)} MB?**\n"
             "• Use `/upload-big` — it hands you a **file.kiwi** link\n"
             "• Open the link and drag the file straight from your device\n"
             "• Nothing is proxied through the bot, so size is no problem\n\n"
@@ -270,7 +276,10 @@ class Uploads(commands.Cog):
         description="Upload a big file — videos to Streamable, everything else to catbox.",
     )
     @app_commands.describe(
-        file="The file to upload (max 100 MB here; use /upload-big for anything larger)",
+        file=(
+            f"The file to upload (up to {MAX_HOSTED_SIZE // (1024 * 1024)} MB here; "
+            "use /upload-big for anything larger)"
+        ),
         title="A short title for the upload (optional)",
         service="Preferred upload service (auto if not specified)",
     )
@@ -292,13 +301,14 @@ class Uploads(commands.Cog):
                 "❌ This command only works in a server.", ephemeral=True,
             )
 
-        if file.size > ABSOLUTE_MAX_SIZE:
+        if file.size > MAX_HOSTED_SIZE:
             return await interaction.response.send_message(
-                f"❌ That file is **{filehost.format_size(file.size)}** — the "
-                f"most this command can take is "
-                f"**{ABSOLUTE_MAX_SIZE // (1024 * 1024)} MB**.\n"
+                f"❌ That file is **{filehost.format_size(file.size)}**. I can "
+                f"upload up to **{MAX_HOSTED_SIZE // (1024 * 1024)} MB** myself "
+                "— that is the limit of the free host the bytes go to, not a "
+                "Discord limit.\n"
                 f"💡 Use `/upload-big` — it gives you a file.kiwi link that has "
-                f"no size limit.",
+                f"no size limit, which you finish in your browser.",
                 ephemeral=True,
             )
 
@@ -415,7 +425,10 @@ class Uploads(commands.Cog):
 
     @app_commands.command(
         name="upload-big",
-        description="Get a file.kiwi link for uploading very large files (100MB+).",
+        description=(
+            "Get a file.kiwi link for uploading very large files "
+            f"({MAX_HOSTED_SIZE // (1024 * 1024)} MB or more)."
+        ),
     )
     @app_commands.describe(
         title="A short title for the upload (optional)",
@@ -442,8 +455,9 @@ class Uploads(commands.Cog):
             return await interaction.followup.send(
                 f"❌ **file.kiwi failed:** {_reason(exc)}\n\n"
                 "That is usually a network hiccup. Try again in a moment, or "
-                "use `/upload` for files up to 100 MB — those are uploaded for "
-                "you straight away.",
+                f"use `/upload` for files up to "
+                f"{MAX_HOSTED_SIZE // (1024 * 1024)} MB — those are uploaded "
+                "for you straight away.",
                 ephemeral=True,
             )
 
@@ -451,7 +465,8 @@ class Uploads(commands.Cog):
             return await interaction.followup.send(
                 "❌ **file.kiwi** didn't return a link.\n\n"
                 "The service may be down or rate-limiting. Try again shortly, "
-                "or use `/upload` for files up to 100 MB — those are uploaded "
+                f"or use `/upload` for files up to "
+                f"{MAX_HOSTED_SIZE // (1024 * 1024)} MB — those are uploaded "
                 "for you straight away.",
                 ephemeral=True,
             )

@@ -118,6 +118,34 @@ def matches(local, remote) -> bool:
     return _same_value(local, remote)
 
 
+#: Command names this bot published in the past and no longer has. The sync can
+#: otherwise only add or replace (see ``bot.py``), which is what keeps a spent
+#: write budget from taking commands away — and is also why a retired command
+#: would stay in Discord's picker forever, failing for whoever clicks it. These
+#: names, and only these, may be deleted: an explicit list, never "anything that
+#: is not in the local tree", which is the bulk-overwrite instinct that once
+#: cleared this guild down to a single command.
+#:
+#: ``upload``, ``upload-big`` and ``pin-upload-info`` were the big-file upload
+#: feature, retired on 2026-09-14 (archived in ``deleted_features/``). Once a
+#: deploy has deleted them this list is history rather than a to-do: it simply
+#: stops matching anything.
+RETIRED_COMMANDS: frozenset[str] = frozenset(
+    {"upload", "upload-big", "pin-upload-info"}
+)
+
+
+def retired(registered) -> list[tuple[str, str]]:
+    """``(name, id)`` for every retired command Discord still has registered."""
+    found: list[tuple[str, str]] = []
+    for command in registered or ():
+        if not isinstance(command, dict):
+            continue
+        if command.get("name") in RETIRED_COMMANDS and command.get("id"):
+            found.append((command["name"], str(command["id"])))
+    return found
+
+
 def index(commands) -> dict[str, dict]:
     """``{name: payload}`` for a list of command payloads."""
     return {

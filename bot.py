@@ -289,6 +289,31 @@ async def _publish_scope(
     return True, "", None, published
 
 
+async def _retire_scope(bot: commands.Bot, registered, guild=None) -> int:
+    """Delete the commands this bot has retired, one named command at a time.
+
+    The publisher can only add or replace, which is deliberate, so a command
+    whose cog is gone would otherwise stay in the picker forever and fail for
+    whoever clicked it. The names come from ``commands_sync.RETIRED_COMMANDS`` —
+    never from "what is missing locally", because that is the destructive
+    overwrite this sync exists to avoid. A refused delete is only logged: the
+    command is still registered, so the next boot tries again.
+    """
+    removed = 0
+    for name, command_id in commands_sync.retired(registered):
+        try:
+            if guild is None:
+                await bot.http.delete_global_command(bot.application_id, command_id)
+            else:
+                await bot.http.delete_guild_command(bot.application_id, guild.id, command_id)
+        except Exception as exc:
+            print(f"[SYNC] ⚠️ Could not retire /{name}: {exc}", flush=True)
+            continue
+        removed += 1
+        print(f"[SYNC] 🗑️ Retired /{name}", flush=True)
+    return removed
+
+
 async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> dict:
     """Publish a scope's missing/changed commands — one guild, or global.
 
@@ -308,6 +333,10 @@ async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> 
         summary = f"{len(names)} command(s), state unknown"
         total = len(names)
     else:
+        # Before the early return below: a retired command has no local
+        # counterpart, so it is neither missing nor stale, and this is the only
+        # place that can take it out of the picker.
+        await _retire_scope(bot, registered, guild)
         missing, stale = commands_sync.diff(local, registered)
         names = missing + stale
         summary = commands_sync.summary(local, registered)
@@ -548,56 +577,6 @@ async def on_ready():
         conn.close()
     except Exception as e:
         print(f"[UPDATE] Update announcement error: {e}", flush=True)
-
-    # Auto-post sticky upload info message in the upload channel. The channel
-    # comes from cogs.uploads (the same constant /upload and /pin-upload-info
-    # resolve through), so the sticky cannot point somewhere else.
-    from cogs.uploads import build_info_embed, UPLOAD_CHANNEL_ID
-
-    try:
-        channel = bot.get_channel(UPLOAD_CHANNEL_ID)
-        if channel:
-            def _is_upload_info(msg):
-                return msg.author == bot.user and any(
-                    "Upload Big Files" in (embed.title or "")
-                    for embed in msg.embeds
-                )
-
-            # Ask for the pins directly. Scanning the last 50 messages missed
-            # the sticky as soon as the channel got busier than that, and the
-            # bot posted a second copy on every restart.
-            has_info = False
-            try:
-                async for msg in channel.pins():
-                    if _is_upload_info(msg):
-                        has_info = True
-                        break
-            except Exception:
-                pass
-
-            if not has_info:
-                try:
-                    async for msg in channel.history(limit=100):
-                        if _is_upload_info(msg):
-                            has_info = True
-                            break
-                except Exception:
-                    pass
-
-            if not has_info:
-                # Post the upload info embed (same text the /pin-upload-info
-                # command uses, so the two can never drift apart).
-
-                embed = build_info_embed()
-
-                try:
-                    msg = await channel.send(embed=embed)
-                    await msg.pin()
-                    print(f"[UPLOAD] Posted upload info message to #{channel.name}", flush=True)
-                except Exception as e:
-                    print(f"[UPLOAD] Failed to post info message: {e}", flush=True)
-    except Exception as e:
-        print(f"[UPLOAD] Sticky message error: {e}", flush=True)
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)

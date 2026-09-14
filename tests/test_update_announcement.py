@@ -123,11 +123,15 @@ class TestSummaryShape(unittest.TestCase):
         self.assertNotIn("](", summary)
 
     def test_keeps_identifiers_intact(self):
-        """An env var name is the actionable part of the note; do not mangle it."""
+        """An env var name is the actionable part of the note; do not mangle it.
+
+        Both names are ones the bot actually reads, so this cannot quietly rot
+        into testing a variable that no longer exists.
+        """
         summary = version.summarize_changelog(
-            "## Unreleased\n- **Set UPLOAD_CHANNEL_ID and OWNER_USER_ID**: do it now\n"
+            "## Unreleased\n- **Set SUPABASE_SERVICE_KEY and OWNER_USER_ID**: do it now\n"
         )
-        self.assertIn("UPLOAD_CHANNEL_ID", summary)
+        self.assertIn("SUPABASE_SERVICE_KEY", summary)
         self.assertIn("OWNER_USER_ID", summary)
 
     def test_still_strips_emphasis(self):

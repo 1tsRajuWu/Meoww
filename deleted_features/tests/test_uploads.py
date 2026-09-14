@@ -220,11 +220,13 @@ def _setting(value):
     return _get
 
 
+from cogs import uploads
 from cogs.uploads import (
     CONTENT_MAX,
     DEFAULT_UPLOAD_CHANNEL_ID,
     EMBED_TITLE_MAX,
     MAX_CONCURRENT_UPLOADS,
+    MAX_HOSTED_SIZE,
     THREAD_NAME_MAX,
     Uploads,
     _fit,
@@ -235,6 +237,34 @@ from cogs.uploads import (
     build_failure_text,
     resolve_default_channel_id,
 )
+
+
+class TestUploadCeiling(unittest.TestCase):
+    """`/upload` must not refuse what the host would have taken.
+
+    A 123 MB clip was turned away by a flat 100 MB cap and pointed at
+    `/upload-big`, so the member had to drag it into an empty file.kiwi folder
+    by hand — and then watch file.kiwi fail to preview a 4K video. catbox takes
+    200 MB, so the ceiling is the host's, and the two are pinned together here
+    so a later edit cannot lower one behind the other's back.
+    """
+
+    def test_ceiling_is_what_the_host_actually_takes(self):
+        self.assertEqual(MAX_HOSTED_SIZE, catbox.MAX_SIZE)
+
+    def test_the_reported_123_mb_clip_is_accepted(self):
+        self.assertLess(123 * 1024 * 1024, MAX_HOSTED_SIZE)
+
+    def test_pinned_instructions_quote_the_real_limit(self):
+        limit_mb = MAX_HOSTED_SIZE // (1024 * 1024)
+        text = build_info_embed().description or ""
+        self.assertIn(f"Bigger than {limit_mb} MB?", text)
+        # The stale claim — "**25 MB** (free) / **50 MB** (boosted)" — is what
+        # let a member believe their server could not attach the file at all.
+        # Only the exact claim is fenced off, so a later table of the real boost
+        # tiers (10 / 50 / 100 / 500 MB) is not a test failure.
+        self.assertNotIn("**25 MB**", text)
+        self.assertNotIn("**50 MB**", text)
 
 
 class TestLabelFitsDiscord(unittest.TestCase):
@@ -392,6 +422,75 @@ class TestUploadChannelResolution(unittest.IsolatedAsyncioTestCase):
         cog = self._cog({DEFAULT_UPLOAD_CHANNEL_ID: default})
         with patch.object(uploads_db, "get_setting", new=_setting("not-an-id")):
             self.assertIs(await cog._upload_channel(mock.Mock(id=555)), default)
+
+
+class TestBigFilesAreUploadedForTheMember(unittest.IsolatedAsyncioTestCase):
+    """The reported upload: a 123 MB clip the command refused to touch.
+
+    It hit the flat 100 MB ceiling, was answered with "use /upload-big", and
+    became an empty file.kiwi folder the member had to fill in by hand. This
+    drives the real command with a 123 MB attachment and asserts the bot
+    uploads it and posts a link, which is the whole point of the command.
+    """
+
+    def _interaction(self):
+        channel = mock.Mock(id=DEFAULT_UPLOAD_CHANNEL_ID, guild=mock.Mock(id=555))
+        thread = mock.Mock(send=mock.AsyncMock())
+        message = mock.Mock(create_thread=mock.AsyncMock(return_value=thread))
+        channel.send = mock.AsyncMock(return_value=message)
+
+        interaction = mock.Mock()
+        interaction.guild = mock.Mock(id=555)
+        interaction.user = mock.Mock(display_name="R A J", mention="@R A J")
+        interaction.response.defer = mock.AsyncMock()
+        interaction.response.send_message = mock.AsyncMock()
+        interaction.followup.send = mock.AsyncMock()
+        return interaction, channel
+
+    def _attachment(self, size: int):
+        attachment = mock.Mock(
+            filename="12608328_3840_2160_30fps.mp4",
+            size=size,
+            content_type="video/mp4",
+        )
+
+        async def _save(path):
+            with open(path, "wb") as handle:
+                handle.write(b"x" * 2048)
+
+        attachment.save = _save
+        return attachment
+
+    async def test_a_123_mb_clip_is_uploaded_not_turned_away(self):
+        cog = Uploads(mock.Mock())
+        interaction, channel = self._interaction()
+        cog._upload_channel = mock.AsyncMock(return_value=channel)
+
+        with patch.object(
+            uploads, "_resolve_link",
+            return_value=("https://files.catbox.moe/meow.mp4", "catbox", False),
+        ):
+            await Uploads.upload.callback(
+                cog, interaction, self._attachment(123 * 1024 * 1024), "", "auto",
+            )
+
+        interaction.response.send_message.assert_not_awaited()
+        channel.send.assert_awaited()
+        confirmation = interaction.followup.send.await_args.args[0]
+        self.assertIn("catbox", confirmation)
+        self.assertIn("files.catbox.moe/meow.mp4", confirmation)
+
+    async def test_only_a_file_no_host_can_take_is_refused(self):
+        cog = Uploads(mock.Mock())
+        interaction, _ = self._interaction()
+
+        await Uploads.upload.callback(
+            cog, interaction, self._attachment(MAX_HOSTED_SIZE + 1), "", "auto",
+        )
+
+        refusal = interaction.response.send_message.await_args.args[0]
+        self.assertIn("upload-big", refusal)
+        self.assertIn(str(MAX_HOSTED_SIZE // (1024 * 1024)), refusal)
 
 
 class TestBoundedUploadThreads(unittest.IsolatedAsyncioTestCase):

@@ -35,20 +35,30 @@ class _SyncError(RuntimeError):
 
 
 class _FakeCommand:
-    """A local command, as ``tree.get_commands()`` would hand it over."""
+    """A local command, as ``tree.get_commands()`` would hand it over.
 
-    def __init__(self, name: str, description: str = "d"):
+    ``command_id`` is what Discord attaches to a *registered* command — the
+    handle a delete needs. It is optional so that the local commands, which
+    never have one, stay exactly as they were.
+    """
+
+    def __init__(self, name: str, description: str = "d", command_id: str | None = None):
         self.name = name
         self.description = description
+        self.id = command_id
 
     def to_dict(self, _tree=None):
-        return {"name": self.name, "description": self.description}
+        payload = {"name": self.name, "description": self.description}
+        if self.id:
+            payload["id"] = self.id
+        return payload
 
 
 class _FakeHTTP:
     def __init__(self, fail_on=None, retry_after=None, fail_code=None):
         self.sent: list = []
         self.global_sent: list = []
+        self.deleted: list = []
         self.fail_on = fail_on
         self.retry_after = retry_after
         self.fail_code = fail_code
@@ -66,6 +76,14 @@ class _FakeHTTP:
     async def upsert_global_command(self, application_id, payload):
         del application_id
         return self._record(self.global_sent, payload)
+
+    async def delete_guild_command(self, application_id, guild_id, command_id):
+        del application_id, guild_id
+        self.deleted.append(("guild", command_id))
+
+    async def delete_global_command(self, application_id, command_id):
+        del application_id
+        self.deleted.append(("global", command_id))
 
 
 class _FakeTree:
@@ -305,6 +323,89 @@ class RetryDelay(unittest.TestCase):
     def test_other_failures_are_not_retried(self):
         for exc in (_SyncError("boom"), _SyncError("boom (500)", 5.0)):
             self.assertIsNone(bot_module._retry_delay(exc))
+
+
+class RetiredCommandsAreDeleted(unittest.IsolatedAsyncioTestCase):
+    """A removed feature must not keep failing in Discord's command picker.
+
+    The publisher only ever upserts — that is what stops a spent write budget
+    from clearing the guild — so a retired command has no local counterpart,
+    which makes it neither missing nor stale: nothing would ever remove it.
+    `/upload`, `/upload-big` and `/pin-upload-info` were retired with the upload
+    feature on 2026-09-14, and only names on that list may be deleted.
+    """
+
+    def _tree_with(self, *registered: str, with_id: bool = True):
+        tree = _FakeTree(local_count=2)
+        tree.registered = [
+            _FakeCommand(name, command_id=f"id-{name}" if with_id else None)
+            for name in ("cmd0", "cmd1", *registered)
+        ]
+        return tree
+
+    async def test_a_retired_command_is_deleted(self):
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(_FakeBot([], self._tree_with("upload"), http))
+
+        self.assertEqual(http.deleted, [("global", "id-upload")])
+
+    async def test_every_retired_name_is_deleted(self):
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(
+            _FakeBot([], self._tree_with("upload-big", "pin-upload-info"), http)
+        )
+
+        self.assertEqual(
+            sorted(http.deleted), [("global", "id-pin-upload-info"), ("global", "id-upload-big")]
+        )
+
+    async def test_a_command_we_did_not_retire_is_never_deleted(self):
+        """The whole point of the upsert publisher: nothing else may vanish."""
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(
+            _FakeBot([], self._tree_with("some-other-bots-command"), http)
+        )
+
+        self.assertEqual(http.deleted, [])
+
+    async def test_it_does_not_need_a_pending_change(self):
+        """A tidy tree with one dead command must still clean it up."""
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(_FakeBot([], self._tree_with("upload"), http))
+
+        self.assertEqual(http.sent + http.global_sent, [], "nothing needed republishing")
+        self.assertEqual(http.deleted, [("global", "id-upload")])
+
+    async def test_a_payload_with_no_id_is_skipped_rather_than_crashing(self):
+        http = _FakeHTTP()
+
+        await bot_module.sync_commands(
+            _FakeBot([], self._tree_with("upload", with_id=False), http)
+        )
+
+        self.assertEqual(http.deleted, [])
+
+    def test_the_real_retirement_list_is_exactly_the_upload_commands(self):
+        self.assertEqual(
+            commands_sync.RETIRED_COMMANDS,
+            {"upload", "upload-big", "pin-upload-info"},
+        )
+
+    async def test_no_retired_name_is_still_a_command_we_ship(self):
+        """Retiring a name the tree still has would delete a live command."""
+        bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+        try:
+            for cog in features.cog_paths():
+                await bot.load_extension(cog)
+            live = {command.name for command in bot.tree.walk_commands()}
+        finally:
+            await bot.close()
+
+        self.assertEqual(commands_sync.RETIRED_COMMANDS & live, set())
 
 
 class CommandComparison(unittest.TestCase):

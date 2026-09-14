@@ -145,19 +145,6 @@ class BotConfig(commands.Cog):
                             "• No `#bot-cmd` channel found here, so level-up cards stay "
                             "off until one exists."
                         )
-            uploads = (
-                discord.utils.get(guild.text_channels, name="uploads")
-                or discord.utils.get(guild.text_channels, name="📤・uploads")
-                or discord.utils.get(guild.text_channels, name="upload")
-            )
-            if uploads:
-                await db.set_setting(guild.id, "upload_channel_id", uploads.id)
-                notes.append(f"• Upload channel bound to {uploads.mention}.")
-            else:
-                notes.append(
-                    "• No `#uploads` channel found — set `UPLOAD_CHANNEL_ID` or "
-                    "create one and re-run `/updatedb`."
-                )
             notes.append("• Economy and leveling tables ready.")
             await interaction.followup.send(
                 "✅ **Database Successfully Updated!**\n" + "\n".join(notes)
