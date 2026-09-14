@@ -107,6 +107,7 @@ def _payloads(*names: str) -> list[dict]:
 
 
 class SyncCommands(unittest.IsolatedAsyncioTestCase):
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_every_guild_gets_its_commands(self):
         http = _FakeHTTP()
         fake = _FakeBot([_guild("Hmm"), _guild("Second Server", 2)], _FakeTree(), http)
@@ -119,6 +120,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
             "the global scope is a second lane with its own write budget",
         )
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_only_missing_or_changed_commands_are_sent(self):
         """Discord allows 200 writes a day per guild, so unchanged ones are skipped."""
         tree = _FakeTree(local_count=3)
@@ -129,6 +131,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd2"], "an unchanged command was re-uploaded")
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_changed_command_is_sent(self):
         tree = _FakeTree(local_count=1)
         tree.local = [_FakeCommand("loan", "new description")]
@@ -139,6 +142,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["loan"])
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_an_up_to_date_guild_costs_nothing(self):
         tree = _FakeTree(local_count=3)
         tree.registered = [_FakeCommand(command.name) for command in tree.local]
@@ -150,6 +154,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(http.global_sent, [], "an unchanged global tree was re-uploaded")
         self.assertEqual(results, {"(global)": 3, "Hmm": 3})
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_guild_whose_state_cannot_be_read_is_published_anyway(self):
         tree = _FakeTree(local_count=2, fetch_error=True)
         http = _FakeHTTP()
@@ -158,6 +163,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd0", "cmd1"])
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_spent_write_budget_schedules_the_background_drain(self):
         """A deploy that lands while the window is closed must not give up."""
         tree = _FakeTree(local_count=3)
@@ -179,6 +185,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
             "both lanes wait out the window",
         )
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_an_ordinary_failure_does_not_queue_a_drain(self):
         tree = _FakeTree(local_count=2)
         http = _FakeHTTP(fail_on="cmd1", fail_code="500", retry_after=5.0)
@@ -192,6 +199,7 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(scheduled, [], "an ordinary error is not a budget problem")
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_complete_guild_is_not_drained(self):
         tree = _FakeTree(local_count=3)
         tree.registered = [_FakeCommand(command.name) for command in tree.local]
@@ -258,6 +266,7 @@ class DrainingPendingCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertLessEqual(self.slept[0], bot_module.DRAIN_MAX_WAIT)
 
+    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_failure_never_escapes_into_on_ready(self):
         tree = _FakeTree(local_count=2, fetch_error=True)
         http = _FakeHTTP(fail_on="cmd0", fail_code="500")

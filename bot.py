@@ -392,37 +392,9 @@ async def sync_commands(
                 bot, None, wait, sync=_sync_global, label="global"
             )
 
-    for guild in bot.guilds:
-        status = await _sync_guild(bot, guild, force=force)
-        results[guild.name] = status["registered"]
-
-        if not status["pending"]:
-            print(f"[SYNC] ✅ {guild.name}: {status['summary']}.", flush=True)
-            continue
-
-        print(
-            f"[SYNC] {guild.name}: {status['summary']} — published "
-            f"{status['published']}, {status['pending']} still pending.",
-            flush=True,
-        )
-        if status.get("detail"):
-            print(f"[SYNC] ⚠️ Stopped at {status['detail']}", flush=True)
-        # Only a spent write budget is worth retrying on a timer; anything else
-        # (a rejected payload, a permissions problem) would just repeat forever.
-        if status["retry_after"] is not None:
-            print(
-                "[SYNC] Discord's daily application-command write budget is spent. "
-                "Nothing was deleted — the commands that went through stay, and the "
-                "rest will be published as the budget refills.",
-                flush=True,
-            )
-            if drain:
-                wait = status["retry_after"]
-                print(f"[SYNC] Draining in the background (next try in {wait:.0f}s).", flush=True)
-                _schedule_command_drain(bot, guild, wait)
-
-    if not bot.guilds:
-        print("[SYNC] Not in any guild yet — nothing to register.", flush=True)
+    # Guild lane retired: global commands reach every server, and maintaining a
+    # per-guild duplicate burns the 200-writes-a-day budget on commands that
+    # already exist globally.  The old guild copies were deleted manually.
     return results
 
 
