@@ -81,18 +81,18 @@ FEATURES: tuple[Feature, ...] = (
         category="Economy",
         description=(
             "Daily streak rewards, gambling, slots, blackjack, coinflip, shop, "
-            "and inventory items."
+            "inventory items, and the Meow Fee on transfers into Meow Bank."
         ),
         gate_commands=(
             "balance", "daily", "weekly", "work", "rob", "pay", "deposit",
             "withdraw", "shop", "buy", "inventory", "richlist", "eco-admin",
             "addmoney", "removemoney", "setmoney", "addbank", "loan", "repay",
-            "beg",
+            "beg", "meowfee",
         ),
         commands=(
             "/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit",
             "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin",
-            "/loan", "/repay", "/beg",
+            "/loan", "/repay", "/beg", "/meowfee",
         ),
         cog="cogs.economy",
         help_key="economy",

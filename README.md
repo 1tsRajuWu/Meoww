@@ -158,6 +158,37 @@ Type `/` in any channel and Discord will show you the full list, or run
 
 ---
 
+## The Meow Fee
+
+Moving coins **between members** carries a small fee, and it goes to **Meow
+Bank** — a per-server house account — rather than being burned. That is the
+whole reason it is small: the coins are still in the server, so there is no
+inflation argument for making it bite, only the mild cost of passing coins to
+somebody else.
+
+| | |
+|---|---|
+| **Rate** | 2% of the transfer |
+| **Minimum** | 1 🪙 — a fee that rounds away to nothing is not a fee |
+| **Maximum** | 500 🪙 — "small" has to keep meaning small as amounts grow |
+| **Charged on** | `/pay`, and the takings from a successful `/rob` |
+| **Not charged on** | your own `/deposit` and `/withdraw`, or anything you earn |
+
+The fee is charged **on top of** what the sender promised, so the recipient
+receives exactly the amount they were sent and never a coin less. On a heist it
+comes out of the robber's proceeds, never the victim's, so what the victim loses
+does not depend on whether the fee is on.
+
+The coins leave the sender's wallet and reach the bank **inside one
+transaction**, so a transfer can never be half-done — and every card shows the
+fee as its own line rather than hiding it in the amount.
+
+An administrator can see the current state and the bank's balance with
+`/meowfee`, and turn it off with `/meowfee state:Off`. Turning it off moves the
+exact amount and banks nothing, but it does not empty Meow Bank.
+
+---
+
 ## The market (real prices, no keys)
 
 `/market` trades real assets with server coins. The prices are **live exchange

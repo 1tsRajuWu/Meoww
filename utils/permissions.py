@@ -128,6 +128,9 @@ COMMAND_ACCESS: dict[str, str] = {
     "removemoney": ADMIN,
     "setmoney": ADMIN,
     "addbank": ADMIN,
+    # The Meow Fee switch is the server's, not a member's: one administrator
+    # flips it for everyone.
+    "meowfee": ADMIN,
     # -- Levels ------------------------------------------------------------ #
     "rank": EVERYONE,
     "leaderboard": EVERYONE,

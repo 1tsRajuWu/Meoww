@@ -62,20 +62,23 @@ HELP_MODULES = {
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (
-            "Full community banking, daily rewards, work jobs, and trading currency.\n\n"
+            "Full community banking, daily rewards, work jobs, and trading currency. "
+            "Moving coins between members carries a small **Meow Fee** that lands in "
+            "Meow Bank, and an admin can switch it off.\n\n"
             "> `/balance [member]` — Check wallet & bank balance\n"
             "> `/daily` — Claim 24-hour daily coin reward\n"
             "> `/weekly` — Claim 7-day weekly bonus\n"
             "> `/work` — Work shifts across various jobs for coins\n"
-            "> `/pay <member> <amount>` — Transfer coins to another member\n"
-            "> `/rob <member>` — Attempt a daring coin heist\n"
+            "> `/pay <member> <amount>` — Transfer coins (a small Meow Fee goes to Meow Bank)\n"
+            "> `/rob <member>` — Attempt a daring coin heist (the bank takes its cut of the loot)\n"
             "> `/deposit <amount>` — Deposit wallet coins into your bank\n"
             "> `/withdraw <amount>` — Withdraw bank coins into your wallet\n"
             "> `/richlist` — Server wealth leaderboard\n"
             "> `/loan [amount] [plan]` — Borrow 🪙 from Meow Bank; your credit line grows with your level\n"
             "> `/repay [amount]` — Pay a loan back in full or in part, from wallet or bank\n"
             "> `/beg` — Beg for spare coins (2-minute cooldown, no dignity required)\n"
-            "> `/eco-admin add / remove / set / reset` — Admin currency management"
+            "> `/eco-admin add / remove / set / reset` — Admin currency management\n"
+            "> `/meowfee` — See the Meow Fee and Meow Bank's balance, or turn the fee off (admin)"
         ),
         "color": 0x2ECC71,
         "emoji": "💰"

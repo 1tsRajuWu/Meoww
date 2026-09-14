@@ -6,7 +6,7 @@ import asyncio
 import random
 import datetime
 import time
-from utils import db, loans, shop
+from utils import db, loans, meowfee, shop
 from utils.style import send_card, display_names
 
 DB_PATH = db.DB_PATH
@@ -442,10 +442,17 @@ class Economy(commands.Cog):
         luck = await shop.luck_points(interaction.user.id, interaction.guild.id)
         success_chance = min(ROB_MAX_SUCCESS_CHANCE, ROB_SUCCESS_CHANCE + luck / 100.0)
 
+        # The loot is a transfer between members, so the Meow Fee applies to it
+        # too — taken out of the robber's proceeds, never from the victim, who
+        # loses the same amount either way. Read before the transaction for the
+        # same reason as /pay.
+        rob_fee = meowfee.fee_for(take) if await meowfee.is_enabled(interaction.guild.id) else 0
+        payout = take - rob_fee
+
         if random.random() < success_chance:
             # Debit the victim conditionally inside one transaction, then credit the
-            # robber — otherwise the pair could mint coins (or take the victim's
-            # wallet below zero) if both wallets moved in between the reads above.
+            # robber and the bank — otherwise the trio could mint coins (or take the
+            # victim's wallet below zero) if any wallet moved in between the reads.
             def _rob(cur):
                 cur.execute(
                     "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
@@ -455,19 +462,25 @@ class Economy(commands.Cog):
                 if ok:
                     cur.execute(
                         "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
-                        (take, interaction.user.id, interaction.guild.id)
+                        (payout, interaction.user.id, interaction.guild.id)
                     )
+                    meowfee.credit(cur, interaction.guild.id, rob_fee)
                 return ok
 
             robbed_ok = await asyncio.to_thread(db.run_atomic, _rob)
             if not robbed_ok:
                 embed = discord.Embed(title="🚔 Caught!", description=f"{member.mention}'s wallet changed mid-robbery — you got nothing!", color=0xFF3333)
                 return await send_card(interaction, embed=embed)
+            fee_note = (
+                f"> 🐾 **Meow Fee:** `{rob_fee:,}` 🪙 to Meow Bank — you keep `{payout:,}` 🪙\n"
+                if rob_fee else ""
+            )
             embed = discord.Embed(
                 title="🦹 Successful Robbery!",
                 description=(
                     f"You robbed **{take:,}** 🪙 from {member.mention}!\n\n"
                     f"> 🎯 **Take:** `{take:,}` 🪙\n"
+                    f"{fee_note}"
                     f"> ⚖️ **Risked if caught:** `{risk:,}` 🪙"
                 ),
                 color=0x2ECC71,
@@ -503,7 +516,7 @@ class Economy(commands.Cog):
         embed.set_footer(text=f"🐾 Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(success_chance * 100)}%{luck_note}")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="pay", description="Transfer coins to another member.")
+    @app_commands.command(name="pay", description="Transfer coins to another member (a small Meow Fee goes to Meow Bank).")
     @app_commands.describe(member="Who to pay", amount="Amount to send")
     async def pay(self, interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, None]):
         if member.id == interaction.user.id:
@@ -512,22 +525,35 @@ class Economy(commands.Cog):
             return await interaction.response.send_message("You can't pay a bot!", ephemeral=True)
 
         is_sender_owner = await check_is_owner(interaction)
-        is_target_owner = (interaction.guild and interaction.guild.owner_id == member.id)
 
         await ensure_eco(interaction.user.id, interaction.guild.id)
         await ensure_eco(member.id, interaction.guild.id)
         sender_eco = await get_eco(interaction.user.id, interaction.guild.id, is_owner=is_sender_owner)
 
-        if sender_eco["wallet"] < amount:
-            return await interaction.response.send_message(f"❌ You only have **{sender_eco['wallet']:,}** 🪙 in your wallet.", ephemeral=True)
+        # The Meow Fee is read *before* the transaction, because the switch lives
+        # in another table and a transaction must not wait on a second
+        # connection. It is charged on top of the amount, so the recipient
+        # receives exactly what they were sent.
+        fee = meowfee.fee_for(amount) if await meowfee.is_enabled(interaction.guild.id) else 0
+        total = amount + fee
 
-        # Debit and credit inside one transaction, and only if the balance still
-        # covers it. Two parallel /pay calls used to both pass the read above and
-        # duplicate coins.
+        if sender_eco["wallet"] < total:
+            short = (
+                f" (that is **{amount:,}** 🪙 plus the **{fee:,}** 🪙 Meow Fee)"
+                if fee else ""
+            )
+            return await interaction.response.send_message(
+                f"❌ You only have **{sender_eco['wallet']:,}** 🪙 in your wallet{short}.",
+                ephemeral=True,
+            )
+
+        # Debit, credit and bank the fee inside one transaction, and only if the
+        # balance still covers all of it. Two parallel /pay calls used to both
+        # pass the read above and duplicate coins.
         def _pay(cur):
             cur.execute(
                 "UPDATE economy SET wallet = wallet - ? WHERE user_id=? AND guild_id=? AND wallet >= ?",
-                (amount, interaction.user.id, interaction.guild.id, amount)
+                (total, interaction.user.id, interaction.guild.id, total)
             )
             moved = cur.rowcount
             if moved == 1:
@@ -535,6 +561,9 @@ class Economy(commands.Cog):
                     "UPDATE economy SET wallet = wallet + ? WHERE user_id=? AND guild_id=?",
                     (amount, member.id, interaction.guild.id)
                 )
+                # Banked on the same cursor, so the coins cannot leave a wallet
+                # without reaching the bank.
+                meowfee.credit(cur, interaction.guild.id, fee)
             return moved
 
         paid = await asyncio.to_thread(db.run_atomic, _pay)
@@ -544,7 +573,100 @@ class Economy(commands.Cog):
                 "❌ Your wallet changed while that was processing — please try again.", ephemeral=True
             )
 
-        embed = discord.Embed(description=f"✅ Sent **{amount:,}** 🪙 to {member.mention}!", color=0x2ECC71, timestamp=discord.utils.utcnow())
+        detail = f"✅ Sent **{amount:,}** 🪙 to {member.mention}!"
+        if fee:
+            detail += (
+                f"\n\n> 🐾 **Meow Fee:** `{fee:,}` 🪙 ({meowfee.fee_label()}) "
+                "to Meow Bank\n"
+                f"> 💸 **You paid:** `{total:,}` 🪙"
+            )
+        embed = discord.Embed(description=detail, color=0x2ECC71, timestamp=discord.utils.utcnow())
+        await send_card(interaction, embed=embed)
+
+    # The handler is named ``meowfee_cmd`` on purpose: binding the class attribute
+    # to ``meowfee`` would shadow the imported ``utils.meowfee`` module for the
+    # rest of this class body, which is exactly how ``/eco-admin``'s handlers once
+    # became unreachable dead code. A slash command's name comes from its
+    # decorator, so nothing user-facing depends on the attribute name.
+    @app_commands.command(
+        name="meowfee",
+        description="See or change the Meow Fee on transfers (admin).",
+    )
+    @app_commands.describe(state="Turn the fee on or off — leave empty to just look")
+    @app_commands.choices(
+        state=[
+            app_commands.Choice(name="On", value="on"),
+            app_commands.Choice(name="Off", value="off"),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def meowfee_cmd(
+        self, interaction: discord.Interaction, state: app_commands.Choice[str] | None = None
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ Meow Bank is a server's own, so this only works in a server.",
+                ephemeral=True,
+            )
+
+        guild_id = interaction.guild.id
+
+        if state is None:
+            enabled = await meowfee.is_enabled(guild_id)
+            bank = await meowfee.bank_balance(guild_id)
+            examples = "\n".join(
+                f"> Send `{amount:,}` 🪙 → you pay `{amount + meowfee.fee_for(amount):,}` 🪙, "
+                f"bank takes `{meowfee.fee_for(amount):,}` 🪙"
+                for amount in (1_000, 10_000, 100_000)
+            )
+            embed = discord.Embed(
+                title="🐾 Meow Fee",
+                description=(
+                    f"The fee is currently **{'on' if enabled else 'off'}** in this "
+                    "server.\n\n"
+                    f"{meowfee.describe()}\n\n"
+                    "It is charged on **sending coins** (`/pay`) and on the takings "
+                    "from a successful **robbery** (`/rob`). It is *not* charged on "
+                    "moving your own coins between your wallet and your bank, and "
+                    "it never touches what you earn.\n\n"
+                    f"**At {meowfee.fee_label()}:**\n{examples}"
+                ),
+                color=0x2ECC71 if enabled else 0x5865F2,
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.add_field(
+                name="🏦 Meow Bank",
+                value=f"Holds **{bank:,}** 🪙 of collected fees.",
+                inline=False,
+            )
+            embed.set_footer(
+                text="🐾 /meowfee state:Off to stop charging it — the coins stay in the server either way"
+            )
+            return await send_card(interaction, embed=embed)
+
+        wanted = meowfee.parse_enabled(state.value)
+        if wanted is None:
+            return await interaction.response.send_message(
+                "❌ Pick **On** or **Off**.", ephemeral=True
+            )
+
+        await meowfee.set_enabled(guild_id, wanted)
+        bank = await meowfee.bank_balance(guild_id)
+        embed = discord.Embed(
+            title="🐾 Meow Fee " + ("On" if wanted else "Off"),
+            description=(
+                (
+                    f"The fee is **on** again — {meowfee.describe()}"
+                    if wanted
+                    else "The fee is **off**. Transfers and robberies now move the "
+                    "exact amount, and nothing goes to Meow Bank."
+                )
+                + f"\n\n> 🏦 **Meow Bank** still holds **{bank:,}** 🪙."
+            ),
+            color=0x2ECC71 if wanted else 0x5865F2,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_footer(text=f"🐾 Changed by {interaction.user.display_name}")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit coins into your bank.")
