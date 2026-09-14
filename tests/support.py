@@ -42,10 +42,26 @@ class TempDatabaseMixin:
                 "cloud_sync does not share utils.db's database path "
                 f"({resolved!r} != {os.path.abspath(path)!r})"
             )
+
+        # Per-database sync state must never leak from the previous test.
+        cloud_sync._remote_checked = False
+        cloud_sync._last_sync_hash = None
+        cloud_sync._restore_blocked_reason = None
+        cloud_sync._restored_from = None
+        cloud_sync._restored_counts = {}
+        cloud_sync._cloud_has_data = False
+        cloud_sync._shrink_refusals = 0
+        cloud_sync._lease_touched = 0.0
         return path
 
     def release_temp_database(self) -> None:
         db.DB_PATH = self._original_db_path
         cloud_sync._remote_checked = False
         cloud_sync._last_sync_hash = None
+        cloud_sync._restore_blocked_reason = None
+        cloud_sync._restored_from = None
+        cloud_sync._restored_counts = {}
+        cloud_sync._cloud_has_data = False
+        cloud_sync._shrink_refusals = 0
+        cloud_sync._lease_touched = 0.0
         shutil.rmtree(getattr(self, "_temp_dir", ""), ignore_errors=True)

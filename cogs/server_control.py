@@ -313,10 +313,12 @@ class ServerControl(commands.Cog):
             SUPABASE_URL,
             SUPABASE_KEY,
             _last_sync_hash,
-            _restore_blocked_reason,
             _remote_checked,
+            _restored_from,
+            _restored_counts,
             _storage_list,
             BUCKET,
+            upload_refusal_reason,
         )
         supa_ok = bool(SUPABASE_URL and SUPABASE_KEY)
         cloud_files: list[dict] = []
@@ -376,15 +378,23 @@ class ServerControl(commands.Cog):
                 inline=True,
             )
 
-        # Sync status
-        if _restore_blocked_reason:
-            sync_status = f"🛑 Blocked: {_restore_blocked_reason}"
+        # Sync status. The refusal reason is the *whole* decision — an upload
+        # silently not happening is how a backup turns out to be days old, so
+        # this card is the place a human can see why.
+        refusal = upload_refusal_reason(decide=False)
+        if refusal:
+            sync_status = f"🛑 Not uploading: {refusal}"
         elif _remote_checked and _last_sync_hash:
             sync_status = "✅ Synced"
         elif _remote_checked:
             sync_status = "⚠️ Restored but not yet uploaded"
         else:
             sync_status = "⏳ Not yet checked"
+        if _restored_from:
+            restored_rows = sum(_restored_counts.values())
+            sync_status += f"\nRestored from `{_restored_from}` ({restored_rows} rows)"
+        if len(sync_status) > 1024:
+            sync_status = sync_status[:1021] + "…"
         embed.add_field(
             name="🔄 Sync Status",
             value=sync_status,

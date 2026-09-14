@@ -706,8 +706,35 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         except Exception:
             pass
 
+def _install_shutdown_flush() -> None:
+    """Save the database when the host asks us to stop.
+
+    Render stops a container with SIGTERM and kills it a few seconds later,
+    and a signalled Python process dies without ever reaching its ``finally``
+    block — so a redeploy used to discard every coin and XP earned since the
+    last 25-second tick. Flush the newest state instead of waiting to be killed.
+    """
+    import signal
+
+    def _handler(signum, _frame):
+        print(f"[SHUTDOWN] Signal {signum} received — saving the database.", flush=True)
+        try:
+            from utils.cloud_sync import backup_to_cloud_sync
+            backup_to_cloud_sync()
+            print("[SHUTDOWN] Final backup written.", flush=True)
+        except Exception as exc:
+            print(f"[SHUTDOWN] Final backup failed: {exc}", flush=True)
+        raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+    except (ValueError, OSError) as exc:  # not the main thread, or no signals
+        print(f"[SHUTDOWN] Could not install the SIGTERM handler: {exc}", flush=True)
+
+
 async def main():
     # 1. Restore persistent SQLite database from cloud before loading cogs or connecting
+    _install_shutdown_flush()
     try:
         from utils.cloud_sync import restore_from_cloud, backup_to_cloud_sync
         await asyncio.to_thread(restore_from_cloud)

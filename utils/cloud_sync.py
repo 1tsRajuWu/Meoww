@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 import sqlite3
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -76,8 +78,15 @@ def _storage_url(path: str = "") -> str:
     return f"{base}/list/{BUCKET}"
 
 
-def _storage_list() -> list[dict]:
-    """List all files in the bucket."""
+def _storage_list_raw() -> list[dict] | None:
+    """List the bucket, or None when the call itself failed.
+
+    The difference matters: "the bucket is empty" and "Supabase did not answer"
+    used to be the same value (``[]``), so a network blip at boot looked exactly
+    like a brand-new server — and the bot started empty and then behaved as if
+    there was nothing to protect. Nobody can tell those apart downstream, so the
+    failure has to be reported as one.
+    """
     try:
         req = urllib.request.Request(
             _storage_url(),
@@ -86,14 +95,24 @@ def _storage_list() -> list[dict]:
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=20) as resp:
-            return _json.loads(resp.read())
+            payload = _json.loads(resp.read())
+            return payload if isinstance(payload, list) else None
     except Exception as exc:
         print(f"[CLOUD SYNC] ⚠️ Supabase list failed: {exc}", flush=True)
-        return []
+        return None
 
 
-def _storage_download(name: str) -> bytes | None:
-    """Download a file from the bucket, or None on failure."""
+def _storage_list() -> list[dict]:
+    """List all files in the bucket (empty list on failure)."""
+    return _storage_list_raw() or []
+
+
+def _storage_download(name: str, quiet: bool = False) -> bytes | None:
+    """Download a file from the bucket, or None on failure.
+
+    ``quiet`` is for objects that are expected to be missing (the sync lease),
+    where a 404 is an answer rather than a problem.
+    """
     try:
         req = urllib.request.Request(
             _storage_url(name),
@@ -101,8 +120,15 @@ def _storage_download(name: str) -> bytes | None:
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.read()
+    except urllib.error.HTTPError as exc:
+        if quiet and exc.code in (400, 404):
+            return b""
+        if not quiet:
+            print(f"[CLOUD SYNC] ⚠️ Supabase download '{name}' failed: {exc}", flush=True)
+        return None
     except Exception as exc:
-        print(f"[CLOUD SYNC] ⚠️ Supabase download '{name}' failed: {exc}", flush=True)
+        if not quiet:
+            print(f"[CLOUD SYNC] ⚠️ Supabase download '{name}' failed: {exc}", flush=True)
         return None
 
 
@@ -166,11 +192,44 @@ def _looks_like_sqlite(data: bytes) -> bool:
 # Restore
 # --------------------------------------------------------------------------- #
 
+#: Tables whose rows prove a database holds real progress.
+COUNTED_TABLES: tuple[str, ...] = ("economy", "user_levels", "mod_cases", "warnings")
+
+#: Below this many rows a database counts as effectively empty.
+MIN_MEANINGFUL_ROWS: int = 3
+
+#: Object holding the single-writer lease.
+LEASE_FILE: str = "sync-owner.json"
+#: A lease older than this belongs to a process that is no longer running.
+#: A redeploy starts writing again within this window at worst.
+LEASE_TTL: int = 300
+#: How often an idle instance refreshes its lease (seconds).
+LEASE_TOUCH_INTERVAL: int = 120
+#: Consecutive checks a *shrunk* database is held back before its state is accepted.
+SHRINK_GRACE_TICKS: int = 4
+#: Escape hatch for a deliberate wipe: ``CLOUD_SYNC_ALLOW_SHRINK=1``.
+ALLOW_SHRINK: bool = (os.environ.get("CLOUD_SYNC_ALLOW_SHRINK") or "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+
 # Module-level state shared with the upload path.
 _last_sync_hash: str | None = None
 _restore_blocked_reason: str | None = None
 _remote_checked: bool = False
 _last_snapshot_ts: float = 0.0
+
+#: The object this process restored from, or None if it never restored one.
+_restored_from: str | None = None
+#: Row counts of the database as it was restored, so a wipe can be spotted.
+_restored_counts: dict[str, int] = {}
+#: True once the bucket is known to already hold a backup.
+_cloud_has_data: bool = False
+#: One host writes; every other host restores and reads only.
+_INSTANCE_ID: str = socket.gethostname() or f"pid-{os.getpid()}"
+#: When our lease was last refreshed.
+_lease_touched: float = 0.0
+#: How many consecutive checks a shrunken database has been held back.
+_shrink_refusals: int = 0
 
 _warned: set[str] = set()
 
@@ -181,25 +240,89 @@ def _warn_once(msg: str) -> None:
         print(msg, flush=True)
 
 
-def restore_from_cloud() -> bool:
-    """Download the newest usable backup from Supabase and write it to disk."""
-    global _last_sync_hash, _restore_blocked_reason, _remote_checked
+def _row_counts(path: str | None = None) -> dict[str, int]:
+    """How many rows of real progress the database holds per counted table."""
+    counts: dict[str, int] = {}
+    try:
+        conn = sqlite3.connect(path or db_path(), timeout=5.0)
+        try:
+            for table in COUNTED_TABLES:
+                try:
+                    counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                except sqlite3.Error:
+                    counts[table] = 0
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[CLOUD SYNC] ⚠️ Could not count rows: {exc}", flush=True)
+    return counts
+
+
+def _total_rows(counts: dict[str, int] | None = None) -> int:
+    return sum((counts if counts is not None else _row_counts()).values())
+
+
+def restore_from_cloud(attempts: int = 3) -> bool:
+    """Restore the newest usable backup, retrying before giving up.
+
+    One failed download used to end the attempt for good: the bot came up with
+    an empty database, and the next upload overwrote the backup with it. The
+    restore is now retried, and if every attempt fails the upload path is left
+    **blocked** — an instance that could not read the backup must never write
+    over it.
+    """
+    for attempt in range(1, max(1, attempts) + 1):
+        status = _restore_once()
+        if status == "restored":
+            return True
+        if status == "empty":
+            return False
+        if attempt < attempts:
+            delay = 2.0 * attempt
+            print(
+                f"[CLOUD SYNC] Restore attempt {attempt}/{attempts} failed — "
+                f"retrying in {delay:.0f}s.",
+                flush=True,
+            )
+            time.sleep(delay)
+
+    _block_uploads(
+        "the cloud backup could not be downloaded at startup, so uploading "
+        "could overwrite it with a different database"
+    )
+    return False
+
+
+def _restore_once() -> str:
+    """One restore attempt. Returns ``restored``, ``empty`` or ``failed``."""
+    global _last_sync_hash, _remote_checked, _restored_from, _restored_counts
+    global _cloud_has_data
 
     if not SUPABASE_URL or not SUPABASE_KEY:
-        print("[CLOUD SYNC] ⚠️ SUPABASE_URL or SUPABASE_SERVICE_KEY not set — skipping restore.", flush=True)
-        return False
+        print(
+            "[CLOUD SYNC] ⚠️ SUPABASE_URL or SUPABASE_SERVICE_KEY not set — "
+            "skipping restore.",
+            flush=True,
+        )
+        return "failed"
 
-    _restore_blocked_reason = None
     _remote_checked = True
 
-    objects = _storage_list()
+    objects = _storage_list_raw()
+    if objects is None:
+        return "failed"
     if not objects:
+        _cloud_has_data = False
+        _clear_block()
         print("[CLOUD SYNC] ⚠️ No files in Supabase bucket — starting fresh.", flush=True)
-        return False
+        return "empty"
 
-    # Try current file first, then newest snapshot
+    # A backup exists, so from here on this instance is only allowed to upload a
+    # descendant of it.
+    _cloud_has_data = True
+
     candidates = []
-    if any(o["name"] == CURRENT_FILE for o in objects):
+    if any(o.get("name") == CURRENT_FILE for o in objects):
         candidates.append(CURRENT_FILE)
     candidates.extend(_snapshot_names(objects))
 
@@ -207,38 +330,73 @@ def restore_from_cloud() -> bool:
         data = _storage_download(name)
         if data is None:
             continue
-        if not _looks_like_sqlite(data):
-            print(f"[CLOUD SYNC] ⚠️ '{name}' is not a valid SQLite database — skipping.", flush=True)
+        if not _looks_like_sqlite(data) or len(data) < 1024:
+            print(
+                f"[CLOUD SYNC] ⚠️ '{name}' is not a usable SQLite database "
+                f"({len(data):,} bytes) — skipping.",
+                flush=True,
+            )
             continue
 
         temp = f"{db_path()}.tmp"
         with open(temp, "wb") as f:
             f.write(data)
 
-        # Remove stale WAL/SHM before swapping
-        for suffix in ("-wal", "-shm"):
-            try:
-                os.remove(db_path() + suffix)
-            except FileNotFoundError:
-                pass
-
-        # Safety check: don't restore if the downloaded database is suspiciously small
-        # This prevents restoring an empty or corrupted backup over good data
-        if len(data) < 1024:  # Less than 1KB is definitely empty/corrupted
-            print(f"[CLOUD SYNC] ⚠️ '{name}' is too small ({len(data)} bytes) — likely empty. Skipping.", flush=True)
-            os.remove(temp)
+        # The downloaded file must actually open and hold the tables we count,
+        # or we would swap in a corrupt database and lose everything on the
+        # next upload. Verify before the swap, not after.
+        counts = _row_counts(temp)
+        if _total_rows(counts) == 0:
+            print(
+                f"[CLOUD SYNC] ⚠️ '{name}' restored but holds no economy/level "
+                "rows — trying the next candidate.",
+                flush=True,
+            )
+            _remove(temp)
+            counts = {}
+            # Keep looking: an empty snapshot is worse than an older full one.
             continue
+
+        # Remove stale WAL/SHM before swapping, or SQLite replays the old,
+        # empty write-ahead log over the restored file.
+        for suffix in ("-wal", "-shm"):
+            _remove(db_path() + suffix)
 
         os.replace(temp, db_path())
         _last_sync_hash = hashlib.sha256(data).hexdigest()
+        _restored_from = name
+        _restored_counts = counts
+        _clear_block()
         print(
-            f"[CLOUD SYNC] ✅ Restored from Supabase '{name}' ({len(data):,} bytes).",
+            f"[CLOUD SYNC] ✅ Restored '{name}' ({len(data):,} bytes) — "
+            + ", ".join(f"{t}={n}" for t, n in counts.items()),
             flush=True,
         )
-        return True
+        return "restored"
 
     print("[CLOUD SYNC] ❌ No usable snapshot found in Supabase.", flush=True)
-    return False
+    # The bucket has backups, but none of them could be used. Uploading now
+    # would replace them with whatever this process happens to hold.
+    _block_uploads("no usable backup could be restored, but the bucket holds one")
+    return "failed"
+
+
+def _remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _block_uploads(reason: str) -> None:
+    global _restore_blocked_reason
+    _restore_blocked_reason = reason
+    print(f"[CLOUD SYNC] 🛑 Uploads blocked: {reason}", flush=True)
+
+
+def _clear_block() -> None:
+    global _restore_blocked_reason
+    _restore_blocked_reason = None
 
 
 def restore_blocked_reason() -> str | None:
@@ -252,100 +410,193 @@ def restore_blocked_reason() -> str | None:
 _upload_lock_active = False
 
 
+def _snapshot_bytes(path: str) -> bytes | None:
+    """A transactionally consistent copy of the database, WAL included.
+
+    Reading the file directly is not enough in WAL mode: every row committed
+    since the last checkpoint lives in ``bot.db-wal``, so a raw read uploads a
+    database that is *missing the newest progress* — and the next restart
+    restores that older state, which is exactly what "my coins went back"
+    looks like. SQLite's own backup API copies a consistent snapshot instead,
+    and it works while the bot is writing.
+    """
+    fd, temp = tempfile.mkstemp(prefix="meow-snapshot-", suffix=".db")
+    os.close(fd)
+    try:
+        source = sqlite3.connect(path, timeout=15.0)
+        try:
+            target = sqlite3.connect(temp)
+            try:
+                source.backup(target)
+            finally:
+                target.close()
+        finally:
+            source.close()
+        with open(temp, "rb") as f:
+            return f.read()
+    except Exception as exc:
+        print(f"[CLOUD SYNC] ⚠️ Could not snapshot the database: {exc}", flush=True)
+        return None
+    finally:
+        _remove(temp)
+
+
+# --------------------------------------------------------------------------- #
+# Single writer
+# --------------------------------------------------------------------------- #
+
+def _lease_problem() -> str | None:
+    """Whether some other live instance owns the bucket."""
+    if not _cloud_has_data:
+        return None
+    raw = _storage_download(LEASE_FILE, quiet=True)
+    if not raw:  # missing, or we cannot tell — the restore rule still applies
+        return None
+    try:
+        lease = _json.loads(raw)
+    except Exception:
+        return None
+    owner = str(lease.get("owner") or "")
+    if not owner or owner == _INSTANCE_ID:
+        return None
+    age = time.time() - float(lease.get("ts") or 0)
+    if age > LEASE_TTL:
+        print(
+            f"[CLOUD SYNC] Taking over the sync lease from '{owner}' "
+            f"(idle for {age / 60:.0f} min).",
+            flush=True,
+        )
+        return None
+    return (
+        f"'{owner}' owns the bucket ({age / 60:.1f} min ago) — running two "
+        "instances of the bot against one backup is how progress gets reverted"
+    )
+
+
+def _lease_touch(force: bool = False) -> None:
+    """Keep our claim on the bucket warm, even when nothing changed."""
+    global _lease_touched
+    now = time.time()
+    if not force and (now - _lease_touched) < LEASE_TOUCH_INTERVAL:
+        return
+    payload = _json.dumps({
+        "owner": _INSTANCE_ID,
+        "ts": now,
+        "pid": os.getpid(),
+    }).encode()
+    if _storage_upload(LEASE_FILE, payload):
+        _lease_touched = now
+
+
+# --------------------------------------------------------------------------- #
+# Upload decision
+# --------------------------------------------------------------------------- #
+
+def upload_refusal_reason(decide: bool = True) -> str | None:
+    """Why this process must not write to the bucket, or None when it may.
+
+    Every rule here exists because the alternative loses somebody's coins:
+
+    1. An empty database never replaces a bucket that may hold one.
+    2. Only a descendant of the backup may overwrite it — an instance that
+       never restored is a stranger, and its database is not the truth.
+    3. A collapse in row counts is held back for a few checks (long enough for
+       a restart or a halfway write to sort itself out) and then accepted,
+       because a genuinely reset server must be able to save again.
+    4. One host writes; a second live instance is told to keep its hands off.
+
+    ``decide=False`` answers the same question without spending a grace tick,
+    for callers that are only reporting (``/dbstatus``).
+    """
+    global _shrink_refusals
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return "Supabase is not configured"
+    if _restore_blocked_reason:
+        return _restore_blocked_reason
+
+    local_total = _total_rows()
+
+    if local_total == 0 and _remote_checked:
+        return (
+            "this instance holds no economy/level rows while the bucket may "
+            "already hold a backup"
+        )
+
+    if _cloud_has_data and _restored_from is None:
+        return (
+            "this instance never restored the cloud backup, so its database is "
+            "not a descendant of the one being protected"
+        )
+
+    restored_total = _total_rows(_restored_counts)
+    if not ALLOW_SHRINK and restored_total >= MIN_MEANINGFUL_ROWS:
+        if local_total * 2 < restored_total:
+            if decide:
+                _shrink_refusals += 1
+            if _shrink_refusals < SHRINK_GRACE_TICKS:
+                return (
+                    f"rows fell from {restored_total} to {local_total} "
+                    f"(check {_shrink_refusals}/{SHRINK_GRACE_TICKS})"
+                )
+            if decide:
+                print(
+                    f"[CLOUD SYNC] ⚠️ Row count settled at {local_total} after "
+                    f"{_shrink_refusals} checks — accepting it as the real state.",
+                    flush=True,
+                )
+    _shrink_refusals = 0
+
+    return _lease_problem()
+
+
 def backup_to_cloud_sync() -> bool:
-    """Encrypt and upload the current database to Supabase Storage."""
-    global _last_sync_hash, _last_snapshot_ts, _remote_checked, _upload_lock_active
+    """Upload a consistent snapshot of the database to Supabase Storage."""
+    global _upload_lock_active
 
     if _upload_lock_active:
         return False
     _upload_lock_active = True
     try:
-        # Safety check: don't backup if the database is suspiciously empty
-        # This prevents overwriting a good cloud backup with fresh empty tables
-        path = db_path()
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            import sqlite3
-            try:
-                conn = sqlite3.connect(path, timeout=5.0)
-                # Check if we have any real data (economy, levels, etc.)
-                row_count = 0
-                for table in ('economy', 'user_levels', 'warnings', 'mod_cases'):
-                    try:
-                        cur = conn.execute(f"SELECT COUNT(*) FROM {table}")
-                        row_count += cur.fetchone()[0]
-                    except Exception:
-                        pass
-                conn.close()
-                if row_count == 0 and _last_sync_hash is not None:
-                    # We have no data BUT we successfully restored something from the remote
-                    # This means the restore gave us an empty DB — don't overwrite the cloud copy
-                    _warn_once("[CLOUD SYNC] ⚠️ Local database has no user data after restore — skipping backup to protect cloud copy.")
-                    return False
-            except Exception:
-                pass
         return _backup_inner()
     finally:
         _upload_lock_active = False
 
 
 def _backup_inner() -> bool:
-    global _last_sync_hash, _last_snapshot_ts, _remote_checked
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        return False
-    if _restore_blocked_reason:
-        _warn_once(f"[CLOUD SYNC] 🛑 Upload blocked: {_restore_blocked_reason}")
+    global _last_sync_hash, _last_snapshot_ts
+
+    reason = upload_refusal_reason()
+    if reason:
+        _warn_once(f"[CLOUD SYNC] 🛑 Not uploading: {reason}")
         return False
 
     path = db_path()
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return False
 
-    # Checkpoint WAL so the main file contains every committed change.
-    # Without this, ``open(path, 'rb')`` reads a stale snapshot because
-    # SQLite in WAL mode writes to bot.db-wal, not the main file — and the
-    # SHA-256 hash would never change, silently skipping every upload.
-    try:
-        _conn = sqlite3.connect(path, timeout=5.0)
-        try:
-            _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        finally:
-            _conn.close()
-    except Exception:
-        pass
-
-    with open(path, "rb") as f:
-        raw = f.read()
+    raw = _snapshot_bytes(path)
+    if raw is None:
+        return False
 
     current_hash = hashlib.sha256(raw).hexdigest()
     if current_hash == _last_sync_hash:
-        return True  # nothing changed
+        _lease_touch()  # alive and unchanged: keep the claim warm, upload nothing
+        return True
 
-    # Safety: refuse to upload an empty database when the remote has data
-    if _remote_checked and _db_looks_empty():
-        _warn_once(
-            "[CLOUD SYNC] 🛑 Refusing to upload: local database has no economy/level rows "
-            "but Supabase already holds a backup. Uploading would overwrite real progress."
-        )
-        return False
-
-    # Upload current backup
     if not _storage_upload(CURRENT_FILE, raw):
         return False
 
-    # Rotate snapshots
-    now = time.time()
-    do_snapshot = (now - _last_snapshot_ts) >= SNAPSHOT_INTERVAL
+    _lease_touch(force=True)
 
-    if do_snapshot:
+    now = time.time()
+    if (now - _last_snapshot_ts) >= SNAPSHOT_INTERVAL:
         stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-        snap_name = f"{SNAPSHOT_PREFIX}{stamp}{SNAPSHOT_SUFFIX}"
-        _storage_upload(snap_name, raw)
+        _storage_upload(f"{SNAPSHOT_PREFIX}{stamp}{SNAPSHOT_SUFFIX}", raw)
         _last_snapshot_ts = now
 
-        # Prune old snapshots
         objects = _storage_list()
-        snaps = _snapshot_names(objects)
-        for old in snaps[BACKUP_KEEP:]:
+        for old in _snapshot_names(objects)[BACKUP_KEEP:]:
             _storage_delete(old)
 
     _last_sync_hash = current_hash
@@ -358,26 +609,16 @@ def _backup_inner() -> bool:
 
 def _db_looks_empty() -> bool:
     """True when no member has any level or economy row."""
-    try:
-        conn = sqlite3.connect(db_path(), timeout=5.0)
-        try:
-            for table in ("user_levels", "economy"):
-                try:
-                    row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-                except sqlite3.Error:
-                    continue
-                if row and row[0]:
-                    return False
-            return True
-        finally:
-            conn.close()
-    except Exception:
-        return True
+    return _total_rows() == 0
 
 
 # --------------------------------------------------------------------------- #
 # Background loop
 # --------------------------------------------------------------------------- #
+
+#: How often an instance that could not restore retries while it is empty.
+RESTORE_RETRY_INTERVAL: int = 120
+
 
 async def cloud_sync_loop():
     """Sync every 25 seconds.
@@ -387,9 +628,19 @@ async def cloud_sync_loop():
     (like the env vars disappearing mid-run) should stop syncing.
     """
     import asyncio
+    last_restore_try = 0.0
     while True:
         try:
             await asyncio.sleep(25)
+            # An instance that booted during a Supabase blip is blocked from
+            # uploading. While it still holds nothing, picking the backup up
+            # late costs nobody anything, so keep trying — otherwise the only
+            # cure is a manual restart.
+            if _restore_blocked_reason and _total_rows() == 0:
+                if time.time() - last_restore_try >= RESTORE_RETRY_INTERVAL:
+                    last_restore_try = time.time()
+                    print("[CLOUD SYNC] Retrying the startup restore…", flush=True)
+                    await asyncio.to_thread(restore_from_cloud, 1)
             await asyncio.to_thread(backup_to_cloud_sync)
         except Exception as exc:
             _warn_once(f"[CLOUD SYNC] ⚠️ Loop error (will retry): {exc}")

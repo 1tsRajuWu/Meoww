@@ -81,7 +81,7 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # Remove the local file so restore must download
         os.remove(cs.db_path())
 
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
              mock.patch.object(cs, "_storage_download", side_effect=lambda n: fake.download(n)):
             result = cs.restore_from_cloud()
 
@@ -103,24 +103,68 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         fake.files["bot-db-20260913-120000.db"] = data
         os.remove(cs.db_path())
 
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
              mock.patch.object(cs, "_storage_download", side_effect=lambda n: fake.download(n)):
             result = cs.restore_from_cloud()
 
         self.assertTrue(result)
 
     def test_restore_fails_gracefully_on_empty_bucket(self):
-        with mock.patch.object(cs, "_storage_list", return_value=[]):
+        with mock.patch.object(cs, "_storage_list_raw", return_value=[]):
             result = cs.restore_from_cloud()
         self.assertFalse(result)
 
     def test_restore_skips_corrupted_files(self):
         fake = _FakeSupabase()
         fake.files["bot.db"] = b"not a database"
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
-             mock.patch.object(cs, "_storage_download", side_effect=lambda n: fake.download(n)):
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n: fake.download(n)), \
+             mock.patch.object(cs.time, "sleep", return_value=None):
             result = cs.restore_from_cloud()
         self.assertFalse(result)
+        # Backups exist but none could be used: uploading would replace them.
+        self.assertIsNotNone(cs._restore_blocked_reason)
+
+    def test_restore_records_what_it_restored(self):
+        fake = _FakeSupabase()
+        _make_db(cs.db_path())
+        with open(cs.db_path(), "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        os.remove(cs.db_path())
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n: fake.download(n)):
+            self.assertTrue(cs.restore_from_cloud())
+        self.assertEqual(cs._restored_from, "bot.db")
+        self.assertTrue(cs._cloud_has_data)
+        self.assertEqual(cs._restored_counts.get("economy"), 1)
+        self.assertIsNone(cs._restore_blocked_reason)
+
+    def test_restore_retries_before_giving_up(self):
+        """One failed list call must not leave the bot running on an empty DB."""
+        fake = _FakeSupabase()
+        _make_db(cs.db_path())
+        with open(cs.db_path(), "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        os.remove(cs.db_path())
+        answers = [None, None, fake.list_objects()]
+
+        with mock.patch.object(cs, "_storage_list_raw", side_effect=lambda: answers.pop(0)), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n, quiet=False: fake.download(n)), \
+             mock.patch.object(cs.time, "sleep", return_value=None):
+            self.assertTrue(cs.restore_from_cloud())
+
+    def test_a_failed_restore_blocks_uploads(self):
+        """If the backup cannot be read, it must never be overwritten."""
+        with mock.patch.object(cs, "_storage_list_raw", return_value=None), \
+             mock.patch.object(cs.time, "sleep", return_value=None):
+            self.assertFalse(cs.restore_from_cloud())
+        self.assertIsNotNone(cs._restore_blocked_reason)
+        _make_db(cs.db_path())
+        fake = _FakeSupabase()
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)):
+            self.assertFalse(cs.backup_to_cloud_sync())
+        self.assertNotIn("bot.db", fake.files)
 
 
 class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
@@ -147,7 +191,7 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         _make_db(cs.db_path())
         fake = _FakeSupabase()
 
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
              mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)), \
              mock.patch.object(cs, "_storage_delete", side_effect=lambda n: fake.delete(n)):
             result = cs.backup_to_cloud_sync()
@@ -160,7 +204,7 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         _make_db(cs.db_path())
         fake = _FakeSupabase()
 
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
              mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)), \
              mock.patch.object(cs, "_storage_delete", side_effect=lambda n: fake.delete(n)):
             cs.backup_to_cloud_sync()  # first upload
@@ -178,7 +222,7 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         fake = _FakeSupabase()
         fake.files["bot.db"] = b"SQLite format 3\x00" + b"\x00" * 200
 
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
              mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)):
             result = cs.backup_to_cloud_sync()
 
@@ -189,6 +233,104 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         result = cs.backup_to_cloud_sync()
         self.assertFalse(result)
 
+    def _backup_into(self, fake, **patches):
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n, quiet=False: fake.download(n) or b""), \
+             mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)), \
+             mock.patch.object(cs, "_storage_delete", side_effect=lambda n: fake.delete(n)):
+            return cs.backup_to_cloud_sync()
+
+    def test_snapshot_includes_rows_still_in_the_wal(self):
+        """The headline bug: a raw file read loses everything in the WAL.
+
+        A row committed into ``bot.db-wal`` is invisible to ``open(path, 'rb')``
+        until something checkpoints. That is how a restart "reset" progress:
+        the uploaded copy was simply older than the database it came from.
+        """
+        path = cs.db_path()
+        conn = sqlite3.connect(path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
+            "INSERT OR REPLACE INTO economy VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (MEMBER, GUILD, 999, 111, None, None, None),
+        )
+        conn.commit()
+        # Deliberately no checkpoint, and the connection stays open.
+        fake = _FakeSupabase()
+        self.assertTrue(self._backup_into(fake))
+        uploaded = fake.files["bot.db"]
+        conn.close()
+
+        # The uploaded copy must open on its own and contain the commit.
+        restored = os.path.join(tempfile.mkdtemp(prefix="meow-wal-"), "restored.db")
+        with open(restored, "wb") as f:
+            f.write(uploaded)
+        check = sqlite3.connect(restored)
+        row = check.execute(
+            "SELECT wallet, bank FROM economy WHERE user_id=?", (MEMBER,)
+        ).fetchone()
+        check.close()
+        self.assertIsNotNone(row, "the uploaded backup lost rows that were in the WAL")
+        self.assertEqual(row[0], 999)
+
+    def test_stranger_instance_may_not_overwrite_the_backup(self):
+        """A second host with its own database must not replace the cloud copy."""
+        _make_db(cs.db_path())
+        cs._cloud_has_data = True
+        cs._restored_from = None  # never restored: not a descendant of the backup
+        fake = _FakeSupabase()
+        self.assertFalse(self._backup_into(fake))
+        self.assertNotIn("bot.db", fake.files)
+
+    def test_descendant_instance_may_write(self):
+        _make_db(cs.db_path())
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {"economy": 1, "user_levels": 1}
+        fake = _FakeSupabase()
+        self.assertTrue(self._backup_into(fake))
+        self.assertIn("bot.db", fake.files)
+
+    def test_wiped_database_is_held_back_then_accepted(self):
+        """A collapse is not uploaded immediately, and not blocked forever."""
+        _make_db(cs.db_path())
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {"economy": 10, "user_levels": 10}
+        fake = _FakeSupabase()
+
+        # The local rows are gone (someone wiped the file), so the first checks
+        # refuse...
+        for _ in range(cs.SHRINK_GRACE_TICKS - 1):
+            self.assertFalse(self._backup_into(fake))
+        # ...and then the settled state is accepted, or no server could ever
+        # save again after a deliberate reset.
+        self.assertTrue(self._backup_into(fake))
+
+    def test_another_live_instance_blocks_the_upload(self):
+        _make_db(cs.db_path())
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {}
+        fake = _FakeSupabase()
+        fake.files[cs.LEASE_FILE] = cs._json.dumps(
+            {"owner": "other-host", "ts": cs.time.time()}
+        ).encode()
+        self.assertFalse(self._backup_into(fake))
+        self.assertNotIn("bot.db", fake.files)
+
+    def test_a_stale_lease_can_be_taken_over(self):
+        _make_db(cs.db_path())
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {}
+        fake = _FakeSupabase()
+        fake.files[cs.LEASE_FILE] = cs._json.dumps(
+            {"owner": "other-host", "ts": cs.time.time() - cs.LEASE_TTL - 60}
+        ).encode()
+        self.assertTrue(self._backup_into(fake))
+        self.assertIn("bot.db", fake.files)
+
     def test_backup_prunes_old_snapshots(self):
         _make_db(cs.db_path())
         fake = _FakeSupabase()
@@ -196,7 +338,7 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         for i in range(10):
             fake.files[f"bot-db-20260913-{i:06d}.db"] = b"old"
 
-        with mock.patch.object(cs, "_storage_list", return_value=fake.list_objects()), \
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
              mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)), \
              mock.patch.object(cs, "_storage_delete", side_effect=lambda n: fake.delete(n)):
             cs._last_snapshot_ts = 0  # force snapshot
