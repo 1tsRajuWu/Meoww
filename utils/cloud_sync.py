@@ -265,6 +265,19 @@ def _backup_inner() -> bool:
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return False
 
+    # Checkpoint WAL so the main file contains every committed change.
+    # Without this, ``open(path, 'rb')`` reads a stale snapshot because
+    # SQLite in WAL mode writes to bot.db-wal, not the main file — and the
+    # SHA-256 hash would never change, silently skipping every upload.
+    try:
+        _conn = sqlite3.connect(path, timeout=5.0)
+        try:
+            _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            _conn.close()
+    except Exception:
+        pass
+
     with open(path, "rb") as f:
         raw = f.read()
 
