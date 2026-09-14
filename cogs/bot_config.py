@@ -15,13 +15,32 @@ class BotConfig(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+
+    async def _require_app_owner(self, interaction: discord.Interaction) -> bool:
+        """Only the Discord application owner may edit the global bot profile.
+
+        Checking guild.owner_id let *any* server owner the bot shared a guild
+        with replace the avatar/banner for every guild — a multi-tenant takeover.
+        """
+        import os
+        configured = int(os.environ.get("OWNER_USER_ID", "0") or "0")
+        if configured and interaction.user.id == configured:
+            return True
+        if await interaction.client.is_owner(interaction.user):
+            return True
+        await interaction.response.send_message(
+            "❌ Only the **bot application owner** can change the bot's profile.",
+            ephemeral=True,
+        )
+        return False
+
     @app_commands.command(name="setbanner", description="Set the bot's profile banner (Owner only).")
     @app_commands.describe(image="The image file to use as the banner")
     @app_commands.checks.has_permissions(administrator=True)
     async def setbanner(self, interaction: discord.Interaction, image: discord.Attachment):
-        if not interaction.user.id == interaction.guild.owner_id:
-            return await interaction.response.send_message("Only the server owner can change the bot's banner.", ephemeral=True)
-            
+        if not await self._require_app_owner(interaction):
+            return
+
         if not image.content_type or not image.content_type.startswith("image/"):
             return await interaction.response.send_message("Please upload a valid image file.", ephemeral=True)
             
@@ -39,9 +58,9 @@ class BotConfig(commands.Cog):
     @app_commands.describe(image="The image file to use as the avatar")
     @app_commands.checks.has_permissions(administrator=True)
     async def setavatar(self, interaction: discord.Interaction, image: discord.Attachment):
-        if not interaction.user.id == interaction.guild.owner_id:
-            return await interaction.response.send_message("Only the server owner can change the bot's avatar.", ephemeral=True)
-            
+        if not await self._require_app_owner(interaction):
+            return
+
         if not image.content_type or not image.content_type.startswith("image/"):
             return await interaction.response.send_message("Please upload a valid image file.", ephemeral=True)
             
@@ -126,6 +145,19 @@ class BotConfig(commands.Cog):
                             "• No `#bot-cmd` channel found here, so level-up cards stay "
                             "off until one exists."
                         )
+            uploads = (
+                discord.utils.get(guild.text_channels, name="uploads")
+                or discord.utils.get(guild.text_channels, name="📤・uploads")
+                or discord.utils.get(guild.text_channels, name="upload")
+            )
+            if uploads:
+                await db.set_setting(guild.id, "upload_channel_id", uploads.id)
+                notes.append(f"• Upload channel bound to {uploads.mention}.")
+            else:
+                notes.append(
+                    "• No `#uploads` channel found — set `UPLOAD_CHANNEL_ID` or "
+                    "create one and re-run `/updatedb`."
+                )
             notes.append("• Economy and leveling tables ready.")
             await interaction.followup.send(
                 "✅ **Database Successfully Updated!**\n" + "\n".join(notes)

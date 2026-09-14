@@ -1216,24 +1216,45 @@ class Economy(commands.Cog):
 
         from utils.admin_limits import needs_approval, ADMIN_ADDMONEY_LIMIT, request_approval
 
+        eco = await get_eco(member.id, interaction.guild.id)
+        available = max(0, int(eco["wallet"]))
+        if available == 0:
+            return await interaction.response.send_message(
+                f"❌ {member.display_name} has no coins in their wallet.", ephemeral=True
+            )
+        removed = min(amount, available)
+
         if needs_approval(amount, ADMIN_ADDMONEY_LIMIT):
             async def execute():
-                await ensure_eco(member.id, interaction.guild.id)
-                await update_wallet(member.id, interaction.guild.id, -amount)
+                # Re-read at approval time — wallet may have changed.
+                current = await get_eco(member.id, interaction.guild.id)
+                avail = max(0, int(current["wallet"]))
+                if avail == 0:
+                    return
+                take = min(amount, avail)
+                await settle_bet(member.id, interaction.guild.id, take, 0.0)
             return await request_approval(
                 interaction, member, "💰 coins (removal)", amount, execute,
                 limit=ADMIN_ADDMONEY_LIMIT,
             )
 
-        await ensure_eco(member.id, interaction.guild.id)
-        await update_wallet(member.id, interaction.guild.id, -amount)
-        
+        if not await settle_bet(member.id, interaction.guild.id, removed, 0.0):
+            return await interaction.response.send_message(
+                "❌ Could not remove coins — wallet changed. Try again.", ephemeral=True
+            )
+
         embed = discord.Embed(
             title="💸 Money Removed",
-            description=f"Removed **{amount:,}** 🪙 from {member.mention}'s wallet.",
+            description=f"Removed **{removed:,}** 🪙 from {member.mention}'s wallet.",
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
+        if removed < amount:
+            embed.add_field(
+                name="Partial removal",
+                value=f"They only held **{available:,}** 🪙, so that is all that was removed.",
+                inline=False,
+            )
         embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
         await send_card(interaction, embed=embed)
 

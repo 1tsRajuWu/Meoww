@@ -332,6 +332,14 @@ async def setup():
             as_of REAL DEFAULT 0
         )''')
 
+        # Archived music cog still exposes 24/7 helpers; create the table so
+        # those readers do not fail on a fresh database.
+        await db.execute('''CREATE TABLE IF NOT EXISTS music_247 (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER DEFAULT 0,
+            enabled INTEGER DEFAULT 0
+        )''')
+
         # One-time migration for the 1:1 rate change (250 coins per dollar became
         # 1). Every stored market amount is in coin units, so without this every
         # existing holder's cost basis would be 250x the value of their position —

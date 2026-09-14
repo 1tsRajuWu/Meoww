@@ -10,6 +10,7 @@ from collections import defaultdict, deque
 from threading import Lock, Thread
 import socket
 import datetime
+import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import features, modules
 
@@ -93,6 +94,25 @@ if not ADMIN_PASSKEY:
         "/dashboard in Discord. Set ADMIN_PASSKEY to enable passkey login.",
         flush=True,
     )
+
+
+def _passkey_ok() -> bool:
+    """Validate ADMIN_PASSKEY from header or JSON body — never from the query string."""
+    if not ADMIN_PASSKEY:
+        return False
+    provided = request.headers.get("X-Admin-Passkey") or ""
+    if not provided and request.method in ("POST", "PUT", "PATCH"):
+        data = request.get_json(silent=True) or {}
+        provided = str(data.get("passkey") or "")
+    if not provided:
+        return False
+    return secrets.compare_digest(provided, ADMIN_PASSKEY)
+
+
+_SECRETISH = __import__("re").compile(
+    r"(?i)(token|passkey|password|authorization|bearer|api[_-]?key|secret)\s*[:=]\s*\S+"
+)
+
 MAGIC_TTL_SECONDS = 15 * 60
 MAGIC_TOKENS = {}
 _magic_lock = Lock()
@@ -150,13 +170,15 @@ def _client_ip() -> str:
     """Return the client IP used for rate limiting.
 
     X-Forwarded-For is only consulted when a trusted proxy terminates the
-    connection; each proxy appends the address it saw, so the *last* entry is
-    the real client and the earlier ones can be attacker-supplied.
+    connection. Each proxy *appends* the address it saw, so the rightmost hop
+    is the safer choice (leftward entries can be client-spoofed). Prefer that
+    hop over ``parts[0]``.
     """
     if _trust_proxy_headers:
         forwarded = request.headers.get("X-Forwarded-For", "")
         parts = [p.strip() for p in forwarded.split(",") if p.strip()]
         if parts:
+            # Safer hop: rightmost address appended by our trusted proxy.
             return parts[-1][:64]
     return (request.remote_addr or "unknown")[:64]
 
@@ -285,11 +307,15 @@ def health():
 
 @app.route("/api/live-logs")
 def api_live_logs():
-    auth = request.args.get("passkey")
-    if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY):
+    # Prefer dashboard session; allow header passkey for ops tooling.
+    if is_authenticated():
+        if not validate_csrf() and request.method != "GET":
+            return jsonify({"error": "CSRF"}), 403
+    elif not _passkey_ok():
         return jsonify({"error": "Unauthorized"}), 401
     try:
         content = "".join(str(x) for x in list(LOG_RING))
+        content = _SECRETISH.sub(r"\1=[redacted]", content)
         return Response(content, mimetype="text/plain; charset=utf-8")
     except Exception as e:
         return Response(f"Error fetching logs: {e}", mimetype="text/plain; charset=utf-8")
@@ -298,10 +324,9 @@ def api_live_logs():
 @app.route("/api/set-module", methods=["POST"])
 def api_set_module():
     """Passkey-authenticated module toggle — no CSRF required (internal use only)."""
-    data = request.get_json(silent=True) or {}
-    auth = data.get("passkey") or request.args.get("passkey", "")
-    if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY):
+    if not _passkey_ok():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
 
     guild_id_raw = data.get("guild_id")
     module_id = data.get("module", "")
@@ -324,8 +349,7 @@ def api_set_module():
 
 @app.route("/api/voice-debug")
 def api_voice_debug():
-    auth = request.args.get("passkey")
-    if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY):
+    if not _passkey_ok():
         return jsonify({"error": "Unauthorized"}), 401
 
     import ctypes.util
@@ -510,12 +534,15 @@ def market_page(symbol: str):
     """The live, interactive chart for one instrument."""
     from utils import market as market_module
 
-    instrument = market_module.BY_SYMBOL.get(str(symbol or "").strip().upper())
+    raw = str(symbol or "")
+    instrument = market_module.BY_SYMBOL.get(raw.strip().upper())
     if instrument is None:
+        safe = _html.escape(raw, quote=True)
         return (
-            f"<h1>404 — {symbol} is not on the market</h1>"
+            f"<h1>404 — {safe} is not on the market</h1>"
             "<p><a href='/market/BTC'>Open BTC instead</a></p>",
             404,
+            {"Content-Type": "text/html; charset=utf-8"},
         )
     return render_template(
         "market_live.html",

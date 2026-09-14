@@ -126,14 +126,18 @@ class BlackjackView(discord.ui.View):
         embed.set_footer(text="🐾 Meow Casino • 45s turn timer")
         return embed
 
-    async def _finish_hand(self) -> str:
-        """Play the dealer out and move the coins. Returns 'win' | 'push' | 'lose'.
+    async def _finish_hand(self) -> str | None:
+        """Settle once. Returns result or None if already finished.
 
         Shared by the Stand button and the turn timer. Resolving the hand on
         timeout matters because the stake is taken when the game is dealt: the
         timer used to end the game without settling it, so a player who walked
         away silently lost their bet with no message and no result.
+        Set ``finished`` *before* any payout await so Stand+timeout cannot
+        double-pay.
         """
+        if self.finished:
+            return None
         self.finished = True
         while self.hand_value(self.dealer_hand) < 17:
             if not self.deck:
@@ -142,6 +146,7 @@ class BlackjackView(discord.ui.View):
         pv = self.hand_value(self.player_hand)
         dv = self.hand_value(self.dealer_hand)
         if dv > 21 or pv > dv:
+            # stake already taken: credit 2x stake (return + win)
             await update_wallet(self.user_id, self.guild_id, self.bet * 2)
             return "win"
         if pv == dv:
@@ -150,9 +155,10 @@ class BlackjackView(discord.ui.View):
         return "lose"
 
     async def on_timeout(self):
-        if not self.finished:
-            await self._finish_hand()
-            self.clear_items()
+        result = await self._finish_hand()
+        if result is None:
+            return
+        self.clear_items()
 
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.success, emoji="🃏")
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -180,6 +186,8 @@ class BlackjackView(discord.ui.View):
 
     async def do_stand(self, interaction):
         result = await self._finish_hand()
+        if result is None:
+            return
         self.clear_items()
         await interaction.response.edit_message(embed=self.make_embed(result), view=self)
 
@@ -346,13 +354,14 @@ class MinesView(discord.ui.View):
         await interaction.response.edit_message(embed=self.make_embed("cashed_out"), view=self)
 
     async def on_timeout(self):
-        if not self.finished:
-            self.finished = True
-            if self.revealed_gems > 0:
-                payout = int(self.bet * self.current_mult)
-                await update_wallet(self.user_id, self.guild_id, payout)
-            else:
-                await update_wallet(self.user_id, self.guild_id, self.bet)
+        if self.finished:
+            return
+        self.finished = True
+        if self.revealed_gems > 0:
+            payout = int(self.bet * self.current_mult)
+            await update_wallet(self.user_id, self.guild_id, payout)
+        else:
+            await update_wallet(self.user_id, self.guild_id, self.bet)
 
 
 # -----------------------------------------------------------------------------
@@ -486,13 +495,14 @@ class HighLowView(discord.ui.View):
         await interaction.response.edit_message(embed=self.make_embed("cashed_out"), view=self)
 
     async def on_timeout(self):
-        if not self.finished:
-            self.finished = True
-            if self.streak > 0:
-                payout = int(self.bet * self.current_mult)
-                await update_wallet(self.user_id, self.guild_id, payout)
-            else:
-                await update_wallet(self.user_id, self.guild_id, self.bet)
+        if self.finished:
+            return
+        self.finished = True
+        if self.streak > 0:
+            payout = int(self.bet * self.current_mult)
+            await update_wallet(self.user_id, self.guild_id, payout)
+        else:
+            await update_wallet(self.user_id, self.guild_id, self.bet)
 
 
 # -----------------------------------------------------------------------------
@@ -742,14 +752,15 @@ class TicTacToeView(discord.ui.View):
             await interaction.response.edit_message(embed=self.make_embed("turn"), view=self)
 
     async def on_timeout(self):
-        if not self.finished:
-            self.finished = True
-            for b in self.buttons.values():
-                b.disabled = True
-            if self.bet > 0:
-                await update_wallet(self.p1.id, self.guild_id, self.bet)
-                if self.p2:
-                    await update_wallet(self.p2.id, self.guild_id, self.bet)
+        if self.finished:
+            return
+        self.finished = True
+        for b in self.buttons.values():
+            b.disabled = True
+        if self.bet > 0:
+            await update_wallet(self.p1.id, self.guild_id, self.bet)
+            if self.p2:
+                await update_wallet(self.p2.id, self.guild_id, self.bet)
 
 
 # -----------------------------------------------------------------------------

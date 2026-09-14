@@ -213,8 +213,8 @@ COMMAND_ACCESS: dict[str, str] = {
     "tos": EVERYONE,
     "sync": ADMIN,
     "updatedb": ADMIN,
-    "setavatar": ADMIN,
-    "setbanner": ADMIN,
+    "setavatar": OWNER,
+    "setbanner": OWNER,
     "dashboard": ADMIN,
     "dbstatus": ADMIN,
     # -- The market: one role, nothing else -------------------------------- #

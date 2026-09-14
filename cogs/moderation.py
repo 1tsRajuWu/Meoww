@@ -18,6 +18,23 @@ ACTION_CONFIG = {
 
 RESET = "\u001b[0m"
 
+def _mod_target_problem(actor: discord.Member, target: discord.Member) -> str | None:
+    """Refuse self / owner / bot / equal-or-higher role moderation targets."""
+    if target.id == actor.id:
+        return "You cannot moderate yourself."
+    if target.id == actor.guild.owner_id:
+        return "You cannot moderate the server owner."
+    if getattr(actor.guild, "me", None) and target.id == actor.guild.me.id:
+        return "You cannot moderate me."
+    if target.guild_permissions.administrator and not actor.guild_permissions.administrator:
+        return "You cannot moderate an administrator."
+    if actor.id != actor.guild.owner_id and target.top_role >= actor.top_role:
+        return (
+            f"**{target.display_name}** has a role at or above yours "
+            f"(**{target.top_role.name}**)."
+        )
+    return None
+
 class Moderation(commands.Cog):
     """Full-featured moderation with rich embeds and log channel support."""
 
@@ -169,6 +186,10 @@ class Moderation(commands.Cog):
     @app_commands.checks.has_permissions(moderate_members=True)
     async def warn(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
         await interaction.response.defer()
+        problem = _mod_target_problem(interaction.user, member)
+        if problem:
+            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
+
 
         async with aiosqlite.connect(db.DB_PATH) as conn:
             await conn.execute(
@@ -195,6 +216,10 @@ class Moderation(commands.Cog):
     @app_commands.checks.has_permissions(ban_members=True)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided", delete_days: app_commands.Range[int, 0, 7] = 0):
         await interaction.response.defer()
+        problem = _mod_target_problem(interaction.user, member)
+        if problem:
+            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
+
 
         # Try to DM before banning
         try:
@@ -221,6 +246,10 @@ class Moderation(commands.Cog):
     @app_commands.checks.has_permissions(kick_members=True)
     async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
         await interaction.response.defer()
+        problem = _mod_target_problem(interaction.user, member)
+        if problem:
+            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
+
 
         try:
             dm = discord.Embed(color=0xFF8C00, title="👢 You have been kicked", timestamp=discord.utils.utcnow())
@@ -245,6 +274,10 @@ class Moderation(commands.Cog):
         await interaction.response.defer()
         duration = datetime.timedelta(minutes=minutes)
         full_reason = f"{reason} ({minutes}m)"
+        problem = _mod_target_problem(interaction.user, member)
+        if problem:
+            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
+
 
         try:
             await member.timeout(duration, reason=f"{interaction.user}: {full_reason}")
@@ -259,6 +292,10 @@ class Moderation(commands.Cog):
     @app_commands.checks.has_permissions(moderate_members=True)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member):
         await interaction.response.defer()
+        problem = _mod_target_problem(interaction.user, member)
+        if problem:
+            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
+
         try:
             await member.timeout(None, reason=f"Unmuted by {interaction.user}")
             case_id = await db.add_mod_case(interaction.guild.id, "Unmute", member.id, interaction.user.id, "Timeout removed")

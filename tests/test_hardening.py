@@ -36,9 +36,12 @@ class NoPublishedCredential(unittest.TestCase):
 
     def test_passkey_endpoints_reject_an_empty_credential(self):
         source = _read("keep_alive.py")
-        # Compare-digest against an empty string must be unreachable: every
-        # endpoint checks `not auth` first, so an unset passkey closes them.
-        self.assertGreaterEqual(source.count("if not auth or not secrets.compare_digest(auth, ADMIN_PASSKEY)"), 2)
+        # Passkey APIs go through _passkey_ok, which refuses an empty/missing
+        # ADMIN_PASSKEY and never reads the secret from the query string.
+        self.assertIn("def _passkey_ok", source)
+        self.assertIn("if not ADMIN_PASSKEY:", source)
+        self.assertGreaterEqual(source.count("_passkey_ok()"), 3)
+        self.assertNotIn('request.args.get("passkey")', source)
 
 
 class ModCaseNumbers(unittest.TestCase):
