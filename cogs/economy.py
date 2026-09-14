@@ -1182,7 +1182,18 @@ class Economy(commands.Cog):
     async def addmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
-        
+
+        from utils.admin_limits import needs_approval, ADMIN_ADDMONEY_LIMIT, request_approval
+
+        if needs_approval(amount, ADMIN_ADDMONEY_LIMIT):
+            # Request owner approval
+            async def execute():
+                await ensure_eco(member.id, interaction.guild.id)
+                await update_wallet(member.id, interaction.guild.id, amount)
+            return await request_approval(
+                interaction, member, "💰 coins", amount, execute
+            )
+
         await ensure_eco(member.id, interaction.guild.id)
         await update_wallet(member.id, interaction.guild.id, amount)
         
@@ -1201,7 +1212,17 @@ class Economy(commands.Cog):
     async def removemoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
-        
+
+        from utils.admin_limits import needs_approval, ADMIN_ADDMONEY_LIMIT, request_approval
+
+        if needs_approval(amount, ADMIN_ADDMONEY_LIMIT):
+            async def execute():
+                await ensure_eco(member.id, interaction.guild.id)
+                await update_wallet(member.id, interaction.guild.id, -amount)
+            return await request_approval(
+                interaction, member, "💰 coins (removal)", amount, execute
+            )
+
         await ensure_eco(member.id, interaction.guild.id)
         await update_wallet(member.id, interaction.guild.id, -amount)
         
@@ -1220,7 +1241,22 @@ class Economy(commands.Cog):
     async def setmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         if amount < 0:
             return await interaction.response.send_message("❌ Amount cannot be negative.", ephemeral=True)
-        
+
+        from utils.admin_limits import needs_approval, ADMIN_SETMONEY_LIMIT, request_approval
+
+        if needs_approval(amount, ADMIN_SETMONEY_LIMIT):
+            async def execute():
+                await ensure_eco(member.id, interaction.guild.id)
+                async with aiosqlite.connect(DB_PATH) as conn:
+                    await conn.execute(
+                        "UPDATE economy SET wallet = ? WHERE user_id=? AND guild_id=?",
+                        (amount, member.id, interaction.guild.id)
+                    )
+                    await conn.commit()
+            return await request_approval(
+                interaction, member, "💰 coins (set)", amount, execute
+            )
+
         await ensure_eco(member.id, interaction.guild.id)
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(

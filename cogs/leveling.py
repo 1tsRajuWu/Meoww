@@ -993,6 +993,30 @@ class Leveling(commands.Cog):
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be greater than 0!", ephemeral=True)
 
+        from utils.admin_limits import needs_approval, ADMIN_GIVEXP_LIMIT, request_approval
+
+        if needs_approval(amount, ADMIN_GIVEXP_LIMIT):
+            # Request owner approval
+            async def execute():
+                user_data = await self.get_user_data(interaction.guild.id, member.id)
+                old_xp = user_data["xp"]
+                old_lvl = user_data["level"]
+                new_xp = clamp_xp(old_xp + amount)
+                new_lvl, _, _ = calculate_level_from_xp(new_xp)
+                async with aiosqlite.connect(DB_PATH) as conn:
+                    await conn.execute(
+                        """INSERT INTO user_levels (guild_id, user_id, xp, level)
+                           VALUES (?, ?, ?, ?)
+                           ON CONFLICT(guild_id, user_id) DO UPDATE SET xp=?, level=?""",
+                        (interaction.guild.id, member.id, new_xp, new_lvl, new_xp, new_lvl)
+                    )
+                    await conn.commit()
+                if new_lvl > old_lvl:
+                    await self.handle_level_up(interaction.guild, member, old_lvl, new_lvl, interaction.channel)
+            return await request_approval(
+                interaction, member, "🪙 XP", amount, execute
+            )
+
         user_data = await self.get_user_data(interaction.guild.id, member.id)
         old_xp = user_data["xp"]
         old_lvl = user_data["level"]
