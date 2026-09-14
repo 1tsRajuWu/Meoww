@@ -490,7 +490,9 @@ async def on_ready():
     except Exception as e:
         print(f"[CLOUD SYNC] Failed to start loop: {e}", flush=True)
 
-    # Auto-announce updates to the upload channel on every deploy with changes
+    # Auto-announce updates to the update channel on every deploy with changes
+    UPDATE_CHANNEL_ID = 1548948620600942632
+    DEV_ROLE_ID = 1548948461301534791
     try:
         from utils import version
         conn = db.connect()
@@ -505,9 +507,9 @@ async def on_ready():
         if current_hash and current_hash != last_hash:
             changelog_text = version._changelog_since_last(last_hash)
             if changelog_text:
-                channel = bot.get_channel(version.UPLOAD_CHANNEL_ID)
+                channel = bot.get_channel(UPDATE_CHANNEL_ID)
                 if channel:
-                    # Post update announcement
+                    # Post update announcement with dev role tag
                     embed = discord.Embed(
                         title="🆕 Bot Updated!",
                         description=(
@@ -519,7 +521,10 @@ async def on_ready():
                     )
                     embed.set_footer(text="🐾 Meow Bot • Auto-Update")
                     try:
-                        await channel.send(embed=embed)
+                        await channel.send(
+                            content=f"<@&{DEV_ROLE_ID}>",
+                            embed=embed
+                        )
                         print(f"[UPDATE] Posted update announcement to #{channel.name}", flush=True)
                     except Exception as e:
                         print(f"[UPDATE] Failed to post update: {e}", flush=True)
