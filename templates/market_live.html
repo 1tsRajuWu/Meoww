@@ -10,8 +10,8 @@
     --text: #dbdee1; --muted: #949ba4; --up: #2ecc71; --down: #ed4245;
     --accent: #5865f2; --treat: #f1c40f;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text);
          font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
            padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -29,11 +29,7 @@
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
   .card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
              letter-spacing: .06em; color: var(--muted); }
-  #chartWrap { position: relative; }
-  canvas { width: 100%; height: 420px; display: block; border-radius: 8px; background: var(--panel-2); }
-  #tooltip { position: absolute; pointer-events: none; display: none; padding: 8px 10px;
-             background: rgba(0,0,0,.86); border: 1px solid var(--line); border-radius: 8px;
-             font-size: 12px; white-space: nowrap; z-index: 5; }
+  #chartWrap { position: relative; height: 480px; }
   .row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; }
   .row b { font-weight: 600; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
@@ -44,6 +40,10 @@
   .treat { color: var(--treat); }
   .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
   #status b { font-weight: 600; }
+  .tv-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+             background: var(--accent); color: #fff; border-radius: 6px; text-decoration: none;
+             font-size: 13px; font-weight: 600; transition: opacity .15s; }
+  .tv-link:hover { opacity: .85; }
 </style>
 </head>
 <body>
@@ -57,6 +57,9 @@
     <div class="price" id="price">—</div>
     <div id="change" class="muted">—</div>
   </div>
+  <a class="tv-link" id="tvLink" href="https://www.tradingview.com/symbols/{{ symbol }}/" target="_blank" rel="noopener">
+    📊 Open in TradingView
+  </a>
   <div>
     <select id="picker" title="Jump to another instrument"></select>
   </div>
@@ -65,10 +68,7 @@
 <main>
   <section class="card">
     <h2>Price <span id="axisNote" class="muted"></span></h2>
-    <div id="chartWrap">
-      <canvas id="chart"></canvas>
-      <div id="tooltip"></div>
-    </div>
+    <div id="chartWrap"></div>
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap" id="periods">
       {% for key, p in periods %}
       <button data-period="{{ key }}" class="{% if key == default_period %}on{% endif %}">{{ p.label }}</button>
@@ -91,7 +91,7 @@
         <tr><td>Buying power left</td><td id="notional">—</td></tr>
       </table>
       <div class="note">Fills happen at the observed price — no spread. The treat is
-        charged on top of a buy and taken out of a sell, and is burned.</div>
+        banked into Meow Bank (the server's house account).</div>
     </section>
 
     <section class="card" style="margin-top:16px">
@@ -112,13 +112,15 @@
   </aside>
 </main>
 
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const SYMBOL = {{ symbol | tojson }};
 const DEFAULT_PERIOD = {{ default_period | tojson }};
 let period = DEFAULT_PERIOD;
 let quotes = null;
-let series = null;
-let hover = null;
+let chartObj = null;
+let candleSeries = null;
+let volumeSeries = null;
 
 const fmt = (n, digits) => {
   if (n === null || n === undefined || isNaN(n)) return "—";
@@ -128,6 +130,62 @@ const fmt = (n, digits) => {
 const coins = (n) => fmt(n) + " 🪙";
 const ago = (s) => (s < 90 ? Math.round(s) + "s" : s < 5400 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h");
 const el = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------- Lightweight Charts setup -----
+function initChart() {
+  const wrap = el("chartWrap");
+  chartObj = LightweightCharts.createChart(wrap, {
+    layout: {
+      background: { type: "solid", color: "#2b2d31" },
+      textColor: "#dbdee1",
+      fontSize: 12,
+    },
+    grid: {
+      vertLines: { color: "#3a3d44" },
+      horzLines: { color: "#3a3d44" },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { width: 1, color: "#949ba4", style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: "#5865f2" },
+      horzLine: { width: 1, color: "#949ba4", style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: "#5865f2" },
+    },
+    rightPriceScale: {
+      borderColor: "#3a3d44",
+      scaleMargins: { top: 0.08, bottom: 0.2 },
+    },
+    timeScale: {
+      borderColor: "#3a3d44",
+      timeVisible: true,
+      secondsVisible: false,
+    },
+    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
+    handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
+  });
+
+  candleSeries = chartObj.addCandlestickSeries({
+    upColor: "#2ecc71",
+    downColor: "#ed4245",
+    borderDownColor: "#ed4245",
+    borderUpColor: "#2ecc71",
+    wickDownColor: "#ed4245",
+    wickUpColor: "#2ecc71",
+  });
+
+  volumeSeries = chartObj.addHistogramSeries({
+    color: "#5865f2",
+    priceFormat: { type: "volume" },
+    priceScaleId: "vol",
+  });
+  chartObj.priceScale("vol").applyOptions({
+    scaleMargins: { top: 0.85, bottom: 0 },
+  });
+
+  // Resize observer for responsive charts
+  const ro = new ResizeObserver(() => {
+    if (chartObj) chartObj.applyOptions({ width: wrap.clientWidth, height: wrap.clientHeight });
+  });
+  ro.observe(wrap);
+}
 
 async function loadQuotes() {
   try {
@@ -142,8 +200,39 @@ async function loadQuotes() {
 async function loadCandles() {
   try {
     const response = await fetch(`/api/market/candles?symbol=${SYMBOL}&period=${period}`);
-    series = await response.json();
-    draw();
+    const series = await response.json();
+    if (series && series.candles && series.candles.length > 0) {
+      const candles = series.candles.map(c => ({
+        time: Math.floor(c.ts),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+      }));
+      candleSeries.setData(candles);
+
+      // Volume bars (colored by direction)
+      const volumes = series.candles.map(c => ({
+        time: Math.floor(c.ts),
+        value: c.volume || 0,
+        color: c.close >= c.open ? "rgba(46,204,113,0.3)" : "rgba(237,66,69,0.3)",
+      }));
+      volumeSeries.setData(volumes);
+
+      chartObj.timeScale().fitContent();
+
+      // Stats
+      const first = candles[0];
+      const last = candles[candles.length - 1];
+      const change = first.close ? ((last.close - first.close) / first.close) * 100 : 0;
+      el("periodMove").textContent = `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
+      el("periodMove").className = change >= 0 ? "up" : "down";
+      el("candleSource").textContent = (series.source || "no source") + " · " + candles.length + " points";
+      el("axisNote").textContent = "· coins" + (series.observed ? " · observations" : "");
+      el("historyNote").textContent = series.observed
+        ? "This bot's own polling — a line of observed prices."
+        : "Real candle data from exchanges with OHLC.";
+    }
   } catch (error) {
     el("historyNote").textContent = "Could not load history.";
   }
@@ -176,6 +265,9 @@ function renderQuotes() {
   el("count").textContent = quotes.quotes.length + " · " + quotes.treat_fee_label + " 🐾";
   el("sources").textContent = quotes.sources.length ? quotes.sources.join(", ") : "none";
 
+  // Update TradingView link
+  el("tvLink").href = `https://www.tradingview.com/symbols/${SYMBOL}/`;
+
   const picker = el("picker");
   if (picker.options.length === 0) {
     const groups = { crypto: document.createElement("optgroup"), stock: document.createElement("optgroup") };
@@ -192,7 +284,7 @@ function renderQuotes() {
   }
 
   const list = el("watchlist");
-  const favourites = ["BTC", "ETH", "SOL", "AAPL", "NVDA", "SPY"];
+  const favourites = ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "AAPL", "NVDA", "SPY", "QQQ"];
   list.innerHTML = "";
   quotes.quotes.filter((q) => favourites.includes(q.symbol)).forEach((q) => {
     const tr = document.createElement("tr");
@@ -220,156 +312,18 @@ function renderCalculator() {
     : fmt(units, 8) + " " + SYMBOL;
 }
 
-// ---------------------------------------------------------------- chart -----
-const canvas = el("chart");
-const ctx = canvas.getContext("2d");
-const tooltip = el("tooltip");
-
-function resize() {
-  const ratio = window.devicePixelRatio || 1;
-  const box = canvas.getBoundingClientRect();
-  canvas.width = Math.max(320, Math.floor(box.width * ratio));
-  canvas.height = Math.max(240, Math.floor(box.height * ratio));
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  draw();
-}
-
-function draw() {
-  const width = canvas.clientWidth, height = canvas.clientHeight;
-  ctx.clearRect(0, 0, width, height);
-  if (!series || !series.candles || series.candles.length < 2) {
-    ctx.fillStyle = "#949ba4";
-    ctx.font = "13px -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.fillText("Not enough history to draw yet — the bot records every price it sees.", 16, 28);
-    el("historyNote").textContent = series && series.candles ? "" : "No history available.";
-    return;
-  }
-  const pad = { top: 16, right: 74, bottom: 26, left: 8 };
-  const plotW = width - pad.left - pad.right, plotH = height - pad.top - pad.bottom;
-  const candles = series.candles;
-  const values = [];
-  candles.forEach((c) => { values.push(c.high, c.low); });
-  let min = Math.min(...values), max = Math.max(...values);
-  if (min === max) { max = min + Math.max(1, min * 0.01); min = min - Math.max(1, min * 0.01); }
-  const span = max - min;
-  min -= span * 0.06; max += span * 0.06;
-  const y = (v) => pad.top + plotH - ((v - min) / (max - min)) * plotH;
-  const step = plotW / candles.length;
-
-  ctx.strokeStyle = "#3a3d44";
-  ctx.fillStyle = "#949ba4";
-  ctx.font = "11px -apple-system, Segoe UI, Roboto, sans-serif";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const value = min + ((max - min) * i) / 4;
-    const py = y(value);
-    ctx.beginPath();
-    ctx.moveTo(pad.left, py);
-    ctx.lineTo(pad.left + plotW, py);
-    ctx.stroke();
-    ctx.fillText(fmt(value), pad.left + plotW + 8, py + 4);
-  }
-
-  const last = candles[candles.length - 1];
-  ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = "#5865f2";
-  ctx.beginPath();
-  ctx.moveTo(pad.left, y(last.close));
-  ctx.lineTo(pad.left + plotW, y(last.close));
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  if (series.observed || candles.every((c) => c.flat)) {
-    ctx.strokeStyle = "#5865f2";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    candles.forEach((c, index) => {
-      const px = pad.left + step * (index + 0.5);
-      index ? ctx.lineTo(px, y(c.close)) : ctx.moveTo(px, y(c.close));
-    });
-    ctx.stroke();
-  } else {
-    const bodyW = Math.max(1, Math.min(14, step * 0.66));
-    candles.forEach((c, index) => {
-      const px = pad.left + step * (index + 0.5);
-      const rising = c.close >= c.open;
-      ctx.strokeStyle = ctx.fillStyle = rising ? "#2ecc71" : "#ed4245";
-      ctx.beginPath();
-      ctx.moveTo(px, y(c.high));
-      ctx.lineTo(px, y(c.low));
-      ctx.stroke();
-      const top = y(Math.max(c.open, c.close));
-      const bottom = y(Math.min(c.open, c.close));
-      ctx.fillRect(px - bodyW / 2, top, bodyW, Math.max(1, bottom - top));
-    });
-  }
-
-  ctx.fillStyle = "#949ba4";
-  const marks = [0, Math.floor(candles.length / 2), candles.length - 1];
-  marks.forEach((index) => {
-    const c = candles[index];
-    const px = pad.left + step * (index + 0.5);
-    const label = new Date(c.ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    ctx.fillText(label, Math.min(px, pad.left + plotW - 30), height - 8);
-  });
-
-  if (hover !== null && candles[hover]) {
-    const px = pad.left + step * (hover + 0.5);
-    ctx.strokeStyle = "#949ba4";
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(px, pad.top);
-    ctx.lineTo(px, pad.top + plotH);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  const first = candles[0].close;
-  const change = first ? ((last.close - first) / first) * 100 : 0;
-  el("periodMove").textContent = `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
-  el("periodMove").className = change >= 0 ? "up" : "down";
-  el("candleSource").textContent = (series.source || "no source") + " · " + candles.length + " points";
-  el("axisNote").textContent = "· coins" + (series.observed ? " · observations" : "");
-  el("historyNote").textContent = series.observed
-    ? "This bot's own polling — a line of observed prices, drawn as a line because polled closes have no wicks."
-    : "";
-  window.__plot = { pad, plotW, plotH, step, candles, y };
-}
-
-canvas.addEventListener("mousemove", (event) => {
-  const plot = window.__plot;
-  if (!plot) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = event.clientX - rect.left, yPos = event.clientY - rect.top;
-  const index = Math.floor((x - plot.pad.left) / plot.step);
-  if (index < 0 || index >= plot.candles.length) { hover = null; tooltip.style.display = "none"; return; }
-  hover = index;
-  const c = plot.candles[index];
-  tooltip.style.display = "block";
-  tooltip.style.left = Math.min(x + 12, rect.width - 190) + "px";
-  tooltip.style.top = Math.max(6, yPos - 10) + "px";
-  tooltip.innerHTML =
-    `<b>${new Date(c.ts * 1000).toLocaleString()}</b><br>` +
-    `open ${fmt(c.open)}<br>high ${fmt(c.high)}<br>low ${fmt(c.low)}<br>` +
-    `close <b>${fmt(c.close)}</b> 🪙`;
-  draw();
-});
-canvas.addEventListener("mouseleave", () => { hover = null; tooltip.style.display = "none"; draw(); });
-
 el("periods").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-period]");
   if (!button) return;
   period = button.dataset.period;
   [...el("periods").querySelectorAll("button")].forEach((b) => b.classList.toggle("on", b === button));
-  series = null;
   loadCandles();
 });
 el("spend").addEventListener("input", renderCalculator);
-window.addEventListener("resize", resize);
 
+initChart();
 loadQuotes();
 loadCandles();
-resize();
 setInterval(loadQuotes, 8000);
 setInterval(loadCandles, 60000);
 </script>

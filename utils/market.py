@@ -38,8 +38,8 @@ which is **1** — one coin is one dollar, so the board reads like a price board
 rather than a conversion puzzle.
 
 The one thing taken is a **named, itemised fee**: ``MEOW_TREAT_FEE``, the house
-cat's cut, charged on top of a buy and out of a sell and burned rather than
-banked. It is printed on every receipt with the amount, so a member sees exactly
+cat's cut, charged on top of a buy and out of a sell and banked into
+Meow Bank (the server's house account). It is printed on every receipt with the amount, so a member sees exactly
 what the treat cost and the fill price itself is never quietly worse than the
 market.
 
@@ -72,6 +72,7 @@ import aiohttp
 import aiosqlite
 
 from utils import db
+from utils import meowfee
 
 # --------------------------------------------------------------------------- #
 # Money
@@ -93,7 +94,7 @@ PREVIOUS_COINS_PER_USD = 250
 #: rather than a spread**: the price a fill happens at is still 1:1 with the
 #: observed market, and the treat is a separate line on every receipt — charged on
 #: top of a buy and taken out of a sell, with at least one treat on any fill, and
-#: **burned** (it is a coin sink, which is the point of having a fee at all).
+#: **banked** into Meow Bank (the server's house account).
 MEOW_TREAT_FEE = 0.0025
 
 
@@ -1697,6 +1698,9 @@ async def settle_buy(
         _record_on(
             cur, user_id, guild_id, instrument.symbol, "buy", quantity, unit_price, coins, 0, now
         )
+        # Bank the treat fee into Meow Bank, inside the same transaction.
+        meowfee.credit(cur, guild_id, treat)
+
         return Fill(
             True,
             symbol=instrument.symbol,
@@ -1795,6 +1799,9 @@ async def settle_sell(
             realized,
             now,
         )
+        # Bank the treat fee into Meow Bank, inside the same transaction.
+        meowfee.credit(cur, guild_id, treat)
+
         return Fill(
             True,
             symbol=instrument.symbol,

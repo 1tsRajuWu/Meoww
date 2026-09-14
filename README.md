@@ -270,7 +270,7 @@ function, so the rule is tested without a Discord client.
   and no haircut, so a real trader's percentage return is reproduced exactly: an
   asset that moved +10% in dollars moved +10% in coins.
 - **The only charge is the Meow Treat fee 🐾 — 0.25%, minimum 1 coin, itemised on
-  every receipt, and burned.** It is a **named fee, not a spread**: you can see it
+  every receipt, and banked into Meow Bank.** It is a **named fee, not a spread**: you can see it
   as its own line (`Meow Treat fee − 25 🪙`) instead of finding it quietly inside
   the price you paid. It is charged on top of a buy, taken out of a sell, and
   never appears twice. A round trip at an unchanged price therefore costs the two
