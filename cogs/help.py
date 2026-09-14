@@ -188,10 +188,10 @@ HELP_MODULES = {
             "> `/upload-big [title]` — Get a file.kiwi link for very large files (100MB+)\n"
             "> `/pin-upload-info` — Pin the upload instructions (admin)\n\n"
             "**Services:**\n"
-            "• **Streamable** — Videos auto-play in Discord\n"
-            "• **file.io** — Other files with download link (expires in 14 days)\n"
-            "• **file.kiwi** — No file size limit, E2E encrypted (up to 999 GiB!)\n\n"
-            "Each upload creates a thread for discussion."
+            "• **catbox** — The file is uploaded for real, permanent link (up to 200 MB)\n"
+            "• **Streamable** — Videos play inline in Discord\n"
+            "• **file.kiwi** — No size limit; you finish the upload in your browser\n\n"
+            "Each upload gets its own thread for discussion."
         ),
         "color": 0x5865F2,
         "emoji": "📎"

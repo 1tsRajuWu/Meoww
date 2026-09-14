@@ -61,80 +61,131 @@ def set_last_hash(db_conn, hash_value: str) -> None:
         pass
 
 
-def summarize_changelog(full_text: str) -> str:
-    """Extract and format the changelog entries into a Discord-ready summary.
+#: Keep the announcement comfortably inside Discord's 4,096-character
+#: embed description, leaving room for the intro line.
+SUMMARY_BUDGET: int = 3300
 
-    Parses ``## Heading`` sections and their bullet points, returns a formatted
-    string grouped by section (Added, Fixed, Changed, etc.).
+#: How many changelog entries the digest names before it stops.
+MAX_ITEMS: int = 6
+
+#: How long a single entry is allowed to be in the digest.
+ITEM_LIMIT: int = 200
+
+_EMOJI = {
+    "Added": "🆕",
+    "Fixed": "🔧",
+    "Changed": "⚙️",
+    "Removed": "🗑️",
+    "Security": "🔐",
+    "Breaking": "⚠️",
+    "Unreleased": "📝",
+}
+
+
+def _plain(text: str) -> str:
+    """Strip the markdown that means nothing once it is out of the file."""
+    import re
+
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"[*`_]", "", text)
+    return " ".join(text.split())
+
+
+def _first_sentence(text: str) -> str:
+    """The first sentence of a blob of prose."""
+    import re
+
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    return parts[0] if parts else text.strip()
+
+
+def _clip(text: str, limit: int = ITEM_LIMIT) -> str:
+    """Trim to ``limit`` characters on a word boundary, with an ellipsis."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    if " " in cut:
+        cut = cut[: cut.rfind(" ")]
+    return cut.rstrip(" ,;:") + "…"
+
+
+def _headline(bullet: str) -> str:
+    """One readable line for a changelog bullet.
+
+    The entries in this changelog lead with a bold claim (``**name**: then
+    the detail``), so that claim plus one sentence is the whole summary. A
+    bullet without one falls back to its first sentence.
     """
+    import re
+
+    match = re.search(r"\*\*(.+?)\*\*", bullet, flags=re.DOTALL)
+    if match:
+        lead = _plain(match.group(1)).rstrip(":")
+        rest = _plain(bullet[match.end():]).lstrip(":—- 	")
+        sentence = _first_sentence(rest) if rest else ""
+        text = f"**{lead}**"
+        if sentence:
+            text += f" — {sentence}"
+        return _clip(text)
+
+    return _clip(_first_sentence(_plain(bullet)))
+
+
+def summarize_changelog(
+    full_text: str,
+    max_items: int = MAX_ITEMS,
+    budget: int = SUMMARY_BUDGET,
+) -> str:
+    """A compact, Discord-ready digest of the newest changelog section.
+
+    The file is written newest-first, so the first section that has entries is
+    the news. Only the headline of each entry is kept, and the whole digest is
+    held inside ``budget`` characters — a longer one would be rejected by
+    Discord outright, which is how an update announcement goes missing.
+    """
+    import re
+
     if not full_text:
         return "No changelog entries found."
 
-    import re
-
-    lines = full_text.split("\n")
-    sections: dict[str, list[str]] = {}
-    current_section = None
-
-    for line in lines:
-        # Match heading like "## Heading"
-        heading_match = re.match(r"^##\s+(.+)$", line.strip())
-        if heading_match:
-            current_section = heading_match.group(1).strip()
-            sections[current_section] = []
-            continue
-
-        if current_section is None:
-            continue
-
-        # Only include bullet points under headings
+    section_name: str | None = None
+    bullets: list[str] = []
+    for line in full_text.split("\n"):
         stripped = line.strip()
-        if stripped.startswith("- ") or stripped.startswith("* "):
-            # Clean up the bullet — remove leading dash/star and whitespace
-            content = stripped[2:].strip()
-            # Cut off any trailing markdown links or code blocks for brevity
-            content = re.sub(r"\s*\[.*\]\([^)]*\)", "", content)
-            content = re.sub(r"`[^`]*`", "", content)
-            if content and len(content) > 3:  # Skip very short fragments
-                sections[current_section].append(content)
-
-    # Build the summary
-    if not sections:
-        return "Changelog updated.\n\n" + full_text[:500]
-
-    # Emoji mapping for common section names
-    emoji_map = {
-        "Added": "🆕",
-        "Fixed": "🔧",
-        "Changed": "⚙️",
-        "Removed": "🗑️",
-        "Security": "🔐",
-        "Breaking": "⚠️",
-        "Changelog": "📝",
-        "Unreleased": "📝",
-    }
-
-    parts = []
-    for section, items in sections.items():
-        header = section.strip()
-        emoji = emoji_map.get(header, "📝")
-        # Skip "Unreleased" as a standalone section header if we have content sections
-        if header in ("Unreleased", "Changelog") and len(sections) > 1:
+        heading = re.match(r"^##\s+(.+)$", stripped)
+        if heading:
+            if bullets:  # already collected a section with content
+                break
+            section_name = heading.group(1).strip()
             continue
-        if not items:
+        if section_name is None:
             continue
+        if stripped.startswith(("- ", "* ")):
+            entry = stripped[2:].strip()
+            if len(_plain(entry)) > 3:
+                bullets.append(entry)
 
-        # Limit to first 8 items per section to keep embed readable
-        display_items = items[:8]
-        if len(items) > 8:
-            display_items.append(f"...and {len(items) - 8} more")
+    if not bullets:
+        return _clip(_plain(full_text)[:800], 800)
 
-        parts.append(f"**{emoji} {header}**\n" + "\n".join(f"• {item}" for item in display_items))
+    emoji = _EMOJI.get(section_name or "", "📝")
+    header = f"**{emoji} {section_name or 'Changes'}**"
 
-    summary = "\n\n".join(parts)
+    lines: list[str] = []
+    used = 0
+    for entry in bullets[:max_items]:
+        line = f"• {_headline(entry)}"
+        if used + len(line) + 1 > budget:
+            break
+        lines.append(line)
+        used += len(line) + 1
 
-    # If there are more than 5 sections, mention it
-    if len(sections) > 5:
-        summary += f"\n\n…and {len(sections) - 5} more sections (view CHANGELOG.md for full details)"
+    if not lines:  # a single enormous entry still has to say something
+        lines = [f"• {_clip(_plain(bullets[0]), budget - 2)}"]
 
-    return summary
+    remaining = len(bullets) - len(lines)
+    digest = header + "\n" + "\n".join(lines)
+    if remaining > 0:
+        digest += f"\n-# …and {remaining} more in CHANGELOG.md"
+    return digest

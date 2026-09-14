@@ -264,7 +264,7 @@ FEATURES: tuple[Feature, ...] = (
         icon="📎",
         category="Core",
         description=(
-            "Upload big files via Streamable (video), file.io, or file.kiwi (large files)."
+            "Upload big files via catbox, Streamable (video), or file.kiwi (large files)."
         ),
         gate_commands=("upload", "upload-big", "pin-upload-info"),
         commands=("/upload", "/upload-big", "/pin-upload-info"),

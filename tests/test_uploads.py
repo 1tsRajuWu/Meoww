@@ -5,11 +5,17 @@ import unittest
 from unittest.mock import patch
 
 # --- Video detection heuristic ---
-from cogs.uploads import _is_video, VIDEO_MIMES, VIDEO_EXTENSIONS
+from cogs.uploads import (
+    _is_video,
+    _service_order,
+    build_info_embed,
+    VIDEO_MIMES,
+    VIDEO_EXTENSIONS,
+)
 
 
 class TestIsVideo(unittest.TestCase):
-    """The bot must route videos to Streamable and everything else to file.io."""
+    """The bot must route videos to Streamable and everything else to catbox."""
 
     def test_mp4_mime(self):
         self.assertTrue(_is_video("clip.mp4", "video/mp4"))
@@ -121,6 +127,96 @@ class TestUploadPermissions(unittest.TestCase):
 
     def test_pin_upload_info_is_admin(self):
         self.assertEqual(COMMAND_ACCESS.get("pin-upload-info"), ADMIN)
+
+
+# --- catbox client (offline) ---
+from utils import catbox
+
+
+class TestCatboxGuards(unittest.TestCase):
+    """catbox must reject what it cannot host, without hitting the network."""
+
+    def test_limit_is_200_mb(self):
+        self.assertEqual(catbox.MAX_SIZE, 200 * 1024 * 1024)
+
+    def test_empty_file_rejected(self):
+        with tempfile.NamedTemporaryFile("wb", delete=False) as fh:
+            path = fh.name
+        try:
+            self.assertIsNone(catbox.upload(path, "empty.bin"))
+        finally:
+            os.unlink(path)
+
+    def test_oversize_file_rejected(self):
+        with tempfile.NamedTemporaryFile("wb", delete=False) as fh:
+            fh.truncate(catbox.MAX_SIZE + 1)
+            path = fh.name
+        try:
+            self.assertIsNone(catbox.upload(path, "big.bin"))
+        finally:
+            os.unlink(path)
+
+    def test_missing_file_rejected(self):
+        self.assertIsNone(catbox.upload("/nonexistent/meow.bin", "meow.bin"))
+
+    def test_filename_is_sanitised(self):
+        safe = catbox._safe_filename('weird "name"; evil\r\n.txt')
+        self.assertNotIn('"', safe)
+        self.assertNotIn("\r", safe)
+        self.assertNotIn("\n", safe)
+
+    def test_filename_keeps_extension(self):
+        self.assertTrue(catbox._safe_filename("clip.mp4").endswith(".mp4"))
+
+    def test_body_length_matches_streamed_bytes(self):
+        """Content-Length must equal the bytes actually sent, or catbox 400s."""
+        with tempfile.NamedTemporaryFile("wb", delete=False) as fh:
+            fh.write(b"x" * 4096)
+            path = fh.name
+        try:
+            body, length = catbox._body_parts(path, "meow.bin", "----boundary", 4096)
+            sent = b"".join(body)
+            self.assertEqual(length, len(sent))
+            self.assertIn(b"x" * 4096, sent)
+        finally:
+            os.unlink(path)
+
+
+class TestServiceOrder(unittest.TestCase):
+    """Auto mode uploads for real first and keeps file.kiwi as the last resort."""
+
+    def test_auto_ends_with_filekiwi(self):
+        self.assertEqual(_service_order("auto", False)[-1], "filekiwi")
+
+    def test_auto_starts_with_catbox_for_plain_files(self):
+        self.assertEqual(_service_order("auto", False)[0], "catbox")
+
+    def test_auto_prefers_streamable_for_video_with_creds(self):
+        with patch.object(streamable, "available", return_value=True):
+            self.assertEqual(_service_order("auto", True)[0], "streamable")
+
+    def test_auto_skips_streamable_without_creds(self):
+        with patch.object(streamable, "available", return_value=False):
+            self.assertNotIn("streamable", _service_order("auto", True))
+
+    def test_filekiwi_choice_is_only_filekiwi(self):
+        self.assertEqual(_service_order("filekiwi", False), ["filekiwi"])
+
+    def test_unknown_service_falls_back_to_auto_chain(self):
+        self.assertEqual(_service_order("nonsense", False)[0], "catbox")
+
+
+class TestInfoEmbed(unittest.TestCase):
+    """The pinned/sticky instructions must match what the bot really does."""
+
+    def test_mentions_catbox(self):
+        self.assertIn("catbox", build_info_embed().description.lower())
+
+    def test_does_not_advertise_file_io(self):
+        self.assertNotIn("file.io", build_info_embed().description.lower())
+
+    def test_keeps_title_used_by_startup_check(self):
+        self.assertEqual(build_info_embed().title, "📎 How to Upload Big Files")
 
 
 if __name__ == "__main__":

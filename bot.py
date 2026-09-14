@@ -506,6 +506,14 @@ async def on_ready():
         current_hash = version._changelog_hash()
         if current_hash and current_hash != last_hash:
             channel = bot.get_channel(UPDATE_CHANNEL_ID)
+            if channel is None:
+                # Do NOT store the hash: the announcement is still owed, and
+                # marking it as sent is how an update goes missing forever.
+                print(
+                    f"[UPDATE] Channel {UPDATE_CHANNEL_ID} is not reachable — "
+                    "the update note will be posted on the next boot.",
+                    flush=True,
+                )
             if channel:
                 # Dynamically summarize the changelog
                 from utils import version as version_module
@@ -517,7 +525,7 @@ async def on_ready():
                     description=(
                         "A new version has been deployed!\n\n"
                         f"{summary}"
-                    ),
+                    )[:4096],
                     color=0x57F287,
                     timestamp=discord.utils.utcnow(),
                 )
@@ -528,10 +536,15 @@ async def on_ready():
                         content=f"<@&{DEV_ROLE_ID}>",
                         embed=embed
                     )
+                    # Only record it as announced once Discord accepted it.
+                    version.set_last_hash(conn, current_hash)
                     print(f"[UPDATE] Posted update announcement to #{channel.name}", flush=True)
                 except Exception as e:
-                    print(f"[UPDATE] Failed to post update: {e}", flush=True)
-            version.set_last_hash(conn, current_hash)
+                    print(
+                        f"[UPDATE] Failed to post update ({e}) — will try again "
+                        "on the next boot.",
+                        flush=True,
+                    )
         conn.close()
     except Exception as e:
         print(f"[UPDATE] Update announcement error: {e}", flush=True)
@@ -556,39 +569,11 @@ async def on_ready():
                 pass
 
             if not has_info:
-                # Post the upload info embed
-                embed = discord.Embed(
-                    title="📎 How to Upload Big Files",
-                    description=(
-                        "Discord's native upload limit is **25 MB** (free) / **50 MB** (boosted).\n"
-                        "This bot lets you upload bigger files using external hosting:\n\n"
-                        "**🎬 Videos** → Uploaded to **Streamable** — Discord plays them inline!\n"
-                        "**📁 Other files** → Uploaded to **file.io** — one-click download link\n"
-                        "**📁 Large files** → Use **file.kiwi** — no size limit, E2E encrypted!\n\n"
-                        "**How to use:**\n"
-                        "1. Run `/upload` and attach your file\n"
-                        "2. Optionally add a title and choose a service\n"
-                        "3. The bot posts the link here and creates a thread for discussion\n\n"
-                        "**For very large files (100MB+):**\n"
-                        "• Use `/upload-big` to get a **file.kiwi** link\n"
-                        "• Open the link in your browser to upload\n"
-                        "• Files are E2E encrypted and auto-expire in 24 hours\n\n"
-                        "**Limits:**\n"
-                        "• Direct uploads: **100 MB** max\n"
-                        "• file.kiwi: **No file size limit** (up to 999 GiB!)\n"
-                        "• Supported video formats: MP4, WebM, MOV, AVI, MKV\n"
-                        "• All other file types are supported\n"
-                        "• File.io links expire in **14 days** (download before then!)\n\n"
-                        "**Tips:**\n"
-                        "• Add a title so people know what the file is\n"
-                        "• Each upload gets its own thread — use it for questions\n"
-                        "• Videos on Streamable auto-play in Discord — no click needed!\n"
-                        "• file.kiwi is perfect for huge files — fully encrypted!"
-                    ),
-                    color=0x5865F2,
-                    timestamp=discord.utils.utcnow(),
-                )
-                embed.set_footer(text="🐾 Meow Bot • File Upload System")
+                # Post the upload info embed (same text the /pin-upload-info
+                # command uses, so the two can never drift apart).
+                from cogs.uploads import build_info_embed
+
+                embed = build_info_embed()
 
                 try:
                     msg = await channel.send(embed=embed)
