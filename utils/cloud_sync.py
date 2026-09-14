@@ -107,7 +107,12 @@ def _storage_download(name: str) -> bytes | None:
 
 
 def _storage_upload(name: str, data: bytes) -> bool:
-    """Upload (or overwrite) a file in the bucket."""
+    """Upload (or overwrite) a file in the bucket.
+
+    Uses PUT (not POST) because Supabase Storage's POST endpoint returns
+    409 "The resource already exists" when the file is already in the bucket.
+    PUT replaces it silently.
+    """
     try:
         req = urllib.request.Request(
             _storage_url(name),
@@ -116,7 +121,7 @@ def _storage_upload(name: str, data: bytes) -> bool:
                 "Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type": "application/octet-stream",
             },
-            method="POST",
+            method="PUT",
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.status in (200, 201)
@@ -345,14 +350,20 @@ def _db_looks_empty() -> bool:
 # --------------------------------------------------------------------------- #
 
 async def cloud_sync_loop():
-    """Sync every 25 seconds."""
+    """Sync every 25 seconds.
+
+    Transient errors (network timeouts, rate limits) are logged and skipped
+    rather than killing the loop forever.  Only a truly unrecoverable error
+    (like the env vars disappearing mid-run) should stop syncing.
+    """
     import asyncio
     while True:
         try:
             await asyncio.sleep(25)
             await asyncio.to_thread(backup_to_cloud_sync)
-        except Exception:
-            break
+        except Exception as exc:
+            _warn_once(f"[CLOUD SYNC] ⚠️ Loop error (will retry): {exc}")
+            await asyncio.sleep(60)
 
 
 def start_cloud_sync_loop(bot):
