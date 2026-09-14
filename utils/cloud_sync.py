@@ -222,6 +222,13 @@ def restore_from_cloud() -> bool:
             except FileNotFoundError:
                 pass
 
+        # Safety check: don't restore if the downloaded database is suspiciously small
+        # This prevents restoring an empty or corrupted backup over good data
+        if len(data) < 1024:  # Less than 1KB is definitely empty/corrupted
+            print(f"[CLOUD SYNC] ⚠️ '{name}' is too small ({len(data)} bytes) — likely empty. Skipping.", flush=True)
+            os.remove(temp)
+            continue
+
         os.replace(temp, db_path())
         _last_sync_hash = hashlib.sha256(data).hexdigest()
         print(
@@ -253,6 +260,30 @@ def backup_to_cloud_sync() -> bool:
         return False
     _upload_lock_active = True
     try:
+        # Safety check: don't backup if the database is suspiciously empty
+        # This prevents overwriting a good cloud backup with fresh empty tables
+        path = db_path()
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            import sqlite3
+            try:
+                conn = sqlite3.connect(path, timeout=5.0)
+                # Check if we have any real data (economy, levels, etc.)
+                row_count = 0
+                for table in ('economy', 'user_levels', 'warnings', 'mod_cases'):
+                    try:
+                        cur = conn.execute(f"SELECT COUNT(*) FROM {table}")
+                        row_count += cur.fetchone()[0]
+                    except Exception:
+                        pass
+                conn.close()
+                if row_count == 0 and _remote_checked:
+                    # We have no data but we already checked the remote
+                    # This likely means the restore failed or we're starting fresh
+                    # Don't overwrite the cloud backup!
+                    _warn_once("[CLOUD SYNC] ⚠️ Local database has no user data — skipping backup to protect cloud copy.")
+                    return False
+            except Exception:
+                pass
         return _backup_inner()
     finally:
         _upload_lock_active = False
