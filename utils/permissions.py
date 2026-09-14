@@ -216,6 +216,7 @@ COMMAND_ACCESS: dict[str, str] = {
     "setavatar": ADMIN,
     "setbanner": ADMIN,
     "dashboard": ADMIN,
+    "dbstatus": ADMIN,
     # -- The market: one role, nothing else -------------------------------- #
     "market board": MARKET,
     "market quote": MARKET,

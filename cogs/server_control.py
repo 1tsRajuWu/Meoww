@@ -1,7 +1,9 @@
+import os
+import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils import permissions
+from utils import permissions, db
 from utils.style import send_card, display_name
 
 class ServerControl(commands.Cog):
@@ -276,6 +278,140 @@ class ServerControl(commands.Cog):
             allowed_mentions=discord.AllowedMentions(everyone=True, users=True, roles=True),
         )
         await interaction.response.send_message(f"✅ Announcement posted in {channel.mention}!", ephemeral=True)
+
+    @app_commands.command(name="dbstatus", description="Show database health: last backup, table row counts, and Supabase connection.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dbstatus(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        # --- local database stats ---
+        db_path = db.DB_PATH
+        db_size_kb = 0
+        tables: dict[str, int] = {}
+        try:
+            conn = sqlite3.connect(db_path, timeout=5.0)
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                )
+                for (name,) in cur.fetchall():
+                    try:
+                        count = cur.execute(f"SELECT COUNT(*) FROM \"{name}\"").fetchone()[0]
+                        tables[name] = count
+                    except sqlite3.Error:
+                        tables[name] = -1  # unreadable
+                conn.close()
+                db_size_kb = os.path.getsize(db_path) / 1024
+            except Exception:
+                conn.close()
+        except Exception:
+            pass
+
+        # --- Supabase / cloud status ---
+        from utils.cloud_sync import (
+            SUPABASE_URL,
+            SUPABASE_KEY,
+            _last_sync_hash,
+            _restore_blocked_reason,
+            _remote_checked,
+            _storage_list,
+            BUCKET,
+        )
+        supa_ok = bool(SUPABASE_URL and SUPABASE_KEY)
+        cloud_files: list[dict] = []
+        if supa_ok:
+            cloud_files = _storage_list()
+
+        # --- build the embed ---
+        embed = discord.Embed(
+            title="🗄️ Database Status",
+            color=0x5865F2,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_author(
+            name="🐾 Meow — System",
+            icon_url=interaction.guild.me.display_avatar.url,
+        )
+
+        # DB size
+        embed.add_field(
+            name="💾 Local Database",
+            value=(
+                f"`{db_size_kb:.1f} KB` on disk\n"
+                f"{len(tables)} table(s)"
+            ),
+            inline=True,
+        )
+
+        # Cloud connection
+        if supa_ok:
+            current = next((f for f in cloud_files if f["name"] == "bot.db"), None)
+            snapshots = [
+                f for f in cloud_files
+                if f["name"].startswith("bot-db-") and f["name"].endswith(".db")
+            ]
+            if current:
+                size_b = current.get("metadata", {}).get("size", 0)
+                updated = current.get("updated_at", "")
+                embed.add_field(
+                    name="☁️ Supabase Backup",
+                    value=(
+                        f"✅ Connected to `{BUCKET}`\n"
+                        f"Current: `{size_b / 1024:.1f} KB`\n"
+                        f"Snapshots: **{len(snapshots)}**"
+                    ),
+                    inline=True,
+                )
+            else:
+                embed.add_field(
+                    name="☁️ Supabase Backup",
+                    value="⚠️ Connected but no `bot.db` found",
+                    inline=True,
+                )
+        else:
+            embed.add_field(
+                name="☁️ Supabase Backup",
+                value="❌ Not configured (env vars missing)",
+                inline=True,
+            )
+
+        # Sync status
+        if _restore_blocked_reason:
+            sync_status = f"🛑 Blocked: {_restore_blocked_reason}"
+        elif _remote_checked and _last_sync_hash:
+            sync_status = "✅ Synced"
+        elif _remote_checked:
+            sync_status = "⚠️ Restored but not yet uploaded"
+        else:
+            sync_status = "⏳ Not yet checked"
+        embed.add_field(
+            name="🔄 Sync Status",
+            value=sync_status,
+            inline=True,
+        )
+
+        # Row counts — chunked into 25-row fields (Discord field limit)
+        if tables:
+            lines = []
+            for name, count in sorted(tables.items()):
+                if count < 0:
+                    lines.append(f"`{name}` — ❌")
+                else:
+                    lines.append(f"`{name}` — **{count:,}** rows")
+            # Split into chunks of 15 lines each to stay under 1024 chars
+            chunk_size = 15
+            for i in range(0, len(lines), chunk_size):
+                chunk = lines[i : i + chunk_size]
+                embed.add_field(
+                    name="📊 Table Rows" + (f" ({i // chunk_size + 1})" if i else ""),
+                    value="\n".join(chunk),
+                    inline=False,
+                )
+
+        embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ServerControl(bot))
