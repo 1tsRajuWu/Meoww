@@ -13,8 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CHANGELOG = ROOT / "CHANGELOG.md"
 
-#: The upload channel where update announcements go.
-UPLOAD_CHANNEL_ID: int = 1548959110467289169
+# The upload channel used to be spelled out here as well as in cogs.uploads
+# and bot.py — three copies of one id, which is how the sticky post and
+# /upload ended up disagreeing. Announcements go to the channel bot.py names;
+# the upload channel lives in cogs.uploads.DEFAULT_UPLOAD_CHANNEL_ID.
 
 
 def _changelog_hash() -> str:
@@ -87,7 +89,10 @@ def _plain(text: str) -> str:
     import re
 
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    text = re.sub(r"[*`_]", "", text)
+    text = re.sub(r"[*`]", "", text)
+    # Underscores only mean emphasis when they wrap a word. Stripping every one
+    # of them turned UPLOAD_CHANNEL_ID into UPLOADCHANNELID in the update note.
+    text = re.sub(r"(?<![A-Za-z0-9])_([^_]+)_(?![A-Za-z0-9])", r"\1", text)
     return " ".join(text.split())
 
 

@@ -1,7 +1,11 @@
 """Tests for the upload utility functions."""
+import asyncio
 import os
 import tempfile
+import time
 import unittest
+from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 # --- Video detection heuristic ---
@@ -206,15 +210,30 @@ class TestServiceOrder(unittest.TestCase):
         self.assertEqual(_service_order("nonsense", False)[0], "catbox")
 
 
+from utils import db as uploads_db
+
+
+def _setting(value):
+    """A stand-in for ``utils.db.get_setting`` that always returns ``value``."""
+    async def _get(guild_id, key, default=None):
+        return value
+    return _get
+
+
 from cogs.uploads import (
     CONTENT_MAX,
+    DEFAULT_UPLOAD_CHANNEL_ID,
     EMBED_TITLE_MAX,
+    MAX_CONCURRENT_UPLOADS,
     THREAD_NAME_MAX,
+    Uploads,
     _fit,
+    _in_upload_thread,
     _label,
     _reason,
     _units,
     build_failure_text,
+    resolve_default_channel_id,
 )
 
 
@@ -302,6 +321,136 @@ class TestFailureCard(unittest.TestCase):
 
     def test_reason_handles_an_exception_with_no_message(self):
         self.assertTrue(_reason(RuntimeError()))
+
+
+class TestUploadChannelResolution(unittest.IsolatedAsyncioTestCase):
+    """Defaulting the channel to "unset" silently disabled /upload.
+
+    It answered "No upload channel is configured for this server" and posted
+    nothing, so every server that had not been configured lost the command.
+    The default has to be a real channel, and a stale or foreign setting must
+    fall through instead of taking uploads down with it.
+    """
+
+    def test_default_is_a_real_channel(self):
+        self.assertEqual(DEFAULT_UPLOAD_CHANNEL_ID, 1548959110467289169)
+        self.assertTrue(resolve_default_channel_id({}))
+
+    def test_env_overrides_the_default(self):
+        self.assertEqual(resolve_default_channel_id({"UPLOAD_CHANNEL_ID": "123"}), 123)
+
+    def test_blank_env_falls_back(self):
+        self.assertEqual(resolve_default_channel_id({"UPLOAD_CHANNEL_ID": "  "}),
+                         DEFAULT_UPLOAD_CHANNEL_ID)
+
+    def test_a_typo_does_not_crash_the_bot(self):
+        self.assertEqual(resolve_default_channel_id({"UPLOAD_CHANNEL_ID": "clips"}),
+                         DEFAULT_UPLOAD_CHANNEL_ID)
+
+    def _cog(self, resolved: dict):
+        bot = mock.Mock()
+        bot.get_channel.side_effect = lambda cid: resolved.get(cid)
+
+        async def _fetch(cid):
+            return resolved.get(cid)
+
+        bot.fetch_channel.side_effect = _fetch
+        return Uploads(bot)
+
+    async def test_guild_setting_wins(self):
+        mine = mock.Mock(id=1000, guild=mock.Mock(id=555))
+        cog = self._cog({1000: mine, DEFAULT_UPLOAD_CHANNEL_ID: mock.Mock()})
+        with patch.object(uploads_db, "get_setting", new=_setting("1000")):
+            self.assertIs(await cog._upload_channel(mock.Mock(id=555)), mine)
+
+    async def test_no_setting_uses_the_default(self):
+        default = mock.Mock(id=DEFAULT_UPLOAD_CHANNEL_ID, guild=mock.Mock(id=555))
+        cog = self._cog({DEFAULT_UPLOAD_CHANNEL_ID: default})
+        with patch.object(uploads_db, "get_setting", new=_setting(None)):
+            self.assertIs(await cog._upload_channel(mock.Mock(id=555)), default)
+
+    async def test_a_stale_setting_falls_through(self):
+        default = mock.Mock(id=DEFAULT_UPLOAD_CHANNEL_ID, guild=mock.Mock(id=555))
+        cog = self._cog({DEFAULT_UPLOAD_CHANNEL_ID: default})
+        with patch.object(uploads_db, "get_setting", new=_setting("424242")):
+            self.assertIs(await cog._upload_channel(mock.Mock(id=555)), default)
+
+    async def test_a_channel_from_another_guild_is_refused(self):
+        foreign = mock.Mock(id=999, guild=mock.Mock(id=777))
+        default = mock.Mock(id=DEFAULT_UPLOAD_CHANNEL_ID, guild=mock.Mock(id=555))
+        cog = self._cog({999: foreign, DEFAULT_UPLOAD_CHANNEL_ID: default})
+        with patch.object(uploads_db, "get_setting", new=_setting("999")):
+            self.assertIs(await cog._upload_channel(mock.Mock(id=555)), default)
+
+    async def test_nothing_resolves_means_nothing(self):
+        cog = self._cog({})
+        with patch.object(uploads_db, "get_setting", new=_setting(None)):
+            self.assertIsNone(await cog._upload_channel(mock.Mock(id=555)))
+
+    async def test_a_garbage_setting_does_not_raise(self):
+        default = mock.Mock(id=DEFAULT_UPLOAD_CHANNEL_ID, guild=mock.Mock(id=555))
+        cog = self._cog({DEFAULT_UPLOAD_CHANNEL_ID: default})
+        with patch.object(uploads_db, "get_setting", new=_setting("not-an-id")):
+            self.assertIs(await cog._upload_channel(mock.Mock(id=555)), default)
+
+
+class TestBoundedUploadThreads(unittest.IsolatedAsyncioTestCase):
+    """Uploads share the executor with the database backup loop.
+
+    Each one can hold a worker for up to five minutes, so without a cap a
+    burst of uploads queues every backup behind them — the same "progress did
+    not save" symptom, arriving through a different door.
+    """
+
+    async def test_only_the_cap_runs_at_once(self):
+        live = 0
+        peak = 0
+
+        def slow():
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            time.sleep(0.05)
+            live -= 1
+            return True
+
+        results = await asyncio.gather(*(_in_upload_thread(slow) for _ in range(12)))
+        self.assertTrue(all(results))
+        self.assertLessEqual(peak, MAX_CONCURRENT_UPLOADS)
+        self.assertGreaterEqual(peak, 2, "the cap should not serialise uploads")
+
+    def test_the_cap_leaves_room_for_the_backup_loop(self):
+        """Uploads must not be able to use up the shared executor."""
+        workers = min(32, (os.cpu_count() or 1) + 4)
+        self.assertLess(MAX_CONCURRENT_UPLOADS, workers)
+
+
+class TestTheStickyAndTheCommandAgree(unittest.TestCase):
+    """One source of truth for the upload channel.
+
+    The sticky post had its own hardcoded channel id while /upload resolved a
+    different one, so the bot could keep advertising a channel it would refuse
+    to post in. The sticky now reads the same constant, and asks for the pins
+    directly rather than scanning a window that the busy channel had already
+    pushed the sticky out of (which posted a second copy on every restart).
+    """
+
+    def setUp(self):
+        self.src = (Path(__file__).resolve().parent.parent / "bot.py").read_text(
+            errors="replace"
+        )
+        start = self.src.index("Auto-post sticky upload info message")
+        self.block = self.src[start:start + 2000]
+
+    def test_no_second_hardcoded_channel(self):
+        self.assertNotIn(str(DEFAULT_UPLOAD_CHANNEL_ID), self.block)
+
+    def test_channels_come_from_the_cog(self):
+        self.assertIn("from cogs.uploads import", self.block)
+        self.assertIn("UPLOAD_CHANNEL_ID", self.block)
+
+    def test_the_sticky_looks_at_the_pins(self):
+        self.assertIn("channel.pins()", self.block)
 
 
 class TestInfoEmbed(unittest.TestCase):

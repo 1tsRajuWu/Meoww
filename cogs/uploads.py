@@ -25,9 +25,50 @@ from discord.ext import commands
 
 from utils import catbox, filehost, file_kiwi, streamable
 
-#: Default upload channel from the environment (0 = unset). Per-guild override
-#: lives in guild_settings under ``upload_channel_id``.
-UPLOAD_CHANNEL_ID: int = int(os.environ.get("UPLOAD_CHANNEL_ID", "0") or "0")
+#: The channel the bot has always posted uploads in. Resolution order is:
+#: the per-guild ``upload_channel_id`` setting, then ``UPLOAD_CHANNEL_ID`` from
+#: the environment, then this. It is deliberately *not* "unset": defaulting to
+#: nothing turned a working command into "No upload channel is configured" for
+#: every server that had not been configured yet, and the sticky post in
+#: ``bot.py`` reads this same constant, so the two cannot disagree.
+DEFAULT_UPLOAD_CHANNEL_ID: int = 1548959110467289169
+
+def resolve_default_channel_id(environ=None) -> int:
+    """The channel to post uploads in, honouring ``UPLOAD_CHANNEL_ID``.
+
+    A value that is not a channel id is a typo, not a reason to crash the bot
+    at import time — it falls back to the default and says so.
+    """
+    env = os.environ if environ is None else environ
+    raw = str(env.get("UPLOAD_CHANNEL_ID", "") or "").strip()
+    if not raw:
+        return DEFAULT_UPLOAD_CHANNEL_ID
+    try:
+        return int(raw)
+    except ValueError:
+        print(
+            f"[UPLOAD] UPLOAD_CHANNEL_ID={raw!r} is not a channel id — "
+            f"falling back to {DEFAULT_UPLOAD_CHANNEL_ID}",
+            flush=True,
+        )
+        return DEFAULT_UPLOAD_CHANNEL_ID
+
+
+#: Where /upload posts. Override with the ``UPLOAD_CHANNEL_ID`` env var.
+UPLOAD_CHANNEL_ID: int = resolve_default_channel_id()
+
+#: Uploads hold a worker thread for up to five minutes each. They share the
+#: default executor with the database backup loop, so a burst of them used to
+#: be able to queue every backup behind it — the "my progress did not save"
+#: symptom, arriving through a different door. Only this many run at once.
+MAX_CONCURRENT_UPLOADS: int = 4
+_UPLOAD_SLOTS = asyncio.Semaphore(MAX_CONCURRENT_UPLOADS)
+
+
+async def _in_upload_thread(func, *args):
+    """Run a blocking upload off the event loop, on a bounded number of threads."""
+    async with _UPLOAD_SLOTS:
+        return await asyncio.to_thread(func, *args)
 
 #: Max file size for Discord native uploads (free tier).
 MAX_NATIVE_SIZE: int = 25 * 1024 * 1024  # 25 MB
@@ -194,22 +235,35 @@ class Uploads(commands.Cog):
         self.bot = bot
 
     async def _upload_channel(self, guild: discord.Guild):
-        """Resolve the upload channel for this guild (setting, then env)."""
+        """Resolve the upload channel for this guild.
+
+        Tries the guild setting, then the environment/default, and returns the
+        first that resolves to a channel in *this* guild. A stale setting — a
+        channel that was deleted or belongs to another server — falls through
+        to the next candidate instead of leaving uploads with nowhere to go.
+        """
         from utils import db
         saved = await db.get_setting(guild.id, "upload_channel_id")
-        cid = int(saved or UPLOAD_CHANNEL_ID or 0)
-        if not cid:
-            return None
-        ch = self.bot.get_channel(cid)
-        if ch is None:
+        for candidate in (saved, UPLOAD_CHANNEL_ID):
             try:
-                ch = await self.bot.fetch_channel(cid)
-            except Exception:
-                return None
-        # Ensure the channel belongs to this guild
-        if getattr(ch, "guild", None) and ch.guild.id != guild.id:
-            return None
-        return ch
+                cid = int(candidate or 0)
+            except (TypeError, ValueError):
+                cid = 0
+            if not cid:
+                continue
+            ch = self.bot.get_channel(cid)
+            if ch is None:
+                try:
+                    ch = await self.bot.fetch_channel(cid)
+                except Exception:
+                    ch = None
+            if ch is None:
+                continue
+            # A channel in another guild is not an upload channel for this one
+            if getattr(ch, "guild", None) is not None and ch.guild.id != guild.id:
+                continue
+            return ch
+        return None
 
     @app_commands.command(
         name="upload",
@@ -278,7 +332,7 @@ class Uploads(commands.Cog):
         is_video = _is_video(file.filename, file.content_type)
         errors: list[str] = []
         try:
-            link, used_service, manual = await asyncio.to_thread(
+            link, used_service, manual = await _in_upload_thread(
                 _resolve_link, tmp_path, file.filename, is_video, service, errors,
             )
         finally:
@@ -381,7 +435,7 @@ class Uploads(commands.Cog):
 
         folder_title = " ".join((title or f"Upload by {interaction.user.display_name}").split())
         try:
-            result = await asyncio.to_thread(
+            result = await _in_upload_thread(
                 file_kiwi.create_folder, folder_title[:120], "send",
             )
         except Exception as exc:

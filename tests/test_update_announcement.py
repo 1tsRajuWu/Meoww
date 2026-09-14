@@ -122,6 +122,21 @@ class TestSummaryShape(unittest.TestCase):
         self.assertNotIn("`", summary)
         self.assertNotIn("](", summary)
 
+    def test_keeps_identifiers_intact(self):
+        """An env var name is the actionable part of the note; do not mangle it."""
+        summary = version.summarize_changelog(
+            "## Unreleased\n- **Set UPLOAD_CHANNEL_ID and OWNER_USER_ID**: do it now\n"
+        )
+        self.assertIn("UPLOAD_CHANNEL_ID", summary)
+        self.assertIn("OWNER_USER_ID", summary)
+
+    def test_still_strips_emphasis(self):
+        summary = version.summarize_changelog(
+            "## Unreleased\n- **Thing**: this is _important_ and *this* too\n"
+        )
+        self.assertNotIn("_important_", summary)
+        self.assertNotIn("*this*", summary)
+
     def test_one_line_per_entry(self):
         for line in self.summary.splitlines():
             if line.startswith("• "):

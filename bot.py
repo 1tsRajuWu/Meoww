@@ -549,29 +549,44 @@ async def on_ready():
     except Exception as e:
         print(f"[UPDATE] Update announcement error: {e}", flush=True)
 
-    # Auto-post sticky upload info message in the upload channel
-    UPLOAD_CHANNEL_ID = 1548959110467289169
+    # Auto-post sticky upload info message in the upload channel. The channel
+    # comes from cogs.uploads (the same constant /upload and /pin-upload-info
+    # resolve through), so the sticky cannot point somewhere else.
+    from cogs.uploads import build_info_embed, UPLOAD_CHANNEL_ID
+
     try:
         channel = bot.get_channel(UPLOAD_CHANNEL_ID)
         if channel:
-            # Check if there's already a pinned info message from the bot
+            def _is_upload_info(msg):
+                return msg.author == bot.user and any(
+                    "Upload Big Files" in (embed.title or "")
+                    for embed in msg.embeds
+                )
+
+            # Ask for the pins directly. Scanning the last 50 messages missed
+            # the sticky as soon as the channel got busier than that, and the
+            # bot posted a second copy on every restart.
             has_info = False
             try:
-                async for msg in channel.history(limit=50):
-                    if msg.author == bot.user and msg.embeds:
-                        for embed in msg.embeds:
-                            if "Upload Big Files" in (embed.title or ""):
-                                has_info = True
-                                break
-                    if has_info:
+                async for msg in channel.pins():
+                    if _is_upload_info(msg):
+                        has_info = True
                         break
             except Exception:
                 pass
 
             if not has_info:
+                try:
+                    async for msg in channel.history(limit=100):
+                        if _is_upload_info(msg):
+                            has_info = True
+                            break
+                except Exception:
+                    pass
+
+            if not has_info:
                 # Post the upload info embed (same text the /pin-upload-info
                 # command uses, so the two can never drift apart).
-                from cogs.uploads import build_info_embed
 
                 embed = build_info_embed()
 
