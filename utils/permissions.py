@@ -217,10 +217,10 @@ COMMAND_ACCESS: dict[str, str] = {
     "setbanner": OWNER,
     "dashboard": ADMIN,
     "dbstatus": ADMIN,
-    # -- Activity Tracker: everyone checks their own stats ---------------- #
-    "activity": EVERYONE,
-    "activity-top": EVERYONE,
-    "activity-channel": EVERYONE,
+    # -- Activity Tracker: admin-only for management ---------------------- #
+    "activity": ADMIN,
+    "activity-top": ADMIN,
+    "activity-channel": ADMIN,
     # -- The market: one role, nothing else -------------------------------- #
     "market board": MARKET,
     "market quote": MARKET,

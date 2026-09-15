@@ -206,7 +206,7 @@ def _looks_like_sqlite(data: bytes) -> bool:
 # --------------------------------------------------------------------------- #
 
 #: Tables whose rows prove a database holds real progress.
-COUNTED_TABLES: tuple[str, ...] = ("economy", "user_levels", "mod_cases", "warnings")
+COUNTED_TABLES: tuple[str, ...] = ("economy", "user_levels", "mod_cases", "warnings", "activity_messages", "activity_voice")
 
 #: Below this many rows a database counts as effectively empty.
 MIN_MEANINGFUL_ROWS: int = 3

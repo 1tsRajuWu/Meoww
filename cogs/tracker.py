@@ -185,6 +185,19 @@ class Tracker(commands.Cog):
     def cog_unload(self):
         self._vc_flush_loop.cancel()
 
+    # ── Channel tracking for new channels ─────────────────────────────────────
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel):
+        """Ensure new channels are tracked when created."""
+        if not channel.guild:
+            return
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(
+            channel.guild.id, "tracker"
+        ):
+            return
+        print(f"[TRACKER] New channel created: #{channel.name} ({channel.id}) - tracking enabled", flush=True)
+
     # ── Message tracking ────────────────────────────────────────────────────
 
     @commands.Cog.listener()
@@ -307,6 +320,7 @@ class Tracker(commands.Cog):
         app_commands.Choice(name="This Year", value="year"),
         app_commands.Choice(name="All Time", value="all"),
     ])
+    @app_commands.checks.has_permissions(administrator=True)
     async def activity_top(self, interaction: discord.Interaction, period: app_commands.Choice[str] = None):
         if not interaction.guild:
             return await interaction.response.send_message("Server only!", ephemeral=True)
@@ -387,6 +401,13 @@ class Tracker(commands.Cog):
         embed.set_footer(text=f"🐾 Activity Tracker • {_period_label(pv)}")
         await style.send_card(interaction, embed=embed)
 
+    @activity_top.error
+    async def activity_top_error(self, interaction: discord.Interaction, error):
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message("❌ You need **Administrator** permission to use this command.", ephemeral=True)
+        else:
+            raise error
+
     @app_commands.command(name="activity", description="Your personal activity stats on this server!")
     @app_commands.describe(member="Check another member", period="Time range")
     @app_commands.choices(period=[
@@ -396,6 +417,7 @@ class Tracker(commands.Cog):
         app_commands.Choice(name="This Year", value="year"),
         app_commands.Choice(name="All Time", value="all"),
     ])
+    @app_commands.checks.has_permissions(administrator=True)
     async def activity(self, interaction: discord.Interaction, member: discord.Member = None, period: app_commands.Choice[str] = None):
         if not interaction.guild:
             return await interaction.response.send_message("Server only!", ephemeral=True)
@@ -437,6 +459,13 @@ class Tracker(commands.Cog):
         embed.set_footer(text=f"🐾 {interaction.guild.name} • {_period_label(pv)}")
         await style.send_card(interaction, embed=embed)
 
+    @activity.error
+    async def activity_error(self, interaction: discord.Interaction, error):
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message("❌ You need **Administrator** permission to use this command.", ephemeral=True)
+        else:
+            raise error
+
     @app_commands.command(name="activity-channel", description="Activity stats for a specific channel!")
     @app_commands.describe(channel="Channel to check", period="Time range")
     @app_commands.choices(period=[
@@ -446,6 +475,7 @@ class Tracker(commands.Cog):
         app_commands.Choice(name="This Year", value="year"),
         app_commands.Choice(name="All Time", value="all"),
     ])
+    @app_commands.checks.has_permissions(administrator=True)
     async def activity_channel(self, interaction: discord.Interaction, channel: discord.TextChannel = None, period: app_commands.Choice[str] = None):
         if not interaction.guild:
             return await interaction.response.send_message("Server only!", ephemeral=True)
@@ -488,6 +518,13 @@ class Tracker(commands.Cog):
 
         embed.set_footer(text=f"🐾 {interaction.guild.name}")
         await style.send_card(interaction, embed=embed)
+
+    @activity_channel.error
+    async def activity_channel_error(self, interaction: discord.Interaction, error):
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message("❌ You need **Administrator** permission to use this command.", ephemeral=True)
+        else:
+            raise error
 
 
 async def setup(bot: commands.Bot):
