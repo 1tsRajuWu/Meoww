@@ -91,8 +91,12 @@ class Leveling(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        print("[LEVELS] Leveling cog loaded, starting VC reward loop...", flush=True)
         if not self.vc_reward_loop.is_running():
             self.vc_reward_loop.start()
+            print("[LEVELS] VC reward loop started successfully", flush=True)
+        else:
+            print("[LEVELS] VC reward loop already running", flush=True)
 
     def cog_unload(self):
         self.vc_reward_loop.cancel()
@@ -464,9 +468,16 @@ class Leveling(commands.Cog):
         if member.bot or not member.guild:
             return
         now = time.time()
+        
+        # Log the voice state change
+        before_ch = before.channel.name if before.channel else "None"
+        after_ch = after.channel.name if after.channel else "None"
+        print(f"[LEVELS] Voice state update: {member.display_name} - {before_ch} -> {after_ch}", flush=True)
+        
         for channel in (before.channel, after.channel):
             if channel is not None:
                 self._pulse.touch(channel.id, now)
+                print(f"[LEVELS] Touched channel #{channel.name} ({channel.id}) for freshness", flush=True)
 
     # -------------------------------------------------------------------------
     # Voice Channel (VC) Reward Task Loop (every 60 seconds)
@@ -493,26 +504,41 @@ class Leveling(commands.Cog):
                 vc_coins = settings["vc_coins_per_min"]
                 vc_xp = settings["vc_xp_per_min"]
                 now = time.time()
+                
+                print(f"[LEVELS] VC reward loop running for {guild.name} - vc_coins: {vc_coins}, vc_xp: {vc_xp}", flush=True)
 
                 channels = guild.voice_channels + getattr(guild, "stage_channels", [])
+                vc_count = 0
+                member_count = 0
+                paid_count = 0
+                
                 for vc in channels:
                     if guild.afk_channel and vc.id == guild.afk_channel.id:
                         continue
 
+                    vc_count += 1
                     # Anti-AFK gate 1: somebody else has to be in here. A member
                     # alone in a channel is the classic farm, and no amount of
                     # sitting in it is evidence of anything.
                     humans = [m for m in vc.members if not m.bot and m.voice is not None]
                     if len(humans) < rewards.VC_COMPANY_MIN:
+                        print(f"[LEVELS] VC #{vc.name} - Skipped: only {len(humans)} human(s) (need {rewards.VC_COMPANY_MIN})", flush=True)
                         continue
+                    
+                    print(f"[LEVELS] VC #{vc.name} - {len(humans)} human(s) present", flush=True)
                     company = rewards.voice_company_factor(len(humans) - 1)
+                    print(f"[LEVELS] VC #{vc.name} - Company factor: {company:.2f}", flush=True)
+                    
                     # Anti-AFK gate 2: the channel itself must have shown a sign of
                     # life recently. ``seen`` starts the clock for a channel the bot
                     # has not observed before, so a restart does not read every
                     # occupied channel as dead and stop paying real members.
-                    freshness = rewards.voice_freshness(self._pulse.seen(vc.id, now))
+                    channel_age = self._pulse.seen(vc.id, now)
+                    freshness = rewards.voice_freshness(channel_age)
+                    print(f"[LEVELS] VC #{vc.name} - Channel age: {channel_age:.0f}s, Freshness: {freshness:.2f}", flush=True)
 
                     for member in humans:
+                        member_count += 1
                         state = member.voice
                         # Anti-AFK gate 3: can this member take part at all? Deafened
                         # (not even receiving audio), server-muted or a suppressed
@@ -528,16 +554,25 @@ class Leveling(commands.Cog):
                             self_video=bool(getattr(state, "self_video", False)),
                             self_stream=bool(getattr(state, "self_stream", False)),
                         )
+                        print(f"[LEVELS] Member {member.display_name} - Presence factor: {presence:.2f} (self_deaf: {getattr(state, 'self_deaf', False)}, deaf: {getattr(state, 'deaf', False)}, mute: {getattr(state, 'mute', False)}, self_mute: {getattr(state, 'self_mute', False)})", flush=True)
+                        
                         # The payout maths: the configured per-minute rate is the
                         # ceiling, and this factor is how much of it was earned.
                         factor = rewards.voice_factor(
                             presence=presence, company=company, freshness=freshness
                         )
+                        print(f"[LEVELS] Member {member.display_name} - Combined factor: {factor:.2f}", flush=True)
+                        
                         if factor <= 0.0:
+                            print(f"[LEVELS] Member {member.display_name} - Skipped: factor <= 0", flush=True)
                             continue
+                        
                         payout = rewards.voice_reward(factor, vc_xp=vc_xp, vc_coins=vc_coins)
+                        print(f"[LEVELS] Member {member.display_name} - Base payout: {payout.coins} coins, {payout.xp} XP", flush=True)
+                        
                         perks = await shop.multipliers(member.id, guild.id, now)
                         voice_coins, voice_xp = perks.scaled(payout.coins, payout.xp)
+                        print(f"[LEVELS] Member {member.display_name} - Scaled payout: {voice_coins} coins, {voice_xp} XP", flush=True)
 
                         # Read, decide and write in ONE ``BEGIN IMMEDIATE``
                         # transaction (the shared atomic helper). The old code read on
@@ -573,19 +608,24 @@ class Leveling(commands.Cog):
 
                         tick = await asyncio.to_thread(db.run_atomic, _vc_tick)
                         if tick is None:
+                            print(f"[LEVELS] Member {member.display_name} - Skipped: atomic transaction failed", flush=True)
                             continue
                         old_lvl, new_lvl = tick
+                        paid_count += 1
 
                         try:
                             await update_wallet(member.id, guild.id, voice_coins)
+                            print(f"[LEVELS] Member {member.display_name} - Paid: +{voice_coins} coins, +{voice_xp} XP (Level {old_lvl} -> {new_lvl})", flush=True)
                         except Exception as e:
                             print(f"VC coin deposit error: {e}")
 
                         if new_lvl > old_lvl:
                             await self.handle_level_up(guild, member, old_lvl, new_lvl, None)
+                
+                print(f"[LEVELS] VC reward loop complete for {guild.name} - {vc_count} channels checked, {member_count} members evaluated, {paid_count} paid", flush=True)
 
             except Exception as e:
-                print(f"Error in vc_reward_loop for guild {guild.id}: {e}")
+                print(f"Error in vc_reward_loop for guild {guild.id}: {e}", flush=True)
 
     @vc_reward_loop.before_loop
     async def before_vc_reward_loop(self):
