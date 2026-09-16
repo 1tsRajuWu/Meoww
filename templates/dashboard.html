@@ -972,6 +972,122 @@
             padding: 0 4px;
         }
 
+        /* ---- The receipt ---- */
+        /* What actually happened, kept on the page. A toast that disappears after
+           three seconds is a plausible-looking way to lose the only record of a
+           message that has already been sent as the bot and cannot be recalled. */
+        .receipt {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: rgba(13, 17, 24, 0.8);
+            margin-bottom: 14px;
+            overflow: hidden;
+        }
+
+        .receipt[hidden] { display: none; }
+
+        .receipt-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .receipt-title {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+        }
+
+        .receipt-title.ok { color: #4ade80; }
+        .receipt-title.warn { color: #facc15; }
+        .receipt-title.fail { color: #ff6b6b; }
+
+        .receipt-time {
+            margin-left: auto;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: "JetBrains Mono", monospace;
+        }
+
+        .receipt-close {
+            background: none;
+            border: 0;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 4px 6px;
+            border-radius: 6px;
+        }
+
+        .receipt-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+
+        .receipt-rows { list-style: none; margin: 0; padding: 0; }
+
+        .receipt-row {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 14px;
+            font-size: 12.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .receipt-row:last-child { border-bottom: 0; }
+        .receipt-mark { width: 14px; flex-shrink: 0; font-weight: 800; }
+        .receipt-row.ok .receipt-mark { color: #4ade80; }
+        .receipt-row.fail .receipt-mark { color: #ff6b6b; }
+        .receipt-row.note .receipt-mark { color: #facc15; }
+
+        .receipt-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .receipt-why {
+            margin-left: auto;
+            flex-shrink: 0;
+            font-size: 11.5px;
+            color: var(--text-secondary);
+            text-align: right;
+        }
+
+        .receipt-link {
+            margin-left: auto;
+            flex-shrink: 0;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #a5b4fc;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .receipt-link:hover { text-decoration: underline; }
+
+        .receipt-foot {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-top: 1px solid var(--border);
+        }
+
+        .receipt-foot .btn { padding: 8px 14px; font-size: 12px; }
+        .receipt-note { margin-left: auto; font-size: 11px; color: var(--text-muted); text-align: right; }
+
+        .preview-warn {
+            margin-top: 8px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #facc15;
+        }
+
         .composer-status { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
 
         @keyframes slideIn {
@@ -1145,6 +1261,20 @@
                         <label for="composer-title">Embed title</label>
                         <input id="composer-title" class="composer-input" type="text" maxlength="256" placeholder="Optional headline">
                     </div>
+                    <div class="receipt" id="composer-receipt" role="status" hidden>
+                        <div class="receipt-head">
+                            <span class="receipt-title" id="composer-receipt-title"></span>
+                            <span class="receipt-time" id="composer-receipt-time"></span>
+                            <button type="button" class="receipt-close" id="composer-receipt-dismiss"
+                                    aria-label="Dismiss this result">✕</button>
+                        </div>
+                        <ul class="receipt-rows" id="composer-receipt-rows"></ul>
+                        <div class="receipt-foot" id="composer-receipt-foot" hidden>
+                            <button type="button" class="btn" id="composer-retry"></button>
+                            <span class="receipt-note" id="composer-receipt-note"></span>
+                        </div>
+                    </div>
+
                     <div class="composer-field">
                         <div class="composer-actions">
                             <label class="composer-check" for="composer-embed">
@@ -1363,6 +1493,7 @@
         let mentionTimer = null;
         let mentionRequest = 0;         // drops an out-of-order answer
         let mentionActive = -1;         // the highlighted row, for the keyboard
+        let lastAttempt = null;         // the payload the receipt describes
 
         const composerEls = {
             channels: document.getElementById("composer-channels"),
@@ -1379,7 +1510,15 @@
             search: document.getElementById("composer-mention-search"),
             results: document.getElementById("composer-mention-results"),
             send: document.getElementById("composer-send"),
-            clear: document.getElementById("composer-clear")
+            clear: document.getElementById("composer-clear"),
+            receipt: document.getElementById("composer-receipt"),
+            receiptTitle: document.getElementById("composer-receipt-title"),
+            receiptTime: document.getElementById("composer-receipt-time"),
+            receiptRows: document.getElementById("composer-receipt-rows"),
+            receiptFoot: document.getElementById("composer-receipt-foot"),
+            receiptNote: document.getElementById("composer-receipt-note"),
+            receiptDismiss: document.getElementById("composer-receipt-dismiss"),
+            retry: document.getElementById("composer-retry")
         };
 
         function composerStatus(message, linkUrl) {
@@ -1393,6 +1532,34 @@
                 link.style.color = "var(--accent)";
                 composerEls.status.appendChild(link);
             }
+        }
+
+        /* The send endpoint answers with a *result*, not just an error: its body
+           says per channel who took the message and who refused it. ``apiPost``
+           throws on ``success: false``, which for this one endpoint is a real
+           answer — a send that reached nobody would have been reported as
+           "Could not send: Request failed (200)" and nothing else. */
+        async function apiPostResult(url, body) {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": CSRF_TOKEN
+                },
+                credentials: "same-origin",
+                body: JSON.stringify(body)
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (response.status === 401) {
+                showToast("Your session expired. Redirecting to sign in…", "error");
+                setTimeout(() => { window.location.href = "/login"; }, 1200);
+                throw new Error("Session expired");
+            }
+            // A refusal the server could describe up front (nothing written, more
+            // channels than the limit) is an error; a delivered report is not.
+            if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+            return data;
         }
 
         async function apiGet(url) {
@@ -1795,6 +1962,178 @@
                 text.textContent = body || "Nothing written yet…";
                 composerEls.preview.appendChild(text);
             }
+
+            // Said before the button is pressed, not after: the ping is the one
+            // part of this message that reaches people who never opted in.
+            const ping = massPingKeyword();
+            if (ping) {
+                const warning = document.createElement("div");
+                warning.className = "preview-warn";
+                warning.textContent = `⚠️ ${ping} notifies the whole server.`;
+                composerEls.preview.appendChild(warning);
+            }
+        }
+
+        /* receipt-summary:start */
+        /* What came back, turned into something readable — pure, so it can be run
+           on its own (by a test, in a real JavaScript engine) without a browser.
+           The result is the server's own per-channel report: which channels took
+           the message, which refused it and why, and which tags were dropped. */
+        function receiptSummary(result, carried) {
+            // ``carried`` is what an earlier attempt already delivered: the receipt
+            // is the record of the *message*, so a retry must not erase the half of
+            // it that already arrived and worked.
+            const before = carried || [];
+            const sent = (result.sent || []).filter(
+                item => !before.some(early => String(early.channel_id) === String(item.channel_id))
+            );
+            const failed = result.failed || [];
+            const ignored = result.ignored_mentions || [];
+            const rows = [];
+            sent.forEach(item => rows.push({
+                tone: "ok",
+                mark: "✓",
+                name: item.name ? `#${item.name}` : `#${item.channel_id}`,
+                why: "",
+                jump_url: item.jump_url || ""
+            }));
+            failed.forEach(item => rows.push({
+                tone: "fail",
+                mark: "✕",
+                name: item.name ? `#${item.name}` : `#${item.channel_id}`,
+                why: item.error || "Discord refused it",
+                jump_url: ""
+            }));
+            ignored.forEach(tag => rows.push({
+                tone: "note",
+                mark: "!",
+                name: String(tag),
+                why: "not in this server — not tagged",
+                jump_url: ""
+            }));
+            before.forEach(item => rows.unshift({
+                tone: "ok",
+                mark: "✓",
+                name: item.name ? `#${item.name}` : `#${item.channel_id}`,
+                why: "",
+                jump_url: item.jump_url || ""
+            }));
+            const delivered = before.length + sent.length;
+            const attempted = delivered + failed.length;
+            let title = "Nothing was sent";
+            let tone = "fail";
+            if (attempted && !failed.length) {
+                title = attempted === 1 ? "Sent" : `Sent to all ${attempted} channels`;
+                tone = "ok";
+            } else if (delivered) {
+                title = `Sent to ${delivered} of ${attempted} channels`;
+                tone = "warn";
+            } else if (attempted) {
+                title = "Not sent";
+            }
+            return {
+                title: title,
+                tone: tone,
+                rows: rows,
+                retry_ids: failed.map(item => String(item.channel_id)),
+                note: failed.length ? "A retry sends the same message again — a timeout may have landed anyway." : ""
+            };
+        }
+        /* receipt-summary:end */
+
+        function receiptRow(row) {
+            const line = document.createElement("li");
+            line.className = `receipt-row ${row.tone}`;
+            const mark = document.createElement("span");
+            mark.className = "receipt-mark";
+            mark.setAttribute("aria-hidden", "true");
+            mark.textContent = row.mark;
+            const name = document.createElement("span");
+            name.className = "receipt-name";
+            name.textContent = row.name;
+            line.appendChild(mark);
+            line.appendChild(name);
+            // Only Discord's own message links are turned into links; the reply is
+            // ours, but a link built from a response is still a link a response
+            // chose.
+            if (row.jump_url && row.jump_url.indexOf("https://discord.com/") === 0) {
+                const link = document.createElement("a");
+                link.className = "receipt-link";
+                link.href = row.jump_url;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = "Open";
+                line.appendChild(link);
+            } else if (row.why) {
+                const why = document.createElement("span");
+                why.className = "receipt-why";
+                why.textContent = row.why;
+                line.appendChild(why);
+            }
+            return line;
+        }
+
+        function renderReceipt(result, payload, carried) {
+            const summary = receiptSummary(result, carried);
+            composerEls.receiptTitle.textContent = summary.title;
+            composerEls.receiptTitle.className = `receipt-title ${summary.tone}`;
+            composerEls.receiptTime.textContent = new Date().toLocaleTimeString(
+                [], { hour: "2-digit", minute: "2-digit" }
+            );
+            composerEls.receiptRows.innerHTML = "";
+            summary.rows.forEach(row => composerEls.receiptRows.appendChild(receiptRow(row)));
+            composerEls.receiptNote.textContent = summary.note;
+            composerEls.receiptFoot.hidden = !summary.retry_ids.length;
+            composerEls.retry.textContent = summary.retry_ids.length === 1
+                ? "Retry that channel"
+                : `Retry the ${summary.retry_ids.length} failed channels`;
+            composerEls.receipt.hidden = false;
+            // The receipt is the record of *that* message, so a retry repeats it
+            // rather than whatever the form says by then — and keeps whatever has
+            // already arrived on the receipt while it does.
+            const delivered = (carried || []).concat(result.sent || []);
+            lastAttempt = summary.retry_ids.length
+                ? { payload: payload, channel_ids: summary.retry_ids, carried: delivered }
+                : null;
+            composerStatus("");
+        }
+
+        function hideReceipt() {
+            composerEls.receipt.hidden = true;
+            composerEls.receiptRows.innerHTML = "";
+            lastAttempt = null;
+        }
+
+        function composePayload(channelIds) {
+            return {
+                guild_id: GUILD_ID,
+                channel_ids: channelIds,
+                content: composerEls.body.value.trim(),
+                title: composerEls.title.value.trim(),
+                embed: composerEls.embed.checked,
+                mentions: composerMentions.map(m => m.id)
+            };
+        }
+
+        function massPingKeyword() {
+            // The two tags that reach a whole server at once, and the only part of
+            // a send that cannot be taken back by editing the message afterwards.
+            const keyword = composerMentions.find(m => m.id === "@everyone" || m.id === "@here");
+            return keyword ? keyword.id : "";
+        }
+
+        async function submitPayload(payload, carried) {
+            composerEls.send.disabled = true;
+            composerEls.send.textContent = "Sending…";
+            try {
+                const data = await apiPostResult("/api/send-message", payload);
+                renderReceipt(data, payload, carried);
+            } catch (err) {
+                if (err.message !== "Session expired") showToast(`Could not send: ${err.message}`, "error");
+            } finally {
+                composerEls.send.disabled = false;
+                composerEls.send.textContent = "Send message";
+            }
         }
 
         function clearComposer() {
@@ -1802,6 +2141,7 @@
             composerEls.title.value = "";
             composerEls.embed.checked = false;
             composerEls.titleField.hidden = true;
+            hideReceipt();
             composerMentions.length = 0;
             composerSelection.length = 0;
             composerEls.channelSearch.value = "";
@@ -1814,47 +2154,29 @@
         }
 
         async function sendComposedMessage() {
-            const channelIds = composerSelection.slice();
-            const body = composerEls.body.value.trim();
-            const title = composerEls.title.value.trim();
-            const asEmbed = composerEls.embed.checked;
-
-            if (!channelIds.length) return showToast("Pick at least one channel first.", "error");
-            if (!body && !title) return showToast("Write something to send.", "error");
-            if (channelIds.length > 5) return showToast("At most 5 channels per send.", "error");
-
-            composerEls.send.disabled = true;
-            composerEls.send.textContent = "Sending…";
-            composerStatus("");
-            try {
-                const data = await apiPost("/api/send-message", {
-                    guild_id: GUILD_ID,
-                    channel_ids: channelIds,
-                    content: body,
-                    title: title,
-                    embed: asEmbed,
-                    mentions: composerMentions.map(m => m.id)
-                });
-                const sent = data.sent || [];
-                if (sent.length) {
-                    showToast(`Sent to ${sent.map(s => `#${s.name}`).join(", ")}.`);
-                    composerStatus(
-                        sent.length === 1 ? "Sent." : `Sent to ${sent.length} channels.`,
-                        sent.length === 1 ? sent[0].jump_url : null
-                    );
-                }
-                (data.failed || []).forEach(item => {
-                    showToast(`#${item.name || item.channel_id}: ${item.error}`, "error");
-                });
-                if ((data.ignored_mentions || []).length) {
-                    showToast(`Could not tag ${data.ignored_mentions.join(", ")} — not in this server.`, "error");
-                }
-            } catch (err) {
-                if (err.message !== "Session expired") showToast(`Could not send: ${err.message}`, "error");
-            } finally {
-                composerEls.send.disabled = false;
-                composerEls.send.textContent = "Send message";
+            if (!composerSelection.length) return showToast("Pick at least one channel first.", "error");
+            const payload = composePayload(composerSelection.slice());
+            if (!payload.content && !payload.title) return showToast("Write something to send.", "error");
+            if (payload.channel_ids.length > COMPOSER_MAX_CHANNELS) {
+                return showToast(`At most ${COMPOSER_MAX_CHANNELS} channels per send.`, "error");
             }
+            const ping = massPingKeyword();
+            if (ping && !window.confirm(
+                `${ping} notifies the whole server, and this goes to `
+                + `${payload.channel_ids.length} channel${payload.channel_ids.length === 1 ? "" : "s"} `
+                + "at once. It cannot be taken back. Send it?"
+            )) {
+                return;
+            }
+            await submitPayload(payload);
+        }
+
+        async function retryFailedChannels() {
+            if (!lastAttempt) return;
+            await submitPayload(
+                { ...lastAttempt.payload, channel_ids: lastAttempt.channel_ids },
+                lastAttempt.carried
+            );
         }
 
         composerEls.body.addEventListener("input", () => { updateCounter(); renderPreview(); });
@@ -1866,6 +2188,8 @@
         });
         composerEls.send.addEventListener("click", sendComposedMessage);
         composerEls.clear.addEventListener("click", clearComposer);
+        composerEls.retry.addEventListener("click", retryFailedChannels);
+        composerEls.receiptDismiss.addEventListener("click", hideReceipt);
         composerEls.channelSearch.addEventListener("input", renderChannelPicker);
         composerEls.search.addEventListener("focus", () => {
             clearTimeout(mentionTimer);

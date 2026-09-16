@@ -719,6 +719,163 @@ class DashboardTemplateCase(unittest.TestCase):
         self.assertIn('id="composer-channel-count"', html)
         self.assertNotIn("Ctrl/Cmd-click", html)
 
+    def _receipt_summary(self, result, carried=None):
+        """Run the page's own receipt logic in a real JavaScript engine.
+
+        The summary is deliberately a pure function of the server's reply, so it
+        can be executed on its own: what a send *looks like* afterwards is half of
+        what this feature is, and reading the JavaScript is not evidence that it
+        works.
+        """
+        import json
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        match = re.search(
+            r"/\* receipt-summary:start \*/(.*?)/\* receipt-summary:end \*/", self.render(), re.S
+        )
+        self.assertIsNotNone(match, "the receipt summary is no longer marked for extraction")
+        script = (
+            f"const result = {json.dumps(result)};\n"
+            f"const carried = {json.dumps(carried or [])};\n"
+            f"{match.group(1)}\n"
+            "console.log(JSON.stringify(receiptSummary(result, carried)));"
+        )
+        handle = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+        try:
+            handle.write(script)
+            handle.close()
+            run = subprocess.run([node, handle.name], capture_output=True, text=True)
+        finally:
+            os.unlink(handle.name)
+        self.assertEqual(run.returncode, 0, run.stderr[:600])
+        return json.loads(run.stdout)
+
+    def test_a_clean_send_reads_as_a_receipt(self):
+        summary = self._receipt_summary({
+            "success": True,
+            "sent": [
+                {"channel_id": "1", "name": "general", "jump_url": "https://discord.com/channels/1/1/2"},
+                {"channel_id": "2", "name": "updates", "jump_url": "https://discord.com/channels/1/2/3"},
+            ],
+            "failed": [],
+            "ignored_mentions": [],
+        })
+        self.assertEqual(summary["title"], "Sent to all 2 channels")
+        self.assertEqual(summary["tone"], "ok")
+        self.assertEqual(summary["retry_ids"], [], "nothing to retry")
+        self.assertEqual([row["name"] for row in summary["rows"]], ["#general", "#updates"])
+        for row in summary["rows"]:
+            self.assertTrue(row["jump_url"].startswith("https://discord.com/"), row)
+
+    def test_a_partial_send_names_what_failed_and_what_a_retry_would_reach(self):
+        summary = self._receipt_summary({
+            "success": True,
+            "sent": [{"channel_id": "1", "name": "general", "jump_url": "https://discord.com/x"}],
+            "failed": [{
+                "channel_id": "555002",
+                "name": "staff-only",
+                "error": "I cannot send messages in #staff-only",
+            }],
+            "ignored_mentions": [],
+        })
+        self.assertEqual(summary["title"], "Sent to 1 of 2 channels")
+        self.assertEqual(summary["tone"], "warn", "a half-done send is not painted green")
+        self.assertEqual(summary["retry_ids"], ["555002"], "only what failed is retried")
+        self.assertIn("I cannot send messages in #staff-only", [row["why"] for row in summary["rows"]])
+        self.assertTrue(summary["note"], "a retry has to say that it repeats the message")
+
+    def test_a_send_that_reached_nothing_is_not_called_a_success(self):
+        summary = self._receipt_summary({
+            "success": False,
+            "sent": [],
+            "failed": [{"channel_id": "999", "error": "That channel no longer exists"}],
+            "ignored_mentions": [],
+        })
+        self.assertEqual(summary["title"], "Not sent")
+        self.assertEqual(summary["tone"], "fail")
+        self.assertEqual(summary["rows"][0]["name"], "#999", "an unnamed channel is still named")
+        self.assertEqual(summary["retry_ids"], ["999"])
+
+    def test_a_dropped_tag_is_part_of_the_result(self):
+        summary = self._receipt_summary({
+            "success": True,
+            "sent": [{"channel_id": "1", "name": "general", "jump_url": "https://discord.com/x"}],
+            "failed": [],
+            "ignored_mentions": ["1549177590328205393"],
+        })
+        self.assertEqual(summary["title"], "Sent", "the message did go out")
+        self.assertEqual(summary["rows"][-1]["tone"], "note")
+        self.assertIn("not tagged", summary["rows"][-1]["why"])
+
+    def test_a_retry_does_not_erase_what_already_arrived(self):
+        """The receipt is the record of the *message*: a retry that hides the
+        channels which already took it is the same forgetting this rebuild is for."""
+        summary = self._receipt_summary(
+            {
+                "success": True,
+                "sent": [{"channel_id": "2", "name": "updates", "jump_url": "https://discord.com/y"}],
+                "failed": [],
+                "ignored_mentions": [],
+            },
+            carried=[{"channel_id": "1", "name": "general", "jump_url": "https://discord.com/x"}],
+        )
+        self.assertEqual(summary["title"], "Sent to all 2 channels")
+        self.assertEqual([row["name"] for row in summary["rows"]], ["#general", "#updates"])
+        self.assertEqual(summary["retry_ids"], [])
+
+    def test_a_channel_is_never_counted_twice(self):
+        """An id already on the receipt and named again in the reply is one row."""
+        same = {"channel_id": "1", "name": "general", "jump_url": "https://discord.com/x"}
+        summary = self._receipt_summary(
+            {"success": True, "sent": [same], "failed": [], "ignored_mentions": []},
+            carried=[same],
+        )
+        self.assertEqual(len(summary["rows"]), 1)
+        self.assertEqual(summary["title"], "Sent")
+
+    def test_the_send_does_not_treat_a_delivered_report_as_an_error(self):
+        """``success: false`` from this endpoint is a real answer — a send that
+        reached nobody — and the receipt has to be able to show it. ``apiPost``
+        throws on it, which reported that case as "Request failed (200)"."""
+        html = self.render()
+        self.assertIn("apiPostResult(\"/api/send-message\"", html)
+        self.assertIn("if (!response.ok) throw new Error", html)
+        self.assertNotIn("apiPost(\"/api/send-message\"", html)
+
+    def test_an_empty_reply_is_not_reported_as_success(self):
+        summary = self._receipt_summary({"success": False})
+        self.assertEqual(summary["title"], "Nothing was sent")
+        self.assertEqual(summary["tone"], "fail")
+        self.assertEqual(summary["retry_ids"], [])
+
+    def test_the_send_result_is_a_receipt_and_not_a_disappearing_toast(self):
+        """Three seconds of toast is not a record of a sent, unrecoverable message."""
+        html = self.render()
+        for element_id in (
+            "composer-receipt",
+            "composer-receipt-title",
+            "composer-receipt-rows",
+            "composer-receipt-foot",
+            "composer-receipt-note",
+            "composer-retry",
+            "composer-receipt-dismiss",
+        ):
+            self.assertIn(f'id="{element_id}"', html, element_id)
+        self.assertNotIn("showToast(`#${item.name", html, "a refusal must not fade after three seconds")
+        self.assertNotIn("showToast(`Sent to ", html)
+
+    def test_a_mass_ping_is_warned_about_before_it_is_sent(self):
+        html = self.render()
+        self.assertIn("notifies the whole server", html)
+        self.assertIn("window.confirm", html)
+        self.assertIn("massPingKeyword", html)
+
     def test_the_picker_marks_a_voice_channel_as_one(self):
         html = self.render()
         self.assertIn('channel.kind === "voice"', html, "the row has to look like a voice channel")
