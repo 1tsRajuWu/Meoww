@@ -1116,7 +1116,7 @@
                             <div class="picker" id="composer-channels" role="listbox" aria-multiselectable="true"
                                  aria-label="Channels" aria-describedby="composer-channels-hint"></div>
                         </div>
-                        <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_max_channels|default(5) }} — the bot posts the same message to every one.</span>
+                        <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_max_channels|default(5) }} — the bot posts the same message to every one. A <strong>voice</strong> channel needs its text chat turned on.</span>
                     </div>
                     <div class="composer-field">
                         <label for="composer-mention-search">Tag people or roles</label>
@@ -1446,7 +1446,9 @@
             tick.textContent = "✓";
             const name = document.createElement("span");
             name.className = "picker-name";
-            name.textContent = `#${channel.name}`;
+            // A voice channel is marked as one: it takes the message in its own
+            // text chat, which is what the people in the call are reading.
+            name.textContent = channel.kind === "voice" ? `🔊 ${channel.name}` : `#${channel.name}`;
             row.appendChild(tick);
             row.appendChild(name);
 

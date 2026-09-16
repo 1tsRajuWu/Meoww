@@ -57,12 +57,16 @@ MODULES = [
 #: 1 and 2 survive any arithmetic, so this harness used to prove nothing about the
 #: one number the page has to hand back untouched.
 CHANNELS = [
-    {"id": "1548437081120833657", "name": "general", "category": "Community", "can_send": True, "slowmode": 0, "is_news": False},
-    {"id": "1548437081120833658", "name": "announcements", "category": "Community", "can_send": True, "slowmode": 0, "is_news": True},
-    {"id": "1548437081120833659", "name": "memes", "category": "Community", "can_send": True, "slowmode": 30, "is_news": False},
-    {"id": "1548437081120833660", "name": "staff-chat", "category": "Staff", "can_send": True, "slowmode": 0, "is_news": False},
-    {"id": "1548437081120833661", "name": "mod-logs", "category": "Staff", "can_send": False, "slowmode": 0, "is_news": False},
-    {"id": "1548437081120833662", "name": "welcome", "category": "No category", "can_send": False, "slowmode": 0, "is_news": False},
+    {"id": "1548437081120833657", "name": "general", "category": "Community", "kind": "text", "can_send": True, "slowmode": 0, "is_news": False},
+    {"id": "1548437081120833658", "name": "announcements", "category": "Community", "kind": "text", "can_send": True, "slowmode": 0, "is_news": True},
+    {"id": "1548437081120833659", "name": "memes", "category": "Community", "kind": "text", "can_send": True, "slowmode": 30, "is_news": False},
+    {"id": "1548437081120833660", "name": "staff-chat", "category": "Staff", "kind": "text", "can_send": True, "slowmode": 0, "is_news": False},
+    {"id": "1548437081120833661", "name": "mod-logs", "category": "Staff", "kind": "text", "can_send": False, "slowmode": 0, "is_news": False},
+    {"id": "1548437081120833662", "name": "welcome", "category": "No category", "kind": "text", "can_send": False, "slowmode": 0, "is_news": False},
+    # Voice channels, because a voice channel has a text chat of its own and a
+    # message can land in it — the picker used to leave them out entirely.
+    {"id": "1548437081120833663", "name": "General Voice", "category": "Voice", "kind": "voice", "can_send": True, "slowmode": 0, "is_news": False},
+    {"id": "1548437081120833664", "name": "Music", "category": "Voice", "kind": "voice", "can_send": False, "slowmode": 0, "is_news": False},
 ]
 
 MEMBERS = [

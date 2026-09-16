@@ -43,8 +43,15 @@ class _Member:
         self.mention = f"<@{uid}>"
 
 
-class _Channel:
-    def __init__(self, cid, name, *, can_send=True, viewable=True, category=None, news=False):
+class _BaseChannel:
+    """What a text channel and a voice channel really have in common.
+
+    ``is_news`` is deliberately *not* here: ``discord.TextChannel`` has it and
+    ``discord.VoiceChannel`` does not, so a voice stand-in that inherited it would
+    be inventing an attribute the guard test below exists to catch.
+    """
+
+    def __init__(self, cid, name, *, can_send=True, viewable=True, category=None):
         self.id = cid
         self.name = name
         self.category = SimpleNamespace(name=category) if category else None
@@ -53,10 +60,6 @@ class _Channel:
         self.send_error = None
         self._can_send = can_send
         self._viewable = viewable
-        self._news = news
-
-    def is_news(self):
-        return self._news
 
     def permissions_for(self, member):
         return SimpleNamespace(view_channel=self._viewable, send_messages=self._can_send)
@@ -70,21 +73,48 @@ class _Channel:
         )
 
 
+class _Channel(_BaseChannel):
+    """A text channel — an announcement channel is one of these with news on."""
+
+    def __init__(self, cid, name, *, news=False, **kwargs):
+        super().__init__(cid, name, **kwargs)
+        self._news = news
+        # The real discriminator, from the real enum: production reads
+        # ``channel.type`` to tell a voice channel from a text one.
+        self.type = discord.ChannelType.news if news else discord.ChannelType.text
+
+    def is_news(self):
+        return self._news
+
+
+class _VoiceChannel(_BaseChannel):
+    """A voice channel, which is Messageable and takes a message in its chat."""
+
+    def __init__(self, cid, name, **kwargs):
+        super().__init__(cid, name, **kwargs)
+        self.type = discord.ChannelType.voice
+
+
 class _Guild:
-    def __init__(self, gid, name, channels, *, roles=(), members=()):
+    def __init__(self, gid, name, channels, *, roles=(), members=(), voice_channels=()):
         self.id = gid
         self.name = name
         # discord.py has no ``Guild.news_channels``: an announcement channel is a
         # TextChannel whose type is news, so it comes back from ``text_channels``
         # with every other one. Splitting the list in two here is what let a live
-        # AttributeError sit behind a green test suite.
+        # AttributeError sit behind a green test suite. ``voice_channels`` *is* a
+        # real attribute, and the picker reads it.
         self.text_channels = list(channels)
+        self.voice_channels = list(voice_channels)
         self.roles = [_Role(gid, "@everyone", default=True)] + list(roles)
         self.members = list(members)
         self.member_count = len(self.members)  # what the server says it has
         self.fetchable = {}  # ids Discord would hand back on a lookup
         self.me = SimpleNamespace(id=999)
-        self._channels = {c.id: c for c in channels}
+        # Every channel the gateway can resolve, not just the text ones: a
+        # lookup map that cannot find a voice channel would fail a send for a
+        # reason production does not have.
+        self._channels = {c.id: c for c in list(channels) + list(voice_channels)}
 
     async def fetch_member(self, uid):
         """The one-id lookup, which works even with the Members intent off."""
@@ -126,6 +156,9 @@ class ComposerCase(unittest.TestCase):
         self.quiet = _Channel(QUIET_CHANNEL_ID, "staff-only", can_send=False)
         self.hidden = _Channel(OTHER_CHANNEL_ID, "secret", viewable=False)
         self.news = _Channel(555004, "updates", news=True)
+        self.voice = _VoiceChannel(555005, "General Voice", category="Voice")
+        self.hidden_voice = _VoiceChannel(555006, "Staff Call", viewable=False)
+        self.muted_voice = _VoiceChannel(555007, "Muted Call", can_send=False)
         self.role = _Role(ROLE_ID, "Members")
         self.member = _Member(MEMBER_ID, "raj", "RAJ")
         # Two more people, so "the whole server" is a claim with something to prove.
@@ -139,6 +172,7 @@ class ComposerCase(unittest.TestCase):
             [self.standard, self.quiet, self.hidden, self.news],
             roles=[self.role],
             members=[self.member, *self.others],
+            voice_channels=[self.voice, self.hidden_voice, self.muted_voice],
         )
         self.other_guild = _Guild(
             OTHER_GUILD_ID, "Other Server", [_Channel(OTHER_CHANNEL_ID + 50, "general")]
@@ -212,6 +246,46 @@ class ComposerCase(unittest.TestCase):
         self.assertIn(str(self.news.id), by_id, "announcement channels take messages too")
         self.assertEqual(by_id[str(self.standard.id)]["category"], "News")
 
+    # ── voice channels ───────────────────────────────────────────────────
+    def test_voice_channels_are_offered_and_marked_as_voice(self):
+        """A voice channel has a text chat, and it is where the people in the call
+        are reading — leaving it out made the one channel people sit in the one
+        channel a message could not reach."""
+        data = self._get(f"/api/channels?guild_id={GUILD_ID}").get_json()
+        by_id = {c["id"]: c for c in data["channels"]}
+        self.assertIn(str(self.voice.id), by_id, "a voice channel is somewhere a message can land")
+        self.assertEqual(by_id[str(self.voice.id)]["kind"], "voice", "and it says so")
+        self.assertEqual(by_id[str(self.standard.id)]["kind"], "text")
+        self.assertEqual(by_id[str(self.voice.id)]["category"], "Voice")
+        self.assertTrue(by_id[str(self.voice.id)]["can_send"])
+
+    def test_voice_channels_follow_the_same_permission_rules(self):
+        data = self._get(f"/api/channels?guild_id={GUILD_ID}").get_json()
+        by_id = {c["id"]: c for c in data["channels"]}
+        self.assertNotIn(str(self.hidden_voice.id), by_id, "one the bot cannot see is not offered")
+        self.assertFalse(by_id[str(self.muted_voice.id)]["can_send"], "no permission is shown, not hidden")
+
+    def test_a_message_can_land_in_a_voice_channel(self):
+        response = self._send(channel_ids=[self.voice.id], content="reading this in the call").get_json()
+        self.assertTrue(response["success"], response)
+        self.assertEqual(self.voice.sent[-1]["content"], "reading this in the call")
+        self.assertEqual(response["sent"][0]["name"], "General Voice")
+
+    def test_a_voice_channel_with_its_text_chat_off_says_so(self):
+        """No field in the API reports whether that chat is on, so the refusal is
+        the first thing that knows — and "missing permission" would send an
+        administrator hunting for a role overwrite that is not the problem."""
+        self.voice.send_error = discord.Forbidden(
+            SimpleNamespace(status=403, reason="Forbidden"),
+            "Cannot send messages in a non-text channel",
+        )
+        response = self._send(channel_ids=[self.voice.id], content="hi").get_json()
+        self.assertFalse(response["success"])
+        error = response["failed"][0]["error"]
+        self.assertIn("text chat", error, error)
+        self.assertIn("turned off", error, error)
+        self.assertNotIn("missing permission", error, "that sends them looking for the wrong thing")
+
     def test_ids_cross_to_the_browser_as_strings_a_snowflake_cannot_be_rounded(self):
         """A Discord id does not fit in a JavaScript number.
 
@@ -258,6 +332,7 @@ class ComposerCase(unittest.TestCase):
         cases = [
             (self.guild, discord.Guild),
             (self.standard, discord.TextChannel),
+            (self.voice, discord.VoiceChannel),
             (self.role, discord.Role),
             (self.member, discord.Member),
         ]
@@ -643,6 +718,11 @@ class DashboardTemplateCase(unittest.TestCase):
         self.assertIn('id="composer-channel-search"', html)
         self.assertIn('id="composer-channel-count"', html)
         self.assertNotIn("Ctrl/Cmd-click", html)
+
+    def test_the_picker_marks_a_voice_channel_as_one(self):
+        html = self.render()
+        self.assertIn('channel.kind === "voice"', html, "the row has to look like a voice channel")
+        self.assertIn("text chat turned on", html, "and the one way it can refuse is said up front")
 
     def test_the_picker_uses_the_servers_own_channel_limit(self):
         """Two copies of a limit drift; the page must not offer a sixth channel

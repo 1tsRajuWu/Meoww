@@ -927,9 +927,17 @@ def api_channels():
     # type is news (``channel.is_news()``) rather than as a class of its own, and
     # there is no ``Guild.news_channels`` to read. Reading one raised
     # AttributeError, which is what turned this endpoint into a 500 and left the
-    # picker empty. Forum and voice channels are still not offered — a message
-    # cannot land in a forum, and a voice channel is reached by joining it.
-    for channel in guild.text_channels:
+    # picker empty.
+    #
+    # Voice channels are offered too, and not out of tidiness: a voice channel has
+    # a text chat of its own, ``discord.VoiceChannel`` is ``Messageable``, and
+    # ``.send()`` posts into that chat — which is where the people in the call are
+    # actually looking. Leaving them out made the one channel people sit in the
+    # one channel a message could not reach. Forums are still left out, because a
+    # forum takes threads rather than messages (``ForumChannel`` is not
+    # Messageable), and so are categories, which take neither.
+    listed = [*guild.text_channels, *guild.voice_channels]
+    for channel in listed:
         can_send = True
         if me is not None:
             perms = channel.permissions_for(me)
@@ -945,6 +953,14 @@ def api_channels():
             "id": str(channel.id),
             "name": channel.name,
             "category": channel.category.name if channel.category else "",
+            # ``can_send`` is a permission answer, and for a voice channel that is
+            # only half the question: Discord also requires the channel's text chat
+            # to be switched on, and no field in the API reports whether it is. So
+            # a voice channel whose chat is off can only be found out by being
+            # refused, and ``_deliver_dashboard_message`` says exactly that when it
+            # is — rather than sending an administrator hunting for a role
+            # overwrite that is not the problem.
+            "kind": _channel_kind(channel),
             "is_news": bool(getattr(channel, "is_news", lambda: False)()),
             "can_send": can_send,
             "slowmode": int(getattr(channel, "slowmode_delay", 0) or 0),
@@ -1029,6 +1045,19 @@ def api_mentionables():
     })
 
 
+def _channel_kind(channel) -> str:
+    """``"text"`` or ``"voice"`` — which kind of place this channel is.
+
+    Read from ``channel.type``, the field discord.py itself discriminates on, so a
+    voice channel is recognised however it was reached: the picker lists
+    ``Guild.voice_channels``, but a send resolves its id with ``get_channel`` and
+    only what the object itself carries survives.
+    """
+    import discord
+
+    return "voice" if getattr(channel, "type", None) == discord.ChannelType.voice else "text"
+
+
 async def _deliver_dashboard_message(guild_id: int, channel_ids, payload: dict) -> list[dict]:
     """Send the composed message, one channel at a time, on the bot's loop.
 
@@ -1078,11 +1107,23 @@ async def _deliver_dashboard_message(guild_id: int, channel_ids, payload: dict) 
                 content=payload.get("content"), embed=embed, allowed_mentions=allowed
             )
         except discord.Forbidden:
+            name = getattr(channel, "name", None) or str(cid)
+            # A voice channel's text chat can be switched off, and no field in the
+            # API says whether it is: the refusal is the first thing that knows.
+            # "Missing permission" would point an administrator at role
+            # overwrites that are not the problem.
+            if _channel_kind(channel) == "voice":
+                reason = (
+                    f"#{name} is a voice channel whose text chat is turned off — "
+                    f"switch its text chat on, or send to a text channel instead"
+                )
+            else:
+                reason = f"Discord refused the post in #{name} (missing permission)"
             results.append({
                 "channel_id": cid,
-                "name": getattr(channel, "name", str(cid)),
+                "name": name,
                 "ok": False,
-                "error": f"Discord refused the post in #{getattr(channel, 'name', cid)} (missing permission)",
+                "error": reason,
             })
             continue
         except Exception as e:
