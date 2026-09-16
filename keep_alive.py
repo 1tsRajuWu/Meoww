@@ -378,6 +378,15 @@ def set_security_headers(response):
         "base-uri 'self'; "
         "form-action 'self'"
     )
+    # Nothing here is worth a stale copy. The pages and their APIs are per-session
+    # and change on every deploy, and a browser holding yesterday's HTML is
+    # indistinguishable from a feature that never shipped — which is exactly what
+    # a rewritten dashboard looks like when the cache answers instead of the
+    # server, deploy after deploy, with no error anywhere to show for it. The two
+    # public market endpoints say what they want to be cached; anything that has
+    # already spoken is left alone.
+    if "Cache-Control" not in response.headers:
+        response.headers["Cache-Control"] = "no-store"
     if request.headers.get("X-Forwarded-Proto", request.scheme) == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response

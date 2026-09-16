@@ -210,6 +210,43 @@ class DashboardCase(TempDatabaseMixin, unittest.TestCase):
         )
 
 
+class CacheHeaders(unittest.TestCase):
+    """A cached page is indistinguishable from a feature that never shipped.
+
+    The dashboard HTML went out with no cache directive at all, so a browser was
+    free to answer the next visit from its own copy — and a rewritten UI looked
+    like it had never been deployed, with no error anywhere to explain it.
+    """
+
+    def setUp(self):
+        self.client = keep_alive.app.test_client()
+
+    def test_pages_are_never_cached(self):
+        for path in ("/login", "/dashboard"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(
+                    response.headers.get("Cache-Control"), "no-store", path
+                )
+
+    def test_a_page_fetched_with_a_session_is_not_cached_either(self):
+        with self.client.session_transaction() as session:
+            session["authenticated"] = True
+            session["auth_scope"] = "global"
+            session["csrf_token"] = "t"
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+
+    def test_the_public_market_json_keeps_the_cache_it_asks_for(self):
+        """Deliberate: short enough to be live, long enough that a wall of tabs is
+        not a wall of requests."""
+        response = self.client.get("/api/market/quotes")
+        self.assertEqual(response.headers.get("Cache-Control"), "public, max-age=5")
+        candles = self.client.get("/api/market/candles?symbol=BTC")
+        self.assertEqual(candles.headers.get("Cache-Control"), "public, max-age=30")
+
+
 class SignInLink(unittest.TestCase):
     """The link has to name the process that minted the token in memory.
 
