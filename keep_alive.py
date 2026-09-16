@@ -13,7 +13,7 @@ import socket
 import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
-from utils import features, modules
+from utils import features, modules, scheduled
 
 LOG_RING = deque(maxlen=600)
 
@@ -160,13 +160,17 @@ def dashboard_base_url() -> str:
     return f"http://localhost:{os.environ.get('PORT', '8080')}"
 
 
-def generate_magic_token(guild_id: int | None = None) -> str:
+def generate_magic_token(guild_id: int | None = None, user_id: int | None = None) -> str:
     token = secrets.token_urlsafe(32)
     with _magic_lock:
         _purge_magic_tokens()
         MAGIC_TOKENS[token] = {
             "expires_at": time.time() + MAGIC_TTL_SECONDS,
             "guild_id": int(guild_id) if guild_id else None,
+            # Who asked for the link. One dashboard can be open on three admins'
+            # screens at once, and for a message that is posted hours later this is
+            # the only record of who queued it.
+            "user_id": int(user_id) if user_id else None,
         }
     return token
 
@@ -520,6 +524,8 @@ def login():
             session["auth_scope"] = "guild" if meta.get("guild_id") else "global"
             if meta.get("guild_id"):
                 session["guild_id"] = meta["guild_id"]
+            if meta.get("user_id"):
+                session["user_id"] = meta["user_id"]
             get_csrf_token()
             return redirect("/dashboard")
         return render_template(
@@ -762,6 +768,15 @@ def dashboard():
         # The picker's cap comes from the same constant the endpoint enforces, so
         # the page cannot offer a sixth channel the send would then refuse.
         composer_max_channels=MESSAGE_MAX_CHANNELS,
+        # The scheduling controls read their limits from the store itself, so the
+        # page cannot offer a repeat or a queue depth the endpoint would refuse.
+        schedule_repeat_choices=[
+            {"minutes": minutes, "label": label}
+            for minutes, label in scheduled.REPEAT_CHOICES
+        ],
+        schedule_max_pending=scheduled.MAX_PENDING_PER_GUILD,
+        schedule_catchup_hours=scheduled.MISS_CATCHUP_SECONDS // 3600,
+        server_now=int(time.time()),
     )
 
 
@@ -852,6 +867,10 @@ MESSAGE_MAX_MENTIONS = 25
 MENTION_MEMBER_LIST_MAX = 500
 SEND_WINDOW_SECONDS = 60
 SEND_MAX_PER_WINDOW = 30
+#: How often the delivery loop looks for a message that has come due. The panel
+#: schedules to the minute, so a quarter-minute tick is never the reason a
+#: message is late — the only thing it costs is a cheap indexed query.
+SCHEDULER_TICK_SECONDS = 15
 
 _send_lock = Lock()
 _send_attempts = defaultdict(deque)  # ip -> timestamps
@@ -1160,18 +1179,18 @@ async def _deliver_dashboard_message(guild_id: int, channel_ids, payload: dict) 
     return results
 
 
-@app.route("/api/send-message", methods=["POST"])
-def api_send_message():
-    """Post a dashboard-written message as the bot."""
-    denied = _require_auth_api()
-    if denied:
-        return denied
+def _build_message(guild, data):
+    """The composer's form turned into the exact payload the bot will post.
 
-    data = request.get_json(silent=True) or {}
-    guild_id, guild = _composer_guild(data.get("guild_id"))
-    if guild_id is None:
-        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+    "Send now" and "send later" are the same message with a different delivery
+    time, so both come through here. A second copy of these rules for scheduling
+    would drift, and the copy that drifts is the one nobody notices until a
+    scheduled tag pings the wrong people.
 
+    Returns ``(payload, channel_ids, error)``. ``error`` is the sentence to show
+    instead of sending, and it is the *server's* sentence every time — nothing the
+    browser says about a message is taken on trust.
+    """
     raw_channels = data.get("channel_ids") or []
     if isinstance(raw_channels, (str, int)):
         raw_channels = [raw_channels]
@@ -1183,12 +1202,9 @@ def api_send_message():
         if cid is not None and cid not in channel_ids:
             channel_ids.append(cid)
     if not channel_ids:
-        return jsonify({"success": False, "error": "Pick at least one channel."}), 400
+        return None, [], "Pick at least one channel."
     if len(channel_ids) > MESSAGE_MAX_CHANNELS:
-        return jsonify({
-            "success": False,
-            "error": f"At most {MESSAGE_MAX_CHANNELS} channels per send.",
-        }), 400
+        return None, [], f"At most {MESSAGE_MAX_CHANNELS} channels per send."
 
     body = str(data.get("content") or "").strip()
     title = str(data.get("title") or "").strip()[:MESSAGE_TITLE_MAX]
@@ -1200,26 +1216,22 @@ def api_send_message():
     if not isinstance(raw_mentions, list):
         raw_mentions = []
     if len(raw_mentions) > MESSAGE_MAX_MENTIONS:
-        return jsonify({
-            "success": False,
-            "error": f"At most {MESSAGE_MAX_MENTIONS} tags per message.",
-        }), 400
+        return None, [], f"At most {MESSAGE_MAX_MENTIONS} tags per message."
 
     if not body and title and not as_embed:
         # Outside an embed the title is not sent at all, so a message that was
         # nothing but a title would have reached Discord empty and come back as a
         # refusal. Name the missing half instead.
-        return jsonify({
-            "success": False,
-            "error": 'A title is only posted with an embed — tick "Send as an embed", or write a message.',
-        }), 400
+        return None, [], (
+            'A title is only posted with an embed — tick "Send as an embed", '
+            "or write a message."
+        )
     if not body and not title:
-        return jsonify({"success": False, "error": "Write something to send."}), 400
+        return None, [], "Write something to send."
     if len(body) > MESSAGE_MAX_CHARS:
-        return jsonify({
-            "success": False,
-            "error": f"That message is {len(body)} characters; the limit is {MESSAGE_MAX_CHARS}.",
-        }), 400
+        return None, [], (
+            f"That message is {len(body)} characters; the limit is {MESSAGE_MAX_CHARS}."
+        )
 
     # Every tag is resolved against *this* guild's live cache, so an id posted by
     # the browser can only ever become a ping if it really is a member or a role
@@ -1288,13 +1300,10 @@ def api_send_message():
         content = f"{ping_text}\n{body}".strip() if ping_text else body
         embed_spec = None
         if len(content) > MESSAGE_MAX_CHARS:
-            return jsonify({
-                "success": False,
-                "error": (
-                    f"{len(content)} characters once the tags are added; the limit is "
-                    f"{MESSAGE_MAX_CHARS}. Shorten it, or send it as an embed."
-                ),
-            }), 400
+            return None, [], (
+                f"{len(content)} characters once the tags are added; the limit is "
+                f"{MESSAGE_MAX_CHARS}. Shorten it, or send it as an embed."
+            )
 
     payload = {
         "content": content,
@@ -1302,7 +1311,29 @@ def api_send_message():
         "users": [m.id for m in members],
         "roles": [r.id for r in roles],
         "everyone": everyone,
+        # Stored with the payload rather than only returned: a scheduled message
+        # is delivered long after this request, and "this tag matched nobody" is
+        # part of what has to be reported about it then.
+        "ignored_mentions": ignored,
     }
+    return payload, channel_ids, None
+
+
+@app.route("/api/send-message", methods=["POST"])
+def api_send_message():
+    """Post a dashboard-written message as the bot."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id, guild = _composer_guild(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    payload, channel_ids, error = _build_message(guild, data)
+    if error:
+        return jsonify({"success": False, "error": error}), 400
 
     # Counted here rather than on arrival: a request that was going to be refused
     # anyway costs Discord nothing, and an administrator who mistyped a channel
@@ -1336,8 +1367,452 @@ def api_send_message():
             {"channel_id": r["channel_id"], "name": r.get("name"), "error": r.get("error")}
             for r in failures
         ],
-        "ignored_mentions": ignored,
+        "ignored_mentions": payload.get("ignored_mentions", []),
     })
+
+
+# ---------------------------------------------------------------------------
+# Scheduled messages
+# ---------------------------------------------------------------------------
+# A schedule is a promise the panel makes *after* the browser is closed, so the
+# rules that matter are about time and persistence rather than about the form:
+# when a message fires is decided by this server's clock (never the browser's),
+# and the queued message itself is stored, so nothing depends on the page that
+# created it still being open — or on the process that queued it still running.
+
+
+def _epoch_seconds(data):
+    """The requested delivery time in epoch seconds, from millis or seconds.
+
+    The browser sends milliseconds because that is what ``Date.getTime()``
+    returns; seconds are accepted so a script can say the obvious thing. Anything
+    that is not a finite positive number is refused rather than coerced: ``nan``
+    is truthy and ``inf`` compares greater than every deadline, which is how one
+    bad number becomes a message scheduled for never.
+    """
+    for key, scale in (("run_at_ms", 1000.0), ("run_at", 1.0)):
+        raw = data.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value) or value <= 0:
+            return None
+        return int(value / scale)
+    return None
+
+
+def _utc_text(seconds) -> str:
+    return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(int(seconds)))
+
+
+def _human_delay(seconds: int) -> str:
+    """"3 days", "2 hours", "5 minutes" — for the log, not the page."""
+    seconds = max(0, int(seconds))
+    for unit, step in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if seconds >= step:
+            count = seconds // step
+            return f"{count} {unit}{'s' if count != 1 else ''}"
+    return f"{seconds} seconds"
+
+
+def _schedule_timing(data, now: int):
+    """``(run_at, repeat_minutes, error)`` for a scheduling request."""
+    run_at = _epoch_seconds(data)
+    if run_at is None:
+        return None, 0, "Pick a date and time for this message."
+    if run_at < now - scheduled.PAST_GRACE_SECONDS:
+        # Refused with *this server's* clock in the message, because the browser's
+        # clock is the thing that usually disagrees — "that is in the past" is
+        # otherwise unexplainable when the page reads 09:00 and this process 09:05.
+        return None, 0, (
+            f"That time has already passed — this server's clock reads {_utc_text(now)}. "
+            "The page shows the same moment in your own time zone."
+        )
+    if run_at > now + scheduled.MAX_HORIZON_SECONDS:
+        return None, 0, "That is more than a year away — pick a nearer date."
+    repeat = _int_or_none(data.get("repeat_minutes") or 0) or 0
+    if repeat not in {value for value, _ in scheduled.REPEAT_CHOICES}:
+        return None, 0, "Unknown repeat — choose once, daily or weekly."
+    # A time that has already arrived is not an error: a browser clock behind this
+    # one makes "now" look like the past, and "now" is a legitimate thing to ask
+    # for. It is queued a few seconds out so the loop finds it on its next pass.
+    return max(run_at, now + scheduled.MIN_LEAD_SECONDS), repeat, None
+
+
+def _schedule_view(guild, msg: dict) -> dict:
+    """A stored message, plus the channel names this server has *now*.
+
+    Names are resolved at read time on purpose: a message scheduled three days ago
+    names a channel that may since have been renamed or deleted, and the list is
+    only honest if it shows what is true at the moment it is read.
+    """
+    channels = []
+    for raw in msg.get("channel_ids", []):
+        cid = _int_or_none(raw)
+        channel = guild.get_channel(cid) if (guild is not None and cid is not None) else None
+        channels.append({
+            "id": str(raw),
+            "name": getattr(channel, "name", None) if channel is not None else None,
+            "kind": _channel_kind(channel) if channel is not None else "",
+            "exists": channel is not None,
+        })
+    creator = _int_or_none(msg.get("created_by"))
+    member = guild.get_member(creator) if (guild is not None and creator is not None) else None
+
+    view = dict(msg)
+    view["channels"] = channels
+    # The name is resolved now rather than stored: a person who has since changed
+    # their nickname should be named as they are, and one who has left simply has
+    # no name to show.
+    view["created_by_name"] = (member.display_name or member.name) if member is not None else ""
+    view["results"] = [
+        {
+            "channel_id": str(item.get("channel_id")),
+            "name": item.get("name"),
+            "ok": bool(item.get("ok")),
+            "error": item.get("error") or "",
+            "jump_url": item.get("jump_url") or "",
+        }
+        for item in msg.get("results", [])
+        if isinstance(item, dict)
+    ]
+    return view
+
+
+def _scheduled_counts(guild_id: int) -> dict:
+    return {
+        "pending": scheduled.pending_count(guild_id),
+        "max_pending": scheduled.MAX_PENDING_PER_GUILD,
+        "catchup_hours": scheduled.MISS_CATCHUP_SECONDS // 3600,
+    }
+
+
+@app.route("/api/scheduled")
+def api_scheduled_list():
+    """What this server has queued, and what it last did."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    guild_id, guild = _composer_guild(request.args.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    data = scheduled.list_for_guild(guild_id)
+    return jsonify({
+        "success": True,
+        "guild_id": guild_id,
+        # The server's clock, so the page can say how far away each time is
+        # without trusting the clock of the machine looking at it.
+        "server_now": int(time.time()),
+        "upcoming": [_schedule_view(guild, m) for m in data["upcoming"]],
+        "recent": [_schedule_view(guild, m) for m in data["recent"]],
+        **_scheduled_counts(guild_id),
+    })
+
+
+@app.route("/api/schedule-message", methods=["POST"])
+def api_schedule_message():
+    """Queue a composed message to be posted later, once or on a repeat."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id, guild = _composer_guild(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    now = int(time.time())
+    run_at, repeat, error = _schedule_timing(data, now)
+    if error:
+        return jsonify({"success": False, "error": error, "server_now": now}), 400
+
+    # The same builder "send now" uses, so a queued message is validated exactly
+    # as an immediate one is — including resolving every tag against this guild.
+    payload, channel_ids, error = _build_message(guild, data)
+    if error:
+        return jsonify({"success": False, "error": error, "server_now": now}), 400
+
+    # Channels are checked *now*, which "send now" does not need to do: there, a
+    # bad channel fails visibly in the very next second. Here the failure would
+    # arrive days later with nobody watching, and a channel that did not exist at
+    # queue time is a stale page or a crafted request rather than a typo.
+    missing = [
+        cid
+        for cid in channel_ids
+        if (guild.get_channel(cid) or guild.get_thread(cid)) is None
+    ]
+    if missing:
+        return jsonify({
+            "success": False,
+            "error": "That channel no longer exists — reload the page and pick one again.",
+            "server_now": now,
+        }), 400
+
+    msg_id = scheduled.create(
+        guild_id,
+        channel_ids,
+        payload,
+        run_at,
+        repeat_minutes=repeat,
+        created_by=_int_or_none(session.get("user_id")),
+        now=now,
+    )
+    if msg_id is None:
+        return jsonify({
+            "success": False,
+            "error": (
+                f"This server already has {scheduled.MAX_PENDING_PER_GUILD} scheduled "
+                "messages — cancel one before adding another."
+            ),
+            "server_now": now,
+            **_scheduled_counts(guild_id),
+        }), 429
+
+    # The periodic backup runs every 25s, and a restart inside that window would
+    # restore a snapshot from before this message existed.
+    _schedule_cloud_backup()
+
+    row = scheduled.get(guild_id, msg_id)
+    print(
+        f"[SCHEDULE] Queued #{msg_id} for {_utc_text(run_at)} "
+        f"({scheduled.repeat_label(repeat)}) in {guild.name}.",
+        flush=True,
+    )
+    return jsonify({
+        "success": True,
+        "server_now": now,
+        "message": _schedule_view(guild, row) if row else None,
+        # Tags that matched nobody are resolved at queue time, so they are reported
+        # here — otherwise the message simply arrives days later missing a ping.
+        "ignored_mentions": payload.get("ignored_mentions", []),
+        **_scheduled_counts(guild_id),
+    })
+
+
+@app.route("/api/scheduled/<int:msg_id>/cancel", methods=["POST"])
+def api_cancel_scheduled(msg_id: int):
+    """Stop a queued message. Only the server it belongs to can do this."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+
+    if scheduled.get(guild_id, msg_id) is None:
+        return jsonify({"success": False, "error": "That is not a scheduled message in this server."}), 404
+
+    if not scheduled.cancel(guild_id, msg_id):
+        # Read the row again rather than guessing why the conditional update
+        # matched nothing: it may have fired between the two statements.
+        after = scheduled.get(guild_id, msg_id) or {}
+        return jsonify({
+            "success": False,
+            "error": (
+                f"That message is already {after.get('status', 'gone')} — it is not "
+                "waiting to be cancelled any more."
+            ),
+            "server_now": int(time.time()),
+        }), 409
+
+    _schedule_cloud_backup()
+    print(f"[SCHEDULE] Cancelled #{msg_id}. {scheduled.describe(scheduled.get(guild_id, msg_id) or {})}", flush=True)
+    return jsonify({"success": True, "id": msg_id, "server_now": int(time.time())})
+
+
+@app.route("/api/scheduled/<int:msg_id>/fire", methods=["POST"])
+def api_fire_scheduled(msg_id: int):
+    """Send a queued message immediately, through the normal send path."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id, guild = _composer_guild(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    row = scheduled.get(guild_id, msg_id)
+    if row is None:
+        return jsonify({"success": False, "error": "That is not a scheduled message in this server."}), 404
+    if row["status"] != "pending":
+        return jsonify({
+            "success": False,
+            "error": f"That message is already {row['status']}.",
+        }), 409
+
+    # Counted *before* claiming: claiming a message and then refusing to send it
+    # would leave it stuck mid-flight, and the sweep would later report it as a
+    # message the bot died while sending — which would be a lie this code told.
+    if not _send_allowed(_client_ip()):
+        return jsonify({
+            "success": False,
+            "error": "That is a lot of messages at once. Wait a minute and try again.",
+        }), 429
+    if not scheduled.claim(msg_id):
+        return jsonify({
+            "success": False,
+            "error": "The delivery loop picked that message up first — check the list.",
+        }), 409
+
+    now = int(time.time())
+    try:
+        outcome = _run_on_bot_loop(_deliver_scheduled(row, now), timeout=30.0)
+    except Exception as e:
+        scheduled.mark_failed(msg_id, now, f"Discord did not accept it: {e}")
+        print(f"[SCHEDULE] Sending #{msg_id} now failed: {e}", flush=True)
+        return jsonify({"success": False, "error": f"Discord did not accept it: {e}"}), 502
+
+    sent = outcome["sent"]
+    failed = outcome["failed"]
+    return jsonify({
+        "success": bool(sent),
+        "error": None if sent else outcome["error"],
+        "results": outcome["results"],
+        "sent": [
+            {"channel_id": str(r["channel_id"]), "name": r.get("name"), "jump_url": r.get("jump_url")}
+            for r in sent
+        ],
+        "failed": [
+            {"channel_id": str(r["channel_id"]), "name": r.get("name"), "error": r.get("error")}
+            for r in failed
+        ],
+        "ignored_mentions": (row.get("payload") or {}).get("ignored_mentions", []),
+        "server_now": now,
+    })
+
+
+async def _deliver_scheduled(msg: dict, now: int) -> dict:
+    """Post one claimed message and write down what happened. Never raises.
+
+    The message is already claimed by the caller, so this function's one job is to
+    end that claim: every path through it records an outcome, or the row would sit
+    in ``sending`` until the stale sweep mistook an ordinary failure for a crash.
+    """
+    payload = msg.get("payload") or {}
+    channel_ids = [cid for cid in (_int_or_none(c) for c in msg.get("channel_ids", [])) if cid]
+    guild = BOT_INSTANCE.get_guild(msg.get("guild_id")) if BOT_INSTANCE else None
+
+    results = []
+    error = ""
+    try:
+        if guild is None:
+            raise LookupError("I am not in that server any more")
+        results = await _deliver_dashboard_message(msg["guild_id"], channel_ids, payload)
+    except Exception as e:
+        error = f"Discord did not accept it: {e}"
+
+    sent = [r for r in results if r.get("ok")]
+    failed = [r for r in results if not r.get("ok")]
+    if sent and failed:
+        # A partial delivery is its own outcome: most of the announcement went
+        # out, and the one place it did not is the thing worth reading later.
+        error = f"{len(failed)} channel(s) refused it: {failed[0].get('error')}"
+        scheduled.mark_sent(msg["id"], now, results, error=error)
+    elif sent:
+        scheduled.mark_sent(msg["id"], now, results)
+    else:
+        error = error or (failed[0].get("error") if failed else "Nothing was sent.")
+        # A server the bot has left is final: a daily message that can never be
+        # delivered must not come back every morning to fail again.
+        scheduled.mark_failed(msg["id"], now, error, results, final=guild is None)
+
+    name = getattr(guild, "name", msg.get("guild_id"))
+    print(
+        f"[SCHEDULE] {scheduled.describe(msg)}: sent to {len(sent)}/{len(sent) + len(failed)} "
+        f"channel(s) in {name}{'' if not error else ' — ' + error}",
+        flush=True,
+    )
+    return {"sent": sent, "failed": failed, "results": results, "error": error}
+
+
+_last_prune = 0.0
+
+
+async def _scheduler_tick(now: int | None = None) -> list[dict]:
+    """Deliver whatever is due, once. Returns what it did, for the log and tests."""
+    global _last_prune
+    if not _bot_ready():
+        # Nothing is consumed while the bot is offline: the messages stay queued,
+        # and the catch-up window below is what decides whether a late one is
+        # still worth sending.
+        return []
+
+    now = int(now if now is not None else time.time())
+    scheduled.sweep_stale(now)
+    if now - _last_prune > 3600:
+        _last_prune = now
+        pruned = scheduled.prune(now)
+        if pruned:
+            print(f"[SCHEDULE] Pruned {pruned} finished message(s) older than "
+                  f"{scheduled.HISTORY_DAYS} days.", flush=True)
+
+    done = []
+    for msg in scheduled.due(now):
+        if not scheduled.claim(msg["id"], now):
+            # Somebody else has it — another bot process, or the previous tick
+            # still finishing. The claim is the only thing that decides who posts.
+            continue
+        lateness = now - int(msg.get("run_at") or now)
+        if lateness > scheduled.MISS_CATCHUP_SECONDS:
+            reason = (
+                f"skipped — it was due {_human_delay(lateness)} ago, which is past the "
+                f"{scheduled.MISS_CATCHUP_SECONDS // 3600}h catch-up window"
+            )
+            scheduled.mark_missed(msg["id"], now, reason)
+            print(f"[SCHEDULE] {scheduled.describe(msg)}: {reason}", flush=True)
+            done.append({"id": msg["id"], "status": "missed", "error": reason, "results": []})
+            continue
+        try:
+            outcome = await _deliver_scheduled(msg, now)
+        except Exception as e:
+            # ``_deliver_scheduled`` is written not to raise, but a message that
+            # somehow does must not take the rest of the queue down with it — and
+            # leaving it claimed would hide a real failure behind a stale sweep.
+            scheduled.mark_failed(msg["id"], now, f"Delivery failed: {e}")
+            print(f"[SCHEDULE] {scheduled.describe(msg)}: delivery raised: {e}", flush=True)
+            done.append({"id": msg["id"], "status": "failed", "error": str(e), "results": []})
+            continue
+        done.append({
+            "id": msg["id"],
+            "status": "sent" if outcome["sent"] else "failed",
+            "error": outcome["error"],
+            "results": outcome["results"],
+        })
+    return done
+
+
+async def scheduler_loop():
+    """Deliver scheduled messages until the process stops."""
+    import asyncio
+
+    print(
+        f"[SCHEDULE] Delivery loop started — checking every {SCHEDULER_TICK_SECONDS}s.",
+        flush=True,
+    )
+    while True:
+        try:
+            await asyncio.sleep(SCHEDULER_TICK_SECONDS)
+            await _scheduler_tick()
+        except Exception as e:
+            # One bad row must not stop every future message from being sent.
+            print(f"[SCHEDULE] Loop error (will retry): {e}", flush=True)
+            await asyncio.sleep(60)
+
+
+def start_scheduler(bot):
+    """Start the delivery loop on the bot's own event loop."""
+    if bot is None or getattr(bot, "loop", None) is None:
+        print("[SCHEDULE] No event loop — nothing will be delivered.", flush=True)
+        return None
+    return bot.loop.create_task(scheduler_loop())
 
 
 def find_free_port(start=8080):

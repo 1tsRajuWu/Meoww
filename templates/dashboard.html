@@ -1090,6 +1090,150 @@
 
         .composer-status { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
 
+        /* ── Scheduled messages ─────────────────────────────────────────────
+           Nothing here invents a new look: it is the same card, pill and receipt
+           vocabulary as the composer, because a queued message is the same
+           message with a different delivery time. */
+        .seg {
+            display: inline-flex;
+            gap: 3px;
+            padding: 3px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+        }
+
+        .seg-btn {
+            font: inherit;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            background: none;
+            border: 0;
+            border-radius: 999px;
+            padding: 7px 14px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .seg-btn:hover { color: var(--text-primary); }
+        .seg-btn[aria-checked="true"] { background: var(--accent); color: #fff; }
+        .seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        .schedule-when {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .schedule-when[hidden] { display: none; }
+        .schedule-when input[type="datetime-local"],
+        .schedule-when select { padding: 9px 12px; font-size: 12.5px; width: auto; }
+        .schedule-when .composer-hint { margin: 0; }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+        }
+
+        .schedule-card {
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 18px;
+            backdrop-filter: blur(12px);
+        }
+
+        .schedule-subhead { margin-top: 18px; }
+        .schedule-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+
+        .schedule-empty {
+            font-size: 12.5px;
+            line-height: 1.6;
+            color: var(--text-muted);
+            padding: 10px 2px;
+        }
+
+        .schedule-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: start;
+            padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.025);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+        }
+
+        .schedule-row.done { opacity: 0.94; }
+        .schedule-row.failed { border-color: rgba(242, 63, 67, 0.35); }
+        .schedule-row.missed { border-color: rgba(250, 204, 21, 0.35); }
+
+        .schedule-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+        .schedule-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .schedule-when-text { font-variant-numeric: tabular-nums; color: #4ade80; }
+        .schedule-when-text.late { color: #facc15; }
+        .schedule-when-text.done { color: var(--text-secondary); }
+
+        .schedule-abs {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .pill {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 3px 9px;
+            white-space: nowrap;
+        }
+
+        .pill.repeat { color: #a5b4fc; border-color: rgba(88, 101, 242, 0.45); }
+        .pill.ping { color: #facc15; border-color: rgba(250, 204, 21, 0.45); }
+        .pill.ok { color: #4ade80; border-color: rgba(35, 165, 90, 0.4); }
+        .pill.warn { color: #facc15; border-color: rgba(250, 204, 21, 0.4); }
+        .pill.fail { color: #ff8a8a; border-color: rgba(242, 63, 67, 0.4); }
+
+        .schedule-preview {
+            font-size: 12.5px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            overflow-wrap: anywhere;
+        }
+
+        .schedule-note { font-size: 11.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+        .schedule-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+        .schedule-actions .btn { padding: 7px 12px; font-size: 12px; }
+
+        .schedule-results { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+        .schedule-results li { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--text-muted); }
+        .schedule-results li.ok .mark { color: #4ade80; }
+        .schedule-results li.fail .mark { color: #ff6b6b; }
+        .schedule-results a { color: var(--accent); text-decoration: none; }
+        .schedule-results a:hover { text-decoration: underline; }
+
         @keyframes slideIn {
             from { transform: translateY(30px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
@@ -1115,6 +1259,10 @@
 
         @media (max-width: 768px) {
             body { padding: 12px; }
+            .schedule-row { grid-template-columns: 1fr; }
+            .schedule-actions { justify-content: flex-start; }
+            .schedule-when input[type="datetime-local"],
+            .schedule-when select { width: 100%; }
             header { padding: 16px; }
             .brand-text h1 { font-size: 19px; }
             .metrics-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
@@ -1276,6 +1424,27 @@
                     </div>
 
                     <div class="composer-field">
+                        <div class="field-head">
+                            <span class="field-label" id="composer-deliver-label">Deliver</span>
+                            <span class="composer-hint">Later keeps working after you close this page.</span>
+                        </div>
+                        <div class="seg" role="radiogroup" aria-labelledby="composer-deliver-label">
+                            <button type="button" class="seg-btn" id="composer-when-now" role="radio" aria-checked="true">Send now</button>
+                            <button type="button" class="seg-btn" id="composer-when-later" role="radio" aria-checked="false">Schedule</button>
+                        </div>
+                        <div class="schedule-when" id="composer-when-fields" hidden>
+                            <label class="sr-only" for="composer-run-at">Date and time</label>
+                            <input type="datetime-local" id="composer-run-at" class="composer-input">
+                            <label class="sr-only" for="composer-repeat">Repeat</label>
+                            <select id="composer-repeat" class="composer-input">
+                                {% for choice in schedule_repeat_choices|default([{'minutes': 0, 'label': 'Once'}]) %}
+                                <option value="{{ choice.minutes }}">{{ choice.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <span class="composer-hint" id="composer-run-hint"></span>
+                        </div>
+                    </div>
+                    <div class="composer-field">
                         <div class="composer-actions">
                             <label class="composer-check" for="composer-embed">
                                 <input type="checkbox" id="composer-embed"> Send as an embed
@@ -1296,6 +1465,25 @@
                     <div class="composer-status" id="composer-status" role="status"></div>
                 </div>
             </div>
+        </div>
+
+        <div class="section-header" id="schedule">
+            <h2>⏰ Scheduled messages</h2>
+            <span class="badge-count" id="schedule-pending" aria-live="polite">0 of {{ schedule_max_pending|default(25) }}</span>
+        </div>
+
+        <div class="schedule-card">
+            <div class="field-head">
+                <span class="field-label">Queued</span>
+                <span class="composer-hint">Times are shown in your own time zone. A message more than {{ schedule_catchup_hours|default(24) }}h late is skipped instead of posted.</span>
+            </div>
+            <div class="schedule-list" id="schedule-upcoming" role="list"></div>
+            <div class="field-head schedule-subhead">
+                <span class="field-label">Recently sent</span>
+                <span class="composer-hint">What actually happened, per channel.</span>
+            </div>
+            <div class="schedule-list" id="schedule-recent" role="list"></div>
+            <div class="composer-status" id="schedule-status" role="status"></div>
         </div>
 
         <div class="section-header" id="modules">
@@ -1495,6 +1683,18 @@
         let mentionActive = -1;         // the highlighted row, for the keyboard
         let lastAttempt = null;         // the payload the receipt describes
 
+        /* The scheduling controls read their limits from the store itself, so the
+           page cannot offer a queue depth or a repeat the endpoint would refuse. */
+        const SCHEDULE_MAX_PENDING = {{ schedule_max_pending|default(25) }};
+        // The server's clock as this page was rendered, and the browser's at the
+        // same instant: the difference is what keeps "in 2 hours" honest on a
+        // device whose clock is wrong. The *delivery* time is still converted into
+        // an absolute instant here and validated again by the server.
+        const SERVER_NOW = {{ server_now|default(0) }};
+        const CLOCK_SKEW = SERVER_NOW ? (SERVER_NOW * 1000 - Date.now()) : 0;
+        let scheduleMode = "now";       // "now" or "later"
+        let scheduleCache = null;       // the last reply from /api/scheduled
+
         const composerEls = {
             channels: document.getElementById("composer-channels"),
             channelSearch: document.getElementById("composer-channel-search"),
@@ -1518,7 +1718,20 @@
             receiptFoot: document.getElementById("composer-receipt-foot"),
             receiptNote: document.getElementById("composer-receipt-note"),
             receiptDismiss: document.getElementById("composer-receipt-dismiss"),
-            retry: document.getElementById("composer-retry")
+            retry: document.getElementById("composer-retry"),
+            whenNow: document.getElementById("composer-when-now"),
+            whenLater: document.getElementById("composer-when-later"),
+            whenFields: document.getElementById("composer-when-fields"),
+            runAt: document.getElementById("composer-run-at"),
+            repeat: document.getElementById("composer-repeat"),
+            runHint: document.getElementById("composer-run-hint")
+        };
+
+        const scheduleEls = {
+            upcoming: document.getElementById("schedule-upcoming"),
+            recent: document.getElementById("schedule-recent"),
+            pending: document.getElementById("schedule-pending"),
+            status: document.getElementById("schedule-status")
         };
 
         function composerStatus(message, linkUrl) {
@@ -2073,7 +2286,12 @@
             return line;
         }
 
-        function renderReceipt(result, payload, carried) {
+        /* ``allowRetry`` is false when the receipt describes something the form
+           cannot rebuild — a scheduled message fired from the list. Offering a
+           retry there would send a *different* message from fields that were never
+           part of it, so the button is left out instead. */
+        function renderReceipt(result, payload, carried, allowRetry) {
+            const canRetry = allowRetry !== false && Boolean(payload);
             const summary = receiptSummary(result, carried);
             composerEls.receiptTitle.textContent = summary.title;
             composerEls.receiptTitle.className = `receipt-title ${summary.tone}`;
@@ -2082,8 +2300,10 @@
             );
             composerEls.receiptRows.innerHTML = "";
             summary.rows.forEach(row => composerEls.receiptRows.appendChild(receiptRow(row)));
-            composerEls.receiptNote.textContent = summary.note;
-            composerEls.receiptFoot.hidden = !summary.retry_ids.length;
+            composerEls.receiptNote.textContent = summary.retry_ids.length && !canRetry
+                ? "Send it again from the list to reach the channels that refused it."
+                : summary.note;
+            composerEls.receiptFoot.hidden = !summary.retry_ids.length || !canRetry;
             composerEls.retry.textContent = summary.retry_ids.length === 1
                 ? "Retry that channel"
                 : `Retry the ${summary.retry_ids.length} failed channels`;
@@ -2092,7 +2312,7 @@
             // rather than whatever the form says by then — and keeps whatever has
             // already arrived on the receipt while it does.
             const delivered = (carried || []).concat(result.sent || []);
-            lastAttempt = summary.retry_ids.length
+            lastAttempt = (canRetry && summary.retry_ids.length)
                 ? { payload: payload, channel_ids: summary.retry_ids, carried: delivered }
                 : null;
             composerStatus("");
@@ -2102,6 +2322,376 @@
             composerEls.receipt.hidden = true;
             composerEls.receiptRows.innerHTML = "";
             lastAttempt = null;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* Scheduled messages                                                  */
+        /* ------------------------------------------------------------------ */
+
+        /* schedule-format:start */
+        /* Turning stored numbers into words — pure, so a test runs this in a real
+           JavaScript engine instead of reading it. Times are epoch seconds and
+           "now" is passed in rather than read from the clock inside. */
+        function scheduleWhen(runAt, now) {
+            const seconds = Math.round(runAt - now);
+            const past = seconds < 0;
+            const total = Math.abs(seconds);
+            const days = Math.floor(total / 86400);
+            const hours = Math.floor((total % 86400) / 3600);
+            const minutes = Math.floor((total % 3600) / 60);
+            let span;
+            if (days) span = days + (days === 1 ? " day" : " days");
+            else if (hours) span = hours + (hours === 1 ? " hour" : " hours");
+            else if (minutes) span = minutes + (minutes === 1 ? " minute" : " minutes");
+            else span = "less than a minute";
+            // "0 minutes ago" is not how anyone says it five seconds after a post.
+            const text = past && total < 60 ? "just now"
+                : (past ? span + " ago" : "in " + span);
+            return {
+                text: text,
+                late: past,
+                // The exact moment in the reader's own zone: the relative text is
+                // for scanning, this is what you check before trusting it.
+                absolute: new Date(runAt * 1000).toLocaleString([], {
+                    weekday: "short", month: "short", day: "numeric",
+                    hour: "2-digit", minute: "2-digit"
+                })
+            };
+        }
+
+        function scheduleOutcome(msg) {
+            const results = msg.results || [];
+            const ok = results.filter(item => item.ok).length;
+            const refused = results.length - ok;
+            if (msg.status === "cancelled") return { tone: "", label: "cancelled", detail: "" };
+            if (results.length && !refused) {
+                return { tone: "ok", label: "sent", detail: `${ok} of ${results.length} channel(s)` };
+            }
+            if (ok) {
+                return { tone: "warn", label: "partial", detail: msg.last_error || `${refused} refused it` };
+            }
+            if (results.length) {
+                return { tone: "fail", label: "failed", detail: msg.last_error || "nothing was sent" };
+            }
+            return { tone: "warn", label: "not sent", detail: msg.last_error || "nothing was sent" };
+        }
+        /* schedule-format:end */
+
+        function serverNowSeconds() {
+            return Math.round((Date.now() + CLOCK_SKEW) / 1000);
+        }
+
+        function scheduleStatus(message) {
+            scheduleEls.status.textContent = message || "";
+        }
+
+        function scheduleEmpty(message) {
+            const note = document.createElement("div");
+            note.className = "schedule-empty";
+            note.textContent = message;
+            return note;
+        }
+
+        function scheduleResults(results) {
+            const list = document.createElement("ul");
+            list.className = "schedule-results";
+            results.forEach(item => {
+                const line = document.createElement("li");
+                line.className = item.ok ? "ok" : "fail";
+                const mark = document.createElement("span");
+                mark.className = "mark";
+                mark.setAttribute("aria-hidden", "true");
+                mark.textContent = item.ok ? "✓" : "✕";
+                line.appendChild(mark);
+                const name = document.createElement("span");
+                name.textContent = item.name ? `#${item.name}` : `#${item.channel_id}`;
+                line.appendChild(name);
+                // Only Discord's own message links are turned into links.
+                if (item.jump_url && item.jump_url.indexOf("https://discord.com/") === 0) {
+                    const link = document.createElement("a");
+                    link.href = item.jump_url;
+                    link.target = "_blank";
+                    link.rel = "noopener noreferrer";
+                    link.textContent = "Open";
+                    line.appendChild(link);
+                } else if (item.error) {
+                    const why = document.createElement("span");
+                    why.textContent = item.error;
+                    line.appendChild(why);
+                }
+                list.appendChild(line);
+            });
+            return list;
+        }
+
+        function scheduleActions(msg) {
+            const box = document.createElement("div");
+            box.className = "schedule-actions";
+            const fire = document.createElement("button");
+            fire.type = "button";
+            fire.className = "btn btn-primary";
+            fire.textContent = "Send now";
+            fire.addEventListener("click", () => fireScheduled(msg));
+            const cancel = document.createElement("button");
+            cancel.type = "button";
+            cancel.className = "btn btn-danger";
+            cancel.textContent = "Cancel";
+            cancel.addEventListener("click", () => cancelScheduled(msg));
+            box.appendChild(fire);
+            box.appendChild(cancel);
+            return box;
+        }
+
+        function scheduleRow(msg, now, upcoming) {
+            const row = document.createElement("div");
+            row.className = "schedule-row" + (upcoming ? "" : " done");
+            row.setAttribute("role", "listitem");
+
+            const main = document.createElement("div");
+            main.className = "schedule-main";
+
+            const head = document.createElement("div");
+            head.className = "schedule-head";
+            // A run that has already happened is never described as being in the
+            // future: this page's clock can trail the server's by a second, and
+            // "in less than a minute" beside a message that already went out reads
+            // as a bug.
+            const at = upcoming ? msg.run_at : Math.min(msg.last_run_at || msg.run_at, now - 1);
+            const when = scheduleWhen(at, now);
+            const whenEl = document.createElement("span");
+            whenEl.className = "schedule-when-text" + (upcoming ? (when.late ? " late" : "") : " done");
+            whenEl.textContent = when.text;
+            head.appendChild(whenEl);
+            const abs = document.createElement("span");
+            abs.className = "schedule-abs";
+            abs.textContent = when.absolute;
+            head.appendChild(abs);
+
+            const repeat = document.createElement("span");
+            repeat.className = "pill repeat";
+            repeat.textContent = msg.repeat_minutes ? msg.repeat : "once";
+            head.appendChild(repeat);
+
+            if (msg.has_everyone) {
+                const ping = document.createElement("span");
+                ping.className = "pill ping";
+                ping.textContent = "@everyone";
+                ping.title = "This message notifies the whole server.";
+                head.appendChild(ping);
+            }
+            if (upcoming && msg.status === "sending") {
+                const busy = document.createElement("span");
+                busy.className = "pill";
+                busy.textContent = "sending";
+                head.appendChild(busy);
+            }
+            if (!upcoming) {
+                const outcome = scheduleOutcome(msg);
+                if (outcome.label) {
+                    const pill = document.createElement("span");
+                    pill.className = "pill " + outcome.tone;
+                    pill.textContent = outcome.label;
+                    head.appendChild(pill);
+                }
+            }
+            main.appendChild(head);
+
+            const preview = document.createElement("div");
+            preview.className = "schedule-preview";
+            preview.textContent = msg.preview || "(no text — an embed on its own)";
+            main.appendChild(preview);
+
+            const where = document.createElement("div");
+            where.className = "schedule-note";
+            const channels = msg.channels || [];
+            // A channel that was renamed or deleted since is shown as it is *now*,
+            // because the list is a picture of the queue rather than of the past.
+            where.textContent = channels.length
+                ? "→ " + channels.map(c => (c.exists ? `#${c.name}` : `#${c.id} (gone)`)).join(", ")
+                : "→ no channel";
+            if (msg.created_by_name) where.textContent += ` · by ${msg.created_by_name}`;
+            main.appendChild(where);
+
+            if (!upcoming) {
+                if ((msg.results || []).length) main.appendChild(scheduleResults(msg.results));
+                const outcome = scheduleOutcome(msg);
+                if (outcome.detail && outcome.tone !== "ok") {
+                    const why = document.createElement("div");
+                    why.className = "schedule-note";
+                    why.textContent = outcome.detail;
+                    main.appendChild(why);
+                }
+            }
+
+            row.appendChild(main);
+            if (upcoming) row.appendChild(scheduleActions(msg));
+            return row;
+        }
+
+        function renderSchedule(data, now) {
+            const upcoming = data.upcoming || [];
+            const recent = data.recent || [];
+            scheduleEls.upcoming.innerHTML = "";
+            scheduleEls.recent.innerHTML = "";
+            upcoming.forEach(msg => scheduleEls.upcoming.appendChild(scheduleRow(msg, now, true)));
+            if (!upcoming.length) {
+                scheduleEls.upcoming.appendChild(scheduleEmpty(
+                    "Nothing queued. Write a message, choose Schedule, pick a time — it is posted even if this page is closed."
+                ));
+            }
+            recent.forEach(msg => scheduleEls.recent.appendChild(scheduleRow(msg, now, false)));
+            if (!recent.length) {
+                scheduleEls.recent.appendChild(scheduleEmpty("Nothing has been posted on a schedule yet."));
+            }
+            const cap = data.max_pending || SCHEDULE_MAX_PENDING;
+            scheduleEls.pending.textContent = `${upcoming.length} of ${cap}`;
+            scheduleEls.pending.classList.toggle("full", upcoming.length >= cap);
+        }
+
+        async function loadScheduled(report) {
+            try {
+                const data = await apiGet(`/api/scheduled?guild_id=${encodeURIComponent(GUILD_ID)}`);
+                scheduleCache = data;
+                renderSchedule(data, serverNowSeconds());
+                scheduleStatus("");
+            } catch (err) {
+                if (report && err.message !== "Session expired") {
+                    scheduleStatus(`Could not load scheduled messages: ${err.message}`);
+                }
+            }
+        }
+
+        async function cancelScheduled(msg) {
+            const when = scheduleWhen(msg.run_at, serverNowSeconds());
+            if (!window.confirm(
+                `Cancel this scheduled message?\n\n${msg.preview || "(empty message)"}\n\n`
+                + `It was due ${when.absolute} (${when.text}) and will not be posted.`
+            )) {
+                return;
+            }
+            try {
+                await apiPost(`/api/scheduled/${msg.id}/cancel`, { guild_id: GUILD_ID });
+                showToast("Scheduled message cancelled.");
+                await loadScheduled(true);
+            } catch (err) {
+                if (err.message !== "Session expired") {
+                    scheduleStatus(err.message);
+                    showToast(err.message, "error");
+                }
+            }
+        }
+
+        async function fireScheduled(msg) {
+            if (msg.has_everyone && !window.confirm(
+                "@everyone notifies the whole server. Send this scheduled message now?"
+            )) {
+                return;
+            }
+            try {
+                const data = await apiPostResult(`/api/scheduled/${msg.id}/fire`, { guild_id: GUILD_ID });
+                // No retry button on this receipt: a retry rebuilds the message from
+                // the form, and the form is not what queued it.
+                renderReceipt(data, null, undefined, false);
+                if (data.success) showToast("Scheduled message sent.");
+                await loadScheduled(true);
+            } catch (err) {
+                if (err.message !== "Session expired") {
+                    scheduleStatus(err.message);
+                    showToast(`Could not send: ${err.message}`, "error");
+                }
+            }
+        }
+
+        function localInputValue(date) {
+            const pad = n => String(n).padStart(2, "0");
+            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+                + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+        }
+
+        function defaultRunAtValue() {
+            // An hour out on a five-minute mark: a real default instead of an empty
+            // box that quietly means "send now".
+            const base = new Date(Date.now() + CLOCK_SKEW + 3600 * 1000);
+            base.setSeconds(0, 0);
+            base.setMinutes(Math.ceil(base.getMinutes() / 5) * 5);
+            return localInputValue(base);
+        }
+
+        function scheduleRequest() {
+            const raw = composerEls.runAt.value;
+            if (!raw) return { error: "Pick a date and time." };
+            // ``datetime-local`` carries no time zone, and ``new Date`` reads it as
+            // the one this browser is in — which is what whoever typed it meant.
+            const ms = new Date(raw).getTime();
+            if (!Number.isFinite(ms)) {
+                return { error: "That date and time did not read back — pick it again." };
+            }
+            if (ms / 1000 < serverNowSeconds() - 300) {
+                return { error: "That time has already passed — pick a time in the future." };
+            }
+            return {
+                run_at_ms: Math.round(ms),
+                repeat_minutes: parseInt(composerEls.repeat.value, 10) || 0
+            };
+        }
+
+        function updateScheduleHint() {
+            if (scheduleMode !== "later") {
+                composerEls.runHint.textContent = "";
+                return;
+            }
+            const raw = composerEls.runAt.value;
+            const ms = raw ? new Date(raw).getTime() : NaN;
+            if (!Number.isFinite(ms)) {
+                composerEls.runHint.textContent = "Pick a date and time.";
+                return;
+            }
+            const when = scheduleWhen(Math.round(ms / 1000), serverNowSeconds());
+            composerEls.runHint.textContent = when.late
+                ? `${when.absolute} — that is in the past.`
+                : `${when.absolute} · ${when.text}`;
+        }
+
+        function sendButtonLabel() {
+            return scheduleMode === "later" ? "Schedule message" : "Send message";
+        }
+
+        function setScheduleMode(mode) {
+            scheduleMode = mode === "later" ? "later" : "now";
+            const later = scheduleMode === "later";
+            composerEls.whenNow.setAttribute("aria-checked", later ? "false" : "true");
+            composerEls.whenLater.setAttribute("aria-checked", later ? "true" : "false");
+            composerEls.whenFields.hidden = !later;
+            composerEls.send.textContent = sendButtonLabel();
+            if (later && !composerEls.runAt.value) composerEls.runAt.value = defaultRunAtValue();
+            updateScheduleHint();
+        }
+
+        async function submitSchedule(payload) {
+            const timing = scheduleRequest();
+            if (timing.error) return showToast(timing.error, "error");
+            composerEls.send.disabled = true;
+            composerEls.send.textContent = "Scheduling…";
+            try {
+                const data = await apiPost("/api/schedule-message", Object.assign({}, payload, timing));
+                const when = data.message ? scheduleWhen(data.message.run_at, serverNowSeconds()) : null;
+                showToast(when ? `Scheduled — ${when.text} (${when.absolute}).` : "Scheduled.");
+                if ((data.ignored_mentions || []).length) {
+                    showToast(
+                        `${data.ignored_mentions.length} tag(s) matched nobody and were not queued.`,
+                        "error"
+                    );
+                }
+                clearComposer();
+                await loadScheduled(true);
+            } catch (err) {
+                if (err.message !== "Session expired") {
+                    showToast(`Could not schedule: ${err.message}`, "error");
+                }
+            } finally {
+                composerEls.send.disabled = false;
+                composerEls.send.textContent = sendButtonLabel();
+            }
         }
 
         function composePayload(channelIds) {
@@ -2132,7 +2722,7 @@
                 if (err.message !== "Session expired") showToast(`Could not send: ${err.message}`, "error");
             } finally {
                 composerEls.send.disabled = false;
-                composerEls.send.textContent = "Send message";
+                composerEls.send.textContent = sendButtonLabel();
             }
         }
 
@@ -2161,6 +2751,21 @@
                 return showToast(`At most ${COMPOSER_MAX_CHANNELS} channels per send.`, "error");
             }
             const ping = massPingKeyword();
+            if (scheduleMode === "later") {
+                // Same warning, different tense: a scheduled @everyone is the same
+                // irreversible ping, it just happens later.
+                const timing = scheduleRequest();
+                if (timing.error) return showToast(timing.error, "error");
+                const when = scheduleWhen(Math.round(timing.run_at_ms / 1000), serverNowSeconds());
+                if (ping && !window.confirm(
+                    `${ping} notifies the whole server, and this is scheduled for `
+                    + `${when.absolute} (${when.text}). It cannot be taken back. Schedule it?`
+                )) {
+                    return;
+                }
+                await submitSchedule(payload);
+                return;
+            }
             if (ping && !window.confirm(
                 `${ping} notifies the whole server, and this goes to `
                 + `${payload.channel_ids.length} channel${payload.channel_ids.length === 1 ? "" : "s"} `
@@ -2187,6 +2792,10 @@
             renderPreview();
         });
         composerEls.send.addEventListener("click", sendComposedMessage);
+        composerEls.whenNow.addEventListener("click", () => setScheduleMode("now"));
+        composerEls.whenLater.addEventListener("click", () => setScheduleMode("later"));
+        composerEls.runAt.addEventListener("input", updateScheduleHint);
+        composerEls.repeat.addEventListener("change", updateScheduleHint);
         composerEls.clear.addEventListener("click", clearComposer);
         composerEls.retry.addEventListener("click", retryFailedChannels);
         composerEls.receiptDismiss.addEventListener("click", hideReceipt);
@@ -2230,6 +2839,17 @@
         renderPreview();
         updateCounter();
         loadChannels();
+        setScheduleMode("now");
+        loadScheduled(true);
+        // "in 2 hours" is wrong a minute later: re-render the same data on a timer,
+        // and re-read the queue while the page is visible so a message the delivery
+        // loop just posted shows up without a reload.
+        setInterval(() => {
+            if (scheduleCache) renderSchedule(scheduleCache, serverNowSeconds());
+        }, 30000);
+        setInterval(() => {
+            if (document.visibilityState !== "hidden") loadScheduled(false);
+        }, 60000);
         document.getElementById("btn-enable-all").addEventListener("click", () => toggleAll(true));
         document.getElementById("btn-disable-all").addEventListener("click", () => toggleAll(false));
     </script>

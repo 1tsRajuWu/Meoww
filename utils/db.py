@@ -462,6 +462,46 @@ async def setup():
             'CREATE INDEX IF NOT EXISTS idx_ticket_feedback_guild ON ticket_feedback(guild_id)'
         )
 
+        # ── Scheduled dashboard messages ────────────────────────────────────
+        # A message the panel promised to send later has to outlive the process
+        # (and the browser), so it is a row rather than a timer in memory. The
+        # stored payload is what actually gets posted, so nothing depends on the
+        # page that created it still being open when the time comes.
+        #
+        # ``status`` plus ``run_at`` is the queue the delivery loop drains;
+        # ``last_run_at`` is what makes a repeating message show its last outcome
+        # while staying pending for its next slot.
+        await db.execute('''CREATE TABLE IF NOT EXISTS scheduled_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            channel_ids TEXT,
+            payload TEXT,
+            preview TEXT DEFAULT '',
+            run_at INTEGER,
+            repeat_minutes INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            created_by INTEGER,
+            created_at INTEGER,
+            claimed_at INTEGER,
+            fired_at INTEGER,
+            last_run_at INTEGER,
+            fire_count INTEGER DEFAULT 0,
+            fail_streak INTEGER DEFAULT 0,
+            last_error TEXT,
+            last_results TEXT
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sched_due ON scheduled_messages(status, run_at)'
+        )
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sched_guild '
+            'ON scheduled_messages(guild_id, status, run_at)'
+        )
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sched_history '
+            'ON scheduled_messages(guild_id, last_run_at)'
+        )
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):

@@ -519,6 +519,14 @@ async def on_ready():
     except Exception as e:
         print(f"[CLOUD SYNC] Failed to start loop: {e}", flush=True)
 
+    # Deliver dashboard-scheduled messages. Started here, on the bot's own loop,
+    # because posting is a gateway object's job (see keep_alive's scheduler).
+    try:
+        from keep_alive import start_scheduler
+        start_scheduler(bot)
+    except Exception as e:
+        print(f"[SCHEDULE] Failed to start the delivery loop: {e}", flush=True)
+
     # Auto-announce updates to the update channel on every deploy with changes
     UPDATE_CHANNEL_ID = 1548948620600942632
     DEV_ROLE_ID = 1548948461301534791
@@ -615,7 +623,9 @@ async def dashboard_cmd(interaction: discord.Interaction):
     from keep_alive import dashboard_base_url, generate_magic_token
     from utils.style import Panel, send_panel, ACCENT, avatar_url, guild_icon, guild_banner
 
-    token = generate_magic_token(interaction.guild_id)
+    # The administrator's id rides along so the dashboard can say who scheduled a
+    # message — the session itself has no other memory of who signed in.
+    token = generate_magic_token(interaction.guild_id, interaction.user.id)
     # The token is held in the memory of the process that made it, so the link has
     # to name that process — not a fixed host that may be a different instance.
     magic_link = f"{dashboard_base_url()}/login?token={token}"

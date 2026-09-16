@@ -53,16 +53,21 @@ can never disagree.
 | Where is data stored? | `utils/db.py` — SQLite (`bot.db`), migrated on boot |
 | How do commands reach Discord? | `bot.py → sync_commands()` on every boot: compare-then-upsert, never bulk-overwrite (a rejected bulk sync once wiped a guild to 1 command) |
 | How does data survive redeploys? | `utils/cloud_sync.py` — restore from Supabase on boot, upload every 25s, final flush on SIGTERM |
-| Where's the dashboard? | `keep_alive.py` + `templates/` — magic-link + passkey auth, module toggles, message composer, live market pages |
+| Where's the dashboard? | `keep_alive.py` + `templates/` — magic-link + passkey auth, module toggles, message composer, scheduler, live market pages |
+| Where do scheduled messages go? | `utils/scheduled.py` (the queue, one row per message) + `keep_alive.py` (the delivery tick, started from `bot.py`) |
 
-## The dashboard's three jobs
+## The dashboard's four jobs
 
 1. **Module toggles** (`/api/toggle`) — persist via `utils/modules.py`, then
    schedule an immediate cloud backup so a restart can't undo the click.
 2. **Message composer** (`/api/send-message`) — posts as the bot, max 5
    channels, every mention re-resolved against the live guild (a browser can
    send anything, so nothing it says is trusted).
-3. **Live market pages** (`/market/<SYMBOL>`) — public JSON + canvas chart
+3. **Scheduled messages** (`/api/schedule-message`) — the same builder as
+   "send now", stored instead of posted, and delivered from a tick on the bot's
+   own loop. Claiming a due message is one conditional `UPDATE`, so a message is
+   posted exactly once no matter how many things look at it at the same moment.
+4. **Live market pages** (`/market/<SYMBOL>`) — public JSON + canvas chart
    fed by the same price snapshot the commands trade on.
 
 ## Conventions that keep 600+ tests green
