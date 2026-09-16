@@ -479,6 +479,12 @@ async def setup():
             preview TEXT DEFAULT '',
             run_at INTEGER,
             repeat_minutes INTEGER DEFAULT 0,
+            -- Named generator to run when it fires (``utils.digest``), or '' for a
+            -- message whose text was typed at queue time.
+            generator TEXT DEFAULT '',
+            -- 'now' for a message the dashboard posted straight away, kept as the
+            -- record of it; 'schedule' for one that waited in this queue.
+            source TEXT DEFAULT 'schedule',
             status TEXT DEFAULT 'pending',
             created_by INTEGER,
             created_at INTEGER,
@@ -501,6 +507,13 @@ async def setup():
             'CREATE INDEX IF NOT EXISTS idx_sched_history '
             'ON scheduled_messages(guild_id, last_run_at)'
         )
+        # ``CREATE TABLE IF NOT EXISTS`` never changes a table that already exists,
+        # and this table shipped before generators did — so the column is added
+        # additively on boot rather than only being declared above.
+        await ensure_columns(db, "scheduled_messages", {
+            "generator": "TEXT DEFAULT ''",
+            "source": "TEXT DEFAULT 'schedule'",
+        })
 
         await db.commit()
 

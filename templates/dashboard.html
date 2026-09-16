@@ -1078,6 +1078,10 @@
             border-top: 1px solid var(--border);
         }
 
+        /* Same trap as the fields above: this footer is set ``hidden`` whenever
+           there is nothing to retry, and its own ``display: flex`` would keep it on
+           screen saying "Retry the 0 failed channels". */
+        .receipt-foot[hidden] { display: none; }
         .receipt-foot .btn { padding: 8px 14px; font-size: 12px; }
         .receipt-note { margin-left: auto; font-size: 11px; color: var(--text-muted); text-align: right; }
 
@@ -1132,6 +1136,7 @@
         .schedule-when input[type="datetime-local"],
         .schedule-when select { padding: 9px 12px; font-size: 12.5px; width: auto; }
         .schedule-when .composer-hint { margin: 0; }
+        .schedule-when .content-hint { flex-basis: 100%; }
 
         .sr-only {
             position: absolute;
@@ -1211,6 +1216,7 @@
         }
 
         .pill.repeat { color: #a5b4fc; border-color: rgba(88, 101, 242, 0.45); }
+        .pill.now { color: #7dd3fc; border-color: rgba(56, 189, 248, 0.45); }
         .pill.ping { color: #facc15; border-color: rgba(250, 204, 21, 0.45); }
         .pill.ok { color: #4ade80; border-color: rgba(35, 165, 90, 0.4); }
         .pill.warn { color: #facc15; border-color: rgba(250, 204, 21, 0.4); }
@@ -1433,6 +1439,12 @@
                             <button type="button" class="seg-btn" id="composer-when-later" role="radio" aria-checked="false">Schedule</button>
                         </div>
                         <div class="schedule-when" id="composer-when-fields" hidden>
+                            <label class="sr-only" for="composer-content">What to post</label>
+                            <select id="composer-content" class="composer-input" aria-describedby="composer-content-hint">
+                                {% for choice in schedule_content_choices|default([{'value': '', 'label': 'Message I write', 'blurb': ''}]) %}
+                                <option value="{{ choice.value }}" data-blurb="{{ choice.blurb }}">{{ choice.label }}</option>
+                                {% endfor %}
+                            </select>
                             <label class="sr-only" for="composer-run-at">Date and time</label>
                             <input type="datetime-local" id="composer-run-at" class="composer-input">
                             <label class="sr-only" for="composer-repeat">Repeat</label>
@@ -1442,6 +1454,7 @@
                                 {% endfor %}
                             </select>
                             <span class="composer-hint" id="composer-run-hint"></span>
+                            <span class="composer-hint content-hint" id="composer-content-hint"></span>
                         </div>
                     </div>
                     <div class="composer-field">
@@ -1480,7 +1493,7 @@
             <div class="schedule-list" id="schedule-upcoming" role="list"></div>
             <div class="field-head schedule-subhead">
                 <span class="field-label">Recently sent</span>
-                <span class="composer-hint">What actually happened, per channel.</span>
+                <span class="composer-hint">Every message the dashboard has posted on this server — sent now or on a schedule — and what happened per channel.</span>
             </div>
             <div class="schedule-list" id="schedule-recent" role="list"></div>
             <div class="composer-status" id="schedule-status" role="status"></div>
@@ -1694,6 +1707,14 @@
         const CLOCK_SKEW = SERVER_NOW ? (SERVER_NOW * 1000 - Date.now()) : 0;
         let scheduleMode = "now";       // "now" or "later"
         let scheduleCache = null;       // the last reply from /api/scheduled
+        // What a scheduled message may carry: text you write, or a generator the
+        // bot runs when it posts (see utils/digest.py). Offered from the registry
+        // the endpoint validates against, so the page cannot name something the
+        // bot does not have.
+        const CONTENT_CHOICES = {
+            {% for choice in schedule_content_choices|default([{'value': '', 'label': 'Message I write', 'blurb': ''}]) %}{{ choice.value|tojson }}: { label: {{ choice.label|tojson }}, blurb: {{ choice.blurb|tojson }} }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        };
 
         const composerEls = {
             channels: document.getElementById("composer-channels"),
@@ -1724,7 +1745,9 @@
             whenFields: document.getElementById("composer-when-fields"),
             runAt: document.getElementById("composer-run-at"),
             repeat: document.getElementById("composer-repeat"),
-            runHint: document.getElementById("composer-run-hint")
+            runHint: document.getElementById("composer-run-hint"),
+            content: document.getElementById("composer-content"),
+            contentHint: document.getElementById("composer-content-hint")
         };
 
         const scheduleEls = {
@@ -2120,6 +2143,15 @@
 
         function renderPreview() {
             composerEls.preview.innerHTML = "";
+            if (composerUsesGenerator()) {
+                // Nothing to picture: the text does not exist yet, and a made-up
+                // preview would be a promise the page cannot keep.
+                const note = document.createElement("div");
+                note.className = "preview-body preview-empty";
+                note.textContent = `${chosenContent().label} — built from this server's own data when it posts.`;
+                composerEls.preview.appendChild(note);
+                return;
+            }
             const head = document.createElement("div");
             head.className = "preview-head";
             const avatar = document.createElement("span");
@@ -2375,6 +2407,22 @@
             }
             return { tone: "warn", label: "not sent", detail: msg.last_error || "nothing was sent" };
         }
+        function scheduleOrigin(msg) {
+            // Where the row came from. An immediate send has no repeat to name, and
+            // calling it "once" would read as a schedule that has already fired.
+            if (msg.source === "now") {
+                return {
+                    text: "sent now",
+                    className: "pill now",
+                    title: "Posted straight away from the dashboard — this is the record of it."
+                };
+            }
+            return {
+                text: msg.repeat_minutes ? msg.repeat : "once",
+                className: "pill repeat",
+                title: ""
+            };
+        }
         /* schedule-format:end */
 
         function serverNowSeconds() {
@@ -2383,6 +2431,31 @@
 
         function scheduleStatus(message) {
             scheduleEls.status.textContent = message || "";
+        }
+
+        function chosenContent() {
+            return CONTENT_CHOICES[composerEls.content.value] || { label: "", blurb: "" };
+        }
+
+        function composerUsesGenerator() {
+            // Only in Schedule mode: a generator has no "now" — building one at the
+            // moment you press send is just a worse-sounding send-now.
+            return scheduleMode === "later" && composerEls.content.value !== "";
+        }
+
+        function applyContentMode() {
+            const generated = composerUsesGenerator();
+            // The box you would have typed into is genuinely not part of this
+            // message, so it is disabled rather than quietly ignored — and whatever
+            // was already written stays in it, to come back if you switch away.
+            composerEls.body.disabled = generated;
+            composerEls.title.disabled = generated;
+            composerEls.embed.disabled = generated;
+            if (generated) composerEls.titleField.hidden = true;
+            composerEls.contentHint.textContent = generated
+                ? (chosenContent().blurb || "Built when it posts.")
+                : "";
+            renderPreview();
         }
 
         function scheduleEmpty(message) {
@@ -2468,10 +2541,21 @@
             head.appendChild(abs);
 
             const repeat = document.createElement("span");
-            repeat.className = "pill repeat";
-            repeat.textContent = msg.repeat_minutes ? msg.repeat : "once";
+            const origin = scheduleOrigin(msg);
+            repeat.className = origin.className;
+            repeat.textContent = origin.text;
+            if (origin.title) repeat.title = origin.title;
             head.appendChild(repeat);
 
+            if (msg.generator) {
+                // Named, not described: the row says what will be posted without
+                // pretending to know what it will say.
+                const built = document.createElement("span");
+                built.className = "pill";
+                built.textContent = "built";
+                built.title = msg.generator_label || "Generated when it posts";
+                head.appendChild(built);
+            }
             if (msg.has_everyone) {
                 const ping = document.createElement("span");
                 ping.className = "pill ping";
@@ -2541,7 +2625,9 @@
             }
             recent.forEach(msg => scheduleEls.recent.appendChild(scheduleRow(msg, now, false)));
             if (!recent.length) {
-                scheduleEls.recent.appendChild(scheduleEmpty("Nothing has been posted on a schedule yet."));
+                scheduleEls.recent.appendChild(scheduleEmpty(
+                    "Nothing posted from the dashboard yet. Send a message now, or schedule one, and its per-channel result is kept here."
+                ));
             }
             const cap = data.max_pending || SCHEDULE_MAX_PENDING;
             scheduleEls.pending.textContent = `${upcoming.length} of ${cap}`;
@@ -2665,6 +2751,7 @@
             composerEls.send.textContent = sendButtonLabel();
             if (later && !composerEls.runAt.value) composerEls.runAt.value = defaultRunAtValue();
             updateScheduleHint();
+            applyContentMode();
         }
 
         async function submitSchedule(payload) {
@@ -2673,7 +2760,9 @@
             composerEls.send.disabled = true;
             composerEls.send.textContent = "Scheduling…";
             try {
-                const data = await apiPost("/api/schedule-message", Object.assign({}, payload, timing));
+                const data = await apiPost("/api/schedule-message", Object.assign(
+                    {}, payload, timing, { generator: composerEls.content.value || "" }
+                ));
                 const when = data.message ? scheduleWhen(data.message.run_at, serverNowSeconds()) : null;
                 showToast(when ? `Scheduled — ${when.text} (${when.absolute}).` : "Scheduled.");
                 if ((data.ignored_mentions || []).length) {
@@ -2718,6 +2807,10 @@
             try {
                 const data = await apiPostResult("/api/send-message", payload);
                 renderReceipt(data, payload, carried);
+                // The send has just been written down as history; without this the
+                // list below would keep showing yesterday's until its next poll,
+                // and a send that left no visible trace reads as one that failed.
+                loadScheduled();
             } catch (err) {
                 if (err.message !== "Session expired") showToast(`Could not send: ${err.message}`, "error");
             } finally {
@@ -2741,12 +2834,16 @@
             renderPreview();
             updateCounter();
             composerStatus("");
+            applyContentMode();
         }
 
         async function sendComposedMessage() {
             if (!composerSelection.length) return showToast("Pick at least one channel first.", "error");
             const payload = composePayload(composerSelection.slice());
-            if (!payload.content && !payload.title) return showToast("Write something to send.", "error");
+            const generated = composerUsesGenerator();
+            if (!generated && !payload.content && !payload.title) {
+                return showToast("Write something to send.", "error");
+            }
             if (payload.channel_ids.length > COMPOSER_MAX_CHANNELS) {
                 return showToast(`At most ${COMPOSER_MAX_CHANNELS} channels per send.`, "error");
             }
@@ -2756,6 +2853,9 @@
                 // irreversible ping, it just happens later.
                 const timing = scheduleRequest();
                 if (timing.error) return showToast(timing.error, "error");
+                // A generated message carries no tags of its own — whatever is in
+                // the box is not part of it — so there is nothing to confirm.
+                if (generated) return await submitSchedule(payload);
                 const when = scheduleWhen(Math.round(timing.run_at_ms / 1000), serverNowSeconds());
                 if (ping && !window.confirm(
                     `${ping} notifies the whole server, and this is scheduled for `
@@ -2796,6 +2896,7 @@
         composerEls.whenLater.addEventListener("click", () => setScheduleMode("later"));
         composerEls.runAt.addEventListener("input", updateScheduleHint);
         composerEls.repeat.addEventListener("change", updateScheduleHint);
+        composerEls.content.addEventListener("change", applyContentMode);
         composerEls.clear.addEventListener("click", clearComposer);
         composerEls.retry.addEventListener("click", retryFailedChannels);
         composerEls.receiptDismiss.addEventListener("click", hideReceipt);

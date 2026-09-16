@@ -33,10 +33,21 @@ from tests.test_composer import (
     OTHER_CHANNEL_ID,
     OTHER_GUILD_ID,
     QUIET_CHANNEL_ID,
-    ComposerCase,
-    DashboardTemplateCase,
+    _Channel,
+    _ComposerFixture,
+    _Guild,
+    _Member,
+    _VoiceChannel,
+    render_dashboard,
 )
-from utils import db, scheduled
+from utils import db, digest, scheduled
+
+#: A fixed instant for the digest tests: 2023-11-14 22:13:20 UTC, so "today" and
+#: both seven-day windows are known strings rather than whatever day it is.
+FIXED_NOW = 1_700_000_000
+VOICE_CHANNEL_ID = 555010
+GONE_CHANNEL_ID = 555011
+GONE_MEMBER_ID = MEMBER_ID + 90
 
 
 def payload(content="hello from the past", **overrides):
@@ -53,12 +64,16 @@ def payload(content="hello from the past", **overrides):
     return body
 
 
-class SchedulerCase(TempDatabaseMixin, ComposerCase):
-    """The composer's stand-ins, plus a database that never touches the project."""
+class SchedulerCase(TempDatabaseMixin, _ComposerFixture):
+    """The composer's stand-ins, plus a database that never touches the project.
+
+    The *fixture*, not ``ComposerCase``: inheriting a class that carries tests
+    re-collects every one of them here, and pytest reports each re-run as a pass.
+    """
 
     def setUp(self):
         self.use_temp_database("scheduler.db")
-        super().setUp()  # ComposerCase: guild fakes, patched BOT_INSTANCE, client
+        super().setUp()  # the fixture: guild fakes, patched BOT_INSTANCE, client
         asyncio.run(db.setup())
         # Module state the loop keeps between ticks, reset per test so an hourly
         # prune in one test cannot hide the one in the next.
@@ -92,6 +107,26 @@ class SchedulerCase(TempDatabaseMixin, ComposerCase):
 
     def tick(self, now=None):
         return asyncio.run(self.keep_alive._scheduler_tick(now))
+
+    def seed_activity(self, *, messages=(), voice=()):
+        """Put rows in the tracker's tables, which is where a digest reads from."""
+        conn = db.connect()
+        try:
+            for uid, cid, day, count in messages:
+                conn.execute(
+                    "INSERT OR REPLACE INTO activity_messages "
+                    "(guild_id, user_id, channel_id, date, count) VALUES (?, ?, ?, ?, ?)",
+                    (GUILD_ID, uid, cid, day, count),
+                )
+            for uid, cid, day, seconds in voice:
+                conn.execute(
+                    "INSERT OR REPLACE INTO activity_voice "
+                    "(guild_id, user_id, channel_id, date, seconds) VALUES (?, ?, ?, ?, ?)",
+                    (GUILD_ID, uid, cid, day, seconds),
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 class QueueStoreCase(SchedulerCase):
@@ -559,12 +594,99 @@ class DeliveryCase(SchedulerCase):
         self.assertTrue(all(item["status"] == "failed" for item in done))
 
 
+class SendRecordCase(SchedulerCase):
+    """A message sent *now* is written down too.
+
+    "Send now" was the one path whose report had nowhere to live: it was handed to
+    the page and died with the tab, so the panel's history held only the scheduled
+    half of what the dashboard had posted.
+    """
+
+    def recent(self):
+        data = self.listed()
+        self.assertEqual(data["upcoming"], [], "a sent message must not become a queued one")
+        return data["recent"]
+
+    def test_a_send_now_is_kept_as_the_record_of_it(self):
+        resp = self._send(content="the announcement")
+        self.assertTrue(resp.get_json()["success"], resp.get_json())
+        rows = self.recent()
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["source"], "now")
+        self.assertEqual(row["status"], "sent")
+        self.assertEqual(row["preview"], "the announcement")
+        self.assertEqual(row["channels"][0]["name"], "announcements")
+        self.assertEqual([r["channel_id"] for r in row["results"]], [str(CHANNEL_ID)])
+        self.assertTrue(row["results"][0]["ok"])
+        self.assertTrue(row["results"][0]["jump_url"].startswith("https://discord.com/"))
+        self.assertEqual(scheduled.pending_count(GUILD_ID), 0)
+        # The strongest thing that can be said about a history row: the delivery
+        # loop can never find it, so the record can never become a second post.
+        self.assertEqual(self.tick(int(time.time()) + 1), [])
+        self.assertEqual(len(self.standard.sent), 1)
+
+    def test_a_send_that_reached_nobody_is_recorded_as_a_failure_with_the_reason(self):
+        resp = self._send(content="quiet please", channel_ids=[QUIET_CHANNEL_ID])
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.get_json()["success"])
+        row = self.recent()[0]
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("staff-only", row["last_error"])
+        self.assertEqual(row["results"][0]["ok"], False)
+
+    def test_a_partial_send_keeps_the_channel_that_refused_it(self):
+        resp = self._send(content="split", channel_ids=[CHANNEL_ID, QUIET_CHANNEL_ID])
+        self.assertTrue(resp.get_json()["success"])
+        row = self.recent()[0]
+        self.assertEqual(row["status"], "sent")
+        self.assertEqual([r["ok"] for r in row["results"]], [True, False])
+        self.assertIn("staff-only", row["last_error"], "the refusal is kept beside it")
+
+    def test_history_never_spends_the_queue_cap(self):
+        for i in range(3):
+            self._send(content=f"number {i}")
+        self.assertEqual(scheduled.pending_count(GUILD_ID), 0)
+        self.assertIsNotNone(
+            scheduled.create(GUILD_ID, [CHANNEL_ID], payload(), int(time.time()) + 60),
+            "a recorded send is not a queued message",
+        )
+
+    def test_the_record_is_pruned_like_any_other_history_row(self):
+        old = int(time.time()) - 100 * 86400
+        scheduled.record_sent(
+            GUILD_ID,
+            [CHANNEL_ID],
+            payload("ancient"),
+            [{"channel_id": CHANNEL_ID, "name": "announcements", "ok": True}],
+            now=old,
+        )
+        self.assertEqual(len(self.recent()), 1)
+        self.assertEqual(scheduled.prune(int(time.time())), 1)
+        self.assertEqual(self.recent(), [])
+
+    def test_the_record_names_who_sent_it(self):
+        with self.client.session_transaction() as session:
+            session["user_id"] = MEMBER_ID
+        self._send(content="attributed")
+        row = self.recent()[0]
+        self.assertEqual(row["created_by"], str(MEMBER_ID))
+        self.assertEqual(row["created_by_name"], "RAJ")
+
+
 class ScheduleTemplateCase(unittest.TestCase):
     """The page has to carry the controls, and they have to be the right ones."""
 
     @staticmethod
     def render(**overrides):
         context = {
+            "schedule_content_choices": [
+                {"value": "", "label": "Message I write", "blurb": ""},
+                *[
+                    {"value": name, "label": entry["label"], "blurb": entry["blurb"]}
+                    for name, entry in digest.GENERATORS.items()
+                ],
+            ],
             "schedule_repeat_choices": [
                 {"minutes": minutes, "label": label}
                 for minutes, label in scheduled.REPEAT_CHOICES
@@ -574,7 +696,7 @@ class ScheduleTemplateCase(unittest.TestCase):
             "server_now": 1_700_000_000,
         }
         context.update(overrides)
-        return DashboardTemplateCase.render(**context)
+        return render_dashboard(**context)
 
     def test_the_scheduling_controls_are_on_the_page(self):
         html = self.render()
@@ -684,6 +806,23 @@ class ScheduleTemplateCase(unittest.TestCase):
         cancelled = outcome({"status": "cancelled", "results": [], "last_error": ""})
         self.assertEqual(cancelled["label"], "cancelled")
 
+    def test_an_immediate_send_is_labelled_as_one_not_as_a_schedule(self):
+        """"once" beside a message that already went out reads as a queue, not a record."""
+        out = self._schedule_js(
+            "console.log(JSON.stringify(["
+            "scheduleOrigin({source: 'now'}),"
+            "scheduleOrigin({source: 'schedule', repeat_minutes: 1440, repeat: 'Daily'}),"
+            "scheduleOrigin({repeat_minutes: 0, repeat: 'Once'})" "]));"
+        )
+        self.assertEqual(out[0]["text"], "sent now")
+        self.assertIn("now", out[0]["className"])
+        self.assertNotEqual(out[0]["className"], out[1]["className"])
+        self.assertEqual(out[1]["text"], "Daily")
+        self.assertEqual(out[2]["text"], "once")
+
+    def test_the_history_says_it_holds_immediate_sends_too(self):
+        self.assertIn("sent now or on a schedule", self.render())
+
     def test_names_from_the_server_are_rendered_as_text_never_as_markup(self):
         html = self.render()
         for line in (
@@ -702,3 +841,314 @@ class ScheduleTemplateCase(unittest.TestCase):
             "const at = upcoming ? msg.run_at : Math.min(msg.last_run_at || msg.run_at, now - 1);",
             html,
         )
+
+    def test_the_content_choice_is_offered_from_the_generators_that_exist(self):
+        html = self.render()
+        self.assertIn('id="composer-content"', html)
+        self.assertIn('<option value="" data-blurb="">Message I write</option>', html)
+        self.assertIn(
+            '<option value="weekly_digest" data-blurb="Messages, voice time', html
+        )
+        self.assertIn('"weekly_digest": { label: "Weekly server digest"', html)
+
+    def test_generated_content_disables_the_box_it_would_have_been_typed_into(self):
+        """A generator's text does not exist yet, so the page must not imply that
+        whatever is in the message box will be part of it."""
+        html = self.render()
+        for line in (
+            "composerEls.body.disabled = generated;",
+            "composerEls.embed.disabled = generated;",
+            "composerEls.contentHint.textContent = generated",
+        ):
+            self.assertIn(line, html, line)
+
+    def test_the_page_says_a_generated_message_is_built_when_it_posts(self):
+        html = self.render()
+        self.assertIn("built when it posts", html)
+        self.assertIn("if (msg.generator)", html)
+        self.assertIn("composerEls.content.addEventListener(\"change\", applyContentMode);", html)
+
+
+class GeneratorDeliveryCase(SchedulerCase):
+    """A schedule whose content is built at fire time, not typed at queue time."""
+
+    def queue_digest(self, **overrides):
+        body = {
+            "guild_id": GUILD_ID,
+            "channel_ids": [CHANNEL_ID],
+            "content": "",
+            "mentions": [],
+            "generator": "weekly_digest",
+            "repeat_minutes": 10080,
+            "run_at_ms": int((time.time() + 3600) * 1000),
+        }
+        body.update(overrides)
+        return self._post("/api/schedule-message", body)
+
+    def test_a_generated_message_can_be_queued_without_any_text(self):
+        resp = self.queue_digest()
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        row = resp.get_json()["message"]
+        self.assertEqual(row["generator"], "weekly_digest")
+        self.assertEqual(row["generator_label"], "Weekly server digest")
+        self.assertIn("built when it posts", row["preview"])
+        # Nothing was written, so there is nothing to preview and no tags to drop.
+        self.assertIsNone(row["payload"].get("content"))
+        self.assertEqual(resp.get_json()["ignored_mentions"], [])
+
+    def test_an_unknown_content_source_is_refused(self):
+        resp = self.queue_digest(generator="rm -rf")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unknown content source", resp.get_json()["error"])
+        self.assertEqual(self.stored()["upcoming"], [])
+
+    def test_a_generated_message_still_needs_a_channel(self):
+        resp = self.queue_digest(channel_ids=[])
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("at least one channel", resp.get_json()["error"])
+
+    def test_the_tick_builds_it_when_it_posts(self):
+        now = int(time.time())
+        day = digest._window(now)["end"]
+        self.seed_activity(
+            messages=[(MEMBER_ID, CHANNEL_ID, day, 42)],
+            voice=[(MEMBER_ID, self.voice.id, day, 3660)],
+        )
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], {"generator": "weekly_digest"}, now - 1,
+            generator="weekly_digest", repeat_minutes=10080,
+        )
+        done = self.tick(now)
+        self.assertEqual(done[0]["status"], "sent", done[0])
+        self.assertEqual(len(self.standard.sent), 1)
+        posted = self.standard.sent[0]
+        self.assertIsNone(posted["content"], "a digest is an embed with no text of its own")
+        self.assertIn("42 messages", posted["embed"].description)
+        self.assertIn("#announcements", posted["embed"].description)
+        self.assertIn("RAJ", posted["embed"].description)
+        self.assertIn("Meow Server", posted["embed"].title)
+        # A weekly summary must never ping anyone, whoever it names in the card.
+        self.assertEqual(posted["allowed_mentions"].users, [])
+        self.assertEqual(posted["allowed_mentions"].roles, [])
+        self.assertFalse(posted["allowed_mentions"].everyone)
+        self.assertEqual(scheduled.get(GUILD_ID, msg_id)["status"], "pending",
+                         "a weekly digest stays queued for next week")
+
+    def test_a_quiet_week_is_skipped_and_the_schedule_survives(self):
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], {"generator": "weekly_digest"}, now - 1,
+            generator="weekly_digest", repeat_minutes=10080,
+        )
+        done = self.tick(now)
+        self.assertEqual(done[0]["status"], "skipped", done[0])
+        self.assertEqual(self.standard.sent, [], "no card of zeros is posted")
+        row = scheduled.get(GUILD_ID, msg_id)
+        self.assertEqual(row["status"], "pending", "next week still happens")
+        self.assertEqual(row["fail_streak"], 0, "a quiet week is not a failure")
+        self.assertIn("nothing to report", row["last_error"])
+        self.assertGreater(row["run_at"], now)
+
+    def test_firing_a_generated_message_now_builds_it_now(self):
+        now = int(time.time())
+        day = digest._window(now)["end"]
+        self.seed_activity(messages=[(MEMBER_ID, CHANNEL_ID, day, 7)])
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], {"generator": "weekly_digest"}, now + 3600,
+            generator="weekly_digest",
+        )
+        resp = self._post(f"/api/scheduled/{msg_id}/fire", {"guild_id": GUILD_ID})
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        data = resp.get_json()
+        self.assertTrue(data["success"])
+        self.assertFalse(data["skipped"])
+        self.assertIn("7 messages", self.standard.sent[0]["embed"].description)
+
+
+class DigestCase(TempDatabaseMixin, unittest.TestCase):
+    """The digest itself: what it counts, and what it refuses to invent."""
+
+    def setUp(self):
+        self.use_temp_database("digest.db")
+        asyncio.run(db.setup())
+        self.standard = _Channel(CHANNEL_ID, "general")
+        self.voice = _VoiceChannel(VOICE_CHANNEL_ID, "General Voice", category="Voice")
+        self.member = _Member(MEMBER_ID, "raj", "RAJ")
+        self.gone_member = _Member(GONE_MEMBER_ID, "ghost", "Ghost")
+        # ``get_member`` only knows the people still in the server, which is the
+        # point: a member who has left cannot be featured under a nickname.
+        self.guild = _Guild(
+            GUILD_ID,
+            "Meow Server",
+            [self.standard],
+            members=[self.member],
+            voice_channels=[self.voice],
+        )
+
+    def tearDown(self):
+        self.release_temp_database()
+
+    def seed(self, *, messages=(), voice=()):
+        conn = db.connect()
+        try:
+            for uid, cid, day, count in messages:
+                conn.execute(
+                    "INSERT OR REPLACE INTO activity_messages "
+                    "(guild_id, user_id, channel_id, date, count) VALUES (?, ?, ?, ?, ?)",
+                    (GUILD_ID, uid, cid, day, count),
+                )
+            for uid, cid, day, seconds in voice:
+                conn.execute(
+                    "INSERT OR REPLACE INTO activity_voice "
+                    "(guild_id, user_id, channel_id, date, seconds) VALUES (?, ?, ?, ?, ?)",
+                    (GUILD_ID, uid, cid, day, seconds),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def busy_week(self):
+        self.seed(
+            messages=[
+                (MEMBER_ID, CHANNEL_ID, "2023-11-08", 40),        # first day, inside
+                (MEMBER_ID, CHANNEL_ID, "2023-11-14", 60),        # today, inside
+                (GONE_MEMBER_ID, GONE_CHANNEL_ID, "2023-11-10", 20),
+                (MEMBER_ID, CHANNEL_ID, "2023-11-07", 30),        # the window before
+                (MEMBER_ID, CHANNEL_ID, "2023-10-31", 900),       # outside both
+            ],
+            voice=[
+                (MEMBER_ID, VOICE_CHANNEL_ID, "2023-11-09", 3600),
+                (MEMBER_ID, VOICE_CHANNEL_ID, "2023-11-07", 1800),
+            ],
+        )
+
+    def test_the_window_is_seven_days_ending_today_in_utc(self):
+        window = digest._window(FIXED_NOW)
+        self.assertEqual(
+            window,
+            {
+                "start": "2023-11-08",
+                "end": "2023-11-14",
+                "prev_start": "2023-11-01",
+                "prev_end": "2023-11-07",
+            },
+        )
+
+    def test_it_counts_the_window_it_claims_and_nothing_else(self):
+        self.busy_week()
+        data = digest.server_activity(GUILD_ID, FIXED_NOW)
+        self.assertEqual(data["messages"], 120, "40 + 60 + 20; not the 900 outside")
+        self.assertEqual(data["voice_seconds"], 3600)
+        self.assertEqual(data["prev_messages"], 30, "the week before, for comparison")
+        self.assertEqual(data["prev_voice_seconds"], 1800)
+        self.assertEqual(data["members"], 2, "message senders and voice sitters together")
+
+    def test_the_busiest_channels_and_talkers_are_ranked(self):
+        self.busy_week()
+        data = digest.server_activity(GUILD_ID, FIXED_NOW)
+        self.assertEqual(
+            data["message_channels"], [(CHANNEL_ID, 100), (GONE_CHANNEL_ID, 20)]
+        )
+        self.assertEqual(data["voice_channels"], [(VOICE_CHANNEL_ID, 3600)])
+        self.assertEqual(
+            data["members_by_messages"], [(MEMBER_ID, 100), (GONE_MEMBER_ID, 20)]
+        )
+        self.assertEqual(data["member_voice"].get(MEMBER_ID), 3600)
+
+    def test_a_quiet_week_has_nothing_to_say(self):
+        payload, reason = digest.build("weekly_digest", self.guild, FIXED_NOW)
+        self.assertIsNone(payload, "no card of zeros")
+        self.assertIn("nothing to report", reason)
+        self.assertIn("2023-11-14", reason)
+
+    def test_the_card_names_live_channels_members_and_durations(self):
+        self.busy_week()
+        payload, reason = digest.build("weekly_digest", self.guild, FIXED_NOW)
+        self.assertEqual(reason, "")
+        card = payload["embed"]
+        self.assertIn("Meow Server", card["title"])
+        self.assertIn("last 7 days", card["title"])
+        body = card["description"]
+        self.assertIn("**120 messages**", body)
+        # The same spelling `/activity` prints: an hour is "1.00 h" there too.
+        self.assertIn("**1.00 h**", body)
+        self.assertIn("#general — 100 messages", body)
+        self.assertIn("🔊 General Voice — 1.00 h", body)
+        self.assertIn("RAJ — 100 messages · 1.00 h", body)
+        self.assertIn("2023-11-08 → 2023-11-14 (UTC)", body)
+        self.assertLess(len(body), 4096, "an embed description has a hard limit")
+
+    def test_a_channel_that_is_gone_is_still_counted_and_still_named(self):
+        self.busy_week()
+        body = digest.build("weekly_digest", self.guild, FIXED_NOW)[0]["embed"]["description"]
+        self.assertIn("since deleted", body)
+        self.assertIn("20 messages", body)
+
+    def test_a_member_who_has_left_counts_but_is_not_named(self):
+        self.busy_week()
+        body = digest.build("weekly_digest", self.guild, FIXED_NOW)[0]["embed"]["description"]
+        self.assertIn("**120 messages**", body, "their activity still counts")
+        self.assertNotIn("Ghost", body, "but they cannot be featured by a name we no longer have")
+        self.assertIn("RAJ", body)
+
+    def test_the_comparison_is_like_for_like_or_says_it_cannot_be(self):
+        self.busy_week()
+        body = digest.build("weekly_digest", self.guild, FIXED_NOW)[0]["embed"]["description"]
+        self.assertIn("+300% vs the week before", body)
+        conn = db.connect()
+        try:
+            conn.execute("DELETE FROM activity_messages WHERE date < '2023-11-08'")
+            conn.commit()
+        finally:
+            conn.close()
+        body = digest.build("weekly_digest", self.guild, FIXED_NOW)[0]["embed"]["description"]
+        self.assertIn("no comparable week before this one", body)
+
+    def test_a_generated_message_never_pings_anyone(self):
+        self.busy_week()
+        payload, _ = digest.build("weekly_digest", self.guild, FIXED_NOW)
+        self.assertEqual(payload["users"], [])
+        self.assertEqual(payload["roles"], [])
+        self.assertFalse(payload["everyone"])
+        self.assertIsNone(payload["content"])
+
+    def test_an_unknown_generator_is_a_reason_not_a_crash(self):
+        payload, reason = digest.build("no_such_thing", self.guild, FIXED_NOW)
+        self.assertIsNone(payload)
+        self.assertIn("no longer exists", reason)
+        self.assertEqual(digest.label("no_such_thing"), "")
+
+    def test_a_generator_that_throws_is_a_reason_not_a_crash(self):
+        def explode(guild, now):
+            raise RuntimeError("boom")
+
+        with mock.patch.dict(
+            digest.GENERATORS, {"boom": {"label": "Boom", "blurb": "", "build": explode}}
+        ):
+            payload, reason = digest.build("boom", self.guild, FIXED_NOW)
+        self.assertIsNone(payload)
+        self.assertIn("could not build boom", reason.lower())
+
+    def test_the_tracker_and_the_digest_spell_things_the_same_way(self):
+        """One spelling of a duration, used by both, or a reader concludes the two
+        views disagree about the same seconds."""
+        from cogs import tracker
+
+        for seconds in (0, 45, 60, 125, 3600, 3725, 86_400):
+            self.assertEqual(tracker._fmt_voice(seconds), digest.human_voice(seconds), seconds)
+        self.assertEqual(tracker._fmt_count(1_234_567), digest.human_count(1_234_567))
+
+    def test_the_read_only_touches_this_guild(self):
+        self.seed(messages=[(MEMBER_ID, CHANNEL_ID, "2023-11-14", 5)])
+        conn = db.connect()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO activity_messages "
+                "(guild_id, user_id, channel_id, date, count) VALUES (?, ?, ?, ?, ?)",
+                (OTHER_GUILD_ID, MEMBER_ID, CHANNEL_ID, "2023-11-14", 500),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual(digest.server_activity(GUILD_ID, FIXED_NOW)["messages"], 5)
+        self.assertEqual(digest.server_activity(OTHER_GUILD_ID, FIXED_NOW)["messages"], 500)

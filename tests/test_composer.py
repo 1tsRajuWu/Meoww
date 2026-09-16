@@ -148,8 +148,18 @@ class _Bot:
         return self._guilds.get(gid)
 
 
-class ComposerCase(unittest.TestCase):
-    """Driven through Flask's test client, with a stand-in gateway behind it."""
+class _ComposerFixture(unittest.TestCase):
+    """The composer's gateway stand-ins and client, and **no tests of its own**.
+
+    Split out because a class that is both the fixture and the assertions makes
+    every other module that inherits it re-run these tests: ``pytest`` collects a
+    ``unittest.TestCase`` subclass wherever it appears, including imported, and an
+    inherited method is re-collected in each subclass. ``tests/tests_scheduler.py``
+    inherits it in five classes (``SchedulerCase`` and its four subclasses), so the
+    composer's 39 tests ran six times over — 195 extra executions, each opening a
+    throwaway database, every one of them counted as a pass. A fixture with no test
+    methods of its own contributes nothing wherever it is inherited or imported.
+    """
 
     def setUp(self):
         self.standard = _Channel(CHANNEL_ID, "announcements", category="News")
@@ -215,6 +225,10 @@ class ComposerCase(unittest.TestCase):
         }
         body.update(payload)
         return self._post("/api/send-message", body)
+
+
+class ComposerCase(_ComposerFixture):
+    """The composer's own tests, driven through that stand-in gateway."""
 
     # ── access ───────────────────────────────────────────────────────────
     def test_every_route_requires_a_session(self):
@@ -617,32 +631,40 @@ class ComposerCase(unittest.TestCase):
         self.assertIn("No server available", response.get_json()["error"])
 
 
+def render_dashboard(**overrides) -> str:
+    """The shipped dashboard template, rendered with a plausible context.
+
+    A module-level function rather than a method so another module can render the
+    same page without importing a ``TestCase`` — importing one makes pytest collect
+    its tests again in the importing file.
+    """
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    env = Environment(
+        loader=FileSystemLoader("templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+    context = dict(
+        guild_id=GUILD_ID,
+        guild_name="Meow Server",
+        member_count=3,
+        bot_ping=12,
+        bot_ready=True,
+        modules=[],
+        active_count=0,
+        total_count=0,
+        csrf_token=CSRF,
+        guilds=[],
+        can_switch_guild=False,
+    )
+    context.update(overrides)
+    return env.get_template("dashboard.html").render(**context)
+
+
 class DashboardTemplateCase(unittest.TestCase):
     """The shipped page must actually carry the composer, and carry it safely."""
 
-    @staticmethod
-    def render(**overrides) -> str:
-        from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-        env = Environment(
-            loader=FileSystemLoader("templates"),
-            autoescape=select_autoescape(["html"]),
-        )
-        context = dict(
-            guild_id=GUILD_ID,
-            guild_name="Meow Server",
-            member_count=3,
-            bot_ping=12,
-            bot_ready=True,
-            modules=[],
-            active_count=0,
-            total_count=0,
-            csrf_token=CSRF,
-            guilds=[],
-            can_switch_guild=False,
-        )
-        context.update(overrides)
-        return env.get_template("dashboard.html").render(**context)
+    render = staticmethod(render_dashboard)
 
     def test_the_page_hands_the_guild_id_over_as_a_string(self):
         """Same overflow, same fix: this id is posted back with every request."""
@@ -890,6 +912,31 @@ class DashboardTemplateCase(unittest.TestCase):
         html = self.render(composer_max_channels=limit)
         self.assertIn(f"const COMPOSER_MAX_CHANNELS = {limit};", html)
         self.assertIn(f"up to {limit}", html)
+
+    def test_anything_the_script_hides_is_actually_hidden(self):
+        """``display: flex`` outranks the browser's own ``[hidden]`` rule.
+
+        The page already carried three ``[hidden]`` guards for exactly this reason,
+        and the fourth was missing: the receipt's footer is set ``hidden`` when
+        there is nothing to retry, and stayed on screen offering to "Retry the 0
+        failed channels". A rule is only needed for a class that declares its own
+        ``display``, which is what this checks — the whole family, not the one case.
+        """
+        html = self.render()
+        missing = []
+        for element in re.finditer(r"<[^>]*\shidden[^>]*>", html):
+            classes = re.search(r'class="([^"]*)"', element.group(0))
+            for name in (classes.group(1).split() if classes else []):
+                block = re.search(
+                    r"^\s*\.%s\s*\{(.*?)\}" % re.escape(name), html, re.S | re.M
+                )
+                if not block or "display:" not in block.group(1):
+                    continue
+                if not re.search(r"\.%s\[hidden\]" % re.escape(name), html):
+                    missing.append(f".{name}")
+        self.assertEqual(
+            missing, [], f"hidden elements whose own rule sets display, with no guard: {missing}"
+        )
 
     def test_the_page_calls_the_composer_endpoints(self):
         html = self.render()

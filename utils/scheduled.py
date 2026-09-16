@@ -1,4 +1,11 @@
-"""Scheduled dashboard messages — the durable queue behind "send this later".
+"""Messages the dashboard posts — the durable queue behind "send this later",
+and the record of what it sent straight away.
+
+"Send now" and "send later" end in the same place — the bot speaking as itself in
+one or more channels — so they are kept in the same table. A scheduled message is
+kept because the panel promise has to outlive the browser that made it; a sent one
+is kept because "what did the dashboard post yesterday, and did it land?" has no
+other answer: the receipt lives in a page that is closed by then.
 
 A scheduled message is a promise the panel makes *after* the browser is closed,
 so the record has to outlive the process and survive being interrupted. It lives
@@ -26,6 +33,10 @@ PAST_GRACE_SECONDS = 300
 #: Repeats are a closed set, not a free-form interval: the UI offers three
 #: choices, and an interval the UI cannot express is an interval nobody can fix.
 REPEAT_CHOICES = ((0, "Once"), (1440, "Daily"), (10080, "Weekly"))
+
+#: Where a row came from: the panel's Send button, or a queue that waited.
+SOURCE_NOW = "now"
+SOURCE_SCHEDULE = "schedule"
 
 #: More than this many pending messages in one server is not a schedule any more.
 MAX_PENDING_PER_GUILD = 25
@@ -90,6 +101,8 @@ def create(
     run_at: int,
     *,
     repeat_minutes: int = 0,
+    generator: str = "",
+    preview: str = "",
     created_by=None,
     now: int | None = None,
 ) -> int | None:
@@ -112,15 +125,18 @@ def create(
         cur.execute(
             """INSERT INTO scheduled_messages
                (guild_id, channel_ids, payload, preview, run_at, repeat_minutes,
-                status, created_by, created_at, fire_count, fail_streak)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, 0)""",
+                generator, status, created_by, created_at, fire_count, fail_streak)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, 0)""",
             (
                 guild_id,
                 json.dumps([int(cid) for cid in channel_ids]),
                 json.dumps(payload),
-                payload_summary(payload),
+                # A generated message has no text to summarise, so the caller that
+                # knows what it will say supplies the line instead.
+                (preview or payload_summary(payload))[:200],
                 int(run_at),
                 int(repeat_minutes or 0),
+                str(generator or ""),
                 int(created_by) if created_by is not None else None,
                 now,
             ),
@@ -134,6 +150,75 @@ def create(
         return db.run_atomic(work)
     except Exception as e:
         print(f"[SCHEDULE] Could not store a scheduled message: {e}", flush=True)
+        return None
+
+
+def record_sent(
+    guild_id: int,
+    channel_ids,
+    payload: dict,
+    results,
+    *,
+    created_by=None,
+    now: int | None = None,
+) -> int | None:
+    """Write down a message the dashboard has just posted.
+
+    An immediate send otherwise leaves no trace at all: the per-channel report is
+    handed to the page as JSON and dies with the tab, so "who announced what to
+    these five channels?" is unanswerable an hour later. Filing it in the same
+    table — as a finished row, never pending — puts it in the same list as a
+    message that waited, so the history is the whole picture instead of only the
+    scheduled half of it.
+
+    Returns the row id, or ``None`` if it could not be written. It never raises:
+    the message has already been posted by the time this is called, and losing a
+    line of history must not turn a delivered announcement into an error.
+    """
+    import time
+
+    now = int(now if now is not None else time.time())
+    results = [item for item in (results or []) if isinstance(item, dict)]
+    failures = [item for item in results if not item.get("ok")]
+    # The first refusal is recorded even when other channels took the message: it
+    # is what the history shows beside a "partial" row, and it is the sentence the
+    # receipt was already showing a second earlier.
+    error = str(failures[0].get("error") or "") if failures else ""
+    if not results:
+        error = "nothing was sent"
+    try:
+        conn = db.connect()
+        try:
+            cur = conn.execute(
+                """INSERT INTO scheduled_messages
+                   (guild_id, channel_ids, payload, preview, run_at, repeat_minutes,
+                    generator, source, status, created_by, created_at, fired_at,
+                    last_run_at, fire_count, fail_streak, last_error, last_results)
+                   VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)""",
+                (
+                    guild_id,
+                    json.dumps([int(cid) for cid in channel_ids]),
+                    json.dumps(payload),
+                    payload_summary(payload)[:200],
+                    now,
+                    SOURCE_NOW,
+                    # `sent` once any channel took it, `failed` when none did — the
+                    # two outcomes the panel already knows how to read.
+                    "sent" if any(item.get("ok") for item in results) else "failed",
+                    int(created_by) if created_by is not None else None,
+                    now,
+                    now,
+                    now,
+                    error or None,
+                    json.dumps(results),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[DASHBOARD] Could not record a sent message: {e}", flush=True)
         return None
 
 
@@ -151,8 +236,8 @@ def pending_count(guild_id: int) -> int:
 def _row_to_dict(row) -> dict:
     (
         msg_id, guild_id, channel_ids, payload, preview, run_at, repeat_minutes,
-        status, created_by, created_at, claimed_at, fired_at, last_run_at,
-        fire_count, fail_streak, last_error, last_results,
+        generator, source, status, created_by, created_at, claimed_at, fired_at,
+        last_run_at, fire_count, fail_streak, last_error, last_results,
     ) = row
     try:
         channels = json.loads(channel_ids)
@@ -185,6 +270,8 @@ def _row_to_dict(row) -> dict:
         "run_at": int(run_at or 0),
         "repeat_minutes": int(repeat_minutes or 0),
         "repeat": repeat_label(repeat_minutes),
+        "generator": generator or "",
+        "source": source or SOURCE_SCHEDULE,
         "status": status,
         "created_by": str(created_by) if created_by is not None else None,
         "created_at": int(created_at or 0),
@@ -199,8 +286,9 @@ def _row_to_dict(row) -> dict:
 
 
 _SELECT = """SELECT id, guild_id, channel_ids, payload, preview, run_at, repeat_minutes,
-                    status, created_by, created_at, claimed_at, fired_at, last_run_at,
-                    fire_count, fail_streak, last_error, last_results
+                    generator, source, status, created_by, created_at, claimed_at,
+                    fired_at, last_run_at, fire_count, fail_streak, last_error,
+                    last_results
              FROM scheduled_messages"""
 
 

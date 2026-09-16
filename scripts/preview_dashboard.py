@@ -187,6 +187,34 @@ def api_send_message():
                 "name": channel["name"],
                 "jump_url": f"https://discord.com/channels/777001/{cid}/1",
             })
+    # The real endpoint files every immediate send as a finished history row
+    # (``utils.scheduled.record_sent``); mirrored here so the page's "sent now"
+    # row can be seen and driven in a browser.
+    results = [
+        {"channel_id": item["channel_id"], "name": item["name"], "ok": True,
+         "error": "", "jump_url": item["jump_url"]}
+        for item in sent
+    ] + [
+        {"channel_id": item["channel_id"], "name": item["name"], "ok": False,
+         "error": item["error"], "jump_url": ""}
+        for item in failed
+    ]
+    now = int(time.time())
+    SCHEDULE.append({
+        "id": max([r["id"] for r in SCHEDULE] + [0]) + 1,
+        "channel_ids": [str(item["channel_id"]) for item in results],
+        "payload": {"content": LAST_SEND.get("content") or ""},
+        "preview": LAST_SEND.get("content") or "(an embed)",
+        "run_at": now,
+        "repeat_minutes": 0,
+        "source": "now",
+        "status": "sent" if sent else "failed",
+        "created_by_name": "RAJ",
+        "last_run_at": now,
+        "last_error": "" if not failed else failed[0]["error"],
+        "results": results,
+        "fire_count": 1,
+    })
     return jsonify({
         "success": bool(sent),
         "results": [],
@@ -213,6 +241,7 @@ def _seed_queue():
         "preview": "@everyone Weekly town hall starts in an hour",
         "run_at": now + 6 * 3600,
         "repeat_minutes": 10080,
+        "source": "schedule",
         "status": "pending",
         "created_by_name": "RAJ",
         "last_run_at": now - 86400,
@@ -232,6 +261,7 @@ def _seed_queue():
         "preview": "Movie night in the voice channel",
         "run_at": now + 400,
         "repeat_minutes": 0,
+        "source": "schedule",
         "status": "pending",
         "created_by_name": "Meow",
         "last_run_at": None,

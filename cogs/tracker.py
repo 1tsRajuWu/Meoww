@@ -19,6 +19,9 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from utils import db, style
+# The duration and count spellings live in one place so the digest the scheduler
+# posts and the numbers this cog prints cannot drift apart on the same data.
+from utils.digest import human_count as _fmt_count, human_voice as _fmt_voice
 
 DB_PATH = db.DB_PATH
 RETENTION_DAYS = 365
@@ -28,20 +31,6 @@ CLEANUP_INTERVAL = 6 * 3600
 
 def _today() -> str:
     return datetime.datetime.utcnow().strftime("%Y-%m-%d")
-
-
-def _fmt_count(n: int) -> str:
-    return f"{n:,}"
-
-
-def _fmt_voice(seconds: int) -> str:
-    if seconds < 60:
-        return f"{seconds}s"
-    hours = seconds / 3600
-    if hours >= 1:
-        return f"{hours:.2f} h".rstrip("0").rstrip(".")
-    m, s = divmod(seconds, 60)
-    return f"{m}m {s}s" if s else f"{m}m"
 
 
 def _period_label(p: str) -> str:
