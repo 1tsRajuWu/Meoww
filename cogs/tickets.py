@@ -1,8 +1,12 @@
+import asyncio
+import datetime
+import io
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-import datetime
-import io
+
+from utils import db
 from utils.style import Panel, send_panel, ACCENT, guild_icon, guild_banner, avatar_url, send_card
 
 TICKET_CATEGORIES = {
@@ -55,6 +59,337 @@ TICKET_CATEGORIES = {
         "desc": "Propose an idea or give suggestions to improve the community"
     }
 }
+
+
+# --------------------------------------------------------------------------- #
+# Post-close feedback
+# ---------------------------------------------------------------------------
+#: The ticket channel waits this long for a rating before deleting itself.
+FEEDBACK_GRACE_SECONDS = 60
+#: The DM copy of the prompt keeps working for a day, so an opener who was away
+#: when the ticket closed can still rate it.
+FEEDBACK_DM_TIMEOUT = 24 * 60 * 60
+#: A rating reads as a colour, so the log channel can be scanned at a glance.
+FEEDBACK_COLORS = {1: 0xED4245, 2: 0xE67E22, 3: 0xF1C40F, 4: 0x57F287, 5: 0x2ECC71}
+
+#: channel_id -> Event, set the moment the rating is in so the closer deletes now.
+_FEEDBACK_EVENTS: dict[int, asyncio.Event] = {}
+#: Strong references to the watcher tasks; a bare task can be garbage collected.
+_FEEDBACK_TASKS: set[asyncio.Task] = set()
+
+
+def _int_id(raw) -> int | None:
+    """A snowflake, or ``None`` — a topic is text, so nothing here is trusted."""
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def ticket_topic_info(channel) -> dict:
+    """Author, claimer and category as recorded in a ticket channel's topic.
+
+    The topic is the only ticket state that survives a restart, so the close
+    button reads it back instead of trusting anything held in memory.
+    """
+    info = {"author_id": None, "claimed_by": None, "category": "general"}
+    for part in str(getattr(channel, "topic", "") or "").split("|"):
+        key, _, value = part.strip().partition(":")
+        key = key.strip().lower()
+        if key == "author":
+            info["author_id"] = _int_id(value)
+        elif key == "claimed":
+            info["claimed_by"] = _int_id(value)
+        elif key == "category":
+            info["category"] = value.strip() or "general"
+    return info
+
+
+def clamp_score(score) -> int:
+    """A rating between 1 and 5; anything unreadable becomes 1."""
+    try:
+        value = int(score)
+    except (TypeError, ValueError):
+        value = 1
+    return max(1, min(5, value))
+
+
+def star_bar(score) -> str:
+    """``4`` -> ``★★★★☆``. Anything unreadable or out of range is clamped."""
+    value = clamp_score(score)
+    return "★" * value + "☆" * (5 - value)
+
+
+class TicketFeedbackModal(discord.ui.Modal):
+    """Optional comment that rides along with the star the opener picked."""
+
+    def __init__(self, *, channel_id: int, score: int):
+        super().__init__(title=f"Ticket Feedback — {score}/5")
+        self.channel_id = channel_id
+        self.score = score
+        self.comment = discord.ui.TextInput(
+            label="Anything else? (optional)",
+            placeholder="What went well, or what could have gone better...",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+            required=False,
+        )
+        self.add_item(self.comment)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await submit_ticket_feedback(
+            interaction,
+            channel_id=self.channel_id,
+            score=self.score,
+            comment=(self.comment.value or "").strip(),
+        )
+
+
+def feedback_prompt(channel_id: int, *, timeout: float | None) -> Panel:
+    """The star-rating card, posted in the ticket and DMed to the opener.
+
+    The ticket's id travels in every button's ``custom_id``, so a rating tapped
+    in a DM resolves the same record the in-channel copy does — no per-ticket
+    view has to be re-registered after a restart.
+    """
+    panel = Panel(
+        title="⭐ How did we do?",
+        body=(
+            "Thanks for reaching out! Pick a star to rate the support you got, then "
+            "add a comment if you want to say more.\n"
+            "-# The ticket channel closes as soon as the rating is in."
+        ),
+        accent=ACCENT,
+        footer=f"Ticket {channel_id}",
+        timeout=timeout,
+    )
+    buttons = []
+    for score in range(1, 6):
+        button = discord.ui.Button(
+            label=f"{score} ⭐",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"ticket_fb:{channel_id}:{score}",
+        )
+        button.callback = _rating_callback(channel_id, score)
+        buttons.append(button)
+    panel.add_row(*buttons)
+    return panel
+
+
+def _rating_callback(channel_id: int, score: int):
+    async def rate(interaction: discord.Interaction):
+        await interaction.response.send_modal(
+            TicketFeedbackModal(channel_id=channel_id, score=score)
+        )
+
+    return rate
+
+
+async def _feedback_reply(interaction: discord.Interaction, text: str):
+    """Reply to the rating. Ephemeral only where Discord allows it."""
+    kwargs = {"content": text}
+    if interaction.guild is not None:
+        kwargs["ephemeral"] = True
+    if interaction.response.is_done():
+        return await interaction.followup.send(**kwargs)
+    return await interaction.response.send_message(**kwargs)
+
+
+async def submit_ticket_feedback(
+    interaction: discord.Interaction, *, channel_id: int, score: int, comment: str
+):
+    """Record a rating, log it with the people involved, then close the ticket."""
+    row = await db.get_ticket_feedback(channel_id)
+    if row is None:
+        return await _feedback_reply(
+            interaction, "❌ I lost track of that ticket, so the rating was not saved."
+        )
+    rating = clamp_score(score)
+    if not await db.record_ticket_feedback(channel_id, rating, comment):
+        return await _feedback_reply(interaction, "✅ You already rated this ticket — thank you!")
+
+    # Answer first: the log post and thread creation can outlast the 3-second
+    # window an interaction token is valid for.
+    await _feedback_reply(
+        interaction,
+        f"💖 Thanks for the **{rating}/5** rating — it has been shared with the team.",
+    )
+
+    guild = interaction.client.get_guild(_int_id(row.get("guild_id")) or 0)
+    if guild is None:
+        print(
+            f"[TICKETS] Rating for ticket {channel_id} was saved but guild "
+            f"{row.get('guild_id')} is gone; it was not logged.",
+            flush=True,
+        )
+        return
+
+    await _log_ticket_feedback(guild, row=row, score=rating, comment=comment)
+
+    event = _FEEDBACK_EVENTS.get(channel_id)
+    if event is not None:
+        event.set()
+    else:
+        # Rated from the DM once the gate had already closed. If the channel
+        # outlived its watcher (a restart, say) it still gets cleaned up.
+        channel = guild.get_channel(channel_id)
+        if channel is not None:
+            await _close_ticket_channel(channel)
+
+
+async def _log_ticket_feedback(guild: discord.Guild, *, row: dict, score: int, comment: str):
+    """Post the rating to the guild's log channel and open a follow-up thread."""
+    channel_id = _int_id(await db.get_setting(guild.id, "log_channel_id"))
+    channel = guild.get_channel(channel_id) if channel_id else None
+    if channel is None:
+        print(
+            f"[TICKETS] Guild {guild.id} has no usable log channel (log_channel_id="
+            f"{channel_id}); feedback for ticket {row.get('ticket_channel_id')} was not posted.",
+            flush=True,
+        )
+        return
+
+    opener_id = _int_id(row.get("author_id"))
+    handler_id = _int_id(row.get("claimed_by"))
+    people = [uid for uid in (opener_id, handler_id) if uid]
+    rating = clamp_score(score)
+    embed = discord.Embed(
+        title=f"{star_bar(rating)}  Ticket Feedback — {rating}/5",
+        description=comment or "*No comment left.*",
+        color=FEEDBACK_COLORS.get(rating, ACCENT),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="🎫 Ticket", value=f"`{row.get('ticket_channel_id')}`", inline=True)
+    embed.add_field(name="📂 Category", value=f"`{row.get('category') or 'general'}`", inline=True)
+    embed.add_field(
+        name="👤 Opened By",
+        value=f"<@{opener_id}>" if opener_id else "`unknown`",
+        inline=True,
+    )
+    embed.add_field(
+        name="🛠️ Handled By",
+        value=f"<@{handler_id}>" if handler_id else "*Nobody claimed this ticket*",
+        inline=True,
+    )
+    embed.set_footer(text="Ticket feedback")
+
+    try:
+        message = await send_card(
+            channel,
+            content=("📣 New ticket feedback — " + " ".join(f"<@{uid}>" for uid in people))
+            if people
+            else "📣 New ticket feedback",
+            embed=embed,
+            # The two people involved are the only ones this card may ping.
+            allowed_mentions=discord.AllowedMentions(
+                users=[discord.Object(id=uid) for uid in people], roles=False, everyone=False
+            ),
+            timeout=None,
+        )
+    except Exception as e:
+        print(
+            f"[TICKETS] Could not post feedback for ticket {row.get('ticket_channel_id')} "
+            f"in #{getattr(channel, 'name', channel_id)}: {e}",
+            flush=True,
+        )
+        return
+
+    try:
+        await message.create_thread(
+            name=f"Feedback {star_bar(rating)}"[:100], auto_archive_duration=1440
+        )
+    except Exception as e:
+        # The feedback is already in the channel; a missing Create Threads
+        # permission must not look like the whole feature failed.
+        print(f"[TICKETS] Feedback posted but its thread could not be created: {e}", flush=True)
+
+
+async def _close_ticket_channel(channel) -> None:
+    """Delete a closed ticket, saying so when Discord refuses."""
+    try:
+        await channel.delete(reason="Ticket closed")
+    except discord.NotFound:
+        pass
+    except Exception as e:
+        # The closing panel promised this channel would disappear. If the delete
+        # fails (usually a missing Manage Channels permission) the ticket stays
+        # open, so say so rather than leaving it a mystery.
+        print(f"[TICKETS] Could not delete ticket channel {channel.id}: {e}", flush=True)
+        try:
+            await channel.send(
+                "⚠️ I could not delete this channel (missing **Manage Channels**?). "
+                "A staff member can remove it manually."
+            )
+        except Exception:
+            pass
+
+
+async def _close_when_rated(bot, channel_id: int, event: asyncio.Event) -> None:
+    """Delete the ticket channel once the rating is in, or after the grace period."""
+    try:
+        await asyncio.wait_for(event.wait(), timeout=FEEDBACK_GRACE_SECONDS)
+    except asyncio.TimeoutError:
+        pass
+    _FEEDBACK_EVENTS.pop(channel_id, None)
+    channel = bot.get_channel(channel_id)
+    if channel is not None:
+        await _close_ticket_channel(channel)
+
+
+def _watch_feedback(bot, channel_id: int, event: asyncio.Event) -> None:
+    """Start the closer without holding the close button's interaction open."""
+    task = asyncio.create_task(_close_when_rated(bot, channel_id, event))
+    _FEEDBACK_TASKS.add(task)
+    task.add_done_callback(_FEEDBACK_TASKS.discard)
+
+
+async def _ask_for_feedback(interaction: discord.Interaction, info: dict) -> bool:
+    """Post the rating prompt in the ticket, and DM the opener a copy.
+
+    Returns ``False`` when there is nobody to ask, so the caller can fall back to
+    closing the channel the way it used to.
+    """
+    author_id = info.get("author_id")
+    if not author_id:
+        return False
+
+    channel = interaction.channel
+    await db.open_ticket_feedback(
+        guild_id=interaction.guild.id,
+        channel_id=channel.id,
+        author_id=author_id,
+        claimed_by=info.get("claimed_by"),
+        category=info.get("category") or "general",
+    )
+
+    try:
+        await send_panel(channel, feedback_prompt(channel.id, timeout=None))
+    except Exception as e:
+        print(f"[TICKETS] Could not post the feedback prompt in #{channel.name}: {e}", flush=True)
+        return False
+
+    # Whoever closed the ticket is looking straight at the prompt; only someone
+    # else's close needs the DM, which is what keeps the opener reachable when
+    # the channel goes away a minute later.
+    if author_id != interaction.user.id:
+        opener = interaction.guild.get_member(author_id) or interaction.client.get_user(author_id)
+        if opener is None:
+            try:
+                opener = await interaction.client.fetch_user(author_id)
+            except Exception:
+                opener = None
+        if opener is not None:
+            try:
+                await opener.send(view=feedback_prompt(channel.id, timeout=FEEDBACK_DM_TIMEOUT))
+            except discord.Forbidden:
+                print(
+                    f"[TICKETS] DMs are closed for {author_id}; their feedback prompt "
+                    "stays in the ticket channel.",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"[TICKETS] Could not DM the feedback prompt: {e}", flush=True)
+    return True
 
 
 class TicketQuestionModal(discord.ui.Modal):
@@ -313,30 +648,32 @@ class TicketControlsView(discord.ui.View):
         if not (is_staff or is_creator):
             return await interaction.response.send_message("❌ Only staff or the ticket creator can close this ticket.", ephemeral=True)
 
+        info = ticket_topic_info(interaction.channel)
+
         view = Panel(
             title="Closing ticket",
-            body=f"Marked resolved by {interaction.user.mention}. This channel deletes in **5 seconds**.",
+            body=(
+                f"Marked resolved by {interaction.user.mention}.\n"
+                "Feedback has been requested — this channel deletes as soon as the "
+                f"rating is in, or **{FEEDBACK_GRACE_SECONDS} seconds** from now."
+            ),
             accent=0xED4245,
             thumbnail=avatar_url(interaction.user),
             footer="Thanks for reaching out",
             timeout=None,
         )
         await send_panel(interaction, view)
-        await discord.utils.sleep_until(discord.utils.utcnow() + datetime.timedelta(seconds=5))
-        try:
-            await interaction.channel.delete()
-        except Exception as e:
-            # The panel just promised this channel would disappear. If the delete
-            # fails (usually a missing Manage Channels permission) the ticket stays
-            # open, so say so rather than leaving it a mystery.
-            print(f"[TICKETS] Could not delete ticket channel {interaction.channel.id}: {e}")
-            try:
-                await interaction.followup.send(
-                    "⚠️ I could not delete this channel (missing **Manage Channels**?). "
-                    "A staff member can remove it manually."
-                )
-            except Exception:
-                pass
+
+        if not await _ask_for_feedback(interaction, info):
+            # No opener recorded (a hand-made channel, or a staff test post), so
+            # there is nobody to ask — close it the way this button always has.
+            await discord.utils.sleep_until(discord.utils.utcnow() + datetime.timedelta(seconds=5))
+            await _close_ticket_channel(interaction.channel)
+            return
+
+        event = asyncio.Event()
+        _FEEDBACK_EVENTS[interaction.channel.id] = event
+        _watch_feedback(interaction.client, interaction.channel.id, event)
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.success, custom_id="ticket_claim_btn", emoji="✋")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -350,6 +687,18 @@ class TicketControlsView(discord.ui.View):
         button.label = f"Claimed by {interaction.user.display_name[:12]}"
         button.style = discord.ButtonStyle.secondary
         await interaction.response.edit_message(view=self)
+
+        # The topic is the only place the claim survives a restart, and the close
+        # button reads it back to credit the right person in the feedback log.
+        topic = interaction.channel.topic or ""
+        if f"Claimed: {interaction.user.id}" not in topic:
+            try:
+                await interaction.channel.edit(topic=f"{topic} | Claimed: {interaction.user.id}")
+            except Exception as e:
+                print(
+                    f"[TICKETS] Could not record the claimer of #{interaction.channel.name}: {e}",
+                    flush=True,
+                )
 
         view = Panel(
             title="Ticket claimed",

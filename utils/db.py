@@ -443,6 +443,25 @@ async def setup():
         await db.execute('CREATE INDEX IF NOT EXISTS idx_act_msg_user ON activity_messages(guild_id, user_id, date)')
         await db.execute('CREATE INDEX IF NOT EXISTS idx_act_vc_user ON activity_voice(guild_id, user_id, date)')
 
+        # ── Ticket feedback ──────────────────────────────────────────────────
+        # A row is written when a ticket closes (rating still NULL) and filled in
+        # by the rating itself, so a rating answered from a DM — long after the
+        # ticket channel is gone — still knows who opened and who handled it.
+        # ``rating IS NULL`` is also what makes a second rating a no-op instead
+        # of a duplicate log post.
+        await db.execute('''CREATE TABLE IF NOT EXISTS ticket_feedback (
+            ticket_channel_id INTEGER PRIMARY KEY,
+            guild_id INTEGER,
+            author_id INTEGER,
+            claimed_by INTEGER,
+            category TEXT,
+            rating INTEGER,
+            comment TEXT
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_ticket_feedback_guild ON ticket_feedback(guild_id)'
+        )
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):
@@ -462,6 +481,65 @@ async def set_setting(guild_id: int, key: str, value):
         val_str = json.dumps(value)
         await db.execute('INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)', (guild_id, key, val_str))
         await db.commit()
+
+async def open_ticket_feedback(
+    guild_id: int,
+    channel_id: int,
+    author_id: int | None,
+    claimed_by: int | None,
+    category: str,
+) -> None:
+    """Reserve the feedback slot for a closing ticket (safe to repeat).
+
+    The rating lands later, in :func:`record_ticket_feedback`. Writing the row
+    at close time is what lets a rating answered from a DM still find the people
+    to tag once the ticket channel has been deleted.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO ticket_feedback "
+            "(ticket_channel_id, guild_id, author_id, claimed_by, category) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (channel_id, guild_id, author_id, claimed_by, category),
+        )
+        # A ticket whose delete failed can be closed twice. Refresh the details
+        # so a staff member who claimed it in between is still credited — but
+        # never overwrite a rating that has already been given.
+        await conn.execute(
+            "UPDATE ticket_feedback SET claimed_by = ?, category = ? "
+            "WHERE ticket_channel_id = ? AND rating IS NULL",
+            (claimed_by, category, channel_id),
+        )
+        await conn.commit()
+
+
+async def record_ticket_feedback(channel_id: int, rating: int, comment: str) -> bool:
+    """Store a ticket rating. ``False`` when that ticket was already rated.
+
+    The conditional ``UPDATE`` is the whole duplicate guard: two prompts (the
+    ticket channel and the opener's DM) can be open at once, and only the first
+    one to arrive changes a row.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "UPDATE ticket_feedback SET rating = ?, comment = ? "
+            "WHERE ticket_channel_id = ? AND rating IS NULL",
+            (rating, comment, channel_id),
+        )
+        await conn.commit()
+        return cursor.rowcount > 0
+
+
+async def get_ticket_feedback(channel_id: int) -> dict | None:
+    """The close-time record for a ticket channel, or ``None`` if it never closed."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        async with conn.execute(
+            "SELECT * FROM ticket_feedback WHERE ticket_channel_id = ?", (channel_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    return dict(row) if row is not None else None
+
 
 async def add_mod_case(guild_id: int, case_type: str, user_id: int, moderator_id: int, reason: str):
     async with aiosqlite.connect(DB_PATH) as db:
