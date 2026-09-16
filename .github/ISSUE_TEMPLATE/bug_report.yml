@@ -1,0 +1,37 @@
+name: 🐛 Bug report
+description: Something in the bot isn't working
+labels: [bug]
+body:
+  - type: input
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you run, and what did you expect instead?
+      placeholder: "/daily said … but I expected …"
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where?
+      description: Server command, dashboard page, or local run?
+      placeholder: "/pay in #bot-cmds / dashboard toggles / python bot.py locally"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste the relevant log lines. ⚠️ Remove tokens/secrets first!
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Quick checks
+      options:
+        - label: I removed any tokens/secrets from the logs above
+          required: true
+        - label: I ran the test suite (`python -m unittest discover -s tests -t .`)
+          required: false

@@ -28,10 +28,15 @@ class ReactionRoles(commands.Cog):
         try:
             channel = interaction.channel
             message = await channel.fetch_message(int(message_id))
-        except (discord.NotFound, ValueError):
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
             return await interaction.response.send_message("Couldn't find that message in this channel.", ephemeral=True)
 
-        await message.add_reaction(emoji)
+        try:
+            await message.add_reaction(emoji)
+        except (discord.Forbidden, discord.HTTPException):
+            return await interaction.response.send_message(
+                "I found the message but can't react to it (missing permission).", ephemeral=True
+            )
         
         async with aiosqlite.connect(db.DB_PATH) as conn:
             await conn.execute("INSERT OR REPLACE INTO reaction_roles (message_id, emoji, role_id) VALUES (?, ?, ?)", 
@@ -46,6 +51,8 @@ class ReactionRoles(commands.Cog):
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         if payload.member and payload.member.bot:
             return
+        if payload.guild_id and hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(payload.guild_id, "moderation"):
+            return
             
         async with aiosqlite.connect(db.DB_PATH) as conn:
             async with conn.execute("SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ?", 
@@ -62,10 +69,16 @@ class ReactionRoles(commands.Cog):
         role = guild.get_role(role_id)
         member = guild.get_member(payload.user_id)
         if role and member:
-            await member.add_roles(role)
+            try:
+                await member.add_roles(role)
+            except (discord.Forbidden, discord.HTTPException):
+                return
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.guild_id and hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(payload.guild_id, "moderation"):
+            return
+
         async with aiosqlite.connect(db.DB_PATH) as conn:
             async with conn.execute("SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ?", 
                                   (payload.message_id, str(payload.emoji))) as cursor:
@@ -81,7 +94,10 @@ class ReactionRoles(commands.Cog):
         role = guild.get_role(role_id)
         member = guild.get_member(payload.user_id)
         if role and member:
-            await member.remove_roles(role)
+            try:
+                await member.remove_roles(role)
+            except (discord.Forbidden, discord.HTTPException):
+                return
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ReactionRoles(bot))

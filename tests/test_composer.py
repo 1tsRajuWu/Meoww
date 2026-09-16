@@ -191,11 +191,41 @@ class ComposerCase(unittest.TestCase):
         data = self._get(f"/api/channels?guild_id={GUILD_ID}").get_json()
         self.assertTrue(data["success"])
         by_id = {c["id"]: c for c in data["channels"]}
-        self.assertNotIn(self.hidden.id, by_id, "a channel the bot cannot see is not offered")
-        self.assertTrue(by_id[self.standard.id]["can_send"])
-        self.assertFalse(by_id[self.quiet.id]["can_send"], "no permission is shown, not hidden")
-        self.assertIn(self.news.id, by_id, "announcement channels take messages too")
-        self.assertEqual(by_id[self.standard.id]["category"], "News")
+        self.assertNotIn(str(self.hidden.id), by_id, "a channel the bot cannot see is not offered")
+        self.assertTrue(by_id[str(self.standard.id)]["can_send"])
+        self.assertFalse(by_id[str(self.quiet.id)]["can_send"], "no permission is shown, not hidden")
+        self.assertIn(str(self.news.id), by_id, "announcement channels take messages too")
+        self.assertEqual(by_id[str(self.standard.id)]["category"], "News")
+
+    def test_ids_cross_to_the_browser_as_strings_a_snowflake_cannot_be_rounded(self):
+        """A Discord id does not fit in a JavaScript number.
+
+        ``1548437081120833657`` comes back from ``JSON.parse`` as
+        ``1548437081120833536``. While these were sent as numbers, the picker
+        filled in and then every send answered "That channel no longer exists":
+        the id it posted back matched no channel at all.
+        """
+        live_sized = 1548437081120833657  # the real id of one of the server's channels
+        self.assertGreater(live_sized, 2 ** 53 - 1, "the premise: real ids overflow a double")
+        self.assertNotEqual(int(float(live_sized)), live_sized, "…and lose their last digits")
+
+        channels = self._get(f"/api/channels?guild_id={GUILD_ID}").get_json()["channels"]
+        self.assertTrue(channels)
+        for ch in channels:
+            self.assertIsInstance(ch["id"], str, ch)
+            self.assertTrue(ch["id"].isdigit(), ch)
+
+        mentions = self._get(f"/api/mentionables?guild_id={GUILD_ID}&q=mem").get_json()
+        for item in mentions["users"] + mentions["roles"]:
+            self.assertIsInstance(item["id"], str, item)
+            self.assertTrue(item["id"].isdigit(), item)
+
+    def test_a_channel_id_posted_back_as_a_string_still_sends(self):
+        """What the browser now posts is a string, and it has to resolve."""
+        response = self._send(channel_ids=[str(CHANNEL_ID)], content="string id")
+        data = response.get_json()
+        self.assertTrue(data["success"], data)
+        self.assertEqual(self.standard.sent[-1]["content"], "string id")
 
     def test_the_stand_ins_only_expose_attributes_the_real_library_has(self):
         """A stand-in that invents an attribute hides the bug it exists to find.
@@ -234,16 +264,16 @@ class ComposerCase(unittest.TestCase):
     def test_mentionables_finds_roles_and_members(self):
         data = self._get(f"/api/mentionables?guild_id={GUILD_ID}&q=raj").get_json()
         self.assertTrue(data["success"])
-        self.assertEqual([u["id"] for u in data["users"]], [MEMBER_ID])
+        self.assertEqual([u["id"] for u in data["users"]], [str(MEMBER_ID)])
         self.assertEqual([u["id"] for u in data["roles"]], [], "roles do not match 'raj'")
 
         roles = self._get(f"/api/mentionables?guild_id={GUILD_ID}&q=mem").get_json()["roles"]
-        self.assertEqual([r["id"] for r in roles], [ROLE_ID])
+        self.assertEqual([r["id"] for r in roles], [str(ROLE_ID)])
 
     def test_mentionables_offers_everyone_and_here_but_never_lists_everyone_as_a_role(self):
         data = self._get(f"/api/mentionables?guild_id={GUILD_ID}").get_json()
         self.assertEqual(sorted(s["id"] for s in data["special"]), ["@everyone", "@here"])
-        self.assertNotIn(GUILD_ID, [r["id"] for r in data["roles"]], "@everyone is not a role")
+        self.assertNotIn(str(GUILD_ID), [r["id"] for r in data["roles"]], "@everyone is not a role")
 
     def test_mentionables_ships_no_member_list_without_a_query(self):
         data = self._get(f"/api/mentionables?guild_id={GUILD_ID}").get_json()
@@ -418,6 +448,12 @@ class DashboardTemplateCase(unittest.TestCase):
             guilds=[],
             can_switch_guild=False,
         )
+
+    def test_the_page_hands_the_guild_id_over_as_a_string(self):
+        """Same overflow, same fix: this id is posted back with every request."""
+        html = self.render()
+        self.assertIn(f'const GUILD_ID = "{GUILD_ID}"', html)
+        self.assertNotIn(f"const GUILD_ID = {GUILD_ID};", html)
 
     def test_the_composer_controls_are_on_the_page(self):
         html = self.render()

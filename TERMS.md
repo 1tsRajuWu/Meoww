@@ -1,17 +1,20 @@
 # Terms of Service
 
-**Effective Date:** September 14, 2026
+**Effective Date:** September 16, 2026
 
 By inviting, configuring or using this Discord bot ("the Bot") you agree to these
 Terms. If you do not agree, remove the Bot from your server.
 
 ## 1. What the Bot is
 
-The Bot is a self-hosted community bot: moderation and logging, tickets, a
-leveling system with XP and automatic role rewards, a coin economy with a shop,
-loans and casino games, a live market, a starboard, custom quotes, and a web
-dashboard for server staff. It is provided **"as is" and "as available"**, with no
-warranty of any kind, and it may change, break or be discontinued at any time.
+The Bot is a self-hosted community bot: moderation and logging, automod filters,
+tickets with close-time ratings, a leveling system with XP and automatic role
+rewards, a coin economy with a shop, loans and casino games, a live market,
+a starboard, social roleplay, fun commands, mini-games, a per-channel activity
+tracker, and a web dashboard for server staff (module toggles, announcement
+composer, live market charts). It is provided **"as is" and "as available"**,
+with no warranty of any kind, and it may change, break or be discontinued at
+any time.
 
 ## 2. Your responsibilities as staff
 
@@ -19,9 +22,10 @@ warranty of any kind, and it may change, break or be discontinued at any time.
   and what the operator configured; it cannot tell whether *your* staff should
   have those powers. Configure roles deliberately.
 * Commands that change data — moderation, role assignment, economy admin, level
-  roles, module toggles, the market's role — act on your instruction. The
-  operator is not responsible for actions your staff or members take with them.
-* Keep the dashboard passkey and any backup token private. Anyone holding them
+  roles, module toggles, announcements, the market's role — act on your
+  instruction. The operator is not responsible for actions your staff or members
+  take with them.
+* Keep the dashboard passkey and any sign-in link private. Anyone holding them
   can change this server's settings and read its data.
 * The Bot is not a substitute for human moderation, and automated filters can be
   wrong in both directions. Review what it does.
@@ -63,9 +67,11 @@ fact may invalidate gains made through them.
 ## 5. Availability, backups and data loss
 
 The Bot runs on a hosting service and may be offline for deploys, restarts or
-host limits. Progress is stored in a database with periodic encrypted off-site
-snapshots, but **no backup is guaranteed**, and a free host can lose data.
-Refer to the Privacy Policy for what is stored and how to have it deleted.
+host limits. Progress is stored in an SQLite database that restores from a
+private Supabase backup on boot and re-saves roughly every 25 seconds, with a
+few hourly snapshots kept for recovery — but **no backup is guaranteed**, and
+activity data older than 365 days is pruned by design. Refer to the Privacy
+Policy for what is stored and how to have it deleted.
 
 ## 6. Limitation of liability
 

@@ -142,6 +142,15 @@ class Giveaway(commands.Cog):
         entries = [r[0] for r in rows]
         guild = self.bot.get_guild(guild_id)
         channel = guild.get_channel(channel_id) if guild else None
+        if channel is None:
+            # Guild not cached (e.g. right after a restart): fall back to a
+            # global lookup instead of silently dropping the giveaway.
+            try:
+                channel = self.bot.get_channel(channel_id)
+            except Exception:
+                channel = None
+            if channel is not None and getattr(channel, "guild", None) is not None and channel.guild.id != guild_id:
+                channel = None
 
         if not channel:
             return
@@ -201,9 +210,10 @@ class Giveaway(commands.Cog):
             except Exception:
                 pass
 
+        winner_kwargs = {"reference": msg} if msg else {}
         await channel.send(
             f"🥳 **Congratulations {winner_text}!** You won the giveaway for **{prize}**! 🎁",
-            reference=msg
+            **winner_kwargs
         )
 
     @giveaway_group.command(name="start", description="Launch an interactive community giveaway.")

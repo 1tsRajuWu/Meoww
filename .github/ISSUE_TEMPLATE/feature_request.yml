@@ -1,0 +1,33 @@
+name: ✨ Feature request
+description: An idea for the bot
+labels: [enhancement]
+body:
+  - type: input
+    id: idea
+    attributes:
+      label: What should the bot do?
+      placeholder: "A /remind command that …"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would this help?
+      description: Who uses it and what problem does it solve?
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area?
+      options:
+        - Economy / casino
+        - Leveling / XP
+        - Moderation / automod
+        - Tickets / support
+        - Market
+        - Dashboard
+        - Fun / social / games
+        - Something else
+    validations:
+      required: false

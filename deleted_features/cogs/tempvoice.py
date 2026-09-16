@@ -84,8 +84,11 @@ class TempVoice(commands.Cog):
                     is_temp = await cur.fetchone()
 
             if is_temp:
-                # If channel is now empty, delete it
-                if len(left_ch.members) == 0:
+                # Re-resolve so a stale cached member list right after a move
+                # cannot delete a channel someone just joined.
+                fresh = guild.get_channel(left_ch.id)
+                members = fresh.members if fresh is not None else left_ch.members
+                if len(members) == 0:
                     try:
                         await left_ch.delete(reason="TempVoice channel empty")
                         async with aiosqlite.connect(DB_PATH) as conn:

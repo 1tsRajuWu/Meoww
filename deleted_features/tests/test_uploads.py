@@ -535,9 +535,16 @@ class TestTheStickyAndTheCommandAgree(unittest.TestCase):
     """
 
     def setUp(self):
-        self.src = (Path(__file__).resolve().parent.parent / "bot.py").read_text(
-            errors="replace"
-        )
+        here = Path(__file__).resolve()
+        # Works both restored (tests/test_uploads.py -> repo root is
+        # parent.parent) and archived
+        # (deleted_features/tests/test_uploads.py -> repo root is
+        # parent.parent.parent).
+        candidates = [here.parent.parent / "bot.py", here.parent.parent.parent / "bot.py"]
+        bot_py = next((p for p in candidates if p.exists()), candidates[0])
+        self.src = bot_py.read_text(errors="replace")
+        if "Auto-post sticky upload info message" not in self.src:
+            self.skipTest("bot.py has no upload sticky (feature archived)")
         start = self.src.index("Auto-post sticky upload info message")
         self.block = self.src[start:start + 2000]
 

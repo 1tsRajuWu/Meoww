@@ -920,7 +920,12 @@ def api_channels():
                 continue
             can_send = bool(perms.send_messages)
         channels.append({
-            "id": channel.id,
+            # A Discord snowflake is larger than a JavaScript number can hold:
+            # 1548437081120833657 is read back by JSON.parse as 1548437081120833536,
+            # and an id the picker sends back that way matches no channel, so every
+            # send answered "That channel no longer exists". Ids cross to the
+            # browser as strings and come home through ``_int_or_none``.
+            "id": str(channel.id),
             "name": channel.name,
             "category": channel.category.name if channel.category else "",
             "is_news": bool(getattr(channel, "is_news", lambda: False)()),
@@ -951,7 +956,9 @@ def api_mentionables():
     limit = 25
 
     roles = [
-        {"id": role.id, "label": role.name, "kind": "role"}
+        # Strung for the same reason the channel ids are: a tag sent back rounded
+        # would resolve to nobody and be dropped as "not in this server".
+        {"id": str(role.id), "label": role.name, "kind": "role"}
         for role in guild.roles
         # @everyone is not a role you tag like a role; it is offered on its own.
         if not role.is_default() and (not query or query in role.name.lower())
@@ -965,7 +972,7 @@ def api_mentionables():
             if query not in name.lower() and query not in member.name.lower():
                 continue
             users.append({
-                "id": member.id,
+                "id": str(member.id),
                 "label": name,
                 "sub": f"@{member.name}",
                 "kind": "user",

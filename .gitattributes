@@ -1,0 +1,6 @@
+# GitHub language stats: don't count the archive, assets, or templates as code.
+deleted_features/** linguist-vendored
+assets/** linguist-vendored
+*.ogg binary
+*.mp3 binary
+*.ttf binary

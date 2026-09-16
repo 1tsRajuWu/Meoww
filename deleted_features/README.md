@@ -29,16 +29,21 @@ rather than a bug to fix.
 
 Supporting files that only these features used were archived too:
 
-- `utils/spotify.py` — Spotify link resolver (music only).
-- `utils/card.py` — `generate_now_playing_card()` image renderer (music only).
-- `utils/catbox.py`, `utils/file_kiwi.py`, `utils/filehost.py`,
-  `utils/streamable.py` — the hosts `/upload` streamed to (uploads only).
+- `utils/catbox.py`, `utils/file_kiwi.py`, `utils/streamable.py` — the hosts
+  `/upload` streamed to (uploads only). `utils/filehost.py` is archived
+  alongside them but is only a size-formatting helper (`format_size`) these
+  days, not an upload host: the old file.io path is gone and the pinned
+  instructions explicitly do not advertise file.io.
 - `requirements-archived.txt` — the pip packages only music needed.
 - `tests/test_uploads.py` — the upload suite, kept here rather than deleted. It
   imports `cogs.uploads`, so it only runs again once the cog is restored.
 - `deleted_features/conftest.py` — tells pytest to collect nothing from this
   folder, so an archived test cannot turn a plain `pytest` into a collection
   error.
+
+> **Note:** `utils/spotify.py` and `utils/card.py` were *not* moved here.
+> `card.py` is still imported live by `utils/chart.py` (`font`), and both files
+> stay live so `cogs/music.py` remains restorable without hunting history.
 
 ## What was removed from the live bot
 
@@ -69,8 +74,9 @@ reads it now.
 3. Re-add its command names to `MODULE_COMMAND_MAP` in `bot.py`.
 4. Re-add the dashboard card to `AVAILABLE_MODULES` in `keep_alive.py`.
 5. Re-add its help category in `cogs/help.py` (and the home-body bullet).
-6. For **music** only: `pip install yt-dlp imageio-ffmpeg`, and move
-   `deleted_features/utils/spotify.py` + `card.py` back into `utils/`.
+6. For **music** only: `pip install yt-dlp imageio-ffmpeg` (+ a system
+   `ffmpeg` binary). `utils/spotify.py` + `utils/card.py` were left live on
+   purpose, so nothing needs moving for them.
 7. For **uploads** only: move `catbox.py`, `file_kiwi.py`, `filehost.py` and
    `streamable.py` back into `utils/`, move
    `deleted_features/tests/test_uploads.py` back into `tests/`, re-add the

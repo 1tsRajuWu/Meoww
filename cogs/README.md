@@ -1,0 +1,34 @@
+# Cogs 🧩
+
+One file = one feature = one Discord "cog" (a bundle of slash commands).
+Newbie rule: **if you want to change what a command does, the file below is
+where it lives.** Shared logic (money, XP, prices) lives in `../utils/` so
+cogs stay thin.
+
+| File | Feature | Commands you'll recognize |
+|---|---|---|
+| `automod.py` | Automod & Shield | `/automod invites`, `/automod antispam` |
+| `bot_config.py` | Bot/server configuration | `/updatedb`, `/dbstatus`, channel bindings |
+| `economy.py` | Economy & Casino | `/balance /daily /work /rob /pay /shop /buy /loan …` |
+| `fun.py` | Fun & Memes | `/meme /8ball /meow /quote /roast …` |
+| `games.py` | Mini-Games Hub | `/tictactoe /rps /trivia /mines /crash …` (plus casino games shared with economy) |
+| `help.py` | Help menu | `/help` (categories mirror `utils/features.py`) |
+| `legal.py` | Legal docs | `/privacy`, `/tos` (rendered from root `PRIVACY.md` / `TERMS.md`) |
+| `leveling.py` | Leveling & XP | `/rank /leaderboard /givexp /setlevel …` + message/voice listeners |
+| `market.py` | Market | `/market board quote chart buy sell portfolio history` |
+| `moderation.py` | Moderation & Logs | `/ban /kick /mute /warn /purge /modlog …` |
+| `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /slowmode /sync …` |
+| `social.py` | Social Roleplay | `/action /marry /ship /hunt /zoo /uwu …` |
+| `starboard.py` | Starboard | `/starboard set limit status` + reaction listener |
+| `tickets.py` | Support Tickets | `/ticket setup` + panel buttons + ratings |
+| `tracker.py` | Activity Tracker | `/activity /activity-top /activity-channel` |
+
+Every gated command starts with:
+
+```python
+if not self.bot.is_module_enabled(interaction.guild_id, "<feature-id>"):
+    return
+```
+
+…where `<feature-id>` is declared in `../utils/features.py`. The test suite
+fails if a command forgets this, so you'll know immediately.

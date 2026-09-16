@@ -6,7 +6,7 @@ documents in this repository are longer than that. These tests render the real
 files through the real renderer and assert that every section arrives, that the
 embed stays inside Discord's limits, and that the documents still cover the
 things a member would look for: the market, the virtual currency and the
-encrypted backup.
+Supabase backup.
 """
 import os
 import unittest
@@ -73,7 +73,7 @@ class TestLegalDocuments(unittest.TestCase):
     def test_the_policies_cover_what_the_bot_actually_does(self):
         for needle in ("market", "virtual", "backup", "role"):
             self.assertIn(needle, self.terms.lower(), f"TERMS.md never mentions {needle}")
-        for needle in ("market", "sqlite", "encrypted", "gist"):
+        for needle in ("market", "sqlite", "supabase", "backup"):
             self.assertIn(needle, self.privacy.lower(), f"PRIVACY.md never mentions {needle}")
 
     def test_the_third_parties_named_are_the_ones_the_code_uses(self):

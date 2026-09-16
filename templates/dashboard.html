@@ -939,7 +939,9 @@
     <div id="toast-container" aria-live="polite" aria-relevant="additions"></div>
 
     <script>
-        const GUILD_ID = {{ guild_id|tojson }};
+        // A string, not a number: a Discord snowflake does not survive being held
+        // in a JavaScript number, and this id is sent back with every request.
+        const GUILD_ID = {{ (guild_id|string)|tojson }};
         const CSRF_TOKEN = {{ csrf_token|tojson }};
         const BOT_READY = {{ "true" if bot_ready else "false" }};
         const MODULE_NAMES = {

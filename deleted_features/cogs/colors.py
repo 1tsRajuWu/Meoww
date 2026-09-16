@@ -90,10 +90,7 @@ async def apply_member_color(interaction: discord.Interaction, hex_code: str | N
     )
     embed.set_footer(text="🐾 Server Color Studio • Use /color remove to reset", icon_url=member.display_avatar.url)
 
-    if interaction.response.is_done():
-        await send_card(interaction, embed=embed, ephemeral=True)
-    else:
-        await send_card(interaction, embed=embed, ephemeral=True)
+    await send_card(interaction, embed=embed, ephemeral=True)
 
 
 class ColorSelectMenu(discord.ui.Select):

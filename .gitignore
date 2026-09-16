@@ -1,10 +1,26 @@
+# Secrets — never commit these.
 .env
+
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
-*.log
-.DS_Store
+.pytest_cache/
+
+# Local bot state (recreated from cloud backup on boot)
 bot.db
 bot.db.tmp
+bot.db-wal
+bot.db-shm
+*.db-journal
+
+# Logs & local noise
+*.log
+deploy_trigger.txt
 .freebuff/
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/

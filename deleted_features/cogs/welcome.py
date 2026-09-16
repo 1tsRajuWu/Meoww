@@ -71,11 +71,16 @@ class Welcome(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(member.guild.id, "welcome"):
+            return
         channel_id = await db.get_setting(member.guild.id, "goodbye_channel")
         if not channel_id:
             return
-        channel = member.guild.get_channel(channel_id)
-        if not channel:
+        try:
+            channel = member.guild.get_channel(int(channel_id))
+        except (TypeError, ValueError):
+            return
+        if not channel or not channel.permissions_for(member.guild.me).send_messages:
             return
         view = Panel(
             title="Someone just left",
