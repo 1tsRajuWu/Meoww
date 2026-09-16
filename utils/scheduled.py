@@ -482,31 +482,40 @@ def mark_missed(msg_id: int, now: int, reason: str):
     _settle(msg_id, now, ok=False, error=reason, missed=True)
 
 
-def sweep_stale(now: int | None = None) -> list[int]:
-    """Settle messages left mid-flight by a restart. Returns their ids."""
+def sweep_stale(now: int | None = None) -> list[dict]:
+    """Settle messages left mid-flight by a restart. Returns the settled rows.
+
+    Rows rather than ids because the caller has to be able to say *which* message
+    was interrupted and who queued it: an announcement that may be half-posted is
+    exactly the kind of thing somebody should be told about, and an id on its own
+    belongs to no server.
+    """
     import time
 
     now = int(now if now is not None else time.time())
     conn = db.connect()
     try:
         rows = conn.execute(
-            "SELECT id FROM scheduled_messages WHERE status = 'sending' "
+            f"{_SELECT} WHERE status = 'sending' "
             "AND claimed_at IS NOT NULL AND claimed_at <= ?",
             (now - STALE_CLAIM_SECONDS,),
         ).fetchall()
     finally:
         conn.close()
-    ids = [r[0] for r in rows]
-    for msg_id in ids:
-        mark_failed(
-            msg_id,
-            now,
-            "the bot restarted while this was being sent — check the channel "
-            "before scheduling it again",
-        )
-    if ids:
-        print(f"[SCHEDULE] Settled {len(ids)} interrupted message(s) as failed.", flush=True)
-    return ids
+    stale = [_row_to_dict(r) for r in rows]
+    reason = (
+        "the bot restarted while this was being sent — check the channel "
+        "before scheduling it again"
+    )
+    for row in stale:
+        mark_failed(row["id"], now, reason)
+        # The row is handed back as it now stands, so the caller reports what was
+        # recorded rather than re-deriving it.
+        row["status"] = "failed"
+        row["last_error"] = reason
+    if stale:
+        print(f"[SCHEDULE] Settled {len(stale)} interrupted message(s) as failed.", flush=True)
+    return stale
 
 
 def prune(now: int | None = None, days: int = HISTORY_DAYS) -> int:

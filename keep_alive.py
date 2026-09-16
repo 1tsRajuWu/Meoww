@@ -13,7 +13,7 @@ import socket
 import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
-from utils import digest, features, modules, scheduled
+from utils import db, digest, features, modules, scheduled
 
 LOG_RING = deque(maxlen=600)
 
@@ -1830,6 +1830,181 @@ async def _deliver_scheduled(msg: dict, now: int) -> dict:
     return {"sent": sent, "failed": failed, "results": results, "error": error, "skipped": False}
 
 
+# ---------------------------------------------------------------------------
+# An outcome nobody is watching has to reach somebody
+#
+# Everything else about a scheduled message is built to be trusted: what gets
+# posted is what was stored, the claim is exactly-once, a repeat keeps its own
+# slot. What was missing was the audience for a failure. The panel shows it to
+# whoever opens the panel — and a daily announcement that quietly stopped is
+# invisible until somebody notices the silence, which may be never. So the
+# outcomes where nothing arrived, or only part of it did, are posted where the
+# server already looks: the guild's log channel, tagging the person who queued
+# it. With no usable log channel that person is told directly instead, and only
+# when neither is possible does this become a line in the bot's own log.
+# ---------------------------------------------------------------------------
+
+#: What happened, and therefore what the card looks like.
+_ALERT_TONES = {
+    "failed": ("⚠️", "A scheduled message did not go out", 0xE74C3C),
+    "stopped": ("⛔", "A repeating message has been stopped", 0xE74C3C),
+    "interrupted": ("⚠️", "A scheduled message was interrupted by a restart", 0xE74C3C),
+    "partial": ("⚠️", "Part of a scheduled message was refused", 0xE67E22),
+    "missed": ("⏭️", "A scheduled message was skipped", 0xE67E22),
+}
+
+
+def _clamp(text, limit: int = 1000) -> str:
+    """One embed field's worth of text. A long reason must not reject the card."""
+    body = " ".join(str(text or "").split())
+    return body if len(body) <= limit else body[: limit - 1] + "…"
+
+
+def _alert_tone(msg: dict, fresh: dict) -> str:
+    """The failure of a one-shot is a failure; of a repeat that gave up, a stop."""
+    if msg.get("repeat_minutes") and str(fresh.get("status")) != "pending":
+        return "stopped"
+    return "failed"
+
+
+def _alert_next_step(msg: dict) -> str:
+    """What happens to this message now — the question the card exists to answer."""
+    if str(msg.get("status")) == "pending":
+        when = _utc_text(msg.get("run_at"))
+        streak = int(msg.get("fail_streak") or 0)
+        if not streak:
+            # A *partial* delivery counts as a success for a repeat, so it keeps its
+            # slot: "failure 0 of 3" would be counting a failure that did not happen.
+            return f"It stays queued and posts again {when}."
+        return (
+            f"It tries again {when} — failure {streak} of {scheduled.FAIL_LIMIT}, "
+            "then it stops."
+        )
+    if msg.get("repeat_minutes"):
+        return "Stopped — it will not try again. Fix the reason above, then queue it again."
+    return "Nothing else will be sent for it. Queue it again when the reason above is fixed."
+
+
+def _schedule_alert_embed(tone: str, msg: dict, view: dict, reason: str):
+    """The card itself, as a real ``discord.Embed``.
+
+    Separate from the posting so it can be checked against Discord's own limits
+    without a gateway in the way: every value here is text a failure produced, and
+    a reason long enough to be refused would turn "your message did not go out"
+    into "nothing happened at all".
+    """
+    import discord
+
+    icon, headline, color = _ALERT_TONES.get(tone, _ALERT_TONES["failed"])
+    generator = str(msg.get("generator") or "")
+    body = (
+        f"{view.get('generator_label')} — built when it posts"
+        if generator
+        else (msg.get("preview") or "(an embed on its own)")
+    )
+    channels = ", ".join(
+        f"#{item['name']}" if item.get("exists") else f"#{item['id']} (gone)"
+        for item in view.get("channels", [])
+    ) or "no channel"
+
+    embed = discord.Embed(
+        title=f"{icon} {headline}", color=color, timestamp=discord.utils.utcnow()
+    )
+    embed.add_field(name="📝 Message", value=_clamp(body), inline=False)
+    embed.add_field(name="📢 Channels", value=_clamp(channels), inline=False)
+    embed.add_field(name="❌ Why", value=_clamp(reason) or "no reason recorded", inline=False)
+    embed.add_field(name="🔁 What happens next", value=_clamp(_alert_next_step(msg)), inline=False)
+    embed.add_field(
+        name="👤 Queued by",
+        value=(
+            f"<@{msg['created_by']}> ({view.get('created_by_name')})"
+            if msg.get("created_by")
+            else "nobody on record"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text=f"Scheduled message #{msg.get('id')} • the dashboard has the full history")
+    return embed
+
+
+async def _alert_schedule_outcome(
+    guild_id: int, msg_id: int, tone: str, reason: str, results=None
+) -> str:
+    """Tell the server that one of its scheduled messages did not arrive.
+
+    Returns how it was delivered (``log``, ``dm`` or ``""``), for the log and the
+    tests. Never raises: a notification is worth less than the delivery loop, and
+    one unreadable card must not become one unprocessed message.
+    """
+    try:
+        import discord
+
+        from utils.style import send_card
+
+        msg = scheduled.get(guild_id, msg_id)
+        if msg is None:
+            return ""
+        guild = BOT_INSTANCE.get_guild(guild_id) if BOT_INSTANCE else None
+        if guild is None:
+            print(
+                f"[SCHEDULE] No card for #{msg_id}: the bot is not in server {guild_id}.",
+                flush=True,
+            )
+            return ""
+
+        icon, headline, _ = _ALERT_TONES.get(tone, _ALERT_TONES["failed"])
+        embed = _schedule_alert_embed(tone, msg, _schedule_view(guild, msg), reason)
+
+        creator = _int_or_none(msg.get("created_by"))
+        content = f"{icon} {headline}"
+        if creator is not None:
+            content += f" — <@{creator}>"
+        # The only person this card may ping is the one who queued the message.
+        allowed = discord.AllowedMentions(
+            users=[discord.Object(id=creator)] if creator is not None else [],
+            roles=False,
+            everyone=False,
+        )
+
+        log_id = _int_or_none(await db.get_setting(guild_id, "log_channel_id"))
+        log_channel = guild.get_channel(log_id) if log_id else None
+        if log_channel is not None:
+            try:
+                await send_card(
+                    log_channel, content=content, embed=embed, allowed_mentions=allowed, timeout=None
+                )
+                return "log"
+            except Exception as e:
+                print(
+                    f"[SCHEDULE] Could not post the card for #{msg_id} in the log channel: {e}",
+                    flush=True,
+                )
+
+        # No usable log channel, or it refused: tell the person who asked for the
+        # message. A DM carries no ping, and someone who has closed their DMs
+        # simply gets no DM rather than a second failure to explain.
+        member = guild.get_member(creator) if creator is not None else None
+        if member is not None:
+            try:
+                await send_card(member, embed=embed, timeout=None)
+                return "dm"
+            except Exception as e:
+                print(
+                    f"[SCHEDULE] Could not DM the card for #{msg_id} to {creator}: {e}",
+                    flush=True,
+                )
+
+        print(
+            f"[SCHEDULE] {scheduled.describe(msg)}: {headline.lower()} — {_clamp(reason, 200)} "
+            f"(no usable log channel, and nobody to tell directly).",
+            flush=True,
+        )
+        return ""
+    except Exception as e:
+        print(f"[SCHEDULE] Could not report message #{msg_id}: {e}", flush=True)
+        return ""
+
+
 _last_prune = 0.0
 
 
@@ -1843,7 +2018,15 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
         return []
 
     now = int(now if now is not None else time.time())
-    scheduled.sweep_stale(now)
+    # A restart that interrupted a send is the one outcome where the message may
+    # have landed anyway, so it is told as itself rather than as a plain failure.
+    for interrupted in scheduled.sweep_stale(now):
+        await _alert_schedule_outcome(
+            interrupted["guild_id"],
+            interrupted["id"],
+            "interrupted",
+            interrupted.get("last_error") or "",
+        )
     if now - _last_prune > 3600:
         _last_prune = now
         pruned = scheduled.prune(now)
@@ -1864,6 +2047,9 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
                 f"{scheduled.MISS_CATCHUP_SECONDS // 3600}h catch-up window"
             )
             scheduled.mark_missed(msg["id"], now, reason)
+            # Being too late to post is not a delivery failure, but it is still a
+            # message the server was promised and did not get.
+            await _alert_schedule_outcome(msg["guild_id"], msg["id"], "missed", reason)
             print(f"[SCHEDULE] {scheduled.describe(msg)}: {reason}", flush=True)
             done.append({"id": msg["id"], "status": "missed", "error": reason, "results": []})
             continue
@@ -1877,15 +2063,33 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
             # was already recorded (and had its repeat advanced) is not settled twice.
             if (scheduled.get(msg["guild_id"], msg["id"]) or {}).get("status") == "sending":
                 scheduled.mark_failed(msg["id"], now, f"Delivery failed: {e}")
+                await _alert_schedule_outcome(
+                    msg["guild_id"],
+                    msg["id"],
+                    _alert_tone(msg, scheduled.get(msg["guild_id"], msg["id"]) or {}),
+                    f"Delivery failed: {e}",
+                )
             print(f"[SCHEDULE] {scheduled.describe(msg)}: delivery raised: {e}", flush=True)
             done.append({"id": msg["id"], "status": "failed", "error": str(e), "results": []})
             continue
+        fresh = scheduled.get(msg["guild_id"], msg["id"]) or {}
         if outcome["sent"]:
             status = "sent"
+            if outcome["failed"]:
+                # Most of the announcement went out and one channel refused it:
+                # the outcome nobody notices on their own.
+                await _alert_schedule_outcome(
+                    msg["guild_id"], msg["id"], "partial", outcome["error"], outcome["results"]
+                )
         elif outcome.get("skipped"):
+            # Nothing to report is not news: a quiet week is the generator saying
+            # so, and a card of zeros is what it exists to avoid posting.
             status = "skipped"
         else:
             status = "failed"
+            await _alert_schedule_outcome(
+                msg["guild_id"], msg["id"], _alert_tone(msg, fresh), outcome["error"], outcome["results"]
+            )
         done.append({
             "id": msg["id"],
             "status": status,

@@ -71,7 +71,12 @@ can never disagree.
    (`utils.scheduled.record_sent`), which is the only record it leaves: the
    receipt lives in the page, and "which channels got that announcement?" has to
    outlive it. Only `pending` rows are ever delivered, so a record can never be
-   posted twice.
+   posted twice. A delivery that did **not** arrive — refused, partly refused,
+   skipped for being too late, or interrupted by a restart — is posted as a card
+   in the guild's `log_channel_id`, tagging whoever queued it
+   (`keep_alive._alert_schedule_outcome`); with no usable log channel that person
+   is DM'd instead. A message that went out is not news: it is visible in the
+   channel it landed in.
 4. **Live market pages** (`/market/<SYMBOL>`) — public JSON + canvas chart
    fed by the same price snapshot the commands trade on.
 

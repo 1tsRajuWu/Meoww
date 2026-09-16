@@ -24,6 +24,8 @@ import time
 import unittest
 from unittest import mock
 
+from types import SimpleNamespace
+
 from tests.support import TempDatabaseMixin
 from tests.test_composer import (
     CHANNEL_ID,
@@ -48,6 +50,52 @@ FIXED_NOW = 1_700_000_000
 VOICE_CHANNEL_ID = 555010
 GONE_CHANNEL_ID = 555011
 GONE_MEMBER_ID = MEMBER_ID + 90
+LOG_CHANNEL_ID = 555012
+
+
+def _layout_text(node) -> str:
+    """Every readable string inside a Components V2 layout, flattened.
+
+    A local copy rather than an import from another test module: importing a module
+    that defines ``TestCase`` classes makes pytest collect them here as well.
+    """
+    parts = []
+    content = getattr(node, "content", None)
+    if isinstance(content, str):
+        parts.append(content)
+    for child in getattr(node, "children", None) or []:
+        parts.append(_layout_text(child))
+    return "\n".join(parts)
+
+
+def _card_text(message: dict) -> str:
+    """What a card says, whether it went out as Components V2 or as an embed."""
+    if message.get("view") is not None:
+        return _layout_text(message["view"]) + "\n" + str(message.get("content") or "")
+    embed = message.get("embed")
+    if embed is not None:
+        parts = [message.get("content") or "", embed.title or "", embed.description or ""]
+        for field in embed.fields:
+            parts += [field.name, field.value]
+        if embed.footer:
+            parts.append(embed.footer.text)
+        return "\n".join(part for part in parts if part)
+    return str(message.get("content") or "")
+
+
+class _Tellable(_Member):
+    """A member who can be sent a direct message."""
+
+    def __init__(self, uid, name, display=None, error=None):
+        super().__init__(uid, name, display)
+        self.dms = []
+        self.dm_error = error
+
+    async def send(self, content=None, embed=None, **kwargs):
+        if self.dm_error is not None:
+            raise self.dm_error
+        self.dms.append({"content": content, "embed": embed, **kwargs})
+        return SimpleNamespace(id=len(self.dms), jump_url="")
 
 
 def payload(content="hello from the past", **overrides):
@@ -168,7 +216,12 @@ class QueueStoreCase(SchedulerCase):
         msg_id = scheduled.create(GUILD_ID, [CHANNEL_ID], payload(), now - 5)
         scheduled.claim(msg_id, now)
         self.assertEqual(scheduled.sweep_stale(now + 60), [], "not stale yet")
-        self.assertEqual(scheduled.sweep_stale(now + scheduled.STALE_CLAIM_SECONDS + 1), [msg_id])
+        # The settled row itself, not just its id: whoever is told about it needs
+        # the server it belongs to and the person who queued it.
+        settled = scheduled.sweep_stale(now + scheduled.STALE_CLAIM_SECONDS + 1)
+        self.assertEqual([row["id"] for row in settled], [msg_id])
+        self.assertEqual(settled[0]["guild_id"], GUILD_ID)
+        self.assertEqual(settled[0]["status"], "failed")
         row = scheduled.get(GUILD_ID, msg_id)
         self.assertEqual(row["status"], "failed")
         self.assertIn("restarted", row["last_error"])
@@ -672,6 +725,234 @@ class SendRecordCase(SchedulerCase):
         row = self.recent()[0]
         self.assertEqual(row["created_by"], str(MEMBER_ID))
         self.assertEqual(row["created_by_name"], "RAJ")
+
+
+class ScheduleAlertCase(SchedulerCase):
+    """A scheduled message that does not go out has to reach a person.
+
+    Every other part of delivery is engineered to be trustworthy, and the failure
+    of it was the one part with no audience: recorded on the row, and visible only in
+    a panel somebody has to open. A daily announcement that quietly stopped is
+    invisible that way — so these pin where the failure goes instead.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.logs = _Channel(LOG_CHANNEL_ID, "logs")
+        # ``text_channels`` for the picker's sake, ``_channels`` because that is
+        # what a lookup resolves through — a log channel the gateway can find.
+        self.guild.text_channels.append(self.logs)
+        self.guild._channels[LOG_CHANNEL_ID] = self.logs
+
+    def configure_log_channel(self):
+        asyncio.run(db.set_setting(GUILD_ID, "log_channel_id", LOG_CHANNEL_ID))
+
+    def cards(self):
+        return [_card_text(message) for message in self.logs.sent]
+
+    def fail_a_message(self, *, content="the weekly reminder", channels=None, **create):
+        """Queue something that cannot be delivered, with a known queuer."""
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID,
+            channels or [QUIET_CHANNEL_ID],
+            payload(content),
+            now - 1,
+            created_by=MEMBER_ID,
+            **create,
+        )
+        self.tick(now)
+        return msg_id
+
+    def test_a_message_that_reached_nobody_tells_the_server_why(self):
+        self.configure_log_channel()
+        self.fail_a_message()
+
+        cards = self.cards()
+        self.assertEqual(len(cards), 1, self.logs.sent)
+        text = cards[0]
+        self.assertIn("did not go out", text)
+        self.assertIn("the weekly reminder", text, "the message itself is named")
+        self.assertIn("staff-only", text, "and why it was refused")
+        self.assertIn("#staff-only", text, "and the channel it was meant for")
+        self.assertIn(f"<@{MEMBER_ID}>", text, "the person who queued it is tagged")
+        self.assertIn("Nothing else will be sent", text, "and what happens next")
+        # It may ping that one person, and nobody else.
+        allowed = self.logs.sent[0]["allowed_mentions"]
+        self.assertEqual([user.id for user in allowed.users], [MEMBER_ID])
+        self.assertFalse(allowed.roles)
+        self.assertFalse(allowed.everyone)
+
+    def test_a_message_that_arrived_is_not_news(self):
+        self.configure_log_channel()
+        now = int(time.time())
+        scheduled.create(GUILD_ID, [CHANNEL_ID], payload("it went out"), now - 1)
+        self.tick(now)
+        self.assertEqual(len(self.standard.sent), 1)
+        self.assertEqual(self.cards(), [], "a delivered message is visible where it landed")
+
+    def test_a_repeat_that_failed_once_says_when_it_tries_again(self):
+        self.configure_log_channel()
+        msg_id = self.fail_a_message(repeat_minutes=1440)
+
+        text = self.cards()[0]
+        self.assertIn("did not go out", text)
+        self.assertIn("tries again", text)
+        self.assertIn("failure 1 of 3", text)
+        self.assertEqual(scheduled.get(GUILD_ID, msg_id)["status"], "pending", "still queued")
+
+    def test_a_repeat_that_gives_up_is_reported_as_stopped(self):
+        self.configure_log_channel()
+        msg_id = self.fail_a_message(repeat_minutes=1440)
+        # Due again with one failure to spare, so this run is the one that ends it.
+        due = int(time.time()) - 1
+        conn = db.connect()
+        try:
+            conn.execute(
+                "UPDATE scheduled_messages SET fail_streak = ?, status = 'pending', "
+                "run_at = ?, claimed_at = NULL, last_run_at = NULL WHERE id = ?",
+                (scheduled.FAIL_LIMIT - 1, due, msg_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.logs.sent.clear()
+        self.tick(int(time.time()))
+
+        text = self.cards()[0]
+        self.assertIn("has been stopped", text)
+        self.assertIn("will not try again", text)
+        self.assertEqual(scheduled.get(GUILD_ID, msg_id)["status"], "failed")
+
+    def test_a_partial_send_names_the_channel_that_refused_it(self):
+        self.configure_log_channel()
+        self.fail_a_message(channels=[CHANNEL_ID, QUIET_CHANNEL_ID])
+
+        cards = self.cards()
+        self.assertEqual(len(cards), 1, "most of it arrived, which is exactly the case to report")
+        self.assertIn("Part of a scheduled message was refused", cards[0])
+        self.assertIn("staff-only", cards[0])
+        self.assertEqual(len(self.standard.sent), 1)
+
+    def test_a_partial_send_of_a_repeat_does_not_claim_a_failure(self):
+        self.configure_log_channel()
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID, QUIET_CHANNEL_ID], payload("both of them"), now - 1,
+            repeat_minutes=1440, created_by=MEMBER_ID,
+        )
+        self.tick(now)
+
+        text = self.cards()[0]
+        self.assertIn("stays queued and posts again", text)
+        self.assertNotIn("failure 0 of", text, "no failure happened to count")
+        row = scheduled.get(GUILD_ID, msg_id)
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["fail_streak"], 0)
+
+    def test_a_run_that_was_too_late_to_send_is_still_reported(self):
+        self.configure_log_channel()
+        now = int(time.time())
+        scheduled.create(
+            GUILD_ID, [CHANNEL_ID], payload("good morning"), now - 2 * 86400,
+            created_by=MEMBER_ID,
+        )
+        self.tick(now)
+
+        text = self.cards()[0]
+        self.assertIn("was skipped", text)
+        self.assertIn("catch-up window", text)
+
+    def test_a_generated_message_with_nothing_to_say_is_not_news(self):
+        self.configure_log_channel()
+        now = int(time.time())
+        scheduled.create(
+            GUILD_ID, [CHANNEL_ID], payload(None), now - 1,
+            generator="weekly_digest", preview="Weekly server digest",
+            created_by=MEMBER_ID,
+        )
+        self.tick(now)
+        self.assertEqual(self.cards(), [], "a quiet week is not a failure to report")
+
+    def test_a_send_interrupted_by_a_restart_is_reported_as_that(self):
+        self.configure_log_channel()
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], payload("half sent?"), now - 1, created_by=MEMBER_ID
+        )
+        scheduled.claim(msg_id, now)
+        self.tick(now + scheduled.STALE_CLAIM_SECONDS + 1)
+
+        text = self.cards()[0]
+        self.assertIn("interrupted by a restart", text)
+        self.assertIn("check the channel", text)
+
+    def test_with_no_log_channel_the_person_who_queued_it_is_told(self):
+        tellable = _Tellable(MEMBER_ID, "raj", "RAJ")
+        self.guild.members = [
+            tellable if member.id == MEMBER_ID else member for member in self.guild.members
+        ]
+        self.fail_a_message()
+
+        self.assertEqual(self.logs.sent, [])
+        self.assertEqual(len(tellable.dms), 1, "the one person who asked for it is told")
+        text = _card_text(tellable.dms[0])
+        self.assertIn("did not go out", text)
+        self.assertIn("staff-only", text)
+
+    def test_a_card_is_sent_once_and_not_on_every_tick(self):
+        self.configure_log_channel()
+        self.fail_a_message()
+        self.assertEqual(len(self.cards()), 1)
+        self.tick(int(time.time()) + 120)
+        self.tick(int(time.time()) + 240)
+        self.assertEqual(len(self.cards()), 1, "one failure, one card")
+
+    def test_a_failure_long_enough_to_be_refused_still_makes_a_sendable_card(self):
+        """Every value in the card is text an error produced.
+
+        Discord refuses an over-long field, an empty one, or a sixth of a kind — and
+        a card that is refused is a failure nobody is told about, which is the whole
+        thing this exists to prevent.
+        """
+        self.configure_log_channel()
+        msg_id = self.fail_a_message()
+        row = scheduled.get(GUILD_ID, msg_id)
+        embed = self.keep_alive._schedule_alert_embed(
+            "failed", row, self.keep_alive._schedule_view(self.guild, row), "discord said: " * 400
+        )
+        payload = embed.to_dict()
+
+        self.assertLessEqual(len(payload.get("title") or ""), 256)
+        self.assertLessEqual(len((payload.get("footer") or {}).get("text") or ""), 2048)
+        self.assertEqual(len(payload["fields"]), 5)
+        for field in payload["fields"]:
+            self.assertLessEqual(len(field["name"]), 256, field["name"])
+            self.assertTrue(field["value"], f"Discord refuses an empty '{field['name']}'")
+            self.assertLessEqual(len(field["value"]), 1024, field["name"])
+        # The message itself and the person who queued it are both still readable.
+        values = "\n".join(field["value"] for field in payload["fields"])
+        self.assertIn("the weekly reminder", values)
+        self.assertIn(f"<@{MEMBER_ID}>", values)
+
+    def test_a_card_that_cannot_be_delivered_does_not_break_the_tick(self):
+        self.configure_log_channel()
+        import discord
+
+        self.logs.send_error = discord.Forbidden(
+            SimpleNamespace(status=403, reason="Missing Permissions"), "nope"
+        )
+        now = int(time.time())
+        scheduled.create(
+            GUILD_ID, [QUIET_CHANNEL_ID], payload("quiet"), now - 2, created_by=GONE_MEMBER_ID
+        )
+        scheduled.create(GUILD_ID, [CHANNEL_ID], payload("still goes out"), now - 1)
+
+        done = self.tick(now)
+
+        self.assertEqual([item["status"] for item in done], ["failed", "sent"])
+        self.assertEqual(len(self.standard.sent), 1, "the next message still went out")
+        self.assertEqual(scheduled.get(GUILD_ID, 1)["status"], "failed")
 
 
 class ScheduleTemplateCase(unittest.TestCase):

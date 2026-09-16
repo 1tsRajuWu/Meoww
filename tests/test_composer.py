@@ -64,10 +64,18 @@ class _BaseChannel:
     def permissions_for(self, member):
         return SimpleNamespace(view_channel=self._viewable, send_messages=self._can_send)
 
-    async def send(self, content=None, embed=None, allowed_mentions=None, **kwargs):
+    async def send(self, content=None, embed=None, allowed_mentions=None, view=None, **kwargs):
         if self.send_error is not None:
             raise self.send_error
-        self.sent.append({"content": content, "embed": embed, "allowed_mentions": allowed_mentions})
+        # ``view`` is recorded because the shared card helper (``utils.style.send_card``)
+        # upgrades an embed to a Components V2 layout, and a stand-in that dropped it
+        # would show an empty message where production posts a card.
+        self.sent.append({
+            "content": content,
+            "embed": embed,
+            "allowed_mentions": allowed_mentions,
+            "view": view,
+        })
         return SimpleNamespace(
             id=len(self.sent), jump_url=f"https://discord.com/channels/{GUILD_ID}/{self.id}/{len(self.sent)}"
         )
