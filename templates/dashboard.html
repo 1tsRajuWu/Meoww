@@ -1218,7 +1218,11 @@
                     button.className = "mention-result";
                     button.setAttribute("role", "option");
                     const name = document.createElement("span");
-                    name.textContent = kind === "Members" ? item.label : `@${item.label}`;
+                    // A special carries its own "@" ("@everyone"); a member is a
+                    // plain name; a role gets the "@" added.
+                    name.textContent = kind === "Members" || item.label.startsWith("@")
+                        ? item.label
+                        : `@${item.label}`;
                     button.appendChild(name);
                     if (item.sub) {
                         const sub = document.createElement("span");

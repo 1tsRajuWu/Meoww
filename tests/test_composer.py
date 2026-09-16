@@ -275,6 +275,32 @@ class ComposerCase(unittest.TestCase):
         self.assertEqual(sorted(s["id"] for s in data["special"]), ["@everyone", "@here"])
         self.assertNotIn(str(GUILD_ID), [r["id"] for r in data["roles"]], "@everyone is not a role")
 
+    def test_everyone_stays_on_offer_while_it_is_being_typed(self):
+        """A search that hides the thing you are typing toward is not a search.
+
+        @everyone and @here were only offered once the query already contained
+        the whole keyword, so typing "ev" showed nothing and the option looked
+        missing.
+        """
+        # Each keyword is offered whenever what was typed is part of *it* — which
+        # is how roles and members are matched too.
+        expected = {
+            "": ["@everyone", "@here"],
+            "@": ["@everyone", "@here"],
+            "e": ["@everyone", "@here"],
+            "ev": ["@everyone"],
+            "every": ["@everyone"],
+            "everyone": ["@everyone"],
+            "@everyone": ["@everyone"],
+            "here": ["@here"],
+            "raj": [],
+        }
+        for query, wanted in expected.items():
+            data = self._get(f"/api/mentionables?guild_id={GUILD_ID}&q={query}").get_json()
+            self.assertEqual(
+                [s["id"] for s in data["special"]], wanted, f"typed {query!r}"
+            )
+
     def test_mentionables_ships_no_member_list_without_a_query(self):
         data = self._get(f"/api/mentionables?guild_id={GUILD_ID}").get_json()
         self.assertEqual(data["users"], [], "a whole member list is never sent to the browser")
@@ -479,6 +505,12 @@ class DashboardTemplateCase(unittest.TestCase):
         html = self.render()
         self.assertIn(f'const GUILD_ID = "{GUILD_ID}"', html)
         self.assertNotIn(f"const GUILD_ID = {GUILD_ID};", html)
+
+    def test_a_special_tag_is_not_labelled_with_two_at_signs(self):
+        """@everyone already carries its @; adding another renders @@everyone."""
+        html = self.render()
+        self.assertIn('item.label.startsWith("@")', html)
+        self.assertNotIn('kind === "Members" ? item.label :', html, "the doubled @ is back")
 
     def test_the_composer_controls_are_on_the_page(self):
         html = self.render()

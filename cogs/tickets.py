@@ -178,6 +178,22 @@ def feedback_prompt(channel_id: int, *, timeout: float | None) -> Panel:
 
 def _rating_callback(channel_id: int, score: int):
     async def rate(interaction: discord.Interaction):
+        # The rating is about the support somebody received, so it belongs to the
+        # member who opened the ticket — and only to them. The prompt is posted in
+        # the ticket channel, which is exactly where whoever *handled* the ticket
+        # is standing, so without this check the handler was being invited to mark
+        # their own work.
+        row = await db.get_ticket_feedback(channel_id)
+        author_id = _int_id((row or {}).get("author_id"))
+        if author_id is None:
+            return await _feedback_reply(
+                interaction, "❌ I lost track of that ticket, so the rating was not saved."
+            )
+        if interaction.user.id != author_id:
+            return await _feedback_reply(
+                interaction,
+                "🙏 This rating is for whoever **opened** the ticket, so it stays their call.",
+            )
         await interaction.response.send_modal(
             TicketFeedbackModal(channel_id=channel_id, score=score)
         )
@@ -203,6 +219,15 @@ async def submit_ticket_feedback(
     if row is None:
         return await _feedback_reply(
             interaction, "❌ I lost track of that ticket, so the rating was not saved."
+        )
+    # The same rule the star buttons apply, enforced again where the rating is
+    # actually written: a rating is the opener's, and nobody else's answer may be
+    # logged against their name.
+    author_id = _int_id(row.get("author_id"))
+    if author_id is not None and interaction.user.id != author_id:
+        return await _feedback_reply(
+            interaction,
+            "🙏 This rating is for whoever **opened** the ticket, so it stays their call.",
         )
     rating = clamp_score(score)
     if not await db.record_ticket_feedback(channel_id, rating, comment):

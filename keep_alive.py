@@ -987,10 +987,19 @@ def api_mentionables():
         "query": query,
         "users": users[:limit],
         "roles": roles[:limit],
+        # Matched the way a role or a member is — what was typed is looked for
+        # *in* the label — so @everyone and @here stay on offer while they are
+        # being typed. The old test asked whether the query already contained the
+        # whole keyword, so "ev" offered nothing and the option appeared to be
+        # missing until the word was finished.
         "special": [
-            {"id": "@everyone", "label": "@everyone", "sub": "everyone in the server", "kind": "special"},
-            {"id": "@here", "label": "@here", "sub": "everyone online right now", "kind": "special"},
-        ] if not query or "@" in query or "every" in query or "here" in query else [],
+            {"id": keyword, "label": keyword, "sub": subtitle, "kind": "special"}
+            for keyword, subtitle in (
+                ("@everyone", "everyone in the server"),
+                ("@here", "everyone online right now"),
+            )
+            if not query or query in keyword
+        ],
     })
 
 

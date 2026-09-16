@@ -223,7 +223,8 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         panel = tickets.feedback_prompt(TICKET_CHANNEL_ID, timeout=None)
         buttons = [b for row in panel.container.children for b in getattr(row, "children", [])]
         button = next(b for b in buttons if b.custom_id.endswith(":4"))
-        interaction = _Interaction(_Client())
+        await db.open_ticket_feedback(GUILD_ID, TICKET_CHANNEL_ID, AUTHOR_ID, STAFF_ID, "general")
+        interaction = _Interaction(_Client(), user=_User(AUTHOR_ID))
 
         await button.callback(interaction)
 
@@ -231,6 +232,41 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(modal.channel_id, TICKET_CHANNEL_ID)
         self.assertEqual(modal.score, 4, "each button remembers its own star")
         self.assertIn("4/5", modal.title)
+
+    async def test_only_the_person_who_opened_the_ticket_may_rate(self):
+        """The prompt sits where the handler is standing; it is not theirs to answer.
+
+        Whoever claimed a ticket is usually the one who closes it, so an
+        unguarded prompt invited staff to mark their own work — which is what the
+        handler was being shown, and did.
+        """
+        panel = tickets.feedback_prompt(TICKET_CHANNEL_ID, timeout=None)
+        buttons = [b for row in panel.container.children for b in getattr(row, "children", [])]
+        button = next(b for b in buttons if b.custom_id.endswith(":5"))
+        await db.open_ticket_feedback(GUILD_ID, TICKET_CHANNEL_ID, AUTHOR_ID, STAFF_ID, "general")
+
+        handler = _Interaction(_Client(), user=_User(STAFF_ID, manage_channels=True))
+        await button.callback(handler)
+        self.assertIsNone(handler.response.modal, "the handler is not asked to rate")
+        self.assertIn("opened", handler.response.messages[0]["content"])
+
+        opener = _Interaction(_Client(), user=_User(AUTHOR_ID))
+        await button.callback(opener)
+        self.assertIsNotNone(opener.response.modal, "the opener still is")
+
+    async def test_a_rating_submitted_by_someone_else_is_not_recorded(self):
+        """The same rule where the rating is written, not just where it is asked."""
+        _, log_channel, _, client = await self._close_ticket()
+        handler = _Interaction(client, guild=client.get_guild(GUILD_ID))
+
+        await tickets.submit_ticket_feedback(
+            handler, channel_id=TICKET_CHANNEL_ID, score=5, comment="marking my own work"
+        )
+
+        row = await db.get_ticket_feedback(TICKET_CHANNEL_ID)
+        self.assertIsNone(row["rating"], "nothing is written for a non-opener")
+        self.assertEqual(log_channel.sent, [], "and nothing is logged")
+        self.assertIn("opened", handler.response.messages[0]["content"])
 
     # ── claim bookkeeping ────────────────────────────────────────────────
     async def test_claiming_records_the_claimer_in_the_topic(self):
@@ -301,7 +337,7 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         ticket_channel, log_channel, _, client = await self._close_ticket()
 
         await tickets.submit_ticket_feedback(
-            _Interaction(client, guild=client.get_guild(GUILD_ID)),
+            _Interaction(client, guild=client.get_guild(GUILD_ID), user=_User(AUTHOR_ID)),
             channel_id=TICKET_CHANNEL_ID,
             score=5,
             comment="Fast and friendly",
@@ -328,12 +364,14 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     async def test_a_second_rating_is_refused_and_does_not_double_log(self):
         _, log_channel, _, client = await self._close_ticket()
-        rating_interaction = _Interaction(client, guild=client.get_guild(GUILD_ID))
+        rating_interaction = _Interaction(
+            client, guild=client.get_guild(GUILD_ID), user=_User(AUTHOR_ID)
+        )
 
         await tickets.submit_ticket_feedback(
             rating_interaction, channel_id=TICKET_CHANNEL_ID, score=2, comment="slow"
         )
-        second = _Interaction(client, guild=client.get_guild(GUILD_ID))
+        second = _Interaction(client, guild=client.get_guild(GUILD_ID), user=_User(AUTHOR_ID))
         await tickets.submit_ticket_feedback(
             second, channel_id=TICKET_CHANNEL_ID, score=5, comment="changed my mind"
         )
@@ -351,7 +389,10 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         log_channel.sent.clear()
 
         await tickets.submit_ticket_feedback(
-            _Interaction(client), channel_id=TICKET_CHANNEL_ID, score=3, comment="ok"
+            _Interaction(client, user=_User(AUTHOR_ID)),
+            channel_id=TICKET_CHANNEL_ID,
+            score=3,
+            comment="ok",
         )
 
         self.assertEqual(len(log_channel.sent), 1)
@@ -365,7 +406,9 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         modal = tickets.TicketFeedbackModal(channel_id=TICKET_CHANNEL_ID, score=4)
         modal.comment._value = "nicely done"
 
-        await modal.on_submit(_Interaction(client, guild=client.get_guild(GUILD_ID)))
+        await modal.on_submit(
+            _Interaction(client, guild=client.get_guild(GUILD_ID), user=_User(AUTHOR_ID))
+        )
 
         row = await db.get_ticket_feedback(TICKET_CHANNEL_ID)
         self.assertEqual(row["rating"], 4)
@@ -377,7 +420,7 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         del client.get_guild(GUILD_ID)._channels[TICKET_CHANNEL_ID]
 
         await tickets.submit_ticket_feedback(
-            _Interaction(client, guild=client.get_guild(GUILD_ID)),
+            _Interaction(client, guild=client.get_guild(GUILD_ID), user=_User(AUTHOR_ID)),
             channel_id=TICKET_CHANNEL_ID,
             score=4,
             comment="",
@@ -398,7 +441,7 @@ class TicketFeedbackTests(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         ticket_channel.topic = f"Author: {AUTHOR_ID} | Category: bug | Claimed: {STAFF_ID}"
         guild = _Guild([ticket_channel])
         client = _Client(guild)
-        interaction = _Interaction(client, guild=guild)
+        interaction = _Interaction(client, guild=guild, user=_User(AUTHOR_ID))
 
         await db.open_ticket_feedback(GUILD_ID, TICKET_CHANNEL_ID, AUTHOR_ID, STAFF_ID, "bug")
         await tickets.submit_ticket_feedback(
