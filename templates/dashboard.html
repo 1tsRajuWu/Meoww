@@ -221,6 +221,17 @@
             color: #ff6b6b;
         }
 
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #6b76f5;
+            border-color: #6b76f5;
+        }
+
         .btn-danger:hover {
             background: rgba(242, 63, 67, 0.25);
             border-color: var(--red);
@@ -502,6 +513,240 @@
         .toast-success { border-left-color: var(--green); }
         .toast-error { border-left-color: var(--red); }
 
+        /* ---- Message composer ---- */
+        .composer-card {
+            background: var(--surface);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 22px;
+            margin-bottom: 32px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+        }
+
+        .composer-grid {
+            display: grid;
+            grid-template-columns: minmax(260px, 340px) 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .composer-field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        /* ``display: flex`` outranks the user-agent's ``[hidden]`` rule, so the
+           attribute alone would leave the embed title sitting on the page. */
+        .composer-field[hidden] { display: none; }
+
+        .composer-field > label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .composer-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .composer-input,
+        .composer-textarea,
+        .composer-select {
+            width: 100%;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: var(--radius-md);
+            padding: 11px 14px;
+            font-size: 13px;
+            font-family: inherit;
+            font-weight: 500;
+        }
+
+        .composer-textarea {
+            min-height: 132px;
+            resize: vertical;
+            line-height: 1.55;
+        }
+
+        .composer-select {
+            min-height: 168px;
+        }
+
+        .composer-select option:disabled { color: var(--text-muted); }
+
+        .composer-input:focus-visible,
+        .composer-textarea:focus-visible,
+        .composer-select:focus-visible,
+        .composer-search:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .composer-search-wrap { position: relative; }
+
+        .mention-results {
+            position: absolute;
+            z-index: 60;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            max-height: 260px;
+            overflow-y: auto;
+            background: #171d29;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+            display: none;
+        }
+
+        .mention-results.open { display: block; }
+
+        .mention-result {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            width: 100%;
+            padding: 10px 14px;
+            background: none;
+            border: 0;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+            font: inherit;
+            font-size: 13px;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .mention-result:last-child { border-bottom: 0; }
+        .mention-result:hover { background: var(--surface-hover); }
+
+        .mention-result .kind {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .mention-result .sub { font-size: 11px; color: var(--text-muted); }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-height: 34px;
+            align-items: center;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(88, 101, 242, 0.18);
+            border: 1px solid var(--border-active);
+            border-radius: 999px;
+            padding: 5px 6px 5px 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .chip button {
+            background: none;
+            border: 0;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 3px 6px;
+            border-radius: 50%;
+        }
+
+        .chip button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+        .composer-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .composer-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .counter { margin-left: auto; font-size: 11px; color: var(--text-muted); font-family: "JetBrains Mono", monospace; }
+        .counter.over { color: #ff6b6b; }
+
+        .preview {
+            background: #12161f;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-top: 4px;
+        }
+
+        .preview-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .preview-bot-tag {
+            background: var(--accent);
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
+        .preview-body {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .preview-embed {
+            border-left: 4px solid var(--accent);
+            background: rgba(23, 29, 41, 0.7);
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-top: 10px;
+        }
+
+        .preview-embed h4 { font-size: 14px; margin-bottom: 5px; }
+
+        .preview-empty { color: var(--text-muted); font-style: italic; }
+
+        .mention-text {
+            color: #a5b4fc;
+            background: rgba(88, 101, 242, 0.16);
+            border-radius: 4px;
+            padding: 0 4px;
+        }
+
+        .composer-status { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+
         @keyframes slideIn {
             from { transform: translateY(30px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
@@ -520,6 +765,7 @@
         @media (max-width: 768px) {
             body { padding: 16px; }
             .modules-grid { grid-template-columns: 1fr; }
+            .composer-grid { grid-template-columns: 1fr; }
             header { padding: 16px; }
             .guild-select { max-width: 100%; width: 100%; }
             .header-actions { width: 100%; }
@@ -586,7 +832,60 @@
                 <div class="metric-icon" aria-hidden="true">📡</div>
                 <div class="metric-info">
                     <h3>Discord Ping</h3>
-                    <p>{{ bot_ping }} ms</p>
+                    <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} ms{% else %}—{% endif %}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-header" id="composer">
+            <h2>📣 Message composer</h2>
+            <span class="composer-hint">The bot posts it as itself, in any channel, tagging anyone.</span>
+        </div>
+
+        <div class="composer-card">
+            <div class="composer-grid">
+                <div>
+                    <div class="composer-field">
+                        <label for="composer-channels">Channels</label>
+                        <select id="composer-channels" class="composer-select" multiple size="8" aria-describedby="composer-channels-hint"></select>
+                        <span class="composer-hint" id="composer-channels-hint">Ctrl/Cmd-click to pick more than one (up to 5).</span>
+                    </div>
+                    <div class="composer-field">
+                        <label for="composer-mention-search">Tag people or roles</label>
+                        <div class="composer-search-wrap">
+                            <input id="composer-mention-search" class="composer-input" type="text" autocomplete="off"
+                                   placeholder="Type a name — @everyone and @here work too"
+                                   role="combobox" aria-expanded="false" aria-controls="composer-mention-results">
+                            <div class="mention-results" id="composer-mention-results" role="listbox" aria-label="Matches"></div>
+                        </div>
+                        <div class="chips" id="composer-chips"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="composer-field">
+                        <label for="composer-body">Message</label>
+                        <textarea id="composer-body" class="composer-textarea" maxlength="2000" placeholder="Write the announcement…"></textarea>
+                        <span class="counter" id="composer-counter">0 / 2000</span>
+                    </div>
+                    <div class="composer-field" id="composer-title-field" hidden>
+                        <label for="composer-title">Embed title</label>
+                        <input id="composer-title" class="composer-input" type="text" maxlength="256" placeholder="Optional headline">
+                    </div>
+                    <div class="composer-field">
+                        <div class="composer-row">
+                            <label class="composer-check" for="composer-embed">
+                                <input type="checkbox" id="composer-embed"> Send as an embed
+                            </label>
+                            <button type="button" class="btn" id="composer-clear">Clear</button>
+                            <button type="button" class="btn btn-primary" id="composer-send">Send message</button>
+                        </div>
+                    </div>
+                    <div class="composer-field">
+                        <label for="composer-preview">Preview</label>
+                        <div class="preview" id="composer-preview"></div>
+                    </div>
+                    <div class="composer-status" id="composer-status"></div>
                 </div>
             </div>
         </div>
@@ -642,6 +941,7 @@
     <script>
         const GUILD_ID = {{ guild_id|tojson }};
         const CSRF_TOKEN = {{ csrf_token|tojson }};
+        const BOT_READY = {{ "true" if bot_ready else "false" }};
         const MODULE_NAMES = {
             {% for mod in modules %}{{ mod.id|tojson }}: {{ mod.name|tojson }}{% if not loop.last %},{% endif %}
             {% endfor %}
@@ -768,6 +1068,349 @@
         document.querySelectorAll(".module-toggle").forEach(cb => {
             cb.addEventListener("change", () => onToggleChange(cb.dataset.module, cb.checked));
         });
+
+        /* ------------------------------------------------------------------ */
+        /* Message composer                                                    */
+        /* ------------------------------------------------------------------ */
+        /* Everything the server decides is displayed, never trusted: the tags are
+           rendered with textContent so a member called "<b>" stays a name, and the
+           preview is a picture of what the bot will post rather than the payload. */
+        const composerMentions = [];
+
+        const composerEls = {
+            channels: document.getElementById("composer-channels"),
+            body: document.getElementById("composer-body"),
+            title: document.getElementById("composer-title"),
+            titleField: document.getElementById("composer-title-field"),
+            embed: document.getElementById("composer-embed"),
+            chips: document.getElementById("composer-chips"),
+            preview: document.getElementById("composer-preview"),
+            counter: document.getElementById("composer-counter"),
+            status: document.getElementById("composer-status"),
+            search: document.getElementById("composer-mention-search"),
+            results: document.getElementById("composer-mention-results"),
+            send: document.getElementById("composer-send"),
+            clear: document.getElementById("composer-clear")
+        };
+
+        function composerStatus(message, linkUrl) {
+            composerEls.status.textContent = message || "";
+            if (linkUrl) {
+                const link = document.createElement("a");
+                link.href = linkUrl;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = " Open the message";
+                link.style.color = "var(--accent)";
+                composerEls.status.appendChild(link);
+            }
+        }
+
+        async function apiGet(url) {
+            const response = await fetch(url, {
+                headers: { "X-CSRF-Token": CSRF_TOKEN },
+                credentials: "same-origin"
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (response.status === 401) {
+                showToast("Your session expired. Redirecting to sign in…", "error");
+                setTimeout(() => { window.location.href = "/login"; }, 1200);
+                throw new Error("Session expired");
+            }
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Request failed (${response.status})`);
+            }
+            return data;
+        }
+
+        async function loadChannels() {
+            if (!BOT_READY) {
+                composerStatus("The bot is offline, so there is nothing to send with yet.");
+                return;
+            }
+            let channels = [];
+            try {
+                const data = await apiGet(`/api/channels?guild_id=${encodeURIComponent(GUILD_ID)}`);
+                channels = data.channels || [];
+            } catch (err) {
+                composerStatus(`Could not load channels: ${err.message}`);
+                return;
+            }
+            const groups = new Map();
+            channels.forEach(ch => {
+                const key = ch.category || "No category";
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(ch);
+            });
+            composerEls.channels.innerHTML = "";
+            [...groups.keys()].sort((a, b) => a.localeCompare(b)).forEach(category => {
+                const group = document.createElement("optgroup");
+                group.label = category;
+                groups.get(category).forEach(ch => {
+                    const option = document.createElement("option");
+                    option.value = ch.id;
+                    option.textContent = ch.can_send ? `#${ch.name}` : `#${ch.name} — no permission`;
+                    option.disabled = !ch.can_send;
+                    group.appendChild(option);
+                });
+                composerEls.channels.appendChild(group);
+            });
+            const usable = channels.filter(ch => ch.can_send).length;
+            composerStatus(`${usable} channel${usable === 1 ? "" : "s"} available.`);
+        }
+
+        function closeMentionResults() {
+            composerEls.results.classList.remove("open");
+            composerEls.results.innerHTML = "";
+            composerEls.search.setAttribute("aria-expanded", "false");
+        }
+
+        function addMention(item) {
+            if (composerMentions.some(m => String(m.id) === String(item.id))) return;
+            composerMentions.push({ id: item.id, label: item.label, kind: item.kind });
+            composerEls.search.value = "";
+            closeMentionResults();
+            renderChips();
+            renderPreview();
+            updateCounter();
+        }
+
+        function renderChips() {
+            composerEls.chips.innerHTML = "";
+            composerMentions.forEach(mention => {
+                const chip = document.createElement("span");
+                chip.className = "chip";
+                const label = document.createElement("span");
+                label.textContent = mention.kind === "role" ? `@${mention.label}` : mention.label;
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.setAttribute("aria-label", `Remove ${mention.label}`);
+                remove.textContent = "✕";
+                remove.addEventListener("click", () => {
+                    const index = composerMentions.findIndex(m => String(m.id) === String(mention.id));
+                    if (index >= 0) composerMentions.splice(index, 1);
+                    renderChips();
+                    renderPreview();
+                    updateCounter();
+                });
+                chip.appendChild(label);
+                chip.appendChild(remove);
+                composerEls.chips.appendChild(chip);
+            });
+        }
+
+        function renderMentionResults(data) {
+            composerEls.results.innerHTML = "";
+            const groups = [
+                ["Special", data.special || []],
+                ["Roles", data.roles || []],
+                ["Members", data.users || []]
+            ];
+            let shown = 0;
+            groups.forEach(([kind, items]) => {
+                items.forEach(item => {
+                    if (composerMentions.some(m => String(m.id) === String(item.id))) return;
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "mention-result";
+                    button.setAttribute("role", "option");
+                    const name = document.createElement("span");
+                    name.textContent = kind === "Members" ? item.label : `@${item.label}`;
+                    button.appendChild(name);
+                    if (item.sub) {
+                        const sub = document.createElement("span");
+                        sub.className = "sub";
+                        sub.textContent = item.sub;
+                        button.appendChild(sub);
+                    }
+                    const badge = document.createElement("span");
+                    badge.className = "kind";
+                    badge.textContent = kind;
+                    button.appendChild(badge);
+                    button.addEventListener("click", () => addMention({ id: item.id, label: item.label, kind: item.kind }));
+                    composerEls.results.appendChild(button);
+                    shown++;
+                });
+            });
+            if (!shown) {
+                const empty = document.createElement("div");
+                empty.className = "mention-result";
+                empty.textContent = "Nothing matches that yet";
+                composerEls.results.appendChild(empty);
+            }
+            composerEls.results.classList.add("open");
+            composerEls.search.setAttribute("aria-expanded", "true");
+        }
+
+        let mentionTimer = null;
+        async function searchMentionables() {
+            if (!BOT_READY) return;
+            const query = composerEls.search.value.trim();
+            try {
+                const data = await apiGet(
+                    `/api/mentionables?guild_id=${encodeURIComponent(GUILD_ID)}&q=${encodeURIComponent(query)}`
+                );
+                renderMentionResults(data);
+            } catch (err) {
+                if (err.message !== "Session expired") composerStatus(`Could not search: ${err.message}`);
+            }
+        }
+
+        function pingLength() {
+            // Exactly what the server builds, from the real id rather than a guess:
+            // "<@id>" plus a separating space, "<@&id>" for a role, and the keywords
+            // are themselves.
+            return composerMentions.reduce((total, mention) => {
+                if (mention.id === "@everyone") return total + 10;
+                if (mention.id === "@here") return total + 6;
+                return total + String(mention.id).length + (mention.kind === "role" ? 5 : 4);
+            }, 0);
+        }
+
+        function updateCounter() {
+            const length = composerEls.body.value.length;
+            const asEmbed = composerEls.embed.checked;
+            // In embed mode the tags ride in the content and the text sits in the
+            // description, so they are counted separately — same as the server does.
+            const total = asEmbed ? length : length + pingLength();
+            composerEls.counter.textContent = `${total} / 2000${asEmbed ? "" : " incl. tags"}`;
+            composerEls.counter.classList.toggle("over", total > 2000);
+        }
+
+        function renderPreview() {
+            composerEls.preview.innerHTML = "";
+            const head = document.createElement("div");
+            head.className = "preview-head";
+            const avatar = document.createElement("span");
+            avatar.textContent = "🐾";
+            const name = document.createElement("span");
+            name.textContent = "Meow";
+            const tag = document.createElement("span");
+            tag.className = "preview-bot-tag";
+            tag.textContent = "APP";
+            head.appendChild(avatar);
+            head.appendChild(name);
+            head.appendChild(tag);
+            composerEls.preview.appendChild(head);
+
+            if (composerMentions.length) {
+                const pings = document.createElement("div");
+                pings.className = "preview-body";
+                composerMentions.forEach(mention => {
+                    const chip = document.createElement("span");
+                    chip.className = "mention-text";
+                    chip.textContent = mention.id === "@everyone" || mention.id === "@here"
+                        ? mention.id
+                        : `@${mention.label}`;
+                    pings.appendChild(chip);
+                    pings.appendChild(document.createTextNode(" "));
+                });
+                composerEls.preview.appendChild(pings);
+            }
+
+            const body = composerEls.body.value;
+            if (composerEls.embed.checked) {
+                const embed = document.createElement("div");
+                embed.className = "preview-embed";
+                const title = composerEls.title.value.trim();
+                if (title) {
+                    const heading = document.createElement("h4");
+                    heading.textContent = title;
+                    embed.appendChild(heading);
+                }
+                const text = document.createElement("div");
+                text.className = "preview-body" + (body ? "" : " preview-empty");
+                text.textContent = body || "No message text yet…";
+                embed.appendChild(text);
+                composerEls.preview.appendChild(embed);
+            } else {
+                const text = document.createElement("div");
+                text.className = "preview-body" + (body ? "" : " preview-empty");
+                text.textContent = body || "Nothing written yet…";
+                composerEls.preview.appendChild(text);
+            }
+        }
+
+        function clearComposer() {
+            composerEls.body.value = "";
+            composerEls.title.value = "";
+            composerEls.embed.checked = false;
+            composerEls.titleField.hidden = true;
+            composerMentions.length = 0;
+            Array.from(composerEls.channels.options).forEach(option => { option.selected = false; });
+            renderChips();
+            renderPreview();
+            updateCounter();
+            composerStatus("");
+        }
+
+        async function sendComposedMessage() {
+            const channelIds = Array.from(composerEls.channels.selectedOptions).map(o => o.value);
+            const body = composerEls.body.value.trim();
+            const title = composerEls.title.value.trim();
+            const asEmbed = composerEls.embed.checked;
+
+            if (!channelIds.length) return showToast("Pick at least one channel first.", "error");
+            if (!body && !title) return showToast("Write something to send.", "error");
+            if (channelIds.length > 5) return showToast("At most 5 channels per send.", "error");
+
+            composerEls.send.disabled = true;
+            composerEls.send.textContent = "Sending…";
+            composerStatus("");
+            try {
+                const data = await apiPost("/api/send-message", {
+                    guild_id: GUILD_ID,
+                    channel_ids: channelIds,
+                    content: body,
+                    title: title,
+                    embed: asEmbed,
+                    mentions: composerMentions.map(m => m.id)
+                });
+                const sent = data.sent || [];
+                if (sent.length) {
+                    showToast(`Sent to ${sent.map(s => `#${s.name}`).join(", ")}.`);
+                    composerStatus(
+                        sent.length === 1 ? "Sent." : `Sent to ${sent.length} channels.`,
+                        sent.length === 1 ? sent[0].jump_url : null
+                    );
+                }
+                (data.failed || []).forEach(item => {
+                    showToast(`#${item.name || item.channel_id}: ${item.error}`, "error");
+                });
+                if ((data.ignored_mentions || []).length) {
+                    showToast(`Could not tag ${data.ignored_mentions.join(", ")} — not in this server.`, "error");
+                }
+            } catch (err) {
+                if (err.message !== "Session expired") showToast(`Could not send: ${err.message}`, "error");
+            } finally {
+                composerEls.send.disabled = false;
+                composerEls.send.textContent = "Send message";
+            }
+        }
+
+        composerEls.body.addEventListener("input", () => { updateCounter(); renderPreview(); });
+        composerEls.title.addEventListener("input", renderPreview);
+        composerEls.embed.addEventListener("change", () => {
+            composerEls.titleField.hidden = !composerEls.embed.checked;
+            updateCounter();
+            renderPreview();
+        });
+        composerEls.send.addEventListener("click", sendComposedMessage);
+        composerEls.clear.addEventListener("click", clearComposer);
+        composerEls.search.addEventListener("focus", () => { clearTimeout(mentionTimer); searchMentionables(); });
+        composerEls.search.addEventListener("input", () => {
+            clearTimeout(mentionTimer);
+            mentionTimer = setTimeout(searchMentionables, 180);
+        });
+        document.addEventListener("click", (event) => {
+            if (!event.target.closest(".composer-search-wrap")) closeMentionResults();
+        });
+
+        renderChips();
+        renderPreview();
+        updateCounter();
+        loadChannels();
         document.getElementById("btn-enable-all").addEventListener("click", () => toggleAll(true));
         document.getElementById("btn-disable-all").addEventListener("click", () => toggleAll(false));
     </script>

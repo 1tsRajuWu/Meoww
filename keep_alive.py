@@ -2,6 +2,7 @@
 Real-Time Web Admin Dashboard & Keep-Alive Server for Meow Discord Bot.
 Enables administrators to toggle modules and features ON/OFF with 0-second (1:1 instant) latency.
 """
+import math
 import os
 import sys
 import time
@@ -135,6 +136,30 @@ def _purge_magic_tokens():
         MAGIC_TOKENS.pop(token, None)
 
 
+def dashboard_base_url() -> str:
+    """Where *this* process is reachable, for the one-time sign-in link.
+
+    The token lives in this process's memory, so a link that names a different
+    host is dead on arrival — and that is exactly how this project is run: the
+    bot is deployed on Render *and* run from the development Mac, where
+    ``DASHBOARD_BASE_URL`` is unset and every link pointed at the Render URL,
+    whose process had never heard of the token. "That link has expired" was the
+    symptom, and nothing had expired.
+    """
+    explicit = (os.environ.get("DASHBOARD_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    # Render sets this to the service's public URL automatically.
+    hosted = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+    if hosted:
+        return hosted
+    if os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT"):
+        return "https://meow-discord-bot.onrender.com"
+    # Anywhere else the dashboard is a local one, and the admin is on the same
+    # machine as the process that minted the token.
+    return f"http://localhost:{os.environ.get('PORT', '8080')}"
+
+
 def generate_magic_token(guild_id: int | None = None) -> str:
     token = secrets.token_urlsafe(32)
     with _magic_lock:
@@ -234,19 +259,74 @@ def _known_guilds():
     return [{"id": g.id, "name": g.name} for g in BOT_INSTANCE.guilds]
 
 
+def _bot_ping_ms():
+    """Gateway latency in whole milliseconds, or ``None`` when there is none.
+
+    ``discord.Client.latency`` is ``nan`` until the first heartbeat is
+    acknowledged and ``inf`` whenever the socket is rebuilding — and ``nan`` is
+    *truthy*, so the old ``if latency:`` guard let ``round(nan * 1000)`` through
+    and opening the dashboard during a reconnect answered **500**, which is the
+    page an administrator reaches for when something looks wrong.
+    """
+    if BOT_INSTANCE is None:
+        return None
+    try:
+        latency = float(BOT_INSTANCE.latency)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if not math.isfinite(latency) or latency < 0:
+        return None
+    return round(latency * 1000)
+
+
+def _json_number(value):
+    """A JSON-safe number: ``NaN``/``inf`` are not valid JSON at all.
+
+    ``json.dumps`` happily writes a bare ``NaN``, which every browser's
+    ``JSON.parse`` rejects — so a voice client that has not answered a heartbeat
+    yet made ``/api/voice-debug`` unreadable rather than reporting "unknown".
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return round(number, 3)
+
+
 def _resolve_guild_id(requested=None):
+    """The one guild this request is allowed to act on, or ``None``.
+
+    A session minted from a server's one-time link is **scoped**: it may only
+    ever touch the server that link was created in, and only while the bot is
+    still there. Everything else — the passkey session — may pick any server the
+    bot is in. The scope test reads the scope alone, deliberately: it used to
+    also require a truthy ``guild_id``, and ``dashboard()`` wrote the ``0``
+    fallback of a failed lookup back into the session, so one page load demoted a
+    scoped session to an unscoped one and it could then toggle *any* server.
+    """
     known = {g["id"] for g in _known_guilds()}
+
+    if session.get("auth_scope") == "guild":
+        gid = _int_or_none(session.get("guild_id"))
+        if gid is None:
+            print("[DASHBOARD] Guild-scoped session with no server; refusing.", flush=True)
+            return None
+        if known and gid not in known:
+            # The link was minted for a server the bot is no longer in. Falling
+            # through to "first known guild" would quietly move the session onto
+            # somebody else's server, showing and toggling modules that were
+            # never granted. A scoped session gets its own guild or nothing.
+            print(
+                f"[DASHBOARD] Refusing a guild-scoped session for {gid}: the bot "
+                "is not in that server.",
+                flush=True,
+            )
+            return None
+        return gid
+
     session_guild = session.get("guild_id")
-    pinned = session.get("auth_scope") == "guild" and session_guild
-
-    if pinned:
-        try:
-            gid = int(session_guild)
-        except (TypeError, ValueError):
-            gid = None
-        if gid is not None and (not known or gid in known):
-            return gid
-
     candidates = []
     if requested not in (None, "", 0):
         try:
@@ -262,7 +342,9 @@ def _resolve_guild_id(requested=None):
         if not known or gid in known:
             return gid
     if known:
-        return next(iter(known))
+        # Deterministic, because a set's iteration order is not a choice anyone
+        # can predict — the same server should come up on every request.
+        return min(known)
     return None
 
 
@@ -280,9 +362,14 @@ def set_security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # Original scripts only, except for the one third-party the living market page
+    # genuinely needs: its chart library, pinned to an exact version and hosted by
+    # the two CDNs the page tries in turn. Without them named here our own header
+    # blocked both copies, so the chart could never draw on any deployment and the
+    # card blamed the library. styles/fonts are the dashboard's Google Fonts.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
         "img-src 'self' data:; "
@@ -381,8 +468,8 @@ def api_voice_debug():
                 "connected": vc.is_connected(),
                 "playing": vc.is_playing(),
                 "paused": vc.is_paused(),
-                "latency": vc.latency,
-                "average_latency": vc.average_latency,
+                "latency": _json_number(getattr(vc, "latency", None)),
+                "average_latency": _json_number(getattr(vc, "average_latency", None)),
                 "mode": getattr(vc, "mode", None),
                 "player_alive": bool(player and player.is_alive()),
                 "player_error": str(player._current_error) if player else None,
@@ -506,13 +593,12 @@ def logout():
 # lives here because this process already holds the price snapshot in memory.
 
 
-def _run_market(coro, timeout: float = 15.0):
-    """Run a market coroutine from a Flask thread.
+def _run_on_bot_loop(coro, timeout: float = 15.0):
+    """Run a coroutine on the bot's own event loop from a Flask thread.
 
-    On the bot's own loop when there is one, so the snapshot cache and the
-    in-flight refresh guard are the same ones the commands use — a second event
-    loop would happily fetch the board twice at once. A request must never hang
-    on a slow provider, hence the timeout.
+    Anything the dashboard does to Discord has to run there: the gateway objects
+    belong to that loop, and a second loop would hold a second, disagreeing view
+    of the cache. A request must never hang on it, hence the timeout.
     """
     import asyncio
 
@@ -521,6 +607,16 @@ def _run_market(coro, timeout: float = 15.0):
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         return future.result(timeout=timeout)
     return asyncio.run(coro)
+
+
+def _run_market(coro, timeout: float = 15.0):
+    """Run a market coroutine from a Flask thread.
+
+    On the bot's own loop when there is one, so the snapshot cache and the
+    in-flight refresh guard are the same ones the commands use — a second event
+    loop would happily fetch the board twice at once.
+    """
+    return _run_on_bot_loop(coro, timeout=timeout)
 
 
 @app.route("/market")
@@ -597,13 +693,16 @@ def dashboard():
 
     requested = request.args.get("guild_id")
     guild_id = _resolve_guild_id(requested)
-    if guild_id is None:
+    if guild_id:
+        session["guild_id"] = guild_id
+    else:
+        # Never persist the failure: writing ``0`` here is what let a scoped
+        # session look unscoped on its next request.
         guild_id = 0
-    session["guild_id"] = guild_id
 
     guild_name = "Unknown server"
     member_count = 0
-    bot_ping = 0
+    bot_ping = _bot_ping_ms()
     bot_ready = bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False))
 
     if BOT_INSTANCE:
@@ -611,8 +710,6 @@ def dashboard():
         if guild:
             guild_name = guild.name
             member_count = guild.member_count or len(guild.members)
-        if BOT_INSTANCE.latency:
-            bot_ping = round(BOT_INSTANCE.latency * 1000)
 
     try:
         # The same cache the bot reads — not a second, independently-loaded copy.
@@ -725,6 +822,390 @@ def api_toggle_all():
     })
 
 
+# ---------------------------------------------------------------------------
+# Message composer
+# ---------------------------------------------------------------------------
+# This is the most powerful thing the dashboard can do: it speaks as the bot, in
+# any channel, tagging anyone. So nothing it accepts is trusted from the browser.
+# The session only ever proves *an administrator signed in* — it says nothing
+# about which guild or channel the bot can actually reach, and one click must not
+# be able to turn into a mass ping of a server this panel was not pointed at.
+MESSAGE_MAX_CHARS = 2000  # Discord's message limit, measured on the final text
+MESSAGE_TITLE_MAX = 256  # embed title limit
+MESSAGE_MAX_CHANNELS = 5  # one send may fan out to a handful of channels
+MESSAGE_MAX_MENTIONS = 25
+SEND_WINDOW_SECONDS = 60
+SEND_MAX_PER_WINDOW = 30
+
+_send_lock = Lock()
+_send_attempts = defaultdict(deque)  # ip -> timestamps
+
+
+def _int_or_none(raw):
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _bot_ready() -> bool:
+    return bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False))
+
+
+def _send_allowed(ip: str) -> bool:
+    """Cap how fast one client can make the bot talk.
+
+    A stuck retry loop (or a curious administrator holding Enter) could otherwise
+    post hundreds of messages before anyone noticed.
+    """
+    now = time.time()
+    with _send_lock:
+        if len(_send_attempts) > 5000:
+            cutoff = now - SEND_WINDOW_SECONDS
+            for stale in [k for k, v in _send_attempts.items() if not v or v[-1] < cutoff]:
+                _send_attempts.pop(stale, None)
+        bucket = _send_attempts[ip]
+        while bucket and now - bucket[0] > SEND_WINDOW_SECONDS:
+            bucket.popleft()
+        if len(bucket) >= SEND_MAX_PER_WINDOW:
+            return False
+        bucket.append(now)
+        return True
+
+
+def _composer_guild(guild_id_raw):
+    """``(guild_id, guild)`` for a request, or ``(None, None)``.
+
+    ``_resolve_guild_id`` is the same guard the module toggles use: a session
+    pinned to one server cannot be talked into touching another, and the id must
+    be one the bot is actually in.
+    """
+    guild_id = _resolve_guild_id(guild_id_raw)
+    if guild_id is None or not _bot_ready():
+        return None, None
+    guild = BOT_INSTANCE.get_guild(guild_id)
+    if guild is None:
+        return None, None
+    return guild_id, guild
+
+
+@app.route("/api/channels")
+def api_channels():
+    """Every channel in this guild a message could land in, for the picker."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    guild_id, guild = _composer_guild(request.args.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    me = guild.me
+    if me is None and BOT_INSTANCE and BOT_INSTANCE.user:
+        me = guild.get_member(BOT_INSTANCE.user.id)
+
+    channels = []
+    # Announcement channels take messages too; forum and voice channels do not,
+    # and a thread is reached through its parent, so neither is offered here.
+    for channel in list(guild.text_channels) + list(guild.news_channels):
+        can_send = True
+        if me is not None:
+            perms = channel.permissions_for(me)
+            if not perms.view_channel:
+                continue
+            can_send = bool(perms.send_messages)
+        channels.append({
+            "id": channel.id,
+            "name": channel.name,
+            "category": channel.category.name if channel.category else "",
+            "is_news": bool(getattr(channel, "is_news", lambda: False)()),
+            "can_send": can_send,
+            "slowmode": int(getattr(channel, "slowmode_delay", 0) or 0),
+        })
+
+    channels.sort(key=lambda c: (c["category"].lower(), c["name"].lower()))
+    return jsonify({"success": True, "guild_id": guild_id, "channels": channels})
+
+
+@app.route("/api/mentionables")
+def api_mentionables():
+    """Members and roles that can be tagged, filtered by ``?q=``.
+
+    Members are only searched as the box is typed, so the panel never ships a
+    whole member list to the browser.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    guild_id, guild = _composer_guild(request.args.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    query = str(request.args.get("q") or "").strip().lower()
+    limit = 25
+
+    roles = [
+        {"id": role.id, "label": role.name, "kind": "role"}
+        for role in guild.roles
+        # @everyone is not a role you tag like a role; it is offered on its own.
+        if not role.is_default() and (not query or query in role.name.lower())
+    ]
+    roles.sort(key=lambda r: (not r["label"].lower().startswith(query), r["label"].lower()))
+
+    users = []
+    if query:
+        for member in guild.members:
+            name = member.display_name or member.name
+            if query not in name.lower() and query not in member.name.lower():
+                continue
+            users.append({
+                "id": member.id,
+                "label": name,
+                "sub": f"@{member.name}",
+                "kind": "user",
+            })
+            if len(users) >= limit * 4:
+                break
+        users.sort(key=lambda u: (not u["label"].lower().startswith(query), u["label"].lower()))
+
+    return jsonify({
+        "success": True,
+        "guild_id": guild_id,
+        "query": query,
+        "users": users[:limit],
+        "roles": roles[:limit],
+        "special": [
+            {"id": "@everyone", "label": "@everyone", "sub": "everyone in the server", "kind": "special"},
+            {"id": "@here", "label": "@here", "sub": "everyone online right now", "kind": "special"},
+        ] if not query or "@" in query or "every" in query or "here" in query else [],
+    })
+
+
+async def _deliver_dashboard_message(guild_id: int, channel_ids, payload: dict) -> list[dict]:
+    """Send the composed message, one channel at a time, on the bot's loop.
+
+    One result per channel, so a partial failure is reported as a partial failure
+    rather than as a success with a missing message.
+    """
+    import discord
+
+    guild = BOT_INSTANCE.get_guild(guild_id) if BOT_INSTANCE else None
+    if guild is None:
+        return [
+            {"channel_id": cid, "ok": False, "error": "I am not in that server"}
+            for cid in channel_ids
+        ]
+
+    embed = None
+    spec = payload.get("embed")
+    if spec:
+        embed = discord.Embed(description=spec.get("description") or None, color=0x5865F2)
+        if spec.get("title"):
+            embed.title = spec["title"]
+
+    allowed = discord.AllowedMentions(
+        users=[discord.Object(id=uid) for uid in payload.get("users", [])],
+        roles=[discord.Object(id=rid) for rid in payload.get("roles", [])],
+        everyone=bool(payload.get("everyone")),
+        replied_user=False,
+    )
+
+    results = []
+    for cid in channel_ids:
+        channel = guild.get_channel(cid) or guild.get_thread(cid)
+        if channel is None:
+            results.append({"channel_id": cid, "ok": False, "error": "That channel no longer exists"})
+            continue
+        me = guild.me
+        if me is not None and not channel.permissions_for(me).send_messages:
+            results.append({
+                "channel_id": cid,
+                "name": getattr(channel, "name", str(cid)),
+                "ok": False,
+                "error": f"I cannot send messages in #{getattr(channel, 'name', cid)}",
+            })
+            continue
+        try:
+            message = await channel.send(
+                content=payload.get("content"), embed=embed, allowed_mentions=allowed
+            )
+        except discord.Forbidden:
+            results.append({
+                "channel_id": cid,
+                "name": getattr(channel, "name", str(cid)),
+                "ok": False,
+                "error": f"Discord refused the post in #{getattr(channel, 'name', cid)} (missing permission)",
+            })
+            continue
+        except Exception as e:
+            results.append({
+                "channel_id": cid,
+                "name": getattr(channel, "name", str(cid)),
+                "ok": False,
+                "error": str(e)[:200],
+            })
+            continue
+        results.append({
+            "channel_id": cid,
+            "name": getattr(channel, "name", str(cid)),
+            "ok": True,
+            "message_id": message.id,
+            "jump_url": getattr(message, "jump_url", None),
+        })
+
+    sent = [r for r in results if r.get("ok")]
+    print(
+        f"[DASHBOARD] Sent a composed message to {len(sent)}/{len(results)} channel(s) "
+        f"in {guild.name} ({guild.id}).",
+        flush=True,
+    )
+    return results
+
+
+@app.route("/api/send-message", methods=["POST"])
+def api_send_message():
+    """Post a dashboard-written message as the bot."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id, guild = _composer_guild(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+
+    raw_channels = data.get("channel_ids") or []
+    if isinstance(raw_channels, (str, int)):
+        raw_channels = [raw_channels]
+    if not isinstance(raw_channels, list):
+        raw_channels = []
+    channel_ids = []
+    for raw in raw_channels:
+        cid = _int_or_none(raw)
+        if cid is not None and cid not in channel_ids:
+            channel_ids.append(cid)
+    if not channel_ids:
+        return jsonify({"success": False, "error": "Pick at least one channel."}), 400
+    if len(channel_ids) > MESSAGE_MAX_CHANNELS:
+        return jsonify({
+            "success": False,
+            "error": f"At most {MESSAGE_MAX_CHANNELS} channels per send.",
+        }), 400
+
+    body = str(data.get("content") or "").strip()
+    title = str(data.get("title") or "").strip()[:MESSAGE_TITLE_MAX]
+    as_embed = bool(data.get("embed"))
+
+    raw_mentions = data.get("mentions") or []
+    if isinstance(raw_mentions, (str, int)):
+        raw_mentions = [raw_mentions]
+    if not isinstance(raw_mentions, list):
+        raw_mentions = []
+    if len(raw_mentions) > MESSAGE_MAX_MENTIONS:
+        return jsonify({
+            "success": False,
+            "error": f"At most {MESSAGE_MAX_MENTIONS} tags per message.",
+        }), 400
+
+    if not body and not title:
+        return jsonify({"success": False, "error": "Write something to send."}), 400
+    if len(body) > MESSAGE_MAX_CHARS:
+        return jsonify({
+            "success": False,
+            "error": f"That message is {len(body)} characters; the limit is {MESSAGE_MAX_CHARS}.",
+        }), 400
+
+    # Every tag is resolved against *this* guild's live cache, so an id posted by
+    # the browser can only ever become a ping if it really is a member or a role
+    # here. Anything else is reported back rather than silently dropped.
+    members, roles, everyone, ignored = [], [], False, []
+    for raw in raw_mentions:
+        token = str(raw).strip()
+        if token in ("@everyone", "@here", "everyone", "here"):
+            everyone = True
+            continue
+        target = _int_or_none(token)
+        if target is None:
+            ignored.append(token)
+            continue
+        member = guild.get_member(target)
+        if member is not None:
+            members.append(member)
+            continue
+        role = guild.get_role(target)
+        if role is not None:
+            roles.append(role)
+            continue
+        ignored.append(token)
+
+    # A ping only notifies from the message *content*: a mention inside an embed
+    # silently does nothing, which is the one thing a tag-someone feature must not
+    # get wrong. So the tags go in the content either way, and an embed carries
+    # the text.
+    ping_parts = ["@everyone"] if everyone else []
+    ping_parts += [m.mention for m in members] + [r.mention for r in roles]
+    ping_text = " ".join(ping_parts)
+
+    if as_embed:
+        content = ping_text or None
+        embed_spec = {"title": title, "description": body}
+    else:
+        content = f"{ping_text}\n{body}".strip() if ping_text else body
+        embed_spec = None
+        if len(content) > MESSAGE_MAX_CHARS:
+            return jsonify({
+                "success": False,
+                "error": (
+                    f"{len(content)} characters once the tags are added; the limit is "
+                    f"{MESSAGE_MAX_CHARS}. Shorten it, or send it as an embed."
+                ),
+            }), 400
+
+    payload = {
+        "content": content,
+        "embed": embed_spec,
+        "users": [m.id for m in members],
+        "roles": [r.id for r in roles],
+        "everyone": everyone,
+    }
+
+    # Counted here rather than on arrival: a request that was going to be refused
+    # anyway costs Discord nothing, and an administrator who mistyped a channel
+    # deserves to be told that instead of being told to slow down.
+    if not _send_allowed(_client_ip()):
+        return jsonify({
+            "success": False,
+            "error": "That is a lot of messages at once. Wait a minute and try again.",
+        }), 429
+
+    try:
+        results = _run_on_bot_loop(
+            _deliver_dashboard_message(guild_id, channel_ids, payload), timeout=30.0
+        )
+    except Exception as e:
+        print(f"[DASHBOARD] Composed message failed: {e}", flush=True)
+        return jsonify({"success": False, "error": f"Discord did not accept it: {e}"}), 502
+
+    sent = [r for r in results if r.get("ok")]
+    failures = [r for r in results if not r.get("ok")]
+    return jsonify({
+        # A partial send is a success with a warning, never a silent one.
+        "success": bool(sent),
+        "error": None if sent else (failures[0].get("error") if failures else "Nothing was sent."),
+        "results": results,
+        "sent": [
+            {"channel_id": r["channel_id"], "name": r.get("name"), "jump_url": r.get("jump_url")}
+            for r in sent
+        ],
+        "failed": [
+            {"channel_id": r["channel_id"], "name": r.get("name"), "error": r.get("error")}
+            for r in failures
+        ],
+        "ignored_mentions": ignored,
+    })
+
+
 def find_free_port(start=8080):
     for port in range(start, start + 20):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -738,7 +1219,18 @@ def find_free_port(start=8080):
 
 def run():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    try:
+        app.run(host="0.0.0.0", port=port)
+    except OSError as e:
+        # The dashboard thread dying inside itself is a stack trace nobody reads,
+        # and the symptom is only "the dashboard does not load". An older instance
+        # (or anything else) holding the port is the usual cause.
+        print(
+            f"[DASHBOARD] Could not listen on port {port} ({e}). Something else is "
+            "serving it — an older instance of this bot, most likely. The dashboard "
+            "is NOT available from this process.",
+            flush=True,
+        )
 
 
 def keep_alive(bot=None):

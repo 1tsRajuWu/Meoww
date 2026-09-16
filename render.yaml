@@ -12,3 +12,13 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_KEY
         sync: false
+      # Sign-in state is signed with this key. Without it the dashboard invents a
+      # new one on every boot, so every deploy — and every wake-up from Render's
+      # free-tier sleep — signs the administrator out and silently kills any
+      # one-time link they were holding.
+      - key: FLASK_SECRET_KEY
+        sync: false
+      # Without it passkey sign-in is disabled outright, and the only way in is
+      # /dashboard in Discord, which needs the bot to be awake to answer.
+      - key: ADMIN_PASSKEY
+        sync: false

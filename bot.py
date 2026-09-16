@@ -599,12 +599,13 @@ async def dashboard_cmd(interaction: discord.Interaction):
         await interaction.response.send_message("❌ Only administrators can access the Web Dashboard.", ephemeral=True)
         return
     
-    from keep_alive import generate_magic_token
+    from keep_alive import dashboard_base_url, generate_magic_token
     from utils.style import Panel, send_panel, ACCENT, avatar_url, guild_icon, guild_banner
 
     token = generate_magic_token(interaction.guild_id)
-    dashboard_base = os.getenv("DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com").rstrip("/")
-    magic_link = f"{dashboard_base}/login?token={token}"
+    # The token is held in the memory of the process that made it, so the link has
+    # to name that process — not a fixed host that may be a different instance.
+    magic_link = f"{dashboard_base_url()}/login?token={token}"
     guild = interaction.guild
     thumb = guild_icon(guild) or avatar_url(interaction.client.user)
     gallery = [u for u in (guild_banner(guild),) if u]
