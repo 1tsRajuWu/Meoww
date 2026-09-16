@@ -210,16 +210,24 @@ class DashboardCase(TempDatabaseMixin, unittest.TestCase):
         )
 
 
-class CacheHeaders(unittest.TestCase):
+class CacheHeaders(TempDatabaseMixin, unittest.TestCase):
     """A cached page is indistinguishable from a feature that never shipped.
 
     The dashboard HTML went out with no cache directive at all, so a browser was
     free to answer the next visit from its own copy — and a rewritten UI looked
     like it had never been deployed, with no error anywhere to explain it.
+
+    Every response the app serves goes through the one hook this pins, which is
+    why the throwaway database matters even here: rendering the page reads module
+    state, and no test in this suite may touch a file inside the project.
     """
 
     def setUp(self):
+        self.use_temp_database("cache-headers.db")
         self.client = keep_alive.app.test_client()
+
+    def tearDown(self):
+        self.release_temp_database()
 
     def test_pages_are_never_cached(self):
         for path in ("/login", "/dashboard"):
@@ -238,13 +246,28 @@ class CacheHeaders(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("Cache-Control"), "no-store")
 
-    def test_the_public_market_json_keeps_the_cache_it_asks_for(self):
-        """Deliberate: short enough to be live, long enough that a wall of tabs is
-        not a wall of requests."""
-        response = self.client.get("/api/market/quotes")
-        self.assertEqual(response.headers.get("Cache-Control"), "public, max-age=5")
-        candles = self.client.get("/api/market/candles?symbol=BTC")
-        self.assertEqual(candles.headers.get("Cache-Control"), "public, max-age=30")
+    def test_a_response_that_asked_for_its_own_cache_keeps_it(self):
+        """The public market JSON asks for a short cache on purpose — short
+        enough that the page is live, long enough that a wall of tabs is not a
+        wall of requests — and the blanket rule must not take it away.
+
+        Checked against the hook itself rather than through the two endpoints:
+        asking them for a board reads and writes a database, and this is the
+        mechanism, not the market, that the change could break.
+        """
+        for own in ("public, max-age=5", "public, max-age=30"):
+            with self.subTest(asked_for=own):
+                response = keep_alive.app.response_class("{}", mimetype="application/json")
+                response.headers["Cache-Control"] = own
+                with keep_alive.app.test_request_context("/api/market/quotes"):
+                    keep_alive.set_security_headers(response)
+                self.assertEqual(response.headers["Cache-Control"], own)
+
+    def test_a_response_without_an_opinion_is_not_cacheable(self):
+        response = keep_alive.app.response_class("<h1>hi</h1>", mimetype="text/html")
+        with keep_alive.app.test_request_context("/anything"):
+            keep_alive.set_security_headers(response)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
 
 
 class SignInLink(unittest.TestCase):
