@@ -905,9 +905,14 @@ def api_channels():
         me = guild.get_member(BOT_INSTANCE.user.id)
 
     channels = []
-    # Announcement channels take messages too; forum and voice channels do not,
-    # and a thread is reached through its parent, so neither is offered here.
-    for channel in list(guild.text_channels) + list(guild.news_channels):
+    # ``Guild.text_channels`` is every text channel in the guild, and an
+    # announcement channel *is* one: discord.py models it as a TextChannel whose
+    # type is news (``channel.is_news()``) rather than as a class of its own, and
+    # there is no ``Guild.news_channels`` to read. Reading one raised
+    # AttributeError, which is what turned this endpoint into a 500 and left the
+    # picker empty. Forum and voice channels are still not offered — a message
+    # cannot land in a forum, and a voice channel is reached by joining it.
+    for channel in guild.text_channels:
         can_send = True
         if me is not None:
             perms = channel.permissions_for(me)

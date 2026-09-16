@@ -73,8 +73,11 @@ class _Guild:
     def __init__(self, gid, name, channels, *, roles=(), members=()):
         self.id = gid
         self.name = name
-        self.text_channels = [c for c in channels if not c.is_news()]
-        self.news_channels = [c for c in channels if c.is_news()]
+        # discord.py has no ``Guild.news_channels``: an announcement channel is a
+        # TextChannel whose type is news, so it comes back from ``text_channels``
+        # with every other one. Splitting the list in two here is what let a live
+        # AttributeError sit behind a green test suite.
+        self.text_channels = list(channels)
         self.roles = [_Role(gid, "@everyone", default=True)] + list(roles)
         self.members = list(members)
         self.me = SimpleNamespace(id=999)
@@ -193,6 +196,39 @@ class ComposerCase(unittest.TestCase):
         self.assertFalse(by_id[self.quiet.id]["can_send"], "no permission is shown, not hidden")
         self.assertIn(self.news.id, by_id, "announcement channels take messages too")
         self.assertEqual(by_id[self.standard.id]["category"], "News")
+
+    def test_the_stand_ins_only_expose_attributes_the_real_library_has(self):
+        """A stand-in that invents an attribute hides the bug it exists to find.
+
+        ``_Guild`` carried a ``news_channels`` list that discord.py does not have,
+        so every test passed while the live ``/api/channels`` raised
+        AttributeError and the picker sat empty behind a 500. Each stand-in may
+        only expose names its real counterpart exposes, plus the two fields
+        discord.py assigns in ``__init__`` instead of declaring on the class.
+        """
+        bookkeeping = {"sent", "send_error"}  # where a faked channel records
+        cases = [
+            (self.guild, discord.Guild),
+            (self.standard, discord.TextChannel),
+            (self.role, discord.Role),
+            (self.member, discord.Member),
+        ]
+        for stub, real in cases:
+            with self.subTest(stub=type(stub).__name__, real=real.__name__):
+                allowed = set(dir(real)) | {"id", "name"} | bookkeeping
+                # Both the instance's own attributes and the ones its class
+                # defines: an invented method hides a bug just as well as an
+                # invented attribute.
+                surfaced = set(vars(stub)) | set(vars(type(stub)))
+                invented = {
+                    name for name in surfaced
+                    if not name.startswith("_") and name not in allowed
+                }
+                self.assertEqual(
+                    invented, set(),
+                    f"{type(stub).__name__} invents {sorted(invented)}, which "
+                    f"{real.__name__} does not have",
+                )
 
     # ── the tag picker ───────────────────────────────────────────────────
     def test_mentionables_finds_roles_and_members(self):
