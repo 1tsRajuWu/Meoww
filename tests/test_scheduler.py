@@ -180,6 +180,39 @@ class SchedulerCase(TempDatabaseMixin, _ComposerFixture):
 class QueueStoreCase(SchedulerCase):
     """The store's own rules: what it hands out, and what it refuses to hand out."""
 
+    def test_a_settle_that_requires_the_old_status_refuses_a_row_already_settled(self):
+        """The sweep's ownership check: one interruption, one settle.
+
+        The write itself is the claim, exactly as it is on the delivery path — so two
+        instances sharing a database cannot each record the same interruption (and
+        each post the card that goes with it).
+        """
+        now = int(time.time())
+        msg_id = scheduled.create(GUILD_ID, [CHANNEL_ID], payload(), now - 1)
+        scheduled.claim(msg_id, now)
+
+        self.assertTrue(scheduled.mark_failed(msg_id, now, "first", only_if_status="sending"))
+        self.assertFalse(
+            scheduled.mark_failed(msg_id, now, "second", only_if_status="sending"),
+            "the second writer must be told it was not the one that settled it",
+        )
+        self.assertEqual(scheduled.get(GUILD_ID, msg_id)["last_error"], "first")
+
+    def test_an_interrupted_repeat_keeps_its_slot_and_the_sweep_says_so(self):
+        """The sweep reports what the store recorded, not an assumed failure."""
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], payload("daily"), now - 1, repeat_minutes=1440
+        )
+        scheduled.claim(msg_id, now)
+
+        settled = scheduled.sweep_stale(now + scheduled.STALE_CLAIM_SECONDS + 1)
+
+        self.assertEqual([row["id"] for row in settled], [msg_id])
+        self.assertEqual(settled[0]["status"], "pending", "a repeat is not finished by a restart")
+        self.assertEqual(scheduled.get(GUILD_ID, msg_id)["status"], "pending")
+        self.assertGreater(scheduled.get(GUILD_ID, msg_id)["run_at"], now)
+
     def test_a_queued_message_outlives_the_connection_that_wrote_it(self):
         msg_id = scheduled.create(GUILD_ID, [CHANNEL_ID], payload(), int(time.time()) + 60)
         self.assertIsNotNone(msg_id)
@@ -850,6 +883,30 @@ class ScheduleAlertCase(SchedulerCase):
         self.assertEqual(row["status"], "pending")
         self.assertEqual(row["fail_streak"], 0)
 
+    def test_a_skipped_run_of_a_repeat_does_not_count_as_this_run_s_failure(self):
+        """A missed run keeps the streak as it was — the card must not imply otherwise."""
+        self.configure_log_channel()
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], payload("good morning"), now - 2 * 86400,
+            repeat_minutes=1440, created_by=MEMBER_ID,
+        )
+        conn = db.connect()
+        try:
+            conn.execute(
+                "UPDATE scheduled_messages SET fail_streak = 2 WHERE id = ?", (msg_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.tick(now)
+
+        text = self.cards()[0]
+        self.assertIn("keeps its slot and posts again", text)
+        self.assertNotIn("failure 2 of 3", text, "this run was skipped, not failed")
+        self.assertIn("Failures recorded: 2 of 3", text)
+        self.assertEqual(scheduled.get(GUILD_ID, msg_id)["fail_streak"], 2)
+
     def test_a_run_that_was_too_late_to_send_is_still_reported(self):
         self.configure_log_channel()
         now = int(time.time())
@@ -886,6 +943,46 @@ class ScheduleAlertCase(SchedulerCase):
         text = self.cards()[0]
         self.assertIn("interrupted by a restart", text)
         self.assertIn("check the channel", text)
+
+    def test_an_interrupted_repeat_says_it_posts_again_rather_than_re_queue(self):
+        """"Queue it again" would be wrong: a repeat keeps its next slot regardless."""
+        self.configure_log_channel()
+        now = int(time.time())
+        msg_id = scheduled.create(
+            GUILD_ID, [CHANNEL_ID], payload("standup"), now - 1,
+            repeat_minutes=1440, created_by=MEMBER_ID,
+        )
+        scheduled.claim(msg_id, now)
+        self.tick(now + scheduled.STALE_CLAIM_SECONDS + 1)
+
+        text = self.cards()[0]
+        self.assertIn("interrupted by a restart", text)
+        self.assertIn("still queued and posts again", text)
+        self.assertIn("cancel it if part of it already arrived", text)
+
+    def test_a_queuer_the_cache_has_never_seen_is_still_named(self):
+        """The Members intent is off, so a name is not something to assume."""
+        self.configure_log_channel()
+        self.guild.members = [m for m in self.guild.members if m.id != MEMBER_ID]
+        self.fail_a_message()
+
+        text = self.cards()[0]
+        self.assertIn(f"<@{MEMBER_ID}>", text)
+        self.assertNotIn("()", text, "an absent name must not leave an empty parenthesis")
+
+    def test_the_dm_fallback_asks_discord_for_a_member_the_cache_has_not_met(self):
+        """"The person who queued it is told" has to be true, not merely likely."""
+        stranger = _Tellable(GONE_MEMBER_ID, "unseen", "Unseen")
+        self.guild.fetchable[GONE_MEMBER_ID] = stranger
+        now = int(time.time())
+        scheduled.create(
+            GUILD_ID, [QUIET_CHANNEL_ID], payload("nobody cached me"), now - 1,
+            created_by=GONE_MEMBER_ID,
+        )
+        self.tick(now)
+
+        self.assertEqual(len(stranger.dms), 1)
+        self.assertIn("did not go out", _card_text(stranger.dms[0]))
 
     def test_with_no_log_channel_the_person_who_queued_it_is_told(self):
         tellable = _Tellable(MEMBER_ID, "raj", "RAJ")

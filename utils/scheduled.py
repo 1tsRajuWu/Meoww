@@ -404,14 +404,22 @@ def _settle(
     results=None,
     missed: bool = False,
     final: bool = False,
-):
+    only_if_status: str | None = None,
+) -> bool:
     """Record what happened to a claimed message, and advance a repeat.
 
     A repeat is not finished by being sent — it is finished by being cancelled —
     so success moves ``run_at`` to the next slot past ``now`` instead of closing
     the row. A one-shot becomes ``sent`` or ``failed`` and stays as history.
+
+    Returns whether *this* call wrote the outcome. With ``only_if_status`` the
+    write is conditional on the row still being in that state, which is how the
+    interrupted-row sweep takes ownership: two processes looking at the same stale
+    row must produce one settle, and therefore one notification.
     """
     results = results or []
+    guard = " AND status = ?" if only_if_status else ""
+    tail = (only_if_status,) if only_if_status else ()
     conn = db.connect()
     try:
         cur = conn.cursor()
@@ -421,7 +429,7 @@ def _settle(
             (msg_id,),
         ).fetchone()
         if row is None:
-            return
+            return False
         repeat, run_at, fire_count, fail_streak = row
         repeat, run_at, fire_count, fail_streak = (
             int(repeat or 0), int(run_at or 0), int(fire_count or 0), int(fail_streak or 0),
@@ -433,8 +441,8 @@ def _settle(
             cur.execute(
                 "UPDATE scheduled_messages SET status = 'pending', run_at = ?, "
                 "claimed_at = NULL, last_run_at = ?, fire_count = ?, fail_streak = ?, "
-                "last_error = ?, last_results = ? WHERE id = ?",
-                (nxt, now, fire_count + 1, streak, error or None, json.dumps(results), msg_id),
+                "last_error = ?, last_results = ? WHERE id = ?" + guard,
+                (nxt, now, fire_count + 1, streak, error or None, json.dumps(results), msg_id, *tail),
             )
         else:
             if not ok and failure_is_final(repeat, streak) and not error:
@@ -442,7 +450,7 @@ def _settle(
             cur.execute(
                 "UPDATE scheduled_messages SET status = ?, claimed_at = NULL, "
                 "fired_at = ?, last_run_at = ?, fire_count = ?, fail_streak = ?, "
-                "last_error = ?, last_results = ? WHERE id = ?",
+                "last_error = ?, last_results = ? WHERE id = ?" + guard,
                 (
                     "sent" if ok else "failed",
                     now,
@@ -452,9 +460,11 @@ def _settle(
                     error or None,
                     json.dumps(results),
                     msg_id,
+                    *tail,
                 ),
             )
         conn.commit()
+        return cur.rowcount == 1
     finally:
         conn.close()
 
@@ -464,22 +474,38 @@ def failure_is_final(repeat, streak) -> bool:
     return bool(repeat) and int(streak or 0) >= FAIL_LIMIT
 
 
-def mark_sent(msg_id: int, now: int, results=None, error: str = ""):
-    _settle(msg_id, now, ok=True, error=error, results=results)
+def mark_sent(msg_id: int, now: int, results=None, error: str = "") -> bool:
+    return _settle(msg_id, now, ok=True, error=error, results=results)
 
 
-def mark_failed(msg_id: int, now: int, error: str, results=None, *, final: bool = False):
-    """Record a failure. ``final`` closes a repeat that can never work again."""
-    _settle(msg_id, now, ok=False, error=error, results=results, final=final)
+def mark_failed(
+    msg_id: int,
+    now: int,
+    error: str,
+    results=None,
+    *,
+    final: bool = False,
+    only_if_status: str | None = None,
+) -> bool:
+    """Record a failure. ``final`` closes a repeat that can never work again.
+
+    ``only_if_status`` makes the write conditional (see :func:`_settle`), which is
+    what the restart sweep uses so that one interruption is settled — and reported —
+    exactly once.
+    """
+    return _settle(
+        msg_id, now, ok=False, error=error, results=results, final=final,
+        only_if_status=only_if_status,
+    )
 
 
-def mark_missed(msg_id: int, now: int, reason: str):
+def mark_missed(msg_id: int, now: int, reason: str) -> bool:
     """A run that was too late to be worth sending.
 
     Not a failure: a repeat keeps its streak and its place in the queue, and only
     the reason it did not go out is recorded.
     """
-    _settle(msg_id, now, ok=False, error=reason, missed=True)
+    return _settle(msg_id, now, ok=False, error=reason, missed=True)
 
 
 def sweep_stale(now: int | None = None) -> list[dict]:
@@ -507,15 +533,22 @@ def sweep_stale(now: int | None = None) -> list[dict]:
         "the bot restarted while this was being sent — check the channel "
         "before scheduling it again"
     )
+    settled = []
     for row in stale:
-        mark_failed(row["id"], now, reason)
-        # The row is handed back as it now stands, so the caller reports what was
-        # recorded rather than re-deriving it.
-        row["status"] = "failed"
-        row["last_error"] = reason
-    if stale:
-        print(f"[SCHEDULE] Settled {len(stale)} interrupted message(s) as failed.", flush=True)
-    return stale
+        # The settle itself is the claim: only the caller whose conditional write
+        # reports an affected row owns this interruption. Without it, two instances
+        # sharing a database would each record it — and each post the card.
+        if not mark_failed(row["id"], now, reason, only_if_status="sending"):
+            continue
+        # Read back what the store recorded rather than assuming an outcome: an
+        # interrupted *repeat* is not finished — it keeps its next slot — so the
+        # status is whatever ``_settle`` decided, and the caller reports that.
+        fresh = get(row["guild_id"], row["id"])
+        if fresh is not None:
+            settled.append(fresh)
+    if settled:
+        print(f"[SCHEDULE] Settled {len(settled)} interrupted message(s).", flush=True)
+    return settled
 
 
 def prune(now: int | None = None, days: int = HISTORY_DAYS) -> int:

@@ -1867,19 +1867,41 @@ def _alert_tone(msg: dict, fresh: dict) -> str:
     return "failed"
 
 
-def _alert_next_step(msg: dict) -> str:
+def _alert_next_step(tone: str, msg: dict) -> str:
     """What happens to this message now — the question the card exists to answer."""
     if str(msg.get("status")) == "pending":
         when = _utc_text(msg.get("run_at"))
         streak = int(msg.get("fail_streak") or 0)
-        if not streak:
+        if tone == "interrupted":
+            # A repeat keeps its next slot even after an interrupted send, so
+            # "queue it again" would be wrong — and the message may already be half
+            # posted, which only a person looking at the channel can tell.
+            line = (
+                f"It is still queued and posts again {when} — cancel it if part of "
+                "it already arrived."
+            )
+        elif tone == "missed":
+            line = f"It keeps its slot and posts again {when}."
+        elif streak:
+            line = (
+                f"It tries again {when} — failure {streak} of {scheduled.FAIL_LIMIT}, "
+                "then it stops."
+            )
+        else:
             # A *partial* delivery counts as a success for a repeat, so it keeps its
             # slot: "failure 0 of 3" would be counting a failure that did not happen.
-            return f"It stays queued and posts again {when}."
-        return (
-            f"It tries again {when} — failure {streak} of {scheduled.FAIL_LIMIT}, "
-            "then it stops."
-        )
+            line = f"It stays queued and posts again {when}."
+        if streak and tone in ("interrupted", "missed"):
+            # A missed run does not count against the streak — that is part of what
+            # keeping its slot means — while an interrupted one is recorded as a
+            # failed attempt (three of those in a row stop a repeat). Either way the
+            # count is the state, not this run's verdict: "failure 2 of 3" beside a
+            # *skipped* run reads as though the skip had counted.
+            line += (
+                f" Failures recorded: {streak} of {scheduled.FAIL_LIMIT} — one more "
+                "stops it."
+            )
+        return line
     if msg.get("repeat_minutes"):
         return "Stopped — it will not try again. Fix the reason above, then queue it again."
     return "Nothing else will be sent for it. Queue it again when the reason above is fixed."
@@ -1913,11 +1935,17 @@ def _schedule_alert_embed(tone: str, msg: dict, view: dict, reason: str):
     embed.add_field(name="📝 Message", value=_clamp(body), inline=False)
     embed.add_field(name="📢 Channels", value=_clamp(channels), inline=False)
     embed.add_field(name="❌ Why", value=_clamp(reason) or "no reason recorded", inline=False)
-    embed.add_field(name="🔁 What happens next", value=_clamp(_alert_next_step(msg)), inline=False)
+    embed.add_field(
+        name="🔁 What happens next", value=_clamp(_alert_next_step(tone, msg)), inline=False
+    )
+    # The Members intent is off for this app, so whoever queued the message may be
+    # someone the cache has never held: the mention stands on its own rather than
+    # rendering as "<@123> ()".
+    name = str(view.get("created_by_name") or "").strip()
     embed.add_field(
         name="👤 Queued by",
         value=(
-            f"<@{msg['created_by']}> ({view.get('created_by_name')})"
+            f"<@{msg['created_by']}>" + (f" ({name})" if name else "")
             if msg.get("created_by")
             else "nobody on record"
         ),
@@ -1927,14 +1955,16 @@ def _schedule_alert_embed(tone: str, msg: dict, view: dict, reason: str):
     return embed
 
 
-async def _alert_schedule_outcome(
-    guild_id: int, msg_id: int, tone: str, reason: str, results=None
-) -> str:
+async def _alert_schedule_outcome(guild_id: int, msg_id: int, tone: str, reason: str) -> str:
     """Tell the server that one of its scheduled messages did not arrive.
 
     Returns how it was delivered (``log``, ``dm`` or ``""``), for the log and the
     tests. Never raises: a notification is worth less than the delivery loop, and
     one unreadable card must not become one unprocessed message.
+
+    Only the delivery *loop* calls this. A failure an administrator watched happen —
+    the panel's own **Send now** — is already answered in the page's receipt, a
+    second earlier, to the person who pressed it.
     """
     try:
         import discord
@@ -1984,6 +2014,23 @@ async def _alert_schedule_outcome(
         # message. A DM carries no ping, and someone who has closed their DMs
         # simply gets no DM rather than a second failure to explain.
         member = guild.get_member(creator) if creator is not None else None
+        if member is None and creator is not None:
+            # The cache holds only people the bot has run into (the Members intent is
+            # off), and "the person who queued it is told" has to be true rather than
+            # likely — so ask Discord for that one id, the same way the composer does,
+            # and with the same deadline: this runs on the delivery loop, where an
+            # unanswered request would hold up every other due message.
+            import asyncio
+
+            try:
+                member = await asyncio.wait_for(guild.fetch_member(creator), timeout=10.0)
+            except Exception as e:
+                print(
+                    f"[SCHEDULE] Could not look up {creator} to tell them about "
+                    f"#{msg_id}: {e}",
+                    flush=True,
+                )
+                member = None
         if member is not None:
             try:
                 await send_card(member, embed=embed, timeout=None)
@@ -2061,7 +2108,8 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
             # leaving it claimed would hide a real failure behind a stale sweep.
             # The row is only settled if the claim is still open, so a message that
             # was already recorded (and had its repeat advanced) is not settled twice.
-            if (scheduled.get(msg["guild_id"], msg["id"]) or {}).get("status") == "sending":
+            raised = scheduled.get(msg["guild_id"], msg["id"]) or {}
+            if raised.get("status") == "sending":
                 scheduled.mark_failed(msg["id"], now, f"Delivery failed: {e}")
                 await _alert_schedule_outcome(
                     msg["guild_id"],
@@ -2079,7 +2127,7 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
                 # Most of the announcement went out and one channel refused it:
                 # the outcome nobody notices on their own.
                 await _alert_schedule_outcome(
-                    msg["guild_id"], msg["id"], "partial", outcome["error"], outcome["results"]
+                    msg["guild_id"], msg["id"], "partial", outcome["error"]
                 )
         elif outcome.get("skipped"):
             # Nothing to report is not news: a quiet week is the generator saying
@@ -2088,7 +2136,7 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
         else:
             status = "failed"
             await _alert_schedule_outcome(
-                msg["guild_id"], msg["id"], _alert_tone(msg, fresh), outcome["error"], outcome["results"]
+                msg["guild_id"], msg["id"], _alert_tone(msg, fresh), outcome["error"]
             )
         done.append({
             "id": msg["id"],
