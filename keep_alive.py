@@ -834,6 +834,10 @@ MESSAGE_MAX_CHARS = 2000  # Discord's message limit, measured on the final text
 MESSAGE_TITLE_MAX = 256  # embed title limit
 MESSAGE_MAX_CHANNELS = 5  # one send may fan out to a handful of channels
 MESSAGE_MAX_MENTIONS = 25
+#: How many members the tag picker lists when the box is empty. Bounded because
+#: this payload is fetched while you type; a query still searches the live member
+#: list, so a member past the cap is found by typing rather than unreachable.
+MENTION_MEMBER_LIST_MAX = 500
 SEND_WINDOW_SECONDS = 60
 SEND_MAX_PER_WINDOW = 30
 
@@ -871,6 +875,16 @@ def _send_allowed(ip: str) -> bool:
             return False
         bucket.append(now)
         return True
+
+
+def _mention_entry(member) -> dict:
+    """One row of the tag picker. Ids cross as strings (see ``/api/channels``)."""
+    return {
+        "id": str(member.id),
+        "label": member.display_name or member.name,
+        "sub": f"@{member.name}",
+        "kind": "user",
+    }
 
 
 def _composer_guild(guild_id_raw):
@@ -971,22 +985,31 @@ def api_mentionables():
             name = member.display_name or member.name
             if query not in name.lower() and query not in member.name.lower():
                 continue
-            users.append({
-                "id": str(member.id),
-                "label": name,
-                "sub": f"@{member.name}",
-                "kind": "user",
-            })
+            users.append(_mention_entry(member))
             if len(users) >= limit * 4:
                 break
         users.sort(key=lambda u: (not u["label"].lower().startswith(query), u["label"].lower()))
+        users = users[:limit]
+    else:
+        # An empty box browses the server rather than showing nothing: the point
+        # of the picker is to tag people, and a member you cannot find is a member
+        # you cannot tag. Alphabetical, capped, and the cap is reported in
+        # ``member_total`` instead of applied quietly — a list that drops people
+        # without saying so is how "everyone" goes missing.
+        users = [_mention_entry(member) for member in guild.members]
+        users.sort(key=lambda u: u["label"].lower())
+        users = users[:MENTION_MEMBER_LIST_MAX]
 
     return jsonify({
         "success": True,
         "guild_id": guild_id,
-        "query": query,
-        "users": users[:limit],
-        "roles": roles[:limit],
+        "query": query,            "users": users,
+            # What the server says it has, and what the bot can actually see: with
+            # the Members intent off the cache is a fraction of the server, and a
+            # picker that does not admit that is how "everyone" goes missing.
+            "member_cache": len(guild.members),
+            "member_total": getattr(guild, "member_count", None) or len(guild.members),
+            "roles": roles[:limit],
         # Matched the way a role or a member is — what was typed is looked for
         # *in* the label — so @everyone and @here stay on offer while they are
         # being typed. The old test asked whether the query already contained the
@@ -1148,7 +1171,7 @@ def api_send_message():
     # Every tag is resolved against *this* guild's live cache, so an id posted by
     # the browser can only ever become a ping if it really is a member or a role
     # here. Anything else is reported back rather than silently dropped.
-    members, roles, keywords, ignored = [], [], [], []
+    members, roles, keywords, ignored, unresolved = [], [], [], [], []
     for raw in raw_mentions:
         token = str(raw).strip()
         # The picker offers @everyone and @here side by side, and they notify
@@ -1176,7 +1199,22 @@ def api_send_message():
         if role is not None:
             roles.append(role)
             continue
-        ignored.append(token)
+        if target not in unresolved:
+            unresolved.append(target)
+
+    # A member the cache has never seen is still a member. The cache only holds
+    # people the bot has happened to run into unless the Members intent is on, and
+    # asking Discord for the one id is the difference between tagging somebody and
+    # telling the administrator they are "not in this server".
+    for target in unresolved:
+        try:
+            fetched = _run_on_bot_loop(guild.fetch_member(target), timeout=10.0)
+        except Exception:
+            fetched = None
+        if fetched is not None:
+            members.append(fetched)
+        else:
+            ignored.append(str(target))
 
     # A ping only notifies from the message *content*: a mention inside an embed
     # silently does nothing, which is the one thing a tag-someone feature must not

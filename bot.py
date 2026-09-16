@@ -578,6 +578,19 @@ async def on_ready():
     except Exception as e:
         print(f"[UPDATE] Update announcement error: {e}", flush=True)
 
+    # The number behind "not everyone is in the tag list": without the intent the
+    # cache holds only the members the bot has happened to see.
+    if not getattr(bot.intents, "members", True):
+        for guild in bot.guilds:
+            total = guild.member_count or 0
+            cached = len(guild.members)
+            if total and cached < total:
+                print(
+                    f"[INTENTS] {guild.name}: {cached} of {total} members are cached, so that "
+                    "is all the dashboard tag picker can offer.",
+                    flush=True,
+                )
+
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
 
@@ -758,6 +771,15 @@ async def main():
                 "[INTENTS] Message Content intent is OFF: message text is invisible to the bot, "
                 "so AutoMod invite/link filtering cannot work and text XP uses the baseline rate. "
                 "Enable it in the Developer Portal and set ENABLE_MESSAGE_CONTENT_INTENT=1.",
+                flush=True,
+            )
+
+        if not bot.intents.members:
+            print(
+                "[INTENTS] Members intent is OFF: the bot only knows the members it has already "
+                "run into, so the dashboard tag picker cannot list the whole server (it can still "
+                "tag anyone by id). Enable it in the Developer Portal and set "
+                "ENABLE_MEMBERS_INTENT=1.",
                 flush=True,
             )
 

@@ -80,8 +80,17 @@ class _Guild:
         self.text_channels = list(channels)
         self.roles = [_Role(gid, "@everyone", default=True)] + list(roles)
         self.members = list(members)
+        self.member_count = len(self.members)  # what the server says it has
+        self.fetchable = {}  # ids Discord would hand back on a lookup
         self.me = SimpleNamespace(id=999)
         self._channels = {c.id: c for c in channels}
+
+    async def fetch_member(self, uid):
+        """The one-id lookup, which works even with the Members intent off."""
+        member = self.fetchable.get(uid)
+        if member is None:
+            raise discord.NotFound(SimpleNamespace(status=404, reason="Unknown Member"), "unknown")
+        return member
 
     def get_channel(self, cid):
         return self._channels.get(cid)
@@ -118,12 +127,17 @@ class ComposerCase(unittest.TestCase):
         self.news = _Channel(555004, "updates", news=True)
         self.role = _Role(ROLE_ID, "Members")
         self.member = _Member(MEMBER_ID, "raj", "RAJ")
+        # Two more people, so "the whole server" is a claim with something to prove.
+        self.others = [
+            _Member(MEMBER_ID + 1, "ash", "Ash"),
+            _Member(MEMBER_ID + 2, "zed", "Zed"),
+        ]
         self.guild = _Guild(
             GUILD_ID,
             "Meow Server",
             [self.standard, self.quiet, self.hidden, self.news],
             roles=[self.role],
-            members=[self.member],
+            members=[self.member, *self.others],
         )
         self.other_guild = _Guild(
             OTHER_GUILD_ID, "Other Server", [_Channel(OTHER_CHANNEL_ID + 50, "general")]
@@ -236,7 +250,10 @@ class ComposerCase(unittest.TestCase):
         only expose names its real counterpart exposes, plus the two fields
         discord.py assigns in ``__init__`` instead of declaring on the class.
         """
-        bookkeeping = {"sent", "send_error"}  # where a faked channel records
+        # Names a stand-in carries for the tests' own bookkeeping — where a faked
+        # channel records what was sent, and what a faked gateway can look up —
+        # rather than to imitate the API.
+        bookkeeping = {"sent", "send_error", "fetchable"}
         cases = [
             (self.guild, discord.Guild),
             (self.standard, discord.TextChannel),
@@ -301,9 +318,39 @@ class ComposerCase(unittest.TestCase):
                 [s["id"] for s in data["special"]], wanted, f"typed {query!r}"
             )
 
-    def test_mentionables_ships_no_member_list_without_a_query(self):
+    def test_an_empty_tag_box_lists_every_member(self):
+        """Browsing the server is how you tag someone whose name you cannot spell."""
         data = self._get(f"/api/mentionables?guild_id={GUILD_ID}").get_json()
-        self.assertEqual(data["users"], [], "a whole member list is never sent to the browser")
+        self.assertEqual(
+            [u["label"] for u in data["users"]],
+            ["Ash", "RAJ", "Zed"],
+            "every member, in a predictable order",
+        )
+        self.assertEqual(data["member_total"], 3)
+        self.assertEqual(data["member_cache"], 3)
+        for user in data["users"]:
+            self.assertIsInstance(user["id"], str, "ids cross as strings")
+            self.assertTrue(user["id"].isdigit(), user)
+
+    def test_the_picker_admits_when_it_can_see_only_part_of_the_server(self):
+        """With the Members intent off the cache is a fraction of the server."""
+        with mock.patch.object(self.guild, "member_count", 40):
+            data = self._get(f"/api/mentionables?guild_id={GUILD_ID}").get_json()
+        self.assertEqual(data["member_cache"], 3, "what the bot can see")
+        self.assertEqual(data["member_total"], 40, "what the server actually has")
+
+    def test_a_capped_member_list_reports_what_it_left_out(self):
+        """A cap nobody mentions is how a person you meant to tag stays invisible."""
+        with mock.patch.object(self.keep_alive, "MENTION_MEMBER_LIST_MAX", 2):
+            data = self._get(f"/api/mentionables?guild_id={GUILD_ID}").get_json()
+        self.assertEqual([u["label"] for u in data["users"]], ["Ash", "RAJ"])
+        self.assertEqual(data["member_total"], 3, "so the page can say what is not shown")
+
+    def test_typing_searches_the_live_member_list_not_just_the_listed_page(self):
+        """Any member is reachable, however short the listing was."""
+        with mock.patch.object(self.keep_alive, "MENTION_MEMBER_LIST_MAX", 1):
+            data = self._get(f"/api/mentionables?guild_id={GUILD_ID}&q=zed").get_json()
+        self.assertEqual([u["label"] for u in data["users"]], ["Zed"])
 
     # ── sending ──────────────────────────────────────────────────────────
     def test_a_plain_message_is_posted_with_the_tags_in_the_content(self):
@@ -374,6 +421,25 @@ class ComposerCase(unittest.TestCase):
         self.assertEqual(posted["allowed_mentions"].users, [], "an unknown id is not a ping")
         self.assertEqual(sorted(data["ignored_mentions"]), ["999999999", "not-a-snowflake"])
         self.assertNotIn("<@999999999>", posted["content"])
+
+    def test_a_member_the_cache_has_never_seen_can_still_be_tagged(self):
+        """A tag is an id, so an uncached member is a lookup, not a refusal.
+
+        Without the Members intent the cache holds only the people the bot has
+        happened to run into; answering "not in this server" for somebody who is
+        in the server is what that used to produce.
+        """
+        unseen = _Member(MEMBER_ID + 99, "newcomer", "Newcomer")
+        self.guild.fetchable[unseen.id] = unseen
+
+        response = self._send(content="welcome aboard", mentions=[str(unseen.id)])
+        data = response.get_json()
+
+        self.assertTrue(data["success"], data)
+        self.assertEqual(data["ignored_mentions"], [])
+        posted = self.standard.sent[-1]
+        self.assertIn(f"<@{unseen.id}>", posted["content"])
+        self.assertEqual([u.id for u in posted["allowed_mentions"].users], [unseen.id])
 
     def test_one_send_fans_out_to_several_channels(self):
         response = self._send(

@@ -1239,6 +1239,21 @@
                     shown++;
                 });
             });
+            // The member list is capped — and the bot can only ever offer what it
+            // can see — so a list that quietly stops short is how a person you
+            // meant to tag stays invisible.
+            const listed = (data.users || []).length;
+            const cache = Number(data.member_cache || listed);
+            const total = Number(data.member_total || cache);
+            if (!data.query && (total > listed || cache > listed)) {
+                const note = document.createElement("div");
+                note.className = "mention-result";
+                note.textContent = total > cache
+                    ? `Showing ${listed} of ${total} members — the bot can only see ${cache} "
+                        + `of them (Members intent is off), so tag anyone else by name`
+                    : `Showing ${listed} of ${total} members — type a name to search the rest`;
+                composerEls.results.appendChild(note);
+            }
             if (!shown) {
                 const empty = document.createElement("div");
                 empty.className = "mention-result";
