@@ -750,6 +750,9 @@ def dashboard():
         csrf_token=get_csrf_token(),
         guilds=_known_guilds(),
         can_switch_guild=session.get("auth_scope") == "global",
+        # The picker's cap comes from the same constant the endpoint enforces, so
+        # the page cannot offer a sixth channel the send would then refuse.
+        composer_max_channels=MESSAGE_MAX_CHANNELS,
     )
 
 

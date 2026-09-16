@@ -7,6 +7,7 @@ being written to, a channel the bot cannot send in, and a guild the signed-in
 session was not pinned to. Everything the browser sends is re-resolved against
 the live guild, because a browser can send anything.
 """
+import re
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -545,14 +546,14 @@ class DashboardTemplateCase(unittest.TestCase):
     """The shipped page must actually carry the composer, and carry it safely."""
 
     @staticmethod
-    def render() -> str:
+    def render(**overrides) -> str:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
 
         env = Environment(
             loader=FileSystemLoader("templates"),
             autoescape=select_autoescape(["html"]),
         )
-        return env.get_template("dashboard.html").render(
+        context = dict(
             guild_id=GUILD_ID,
             guild_name="Meow Server",
             member_count=3,
@@ -565,6 +566,8 @@ class DashboardTemplateCase(unittest.TestCase):
             guilds=[],
             can_switch_guild=False,
         )
+        context.update(overrides)
+        return env.get_template("dashboard.html").render(**context)
 
     def test_the_page_hands_the_guild_id_over_as_a_string(self):
         """Same overflow, same fix: this id is posted back with every request."""
@@ -594,6 +597,62 @@ class DashboardTemplateCase(unittest.TestCase):
             "composer-clear",
         ):
             self.assertIn(f'id="{element_id}"', html, element_id)
+
+    def test_the_page_script_parses_in_a_real_js_engine(self):
+        """Nothing else notices a syntax error: the page renders, the CSS applies
+        and every control on it is dead — which is exactly how a stray quote in
+        one string shipped to production."""
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        scripts = re.findall(r"<script>(.*?)</script>", self.render(), re.S)
+        self.assertTrue(scripts, "the dashboard has no script block")
+        for script in scripts:
+            handle = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+            try:
+                handle.write(script)
+                handle.close()
+                result = subprocess.run(
+                    [node, "--check", handle.name], capture_output=True, text=True
+                )
+            finally:
+                os.unlink(handle.name)
+            self.assertEqual(result.returncode, 0, result.stderr[:800])
+
+    def test_every_element_the_script_reaches_for_exists(self):
+        """``getElementById`` on an id the markup does not have is ``null``, and
+        the control it belongs to does nothing at all until someone clicks it."""
+        html = self.render()
+        looked_up = set(re.findall(r'getElementById\("([^"]+)"\)', html))
+        self.assertTrue(looked_up, "no element lookups found — has the script moved?")
+        missing = sorted(name for name in looked_up if f'id="{name}"' not in html)
+        self.assertEqual(missing, [], "the script looks up ids the page never renders")
+
+    def test_the_channel_picker_is_not_a_ctrl_click_select(self):
+        """A ``<select multiple>`` needs Ctrl-click, cannot be searched, hides what
+        is selected and does nothing on a touch screen."""
+        html = self.render()
+        self.assertNotIn('<select id="composer-channels"', html)
+        self.assertIn('id="composer-channels"', html)
+        self.assertIn('aria-multiselectable="true"', html)
+        self.assertIn('id="composer-channel-search"', html)
+        self.assertIn('id="composer-channel-count"', html)
+        self.assertNotIn("Ctrl/Cmd-click", html)
+
+    def test_the_picker_uses_the_servers_own_channel_limit(self):
+        """Two copies of a limit drift; the page must not offer a sixth channel
+        the endpoint would then refuse."""
+        import keep_alive
+
+        limit = keep_alive.MESSAGE_MAX_CHANNELS
+        html = self.render(composer_max_channels=limit)
+        self.assertIn(f"const COMPOSER_MAX_CHANNELS = {limit};", html)
+        self.assertIn(f"up to {limit}", html)
 
     def test_the_page_calls_the_composer_endpoints(self):
         html = self.render()

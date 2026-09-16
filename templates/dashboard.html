@@ -526,9 +526,22 @@
 
         .composer-grid {
             display: grid;
-            grid-template-columns: minmax(260px, 340px) 1fr;
-            gap: 20px;
+            grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+            gap: 22px;
             align-items: start;
+        }
+
+        /* ``minmax(0, 1fr)`` above and this: without it a long channel name or a
+           wide preview stretches the column past the card and the page scrolls
+           sideways. */
+        .composer-col { min-width: 0; }
+
+        .field-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-height: 20px;
         }
 
         .composer-field {
@@ -542,7 +555,9 @@
            attribute alone would leave the embed title sitting on the page. */
         .composer-field[hidden] { display: none; }
 
-        .composer-field > label {
+        .composer-field > label,
+        .field-head > label,
+        .field-label {
             font-size: 11px;
             font-weight: 700;
             color: var(--text-muted);
@@ -576,15 +591,151 @@
             line-height: 1.55;
         }
 
-        .composer-select {
-            min-height: 168px;
+        /* ---- Channel picker ---- */
+        /* A native ``<select multiple>`` needs Ctrl-click, cannot be searched,
+           hides what is selected and does nothing on a touch screen — all of
+           which made picking a channel the hardest part of sending one
+           message. These are toggle rows instead. */
+        .picker-wrap { position: relative; }
+
+        .picker {
+            margin-top: 8px;
+            max-height: 264px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            background: rgba(13, 17, 24, 0.6);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            scrollbar-width: thin;
         }
 
-        .composer-select option:disabled { color: var(--text-muted); }
+        /* Before the fetch lands, and again if it returns nothing at all. */
+        .picker:empty::before {
+            content: "Loading channels…";
+            display: block;
+            padding: 14px 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .picker-group {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #151b26;
+            padding: 7px 12px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.9px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .picker-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 9px 12px;
+            background: none;
+            border: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .picker-row:last-child { border-bottom: 0; }
+
+        .picker-row:hover:not(:disabled) {
+            background: var(--surface-hover);
+            color: var(--text-primary);
+        }
+
+        .picker-row:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
+        }
+
+        .picker-row[aria-selected="true"] {
+            background: rgba(88, 101, 242, 0.18);
+            color: #fff;
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+
+        .picker-row:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+
+        .picker-tick {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            border-radius: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            line-height: 1;
+            color: transparent;
+        }
+
+        .picker-row[aria-selected="true"] .picker-tick {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .picker-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .picker-meta {
+            margin-left: auto;
+            flex-shrink: 0;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .picker-note {
+            padding: 14px 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text-muted);
+        }
+
+        .badge-count {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .badge-count.full {
+            color: #facc15;
+            border-color: rgba(250, 204, 21, 0.4);
+        }
 
         .composer-input:focus-visible,
         .composer-textarea:focus-visible,
-        .composer-select:focus-visible,
         .composer-search:focus-visible {
             outline: 2px solid var(--accent);
             outline-offset: 2px;
@@ -598,26 +749,41 @@
             top: calc(100% + 6px);
             left: 0;
             right: 0;
-            max-height: 260px;
+            max-height: min(320px, 50vh);
             overflow-y: auto;
+            overscroll-behavior: contain;
             background: #171d29;
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
             box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
             display: none;
+            scrollbar-width: thin;
         }
 
         .mention-results.open { display: block; }
 
+        .mention-group {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #1b2231;
+            padding: 6px 14px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.9px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+
         .mention-result {
             display: flex;
-            align-items: baseline;
-            gap: 8px;
+            align-items: center;
+            gap: 10px;
             width: 100%;
-            padding: 10px 14px;
+            padding: 9px 14px;
             background: none;
             border: 0;
-            border-bottom: 1px solid var(--border);
             color: var(--text-primary);
             font: inherit;
             font-size: 13px;
@@ -625,19 +791,40 @@
             cursor: pointer;
         }
 
-        .mention-result:last-child { border-bottom: 0; }
-        .mention-result:hover { background: var(--surface-hover); }
+        .mention-result:hover,
+        .mention-result.active { background: var(--surface-hover); }
 
         .mention-result .kind {
+            margin-left: auto;
+            flex-shrink: 0;
             font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.6px;
             color: var(--text-muted);
-            margin-left: auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 999px;
+            padding: 2px 8px;
         }
 
-        .mention-result .sub { font-size: 11px; color: var(--text-muted); }
+        .mention-result .sub {
+            font-size: 11px;
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* The "we can only see N of M members" line and the empty state are
+           notes, not choices — they must not look like something to click. */
+        .mention-note {
+            padding: 11px 14px;
+            font-size: 11.5px;
+            line-height: 1.5;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.02);
+            border-top: 1px solid var(--border);
+        }
 
         .chips {
             display: flex;
@@ -672,11 +859,32 @@
 
         .chip button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
-        .composer-row {
+        .composer-actions {
             display: flex;
             align-items: center;
             gap: 12px;
             flex-wrap: wrap;
+        }
+
+        .composer-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+
+        #composer-send { padding: 11px 20px; }
+
+        #composer-mention-search { padding-left: 34px; background-image: none; }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            color: var(--text-muted);
+            pointer-events: none;
         }
 
         .composer-check {
@@ -689,7 +897,7 @@
             cursor: pointer;
         }
 
-        .counter { margin-left: auto; font-size: 11px; color: var(--text-muted); font-family: "JetBrains Mono", monospace; }
+        .counter { font-size: 11px; color: var(--text-muted); font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
         .counter.over { color: #ff6b6b; }
 
         .preview {
@@ -698,15 +906,34 @@
             border-radius: var(--radius-md);
             padding: 14px 16px;
             margin-top: 4px;
+            min-height: 112px;
         }
 
         .preview-head {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             font-size: 13px;
             font-weight: 700;
+        }
+
+        .preview-avatar {
+            width: 28px;
+            height: 28px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #5865F2, #eb459e);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+        }
+
+        .preview-time {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
         }
 
         .preview-bot-tag {
@@ -762,13 +989,46 @@
             .btn:hover { transform: none; }
         }
 
+        @media (max-width: 1024px) {
+            .composer-grid { grid-template-columns: 1fr; gap: 18px; }
+            .composer-col + .composer-col {
+                border-top: 1px solid var(--border);
+                padding-top: 18px;
+            }
+        }
+
         @media (max-width: 768px) {
-            body { padding: 16px; }
-            .modules-grid { grid-template-columns: 1fr; }
-            .composer-grid { grid-template-columns: 1fr; }
+            body { padding: 12px; }
             header { padding: 16px; }
+            .brand-text h1 { font-size: 19px; }
+            .metrics-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+            .metric-card { padding: 14px 16px; gap: 12px; }
+            .modules-grid { grid-template-columns: 1fr; }
             .guild-select { max-width: 100%; width: 100%; }
             .header-actions { width: 100%; }
+            .section-header { flex-wrap: wrap; }
+            .picker { max-height: 220px; }
+            /* Keep Send within reach instead of a scroll away at the bottom of a
+               long form. */
+            .composer-actions {
+                position: sticky;
+                bottom: 0;
+                z-index: 5;
+                background: #12161f;
+                border-top: 1px solid var(--border);
+                padding: 12px 0 4px;
+            }
+            .composer-buttons { margin-left: 0; width: 100%; }
+            .composer-buttons .btn { flex: 1; min-height: 44px; justify-content: center; }
+            #toast-container { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+        }
+
+        @media (max-width: 520px) {
+            .brand-text h1 { font-size: 17px; }
+            .section-header h2 { font-size: 17px; }
+            .composer-card { padding: 16px; }
+            .mention-results { max-height: 240px; }
+            .bot-avatar { width: 44px; height: 44px; font-size: 22px; }
         }
     </style>
 </head>
@@ -844,48 +1104,66 @@
 
         <div class="composer-card">
             <div class="composer-grid">
-                <div>
+                <div class="composer-col">
                     <div class="composer-field">
-                        <label for="composer-channels">Channels</label>
-                        <select id="composer-channels" class="composer-select" multiple size="8" aria-describedby="composer-channels-hint"></select>
-                        <span class="composer-hint" id="composer-channels-hint">Ctrl/Cmd-click to pick more than one (up to 5).</span>
+                        <div class="field-head">
+                            <label for="composer-channel-search">Channels</label>
+                            <span class="badge-count" id="composer-channel-count" aria-live="polite">0 of {{ composer_max_channels|default(5) }} selected</span>
+                        </div>
+                        <div class="picker-wrap">
+                            <input id="composer-channel-search" class="composer-input composer-search" type="search" autocomplete="off"
+                                   placeholder="Filter channels…" aria-label="Filter channels" aria-controls="composer-channels">
+                            <div class="picker" id="composer-channels" role="listbox" aria-multiselectable="true"
+                                 aria-label="Channels" aria-describedby="composer-channels-hint"></div>
+                        </div>
+                        <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_max_channels|default(5) }} — the bot posts the same message to every one.</span>
                     </div>
                     <div class="composer-field">
                         <label for="composer-mention-search">Tag people or roles</label>
                         <div class="composer-search-wrap">
-                            <input id="composer-mention-search" class="composer-input" type="text" autocomplete="off"
-                                   placeholder="Type a name — @everyone and @here work too"
-                                   role="combobox" aria-expanded="false" aria-controls="composer-mention-results">
+                            <span class="search-icon" aria-hidden="true">🔍</span>
+                            <input id="composer-mention-search" class="composer-input composer-search" type="text" autocomplete="off"
+                                   placeholder="Search people and roles — @everyone and @here work too"
+                                   role="combobox" aria-expanded="false" aria-controls="composer-mention-results"
+                                   aria-autocomplete="list" aria-haspopup="listbox">
                             <div class="mention-results" id="composer-mention-results" role="listbox" aria-label="Matches"></div>
                         </div>
                         <div class="chips" id="composer-chips"></div>
+                        <span class="composer-hint">↑ ↓ to move, Enter to pick, Esc to close — or focus the box to browse everyone.</span>
                     </div>
                 </div>
 
-                <div>
+                <div class="composer-col">
                     <div class="composer-field">
-                        <label for="composer-body">Message</label>
+                        <div class="field-head">
+                            <label for="composer-body">Message</label>
+                            <span class="counter" id="composer-counter">0 / 2000</span>
+                        </div>
                         <textarea id="composer-body" class="composer-textarea" maxlength="2000" placeholder="Write the announcement…"></textarea>
-                        <span class="counter" id="composer-counter">0 / 2000</span>
                     </div>
                     <div class="composer-field" id="composer-title-field" hidden>
                         <label for="composer-title">Embed title</label>
                         <input id="composer-title" class="composer-input" type="text" maxlength="256" placeholder="Optional headline">
                     </div>
                     <div class="composer-field">
-                        <div class="composer-row">
+                        <div class="composer-actions">
                             <label class="composer-check" for="composer-embed">
                                 <input type="checkbox" id="composer-embed"> Send as an embed
                             </label>
-                            <button type="button" class="btn" id="composer-clear">Clear</button>
-                            <button type="button" class="btn btn-primary" id="composer-send">Send message</button>
+                            <div class="composer-buttons">
+                                <button type="button" class="btn" id="composer-clear">Clear</button>
+                                <button type="button" class="btn btn-primary" id="composer-send">Send message</button>
+                            </div>
                         </div>
                     </div>
                     <div class="composer-field">
-                        <label for="composer-preview">Preview</label>
+                        <div class="field-head">
+                            <span class="field-label">Preview</span>
+                            <span class="composer-hint">What Discord will show</span>
+                        </div>
                         <div class="preview" id="composer-preview"></div>
                     </div>
-                    <div class="composer-status" id="composer-status"></div>
+                    <div class="composer-status" id="composer-status" role="status"></div>
                 </div>
             </div>
         </div>
@@ -1078,9 +1356,18 @@
            rendered with textContent so a member called "<b>" stays a name, and the
            preview is a picture of what the bot will post rather than the payload. */
         const composerMentions = [];
+        let composerChannels = [];      // every channel the bot can see in this guild
+        const composerSelection = [];   // chosen channel ids, in the order they were picked
+        // Rendered from the server's own limit rather than a second copy of it.
+        const COMPOSER_MAX_CHANNELS = {{ composer_max_channels|default(5) }};
+        let mentionTimer = null;
+        let mentionRequest = 0;         // drops an out-of-order answer
+        let mentionActive = -1;         // the highlighted row, for the keyboard
 
         const composerEls = {
             channels: document.getElementById("composer-channels"),
+            channelSearch: document.getElementById("composer-channel-search"),
+            channelCount: document.getElementById("composer-channel-count"),
             body: document.getElementById("composer-body"),
             title: document.getElementById("composer-title"),
             titleField: document.getElementById("composer-title-field"),
@@ -1126,46 +1413,178 @@
             return data;
         }
 
+        function pickerNote(message) {
+            composerEls.channels.innerHTML = "";
+            const note = document.createElement("div");
+            note.className = "picker-note";
+            note.textContent = message;
+            composerEls.channels.appendChild(note);
+        }
+
+        function channelMeta(channel) {
+            if (!channel.can_send) return "no permission";
+            const bits = [];
+            if (channel.is_news) bits.push("news");
+            if (Number(channel.slowmode) > 0) bits.push(`${Number(channel.slowmode)}s slow`);
+            return bits.join(" · ");
+        }
+
+        function channelRow(channel) {
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "picker-row";
+            row.dataset.channelId = String(channel.id);
+            row.setAttribute("role", "option");
+            row.setAttribute("aria-selected", composerSelection.includes(String(channel.id)) ? "true" : "false");
+            // A channel the bot cannot post in is shown rather than hidden — an
+            // absent channel looks like a bug, a greyed one explains itself.
+            row.disabled = !channel.can_send;
+
+            const tick = document.createElement("span");
+            tick.className = "picker-tick";
+            tick.setAttribute("aria-hidden", "true");
+            tick.textContent = "✓";
+            const name = document.createElement("span");
+            name.className = "picker-name";
+            name.textContent = `#${channel.name}`;
+            row.appendChild(tick);
+            row.appendChild(name);
+
+            const meta = channelMeta(channel);
+            if (meta) {
+                const badge = document.createElement("span");
+                badge.className = "picker-meta";
+                badge.textContent = meta;
+                row.appendChild(badge);
+            }
+            row.addEventListener("click", () => toggleChannel(channel));
+            return row;
+        }
+
+        function updateChannelCount() {
+            const chosen = composerSelection.length;
+            composerEls.channelCount.textContent = chosen
+                ? `${chosen} of ${COMPOSER_MAX_CHANNELS} selected`
+                : `0 of ${COMPOSER_MAX_CHANNELS} selected`;
+            composerEls.channelCount.classList.toggle("full", chosen >= COMPOSER_MAX_CHANNELS);
+        }
+
+        function renderChannelPicker() {
+            const query = composerEls.channelSearch.value.trim().toLowerCase();
+            const matches = composerChannels.filter(channel =>
+                !query
+                || channel.name.toLowerCase().includes(query)
+                || String(channel.category || "").toLowerCase().includes(query)
+            );
+            if (!matches.length) {
+                pickerNote(composerChannels.length
+                    ? `No channel matches “${composerEls.channelSearch.value.trim()}”.`
+                    : "The bot cannot see any text channel in this server.");
+                return;
+            }
+
+            const groups = new Map();
+            matches.forEach(channel => {
+                const key = channel.category || "No category";
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(channel);
+            });
+
+            composerEls.channels.innerHTML = "";
+            [...groups.keys()].sort((a, b) => a.localeCompare(b)).forEach(category => {
+                const head = document.createElement("div");
+                head.className = "picker-group";
+                head.textContent = `${category} · ${groups.get(category).length}`;
+                composerEls.channels.appendChild(head);
+                groups.get(category)
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .forEach(channel => composerEls.channels.appendChild(channelRow(channel)));
+            });
+        }
+
+        function toggleChannel(channel) {
+            const id = String(channel.id);
+            const index = composerSelection.indexOf(id);
+            if (index >= 0) {
+                composerSelection.splice(index, 1);
+            } else {
+                if (composerSelection.length >= COMPOSER_MAX_CHANNELS) {
+                    showToast(`Up to ${COMPOSER_MAX_CHANNELS} channels per send — untick one first.`, "error");
+                    return;
+                }
+                composerSelection.push(id);
+            }
+            const row = composerEls.channels.querySelector(`[data-channel-id="${id}"]`);
+            if (row) row.setAttribute("aria-selected", index >= 0 ? "false" : "true");
+            updateChannelCount();
+        }
+
         async function loadChannels() {
             if (!BOT_READY) {
+                pickerNote("The bot is offline, so there is nothing to send with yet.");
+                composerEls.channelSearch.disabled = true;
                 composerStatus("The bot is offline, so there is nothing to send with yet.");
                 return;
             }
-            let channels = [];
             try {
                 const data = await apiGet(`/api/channels?guild_id=${encodeURIComponent(GUILD_ID)}`);
-                channels = data.channels || [];
+                composerChannels = data.channels || [];
             } catch (err) {
+                pickerNote(`Could not load channels: ${err.message}`);
                 composerStatus(`Could not load channels: ${err.message}`);
                 return;
             }
-            const groups = new Map();
-            channels.forEach(ch => {
-                const key = ch.category || "No category";
-                if (!groups.has(key)) groups.set(key, []);
-                groups.get(key).push(ch);
-            });
-            composerEls.channels.innerHTML = "";
-            [...groups.keys()].sort((a, b) => a.localeCompare(b)).forEach(category => {
-                const group = document.createElement("optgroup");
-                group.label = category;
-                groups.get(category).forEach(ch => {
-                    const option = document.createElement("option");
-                    option.value = ch.id;
-                    option.textContent = ch.can_send ? `#${ch.name}` : `#${ch.name} — no permission`;
-                    option.disabled = !ch.can_send;
-                    group.appendChild(option);
-                });
-                composerEls.channels.appendChild(group);
-            });
-            const usable = channels.filter(ch => ch.can_send).length;
-            composerStatus(`${usable} channel${usable === 1 ? "" : "s"} available.`);
+            renderChannelPicker();
+            const usable = composerChannels.filter(ch => ch.can_send).length;
+            composerStatus(usable
+                ? `${usable} channel${usable === 1 ? "" : "s"} the bot can post in.`
+                : "The bot needs Send Messages in at least one channel.");
         }
 
         function closeMentionResults() {
             composerEls.results.classList.remove("open");
             composerEls.results.innerHTML = "";
             composerEls.search.setAttribute("aria-expanded", "false");
+            composerEls.search.removeAttribute("aria-activedescendant");
+            mentionActive = -1;
+        }
+
+        function showMentionSearching() {
+            composerEls.results.innerHTML = "";
+            const note = document.createElement("div");
+            note.className = "mention-note";
+            note.textContent = "Searching…";
+            composerEls.results.appendChild(note);
+            composerEls.results.classList.add("open");
+            composerEls.search.setAttribute("aria-expanded", "true");
+            mentionActive = -1;
+        }
+
+        function mentionRows() {
+            return Array.from(composerEls.results.querySelectorAll(".mention-result"));
+        }
+
+        function setMentionActive(index) {
+            const rows = mentionRows();
+            rows.forEach((row, position) => row.classList.toggle("active", position === index));
+            mentionActive = index >= 0 && index < rows.length ? index : -1;
+            if (mentionActive < 0) {
+                composerEls.search.removeAttribute("aria-activedescendant");
+                return;
+            }
+            rows[mentionActive].scrollIntoView({ block: "nearest" });
+            composerEls.search.setAttribute("aria-activedescendant", rows[mentionActive].id);
+        }
+
+        function moveMentionActive(step) {
+            const rows = mentionRows();
+            if (!rows.length) return;
+            let next = mentionActive + step;
+            if (mentionActive < 0) next = step > 0 ? 0 : rows.length - 1;
+            if (next < 0) next = rows.length - 1;
+            if (next >= rows.length) next = 0;
+            setMentionActive(next);
         }
 
         function addMention(item) {
@@ -1202,6 +1621,34 @@
             });
         }
 
+        function mentionRow(kind, item, index) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "mention-result";
+            button.id = `composer-mention-${index}`;
+            button.setAttribute("role", "option");
+            button.setAttribute("aria-selected", "false");
+            const name = document.createElement("span");
+            // A special carries its own "@" ("@everyone"); a member is a plain
+            // name; a role gets the "@" added.
+            name.textContent = kind === "Members" || item.label.startsWith("@")
+                ? item.label
+                : `@${item.label}`;
+            button.appendChild(name);
+            if (item.sub) {
+                const sub = document.createElement("span");
+                sub.className = "sub";
+                sub.textContent = item.sub;
+                button.appendChild(sub);
+            }
+            const badge = document.createElement("span");
+            badge.className = "kind";
+            badge.textContent = kind;
+            button.appendChild(badge);
+            button.addEventListener("click", () => addMention({ id: item.id, label: item.label, kind: item.kind }));
+            return button;
+        }
+
         function renderMentionResults(data) {
             composerEls.results.innerHTML = "";
             const groups = [
@@ -1211,31 +1658,17 @@
             ];
             let shown = 0;
             groups.forEach(([kind, items]) => {
-                items.forEach(item => {
-                    if (composerMentions.some(m => String(m.id) === String(item.id))) return;
-                    const button = document.createElement("button");
-                    button.type = "button";
-                    button.className = "mention-result";
-                    button.setAttribute("role", "option");
-                    const name = document.createElement("span");
-                    // A special carries its own "@" ("@everyone"); a member is a
-                    // plain name; a role gets the "@" added.
-                    name.textContent = kind === "Members" || item.label.startsWith("@")
-                        ? item.label
-                        : `@${item.label}`;
-                    button.appendChild(name);
-                    if (item.sub) {
-                        const sub = document.createElement("span");
-                        sub.className = "sub";
-                        sub.textContent = item.sub;
-                        button.appendChild(sub);
-                    }
-                    const badge = document.createElement("span");
-                    badge.className = "kind";
-                    badge.textContent = kind;
-                    button.appendChild(badge);
-                    button.addEventListener("click", () => addMention({ id: item.id, label: item.label, kind: item.kind }));
-                    composerEls.results.appendChild(button);
+                // Already-tagged people are dropped before the header goes in, so
+                // an empty group is never a header with nothing under it.
+                const fresh = items.filter(item =>
+                    !composerMentions.some(m => String(m.id) === String(item.id)));
+                if (!fresh.length) return;
+                const head = document.createElement("div");
+                head.className = "mention-group";
+                head.textContent = kind;
+                composerEls.results.appendChild(head);
+                fresh.forEach(item => {
+                    composerEls.results.appendChild(mentionRow(kind, item, shown));
                     shown++;
                 });
             });
@@ -1247,33 +1680,37 @@
             const total = Number(data.member_total || cache);
             if (!data.query && (total > listed || cache > listed)) {
                 const note = document.createElement("div");
-                note.className = "mention-result";
+                note.className = "mention-note";
                 note.textContent = total > cache
-                    ? `Showing ${listed} of ${total} members — the bot can only see ${cache} "
-                        + `of them (Members intent is off), so tag anyone else by name`
-                    : `Showing ${listed} of ${total} members — type a name to search the rest`;
+                    ? `Showing ${listed} of ${total} members — the bot can only see ${cache} of them (the Members intent is off), so tag anyone else by name.`
+                    : `Showing ${listed} of ${total} members — type a name to search the rest.`;
                 composerEls.results.appendChild(note);
             }
             if (!shown) {
                 const empty = document.createElement("div");
-                empty.className = "mention-result";
-                empty.textContent = "Nothing matches that yet";
+                empty.className = "mention-note";
+                empty.textContent = "Nothing matches that yet.";
                 composerEls.results.appendChild(empty);
             }
+            mentionActive = -1;
             composerEls.results.classList.add("open");
             composerEls.search.setAttribute("aria-expanded", "true");
         }
 
-        let mentionTimer = null;
         async function searchMentionables() {
             if (!BOT_READY) return;
             const query = composerEls.search.value.trim();
+            const requestId = ++mentionRequest;
             try {
                 const data = await apiGet(
                     `/api/mentionables?guild_id=${encodeURIComponent(GUILD_ID)}&q=${encodeURIComponent(query)}`
                 );
+                // Typing fast fires several requests; the answer to an earlier,
+                // slower one must not replace the answer to a later one.
+                if (requestId !== mentionRequest) return;
                 renderMentionResults(data);
             } catch (err) {
+                if (requestId !== mentionRequest) return;
                 if (err.message !== "Session expired") composerStatus(`Could not search: ${err.message}`);
             }
         }
@@ -1304,15 +1741,20 @@
             const head = document.createElement("div");
             head.className = "preview-head";
             const avatar = document.createElement("span");
+            avatar.className = "preview-avatar";
             avatar.textContent = "🐾";
             const name = document.createElement("span");
             name.textContent = "Meow";
             const tag = document.createElement("span");
             tag.className = "preview-bot-tag";
             tag.textContent = "APP";
+            const time = document.createElement("span");
+            time.className = "preview-time";
+            time.textContent = "today";
             head.appendChild(avatar);
             head.appendChild(name);
             head.appendChild(tag);
+            head.appendChild(time);
             composerEls.preview.appendChild(head);
 
             if (composerMentions.length) {
@@ -1359,7 +1801,10 @@
             composerEls.embed.checked = false;
             composerEls.titleField.hidden = true;
             composerMentions.length = 0;
-            Array.from(composerEls.channels.options).forEach(option => { option.selected = false; });
+            composerSelection.length = 0;
+            composerEls.channelSearch.value = "";
+            renderChannelPicker();
+            updateChannelCount();
             renderChips();
             renderPreview();
             updateCounter();
@@ -1367,7 +1812,7 @@
         }
 
         async function sendComposedMessage() {
-            const channelIds = Array.from(composerEls.channels.selectedOptions).map(o => o.value);
+            const channelIds = composerSelection.slice();
             const body = composerEls.body.value.trim();
             const title = composerEls.title.value.trim();
             const asEmbed = composerEls.embed.checked;
@@ -1419,15 +1864,42 @@
         });
         composerEls.send.addEventListener("click", sendComposedMessage);
         composerEls.clear.addEventListener("click", clearComposer);
-        composerEls.search.addEventListener("focus", () => { clearTimeout(mentionTimer); searchMentionables(); });
+        composerEls.channelSearch.addEventListener("input", renderChannelPicker);
+        composerEls.search.addEventListener("focus", () => {
+            clearTimeout(mentionTimer);
+            showMentionSearching();
+            searchMentionables();
+        });
         composerEls.search.addEventListener("input", () => {
             clearTimeout(mentionTimer);
+            showMentionSearching();
             mentionTimer = setTimeout(searchMentionables, 180);
+        });
+        composerEls.search.addEventListener("keydown", (event) => {
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                moveMentionActive(1);
+            } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                moveMentionActive(-1);
+            } else if (event.key === "Enter") {
+                // Enter takes the highlighted row, or the best match when the
+                // keyboard has not been used to walk down to one.
+                const rows = mentionRows();
+                const pick = mentionActive >= 0 ? rows[mentionActive] : rows[0];
+                if (pick) {
+                    event.preventDefault();
+                    pick.click();
+                }
+            } else if (event.key === "Escape") {
+                closeMentionResults();
+            }
         });
         document.addEventListener("click", (event) => {
             if (!event.target.closest(".composer-search-wrap")) closeMentionResults();
         });
 
+        updateChannelCount();
         renderChips();
         renderPreview();
         updateCounter();

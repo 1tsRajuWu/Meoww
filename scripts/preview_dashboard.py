@@ -98,6 +98,7 @@ def dashboard():
         csrf_token="preview-token",
         guilds=[{"id": 777001, "name": "Meow Server"}, {"id": 777002, "name": "Second Server"}],
         can_switch_guild=True,
+        composer_max_channels=keep_alive.MESSAGE_MAX_CHANNELS,
     )
 
 
