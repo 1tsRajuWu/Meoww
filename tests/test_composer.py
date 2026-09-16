@@ -303,6 +303,31 @@ class ComposerCase(unittest.TestCase):
         self.assertTrue(posted["allowed_mentions"].everyone)
         self.assertIn("@everyone", posted["content"])
 
+    def test_here_is_posted_as_here_not_as_everyone(self):
+        """The picker offers them side by side, so they must arrive separately."""
+        self._send(content="server night", mentions=["@here"])
+        posted = self.standard.sent[-1]
+        self.assertIn("@here", posted["content"])
+        self.assertNotIn("@everyone", posted["content"])
+        self.assertTrue(posted["allowed_mentions"].everyone, "@here still needs it allowed")
+
+        self._send(content="server night", mentions=["@everyone"])
+        posted = self.standard.sent[-1]
+        self.assertIn("@everyone", posted["content"])
+        self.assertNotIn("@here", posted["content"])
+
+    def test_a_title_without_an_embed_is_refused_rather_than_posted_empty(self):
+        """Outside an embed the title is not sent, so a title alone is nothing."""
+        response = self._send(content="", title="Hello", embed=False, mentions=[])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Send as an embed", response.get_json()["error"])
+        self.assertEqual(self.standard.sent, [], "an empty message must not reach Discord")
+
+        # …and with the embed ticked, a title on its own is a real message.
+        ok = self._send(content="", title="Hello", embed=True, mentions=[])
+        self.assertTrue(ok.get_json()["success"], ok.get_json())
+        self.assertEqual(self.standard.sent[-1]["embed"].title, "Hello")
+
     def test_an_embed_keeps_the_tags_out_of_the_description(self):
         """Mentions inside an embed do not notify, so they stay in the content."""
         resp = self._send(

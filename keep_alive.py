@@ -1120,6 +1120,14 @@ def api_send_message():
             "error": f"At most {MESSAGE_MAX_MENTIONS} tags per message.",
         }), 400
 
+    if not body and title and not as_embed:
+        # Outside an embed the title is not sent at all, so a message that was
+        # nothing but a title would have reached Discord empty and come back as a
+        # refusal. Name the missing half instead.
+        return jsonify({
+            "success": False,
+            "error": 'A title is only posted with an embed — tick "Send as an embed", or write a message.',
+        }), 400
     if not body and not title:
         return jsonify({"success": False, "error": "Write something to send."}), 400
     if len(body) > MESSAGE_MAX_CHARS:
@@ -1131,11 +1139,21 @@ def api_send_message():
     # Every tag is resolved against *this* guild's live cache, so an id posted by
     # the browser can only ever become a ping if it really is a member or a role
     # here. Anything else is reported back rather than silently dropped.
-    members, roles, everyone, ignored = [], [], False, []
+    members, roles, keywords, ignored = [], [], [], []
     for raw in raw_mentions:
         token = str(raw).strip()
-        if token in ("@everyone", "@here", "everyone", "here"):
-            everyone = True
+        # The picker offers @everyone and @here side by side, and they notify
+        # different people, so the keyword that was asked for is the keyword that
+        # is posted. Both used to raise one shared flag and go out as @everyone,
+        # which answered a request for "everyone online right now" by pinging the
+        # whole server.
+        if token in ("@everyone", "everyone"):
+            if "@everyone" not in keywords:
+                keywords.append("@everyone")
+            continue
+        if token in ("@here", "here"):
+            if "@here" not in keywords:
+                keywords.append("@here")
             continue
         target = _int_or_none(token)
         if target is None:
@@ -1155,7 +1173,11 @@ def api_send_message():
     # silently does nothing, which is the one thing a tag-someone feature must not
     # get wrong. So the tags go in the content either way, and an embed carries
     # the text.
-    ping_parts = ["@everyone"] if everyone else []
+    # ``everyone`` is the flag ``allowed_mentions`` needs — it covers @here as
+    # well — and it travels with the payload as before. The text, though, is the
+    # exact keyword that was picked.
+    everyone = bool(keywords)
+    ping_parts = list(keywords)
     ping_parts += [m.mention for m in members] + [r.mention for r in roles]
     ping_text = " ".join(ping_parts)
 
