@@ -123,7 +123,7 @@ class BlackjackView(discord.ui.View):
         else:
             embed.description = "Choose whether to **Hit** or **Stand** below:"
             
-        embed.set_footer(text="🐾 Meow Casino • 45s turn timer")
+        embed.set_footer(text="Meow Casino • 45s turn timer")
         return embed
 
     async def _finish_hand(self) -> str | None:
@@ -271,7 +271,7 @@ class MinesView(discord.ui.View):
         elif status == "won":
             embed.description = f"👑 **CLEARED ALL GEMS!** Insane Jackpot! Won **+{payout:,}** 🪙 at **{self.current_mult:.2f}x**!"
 
-        embed.set_footer(text="🐾 Meow Mines • 90s game timer")
+        embed.set_footer(text="Meow Mines • 90s game timer")
         return embed
 
     async def handle_tile_click(self, interaction: discord.Interaction, index: int):
@@ -420,7 +420,7 @@ class HighLowView(discord.ui.View):
         elif status == "won":
             embed.description += f"👑 **MAX STREAK (5/5)! JACKPOT! You won `+{payout:,}` 🪙 at `{self.current_mult:.2f}x`!**"
 
-        embed.set_footer(text="🐾 Meow High-Low • 60s turn timer")
+        embed.set_footer(text="Meow High-Low • 60s turn timer")
         return embed
 
     async def handle_guess(self, interaction: discord.Interaction, choice: str):
@@ -645,7 +645,7 @@ class TicTacToeView(discord.ui.View):
         elif status == "tie":
             embed.description = "🤝 **It's a draw! Both players matched evenly.**" + (" Bets refunded." if self.bet > 0 else "")
 
-        embed.set_footer(text="🐾 Meow Tic-Tac-Toe • 60s turn timer")
+        embed.set_footer(text="Meow Tic-Tac-Toe • 60s turn timer")
         return embed
 
     def bot_find_move(self) -> tuple[int, int]:
@@ -863,7 +863,7 @@ class Games(commands.Cog):
         embed.add_field(name="💰 Bet", value=f"**{bet:,}** 🪙", inline=True)
         embed.add_field(name=outcome_field[0], value=outcome_field[1], inline=True)
         embed.add_field(name="💳 New Wallet", value=f"**{new_wallet:,}** 🪙", inline=True)
-        embed.set_footer(text="🐾 Meow Casino")
+        embed.set_footer(text="Meow Casino")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="coinflip", description="Bet on heads or tails.")
@@ -899,7 +899,7 @@ class Games(commands.Cog):
             color=0x23a55a if won else 0xf23f43,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Meow Casino • High Stakes" if won else "🐾 Meow Casino • Better luck next flip!")
+        embed.set_footer(text="Meow Casino • High Stakes" if won else "Meow Casino • Better luck next flip!")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="dice", description="Roll dice against the bot. Higher roll wins.")
@@ -1057,7 +1057,7 @@ class Games(commands.Cog):
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Meow Trivia")
+        embed.set_footer(text="Meow Trivia")
         await interaction.response.send_message(embed=embed, view=TriviaView())
 
     @app_commands.command(name="8ball", description="Ask the magic 8ball a question.")
@@ -1294,7 +1294,7 @@ class Games(commands.Cog):
                 color=0x5865F2,
                 timestamp=discord.utils.utcnow()
             )
-            embed.set_footer(text="🐾 Match invitation expires in 45s")
+            embed.set_footer(text="Match invitation expires in 45s")
             return await interaction.response.send_message(embed=embed, view=invite_view)
 
         if bet > 0 and not await take_stake(interaction.user.id, interaction.guild.id, bet):

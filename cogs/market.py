@@ -440,7 +440,7 @@ class Market(commands.Cog):
                 ),
                 inline=False,
             )
-        embed.set_footer(text="🐾 Meow Markets • /market buy • /market sell • /market portfolio")
+        embed.set_footer(text="Meow Markets • /market buy • /market sell • /market portfolio")
         await send_card(interaction, embed=embed)
 
     @market_group.command(name="quote", description="One instrument in detail.")
@@ -629,7 +629,7 @@ class Market(commands.Cog):
         )
         embed.set_image(url="attachment://chart.png")
         embed.set_footer(
-            text=f"🐾 {series.source} • {len(series.candles)} points • /market sell {instrument.symbol} all"
+            text=f"{series.source} • {len(series.candles)} points • /market sell {instrument.symbol} all"
         )
         await send_card(interaction, embed=embed, file=discord.File(buffer, filename="chart.png"))
 
@@ -957,7 +957,7 @@ class Market(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text=f"🐾 Last {len(fills)} fills • /market portfolio")
+        embed.set_footer(text=f"Last {len(fills)} fills • /market portfolio")
         await send_card(interaction, embed=embed)
 
 

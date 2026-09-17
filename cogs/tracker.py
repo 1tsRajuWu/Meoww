@@ -387,7 +387,7 @@ class Tracker(commands.Cog):
             inline=True,
         )
 
-        embed.set_footer(text=f"🐾 Activity Tracker • {_period_label(pv)}")
+        embed.set_footer(text=f"Activity Tracker • {_period_label(pv)}")
         await style.send_card(interaction, embed=embed)
 
     @activity_top.error
@@ -445,7 +445,7 @@ class Tracker(commands.Cog):
                 lines.append(f"**{i+1}.** 🔊 {name} — `{_fmt_voice(secs)}`")
             embed.add_field(name="🔊 Voice by Channel", value="\n".join(lines), inline=False)
 
-        embed.set_footer(text=f"🐾 {interaction.guild.name} • {_period_label(pv)}")
+        embed.set_footer(text=f"{interaction.guild.name} • {_period_label(pv)}")
         await style.send_card(interaction, embed=embed)
 
     @activity.error
@@ -505,7 +505,7 @@ class Tracker(commands.Cog):
                 lines.append(f"`{medal}` **{name}** — `{_fmt_count(cnt)}`")
             embed.add_field(name="💬 Top Chatters", value="\n".join(lines), inline=False)
 
-        embed.set_footer(text=f"🐾 {interaction.guild.name}")
+        embed.set_footer(text=f"{interaction.guild.name}")
         await style.send_card(interaction, embed=embed)
 
     @activity_channel.error

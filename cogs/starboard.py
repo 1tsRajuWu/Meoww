@@ -277,7 +277,7 @@ class Starboard(commands.Cog):
             color=0xFEE75C,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Server Starboard • Powered by Meow")
+        embed.set_footer(text="Server Starboard • Powered by Meow")
         await send_card(interaction, embed=embed)
 
     @starboard_group.command(name="status", description="Check current Starboard configuration.")
@@ -302,7 +302,7 @@ class Starboard(commands.Cog):
             color=0xFEE75C,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Server Starboard")
+        embed.set_footer(text="Server Starboard")
         await send_card(interaction, embed=embed)
 
 

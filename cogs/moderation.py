@@ -70,7 +70,7 @@ class Moderation(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_author(
-            name="🐾 Meow Moderation",
+            name="Meow Moderation",
             icon_url=self.bot.user.display_avatar.url
         )
         embed.set_thumbnail(url=target.display_avatar.url)
@@ -115,7 +115,7 @@ class Moderation(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_author(
-            name="🐾 Meow Moderation Log",
+            name="Meow Moderation Log",
             icon_url=self.bot.user.display_avatar.url
         )
         embed.set_thumbnail(url=target.display_avatar.url)

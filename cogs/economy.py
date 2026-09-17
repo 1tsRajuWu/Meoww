@@ -260,7 +260,7 @@ class Economy(commands.Cog):
         embed.add_field(name="👛 Wallet", value=f"**{wallet:,}** 🪙", inline=True)
         embed.add_field(name="🏦 Bank", value=f"**{bank:,}** 🪙", inline=True)
         embed.add_field(name="💎 Net Worth", value=f"**{wallet + bank:,}** 🪙", inline=False)
-        embed.set_footer(text="🐾 Meow Economy • Unlimited Wallet & Bank")
+        embed.set_footer(text="Meow Economy • Unlimited Wallet & Bank")
         return embed
 
     @app_commands.command(name="balance", description="Check your or someone's balance.")
@@ -316,7 +316,7 @@ class Economy(commands.Cog):
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Come back in 24 hours for your next reward!")
+        embed.set_footer(text="Come back in 24 hours for your next reward!")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="weekly", description="Claim your weekly 2000 coins.")
@@ -355,7 +355,7 @@ class Economy(commands.Cog):
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Come back in 7 days for your next reward!")
+        embed.set_footer(text="Come back in 7 days for your next reward!")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="work", description="Work a job to earn coins.")
@@ -394,7 +394,7 @@ class Economy(commands.Cog):
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Shift cooldown: 1 hour")
+        embed.set_footer(text="Shift cooldown: 1 hour")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="rob", description="Attempt to rob another member's wallet (a failed attempt costs 10% of what you went for).")
@@ -513,7 +513,7 @@ class Economy(commands.Cog):
             embed = discord.Embed(title="🚔 Caught!", description=detail, color=0xFF3333)
 
         luck_note = f" (+{luck}% from perks)" if luck else ""
-        embed.set_footer(text=f"🐾 Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(success_chance * 100)}%{luck_note}")
+        embed.set_footer(text=f"Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(success_chance * 100)}%{luck_note}")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="pay", description="Transfer coins to another member (a small Meow Fee goes to Meow Bank).")
@@ -620,7 +620,7 @@ class Economy(commands.Cog):
                 for amount in (1_000, 10_000, 100_000)
             )
             embed = discord.Embed(
-                title="🐾 Meow Fee",
+                title="Meow Fee",
                 description=(
                     f"The fee is currently **{'on' if enabled else 'off'}** in this "
                     "server.\n\n"
@@ -640,7 +640,7 @@ class Economy(commands.Cog):
                 inline=False,
             )
             embed.set_footer(
-                text="🐾 /meowfee state:Off to stop charging it — the coins stay in the server either way"
+                text="/meowfee state:Off to stop charging it — the coins stay in the server either way"
             )
             return await send_card(interaction, embed=embed)
 
@@ -653,7 +653,7 @@ class Economy(commands.Cog):
         await meowfee.set_enabled(guild_id, wanted)
         bank = await meowfee.bank_balance(guild_id)
         embed = discord.Embed(
-            title="🐾 Meow Fee " + ("On" if wanted else "Off"),
+            title="Meow Fee " + ("On" if wanted else "Off"),
             description=(
                 (
                     f"The fee is **on** again — {meowfee.describe()}"
@@ -666,7 +666,7 @@ class Economy(commands.Cog):
             color=0x2ECC71 if wanted else 0x5865F2,
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_footer(text=f"🐾 Changed by {interaction.user.display_name}")
+        embed.set_footer(text=f"Changed by {interaction.user.display_name}")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="deposit", description="Deposit coins into your bank.")
@@ -713,7 +713,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         new_bank = eco["bank"] + dep
-        embed.set_footer(text=f"🐾 Bank: {new_bank:,} 🪙 • Unlimited Capacity")
+        embed.set_footer(text=f"Bank: {new_bank:,} 🪙 • Unlimited Capacity")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="withdraw", description="Withdraw coins from your bank.")
@@ -758,7 +758,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         new_wallet = eco["wallet"] + amt
-        embed.set_footer(text=f"🐾 Wallet: {new_wallet:,} 🪙 • Unlimited Capacity")
+        embed.set_footer(text=f"Wallet: {new_wallet:,} 🪙 • Unlimited Capacity")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="richlist", description="Top 10 richest members in the server.")
@@ -964,7 +964,7 @@ class Economy(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text="🐾 Meow Shop • /inventory shows your items and active perks")
+        embed.set_footer(text="Meow Shop • /inventory shows your items and active perks")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="buy", description="Purchase an item from the community shop.")
@@ -1157,7 +1157,7 @@ class Economy(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text="🐾 Meow Economy • /shop to browse")
+        embed.set_footer(text="Meow Economy • /shop to browse")
         await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
@@ -1384,7 +1384,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text="🐾 Missed loans add a 25% penalty and block new borrowing.")
+        embed.set_footer(text="Missed loans add a 25% penalty and block new borrowing.")
         return embed
 
     @app_commands.command(name="loan", description="Borrow coins from Meow Bank — your credit line grows with your level.")
@@ -1491,7 +1491,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text=f"🐾 Meow Bank • {selected.name} • pay on time or eat a 25% penalty")
+        embed.set_footer(text=f"Meow Bank • {selected.name} • pay on time or eat a 25% penalty")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="repay", description="Repay your bank loan — in full or a bit at a time.")
@@ -1630,7 +1630,7 @@ class Economy(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text="🐾 Meow Banking Services")
+        embed.set_footer(text="Meow Banking Services")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="beg", description="Beg the streets for spare coins. Dignity optional.")
@@ -1684,7 +1684,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text="🐾 Beg cooldown: 2 minutes • /work pays better, you know")
+        embed.set_footer(text="Beg cooldown: 2 minutes • /work pays better, you know")
         await send_card(interaction, embed=embed)
 
 

@@ -6,17 +6,22 @@
     <meta name="theme-color" content="#090c10">
     <meta name="robots" content="noindex, nofollow">
     <title>Meow Control Center — Real-Time Admin Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- No web fonts: the system stack is what every control panel ships, and it
+         was a third-party request on every page load for a typeface nobody
+         asked for. -->
     <style>
         :root {
-            --bg: #090c10;
-            --surface: rgba(18, 22, 31, 0.75);
-            --surface-card: rgba(23, 29, 41, 0.65);
-            --surface-hover: rgba(32, 40, 58, 0.85);
-            --border: rgba(255, 255, 255, 0.08);
-            --border-active: rgba(88, 101, 242, 0.4);
+            /* Flat surfaces, hairline borders, one accent. The gradient blobs,
+               glass blur, gradient fills and coloured glow this file used to be
+               built from were decoration that said nothing the border and the
+               accent colour do not already say — and a page assembled from them
+               reads as generated rather than designed. */
+            --bg: #0b0e13;
+            --surface: #12161e;
+            --surface-card: #161b25;
+            --surface-hover: #1d2431;
+            --border: #232b38;
+            --border-active: #3a4356;
             --text-primary: #f0f3f8;
             --text-secondary: #94a3b8;
             /* #64748b read at 3.7:1 on this card, under the 4.5:1 AA floor, and it
@@ -26,13 +31,16 @@
             /* --accent fills a button behind white text; as *text* on the dark
                card it only reached 3.9:1, so coloured words use this instead. */
             --accent-text: #9aa5ff;
-            --accent-glow: rgba(88, 101, 242, 0.35);
             --green: #23a55a;
-            --green-glow: rgba(35, 165, 90, 0.3);
             --red: #f23f43;
-            --radius-lg: 18px;
-            --radius-md: 12px;
-            --radius-sm: 8px;
+            --radius-lg: 12px;
+            --radius-md: 10px;
+            --radius-sm: 6px;
+            /* System fonts. The Google Fonts pair was a third-party request on
+               every page load, a CSP host to maintain, and the loudest
+               "generated landing page" signal on the page. */
+            --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
         }
 
         * {
@@ -43,14 +51,12 @@
 
         body {
             background-color: var(--bg);
-            background-image:
-                radial-gradient(at 0% 0%, rgba(88, 101, 242, 0.12) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(35, 165, 90, 0.08) 0px, transparent 50%),
-                radial-gradient(at 50% 50%, rgba(20, 26, 38, 0.5) 0px, transparent 100%);
             color: var(--text-primary);
-            font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.5;
             min-height: 100vh;
-            padding: 24px;
+            padding: 20px;
             overflow-x: hidden;
         }
 
@@ -76,18 +82,15 @@
 
         header {
             background: var(--surface);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 20px 28px;
+            padding: 14px 18px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 16px;
-            margin-bottom: 24px;
-            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+            gap: 14px;
+            margin-bottom: 18px;
         }
 
         .brand-section {
@@ -97,23 +100,30 @@
             min-width: 0;
         }
 
+        /* A mark, not an icon: the paw-in-a-purple-gradient tile was the same
+           tile every generated dashboard ships. A monogram in the accent colour
+           on the same surface as everything else carries the brand without it. */
         .bot-avatar {
-            width: 52px;
-            height: 52px;
-            background: linear-gradient(135deg, #5865F2, #eb459e);
-            border-radius: 14px;
+            width: 40px;
+            height: 40px;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 28px;
-            box-shadow: 0 4px 20px var(--accent-glow);
+            font-family: var(--font-mono);
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--accent-text);
+            letter-spacing: -0.5px;
             flex-shrink: 0;
         }
 
         .brand-text h1 {
-            font-size: 22px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
             display: flex;
             align-items: center;
             flex-wrap: wrap;
@@ -152,18 +162,10 @@
         }
 
         .badge-pulse {
-            width: 7px;
-            height: 7px;
+            width: 6px;
+            height: 6px;
             background: #4ade80;
             border-radius: 50%;
-            box-shadow: 0 0 10px #4ade80;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(0.95); opacity: 0.8; }
-            50% { transform: scale(1.3); opacity: 1; }
-            100% { transform: scale(0.95); opacity: 0.8; }
         }
 
         .header-actions {
@@ -211,13 +213,11 @@
         .btn:hover {
             background: var(--surface-hover);
             border-color: var(--accent);
-            transform: translateY(-1px);
         }
 
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-            transform: none;
         }
 
         .btn-danger {
@@ -254,27 +254,13 @@
             margin-bottom: 28px;
         }
 
+        /* The label above the number already says what the number is; the emoji
+           tile beside it was a second, wordless answer to the same question. */
         .metric-card {
             background: var(--surface);
-            backdrop-filter: blur(16px);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            padding: 18px 22px;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }
-
-        .metric-icon {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.05);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
+            padding: 16px 18px;
         }
 
         .metric-info h3 {
@@ -287,9 +273,10 @@
         }
 
         .metric-info p {
-            font-size: 20px;
-            font-weight: 800;
-            font-family: "JetBrains Mono", monospace;
+            font-size: 22px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
             color: var(--text-primary);
         }
 
@@ -326,17 +313,14 @@
 
         .module-card {
             background: var(--surface);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 22px;
+            padding: 18px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            gap: 16px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-            transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s, opacity 0.2s;
+            gap: 14px;
+            transition: border-color 0.15s, background-color 0.15s, opacity 0.2s;
             position: relative;
         }
 
@@ -347,8 +331,7 @@
 
         .module-card:hover {
             border-color: var(--border-active);
-            box-shadow: 0 12px 32px rgba(88, 101, 242, 0.15);
-            transform: translateY(-2px);
+            background: var(--surface-card);
         }
 
         .module-header {
@@ -365,16 +348,21 @@
             min-width: 0;
         }
 
+        /* The module's initial, in the label typeface, instead of an emoji tile:
+           six emoji tiles in a grid is the house style of a generated page. */
         .module-icon-box {
-            width: 48px;
-            height: 48px;
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.04);
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-sm);
+            background: var(--surface-card);
             border: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
             flex-shrink: 0;
         }
 
@@ -408,7 +396,7 @@
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 6px;
             padding: 3px 8px;
-            font-family: "JetBrains Mono", monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
             color: #cbd5e1;
         }
@@ -476,7 +464,6 @@
 
         input:checked + .slider {
             background-color: var(--green);
-            box-shadow: 0 0 16px var(--green-glow);
             border-color: rgba(35, 165, 90, 0.5);
         }
 
@@ -502,7 +489,7 @@
             border-radius: var(--radius-md);
             padding: 14px 20px;
             color: var(--text-primary);
-            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
             display: flex;
             align-items: center;
             gap: 12px;
@@ -517,12 +504,10 @@
         /* ---- Message composer ---- */
         .composer-card {
             background: var(--surface);
-            backdrop-filter: blur(16px);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 22px;
-            margin-bottom: 32px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+            padding: 18px;
+            margin-bottom: 26px;
         }
 
         .composer-grid {
@@ -756,7 +741,7 @@
             background: #171d29;
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
             display: none;
             scrollbar-width: thin;
         }
@@ -898,7 +883,7 @@
             cursor: pointer;
         }
 
-        .counter { font-size: 11px; color: var(--text-muted); font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+        .counter { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
         .counter.over { color: #ff6b6b; }
 
         .preview {
@@ -920,15 +905,19 @@
         }
 
         .preview-avatar {
-            width: 28px;
-            height: 28px;
+            width: 26px;
+            height: 26px;
             flex-shrink: 0;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #5865F2, #eb459e);
+            border-radius: var(--radius-sm);
+            background: var(--surface-card);
+            border: 1px solid var(--border);
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 15px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-text);
         }
 
         .preview-time {
@@ -955,14 +944,28 @@
         }
 
         .preview-embed {
-            border-left: 4px solid var(--accent);
-            background: rgba(23, 29, 41, 0.7);
-            border-radius: 6px;
-            padding: 10px 14px;
+            border-left: 3px solid var(--accent);
+            background: var(--surface-card);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            padding: 12px 14px;
             margin-top: 10px;
         }
 
-        .preview-embed h4 { font-size: 14px; margin-bottom: 5px; }
+        .preview-embed-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+
+        .preview-embed-body {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
 
         .preview-empty { color: var(--text-muted); font-style: italic; }
 
@@ -1010,7 +1013,7 @@
             margin-left: auto;
             font-size: 11px;
             color: var(--text-muted);
-            font-family: "JetBrains Mono", monospace;
+            font-family: var(--font-mono);
         }
 
         .receipt-close {
@@ -1152,8 +1155,7 @@
             background: var(--surface-card);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 18px;
-            backdrop-filter: blur(12px);
+            padding: 16px;
         }
 
         .schedule-subhead { margin-top: 18px; }
@@ -1197,7 +1199,7 @@
         .schedule-when-text.done { color: var(--text-secondary); }
 
         .schedule-abs {
-            font-family: "JetBrains Mono", monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
             font-weight: 500;
             color: var(--text-muted);
@@ -1252,8 +1254,6 @@
 
         @media (prefers-reduced-motion: reduce) {
             * { animation: none !important; transition: none !important; }
-            .module-card:hover { transform: none; }
-            .btn:hover { transform: none; }
         }
 
         @media (max-width: 1024px) {
@@ -1308,7 +1308,7 @@
     <div class="container">
         <header>
             <div class="brand-section">
-                <div class="bot-avatar" aria-hidden="true">🐾</div>
+                <div class="bot-avatar" aria-hidden="true">M</div>
                 <div class="brand-text">
                     <h1>
                         Meow Control Center
@@ -1339,28 +1339,24 @@
 
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="metric-icon" aria-hidden="true">⚡</div>
                 <div class="metric-info">
                     <h3>Sync</h3>
                     <p>Instant</p>
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon" aria-hidden="true">🎛️</div>
                 <div class="metric-info">
                     <h3>Active Modules</h3>
                     <p id="metric-active" aria-live="polite">{{ active_count }} / {{ total_count }}</p>
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon" aria-hidden="true">👥</div>
                 <div class="metric-info">
                     <h3>Server Members</h3>
                     <p>{{ member_count }}</p>
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon" aria-hidden="true">📡</div>
                 <div class="metric-info">
                     <h3>Discord Ping</h3>
                     <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} ms{% else %}—{% endif %}</p>
@@ -1369,7 +1365,7 @@
         </div>
 
         <div class="section-header" id="composer">
-            <h2>📣 Message composer</h2>
+            <h2>Message composer</h2>
             <span class="composer-hint">The bot posts it as itself, in any channel, tagging anyone.</span>
         </div>
 
@@ -1482,7 +1478,7 @@
         </div>
 
         <div class="section-header" id="schedule">
-            <h2>⏰ Scheduled messages</h2>
+            <h2>Scheduled messages</h2>
             <span class="badge-count" id="schedule-pending" aria-live="polite">0 of {{ schedule_max_pending|default(25) }}</span>
         </div>
 
@@ -1513,7 +1509,7 @@
             <div class="module-card" id="card-{{ mod.id }}">
                 <div class="module-header">
                     <div class="module-meta">
-                        <div class="module-icon-box" aria-hidden="true">{{ mod.icon }}</div>
+                        <div class="module-icon-box" aria-hidden="true">{{ mod.name[:1] | upper }}</div>
                         <div class="module-titles">
                             <h3 id="title-{{ mod.id }}">{{ mod.name }}</h3>
                             <div class="module-category">{{ mod.category }}</div>
@@ -2235,7 +2231,7 @@
             head.className = "preview-head";
             const avatar = document.createElement("span");
             avatar.className = "preview-avatar";
-            avatar.textContent = "🐾";
+            avatar.textContent = "M";
             const name = document.createElement("span");
             name.textContent = "Meow";
             const tag = document.createElement("span");
@@ -2271,12 +2267,13 @@
                 embed.className = "preview-embed";
                 const title = composerEls.title.value.trim();
                 if (title) {
-                    const heading = document.createElement("h4");
+                    const heading = document.createElement("div");
+                    heading.className = "preview-embed-title";
                     heading.textContent = title;
                     embed.appendChild(heading);
                 }
                 const text = document.createElement("div");
-                text.className = "preview-body" + (body ? "" : " preview-empty");
+                text.className = "preview-embed-body" + (body ? "" : " preview-empty");
                 text.textContent = body || "No message text yet…";
                 embed.appendChild(text);
                 composerEls.preview.appendChild(embed);

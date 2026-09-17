@@ -332,7 +332,7 @@ class MarriageView(discord.ui.View):
             timestamp=discord.utils.utcnow()
         )
         embed.set_image(url="https://media.tenor.com/E8w9k1nJ7W0AAAAC/anime-wedding.gif")
-        embed.set_footer(text="🐾 Meow Love & Marriage")
+        embed.set_footer(text="Meow Love & Marriage")
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
@@ -451,7 +451,7 @@ class Social(commands.Cog):
             embed.description += f"• {emoji} **{name}** — {TIER_NAMES[tier]} *(Value: {val:,} 🪙)*\n"
 
         embed.description += f"\n🪙 You also scavenged **+{bonus:,}** coins from the wild!"
-        embed.set_footer(text="🐾 Tip: Run /zoo to inspect your collection or /sellanimals to cash out!")
+        embed.set_footer(text="Tip: Run /zoo to inspect your collection or /sellanimals to cash out!")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="zoo", description="View your or another member's caught animals collection.")
@@ -468,7 +468,7 @@ class Social(commands.Cog):
 
         if not rows:
             embed = discord.Embed(
-                title=f"🐾 {member.display_name}'s Zoo is Empty!",
+                title=f"{member.display_name}'s Zoo is Empty!",
                 description="No animals caught yet! Run `/hunt` to begin your wilderness safari.",
                 color=0x95A5A6
             )
@@ -507,7 +507,7 @@ class Social(commands.Cog):
                     inline=False
                 )
 
-        embed.set_footer(text="🐾 Meow Zoo • Run /sellanimals to exchange animals for coins")
+        embed.set_footer(text="Meow Zoo • Run /sellanimals to exchange animals for coins")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="sellanimals", description="Sell caught zoo animals for coins.")
@@ -584,7 +584,7 @@ class Social(commands.Cog):
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Meow Market")
+        embed.set_footer(text="Meow Market")
         await send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------

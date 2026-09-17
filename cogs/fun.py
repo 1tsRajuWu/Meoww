@@ -179,7 +179,7 @@ def build_meme_embed(meme_data: dict, category: str = "random") -> discord.Embed
     )
     ups_str = f"{ups:,}" if isinstance(ups, int) and ups > 0 else "Top Rated"
     embed.set_footer(
-        text=f"👍 {ups_str} upvotes • Category: {category.title()} • 🐾 Meow Memes"
+        text=f"👍 {ups_str} upvotes • Category: {category.title()} • Meow Memes"
     )
     return embed
 
@@ -251,7 +251,7 @@ class Fun(commands.Cog):
             icon_url=interaction.user.display_avatar.url
         )
         embed.description = f"## 🕯️ {interaction.user.mention} Killed Himself\n\n### May His Soul Rest In Peace 🕊️"
-        embed.set_footer(text="🐾 Rest In Peace", icon_url=interaction.user.display_avatar.url)
+        embed.set_footer(text="Rest In Peace", icon_url=interaction.user.display_avatar.url)
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         # Send publicly without any time limit (stays forever!)
@@ -284,7 +284,7 @@ class Fun(commands.Cog):
         except Exception:
             embed.description = "Couldn't find a cat pic, so I guess you just get text. Meow."
             
-        embed.set_footer(text="🐾 Meow")
+        embed.set_footer(text="Meow")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="meowsound", description="Listen to a real cat meow audio clip!")
@@ -314,7 +314,7 @@ class Fun(commands.Cog):
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_author(name="🐾 Meow Soundboard", icon_url=interaction.guild.me.display_avatar.url)
+        embed.set_author(name="Meow Soundboard", icon_url=interaction.guild.me.display_avatar.url)
         embed.set_footer(text=f"Played for {interaction.user.display_name} • Real Cat Audio", icon_url=interaction.user.display_avatar.url)
 
         try:
@@ -350,7 +350,7 @@ class Fun(commands.Cog):
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_author(name="🐾 Tan Status Report", icon_url=interaction.guild.me.display_avatar.url)
+        embed.set_author(name="Tan Status Report", icon_url=interaction.guild.me.display_avatar.url)
         embed.set_footer(text=f"Checked by {interaction.user.display_name} • Leave Tan alone rn")
         await send_card(interaction, embed=embed)
 
@@ -761,7 +761,7 @@ class Fun(commands.Cog):
             short_text = qtext[:75] + ("..." if len(qtext) > 75 else "")
             embed.description += f"• **`#{qid}`** “{short_text}” — *{qauthor}* ({qdate})\n"
 
-        embed.set_footer(text="🐾 View any quote with /customquote get [quote_id]")
+        embed.set_footer(text="View any quote with /customquote get [quote_id]")
         await send_card(interaction, embed=embed)
 
     @customquote_group.command(name="delete", description="Delete a custom quote (Submitter, Admin, or Owner only).")
@@ -872,7 +872,7 @@ class Fun(commands.Cog):
             color=0xF39C12,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="🐾 Meow Scam Defense Network")
+        embed.set_footer(text="Meow Scam Defense Network")
         await send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------

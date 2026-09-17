@@ -3,21 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#090c10">
+    <meta name="theme-color" content="#0b0e13">
     <meta name="robots" content="noindex, nofollow">
     <title>Meow Admin Authentication</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #090c10;
-            --surface: rgba(18, 22, 31, 0.85);
-            --border: rgba(255, 255, 255, 0.1);
+            --bg: #0b0e13;
+            --surface: #12161e;
+            --surface-card: #161b25;
+            --border: #232b38;
             --accent: #5865F2;
-            --accent-glow: rgba(88, 101, 242, 0.4);
             --text-primary: #f0f3f8;
             --text-secondary: #94a3b8;
+            --text-muted: #8494ab;
+            --radius-md: 10px;
+            --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
         }
 
         * {
@@ -28,11 +29,8 @@
 
         body {
             background-color: var(--bg);
-            background-image:
-                radial-gradient(at 50% 20%, rgba(88, 101, 242, 0.18) 0px, transparent 60%),
-                radial-gradient(at 100% 100%, rgba(235, 69, 158, 0.12) 0px, transparent 50%);
             color: var(--text-primary);
-            font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+            font-family: var(--font-sans);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -42,32 +40,35 @@
 
         .login-card {
             background: var(--surface);
-            backdrop-filter: blur(24px);
             border: 1px solid var(--border);
-            border-radius: 20px;
+            border-radius: var(--radius-md);
             padding: 40px;
-            max-width: 420px;
+            max-width: 400px;
             width: 100%;
-            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
             text-align: center;
         }
 
+        /* A monogram, not a gradient tile: the same mark the dashboard uses,
+           just larger. */
         .bot-avatar {
-            width: 64px;
-            height: 64px;
-            background: linear-gradient(135deg, #5865F2, #eb459e);
-            border-radius: 18px;
+            width: 56px;
+            height: 56px;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 32px;
+            font-family: var(--font-mono);
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--accent);
             margin: 0 auto 20px;
-            box-shadow: 0 8px 24px var(--accent-glow);
         }
 
         h1 {
-            font-size: 22px;
-            font-weight: 800;
+            font-size: 20px;
+            font-weight: 700;
             margin-bottom: 6px;
         }
 
@@ -78,6 +79,15 @@
             line-height: 1.5;
         }
 
+        .lead code {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1px 5px;
+        }
+
         .input-group {
             text-align: left;
             margin-bottom: 20px;
@@ -85,11 +95,11 @@
 
         label {
             display: block;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
             margin-bottom: 8px;
         }
 
@@ -100,20 +110,21 @@
         input[type="password"],
         input[type="text"] {
             width: 100%;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--surface-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 14px 48px 14px 16px;
-            color: #fff;
-            font-size: 15px;
-            font-family: "JetBrains Mono", monospace;
+            border-radius: var(--radius-md);
+            padding: 12px 48px 12px 14px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: var(--font-mono);
             outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            transition: border-color 0.15s;
         }
 
         input:focus-visible {
             border-color: var(--accent);
-            box-shadow: 0 0 16px var(--accent-glow);
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
         }
 
         .toggle-visibility {
@@ -123,10 +134,10 @@
             transform: translateY(-50%);
             background: transparent;
             border: none;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             cursor: pointer;
             padding: 8px;
-            border-radius: 8px;
+            border-radius: 6px;
             font-size: 12px;
             font-weight: 700;
         }
@@ -135,36 +146,36 @@
         .toggle-visibility:focus-visible {
             color: var(--text-primary);
             outline: 2px solid var(--accent);
+            outline-offset: 2px;
         }
 
         .btn-submit {
             width: 100%;
-            background: linear-gradient(135deg, #5865F2, #4752c4);
-            border: none;
-            border-radius: 12px;
-            padding: 14px;
+            background: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-md);
+            padding: 12px;
             color: #fff;
             font-size: 14px;
-            font-weight: 700;
+            font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
-            box-shadow: 0 6px 20px var(--accent-glow);
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: background 0.15s;
         }
 
         .btn-submit:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 28px var(--accent-glow);
+            background: #6b76f5;
+            border-color: #6b76f5;
         }
 
         .btn-submit:focus-visible {
-            outline: 2px solid #fff;
+            outline: 2px solid var(--accent);
             outline-offset: 3px;
         }
 
         .btn-submit:disabled {
-            opacity: 0.55;
+            opacity: 0.5;
             cursor: not-allowed;
-            transform: none;
         }
 
         .error-banner {
@@ -172,7 +183,7 @@
             border: 1px solid rgba(242, 63, 67, 0.3);
             color: #ff6b6b;
             padding: 10px 14px;
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             font-size: 13px;
             font-weight: 600;
             margin-bottom: 20px;
@@ -182,8 +193,7 @@
         .hint {
             margin-top: 22px;
             font-size: 12px;
-            /* #64748b measured 3.7:1 on this card — under the 4.5:1 AA floor. */
-            color: var(--text-secondary);
+            color: var(--text-muted);
             line-height: 1.5;
         }
 
@@ -198,7 +208,7 @@
 </head>
 <body>
     <main class="login-card">
-        <div class="bot-avatar" aria-hidden="true">🐾</div>
+        <div class="bot-avatar" aria-hidden="true">M</div>
         <h1>Meow Admin Portal</h1>
         <p class="lead">Sign in with your admin passkey, or run <code>/dashboard</code> in Discord for a one-time 15-minute link.</p>
 

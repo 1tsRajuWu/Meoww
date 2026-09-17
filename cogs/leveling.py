@@ -285,7 +285,7 @@ class Leveling(commands.Cog):
                 inline=False
             )
 
-        embed.set_footer(text=f"🐾 Server Level System • {guild.name}", icon_url=guild.icon.url if guild.icon else None)
+        embed.set_footer(text=f"Server Level System • {guild.name}", icon_url=guild.icon.url if guild.icon else None)
 
         if settings.get("dm_notifications"):
             try:
@@ -805,7 +805,7 @@ class Leveling(commands.Cog):
                 lines.append(f"{medal} {display} — **{u_earned:,}** 🪙 earned • Level {u_lvl}")
 
         embed.description = "\n\n".join(lines)
-        embed.set_footer(text="🐾 Chat in text or chill in VC to climb the ranks!")
+        embed.set_footer(text="Chat in text or chill in VC to climb the ranks!")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="levelroles", description="Show all configured level roles and rewards in this server.")
@@ -838,7 +838,7 @@ class Leveling(commands.Cog):
             _, badge, _ = get_tier_info(req_lvl)
             embed.description += f"• **Level {req_lvl}** {badge} ➔ {role_str}{members_note}\n"
 
-        embed.set_footer(text="🐾 Roles are granted instantly when you level up!")
+        embed.set_footer(text="Roles are granted instantly when you level up!")
         await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
@@ -985,7 +985,7 @@ class Leveling(commands.Cog):
             ),
             inline=True
         )
-        embed.set_footer(text="🐾 Server Leveling System • Level up cards post to 💬・bot-cmd")
+        embed.set_footer(text="Server Leveling System • Level up cards post to 💬・bot-cmd")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="setlevel", description="Set a member's level directly (Admin only).")
