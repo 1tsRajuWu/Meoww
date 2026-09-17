@@ -143,5 +143,146 @@ class DmGuard(unittest.TestCase):
         self.assertFalse(style.member_cache_complete(object()))
 
 
+class GrowingTablesAreIndexed(unittest.TestCase):
+    """A missing index is invisible until the table is big, and then it is the query.
+
+    The composite primary keys cover economy, user_levels, item_effects, loans and
+    market_holdings, but the chart series, the trade history, /inventory, /quote and
+    the warning list all filter on columns that had no index at all.
+    """
+
+    def test_the_access_paths_have_indexes(self):
+        import os
+        import shutil
+        import tempfile
+
+        tmp = tempfile.mkdtemp(prefix="meow-idx-")
+        original = db.DB_PATH
+        try:
+            db.DB_PATH = os.path.join(tmp, "indexes.db")
+            asyncio.run(db.setup())
+            conn = db.connect()
+            try:
+                names = {
+                    row[0] for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'index'"
+                    )
+                }
+            finally:
+                conn.close()
+        finally:
+            db.DB_PATH = original
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        for index in (
+            "idx_market_history_symbol_ts",
+            "idx_market_trades_owner",
+            "idx_inventory_owner",
+            "idx_custom_quotes_guild",
+            "idx_warnings_owner",
+        ):
+            self.assertIn(index, names, f"{index} is missing, so its query scans")
+
+
+class TheAuditFixesAreInTheShippedPages(unittest.TestCase):
+    def test_the_market_page_announces_its_state(self):
+        """Its status line is the only place "trading paused" is ever said."""
+        html = _read("templates/market_live.html")
+        self.assertIn('role="status"', html)
+        self.assertIn('aria-live="polite"', html)
+        self.assertIn('aria-pressed=', html)
+        self.assertIn('role="img"', html)
+        self.assertNotIn("tr.innerHTML = `", html, "data is text, never markup")
+
+    def test_the_composer_keeps_a_draft_across_an_expired_session(self):
+        html = _read("templates/dashboard.html")
+        self.assertIn("sessionStorage.setItem(DRAFT_KEY", html)
+        self.assertIn("dropDraft();", html, "a sent or cleared composer drops it")
+        self.assertGreaterEqual(
+            html.count("saveDraft();"), 3,
+            "every request helper has to save before it redirects to sign in",
+        )
+
+
+class ThePagesStayReadable(unittest.TestCase):
+    """Small text on these dark cards must clear the 4.5:1 AA floor.
+
+    Two colours were below it — ``#64748b``, which carried 22 pieces of small
+    text (counters, notes, timestamps) at 3.7:1, and the accent colour used *as
+    text* at 3.9:1 while it is fine behind white on a filled button. Neither is
+    visible as a defect to whoever reintroduces one, so the ratio is checked.
+    """
+
+    #: Every surface these pages paint text on, lightest last (the worst case).
+    SURFACES = ("#090c10", "#131821", "#0e131b")
+    PAGES = ("templates/dashboard.html", "templates/market_live.html", "templates/login.html")
+    FLOOR = 4.5
+
+    @staticmethod
+    def _channel(value: float) -> float:
+        value /= 255
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    @classmethod
+    def _luminance(cls, color: str) -> float:
+        raw = color.lstrip("#")
+        if len(raw) == 3:
+            raw = "".join(ch * 2 for ch in raw)
+        r, g, b = (int(raw[i:i + 2], 16) for i in (0, 2, 4))
+        return 0.2126 * cls._channel(r) + 0.7152 * cls._channel(g) + 0.0722 * cls._channel(b)
+
+    @classmethod
+    def _ratio(cls, fg: str, bg: str) -> float:
+        a, b = cls._luminance(fg), cls._luminance(bg)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+
+    @classmethod
+    def _unreadable_text(cls, source: str) -> list[tuple[str, float]]:
+        """Text colours in a template that fail the floor on every surface.
+
+        Rules that declare their own ``background`` are skipped: white on a
+        filled accent button is measured against that fill, not the page.
+        """
+        import re
+
+        style = "\n".join(re.findall(r"<style>(.*?)</style>", source, re.S))
+        root = re.search(r":root\s*\{(.*?)\}", style, re.S)
+        variables = dict(
+            re.findall(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})", root.group(1) if root else "")
+        )
+        bad = []
+        for rule in re.findall(r"[^{}]+\{[^{}]*\}", style):
+            if "background" in rule:
+                continue
+            for value in re.findall(r"(?<![-\w])color:\s*(var\(--[\w-]+\)|#[0-9a-fA-F]{3,6})", rule):
+                color = variables.get(value[4:-1]) if value.startswith("var(") else value
+                if not color or color.lower() in ("#090c10", "#090c11"):
+                    continue  # unresolvable, or the page colour itself
+                worst = min(cls._ratio(color, surface) for surface in cls.SURFACES)
+                if worst < cls.FLOOR:
+                    bad.append((color, round(worst, 2)))
+        return bad
+
+    def test_no_page_paints_text_below_the_floor(self):
+        for page in self.PAGES:
+            self.assertEqual(
+                self._unreadable_text(_read(page)), [],
+                f"{page} has text that fails the 4.5:1 contrast floor",
+            )
+
+    def test_the_check_catches_a_colour_that_fails(self):
+        """A guard that cannot fail is decoration: feed it the two that did."""
+        regressed = "<style>:root { --text-muted: #64748b; --accent: #5865F2; }" \
+                    " p { color: var(--text-muted); } a { color: var(--accent); }</style>"
+        found = dict((color, ratio) for color, ratio in self._unreadable_text(regressed))
+        self.assertIn("#64748b", found)
+        self.assertIn("#5865F2", found)
+
+    def test_white_on_a_filled_button_is_measured_against_its_fill(self):
+        filled = "<style>:root { --accent: #5865F2; }" \
+                 " .btn { background: var(--accent); color: #fff; }</style>"
+        self.assertEqual(self._unreadable_text(filled), [])
+
+
 if __name__ == "__main__":
     unittest.main()

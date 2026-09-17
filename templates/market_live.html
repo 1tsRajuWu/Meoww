@@ -52,33 +52,40 @@
 <header>
   <div>
     <h1>{{ symbol }} <span class="muted" style="font-weight:400">· {{ name }}</span></h1>
-    <div class="muted" id="status">Loading live prices…</div>
+    <!-- Live regions: this line is the only place "stale — trading paused" and
+         "offline — could not reach the bot" are ever said, and the price is the
+         page's subject. Both used to change silently. -->
+    <div class="muted" id="status" role="status" aria-live="polite" aria-atomic="true">Loading live prices…</div>
   </div>
   <div class="grow"></div>
   <div>
-    <div class="price" id="price">—</div>
+    <div class="price" id="price" role="status" aria-live="polite" aria-atomic="true">—</div>
     <div id="change" class="muted">—</div>
   </div>
   <a class="tv-link" id="tvLink" href="https://www.tradingview.com/symbols/{{ symbol }}/" target="_blank" rel="noopener">
     📊 Open in TradingView
   </a>
   <div>
-    <select id="picker" title="Jump to another instrument"></select>
+    <label class="muted" for="picker" style="display:none">Instrument</label>
+    <select id="picker" aria-label="Jump to another instrument"></select>
   </div>
 </header>
 
 <main>
   <section class="card">
     <h2>Price <span id="axisNote" class="muted"></span></h2>
-    <div id="chartWrap"></div>
-    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap" id="periods">
+    <!-- Named for assistive tech, with the numbers below carrying the same data:
+         a canvas is a picture, and a picture of a chart says nothing on its own. -->
+    <div id="chartWrap" role="img"
+         aria-label="Price history for {{ symbol }} — the price, the period move and the what-if numbers below carry the same data"></div>
+    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap" id="periods" role="group" aria-label="Chart period">
       {% for key, p in periods %}
-      <button data-period="{{ key }}" class="{% if key == default_period %}on{% endif %}">{{ p.label }}</button>
+      <button type="button" data-period="{{ key }}" aria-pressed="{% if key == default_period %}true{% else %}false{% endif %}" class="{% if key == default_period %}on{% endif %}">{{ p.label }}</button>
       {% endfor %}
       <div class="grow"></div>
       <span class="pill" id="candleSource">—</span>
     </div>
-    <div class="note" id="historyNote"></div>
+    <div class="note" id="historyNote" role="status" aria-live="polite"></div>
   </section>
 
   <aside>
@@ -108,7 +115,7 @@
 
     <section class="card" style="margin-top:16px">
       <h2>Watchlist</h2>
-      <table id="watchlist"></table>
+      <table id="watchlist" aria-label="Watched instruments"></table>
       <div class="note">Live from the same snapshot the bot trades on.</div>
     </section>
   </aside>
@@ -320,6 +327,9 @@ function renderQuotes() {
       ? `$${fmt(me.price_usd, 2)} · ${me.source}`
       : `${me.change_pct > 0 ? "▲" : me.change_pct < 0 ? "▼" : "▬"} ${me.change_pct.toFixed(2)}% · $${fmt(me.price_usd, 2)} · ${me.source}`;
     el("change").className = me.change_pct > 0 ? "up" : me.change_pct < 0 ? "down" : "muted";
+    // The direction glyph is decoration; the sign in the text is the meaning.
+    el("change").setAttribute("aria-label",
+      `${me.change_pct > 0 ? "up" : me.change_pct < 0 ? "down" : "flat"} ${Math.abs(me.change_pct).toFixed(2)} percent, ${coins(me.coins)}`);
   } else {
     el("price").textContent = "unavailable";
     el("change").textContent = "no source carries this symbol right now";
@@ -352,7 +362,16 @@ function renderQuotes() {
   list.innerHTML = "";
   quotes.quotes.filter((q) => favourites.includes(q.symbol)).forEach((q) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${q.symbol}</td><td class="${q.change_pct > 0 ? "up" : q.change_pct < 0 ? "down" : "muted"}">${q.available ? coins(q.coins) : "—"}</td>`;
+    // textContent, not an interpolated innerHTML: the dashboard forbids building
+    // markup from data (tests/test_composer.py pins it there), and a symbol that
+    // came back changed should be read as a symbol, never as markup.
+    const symbol = document.createElement("td");
+    symbol.textContent = q.symbol;
+    const price = document.createElement("td");
+    price.className = q.change_pct > 0 ? "up" : q.change_pct < 0 ? "down" : "muted";
+    price.textContent = q.available ? coins(q.coins) : "—";
+    tr.appendChild(symbol);
+    tr.appendChild(price);
     list.appendChild(tr);
   });
   renderCalculator();
@@ -380,7 +399,10 @@ el("periods").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-period]");
   if (!button) return;
   period = button.dataset.period;
-  [...el("periods").querySelectorAll("button")].forEach((b) => b.classList.toggle("on", b === button));
+  [...el("periods").querySelectorAll("button")].forEach((b) => {
+    b.classList.toggle("on", b === button);
+    b.setAttribute("aria-pressed", String(b === button));
+  });
   loadCandles();
 });
 el("spend").addEventListener("input", renderCalculator);

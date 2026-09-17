@@ -1,10 +1,88 @@
 import os
 import sqlite3
+import time
 import discord
 from discord import app_commands
 from discord.ext import commands
 from utils import permissions, db
 from utils.style import send_card, display_name
+
+def _root_command_name(interaction: discord.Interaction) -> str | None:
+    """The name that identifies the command, subcommand or not.
+
+    ``interaction.command.name`` is the *sub*-command for a group member, so
+    matching a group against the bypass list with it silently never matches
+    (``/defaultrole set`` arrives as ``"set"``). The bot's own tree check
+    already reads ``root_parent`` for this reason; do the same here.
+    """
+    command = interaction.command
+    if command is None:
+        return None
+    parent = getattr(command, "root_parent", None)
+    return parent.name if parent is not None else command.name
+
+
+def _members_intent_warning(bot) -> str:
+    """The one thing that turns the default role into a no-op, said out loud.
+
+    Member events are only delivered when the privileged **Members intent** is
+    enabled, so with it off nobody ever receives the role and nothing anywhere
+    reports a problem — the setting just quietly does nothing. The person
+    configuring it is the only one who can fix that, so they are the one told.
+    """
+    if getattr(getattr(bot, "intents", None), "members", False):
+        return ""
+    return (
+        "\n\n⚠️ The **Members intent** is off, so Discord never tells the bot that "
+        "somebody joined and no role will be handed out. Enable it in the "
+        "[Developer Portal](https://discord.com/developers/applications), then set "
+        "`ENABLE_MEMBERS_INTENT=1`."
+    )
+
+
+def _local_table_counts(db_path: str) -> tuple[dict[str, int], float, float, str]:
+    """Row counts, sizes and an integrity check, with blocking work done off-loop.
+
+    ``SELECT COUNT(*)`` is a full scan, and the tables that grow here are the ones
+    with the most rows — called inline this held the event loop, and therefore
+    every other command and the gateway heartbeat, for as long as the biggest
+    table took to count. The sync-status half of /dbstatus already ran in a worker
+    thread for the same reason.
+    """
+    counts: dict[str, int] = {}
+    size_kb = 0.0
+    wal_kb = 0.0
+    integrity = "unknown"
+    try:
+        conn = sqlite3.connect(db_path, timeout=5.0)
+    except sqlite3.Error as e:
+        return counts, size_kb, wal_kb, str(e)
+    try:
+        try:
+            size_kb = os.path.getsize(db_path) / 1024
+        except OSError:
+            size_kb = 0.0
+        try:
+            wal_kb = os.path.getsize(f"{db_path}-wal") / 1024
+        except OSError:
+            wal_kb = 0.0  # no WAL file is the normal case after a clean checkpoint
+        cur = conn.cursor()
+        try:
+            integrity = str(cur.execute("PRAGMA quick_check(1)").fetchone()[0])
+        except sqlite3.Error as e:
+            integrity = str(e)
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        for (name,) in cur.fetchall():
+            try:
+                counts[name] = cur.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+            except sqlite3.Error:
+                counts[name] = -1  # unreadable
+    except sqlite3.Error as e:
+        print(f"[DBSTATUS] Could not read the local database: {e}", flush=True)
+    finally:
+        conn.close()
+    return counts, size_kb, wal_kb, integrity
+
 
 class ServerControl(commands.Cog):
     """Lockdown, slowmode, and role management."""
@@ -14,8 +92,8 @@ class ServerControl(commands.Cog):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
-            cmd_name = interaction.command.name if interaction.command else None
-            if cmd_name not in ["serverinfo", "userinfo"]:
+            cmd_name = _root_command_name(interaction)
+            if cmd_name not in ["serverinfo", "userinfo", "defaultrole"]:
                 if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                     await interaction.response.send_message(
                         "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
@@ -286,29 +364,11 @@ class ServerControl(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        # --- local database stats ---
+        # --- local database stats (off the event loop: see _local_table_counts) ---
         db_path = db.DB_PATH
-        db_size_kb = 0
-        tables: dict[str, int] = {}
-        try:
-            conn = sqlite3.connect(db_path, timeout=5.0)
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-                )
-                for (name,) in cur.fetchall():
-                    try:
-                        count = cur.execute(f"SELECT COUNT(*) FROM \"{name}\"").fetchone()[0]
-                        tables[name] = count
-                    except sqlite3.Error:
-                        tables[name] = -1  # unreadable
-                conn.close()
-                db_size_kb = os.path.getsize(db_path) / 1024
-            except Exception:
-                conn.close()
-        except Exception:
-            pass
+        tables, db_size_kb, wal_kb, integrity = await asyncio.to_thread(
+            _local_table_counts, db_path
+        )
 
         # --- Supabase / cloud status ---
         from utils.cloud_sync import (
@@ -321,6 +381,7 @@ class ServerControl(commands.Cog):
             _storage_list,
             BUCKET,
             upload_refusal_reason,
+            last_upload_ts,
         )
         supa_ok = bool(SUPABASE_URL and SUPABASE_KEY)
         cloud_files: list[dict] = []
@@ -338,12 +399,16 @@ class ServerControl(commands.Cog):
             icon_url=interaction.guild.me.display_avatar.url,
         )
 
-        # DB size
+        # DB size. Integrity and the WAL are here because they are the two things a
+        # row count cannot tell you: a corrupt restore and an un-checkpointed WAL
+        # both look perfectly healthy as a count of rows.
         embed.add_field(
             name="💾 Local Database",
             value=(
                 f"`{db_size_kb:.1f} KB` on disk\n"
-                f"{len(tables)} table(s)"
+                f"{len(tables)} table(s)\n"
+                f"WAL: `{wal_kb:.1f} KB`\n"
+                f"Integrity: {'✅ ok' if integrity == 'ok' else f'⚠️ {integrity[:60]}'}"
             ),
             inline=True,
         )
@@ -387,10 +452,16 @@ class ServerControl(commands.Cog):
         # called inline it holds the event loop — and therefore every other
         # command, and the gateway heartbeat — for the length of a round trip.
         refusal = await asyncio.to_thread(upload_refusal_reason, False)
+        uploaded = last_upload_ts()
         if refusal:
             sync_status = f"🛑 Not uploading: {refusal}"
         elif _remote_checked and _last_sync_hash:
             sync_status = "✅ Synced"
+            if uploaded:
+                # When, not just whether: a sync that stopped an hour ago and one
+                # that ran twelve seconds ago read identically without this.
+                age = max(0, int(time.time() - uploaded))
+                sync_status += f"\nLast upload: {age}s ago"
         elif _remote_checked:
             sync_status = "⚠️ Restored but not yet uploaded"
         else:
@@ -426,6 +497,106 @@ class ServerControl(commands.Cog):
 
         embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ── default role ───────────────────────────────────────────────────────
+
+    default_role_group = app_commands.Group(
+        name="defaultrole",
+        description="Auto-assign a role to new members when they join.",
+    )
+
+    @default_role_group.command(name="set", description="Set a role to be auto-assigned to new members.")
+    @app_commands.describe(role="The role to give to every new member")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def defaultrole_set(self, interaction: discord.Interaction, role: discord.Role):
+        problem = permissions.role_grant_problem(role, interaction.guild.me, interaction.guild)
+        if problem:
+            return await interaction.response.send_message(
+                f"❌ I cannot assign {role.mention}: {problem}", ephemeral=True,
+            )
+        if role >= interaction.guild.me.top_role:
+            return await interaction.response.send_message(
+                "❌ I cannot assign a role higher than or equal to my own role."
+                " Move my role above it in **Server Settings → Roles**.",
+                ephemeral=True,
+            )
+        if not interaction.guild.me.guild_permissions.manage_roles:
+            return await interaction.response.send_message(
+                "❌ I need the **Manage Roles** permission to assign roles.",
+                ephemeral=True,
+            )
+        await db.set_setting(interaction.guild.id, "default_role_id", role.id)
+        embed = discord.Embed(
+            title="✅ Default Role Set",
+            description=(
+                f"New members will now automatically receive {role.mention} when "
+                f"they join.{_members_intent_warning(self.bot)}"
+            ),
+            color=0x57F287,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_footer(
+            text=f"Set by {interaction.user.display_name}",
+            icon_url=interaction.user.display_avatar.url,
+        )
+        await send_card(interaction, embed=embed)
+
+    @default_role_group.command(name="view", description="View the current default role for new members.")
+    async def defaultrole_view(self, interaction: discord.Interaction):
+        role_id = await db.get_setting(interaction.guild.id, "default_role_id")
+        if not role_id:
+            embed = discord.Embed(
+                description="ℹ️ No default role is set. Use `/defaultrole set` to configure one.",
+                color=0x5865F2,
+            )
+            return await send_card(interaction, embed=embed)
+        role = interaction.guild.get_role(int(role_id))
+        if role is None:
+            await db.set_setting(interaction.guild.id, "default_role_id", None)
+            embed = discord.Embed(
+                description="⚠️ The configured default role no longer exists. Use `/defaultrole set` to pick a new one.",
+                color=0xED4245,
+            )
+            return await send_card(interaction, embed=embed)
+        embed = discord.Embed(
+            title="🎭 Default Role",
+            description=(
+                f"New members receive {role.mention} when they join."
+                f"{_members_intent_warning(self.bot)}"
+            ),
+            color=role.color if role.color.value else 0x5865F2,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Role ID", value=f"`{role.id}`", inline=True)
+        embed.add_field(name="Members with this role", value=f"`{len(role.members)}`", inline=True)
+        embed.set_footer(
+            text=f"Requested by {interaction.user.display_name}",
+            icon_url=interaction.user.display_avatar.url,
+        )
+        await send_card(interaction, embed=embed)
+
+    @default_role_group.command(name="clear", description="Remove the default role (stop auto-assigning on join).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def defaultrole_clear(self, interaction: discord.Interaction):
+        current = await db.get_setting(interaction.guild.id, "default_role_id")
+        if not current:
+            embed = discord.Embed(
+                description="ℹ️ No default role is currently set.",
+                color=0x5865F2,
+            )
+            return await send_card(interaction, embed=embed)
+        await db.set_setting(interaction.guild.id, "default_role_id", None)
+        embed = discord.Embed(
+            title="✅ Default Role Cleared",
+            description="New members will no longer receive a role automatically.",
+            color=0x57F287,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_footer(
+            text=f"Cleared by {interaction.user.display_name}",
+            icon_url=interaction.user.display_avatar.url,
+        )
+        await send_card(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):

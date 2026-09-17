@@ -679,6 +679,114 @@ class DeliveryCase(SchedulerCase):
         self.assertEqual(len(done), 2, "one broken message must not stop the others")
         self.assertTrue(all(item["status"] == "failed" for item in done))
 
+    def test_the_failure_write_is_conditional_on_the_claim(self):
+        """The read that checks the claim and the write that ends it are two steps.
+
+        Another process (a second instance, or the sweep) can finish the row in
+        between, and an unconditional write would overwrite a real outcome with a
+        failure — and post a card for a message that may well have arrived. The
+        interleaving cannot be driven from here without a hook inside the handler,
+        so what is pinned is the contract the fix rests on.
+        """
+        now = int(time.time())
+        scheduled.create(GUILD_ID, [CHANNEL_ID], payload("x"), now - 1)
+        seen = []
+        real = scheduled.mark_failed
+
+        def recording(*args, **kwargs):
+            seen.append(kwargs)
+            return real(*args, **kwargs)
+
+        with mock.patch.object(
+            self.keep_alive, "_deliver_scheduled", side_effect=RuntimeError("boom")
+        ), mock.patch.object(
+            self.keep_alive, "_alert_schedule_outcome", new=mock.AsyncMock()
+        ), mock.patch.object(self.keep_alive.scheduled, "mark_failed", side_effect=recording):
+            self.tick(now)
+
+        self.assertTrue(seen, "the failure was never recorded")
+        self.assertEqual(
+            seen[0].get("only_if_status"),
+            "sending",
+            "the failure write is unconditional: it can overwrite another process's outcome",
+        )
+
+    def test_a_row_another_process_already_settled_is_not_failed_again(self):
+        """A row someone else finished is left as they recorded it, and not carded."""
+        now = int(time.time())
+        msg_id = scheduled.create(GUILD_ID, [CHANNEL_ID], payload("x"), now - 1)
+
+        def settled_elsewhere_then_raised(_msg, _now):
+            scheduled.mark_sent(
+                msg_id, _now, [{"channel_id": CHANNEL_ID, "ok": True}]
+            )
+            raise RuntimeError("boom")
+
+        with mock.patch.object(
+            self.keep_alive, "_deliver_scheduled", side_effect=settled_elsewhere_then_raised
+        ), mock.patch.object(
+            self.keep_alive, "_alert_schedule_outcome", new=mock.AsyncMock()
+        ) as alert:
+            self.tick(now)
+
+        self.assertEqual(
+            scheduled.get(GUILD_ID, msg_id)["status"],
+            "sent",
+            "the tick overwrote an outcome another process had already recorded",
+        )
+        alert.assert_not_awaited()
+
+
+class SendTimeoutCase(SchedulerCase):
+    """A send that times out is recorded as unconfirmed, never as a refusal.
+
+    ``asyncio.run_coroutine_threadsafe``'s future is not cancelled by a
+    client-side timeout: the coroutine keeps running on the bot's loop and may
+    post the message a second later. The old path answered "Discord did not accept
+    it" — which it had no way to know — and skipped the history row entirely, so
+    the operator's natural retry posted a second copy of an announcement that had
+    already arrived.
+    """
+
+    def recent(self):
+        data = self.listed()
+        self.assertEqual(data["upcoming"], [], "an unconfirmed send is not queued either")
+        return data["recent"]
+
+    def _send_with_timeout(self):
+        with mock.patch.object(
+            self.keep_alive, "_run_on_bot_loop", side_effect=TimeoutError("no answer")
+        ):
+            return self._send(content="did it go out?")
+
+    def test_a_timed_out_send_answers_504_and_says_unconfirmed(self):
+        resp = self._send_with_timeout()
+        self.assertEqual(resp.status_code, 504)
+        payload = resp.get_json()
+        self.assertFalse(payload["success"])
+        self.assertTrue(payload["unknown"], "the page has to know it is unconfirmed")
+        self.assertIn("may still", payload["error"], "and be told what to do about it")
+
+    def test_a_timed_out_send_leaves_a_history_row_that_cannot_be_reposted(self):
+        self._send_with_timeout()
+        rows = self.recent()
+        self.assertEqual(len(rows), 1, "an unconfirmed send is still a thing that happened")
+        self.assertEqual(rows[0]["status"], "unknown")
+        self.assertEqual(rows[0]["preview"], "did it go out?")
+        # Nothing claimable: a row the delivery loop could find would post it again.
+        self.assertEqual(scheduled.pending_count(GUILD_ID), 0)
+        self.assertEqual(self.tick(int(time.time()) + 1), [])
+        self.assertEqual(self.standard.sent, [], "and nothing was sent twice")
+
+    def test_the_panel_calls_it_unconfirmed_not_not_sent(self):
+        """The row's label is what the retry button is read as permission for."""
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('label: "unconfirmed"', page)
+        self.assertIn('msg.status === "unknown"', page)
+
 
 class SendRecordCase(SchedulerCase):
     """A message sent *now* is written down too.

@@ -71,10 +71,15 @@ _behind_https_host = bool(os.environ.get("RENDER") or os.environ.get("RAILWAY_EN
 # Only trust proxy headers when we are actually behind a known reverse proxy.
 # Otherwise a client could spoof X-Forwarded-For and bypass login rate limiting.
 _trust_proxy_headers = _behind_https_host or (os.environ.get("TRUST_PROXY_HEADERS", "").strip().lower() in {"1", "true", "yes"})
+# A self-hosted reverse proxy cannot be fingerprinted the way Render can, and the
+# server binds 0.0.0.0 — so without this switch a deployment behind its own TLS
+# terminator issued a session cookie with no Secure flag, and a plaintext request
+# to port 8080 would carry it. DASHBOARD_HTTPS=1 says "this host is HTTPS only".
+_https_only_override = (os.environ.get("DASHBOARD_HTTPS") or "").strip().lower() in {"1", "true", "yes"}
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=_behind_https_host,
+    SESSION_COOKIE_SECURE=_behind_https_host or _https_only_override,
     SESSION_COOKIE_NAME="meow_session",
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=8),
     MAX_CONTENT_LENGTH=16 * 1024,
@@ -98,20 +103,49 @@ if not ADMIN_PASSKEY:
 
 
 def _passkey_ok() -> bool:
-    """Validate ADMIN_PASSKEY from header or JSON body — never from the query string."""
+    """Validate ADMIN_PASSKEY from header or JSON body — never from the query string.
+
+    Throttled exactly like the login form, which guards the same secret: this was
+    the *unlimited* way to guess it. The three passkey endpoints answer an
+    exhausted window with 429 via ``_passkey_denied()``.
+    """
     if not ADMIN_PASSKEY:
+        return False
+    if _passkey_attempts_left() <= 0:
         return False
     provided = request.headers.get("X-Admin-Passkey") or ""
     if not provided and request.method in ("POST", "PUT", "PATCH"):
         data = request.get_json(silent=True) or {}
         provided = str(data.get("passkey") or "")
     if not provided:
+        _record_passkey_failure()
         return False
-    return secrets.compare_digest(provided, ADMIN_PASSKEY)
+    if secrets.compare_digest(provided, ADMIN_PASSKEY):
+        _clear_passkey_failures()
+        return True
+    _record_passkey_failure()
+    return False
+
+
+def _passkey_denied():
+    """The passkey endpoints' refusal: 401 for a wrong secret, 429 once spent.
+
+    The attempt that spends the last slot gets the 429, because it is refused for
+    the window being closed rather than for the secret being wrong. Either way at
+    most ``PASSKEY_MAX_ATTEMPTS`` guesses are ever evaluated, and a blocked client
+    is not recorded again — so the counter cannot be grown by waiting.
+    """
+    if not ADMIN_PASSKEY:
+        return jsonify({"error": "Passkey authentication is disabled"}), 401
+    if _passkey_attempts_left() <= 0:
+        return jsonify({"error": "Too many attempts. Wait a few minutes and try again."}), 429
+    return jsonify({"error": "Unauthorized"}), 401
 
 
 _SECRETISH = __import__("re").compile(
     r"(?i)(token|passkey|password|authorization|bearer|api[_-]?key|secret)\s*[:=]\s*\S+"
+    r"|[\w-]{24,}\.[\w-]{6}\.[\w-]{25,}"  # Discord bot token shape
+    r"|Bearer\s+[A-Za-z0-9._-]{20,}"
 )
 
 MAGIC_TTL_SECONDS = 15 * 60
@@ -121,6 +155,14 @@ _login_lock = Lock()
 _login_attempts = defaultdict(deque)  # ip -> timestamps
 LOGIN_WINDOW_SECONDS = 15 * 60
 LOGIN_MAX_ATTEMPTS = 5
+
+# The API's passkey is the same credential the login form protects, so it gets the
+# same treatment: without a window, /api/set-module was an unlimited oracle for a
+# long-lived secret that is typed once into a host's dashboard and never rotated.
+PASSKEY_WINDOW_SECONDS = 15 * 60
+PASSKEY_MAX_ATTEMPTS = 10
+_passkey_lock = Lock()
+_passkey_attempts = defaultdict(deque)  # ip -> timestamps
 
 # Card metadata and the allow-list are derived from the feature registry so the
 # dashboard can never advertise a module the bot does not have (the old
@@ -241,19 +283,69 @@ def _clear_login_failures(ip: str):
         _login_attempts.pop(ip, None)
 
 
+def _passkey_attempts_left() -> int:
+    """How many passkey guesses this client has left in the current window."""
+    now = time.time()
+    ip = _client_ip()
+    with _passkey_lock:
+        # A scanner walking through addresses would otherwise grow this map forever.
+        if len(_passkey_attempts) > 5000:
+            for stale in [
+                key for key, stamps in _passkey_attempts.items()
+                if not stamps or now - stamps[-1] > PASSKEY_WINDOW_SECONDS
+            ]:
+                _passkey_attempts.pop(stale, None)
+        bucket = _passkey_attempts[ip]
+        while bucket and now - bucket[0] > PASSKEY_WINDOW_SECONDS:
+            bucket.popleft()
+        return PASSKEY_MAX_ATTEMPTS - len(bucket)
+
+
+def _record_passkey_failure() -> None:
+    with _passkey_lock:
+        _passkey_attempts[_client_ip()].append(time.time())
+
+
+def _clear_passkey_failures() -> None:
+    with _passkey_lock:
+        _passkey_attempts.pop(_client_ip(), None)
+
+
 def _schedule_cloud_backup():
     """Push the database to the cloud right away after a change.
 
     The periodic backup only runs every 25s, so a restart in that window would
     restore an older snapshot and quietly undo the administrator's change.
+
+    One worker, coalesced: this used to start a thread per click, each one reading
+    and uploading the whole database, so holding Enter on a toggle queued a pile of
+    concurrent full-database uploads. A request that arrives while one is already
+    pending is the same request.
     """
+    global _backup_pending
     try:
         from utils.cloud_sync import backup_to_cloud_sync
     except Exception:
         return
+    with _backup_pending_lock:
+        if _backup_pending:
+            return
+        _backup_pending = True
+
+    def _worker():
+        global _backup_pending
+        try:
+            backup_to_cloud_sync()
+        except Exception as e:
+            print(f"[MODULES] Could not schedule cloud backup: {e}", flush=True)
+        finally:
+            with _backup_pending_lock:
+                _backup_pending = False
+
     try:
-        Thread(target=backup_to_cloud_sync, daemon=True).start()
+        Thread(target=_worker, daemon=True).start()
     except Exception as e:
+        _backup_pending = False
         print(f"[MODULES] Could not schedule cloud backup: {e}", flush=True)
 
 
@@ -352,12 +444,38 @@ def _resolve_guild_id(requested=None):
     return None
 
 
+_backup_pending = False
+_backup_pending_lock = Lock()
+
+
 def _require_auth_api():
     if not is_authenticated():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
     if not validate_csrf():
         return jsonify({"success": False, "error": "Invalid or missing CSRF token"}), 403
     return None
+
+
+@app.errorhandler(413)
+def _payload_too_large(_error):
+    """A JSON answer for the JSON-only client.
+
+    Flask's default 413 is HTML, so the page's ``response.json()`` threw and the
+    catch-all turned it into "Request failed (413)" — honest, but it never said
+    which limit was hit or what to do about it.
+    """
+    return jsonify({
+        "success": False,
+        "error": "That message is larger than the dashboard accepts (16 KB). Shorten it or split the send.",
+    }), 413
+
+
+@app.errorhandler(429)
+def _rate_limited(_error):
+    return jsonify({
+        "success": False,
+        "error": "Too many requests at once — wait a moment and try again.",
+    }), 429
 
 
 @app.after_request
@@ -409,12 +527,20 @@ def health():
 def api_live_logs():
     # Prefer dashboard session; allow header passkey for ops tooling.
     if is_authenticated():
+        # The ring is process-wide, so only the unscoped (passkey) sign-in may read
+        # it: a guild-scoped link is *one server's* session, and these lines were
+        # written while serving every server. ``_resolve_guild_id`` draws exactly
+        # this line for every other endpoint.
+        if session.get("auth_scope") != "global":
+            return jsonify({
+                "error": "Logs are available only to an administrator sign-in (ADMIN_PASSKEY).",
+            }), 403
         if not validate_csrf() and request.method != "GET":
             return jsonify({"error": "CSRF"}), 403
     elif not _passkey_ok():
-        return jsonify({"error": "Unauthorized"}), 401
+        return _passkey_denied()
     try:
-        content = "".join(str(x) for x in list(LOG_RING))
+        content = "".join(str(x) for x in list(LOG_RING)[-200:])
         content = _SECRETISH.sub(r"\1=[redacted]", content)
         return Response(content, mimetype="text/plain; charset=utf-8")
     except Exception as e:
@@ -425,7 +551,7 @@ def api_live_logs():
 def api_set_module():
     """Passkey-authenticated module toggle — no CSRF required (internal use only)."""
     if not _passkey_ok():
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
+        return _passkey_denied()
     data = request.get_json(silent=True) or {}
 
     guild_id_raw = data.get("guild_id")
@@ -450,7 +576,7 @@ def api_set_module():
 @app.route("/api/voice-debug")
 def api_voice_debug():
     if not _passkey_ok():
-        return jsonify({"error": "Unauthorized"}), 401
+        return _passkey_denied()
 
     import ctypes.util
     import glob
@@ -620,7 +746,18 @@ def _run_on_bot_loop(coro, timeout: float = 15.0):
     loop = getattr(BOT_INSTANCE, "loop", None)
     if loop is not None and loop.is_running():
         future = asyncio.run_coroutine_threadsafe(coro, loop)
+        # NOTE: this does *not* cancel the coroutine. A timeout therefore means
+        # "unknown", never "did not happen" — callers must treat it that way
+        # (see api_send_message).
         return future.result(timeout=timeout)
+    if loop is not None:
+        # A real loop object that exists but is not running: the bot is built and
+        # not yet started (or has stopped). A second loop would give the cache a
+        # disagreeing twin, and market's in-flight refresh guard is a module global
+        # a second loop can re-enter — so this refuses instead of guessing.
+        raise RuntimeError("The bot's event loop is not running — refusing to touch Discord.")
+    # No loop at all is the stand-in harness's documented case (see
+    # tests/test_composer.py), where there is no gateway state to disagree with.
     return asyncio.run(coro)
 
 
@@ -1381,6 +1518,27 @@ def api_send_message():
         results = _run_on_bot_loop(
             _deliver_dashboard_message(guild_id, channel_ids, payload), timeout=30.0
         )
+    except TimeoutError:
+        # The coroutine is still running on the bot's loop and may post a second
+        # from now. The old path answered "Discord did not accept it" — a claim it
+        # could not support — and skipped the history row, so the natural retry
+        # posted a second copy of an announcement that had already arrived. This is
+        # the one outcome nothing can resolve, so it is recorded as unknown and the
+        # operator is told to look before sending again.
+        scheduled.record_unknown(
+            guild_id,
+            channel_ids,
+            payload,
+            created_by=_int_or_none(session.get("user_id")),
+        )
+        return jsonify({
+            "success": False,
+            "unknown": True,
+            "error": (
+                "Discord did not answer in time — the message may still have been "
+                "posted. Check the channels before sending it again."
+            ),
+        }), 504
     except Exception as e:
         print(f"[DASHBOARD] Composed message failed: {e}", flush=True)
         return jsonify({"success": False, "error": f"Discord did not accept it: {e}"}), 502
@@ -2110,13 +2268,19 @@ async def _scheduler_tick(now: int | None = None) -> list[dict]:
             # was already recorded (and had its repeat advanced) is not settled twice.
             raised = scheduled.get(msg["guild_id"], msg["id"]) or {}
             if raised.get("status") == "sending":
-                scheduled.mark_failed(msg["id"], now, f"Delivery failed: {e}")
-                await _alert_schedule_outcome(
-                    msg["guild_id"],
-                    msg["id"],
-                    _alert_tone(msg, scheduled.get(msg["guild_id"], msg["id"]) or {}),
-                    f"Delivery failed: {e}",
-                )
+                # Conditional for the same reason the restart sweep's is: the read
+                # above and this write are two steps, and the row can be settled in
+                # between by another process. Only the caller whose write reports an
+                # affected row owns the failure — and therefore posts the card.
+                if scheduled.mark_failed(
+                    msg["id"], now, f"Delivery failed: {e}", only_if_status="sending"
+                ):
+                    await _alert_schedule_outcome(
+                        msg["guild_id"],
+                        msg["id"],
+                        _alert_tone(msg, scheduled.get(msg["guild_id"], msg["id"]) or raised),
+                        f"Delivery failed: {e}",
+                    )
             print(f"[SCHEDULE] {scheduled.describe(msg)}: delivery raised: {e}", flush=True)
             done.append({"id": msg["id"], "status": "failed", "error": str(e), "results": []})
             continue

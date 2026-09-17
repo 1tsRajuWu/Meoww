@@ -222,6 +222,63 @@ def record_sent(
         return None
 
 
+def record_unknown(
+    guild_id: int,
+    channel_ids,
+    payload: dict,
+    *,
+    created_by=None,
+    now: int | None = None,
+) -> int | None:
+    """Write down a send whose outcome Discord never confirmed.
+
+    The dashboard's send runs on the bot's loop with a timeout, and a timeout does
+    not cancel the coroutine — it is still running, so the message may post a
+    second later or not at all, and nothing can tell which from here. The old path
+    answered "Discord did not accept it" (a claim it could not support) and skipped
+    the history row entirely, so the operator's natural retry posted a second copy
+    of an announcement that had already arrived.
+
+    This row exists so "did that go out?" has an answer in the panel instead of in
+    somebody's memory. It is written as a finished row, never pending, so the
+    delivery loop can never claim it and post it again.
+    """
+    import time
+
+    now = int(now if now is not None else time.time())
+    try:
+        conn = db.connect()
+        try:
+            cur = conn.execute(
+                """INSERT INTO scheduled_messages
+                   (guild_id, channel_ids, payload, preview, run_at, repeat_minutes,
+                    generator, source, status, created_by, created_at, fired_at,
+                    last_run_at, fire_count, fail_streak, last_error, last_results)
+                   VALUES (?, ?, ?, ?, ?, 0, '', ?, 'unknown', ?, ?, ?, ?, 1, 0, ?, ?)""",
+                (
+                    guild_id,
+                    json.dumps([int(cid) for cid in channel_ids]),
+                    json.dumps(payload),
+                    payload_summary(payload)[:200],
+                    now,
+                    SOURCE_NOW,
+                    int(created_by) if created_by is not None else None,
+                    now,
+                    now,
+                    now,
+                    "Discord did not answer in time — the message may have been posted",
+                    json.dumps([]),
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[DASHBOARD] Could not record an unconfirmed send: {e}", flush=True)
+        return None
+
+
 def pending_count(guild_id: int) -> int:
     conn = db.connect()
     try:

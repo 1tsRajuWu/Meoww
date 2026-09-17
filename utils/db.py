@@ -507,6 +507,25 @@ async def setup():
             'CREATE INDEX IF NOT EXISTS idx_sched_history '
             'ON scheduled_messages(guild_id, last_run_at)'
         )
+        # Access-path indexes for the five tables that grow without one. The
+        # composite primary keys cover economy, user_levels, item_effects, loans
+        # and market_holdings, but these are scanned today: a chart series reads
+        # market_history by symbol and its prune deletes by ts, trade history and
+        # the buyback ceiling read market_trades by member, and /inventory,
+        # /quote and /warnings each filter on a column that has no index at all.
+        # Idempotent and additive, so a restored older database gains them on boot.
+        for statement in (
+            "CREATE INDEX IF NOT EXISTS idx_market_history_symbol_ts "
+            "ON market_history(symbol, ts)",
+            "CREATE INDEX IF NOT EXISTS idx_market_trades_owner "
+            "ON market_trades(guild_id, user_id, id)",
+            "CREATE INDEX IF NOT EXISTS idx_market_trades_ts ON market_trades(ts)",
+            "CREATE INDEX IF NOT EXISTS idx_inventory_owner ON inventory(guild_id, user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_custom_quotes_guild ON custom_quotes(guild_id)",
+            "CREATE INDEX IF NOT EXISTS idx_warnings_owner ON warnings(guild_id, user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_mod_cases_guild ON mod_cases(guild_id, user_id)",
+        ):
+            await db.execute(statement)
         # ``CREATE TABLE IF NOT EXISTS`` never changes a table that already exists,
         # and this table shipped before generators did — so the column is added
         # additively on boot rather than only being declared above.

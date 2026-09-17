@@ -17,7 +17,7 @@ Please refer to the [CHANGELOG.md](../CHANGELOG.md) for a full breakdown, but th
 | SQLite schema, migrations and `run_atomic()` | `utils/db.py` |
 | XP/level math and the `MAX_LEVEL` ceiling | `utils/levels.py` |
 | Components V2 design system (`send_card`, `card`, semantic helpers) | `utils/style.py` |
-| Cloud backup (encrypted + rotated snapshots) | `utils/cloud_sync.py` |
+| Cloud backup (private bucket, hashed + rotated snapshots) | `utils/cloud_sync.py` |
 | Web dashboard (Flask, runs in a thread from `bot.py`) | `keep_alive.py` + `templates/` |
 | Archived features, kept but never imported | `deleted_features/` |
 | Tests | `tests/` — run `python -m unittest discover -s tests -t .` |

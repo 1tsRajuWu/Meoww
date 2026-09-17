@@ -63,8 +63,13 @@ def make_bot(*, guilds=None, started=True):
     return bot, guild, other
 
 
-class DashboardCase(TempDatabaseMixin, unittest.TestCase):
-    """A signed-in session against a fake gateway, with a throwaway database."""
+class _DashboardFixture(TempDatabaseMixin, unittest.TestCase):
+    """A signed-in session against a fake gateway, with a throwaway database.
+
+    Test-free on purpose (the same split ``_ComposerFixture`` uses): a base class
+    that carries tests re-runs every one of them in each subclass, and the suite
+    then counts re-collections as passes.
+    """
 
     def setUp(self):
         self.use_temp_database("dashboard.db")
@@ -74,6 +79,7 @@ class DashboardCase(TempDatabaseMixin, unittest.TestCase):
         self.bot, self.guild, self.other = make_bot()
         keep_alive._login_attempts.clear()
         keep_alive._send_attempts.clear()
+        keep_alive._passkey_attempts.clear()
         self._patched = mock.patch.object(keep_alive, "BOT_INSTANCE", self.bot)
         self._patched.start()
         self.client = keep_alive.app.test_client()
@@ -108,6 +114,10 @@ class DashboardCase(TempDatabaseMixin, unittest.TestCase):
         if method == "GET":
             return self.client.get(url, headers=headers)
         return self.client.post(url, json=body or {}, headers=headers)
+
+
+class DashboardCase(_DashboardFixture):
+    """The dashboard's own behaviours: the page, the toggles, the API guards."""
 
     # ── the page must load ───────────────────────────────────────────────
     def test_the_page_answers_while_the_gateway_has_no_real_latency(self):
@@ -409,6 +419,84 @@ class VoiceDebugJSON(DashboardCase):
             self.client.get("/api/voice-debug", headers={"X-Admin-Passkey": "test-passkey"}).data
         )
         self.assertEqual(payload["voice_clients"][0]["latency"], 0.043)
+
+
+class PasskeyAndLogScope(_DashboardFixture):
+    """The passkey API is throttled, and the process log is not for scoped sessions.
+
+    ``ADMIN_PASSKEY`` is the same secret the login form verifies, but the three
+    endpoints that accept it had no attempt limit at all — so /api/set-module, which
+    toggles modules in every guild the bot is in, was an unlimited oracle for a
+    long-lived credential that is typed once into a host's dashboard and never
+    rotated. The form, which is the weaker interface, was the one with the limit.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.keep_alive._passkey_attempts.clear()
+        self.addCleanup(self.keep_alive._passkey_attempts.clear)
+        self._passkey = mock.patch.object(self.keep_alive, "ADMIN_PASSKEY", "correct-horse")
+        self._passkey.start()
+        self.addCleanup(self._passkey.stop)
+
+    def test_a_wrong_passkey_is_refused(self):
+        resp = self.client.get("/api/voice-debug", headers={"X-Admin-Passkey": "nope"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_guessing_the_passkey_is_throttled(self):
+        limit = self.keep_alive.PASSKEY_MAX_ATTEMPTS
+        for attempt in range(limit - 1):
+            resp = self.client.get("/api/voice-debug", headers={"X-Admin-Passkey": "nope"})
+            self.assertEqual(
+                resp.status_code, 401,
+                f"attempt {attempt + 1} of {limit} is still inside the window",
+            )
+        # The attempt that spends the last slot is told the window is closed, and
+        # so is every attempt after it.
+        for _ in range(2):
+            self.assertEqual(
+                self.client.get(
+                    "/api/voice-debug", headers={"X-Admin-Passkey": "nope"}
+                ).status_code,
+                429,
+            )
+        # The right passkey is refused too while the window is spent: the limit is
+        # on the client, not on the guess, or it would not slow an attacker down.
+        self.assertEqual(
+            self.client.get(
+                "/api/voice-debug", headers={"X-Admin-Passkey": "correct-horse"}
+            ).status_code,
+            429,
+        )
+        self.assertEqual(
+            sum(len(bucket) for bucket in self.keep_alive._passkey_attempts.values()),
+            limit,
+            "a blocked client must not keep growing the counter either",
+        )
+
+    def test_a_correct_passkey_clears_the_window(self):
+        self.client.get("/api/live-logs", headers={"X-Admin-Passkey": "nope"})
+        self.assertEqual(
+            self.client.get(
+                "/api/live-logs", headers={"X-Admin-Passkey": "correct-horse"}
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            dict(self.keep_alive._passkey_attempts), {},
+            "a successful sign-in must not leave the failure count standing",
+        )
+
+    def test_a_guild_scoped_session_cannot_read_the_process_log(self):
+        """The ring is written while serving every guild; the scope is not global."""
+        self.sign_in(scope="guild")
+        resp = self.client.get("/api/live-logs", headers={"X-CSRF-Token": CSRF})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_the_unscoped_session_can_read_the_log(self):
+        self.sign_in(guild_id=None, scope="global")
+        resp = self.client.get("/api/live-logs", headers={"X-CSRF-Token": CSRF})
+        self.assertEqual(resp.status_code, 200)
 
 
 if __name__ == "__main__":

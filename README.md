@@ -251,8 +251,10 @@ python -m unittest discover -s tests -t .
 
 600+ tests, stdlib only, no network: level math, feature-registry drift,
 permissions vs. real command checks, atomic money/rob/fee transactions,
-market parsing + staleness + races, backup encryption + round-trips, legal-doc
-rendering inside Discord's embed limits. CI runs them on every push/PR.
+market parsing + staleness + races, backup round-trips + integrity checks, legal-doc
+rendering inside Discord's embed limits. CI runs them on every push/PR (and on
+demand), and fails the build if fewer than 740 tests actually run or more than 20
+skip — a suite that quietly stops collecting tests cannot pass as green.
 
 ---
 

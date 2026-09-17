@@ -603,6 +603,49 @@ async def on_ready():
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
 
 @bot.event
+async def on_member_join(member: discord.Member):
+    """Auto-assign the default role to a new member, if one is configured.
+
+    Requires the Members intent (``ENABLE_MEMBERS_INTENT=1``). When that
+    intent is off, Discord never sends this event, so the handler is never
+    called — which is the correct failure mode (no role, no crash).
+    """
+    try:
+        role_id = await db.get_setting(member.guild.id, "default_role_id")
+        if not role_id:
+            return
+        role = member.guild.get_role(int(role_id))
+        if role is None:
+            # Role was deleted; clean up the stale setting.
+            await db.set_setting(member.guild.id, "default_role_id", None)
+            return
+        if role >= member.guild.me.top_role:
+            print(
+                f"[DEFAULT ROLE] Cannot assign {role.name} (id={role.id}) to "
+                f"{member} in {member.guild.name}: role is above my own.",
+                flush=True,
+            )
+            return
+        await member.add_roles(role, reason="Default role")
+        print(
+            f"[DEFAULT ROLE] Assigned {role.name} to {member} in "
+            f"{member.guild.name}.",
+            flush=True,
+        )
+    except discord.Forbidden:
+        print(
+            f"[DEFAULT ROLE] Missing permission to assign role in "
+            f"{member.guild.name}.",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            f"[DEFAULT ROLE] Failed for {member} in {member.guild.name}: "
+            f"{exc}",
+            flush=True,
+        )
+
+@bot.event
 async def on_app_command_completion(interaction: discord.Interaction, command: app_commands.Command | app_commands.ContextMenu):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = interaction.user

@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Also runnable by hand: the file is only executed from the default branch (or
+  # a PR against it), so this is the one way to prove a change to *this* job
+  # before merging it.
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -18,4 +22,40 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run test suite
-        run: python -m unittest discover -s tests -t .
+        # Not plain `unittest discover`, which exits 0 when every test it finds
+        # skips — a green check has to mean the suite *ran*, not that nothing
+        # failed among the tests that chose to run. The floor is the number of
+        # tests that must actually execute (~769 of 780 collected today), and the
+        # skip budget is the eleven known skips: nine retired command-sync tests
+        # and two modules for a music cog that is no longer in the tree. A rename
+        # that stops discovery matching, or a batch of tests that quietly starts
+        # skipping, is the failure this step exists to catch.
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          FLOOR = 740
+          SKIP_BUDGET = 20
+
+          result = unittest.TextTestRunner(verbosity=1).run(
+              unittest.defaultTestLoader.discover("tests", top_level_dir=".")
+          )
+          ran = result.testsRun - len(result.skipped)
+          print(
+              f"\n{ran} test(s) ran, {len(result.skipped)} skipped, "
+              f"{result.testsRun} collected in total"
+          )
+          if not result.wasSuccessful():
+              sys.exit("the suite failed")
+          if ran < FLOOR:
+              sys.exit(
+                  f"only {ran} test(s) ran (floor {FLOOR}) — "
+                  "did discovery stop matching the suite?"
+              )
+          if len(result.skipped) > SKIP_BUDGET:
+              sys.exit(
+                  f"{len(result.skipped)} test(s) skipped (budget {SKIP_BUDGET}) — "
+                  "retest or delete the ones that no longer run"
+              )
+          PY

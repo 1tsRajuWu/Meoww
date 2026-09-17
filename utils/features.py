@@ -273,6 +273,7 @@ FEATURES: tuple[Feature, ...] = (
         commands=(
             "/serverinfo", "/userinfo", "/announce", "/sync", "/updatedb",
             "/privacy", "/tos", "/dbstatus",
+            "/defaultrole set", "/defaultrole view", "/defaultrole clear",
         ),
         toggleable=False,
         help_key="system",
@@ -311,6 +312,7 @@ CORE_COGS: tuple[str, ...] = (
 ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     "help", "dashboard", "sync", "serverinfo", "userinfo", "privacy",
     "tos", "setavatar", "setbanner", "updatedb", "dbstatus",
+    "defaultrole",
 })
 
 # Commands that are safe to run in a DM (or that handle their own guild check).

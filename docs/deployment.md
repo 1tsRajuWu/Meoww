@@ -40,6 +40,10 @@
 - `ENABLE_MESSAGE_CONTENT_INTENT=1`: Enable message content intent
 - `ENABLE_MEMBERS_INTENT=1`: Enable members intent
 - `ERROR_WEBHOOK_URL`: Error reporting webhook
+- `DASHBOARD_HTTPS=1`: force the dashboard's session cookie to `Secure`. Render
+  and Railway are detected automatically; set this when you terminate TLS
+  yourself (the server binds `0.0.0.0`, so without it a plaintext request to the
+  dashboard port would carry the session cookie)
 
 ## Deployment Process
 

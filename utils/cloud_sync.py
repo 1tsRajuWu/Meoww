@@ -30,6 +30,7 @@ import os
 import socket
 import sqlite3
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -230,6 +231,8 @@ _last_sync_hash: str | None = None
 _restore_blocked_reason: str | None = None
 _remote_checked: bool = False
 _last_snapshot_ts: float = 0.0
+#: When the primary backup last landed, so /dbstatus can say whether sync is alive.
+_last_upload_ts: float = 0.0
 
 #: The object this process restored from, or None if it never restored one.
 _restored_from: str | None = None
@@ -471,11 +474,17 @@ def restore_blocked_reason() -> str | None:
     return _restore_blocked_reason
 
 
+def last_upload_ts() -> float:
+    """Unix time of the last primary backup that landed, or 0 if none ever has."""
+    return _last_upload_ts
+
+
 # --------------------------------------------------------------------------- #
 # Backup
 # --------------------------------------------------------------------------- #
 
-_upload_lock_active = False
+_upload_lock = threading.Lock()
+_upload_requested = False
 
 
 def _snapshot_bytes(path: str) -> bytes | None:
@@ -643,20 +652,33 @@ def upload_refusal_reason(decide: bool = True) -> str | None:
 
 
 def backup_to_cloud_sync() -> bool:
-    """Upload a consistent snapshot of the database to Supabase Storage."""
-    global _upload_lock_active
+    """Upload a consistent snapshot of the database to Supabase Storage.
 
-    if _upload_lock_active:
+    Coalescing rather than dropping. The guard used to be a bare boolean read and
+    written without a lock, and a caller that arrived while an upload was in
+    flight got a ``False`` and nothing else — which is precisely the case the
+    dashboard's "back up right now after a change" call exists for: a restart
+    inside the 25-second window restoring an older snapshot and quietly undoing
+    the administrator's change. Now the request is remembered and one more upload
+    runs before the lock is released.
+    """
+    global _upload_requested
+
+    if not _upload_lock.acquire(blocking=False):
+        _upload_requested = True
         return False
-    _upload_lock_active = True
     try:
-        return _backup_inner()
+        result = _backup_inner()
+        while _upload_requested:
+            _upload_requested = False
+            result = _backup_inner() or result
+        return result
     finally:
-        _upload_lock_active = False
+        _upload_lock.release()
 
 
 def _backup_inner() -> bool:
-    global _last_sync_hash, _last_snapshot_ts
+    global _last_sync_hash, _last_snapshot_ts, _last_upload_ts
 
     reason = upload_refusal_reason()
     if reason:
@@ -667,6 +689,11 @@ def _backup_inner() -> bool:
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return False
 
+    # The hash of the snapshot is the only "did anything change?" test. A stat
+    # (size + mtime) looks cheaper, but SQLite can rewrite a row in place without
+    # moving either — so a stat-based shortcut can decide "unchanged" about a
+    # database that changed, and skip the upload of it. Wasted I/O is the better
+    # failure here.
     raw = _snapshot_bytes(path)
     if raw is None:
         return False
@@ -680,18 +707,27 @@ def _backup_inner() -> bool:
         return False
 
     _lease_touch(force=True)
+    _last_upload_ts = time.time()
 
-    now = time.time()
+    now = _last_upload_ts
     if (now - _last_snapshot_ts) >= SNAPSHOT_INTERVAL:
         stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-        _storage_upload(f"{SNAPSHOT_PREFIX}{stamp}{SNAPSHOT_SUFFIX}", raw)
-        _last_snapshot_ts = now
-
-        stale = _snapshot_names(_storage_list())[BACKUP_KEEP:]
-        pruned = sum(1 for old in stale if _storage_delete(old))
-        if stale:
+        # The clock only moves for a snapshot that actually landed. The old code
+        # advanced it regardless of the answer, so a refused upload cost a whole
+        # interval with nothing in the log to say a snapshot was missing —
+        # "keep the newest 5" quietly became a single file.
+        if _storage_upload(f"{SNAPSHOT_PREFIX}{stamp}{SNAPSHOT_SUFFIX}", raw):
+            _last_snapshot_ts = now
+            stale = _snapshot_names(_storage_list())[BACKUP_KEEP:]
+            pruned = sum(1 for old in stale if _storage_delete(old))
+            if stale:
+                print(
+                    f"[CLOUD SYNC] 🧹 Pruned {pruned}/{len(stale)} old snapshot(s).",
+                    flush=True,
+                )
+        else:
             print(
-                f"[CLOUD SYNC] 🧹 Pruned {pruned}/{len(stale)} old snapshot(s).",
+                "[CLOUD SYNC] ⚠️ Snapshot upload refused — retrying next tick.",
                 flush=True,
             )
 

@@ -229,7 +229,8 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         cs._last_sync_hash = None
         cs._restore_blocked_reason = None
         cs._remote_checked = False
-        cs._upload_lock_active = False
+        cs._upload_requested = False
+        cs._last_upload_ts = 0.0
         cs._last_snapshot_ts = 0
         # Set env vars for Supabase
         self._orig_url = cs.SUPABASE_URL
@@ -241,6 +242,54 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         cs.SUPABASE_URL = self._orig_url
         cs.SUPABASE_KEY = self._orig_key
         self.release_temp_database()
+
+    def test_a_refused_snapshot_does_not_start_the_next_hour(self):
+        """A snapshot that was refused must be retried, not silently skipped.
+
+        The interval clock used to move regardless of the answer, so one refused
+        upload cost a whole hour of snapshots with nothing in the log to say so —
+        "keep the newest 5" quietly became a single rolling file.
+        """
+        _make_db(cs.db_path())
+        cs._remote_checked = True
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._last_snapshot_ts = 0
+        fake = _FakeSupabase()
+
+        def upload(name, data):
+            if name.startswith(cs.SNAPSHOT_PREFIX):
+                return False  # quota, a 4xx, a rotated token: any refusal
+            return fake.upload(name, data)
+
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_upload", side_effect=upload), \
+             mock.patch.object(cs, "_storage_delete", side_effect=lambda n: fake.delete(n)):
+            self.assertTrue(cs.backup_to_cloud_sync())
+
+        self.assertIn("bot.db", fake.files, "the primary backup still goes out")
+        self.assertEqual(cs._last_snapshot_ts, 0, "a refused snapshot must not start the hour")
+        self.assertEqual(
+            [n for n in fake.files if n.startswith(cs.SNAPSHOT_PREFIX)], [],
+            "and nothing may be claimed that was never written",
+        )
+
+    def test_a_request_during_an_upload_is_remembered_not_dropped(self):
+        """The dashboard's back-up-now call must survive a colliding upload.
+
+        The guard was a bare boolean read and written without a lock, and a caller
+        that arrived mid-upload simply got ``False`` — which is exactly the case
+        this call exists for: a restart inside the 25-second window would restore
+        an older snapshot and undo the administrator's change.
+        """
+        cs._upload_requested = False
+        cs._upload_lock.acquire()
+        try:
+            self.assertFalse(cs.backup_to_cloud_sync(), "it cannot upload twice at once")
+            self.assertTrue(cs._upload_requested, "but the change still needs pushing")
+        finally:
+            cs._upload_lock.release()
+            cs._upload_requested = False
 
     def test_backup_uploads_current_file(self):
         _make_db(cs.db_path())

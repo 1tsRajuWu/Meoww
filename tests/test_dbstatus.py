@@ -123,8 +123,14 @@ class _User:
 
 
 class _Response:
+    def __init__(self):
+        self.messages = []
+
     async def defer(self, **kwargs):
         pass
+
+    async def send_message(self, content=None, **kwargs):
+        self.messages.append({"content": content, **kwargs})
 
 
 class _Followup:
@@ -215,6 +221,93 @@ class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
         embed = interaction.followup.embeds[-1]
         field = next(f for f in embed.fields if "Supabase Backup" in f.name)
         self.assertIn("Not configured", field.value)
+
+
+class _Group:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Command:
+    """A slash command as the gateway hands it over.
+
+    A subcommand carries its group as ``root_parent`` and reports its own name
+    in ``name``, which is why matching a group name against ``name`` misses.
+    """
+
+    def __init__(self, name, group=None):
+        self.name = name
+        self.root_parent = _Group(group) if group else None
+
+
+class TestServerControlModuleGate(unittest.IsolatedAsyncioTestCase):
+    """/defaultrole must not inherit the Moderation module's off switch."""
+
+    def _cog(self, enabled):
+        from types import SimpleNamespace
+        from cogs.server_control import ServerControl
+
+        bot = SimpleNamespace(is_module_enabled=lambda _gid, _mod: enabled)
+        return ServerControl(bot=bot)
+
+    async def _check(self, enabled, command):
+        interaction = _FakeInteraction()
+        interaction.command = command
+        return await self._cog(enabled).interaction_check(interaction)
+
+    async def test_a_group_command_is_matched_by_its_group_name(self):
+        self.assertTrue(
+            await self._check(False, _Command("set", group="defaultrole")),
+            "/defaultrole set was refused because the gate read the subcommand name",
+        )
+
+    async def test_a_flat_bypass_command_still_bypasses(self):
+        self.assertTrue(await self._check(False, _Command("serverinfo")))
+
+    async def test_a_gated_command_is_still_refused_while_the_module_is_off(self):
+        self.assertFalse(await self._check(False, _Command("lockdown")))
+        self.assertTrue(await self._check(True, _Command("lockdown")))
+
+    async def test_the_refusal_tells_the_user_why(self):
+        interaction = _FakeInteraction()
+        interaction.command = _Command("lockdown")
+        await self._cog(False).interaction_check(interaction)
+        self.assertTrue(interaction.response.messages, "the refusal said nothing")
+        self.assertIn("Moderation", interaction.response.messages[-1]["content"])
+
+
+class TestDefaultRoleWarnsWhenItCannotWork(unittest.TestCase):
+    """Member events need the Members intent; with it off the feature is a no-op.
+
+    The setting would still save, the command would still answer "new members
+    receive this role", and nobody would ever receive it — silent in every place
+    an administrator looks.
+    """
+
+    def test_the_warning_names_the_intent_and_how_to_enable_it(self):
+        from types import SimpleNamespace
+        from cogs.server_control import _members_intent_warning
+
+        off = _members_intent_warning(
+            SimpleNamespace(intents=SimpleNamespace(members=False))
+        )
+        self.assertIn("Members intent", off)
+        self.assertIn("ENABLE_MEMBERS_INTENT", off)
+        self.assertEqual(
+            _members_intent_warning(SimpleNamespace(intents=SimpleNamespace(members=True))),
+            "",
+            "a correctly configured bot must not nag",
+        )
+        # A bot with no intents attribute at all warns instead of raising.
+        self.assertIn("Members intent", _members_intent_warning(SimpleNamespace()))
+
+    def test_the_commands_that_talk_about_the_role_say_it(self):
+        import inspect
+        from cogs.server_control import ServerControl
+
+        for name in ("defaultrole_set", "defaultrole_view"):
+            source = inspect.getsource(getattr(ServerControl, name).callback)
+            self.assertIn("_members_intent_warning", source, name)
 
 
 class TestPermissionDeclared(unittest.TestCase):

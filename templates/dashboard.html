@@ -19,8 +19,13 @@
             --border-active: rgba(88, 101, 242, 0.4);
             --text-primary: #f0f3f8;
             --text-secondary: #94a3b8;
-            --text-muted: #64748b;
+            /* #64748b read at 3.7:1 on this card, under the 4.5:1 AA floor, and it
+               carries 22 pieces of small text (counters, notes, timestamps). */
+            --text-muted: #8494ab;
             --accent: #5865F2;
+            /* --accent fills a button behind white text; as *text* on the dark
+               card it only reached 3.9:1, so coloured words use this instead. */
+            --accent-text: #9aa5ff;
             --accent-glow: rgba(88, 101, 242, 0.35);
             --green: #23a55a;
             --green-glow: rgba(35, 165, 90, 0.3);
@@ -380,11 +385,7 @@
             margin-bottom: 2px;
         }
 
-        .module-category {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--accent);
-            text-transform: uppercase;
+        .module-category {            font-size: 11px; font-weight: 600; color: var(--accent-text); text-transform: uppercase;
             letter-spacing: 0.6px;
         }
 
@@ -1237,7 +1238,7 @@
         .schedule-results li { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--text-muted); }
         .schedule-results li.ok .mark { color: #4ade80; }
         .schedule-results li.fail .mark { color: #ff6b6b; }
-        .schedule-results a { color: var(--accent); text-decoration: none; }
+        .schedule-results a { color: var(--accent-text); text-decoration: none; }
         .schedule-results a:hover { text-decoration: underline; }
 
         @keyframes slideIn {
@@ -1613,8 +1614,9 @@
             let data = {};
             try { data = await response.json(); } catch (_) {}
             if (response.status === 401) {
-                // Session expired — send the user back to sign in again.
-                showToast("Your session expired. Redirecting to sign in…", "error");
+                // Session expired — keep the message, then send the user back.
+                saveDraft();
+                showToast("Your session expired — your draft is saved. Redirecting to sign in…", "error");
                 setTimeout(() => { window.location.href = "/login"; }, 1200);
                 throw new Error("Session expired");
             }
@@ -1689,6 +1691,7 @@
         const composerMentions = [];
         let composerChannels = [];      // every channel the bot can see in this guild
         const composerSelection = [];   // chosen channel ids, in the order they were picked
+        let draftApplied = false;       // a restored draft is applied once per load
         // Rendered from the server's own limit rather than a second copy of it.
         const COMPOSER_MAX_CHANNELS = {{ composer_max_channels|default(5) }};
         let mentionTimer = null;
@@ -1788,12 +1791,21 @@
             let data = {};
             try { data = await response.json(); } catch (_) {}
             if (response.status === 401) {
-                showToast("Your session expired. Redirecting to sign in…", "error");
+                saveDraft();
+                showToast("Your session expired — your draft is saved. Redirecting to sign in…", "error");
                 setTimeout(() => { window.location.href = "/login"; }, 1200);
                 throw new Error("Session expired");
             }
             // A refusal the server could describe up front (nothing written, more
             // channels than the limit) is an error; a delivered report is not.
+            // A 504 is not a failure: the send is still running on the bot's loop
+            // and may post a moment later, so it is marked and the caller says
+            // "unconfirmed" instead of offering a one-click retry.
+            if (response.status === 504 && data.unknown) {
+                const unconfirmed = new Error(data.error || "Discord did not answer in time");
+                unconfirmed.unconfirmed = true;
+                throw unconfirmed;
+            }
             if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
             return data;
         }
@@ -1806,7 +1818,8 @@
             let data = {};
             try { data = await response.json(); } catch (_) {}
             if (response.status === 401) {
-                showToast("Your session expired. Redirecting to sign in…", "error");
+                saveDraft();
+                showToast("Your session expired — your draft is saved. Redirecting to sign in…", "error");
                 setTimeout(() => { window.location.href = "/login"; }, 1200);
                 throw new Error("Session expired");
             }
@@ -1925,6 +1938,66 @@
             updateChannelCount();
         }
 
+        /* ---------------------------------------------------------------- */
+        /* Draft survival                                                    */
+        /* ---------------------------------------------------------------- */
+        /* The session lasts eight hours, so the realistic failure is a
+           half-written announcement and an expired cookie. ``apiPost`` answers that
+           with a redirect to /login, which used to throw the message away at the
+           worst possible moment. The text is the unrecoverable part, so it is kept
+           in sessionStorage until a send succeeds or the composer is cleared. */
+        const DRAFT_KEY = `meow-draft-${GUILD_ID}`;
+
+        function saveDraft() {
+            try {
+                sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+                    body: composerEls.body.value,
+                    title: composerEls.title.value,
+                    embed: composerEls.embed.checked,
+                    channels: composerSelection.map(id => String(id)),
+                    savedAt: Date.now()
+                }));
+            } catch (_) {
+                // sessionStorage can refuse (private mode, quota). A draft is a
+                // courtesy; it must never be able to break a send.
+            }
+        }
+
+        function dropDraft() {
+            try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) {}
+        }
+
+        function restoreDraft() {
+            let draft = null;
+            try {
+                draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "null");
+            } catch (_) {
+                draft = null;
+            }
+            if (!draft || !draft.body) return false;
+            composerEls.body.value = draft.body;
+            composerEls.title.value = draft.title || "";
+            composerEls.embed.checked = Boolean(draft.embed);
+            composerEls.titleField.hidden = !composerEls.embed.checked;
+            // Channels are re-ticked from the list the server just gave us, so a
+            // channel deleted since is simply not restored instead of breaking it.
+            const known = new Set(
+                composerChannels.filter(ch => ch.can_send).map(ch => String(ch.id))
+            );
+            composerSelection.length = 0;
+            (draft.channels || []).forEach(id => {
+                if (known.has(String(id)) && composerSelection.length < COMPOSER_MAX_CHANNELS) {
+                    composerSelection.push(String(id));
+                }
+            });
+            renderChannelPicker();
+            updateChannelCount();
+            renderPreview();
+            updateCounter();
+            showToast("Restored the message you were writing.", "success");
+            return true;
+        }
+
         async function loadChannels() {
             if (!BOT_READY) {
                 pickerNote("The bot is offline, so there is nothing to send with yet.");
@@ -1941,6 +2014,12 @@
                 return;
             }
             renderChannelPicker();
+            if (!draftApplied) {
+                draftApplied = true;
+                // After the picker exists: restoring a draft needs the channel list
+                // the server just sent, or the ticks would point at nothing.
+                restoreDraft();
+            }
             const usable = composerChannels.filter(ch => ch.can_send).length;
             composerStatus(usable
                 ? `${usable} channel${usable === 1 ? "" : "s"} the bot can post in.`
@@ -2350,6 +2429,43 @@
             composerStatus("");
         }
 
+        /* A 504 from a send is not a failure: the coroutine is still running on the
+           bot's loop and may post a second later, which is the one outcome nothing
+           here can resolve. Saying "could not send" would be a claim the server
+           cannot support, and the natural retry would post a second copy — so the
+           receipt says unconfirmed and the retry stays behind that word. */
+        function showReceiptUnconfirmed(payload, message) {
+            composerEls.receiptTitle.textContent = "Unconfirmed — check the channels";
+            composerEls.receiptTitle.className = "receipt-title note";
+            composerEls.receiptTime.textContent = new Date().toLocaleTimeString(
+                [], { hour: "2-digit", minute: "2-digit" }
+            );
+            composerEls.receiptRows.innerHTML = "";
+            const row = document.createElement("li");
+            row.className = "receipt-row note";
+            const mark = document.createElement("span");
+            mark.className = "receipt-mark";
+            mark.setAttribute("aria-hidden", "true");
+            mark.textContent = "!";
+            const why = document.createElement("span");
+            why.className = "receipt-why";
+            why.textContent = message;
+            row.appendChild(mark);
+            row.appendChild(why);
+            composerEls.receiptRows.appendChild(row);
+            composerEls.receiptNote.textContent =
+                "Recorded as unconfirmed, so the history shows it as unknown. Look at the channels before sending it again.";
+            composerEls.receiptFoot.hidden = false;
+            composerEls.retry.textContent = "Send it again anyway";
+            composerEls.receipt.hidden = false;
+            lastAttempt = payload
+                ? { payload: payload, channel_ids: (payload.channel_ids || []).slice(), carried: [] }
+                : null;
+            saveDraft();
+            loadScheduled();   // the unknown row is history now, not a pending queue entry
+            composerStatus("");
+        }
+
         function hideReceipt() {
             composerEls.receipt.hidden = true;
             composerEls.receiptRows.innerHTML = "";
@@ -2396,6 +2512,16 @@
             const ok = results.filter(item => item.ok).length;
             const refused = results.length - ok;
             if (msg.status === "cancelled") return { tone: "", label: "cancelled", detail: "" };
+            // Its own outcome, not the fall-through: the send timed out and may
+            // still have been posted, so "not sent" would be a claim nobody can
+            // make — and the one the retry button is read as permission to act on.
+            if (msg.status === "unknown") {
+                return {
+                    tone: "warn",
+                    label: "unconfirmed",
+                    detail: msg.last_error || "Discord did not answer in time"
+                };
+            }
             if (results.length && !refused) {
                 return { tone: "ok", label: "sent", detail: `${ok} of ${results.length} channel(s)` };
             }
@@ -2807,12 +2933,16 @@
             try {
                 const data = await apiPostResult("/api/send-message", payload);
                 renderReceipt(data, payload, carried);
+                dropDraft();   // it went out; there is nothing left to rescue
                 // The send has just been written down as history; without this the
                 // list below would keep showing yesterday's until its next poll,
                 // and a send that left no visible trace reads as one that failed.
                 loadScheduled();
             } catch (err) {
-                if (err.message !== "Session expired") showToast(`Could not send: ${err.message}`, "error");
+                if (err.message !== "Session expired") {
+                    if (err.unconfirmed) showReceiptUnconfirmed(payload, err.message);
+                    else showToast(`Could not send: ${err.message}`, "error");
+                }
             } finally {
                 composerEls.send.disabled = false;
                 composerEls.send.textContent = sendButtonLabel();
@@ -2820,6 +2950,7 @@
         }
 
         function clearComposer() {
+            dropDraft();
             composerEls.body.value = "";
             composerEls.title.value = "";
             composerEls.embed.checked = false;
@@ -2898,6 +3029,10 @@
         composerEls.repeat.addEventListener("change", updateScheduleHint);
         composerEls.content.addEventListener("change", applyContentMode);
         composerEls.clear.addEventListener("click", clearComposer);
+        // A closed tab is the other way a composed message disappears: the session
+        // lasts eight hours, so the page can sit open for a long time between
+        // typing and pressing send.
+        window.addEventListener("beforeunload", saveDraft);
         composerEls.retry.addEventListener("click", retryFailedChannels);
         composerEls.receiptDismiss.addEventListener("click", hideReceipt);
         composerEls.channelSearch.addEventListener("input", renderChannelPicker);
