@@ -65,11 +65,12 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "rank", "leaderboard", "levelsettings", "setlevel", "givexp",
-            "resetlevels", "addlevelrole", "removelevelrole", "levelroles",
+            "resetlevels", "levelroles",
         ),
         commands=(
-            "/rank", "/leaderboard", "/levelsettings", "/setlevel", "/givexp",
-            "/addlevelrole", "/removelevelrole", "/levelroles", "/resetlevels",
+            "/rank", "/leaderboard", "/levelroles view", "/levelroles add",
+            "/levelroles remove", "/levelsettings", "/setlevel", "/givexp",
+            "/resetlevels",
         ),
         cog="cogs.leveling",
         help_key="leveling",
@@ -87,12 +88,12 @@ FEATURES: tuple[Feature, ...] = (
             "balance", "daily", "weekly", "work", "rob", "pay", "deposit",
             "withdraw", "shop", "buy", "inventory", "richlist", "eco-admin",
             "addmoney", "removemoney", "setmoney", "addbank", "loan", "repay",
-            "beg", "meowfee",
+            "beg",
         ),
         commands=(
             "/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit",
             "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin",
-            "/loan", "/repay", "/beg", "/meowfee",
+            "/loan", "/repay", "/beg", "/eco-admin fee",
         ),
         cog="cogs.economy",
         help_key="economy",
@@ -251,11 +252,11 @@ FEATURES: tuple[Feature, ...] = (
             "365-day rolling window. View your activity, leaderboards, and "
             "channel breakdowns."
         ),
-        gate_commands=(
-            "activity", "activity-top", "activity-channel",
-        ),
+        # The gate names the *root* command, because that is what Discord reports
+        # for a subcommand; the paths below are what a member sees.
+        gate_commands=("activity",),
         commands=(
-            "/activity", "/activity-top", "/activity-channel",
+            "/activity me", "/activity top", "/activity channel",
         ),
         cog="cogs.tracker",
         help_key="tracker",
@@ -272,7 +273,7 @@ FEATURES: tuple[Feature, ...] = (
         ),
         commands=(
             "/serverinfo", "/userinfo", "/announce", "/bot sync", "/bot db",
-            "/privacy", "/tos", "/dbstatus",
+            "/legal privacy", "/legal tos", "/dbstatus",
             "/defaultrole set", "/defaultrole view", "/defaultrole clear",
         ),
         toggleable=False,
@@ -310,8 +311,8 @@ CORE_COGS: tuple[str, ...] = (
 # exists; tests/test_commands.py now fails if this list and the real command
 # tree ever drift apart again.)
 ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
-    "help", "dashboard", "bot", "serverinfo", "userinfo", "privacy",
-    "tos", "dbstatus",
+    "help", "bot", "serverinfo", "userinfo", "legal",
+    "dbstatus",
     "defaultrole",
 })
 
@@ -320,7 +321,7 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
 # the level row or the module toggle, and without this guard a DM invocation
 # raised AttributeError and answered with "An unexpected error occurred".
 DM_ALLOWED_COMMANDS: frozenset[str] = frozenset({
-    "help", "privacy", "tos", "uwu", "8ball", "dashboard",
+    "help", "legal", "uwu", "8ball",
 })
 
 

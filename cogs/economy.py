@@ -583,14 +583,20 @@ class Economy(commands.Cog):
         embed = discord.Embed(description=detail, color=0x2ECC71, timestamp=discord.utils.utcnow())
         await send_card(interaction, embed=embed)
 
+    # Declared here rather than beside its other subcommands because a decorator
+    # needs the group to exist, and the Meow Fee below is the first command in this
+    # class body that belongs to it. There must not be a second definition further
+    # down: that would replace this one, and the fee with it.
+    eco_admin = app_commands.Group(name="eco-admin", description="Admin & Owner economy management")
+
     # The handler is named ``meowfee_cmd`` on purpose: binding the class attribute
     # to ``meowfee`` would shadow the imported ``utils.meowfee`` module for the
     # rest of this class body, which is exactly how ``/eco-admin``'s handlers once
     # became unreachable dead code. A slash command's name comes from its
     # decorator, so nothing user-facing depends on the attribute name.
-    @app_commands.command(
-        name="meowfee",
-        description="See or change the Meow Fee on transfers (admin).",
+    @eco_admin.command(
+        name="fee",
+        description="See or change the Meow Fee on transfers.",
     )
     @app_commands.describe(state="Turn the fee on or off — leave empty to just look")
     @app_commands.choices(
@@ -782,8 +788,6 @@ class Economy(commands.Cog):
             desc.append(f"{medal} **{name}** — {net:,} 🪙")
         embed.description = "\n".join(desc) if desc else "No data yet."
         await send_card(interaction, embed=embed)
-
-    eco_admin = app_commands.Group(name="eco-admin", description="Admin & Owner economy management")
 
     @eco_admin.command(name="add", description="Give coins to a member (Owner has unlimited power, Admins have strict limits).")
     @app_commands.describe(member="Target member", amount="Amount to give")

@@ -103,8 +103,10 @@ def _limit_reason(body) -> str:
 async def _build_commands(bot) -> list[dict]:
     """The full command payload, built the way discord.py would send it.
 
-    The bot object is imported rather than re-created, so the tree includes the
-    commands registered directly in ``bot.py`` (/dashboard) as well as the cogs.
+    The bot object is imported rather than re-created, so a command registered
+    directly in ``bot.py`` would be published alongside the cogs — none is left
+    there now (``/dashboard`` became the ⚡ button on the ``/help`` panel), but
+    the payload is built from the live tree rather than assumed.
     """
     for cog in features.cog_paths():
         try:

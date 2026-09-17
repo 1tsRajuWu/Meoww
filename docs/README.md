@@ -11,4 +11,8 @@ Start at the [main README](../README.md), then come back here when you need dept
 
 Live legal docs ([`PRIVACY.md`](../PRIVACY.md), [`TERMS.md`](../TERMS.md)) and the
 [`CHANGELOG.md`](../CHANGELOG.md) stay at the repo root, because the bot reads
-them at runtime (`/privacy`, `/tos`, update announcements).
+them at runtime (`/legal privacy`, `/legal tos`, update announcements). The
+operator-facing half — the retention schedule, the deletion procedure and the
+third-party list — lives in [`legal/`](legal/README.md), and
+[`tests/test_legal.py`](../tests/test_legal.py) fails when either half stops
+matching the code.

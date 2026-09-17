@@ -43,6 +43,10 @@ def _old_policy_for_comparison(response):
 
 app.after_request(keep_alive.set_security_headers)
 
+#: What the page last asked a toggle endpoint for. Same idea as ``LAST_SEND``:
+#: it exists so a check can ask the page's question and read the answer back.
+LAST_TOGGLE: dict = {}
+
 MODULES = [
     {"id": "economy", "name": "Economy", "icon": "🪙", "category": "Economy",
      "desc": "Wallets, bank, daily rewards and the Meow Fee.", "commands": ["/balance", "/daily"], "enabled": True},
@@ -165,6 +169,65 @@ def api_mentionables():
 LAST_SEND: dict = {}
 
 
+@app.route("/api/toggle", methods=["POST"])
+def api_toggle():
+    """Flip one module, the way the real endpoint does.
+
+    Missing until a playtest drove the switches in a browser: every toggle was
+    answered with the Flask 404 page, so the dashboard's headline control showed
+    a red "Request failed (404)" toast and a switch that sprang back — the page
+    looked broken when only the harness was. Nothing here writes anything down;
+    the point is that the page's own optimistic-update-and-revert path can be
+    exercised at all.
+    """
+    payload = request.get_json(silent=True) or {}
+    if payload.get("guild_id") is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+    module_id = payload.get("module")
+    enabled = bool(payload.get("enabled"))
+    module = next((m for m in MODULES if m["id"] == module_id), None)
+    if module is None:
+        # The real route's own refusal, status and words: an unknown module is a
+        # 400 "Unknown module", and a harness that answers differently teaches
+        # the page's error path the wrong lesson.
+        return jsonify({"success": False, "error": "Unknown module"}), 400
+    module["enabled"] = enabled
+    LAST_TOGGLE.clear()
+    LAST_TOGGLE.update({"module": module_id, "enabled": enabled})
+    return jsonify({
+        "success": True,
+        "guild_id": payload.get("guild_id"),
+        "module": module_id,
+        "enabled": enabled,
+        "sync_latency_ms": 0,
+    })
+
+
+@app.route("/api/toggle-all", methods=["POST"])
+def api_toggle_all():
+    """Enable or disable every module at once — the real route's shape."""
+    payload = request.get_json(silent=True) or {}
+    if payload.get("guild_id") is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+    enabled = bool(payload.get("enabled"))
+    for module in MODULES:
+        module["enabled"] = enabled
+    LAST_TOGGLE.clear()
+    LAST_TOGGLE.update({"module": "*", "enabled": enabled})
+    return jsonify({
+        "success": True,
+        "guild_id": payload.get("guild_id"),
+        "enabled": enabled,
+        "sync_latency_ms": 0,
+    })
+
+
+@app.route("/__last-toggle")
+def last_toggle():
+    """What the page last asked for — the same shape as ``/__last-send``."""
+    return jsonify(LAST_TOGGLE)
+
+
 @app.route("/api/send-message", methods=["POST"])
 def api_send_message():
     """Resolve the posted ids the way the real endpoint does.
@@ -246,10 +309,16 @@ def _seed_queue():
         "created_by_name": "RAJ",
         "last_run_at": now - 86400,
         "last_error": "1 channel(s) refused it: I cannot send messages in #mod-logs",
+        # A real row carries the name for anything it could resolve (see
+        # ``keep_alive``'s per-channel results); only the two "I cannot find that
+        # channel" refusals have no name to carry. Seeding a *successful*
+        # channel without one made the page's id fallback look like a defect in
+        # a browser, when it is the honest answer for a channel that is gone.
         "results": [
-            {"channel_id": "1548437081120833657", "ok": True, "error": "",
+            {"channel_id": "1548437081120833657", "name": "general", "ok": True,
+             "error": "",
              "jump_url": "https://discord.com/channels/777001/1548437081120833657/1"},
-            {"channel_id": "1548437081120833661", "ok": False,
+            {"channel_id": "1548437081120833661", "name": "mod-logs", "ok": False,
              "error": "I cannot send messages in #mod-logs", "jump_url": ""},
         ],
         "fire_count": 3,

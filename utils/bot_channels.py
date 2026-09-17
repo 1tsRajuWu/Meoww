@@ -5,10 +5,10 @@ channels: where release notes land, where the bot reports its own failures, wher
 a reported bug is filed, and where moderation cases are written. Only the last of
 those had a per-server home. The update channel was a literal in ``bot.py``
 naming one server's channel, the error path knew only a process-wide webhook, and
-a server that had never run ``/updatedb`` had nowhere to put its moderation
+a server that had never run ``/bot db`` had nowhere to put its moderation
 cases — which is why ``_send_log`` dropped them without a word.
 
-Binding follows the convention ``/updatedb`` already used for ``#logs``: a server
+Binding follows the convention ``/bot db`` already used for ``#logs``: a server
 that has never been configured is matched by channel *name*, once, at boot. After
 that the stored setting is authoritative. That asymmetry is deliberate — a server
 that renames ``#bot-error`` next month should not quietly have the bot's failures
@@ -19,11 +19,45 @@ Nothing here talks to Discord beyond the objects it is handed, so the whole
 module is exercised with stand-in guilds.
 """
 
+import os
+
 from utils import db
 
 #: The house channels every server may configure. The names are also the setting
 #: keys' prefixes: ``"error"`` is stored as ``error_channel_id``.
-ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log", "test")
+ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log", "test", "guilds", "cmdlog")
+
+#: The roles that only mean something on the bot's own server: where it records
+#: the servers it is added to and taken out of, and every command anyone runs.
+#: No other server has anything to bind them for, so they are not bound there —
+#: otherwise every server's settings would fill up with rows naming channels the
+#: bot never reads.
+OPERATOR_ROLES: frozenset[str] = frozenset({"guilds", "cmdlog"})
+
+#: The server the bot calls home: the one whose ``#update``, ``#bot-error`` and
+#: ``#bug`` exist to receive what the bot has to say about itself. It is the
+#: fallback destination for a report, never the first choice.
+#:
+#: Declared as a default rather than hardcoded because *which* server this is is a
+#: deployment fact — the fallback for a report has to be somewhere a report can
+#: actually be read, and only the operator knows where that is.
+_DEFAULT_BOT_SERVER_GUILD_ID = 1550227368889684058
+
+
+def bot_server_guild_id() -> int:
+    """The id of the bot's own server, from ``BOT_SERVER_GUILD_ID`` when set.
+
+    A malformed value falls back to the default rather than raising: this is read
+    on the path that files a bug report, and a typo in an environment variable
+    must not be the reason a report cannot be filed.
+    """
+    raw = (os.environ.get("BOT_SERVER_GUILD_ID") or "").strip()
+    if not raw:
+        return _DEFAULT_BOT_SERVER_GUILD_ID
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_BOT_SERVER_GUILD_ID
 
 #: The roles whose setting predates this module and does not follow the naming.
 _KEYS: dict[str, str] = {"commands": "bot_cmd_channel_id"}
@@ -57,7 +91,29 @@ _NAMES: dict[str, tuple[str, ...]] = {
     # Where an operator tries things out. `/bot push` reports there when it can,
     # because that is the channel they are watching while they test.
     "test": ("test-ground", "testground", "beta-testing", "testing", "test", "beta"),
+    # The operator's own two logs, in the operator's own server: who adds the bot
+    # and who takes it away, and every command anyone runs.
+    "guilds": ("active-servers", "bot-servers", "guild-log", "guild-logs", "server-log"),
+    "cmdlog": (
+        "real-time-cmd-data", "command-log", "command-logs", "command-data",
+        "cmd-log", "cmdlog",
+    ),
 }
+
+
+def roles_for(guild_id) -> tuple[str, ...]:
+    """The channel roles that mean something for *this* server.
+
+    Everything but :data:`OPERATOR_ROLES` — those two belong to the bot's own
+    server, so they are only bound there.
+    """
+    try:
+        is_operator = guild_id is not None and int(guild_id) == bot_server_guild_id()
+    except (TypeError, ValueError):
+        is_operator = False
+    if is_operator:
+        return ROLES
+    return tuple(role for role in ROLES if role not in OPERATOR_ROLES)
 
 
 def setting_key(role: str) -> str:
@@ -137,6 +193,43 @@ async def all_bound(guild_id) -> dict[str, int | None]:
     return {role: await bound(guild_id, role) for role in ROLES}
 
 
+async def report_targets(guild_id, role: str = "bug", client=None) -> list[int]:
+    """Where a report filed in ``guild_id`` may be posted, best target first.
+
+    A report filed in a server belongs in *that* server — it is the server's
+    conversation, and the people who can act on it are there. But a server that
+    never made itself a ``#bug`` channel used to be a dead end: the report was
+    refused with "this server has no bug-report channel", which reads to the
+    person filing it as the bot losing their report. So the bot's own server is
+    the fallback, and neither being available is the only case that refuses.
+
+    Ids, not channels: the caller holds the client and knows which guilds it can
+    see. No duplicates, and order is deterministic — the same report never lands
+    in two places.
+
+    ``client`` is what makes the fallback survive a server that was never bound:
+    with it, the bot's own server is *looked* at for a bug channel by name when no
+    binding exists there. That is the binder's own rule reused at the moment it
+    matters, and it is deliberately limited to the last target — a report may not
+    be refused because a boot has not happened yet, but nothing is created, and a
+    server that has renamed its own channel still gets the channel it bound.
+    """
+    fallback_guild = bot_server_guild_id()
+    targets: list[int] = []
+    for candidate in (guild_id, fallback_guild):
+        if candidate is None:
+            continue
+        channel_id = await bound(candidate, role)
+        if channel_id is None and candidate == fallback_guild and client is not None:
+            get_guild = getattr(client, "get_guild", None)
+            guild = get_guild(candidate) if get_guild is not None else None
+            if guild is not None:
+                channel_id = pick(getattr(guild, "text_channels", []), role)
+        if channel_id is not None and channel_id not in targets:
+            targets.append(channel_id)
+    return targets
+
+
 async def ensure_bound(guild) -> dict[str, int]:
     """Bind this server's house channels by name — only the ones it has not set.
 
@@ -147,7 +240,7 @@ async def ensure_bound(guild) -> dict[str, int]:
     """
     bound_now: dict[str, int] = {}
     channels = list(getattr(guild, "text_channels", []) or [])
-    for role in ROLES:
+    for role in roles_for(getattr(guild, "id", None)):
         if await bound(guild.id, role) is not None:
             continue
         found = pick(channels, role)

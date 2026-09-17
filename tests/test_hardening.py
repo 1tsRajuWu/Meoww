@@ -129,6 +129,11 @@ class DmGuard(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             commands.update(re.findall(r'@app_commands\.command\(name="([^"]+)"', source))
             commands.update(re.findall(r'@bot\.tree\.command\(name="([^"]+)"', source))
+            # A command inside a group is declared on the group (`@legal_group
+            # .command(...)`), and what the DM guard compares against for it is the
+            # *group's* name — so both halves have to be collected here.
+            commands.update(re.findall(r'@\w+\.command\(name="([^"]+)"', source))
+            commands.update(re.findall(r'app_commands\.Group\(\s*(?:\n\s*)?name="([^"]+)"', source))
         unknown = sorted(features.DM_ALLOWED_COMMANDS - commands)
         self.assertEqual(unknown, [], f"DM allow-list names non-existent commands: {unknown}")
 

@@ -499,5 +499,120 @@ class PasskeyAndLogScope(_DashboardFixture):
         self.assertEqual(resp.status_code, 200)
 
 
+class PreviewHarness(unittest.TestCase):
+    """The documented way to eyeball the dashboard has to actually work.
+
+    ``scripts/preview_dashboard.py`` serves the real template with stub data.
+    Driving it in a browser is how the module switches were found to be
+    unimplementable there: ``/api/toggle`` and ``/api/toggle-all`` had no route,
+    so every switch answered with Flask's 404 page, the page showed its red
+    "Request failed (404)" toast, and the switch sprang back. The dashboard is
+    the thing being checked, and it *looked* broken while only the harness was —
+    that is the failure this test exists to prevent.
+
+    It compares the two sides by reading them, so a new endpoint on the page
+    cannot quietly go missing from the harness.
+    """
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def _page_calls(self) -> set[str]:
+        source = open(os.path.join(self.ROOT, "templates", "dashboard.html"), encoding="utf-8").read()
+        # The page builds some urls by concatenation (``/api/scheduled/`` + id),
+        # so a trailing slash is kept and matched as a prefix below.
+        return set(re.findall(r"['\"`](/api/[A-Za-z0-9_\-/]*)", source))
+
+    def _harness_routes(self) -> set[str]:
+        source = open(os.path.join(self.ROOT, "scripts", "preview_dashboard.py"), encoding="utf-8").read()
+        return set(re.findall(r'@app\.route\("([^"]+)"', source))
+
+    @staticmethod
+    def _served(path: str, routes: set[str]) -> bool:
+        """Is ``path`` served? A ``/``-terminated call matches its own children.
+
+        Matched at a path boundary, never by a bare ``startswith``: that would
+        accept ``/api/toggle-REMOVED`` as an implementation of ``/api/toggle``,
+        which is exactly the renaming this guard exists to catch.
+        """
+        if path in routes:
+            return True
+        # ``/api/scheduled/`` is the page's own prefix for ``<id>/cancel``.
+        return path.endswith("/") and any(route.startswith(path) for route in routes)
+
+    def test_the_page_only_calls_endpoints_the_harness_serves(self):
+        routes = self._harness_routes()
+        missing = [
+            path
+            for path in sorted(self._page_calls())
+            if not self._served(path, routes)
+        ]
+        self.assertEqual(
+            missing, [],
+            f"the preview harness serves no route for {missing} — the page's calls "
+            "to them 404, which reads as a broken dashboard",
+        )
+
+    def test_the_harness_serves_the_dashboard_and_the_market_page(self):
+        routes = self._harness_routes()
+        self.assertIn("/dashboard", routes)
+        self.assertIn("/market/<symbol>", routes)
+
+    def test_toggling_a_module_in_the_harness_is_reversible(self):
+        """The switches have to be drivable, not merely answered."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "preview_dashboard_for_test",
+            os.path.join(self.ROOT, "scripts", "preview_dashboard.py"),
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        client = module.app.test_client()
+        before = {m["id"]: m["enabled"] for m in module.MODULES}
+        target = next(m["id"] for m in module.MODULES if m["enabled"])
+
+        off = client.post("/api/toggle", json={"guild_id": 777001, "module": target, "enabled": False})
+        self.assertEqual(off.status_code, 200, off.get_data(as_text=True))
+        self.assertTrue(off.get_json()["success"])
+        self.assertFalse(next(m for m in module.MODULES if m["id"] == target)["enabled"])
+        self.assertEqual(client.get("/__last-toggle").get_json(),
+                         {"module": target, "enabled": False})
+
+        back = client.post("/api/toggle", json={"guild_id": 777001, "module": target, "enabled": True})
+        self.assertEqual(back.status_code, 200)
+        self.assertEqual({m["id"]: m["enabled"] for m in module.MODULES}, before)
+
+    def test_the_harness_refuses_what_the_real_endpoint_refuses(self):
+        """Same status and same words, or the page's error path learns the wrong
+        lesson: an unknown module is ``400 Unknown module`` in ``keep_alive``, not
+        a 404 that would read to a user as "this route does not exist"."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "preview_dashboard_for_test",
+            os.path.join(self.ROOT, "scripts", "preview_dashboard.py"),
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        client = module.app.test_client()
+
+        unknown = client.post("/api/toggle", json={"guild_id": 777001, "module": "nope", "enabled": True})
+        self.assertEqual(unknown.status_code, 400)
+        self.assertEqual(unknown.get_json()["error"], "Unknown module")
+
+        no_guild = client.post("/api/toggle", json={"module": "economy", "enabled": True})
+        self.assertEqual(no_guild.status_code, 400)
+        self.assertEqual(no_guild.get_json()["error"], "No guild available")
+
+        no_guild_all = client.post("/api/toggle-all", json={"enabled": True})
+        self.assertEqual(no_guild_all.status_code, 400)
+
+        ok = client.post("/api/toggle-all", json={"guild_id": 777001, "enabled": False})
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(ok.get_json()["guild_id"], 777001)
+        self.assertTrue(all(m["enabled"] is False for m in module.MODULES))
+
+
 if __name__ == "__main__":
     unittest.main()

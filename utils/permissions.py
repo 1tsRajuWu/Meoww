@@ -130,14 +130,16 @@ COMMAND_ACCESS: dict[str, str] = {
     "addbank": ADMIN,
     # The Meow Fee switch is the server's, not a member's: one administrator
     # flips it for everyone.
-    "meowfee": ADMIN,
+    "eco-admin fee": ADMIN,
     # -- Levels ------------------------------------------------------------ #
     "rank": EVERYONE,
     "leaderboard": EVERYONE,
-    "levelroles": EVERYONE,
+    # Three verbs, one slot: viewing the rewards is for everyone, changing them
+    # is the same audience a one-off role grant needs.
+    "levelroles view": EVERYONE,
+    "levelroles add": ROLES,
+    "levelroles remove": ROLES,
     "levelsettings": GUILD,
-    "addlevelrole": ROLES,
-    "removelevelrole": ROLES,
     "setlevel": ADMIN,
     "givexp": ADMIN,
     "resetlevels": OWNER,
@@ -212,19 +214,22 @@ COMMAND_ACCESS: dict[str, str] = {
     "starboard status": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
-    "privacy": EVERYONE,
-    "tos": EVERYONE,
+    "legal privacy": EVERYONE,
+    "legal tos": EVERYONE,
     "bot sync": ADMIN,
     "bot db": ADMIN,
     "bot avatar": OWNER,
     "bot banner": OWNER,
     "bot push": OWNER,
-    "dashboard": ADMIN,
+    # Reporting a fault in the bot is an operator's job, not a member's: the
+    # command is the administrator's way in, while the /help panel's 🐞 button
+    # stays open to everyone who finds something broken.
+    "bot bug": ADMIN,
     "dbstatus": ADMIN,
     # -- Activity Tracker: admin-only for management ---------------------- #
-    "activity": ADMIN,
-    "activity-top": ADMIN,
-    "activity-channel": ADMIN,
+    "activity me": ADMIN,
+    "activity top": ADMIN,
+    "activity channel": ADMIN,
     # -- The market: one role, nothing else -------------------------------- #
     "market board": MARKET,
     "market quote": MARKET,

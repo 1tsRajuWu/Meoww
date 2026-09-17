@@ -300,7 +300,15 @@ class Tracker(commands.Cog):
     #  SLASH COMMANDS
     # ════════════════════════════════════════════════════════════════════════
 
-    @app_commands.command(name="activity-top", description="Server activity: top channels by messages & voice time!")
+    # One command with three views, which is what the tracker always was. Three
+    # top-level commands cost Discord slots the bot does not have, and asking for
+    # "activity" and getting a picker is how it reads anyway.
+    activity_group = app_commands.Group(
+        name="activity",
+        description="Messages and voice time, for a member, a channel or the server.",
+    )
+
+    @activity_group.command(name="top", description="Server activity: top channels by messages & voice time!")
     @app_commands.describe(period="Time range")
     @app_commands.choices(period=[
         app_commands.Choice(name="Today", value="today"),
@@ -313,6 +321,7 @@ class Tracker(commands.Cog):
     async def activity_top(self, interaction: discord.Interaction, period: app_commands.Choice[str] = None):
         if not interaction.guild:
             return await interaction.response.send_message("Server only!", ephemeral=True)
+
         pv = period.value if period else "month"
         start, end = _date_range(pv)
         await interaction.response.defer()
@@ -397,7 +406,7 @@ class Tracker(commands.Cog):
         else:
             raise error
 
-    @app_commands.command(name="activity", description="Your personal activity stats on this server!")
+    @activity_group.command(name="me", description="Your personal activity stats on this server!")
     @app_commands.describe(member="Check another member", period="Time range")
     @app_commands.choices(period=[
         app_commands.Choice(name="Today", value="today"),
@@ -455,7 +464,7 @@ class Tracker(commands.Cog):
         else:
             raise error
 
-    @app_commands.command(name="activity-channel", description="Activity stats for a specific channel!")
+    @activity_group.command(name="channel", description="Activity stats for a specific channel!")
     @app_commands.describe(channel="Channel to check", period="Time range")
     @app_commands.choices(period=[
         app_commands.Choice(name="Today", value="today"),

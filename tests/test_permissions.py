@@ -35,10 +35,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _bot_py_commands() -> set[str]:
-    """Commands registered in ``bot.py`` rather than a cog (/dashboard).
+    """Commands registered in ``bot.py`` rather than a cog.
 
     They are in the real tree but not in a cog-loading test, so the table has to
-    cover them from the source instead of pretending they do not exist.
+    cover them from the source instead of pretending they do not exist. Nothing
+    lives there today — ``/dashboard`` was the last one, and it is now the ⚡
+    button on the ``/help`` panel — so this guard is for the next one.
     """
     source = (ROOT / "bot.py").read_text()
     return set(re.findall(r'@bot\.tree\.command\(name="([^"]+)"', source))
@@ -53,7 +55,7 @@ BODY_GUARDS = {
 }
 
 #: Commands that hand out roles, and must therefore run the escalation guard.
-ROLE_GRANT_COMMANDS = ("addrole", "removerole", "addlevelrole")
+ROLE_GRANT_COMMANDS = ("addrole", "removerole", "levelroles add")
 
 
 class _FakeInteraction:

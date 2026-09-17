@@ -13,8 +13,8 @@ cogs stay thin.
 | `fun.py` | Fun & Memes | `/meme /8ball /meow /quote /roast …` |
 | `games.py` | Mini-Games Hub | `/tictactoe /rps /trivia /mines /crash …` (plus casino games shared with economy) |
 | `help.py` | Help menu | `/help` (categories mirror `utils/features.py`) |
-| `legal.py` | Legal docs | `/privacy`, `/tos` (rendered from root `PRIVACY.md` / `TERMS.md`) |
-| `leveling.py` | Leveling & XP | `/rank /leaderboard /givexp /setlevel …` + message/voice listeners |
+| `legal.py` | Legal docs | `/legal privacy`, `/legal tos` (rendered from root `PRIVACY.md` / `TERMS.md`) |
+| `leveling.py` | Leveling & XP | `/rank /leaderboard /levelroles view|add|remove /givexp /setlevel …` + message/voice listeners |
 | `market.py` | Market | `/market board quote chart buy sell portfolio history` |
 | `moderation.py` | Moderation & Logs | `/ban /kick /mute /warn /purge /modlog …` |
 | `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /slowmode /defaultrole …` |

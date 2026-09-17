@@ -10,7 +10,7 @@
 
 #### A. Leveling Module Disabled
 - Check if the leveling module is enabled for your guild
-- Use `/dashboard` to access the web admin panel
+- Run `/help` and tap **⚡ Open Dashboard** to reach the web admin panel
 - Verify "Leveling & XP" is enabled (green card)
 
 #### B. Voice Reward Settings Set to 0

@@ -107,6 +107,23 @@ class BotDbDefaults(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # a role silently going nowhere is what this whole layer exists to end.
         self.assertIn("Still unbound", notes)
 
+    async def test_bot_db_never_sends_an_admin_after_the_operators_channels(self):
+        """`guilds` and `cmdlog` belong to the bot's own server and cannot bind here.
+
+        Listing them as "still unbound" told an admin to go create
+        `#active-servers`, which would never be picked up — the hint has to be
+        about the roles this server can actually hold.
+        """
+        guild = _Guild(FOREIGN_GUILD, [_Channel(9101, "update")])
+
+        interaction = await self._run(guild)
+
+        notes = " ".join(str(m["content"]) for m in interaction.followup.messages)
+        self.assertNotIn("guilds", notes)
+        self.assertNotIn("cmdlog", notes)
+        self.assertNotIn("active-servers", notes)
+        self.assertNotIn("real-time-cmd-data", notes)
+
     async def test_bot_db_leaves_channels_that_are_already_set_alone(self):
         guild = _Guild(FOREIGN_GUILD, [_Channel(9103, "update")])
         await db.set_setting(FOREIGN_GUILD, "update_channel_id", 999)

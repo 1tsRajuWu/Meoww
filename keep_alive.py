@@ -96,8 +96,9 @@ ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "").strip()
 if not ADMIN_PASSKEY:
     print(
         "[DASHBOARD] ADMIN_PASSKEY is not set — passkey login and the passkey API "
-        "endpoints are disabled. Admins can still sign in with the one-time link from "
-        "/dashboard in Discord. Set ADMIN_PASSKEY to enable passkey login.",
+        "endpoints are disabled. Admins can still sign in with the one-time link "
+        "from the ⚡ Open Dashboard button on /help. Set ADMIN_PASSKEY to enable "
+        "passkey login.",
         flush=True,
     )
 
@@ -689,7 +690,10 @@ def login():
             return redirect("/dashboard")
         return render_template(
             "login.html",
-            error="That sign-in link has expired or already been used. Run /dashboard in Discord for a new one.",
+            error=(
+                "That sign-in link has expired or already been used. "
+                "Tap ⚡ Open Dashboard on /help in Discord for a new one."
+            ),
             csrf_token=get_csrf_token(),
             passkey_enabled=bool(ADMIN_PASSKEY),
         )
@@ -707,7 +711,10 @@ def login():
         if not _login_allowed(ip):
             return render_template(
                 "login.html",
-                error="Too many failed attempts. Wait a few minutes and try again, or use /dashboard in Discord.",
+                error=(
+                    "Too many failed attempts. Wait a few minutes and try again, "
+                    "or tap ⚡ Open Dashboard on /help in Discord."
+                ),
                 csrf_token=get_csrf_token(),
                 passkey_enabled=bool(ADMIN_PASSKEY),
             ), 429
@@ -716,7 +723,10 @@ def login():
             _record_login_failure(ip)
             return render_template(
                 "login.html",
-                error="Passkey login is disabled. Use /dashboard in Discord to open a one-time sign-in link.",
+                error=(
+                    "Passkey login is disabled. Tap ⚡ Open Dashboard on /help in "
+                    "Discord for a one-time sign-in link."
+                ),
                 csrf_token=get_csrf_token(),
                 passkey_enabled=False,
             )

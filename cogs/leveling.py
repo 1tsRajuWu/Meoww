@@ -727,7 +727,7 @@ class Leveling(commands.Cog):
         if next_role:
             role_info.append(f"• **Next Role Unlock:** {next_role[1].mention} *(at Level {next_role[0]})*")
         elif not level_roles:
-            role_info.append("• *No level roles configured yet (Admins: use `/addlevelrole`)*")
+            role_info.append("• *No level roles configured yet (Admins: use `/levelroles add`)*")
 
         if role_info:
             embed.add_field(name="🎖️ Level Roles", value="\n".join(role_info), inline=False)
@@ -808,8 +808,19 @@ class Leveling(commands.Cog):
         embed.set_footer(text="Chat in text or chill in VC to climb the ranks!")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="levelroles", description="Show all configured level roles and rewards in this server.")
-    async def levelroles(self, interaction: discord.Interaction):
+    # Viewing, adding and removing level-role rewards were three top-level
+    # commands. They are one feature with three verbs, and at Discord's
+    # hundred-command ceiling each slot spent on a verb is a feature that cannot
+    # exist — as a group they cost one slot instead of three, and the audience of
+    # each verb is still declared separately (``levelroles add`` needs Manage
+    # Roles, viewing needs nothing).
+    levelroles_group = app_commands.Group(
+        name="levelroles",
+        description="Level role rewards: the list, adding one, and removing one.",
+    )
+
+    @levelroles_group.command(name="view", description="Show all configured level roles and rewards in this server.")
+    async def levelroles_view(self, interaction: discord.Interaction):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
 
@@ -817,7 +828,7 @@ class Leveling(commands.Cog):
         if not roles:
             return await interaction.response.send_message(
                 "📜 No level roles configured for this server yet!\n"
-                "Admins can set up role rewards using `/addlevelrole level:<number> role:@Role`.",
+                "Admins can set up role rewards using `/levelroles add level:<number> role:@Role`.",
                 ephemeral=True
             )
 
@@ -845,10 +856,10 @@ class Leveling(commands.Cog):
     # Admin / Management Commands
     # -------------------------------------------------------------------------
 
-    @app_commands.command(name="addlevelrole", description="Set a role reward to be automatically granted at a level.")
+    @levelroles_group.command(name="add", description="Set a role reward to be automatically granted at a level.")
     @app_commands.describe(level="The required level", role="The role to grant")
     @app_commands.checks.has_permissions(manage_roles=True)
-    async def addlevelrole(self, interaction: discord.Interaction, level: int, role: discord.Role):
+    async def levelroles_add(self, interaction: discord.Interaction, level: int, role: discord.Role):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
 
@@ -881,16 +892,16 @@ class Leveling(commands.Cog):
             title="✅ Level Role Configured!",
             description=(
                 f"Members will now automatically unlock {role.mention} upon reaching **Level {level}**! 🚀\n\n"
-                f"View all configured level roles with `/levelroles`."
+                f"View all configured level roles with `/levelroles view`."
             ),
             color=0x57F287
         )
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="removelevelrole", description="Remove a role reward for a level.")
+    @levelroles_group.command(name="remove", description="Remove a role reward for a level.")
     @app_commands.describe(level="The level whose role reward should be removed")
     @app_commands.checks.has_permissions(manage_roles=True)
-    async def removelevelrole(self, interaction: discord.Interaction, level: int):
+    async def levelroles_remove(self, interaction: discord.Interaction, level: int):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
 

@@ -435,13 +435,17 @@ class TestTheCommand(_Commands):
 
 class TestTheRegistry(unittest.TestCase):
     def test_the_command_is_registered_under_the_economy_feature(self):
+        """It is `/eco-admin fee` now: one setting does not need a command slot of
+        its own, and the group it joined is gated by the same feature."""
         from utils import features
 
         economy = next(f for f in features.FEATURES if f.id == "economy")
-        self.assertIn("meowfee", economy.gate_commands)
-        self.assertIn("/meowfee", economy.commands)
+        self.assertIn("eco-admin", economy.gate_commands)
+        self.assertIn("/eco-admin fee", economy.commands)
 
     def test_the_audience_is_declared_as_administrator(self):
         from utils import permissions
 
-        self.assertEqual(permissions.COMMAND_ACCESS.get("meowfee"), permissions.ADMIN)
+        self.assertEqual(
+            permissions.COMMAND_ACCESS.get("eco-admin fee"), permissions.ADMIN
+        )

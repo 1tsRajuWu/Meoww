@@ -94,7 +94,7 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
         would take away something an administrator reaches for."""
         self.assertEqual(
             set(self.subcommands.get("bot", ())),
-            {"avatar", "banner", "db", "push", "sync"},
+            {"avatar", "banner", "bug", "db", "push", "sync"},
         )
 
     def test_the_tree_keeps_a_slot_free(self):

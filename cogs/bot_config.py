@@ -248,9 +248,13 @@ class BotConfig(commands.Cog):
                 newly = await bot_channels.ensure_bound(guild)
                 if newly:
                     notes.append(f"• Bound {bot_channels.describe(guild, newly)}.")
+                # ``roles_for``, not ``ROLES``: the operator's two channels
+                # (`guilds`, `cmdlog`) belong to the bot's own server and can
+                # never bind here, so listing them as "still unbound" would send
+                # an admin off to create a channel that will never be picked up.
                 missing = [
                     role
-                    for role in bot_channels.ROLES
+                    for role in bot_channels.roles_for(guild.id)
                     if await bot_channels.bound(guild.id, role) is None
                 ]
                 if missing:
@@ -334,6 +338,25 @@ class BotConfig(commands.Cog):
                 print(f"[PUSH] Could not update the push card: {e}", flush=True)
 
         await interaction.followup.send(f"**{heading}**\n{note}")
+    @operator_group.command(
+        name="bug",
+        description="Report a bug in the bot itself — files a report card, not a ticket.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def bug(self, interaction: discord.Interaction):
+        """The administrator's way into the bug-report path.
+
+        A fault in the bot is an operator's to report — they are the ones who can
+        say what they ran and what the bot answered — so this is gated on
+        Administrator. The report is a **message** in this server's bug channel,
+        with a thread on it; when this server has none it goes to the bot's own
+        server's bug channel instead, so a report can never be swallowed. It
+        deliberately does not open a ticket: tickets are for members' own problems,
+        and a bug in the bot is not the bot's customer support.
+        """
+        from cogs import help as help_cog
+
+        await help_cog.open_bug_report(interaction, source="`/bot bug`")
 
 
 async def setup(bot: commands.Bot):

@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils import commands_sync, db, features, modules, permissions
+from utils import commands_sync, db, features, modules, operator_log, permissions
 
 # Force real-time unbuffered log streaming to Render / cloud console
 try:
@@ -599,12 +599,23 @@ async def on_ready():
         from utils import bot_channels
         for guild in bot.guilds:
             newly = await bot_channels.ensure_bound(guild)
-            if newly:
-                print(
-                    f"[CHANNELS] Bound {bot_channels.describe(guild, newly)} "
-                    f"in {guild.name} ({guild.id}).",
-                    flush=True,
-                )
+            if not newly:
+                continue
+            print(
+                f"[CHANNELS] Bound {bot_channels.describe(guild, newly)} "
+                f"in {guild.name} ({guild.id}).",
+                flush=True,
+            )
+            # The operator's two channels get a card explaining themselves, so a
+            # channel that is empty by design does not read as a bot that was
+            # never installed. Only on the boot that bound them — and in its own
+            # guard, because this loop's other job is binding *every* server:
+            # a cosmetic card that failed must not cost the next server its
+            # channels, which is the opposite of what this loop is for.
+            try:
+                await operator_log.announce_setup(bot, guild, newly)
+            except Exception as e:
+                print(f"[CHANNELS] Could not explain the new channels: {e}", flush=True)
     except Exception as e:
         print(f"[CHANNELS] Channel binding error: {e}", flush=True)
 
@@ -677,50 +688,46 @@ async def on_app_command_completion(interaction: discord.Interaction, command: a
     user = interaction.user
     guild_name = interaction.guild.name if interaction.guild else "DMs"
     print(f"[{now_str}] ⚡ Slash Command: /{command.qualified_name} executed by {user} ({user.id}) in {guild_name}", flush=True)
+    # The same line, where the operator can actually watch it: the command log in
+    # the bot's own server. Best-effort by construction — a command that just
+    # worked must not fail on its way into the log.
+    await operator_log.command_used(bot, interaction, command)
 
-@bot.tree.command(name="dashboard", description="Access the 1:1 Real-Time Web Admin Dashboard & Module Controller")
-@app_commands.default_permissions(administrator=True)
-async def dashboard_cmd(interaction: discord.Interaction):
-    if not interaction.guild_id:
-        await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
-        return
-    
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Only administrators can access the Web Dashboard.", ephemeral=True)
-        return
-    
-    from keep_alive import dashboard_base_url, generate_magic_token
-    from utils.style import Panel, send_panel, ACCENT, avatar_url, guild_icon, guild_banner
 
-    # The administrator's id rides along so the dashboard can say who scheduled a
-    # message — the session itself has no other memory of who signed in.
-    token = generate_magic_token(interaction.guild_id, interaction.user.id)
-    # The token is held in the memory of the process that made it, so the link has
-    # to name that process — not a fixed host that may be a different instance.
-    magic_link = f"{dashboard_base_url()}/login?token={token}"
-    guild = interaction.guild
-    thumb = guild_icon(guild) or avatar_url(interaction.client.user)
-    gallery = [u for u in (guild_banner(guild),) if u]
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    """A server just added the bot: set it up, tell it what changed, and log it.
 
-    view = Panel(
-        title="Meow Control Center",
-        body=(
-            f"Welcome back, {interaction.user.mention}.\n"
-            f"Instant module control for **{guild.name if guild else 'this server'}**.\n\n"
-            "- 🎛️ Toggle economy, games, tickets, automod, and more in real time\n"
-            "- 🔐 This sign-in link is **single-use** and expires in **15 minutes**\n"
-            "- 🌙 Keep it private — it unlocks the full admin dashboard"
-        ),
-        accent=ACCENT,
-        thumbnail=thumb,
-        gallery=gallery or None,
-        footer="Meow Admin  ·  one-time secure access",
-        timeout=None,
-    )
-    view.add_row(
-        discord.ui.Button(label="Open Dashboard", url=magic_link, style=discord.ButtonStyle.link, emoji="⚡")
-    )
-    await send_panel(interaction, view, ephemeral=True)
+    Binding runs here as well as on boot, because a server added while the bot is
+    running would otherwise wait for a restart before its own `#update`,
+    `#bot-error` and `#logs` were found by name.
+    """
+    from utils import bot_channels
+
+    try:
+        bound = await bot_channels.ensure_bound(guild)
+        if bound:
+            print(f"[CHANNELS] {guild.name}: bound {bot_channels.describe(guild, bound)}", flush=True)
+    except Exception as exc:
+        print(f"[CHANNELS] could not bind channels for {guild.name}: {exc}", flush=True)
+    try:
+        outcome = await announce_release_notes_to_guild(guild)
+        print(f"[UPDATE] "
+              f"{guild.name}: {outcome}", flush=True)
+    except Exception as exc:
+        print(f"[UPDATE] could not announce to {guild.name}: {exc}", flush=True)
+    await operator_log.guild_joined(bot, guild)
+
+
+@bot.event
+async def on_guild_remove(guild: discord.Guild):
+    """A server removed the bot, was deleted, or banned it — all read the same."""
+    await operator_log.guild_left(bot, guild)
+
+# ``/dashboard`` used to live here as a top-level command. It was one of the
+# last slots spent on an entry point that needs no slot at all: the link is
+# minted for administrators by the ``/help`` panel, which they already open, and
+# which costs the tree nothing. See ``cogs/help.py::dashboard_link``.
 
 # The update channel these notes were hardcoded to before a server could say
 # where it wanted them. Still honoured for the server that owns it, so nothing

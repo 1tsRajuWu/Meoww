@@ -168,10 +168,10 @@ from Supabase on boot and re-saves every 25s.
 
 ## 🎛️ Dashboard
 
-Run `/dashboard` in your server → you get a **single-use sign-in link**
-(expires in 15 minutes) to the web admin panel: toggle modules in real time,
-compose announcements as the bot, and open live market charts. No separate
-account — Discord itself is the login.
+Open `/help` in your server and tap **⚡ Open Dashboard** → you get a
+**single-use sign-in link** (expires in 15 minutes) to the web admin panel:
+toggle modules in real time, compose announcements as the bot, and open live
+market charts. No separate account — Discord itself is the login.
 
 ---
 
@@ -184,7 +184,8 @@ account — Discord itself is the login.
 | [`docs/voice-debug.md`](docs/voice-debug.md) | Voice-XP not paying? Diagnose it here |
 | [`docs/handoff.md`](docs/handoff.md) | Maintainer handoff notes (moved from root) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Every shipped change, newest first |
-| [`PRIVACY.md`](PRIVACY.md) / [`TERMS.md`](TERMS.md) | Privacy policy & terms (also served by `/privacy`, `/tos`) |
+| [`PRIVACY.md`](PRIVACY.md) / [`TERMS.md`](TERMS.md) | Privacy policy & terms (also served by `/legal privacy`, `/legal tos`) |
+| [`docs/legal/`](docs/legal/README.md) | Retention schedules, the deletion procedure, and every third party the bot talks to |
 | [`deleted_features/README.md`](deleted_features/README.md) | Retired features + how to restore one |
 
 <details>
@@ -194,8 +195,8 @@ Moving coins **between members** carries a small fee into **Meow Bank** (a
 per-server house account), not burned: **2%**, minimum 1 🪙, maximum 500 🪙.
 Charged on `/pay` and successful `/rob` takings — never on your own
 `/deposit`/`/withdraw` or earnings. It's charged **on top**, so the recipient
-gets exactly what was sent. Admins: `/meowfee` to view, `/meowfee state:Off`
-to disable.
+gets exactly what was sent. Admins: `/eco-admin fee` to view,
+`/eco-admin fee state:Off` to disable.
 
 </details>
 
@@ -280,7 +281,8 @@ Voice rewards misbehaving? → [`docs/voice-debug.md`](docs/voice-debug.md).
 
 - Secrets live in `.env` / host env vars only. Full policy: [`SECURITY.md`](SECURITY.md).
 - No default dashboard passkey — unset `ADMIN_PASSKEY` disables passkey login
-  (use `/dashboard` one-time links); always set `FLASK_SECRET_KEY` in production.
+  (use the ⚡ Open Dashboard button on `/help`); always set `FLASK_SECRET_KEY`
+  in production.
 - Cloud backups live in a **private** Supabase bucket (`bot.db` + 5 hourly snapshots).
 
 ---

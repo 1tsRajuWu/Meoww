@@ -78,7 +78,7 @@ HELP_MODULES = {
             "> `/repay [amount]` — Pay a loan back in full or in part, from wallet or bank\n"
             "> `/beg` — Beg for spare coins (2-minute cooldown, no dignity required)\n"
             "> `/eco-admin add / remove / set / reset` — Admin currency management\n"
-            "> `/meowfee` — See the Meow Fee and Meow Bank's balance, or turn the fee off (admin)"
+            "> `/eco-admin fee` — See the Meow Fee and Meow Bank's balance, or turn the fee off (admin)"
         ),
         "color": 0x2ECC71,
         "emoji": "💰"
@@ -141,9 +141,9 @@ HELP_MODULES = {
             "Chat & voice leveling with XP rank cards and automated role rewards.\n\n"
             "> `/rank [member]` — Display ranked status card, XP progress, and badges\n"
             "> `/leaderboard [category]` — Server rank leaderboard (XP, Voice, Messages, Earnings)\n"
-            "> `/levelroles` — View all configured level role milestones\n"
-            "> `/addlevelrole <level> <role>` — Assign a role reward for hitting a level\n"
-            "> `/removelevelrole <level>` — Delete a level role reward\n"
+            "> `/levelroles view` — View all configured level role milestones\n"
+            "> `/levelroles add <level> <role>` — Assign a role reward for hitting a level\n"
+            "> `/levelroles remove <level>` — Delete a level role reward\n"
             "> `/levelsettings [channel] [enabled]` — Configure announcement channels\n"
             "> `/setlevel <member> <level>` — Admin level adjustment"
         ),
@@ -184,9 +184,9 @@ HELP_MODULES = {
         "title": "📊 Activity Tracker",
         "desc": (
             "Per-day, per-channel message and voice time tracking with a 365-day rolling window.\n\n"
-            "> `/activity [member] [period]` — Your personal message & voice stats\n"
-            "> `/activity-top [category] [period]` — Server-wide leaderboards\n"
-            "> `/activity-channel [channel] [period]` — Per-channel breakdown\n\n"
+            "> `/activity me [member] [period]` — Your personal message & voice stats\n"
+            "> `/activity top [category] [period]` — Server-wide leaderboards\n"
+            "> `/activity channel [channel] [period]` — Per-channel breakdown\n\n"
             "*Periods: Today, This Week, This Month, This Year (365d), All Time*"
         ),
         "color": 0x5865F2,
@@ -201,9 +201,10 @@ HELP_MODULES = {
             "> `/announce <channel> <message>` — Send formatted community announcements\n"
             "> `/lockdown` & `/unlock` — Emergency channel lockdown controls\n"
             "> `/slowmode <seconds>` — Adjust channel chat cooldown\n"
-            "> `/sync` — Force re-sync all slash commands directly to this server\n"
-            "> `/updatedb` — Verify all database tables and default channels\n"
-            "> `/privacy` & `/tos` — Bot privacy policy and terms of service"
+            "> `/bot sync` — Force re-sync all slash commands directly to this server\n"
+            "> `/bot db` — Verify all database tables and default channels\n"
+            "> `/bot bug` — Report a bug in the bot itself (administrators)\n"
+            "> `/legal privacy` & `/legal tos` — Bot privacy policy and terms of service"
         ),
         "color": 0x95A5A6,
         "emoji": "⚙️"
@@ -287,9 +288,10 @@ BUG_REPORT_HINT = (
 class BugReportModal(discord.ui.Modal, title="Report a bug"):
     """The free-text half of a report; the destination is resolved on submit."""
 
-    def __init__(self, channel_id: int):
+    def __init__(self, channel_ids: list[int], source: str = "the /help panel"):
         super().__init__()
-        self.channel_id = channel_id
+        self.channel_ids = list(channel_ids)
+        self.source = source
         self.what_happened = discord.ui.TextInput(
             label="What went wrong?",
             placeholder=BUG_REPORT_HINT,
@@ -301,13 +303,6 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
-        channel = guild.get_channel(self.channel_id) if guild else None
-        if channel is None:
-            return await interaction.response.send_message(
-                "❌ I can no longer reach the bug-report channel — it may have "
-                "been moved or deleted since this panel was posted.",
-                ephemeral=True,
-            )
         report = str(self.what_happened.value or "").strip()
         embed = discord.Embed(
             title="🐞 Bug report",
@@ -316,39 +311,96 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
             timestamp=discord.utils.utcnow(),
         )
         embed.add_field(name="Reported by", value=interaction.user.mention, inline=True)
-        embed.add_field(name="Server", value=guild.name, inline=True)
+        embed.add_field(
+            name="Server",
+            value=guild.name if guild is not None else "Direct message",
+            inline=True,
+        )
+        embed.add_field(name="Filed via", value=self.source, inline=True)
         embed.set_footer(text=f"User ID {interaction.user.id}")
-        try:
-            message = await channel.send(embed=embed)
-        except discord.Forbidden:
+
+        # Targets, best first — and the first one that accepts the post ends the
+        # walk, so one report is never posted twice. A server with no bug channel
+        # of its own still files: the bot's own server is the next target.
+        refusal = ""
+        for channel_id in self.channel_ids:
+            channel = interaction.client.get_channel(channel_id)
+            if channel is None:
+                continue
+            try:
+                message = await channel.send(embed=embed)
+            except discord.Forbidden:
+                refusal = f"I don't have permission to post in {channel.mention}"
+                continue
+            except Exception as exc:
+                print(f"[BUG] Could not file the report in {channel_id}: {exc}", flush=True)
+                refusal = f"posting in {channel.mention} failed"
+                continue
+            follow_up = await _open_report_thread(message, report, interaction)
+            where = channel.mention
+            if getattr(getattr(channel, "guild", None), "id", None) != getattr(guild, "id", None):
+                # Filed in the bot's own server on this server's behalf: say so, or
+                # the reporter has no idea why the channel they cannot see is named.
+                where = f"{channel.mention} — the bot's own server, **{channel.guild.name}**"
             return await interaction.response.send_message(
-                f"❌ I don't have permission to post in {channel.mention}. Tell an "
-                "administrator, or send them this report directly.",
+                f"✅ Thanks — your report is in {where}.{follow_up}",
                 ephemeral=True,
             )
-        # The thread keeps the conversation next to the report instead of buried
-        # in the channel. A server that has threads disabled still gets the post.
-        follow_up = ""
-        try:
-            first_line = (report.splitlines() or [""])[0].strip()
-            thread = await message.create_thread(
-                name=f"🐞 {first_line[:80] or interaction.user.name}",
-                auto_archive_duration=1440,
-            )
-            follow_up = f" Follow it in {thread.mention}."
-        except Exception as e:
-            print(f"[BUG] Could not open a thread on the report: {e}", flush=True)
+
         await interaction.response.send_message(
-            f"✅ Thanks — your report is in {channel.mention}.{follow_up}",
+            f"❌ Nothing was posted — {refusal or 'the bug channel is gone'}. "
+            "Send the report to an administrator directly.",
             ephemeral=True,
         )
 
 
-class BugReportButton(discord.ui.Button):
-    """Files a report without spending one of Discord's 100 command slots.
+async def _open_report_thread(message, report: str, interaction) -> str:
+    """A thread on the report, or ``""`` if this server will not have one."""
+    try:
+        first_line = (report.splitlines() or [""])[0].strip()
+        thread = await message.create_thread(
+            name=f"🐞 {first_line[:80] or interaction.user.name}",
+            auto_archive_duration=1440,
+        )
+        return f" Follow it in {thread.mention}."
+    except Exception as e:
+        print(f"[BUG] Could not open a thread on the report: {e}", flush=True)
+        return ""
 
-    The bot sits at that ceiling, so the entry point rides on the panel people
-    already open instead of a command that could not be published.
+
+async def open_bug_report(interaction: discord.Interaction, source: str = "the /help panel"):
+    """Open the report modal, or say plainly why nothing can be filed.
+
+    One entry point for the panel button and for ``/bot bug`` alike: the
+    destinations are resolved by the same call either time, which is the only
+    reason a report sent from either surface ends up in the same place.
+    """
+    guild = interaction.guild
+    if guild is None:
+        return await interaction.response.send_message(
+            "Bug reports need a server to file them in — open `/help` in your "
+            "server, or run `/bot bug` there.",
+            ephemeral=True,
+        )
+    targets = await bot_channels.report_targets(guild.id, "bug", client=interaction.client)
+    if not targets:
+        return await interaction.response.send_message(
+            "❌ Nowhere to file that yet: this server has no bug-report channel "
+            "and I cannot reach the bot's own. A channel named `#bug` (or "
+            "`#bug-report`) is picked up on the next startup, and `/bot db` binds "
+            "one without a restart.",
+            ephemeral=True,
+        )
+    await interaction.response.send_modal(BugReportModal(targets, source=source))
+
+
+class BugReportButton(discord.ui.Button):
+    """The panel's entry point into the same report path ``/bot bug`` uses.
+
+    It predates the command: the bot was at Discord's hundred-command ceiling
+    when this was written, so the entry point rode on the panel people already
+    open. Both are kept because they are for different people — anyone can report
+    a bug from here, while ``/bot bug`` is the administrator's way in.
     """
 
     def __init__(self):
@@ -357,24 +409,42 @@ class BugReportButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        if guild is None:
-            return await interaction.response.send_message(
-                "Bug reports need a server to file them in.", ephemeral=True
-            )
-        channel_id = await bot_channels.bound(guild.id, "bug")
-        if channel_id is None:
-            return await interaction.response.send_message(
-                "❌ This server has no bug-report channel yet. Create one named "
-                "`#bug` or `#bug-report` and it is picked up automatically on the "
-                "next startup.",
-                ephemeral=True,
-            )
-        await interaction.response.send_modal(BugReportModal(channel_id))
+        await open_bug_report(interaction, source="the /help panel")
+
+
+def dashboard_link(interaction: discord.Interaction) -> str | None:
+    """A one-time dashboard sign-in link, or ``None`` if this member cannot use one.
+
+    ``/dashboard`` was its own command until the bot reached Discord's hundred-
+    command ceiling; the entry point now rides on the panel administrators already
+    open, which is the same reason the bug button lives here. The link is minted
+    for administrators only, and only where the panel is opened.
+    """
+    try:
+        permissions = getattr(interaction.user, "guild_permissions", None)
+        if permissions is None or not permissions.administrator or not interaction.guild_id:
+            return None
+        from keep_alive import dashboard_base_url, generate_magic_token
+
+        token = generate_magic_token(interaction.guild_id, interaction.user.id)
+        # The token lives in the memory of the process that made it, so the link
+        # has to name that process rather than a fixed host that may be another
+        # instance entirely.
+        base = dashboard_base_url()
+        return f"{base}/login?token={token}" if base else None
+    except Exception:
+        # A panel that cannot offer a sign-in is still a working help panel.
+        return None
 
 
 class HelpLayout(discord.ui.LayoutView):
-    def __init__(self, *, thumbnail: str | None, gallery: list[str] | None = None):
+    def __init__(
+        self,
+        *,
+        thumbnail: str | None,
+        gallery: list[str] | None = None,
+        dashboard: str | None = None,
+    ):
         super().__init__(timeout=300)
         heading = discord.ui.TextDisplay("## Meow Command Center", id=TITLE_ID)
         body = discord.ui.TextDisplay(HELP_HOME_BODY, id=BODY_ID)
@@ -391,6 +461,17 @@ class HelpLayout(discord.ui.LayoutView):
         row.add_item(HelpSelectMenu())
         row.add_item(BugReportButton())
         parts.append(row)
+        if dashboard:
+            link_row = discord.ui.ActionRow()
+            link_row.add_item(
+                discord.ui.Button(
+                    label="Open Dashboard",
+                    url=dashboard,
+                    style=discord.ButtonStyle.link,
+                    emoji="⚡",
+                )
+            )
+            parts.append(link_row)
         parts.append(discord.ui.TextDisplay("-# Tap a category anytime  ·  Meow"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
 
@@ -405,7 +486,11 @@ class Help(commands.Cog):
     async def help_cmd(self, interaction: discord.Interaction):
         thumb = avatar_url(interaction.client.user)
         banner = guild_banner(interaction.guild)
-        view = HelpLayout(thumbnail=thumb, gallery=[banner] if banner else None)
+        view = HelpLayout(
+            thumbnail=thumb,
+            gallery=[banner] if banner else None,
+            dashboard=dashboard_link(interaction),
+        )
         await send_panel(interaction, view)
 
 

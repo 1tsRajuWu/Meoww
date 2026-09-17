@@ -181,7 +181,14 @@ class TestCardMentionSafety(unittest.IsolatedAsyncioTestCase):
 
 
 def _command_body(kind_markers, name: str, path: str) -> str:
-    """Best-effort slice of one command's source, decorator through next command."""
+    """Best-effort slice of one command's source, decorator through next command.
+
+    A command *begins* at one of ``kind_markers`` (they name the registration
+    form this test is about) and *ends* at the next decorator that registers a
+    command of **any** form. Ending on the same form only would let a command
+    registered another way — a group's subcommand, say — be swallowed into the
+    body above it, so the slice would be blamed for its neighbour's code.
+    """
     lines = (ROOT / path).read_text().splitlines()
     start = next(
         i for i, line in enumerate(lines)
@@ -189,7 +196,8 @@ def _command_body(kind_markers, name: str, path: str) -> str:
     )
     end = len(lines)
     for i in range(start + 1, len(lines)):
-        if any(m in lines[i] for m in kind_markers):
+        stripped = lines[i].strip()
+        if stripped.startswith("@") and ".command(" in stripped:
             end = i
             break
     return "\n".join(lines[start:end])
@@ -223,7 +231,7 @@ class TestMemberCacheAwareness(unittest.TestCase):
         self.assertNotIn("guild.owner.mention", body)
 
     def test_levelroles_gates_the_member_count(self):
-        body = _command_body(['@app_commands.command'], "levelroles", "cogs/leveling.py")
+        body = _command_body(['@levelroles_group.command'], "view", "cogs/leveling.py")
         self.assertIn("member_cache_complete(", body)
         self.assertNotIn("*({members_count} members)*", body)
 

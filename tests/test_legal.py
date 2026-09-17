@@ -82,16 +82,133 @@ class TestLegalDocuments(unittest.TestCase):
             self.assertIn(host, self.privacy.lower(), f"{host} is not disclosed")
 
     def test_the_commands_are_registered_and_still_gated_as_everyone(self):
+        """One `/legal` command now shows both documents — they must stay open to
+        every member, and both must still be reachable."""
         from utils import permissions
 
-        self.assertEqual(permissions.COMMAND_ACCESS["tos"], permissions.EVERYONE)
-        self.assertEqual(permissions.COMMAND_ACCESS["privacy"], permissions.EVERYONE)
+        self.assertEqual(permissions.COMMAND_ACCESS["legal privacy"], permissions.EVERYONE)
+        self.assertEqual(permissions.COMMAND_ACCESS["legal tos"], permissions.EVERYONE)
         self.assertIn("cogs.legal", features.cog_paths())
+
+        import discord
+
+        legal_cog = legal.Legal(bot=None)
+        self.assertEqual(
+            sorted(c.name for c in legal_cog.legal_group.commands),
+            ["privacy", "tos"],
+        )
+        self.assertIsInstance(legal_cog.legal_group, discord.app_commands.Group)
 
     def test_a_missing_file_says_so_rather_than_showing_nothing(self):
         self.assertEqual(legal.read_document("NOPE.md"), "")
         embed = legal.document_embed("Privacy Policy", "Document not found.")
         self.assertIn("not found", embed.description)
+
+
+class TestThePoliciesMatchTheCode(unittest.TestCase):
+    """A policy that describes a different bot is worse than no policy.
+
+    Every claim below is checkable, and each one was wrong at least once: the
+    retention numbers were hand-written prose, the dashboard's cookie and link
+    lifetime were described from memory, and the policy named a font CDN that
+    nothing loads any more while the chart library the market page *does* load
+    went unnamed.
+    """
+
+    def setUp(self):
+        # Flattened, because a claim is a claim wherever the markdown wraps it.
+        def flat(name: str) -> str:
+            return " ".join(legal.read_document(name).split()).lower()
+
+        self.privacy = flat("PRIVACY.md")
+        self.terms = flat("TERMS.md")
+
+    def test_the_retention_windows_are_the_ones_the_code_enforces(self):
+        from cogs import tracker
+        from utils import scheduled
+
+        for text, label in ((self.privacy, "PRIVACY.md"), (self.terms, "TERMS.md")):
+            self.assertIn(
+                f"{tracker.RETENTION_DAYS} days", text,
+                f"{label} does not state the activity retention window",
+            )
+            self.assertIn(
+                f"{scheduled.HISTORY_DAYS} days", text,
+                f"{label} does not state the dashboard message-history window",
+            )
+
+    def test_the_backup_shape_is_the_one_the_code_keeps(self):
+        from utils import cloud_sync
+
+        self.assertIn("hourly snapshots", self.privacy)
+        self.assertIn(str(cloud_sync.BACKUP_KEEP), self.privacy)
+        # The bucket is private and the payload is raw, so the policy must not
+        # promise encryption that does not exist.
+        self.assertIn("private", self.privacy)
+
+    def test_the_session_the_policy_describes_is_the_one_the_dashboard_sets(self):
+        import keep_alive
+
+        config = keep_alive.app.config
+        self.assertIn(config["SESSION_COOKIE_NAME"].lower(), self.privacy)
+        hours = int(config["PERMANENT_SESSION_LIFETIME"].total_seconds() // 3600)
+        self.assertIn(f"{hours} hours", self.privacy)
+        self.assertIn(f"{keep_alive.MAGIC_TTL_SECONDS // 60} minutes", self.privacy)
+
+    def test_the_chart_library_cdn_is_disclosed(self):
+        """The one external asset a member's browser loads has to be named."""
+        for host in ("unpkg.com", "cdn.jsdelivr.net"):
+            self.assertIn(host, self.privacy, f"{host} is loaded by the chart page and unnamed")
+
+    def test_a_bug_report_leaving_the_server_is_disclosed(self):
+        """The cross-server transfer is the thing a member cannot see themselves."""
+        for text, label in ((self.privacy, "PRIVACY.md"), (self.terms, "TERMS.md")):
+            self.assertIn("bug report", text, f"{label} never mentions bug reports")
+        self.assertIn("the bot's own server", self.privacy)
+
+    def test_scheduled_messages_are_named_as_stored_content(self):
+        for text, label in ((self.privacy, "PRIVACY.md"), (self.terms, "TERMS.md")):
+            self.assertIn("scheduled", text, f"{label} does not mention scheduled messages")
+
+    def test_the_two_documents_carry_the_same_effective_date(self):
+        def date_of(name: str) -> str:
+            for line in legal.read_document(name).splitlines():
+                if line.startswith("**Effective Date:**"):
+                    return line.split("·")[0].strip()
+            return ""
+
+        privacy, terms = date_of("PRIVACY.md"), date_of("TERMS.md")
+        self.assertIn("Effective Date", privacy)
+        self.assertEqual(privacy, terms, "the two policies disagree about when they took effect")
+
+
+class TestDocumentedConfigurationIsReal(unittest.TestCase):
+    """Every variable the template offers is one the code actually reads.
+
+    Not tidiness. The template documented a backup encryption key and a Gist
+    backup for a code path that had been deleted, which told an operator their
+    database was encrypted at rest while it was a raw SQLite file in a private
+    bucket — the kind of claim the Privacy Policy would then contradict. A
+    variable nobody reads is a claim nobody should be making.
+    """
+
+    def test_every_variable_the_template_offers_is_read_by_the_code(self):
+        import re
+        from pathlib import Path
+
+        root = Path(ROOT)
+        names = re.findall(
+            r"^([A-Z][A-Z0-9_]*)=", (root / ".env.example").read_text(), flags=re.MULTILINE
+        )
+        self.assertGreater(len(names), 5, "the template's assignments were not found")
+        sources = [
+            path.read_text()
+            for pattern in ("*.py", "utils/*.py", "cogs/*.py")
+            for path in root.glob(pattern)
+        ]
+        source = "\n".join(sources)
+        unread = [name for name in names if name not in source]
+        self.assertEqual(unread, [], f".env.example documents variables nothing reads: {unread}")
 
 
 if __name__ == "__main__":

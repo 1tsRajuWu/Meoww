@@ -210,7 +210,7 @@
     <main class="login-card">
         <div class="bot-avatar" aria-hidden="true">M</div>
         <h1>Meow Admin Portal</h1>
-        <p class="lead">Sign in with your admin passkey, or run <code>/dashboard</code> in Discord for a one-time 15-minute link.</p>
+        <p class="lead">Sign in with your admin passkey, or tap <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord for a one-time 15-minute link.</p>
 
         {% if error %}
         <div class="error-banner" role="alert">{{ error }}</div>
@@ -229,11 +229,11 @@
             <button type="submit" class="btn-submit">Sign in</button>
         </form>
         {% else %}
-        <p class="error-banner" role="status">Passkey login is not configured. Use <code>/dashboard</code> in Discord.</p>
+        <p class="error-banner" role="status">Passkey login is not configured. Tap <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord.</p>
         {% endif %}
 
         <p class="hint">
-            Administrators can run <code>/dashboard</code> in a server to get a single-use sign-in button. Do not share that link.
+            Administrators can open <code>/help</code> in a server and tap <code>⚡ Open Dashboard</code> for a single-use sign-in link. Do not share that link.
         </p>
     </main>
     <script>

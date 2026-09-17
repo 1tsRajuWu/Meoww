@@ -19,6 +19,7 @@ services:
       - key: FLASK_SECRET_KEY
         sync: false
       # Without it passkey sign-in is disabled outright, and the only way in is
-      # /dashboard in Discord, which needs the bot to be awake to answer.
+      # the ⚡ Open Dashboard button on /help in Discord, which needs the bot to
+      # be awake to answer.
       - key: ADMIN_PASSKEY
         sync: false

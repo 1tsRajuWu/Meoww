@@ -100,18 +100,28 @@ def document_embed(title: str, text: str, filename: str = "") -> discord.Embed:
 
 
 class Legal(commands.Cog):
-    """Terms of Service and Privacy Policy."""
+    """Terms of Service and Privacy Policy.
+
+    Two documents, one command: at Discord's hundred-command ceiling every slot
+    spent on a document nobody types twice is a feature that cannot exist, and
+    ``/legal`` shows both without pretending they are separate features.
+    """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="privacy", description="View the Bot's Privacy Policy.")
+    legal_group = app_commands.Group(
+        name="legal",
+        description="The bot's Privacy Policy and Terms of Service.",
+    )
+
+    @legal_group.command(name="privacy", description="View the Bot's Privacy Policy.")
     async def privacy(self, interaction: discord.Interaction):
         text = read_document("PRIVACY.md") or "Document not found."
         embed = document_embed("Privacy Policy", text, "PRIVACY.md")
         await send_card(interaction, embed=embed, ephemeral=True)
 
-    @app_commands.command(name="tos", description="View the Bot's Terms of Service.")
+    @legal_group.command(name="tos", description="View the Bot's Terms of Service.")
     async def tos(self, interaction: discord.Interaction):
         text = read_document("TERMS.md") or "Document not found."
         embed = document_embed("Terms of Service", text, "TERMS.md")
