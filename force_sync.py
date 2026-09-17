@@ -49,7 +49,7 @@ MAX_WAIT = 60.0
 #: When a large batch has to stop early (a spent budget), the commands members
 #: reach for first should already be back. Everything else follows in tree order.
 PRIORITY = (
-    "help", "dashboard", "sync", "balance", "daily", "rank", "leaderboard",
+    "help", "dashboard", "bot", "balance", "daily", "rank", "leaderboard",
     "work", "pay", "loan", "repay", "beg", "crash", "slots", "coinflip",
     "blackjack", "shop", "meme", "kms", "meow", "serverinfo", "userinfo",
 )

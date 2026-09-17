@@ -1,4 +1,4 @@
-"""Guild defaults set by /updatedb, and the quote card's footer.
+"""Guild defaults set by `/bot db` (once `/updatedb`), and the quote card's footer.
 
 ``/updatedb`` used to write the home server's channel IDs into whichever guild
 ran it. In any other server that pointed ``log_channel_id`` at a channel that does
@@ -77,7 +77,7 @@ class _Interaction:
         self.client = None
 
 
-class UpdatedbDefaults(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+class BotDbDefaults(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # bot_config imports utils.db lazily, so patching utils.db is enough.
         self.use_temp_database("defaults.db")
@@ -89,10 +89,10 @@ class UpdatedbDefaults(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def _run(self, guild):
         cog = config_module.BotConfig(bot=None)
         interaction = _Interaction(guild)
-        await config_module.BotConfig.updatedb.callback(cog, interaction)
+        await config_module.BotConfig.db.callback(cog, interaction)
         return interaction
 
-    async def test_updatedb_binds_the_house_channels_it_can_see(self):
+    async def test_bot_db_binds_the_house_channels_it_can_see(self):
         """The only way to re-run name-based binding without a restart."""
         guild = _Guild(FOREIGN_GUILD, [_Channel(9101, "update"), _Channel(9102, "bug")])
 
@@ -107,7 +107,7 @@ class UpdatedbDefaults(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # a role silently going nowhere is what this whole layer exists to end.
         self.assertIn("Still unbound", notes)
 
-    async def test_updatedb_leaves_channels_that_are_already_set_alone(self):
+    async def test_bot_db_leaves_channels_that_are_already_set_alone(self):
         guild = _Guild(FOREIGN_GUILD, [_Channel(9103, "update")])
         await db.set_setting(FOREIGN_GUILD, "update_channel_id", 999)
 

@@ -33,6 +33,11 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
             except Exception as exc:  # pragma: no cover - reported as a failure
                 self.failed.append(f"{cog}: {exc!r}")
         self.registered = {c.name for c in self.bot.tree.get_commands()}
+        self.subcommands = {
+            c.name: tuple(s.name for s in c.commands)
+            for c in self.bot.tree.get_commands()
+            if isinstance(c, discord.app_commands.Group)
+        }
 
     async def asyncTearDown(self):
         try:
@@ -84,14 +89,37 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
             f"{len(self.registered)} top-level commands; Discord's cap is 100",
         )
 
+    def test_the_bot_group_carries_the_commands_it_absorbed(self):
+        """/bot exists so four commands cost one slot: a subcommand going missing
+        would take away something an administrator reaches for."""
+        self.assertEqual(
+            set(self.subcommands.get("bot", ())),
+            {"avatar", "banner", "db", "push", "sync"},
+        )
+
+    def test_the_tree_keeps_a_slot_free(self):
+        """At exactly a hundred Discord refuses the *next* command outright.
+
+        That is not hypothetical: this cog once failed to load because adding
+        commands took the tree over the cap, which is why the bot's own commands
+        are grouped rather than top-level.
+        """
+        self.assertLess(
+            len(self.registered), 100,
+            f"{len(self.registered)} top-level commands — the next one cannot be added",
+        )
+
     def test_sync_is_itself_a_registered_command(self):
-        """Regression: `/sync` is the manual repair path, so it has to exist.
+        """Regression: the manual repair path has to stay reachable.
 
         The live guild was missing 21 of its 92 commands with `/sync` among them,
         which left no way to register anything from inside Discord. The bot now
-        syncs on boot, but the manual fallback must stay reachable.
+        syncs on boot, but the manual fallback must stay reachable — it lives in
+        the `/bot` group, which is a group precisely so that it costs one slot
+        instead of four.
         """
-        self.assertIn("sync", self.registered)
+        self.assertIn("bot", self.registered)
+        self.assertIn("sync", self.subcommands.get("bot", ()))
 
 
 if __name__ == "__main__":

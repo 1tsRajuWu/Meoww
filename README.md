@@ -70,7 +70,7 @@ else is linked from the [table of contents](#contents).
 | 🎭 | **Fun & Memes** | Live Reddit memes, 8ball, quotes, roasts |
 | 🎮 | **Mini-Games Hub** | TicTacToe, RPS, trivia, mines, crash, high/low |
 | 📊 | **Activity Tracker** | Per-day, per-channel message + voice stats |
-| ⚙️ | **System (always on)** | `/serverinfo /userinfo /announce`, lockdown, `/sync` |
+| ⚙️ | **System (always on)** | `/serverinfo /userinfo /announce`, lockdown, `/bot sync`, `/bot push` |
 
 Every feature can be toggled per-server from the dashboard — no redeploy.
 Retired features (music, giveaways, …) are archived intact in

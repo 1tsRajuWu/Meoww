@@ -271,7 +271,7 @@ FEATURES: tuple[Feature, ...] = (
             "Server utility, announcements, lockdown, and configuration."
         ),
         commands=(
-            "/serverinfo", "/userinfo", "/announce", "/sync", "/updatedb",
+            "/serverinfo", "/userinfo", "/announce", "/bot sync", "/bot db",
             "/privacy", "/tos", "/dbstatus",
             "/defaultrole set", "/defaultrole view", "/defaultrole clear",
         ),
@@ -310,8 +310,8 @@ CORE_COGS: tuple[str, ...] = (
 # exists; tests/test_commands.py now fails if this list and the real command
 # tree ever drift apart again.)
 ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
-    "help", "dashboard", "sync", "serverinfo", "userinfo", "privacy",
-    "tos", "setavatar", "setbanner", "updatedb", "dbstatus",
+    "help", "dashboard", "bot", "serverinfo", "userinfo", "privacy",
+    "tos", "dbstatus",
     "defaultrole",
 })
 

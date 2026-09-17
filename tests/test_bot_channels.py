@@ -91,6 +91,13 @@ class NameMatching(unittest.TestCase):
     def test_names_match_without_regard_to_case(self):
         self.assertEqual(bot_channels.pick([_Channel(5, "Bug-Report")], "bug"), 5)
 
+    def test_a_test_channel_answers_only_for_the_test_role(self):
+        """Adding a sixth role must not let its names answer for the other five."""
+        channels = [_Channel(11, "test"), _Channel(22, "beta")]
+        self.assertEqual(bot_channels.pick(channels, "test"), 11)
+        for role in ("update", "error", "bug", "commands", "log"):
+            self.assertIsNone(bot_channels.pick(channels, role), role)
+
     def test_the_names_a_server_actually_used_are_recognised(self):
         guild = _Guild(NEW_SERVER, ["update", "bot-error", "bug"])
         self.assertEqual(bot_channels.pick(guild.text_channels, "update"), 7000)
@@ -132,6 +139,13 @@ class NameMatching(unittest.TestCase):
             bot_channels.pick([_Channel(11, "💬・update"), _Channel(22, "updates")], "update"),
             22,
         )
+
+    def test_a_decorated_test_channel_binds(self):
+        """What a test ground actually gets called: ``🧪・test-ground``."""
+        self.assertEqual(
+            bot_channels.pick([_Channel(11, "🧪・test-ground")], "test"), 11
+        )
+        self.assertEqual(bot_channels.pick([_Channel(11, "beta-testing")], "test"), 11)
 
     def test_a_decorated_name_cannot_answer_for_another_role(self):
         """Stripping decoration must not let one channel satisfy two roles."""

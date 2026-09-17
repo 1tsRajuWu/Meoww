@@ -23,7 +23,7 @@ from utils import db
 
 #: The house channels every server may configure. The names are also the setting
 #: keys' prefixes: ``"error"`` is stored as ``error_channel_id``.
-ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log")
+ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log", "test")
 
 #: The roles whose setting predates this module and does not follow the naming.
 _KEYS: dict[str, str] = {"commands": "bot_cmd_channel_id"}
@@ -54,6 +54,9 @@ _NAMES: dict[str, tuple[str, ...]] = {
     # but the one whose channel was hardcoded into the cog posted nothing.
     "commands": ("bot-cmd", "bot-commands", "level-up", "levelups", "commands"),
     "log": ("mod-logs", "mod-log", "modlogs", "server-logs", "logs"),
+    # Where an operator tries things out. `/bot push` reports there when it can,
+    # because that is the channel they are watching while they test.
+    "test": ("test-ground", "testground", "beta-testing", "testing", "test", "beta"),
 }
 
 
