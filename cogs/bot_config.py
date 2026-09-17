@@ -145,6 +145,25 @@ class BotConfig(commands.Cog):
                             "• No `#bot-cmd` channel found here, so level-up cards stay "
                             "off until one exists."
                         )
+                # The rest of the house channels — release notes, failures, bug
+                # reports — bind by name the same way, and this is the one way to
+                # re-run that without waiting for a restart.
+                from utils import bot_channels
+
+                newly = await bot_channels.ensure_bound(guild)
+                if newly:
+                    notes.append(f"• Bound {bot_channels.describe(guild, newly)}.")
+                missing = [
+                    role
+                    for role in bot_channels.ROLES
+                    if await bot_channels.bound(guild.id, role) is None
+                ]
+                if missing:
+                    notes.append(
+                        f"• Still unbound here: {', '.join(missing)} — a channel named "
+                        "`#update`, `#bot-error`, `#bug`, `#bot-cmd` or `#logs` is "
+                        "picked up automatically."
+                    )
             notes.append("• Economy and leveling tables ready.")
             await interaction.followup.send(
                 "✅ **Database Successfully Updated!**\n" + "\n".join(notes)

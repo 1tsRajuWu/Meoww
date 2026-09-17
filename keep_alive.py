@@ -514,11 +514,42 @@ def set_security_headers(response):
     return response
 
 
+def _gateway_state() -> tuple[bool, bool]:
+    """(has this process ever logged in, is the gateway connected right now).
+
+    ``_has_started`` is set once inside ``on_ready`` and never cleared, so on its
+    own it answers "did the bot ever connect" — a bot that has since dropped off
+    the gateway still reads as ready, which is the opposite of reassuring when
+    somebody is asking whether it is online. ``is_ready()`` is the live answer,
+    and the two disagree exactly in the case worth knowing about.
+    """
+    bot = BOT_INSTANCE
+    if bot is None:
+        return False, False
+    started = bool(getattr(bot, "_has_started", False))
+    try:
+        return started, bool(bot.is_ready())
+    except Exception:
+        return started, False
+
+
+def _gateway_label(started: bool, connected: bool) -> str:
+    """One word for the state, so a monitor needs no knowledge of the flags."""
+    if connected:
+        return "connected"
+    return "reconnecting" if started else "never_connected"
+
+
 @app.route("/health")
 def health():
+    started, connected = _gateway_state()
     return jsonify({
         "status": "ok",
-        "bot_ready": bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False)),
+        # Kept for the monitors that already read it: "this process has logged in
+        # at least once".
+        "bot_ready": started,
+        # The live answer, which is what "is it connected?" actually means.
+        "gateway": _gateway_label(started, connected),
         "timestamp": int(time.time()),
     })
 
@@ -616,8 +647,10 @@ def api_voice_debug():
                 "can_encrypt": getattr(connection, "can_encrypt", None),
             })
 
+    started, connected = _gateway_state()
     return jsonify({
-        "bot_ready": bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False)),
+        "bot_ready": started,
+        "gateway": _gateway_label(started, connected),
         "opus_finder": opus_finder,
         "opus_loaded": is_opus_loaded,
         "system_ffmpeg": shutil.which("ffmpeg"),

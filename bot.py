@@ -39,6 +39,71 @@ if _env_flag("ENABLE_MESSAGE_CONTENT_INTENT"):
 if _env_flag("ENABLE_MEMBERS_INTENT"):
     intents.members = True
 
+# Application flag *positions* Discord sets on the app itself once a privileged
+# intent has been enabled in the Developer Portal. The *_LIMITED bit is the one
+# an unverified app gets, which is every app under 100 servers. These are bit
+# numbers, not shifted values — shifting them twice matches nothing, which would
+# read as "Discord granted nothing" and silently drop even the members intent.
+_MEMBER_INTENT_BITS = (14, 15)
+_MESSAGE_CONTENT_BITS = (16, 17)
+
+
+def portal_intents(timeout: float = 10.0) -> tuple[bool, bool] | None:
+    """Which privileged intents Discord has actually granted this app.
+
+    ``(members, message_content)``, or ``None`` when Discord cannot be asked.
+    """
+    try:
+        import json as _json
+        import urllib.request
+
+        request = urllib.request.Request(
+            "https://discord.com/api/v10/applications/@me",
+            headers={
+                "Authorization": f"Bot {TOKEN}",
+                "User-Agent": "DiscordBot (https://github.com/Rapptz/discord.py, 1.0)",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            flags = int(_json.load(response).get("flags", 0))
+    except Exception as e:
+        print(
+            f"[INTENTS] Could not ask Discord which intents are enabled ({e}) — "
+            "requesting exactly what the environment asks for.",
+            flush=True,
+        )
+        return None
+    return (
+        any(flags & (1 << bit) for bit in _MEMBER_INTENT_BITS),
+        any(flags & (1 << bit) for bit in _MESSAGE_CONTENT_BITS),
+    )
+
+
+def drop_ungranted_intents(bot, granted: tuple[bool, bool] | None) -> list[str]:
+    """Stop asking for intents Discord would refuse, and name the ones dropped.
+
+    Requesting a privileged intent the portal has not enabled makes Discord
+    reject the *whole* identify payload, so the bot never comes up at all: a
+    mismatched environment variable becomes an outage, and the only clue is one
+    line in a host log nobody is watching. Asking for less than was configured
+    degrades one feature and says which, loudly, instead of refusing to start.
+
+    This never *adds* an intent — a server running without message content and
+    without being told to ask for it stays that way.
+    """
+    if granted is None:
+        return []
+    members_granted, content_granted = granted
+    dropped: list[str] = []
+    if getattr(bot.intents, "members", False) and not members_granted:
+        bot.intents.members = False
+        dropped.append("Server Members (ENABLE_MEMBERS_INTENT)")
+    if getattr(bot.intents, "message_content", False) and not content_granted:
+        bot.intents.message_content = False
+        dropped.append("Message Content (ENABLE_MESSAGE_CONTENT_INTENT)")
+    return dropped
+
+
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # The cog list, the command->module gates and the default states all come from
@@ -754,14 +819,50 @@ async def _announce_release_notes() -> None:
             pass
 
 
+#: One broken command hit by fifty people is one bug, not fifty cards. A repeat
+#: of the same failure inside this window is counted onto the card that is
+#: already sitting in the channel; after it, a fresh card posts.
+ERROR_CARD_WINDOW_SECONDS = 600
+
+#: (guild id, command, exception type) -> the card showing it, how often, since when.
+_ERROR_CARDS: dict[tuple[int, str, str], dict] = {}
+
+
+def _error_embed(
+    command: str,
+    error: BaseException,
+    runner: str,
+    where: str,
+    seen: int,
+    first_at: float,
+) -> discord.Embed:
+    """The failure card, built the same way whether it is posted or updated."""
+    body = [f"**{type(error).__name__}**: {str(error)[:600]}", ""]
+    if seen > 1:
+        since = datetime.datetime.fromtimestamp(first_at, datetime.timezone.utc)
+        body.append(f"Seen **{seen}** times since {since:%H:%M} UTC")
+        body.append("")
+    body.append(f"Last run by {runner} in {where}")
+    return discord.Embed(
+        title=f"⚠️ /{command} failed",
+        description="\n".join(body)[:4096],
+        color=0xE74C3C,
+        timestamp=discord.utils.utcnow(),
+    )
+
+
 async def _report_error_to_channel(interaction: discord.Interaction, error: BaseException) -> None:
     """Post an unexpected command failure where that server can see it.
 
     ``ERROR_WEBHOOK_URL`` reports to one webhook configured for the whole
     process, which says nothing about *which* server a command broke in. A
     server that has bound an error channel gets the same failure in its own,
-    naming the command and who ran it. Never raises: a command that has already
-    failed must not fail again on the way out.
+    naming the command and who ran it.
+
+    Repeats of one failure are counted onto the card already in the channel: a
+    command that breaks on every call would otherwise bury the channel it is
+    meant to be reported in, and the hundredth card says no more than the first.
+    Never raises — a command that has already failed must not fail again here.
     """
     from utils import bot_channels, style
 
@@ -780,19 +881,41 @@ async def _report_error_to_channel(interaction: discord.Interaction, error: Base
                 flush=True,
             )
             return
+        import time
+
         command = interaction.command.qualified_name if interaction.command else "unknown"
         # Where the command was *run*, which is not where this card is going.
         where = getattr(interaction.channel, "mention", None) or "a channel that is gone"
-        embed = discord.Embed(
-            title=f"⚠️ /{command} failed",
-            description=(
-                f"**{type(error).__name__}**: {str(error)[:800]}\n\n"
-                f"Run by {interaction.user.mention} in {where}"
-            )[:4096],
-            color=0xE74C3C,
-            timestamp=discord.utils.utcnow(),
+        signature = (guild.id, command, type(error).__name__)
+        now = time.time()
+
+        # Forget cards whose window has closed, so a long-running bot cannot hold
+        # one entry for every command that has ever failed anywhere.
+        for key, card in list(_ERROR_CARDS.items()):
+            if now - card["at"] > ERROR_CARD_WINDOW_SECONDS:
+                _ERROR_CARDS.pop(key, None)
+
+        card = _ERROR_CARDS.get(signature)
+        if card is not None:
+            card["count"] += 1
+            card["at"] = now
+            embed = _error_embed(
+                command, error, interaction.user.mention, where, card["count"], card["first"]
+            )
+            try:
+                await style.edit_card(card["message"], embed=embed)
+            except Exception as e:
+                # The card is gone (deleted, or too old to edit). Forget it so the
+                # next failure posts a fresh one instead of counting into a void.
+                _ERROR_CARDS.pop(signature, None)
+                print(f"[ERRORS] Could not update the card for /{command}: {e}", flush=True)
+            return
+
+        message = await style.send_card(
+            channel,
+            embed=_error_embed(command, error, interaction.user.mention, where, 1, now),
         )
-        await style.send_card(channel, embed=embed)
+        _ERROR_CARDS[signature] = {"count": 1, "at": now, "first": now, "message": message}
     except Exception as e:
         print(f"[ERRORS] Could not report a command failure to its channel: {e}", flush=True)
 
@@ -920,6 +1043,21 @@ async def main():
 
         # keep_alive() starts the Web Admin Dashboard and uptime keep-alive
         keep_alive(bot)
+
+        # Ask Discord what it will actually allow *before* asking for it. An
+        # intent the portal has not enabled takes the whole connection down, so
+        # a mismatched variable would otherwise be an outage with a one-line
+        # clue. Dropping it degrades a feature and says so.
+        dropped = drop_ungranted_intents(bot, await asyncio.to_thread(portal_intents))
+        if dropped:
+            print(
+                "[INTENTS] Discord has not granted "
+                + " and ".join(dropped)
+                + " — starting without it rather than refusing to connect. Enable it in "
+                "the Developer Portal (your app -> Bot -> Privileged Gateway Intents) "
+                "and restart to get that feature back.",
+                flush=True,
+            )
 
         if not bot.intents.message_content:
             print(

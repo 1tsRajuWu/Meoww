@@ -92,6 +92,29 @@ class UpdatedbDefaults(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         await config_module.BotConfig.updatedb.callback(cog, interaction)
         return interaction
 
+    async def test_updatedb_binds_the_house_channels_it_can_see(self):
+        """The only way to re-run name-based binding without a restart."""
+        guild = _Guild(FOREIGN_GUILD, [_Channel(9101, "update"), _Channel(9102, "bug")])
+
+        interaction = await self._run(guild)
+
+        self.assertEqual(_setting(FOREIGN_GUILD, "update_channel_id"), 9101)
+        self.assertEqual(_setting(FOREIGN_GUILD, "bug_channel_id"), 9102)
+        notes = " ".join(str(m["content"]) for m in interaction.followup.messages)
+        self.assertIn("update=#update", notes)
+        self.assertIn("bug=#bug", notes)
+        # error, commands and log have no channel here, and saying so is the point:
+        # a role silently going nowhere is what this whole layer exists to end.
+        self.assertIn("Still unbound", notes)
+
+    async def test_updatedb_leaves_channels_that_are_already_set_alone(self):
+        guild = _Guild(FOREIGN_GUILD, [_Channel(9103, "update")])
+        await db.set_setting(FOREIGN_GUILD, "update_channel_id", 999)
+
+        await self._run(guild)
+
+        self.assertEqual(_setting(FOREIGN_GUILD, "update_channel_id"), 999)
+
     async def test_a_foreign_guild_never_receives_the_home_channel_ids(self):
         guild = _Guild(FOREIGN_GUILD, [_Channel(9001, "logs"), _Channel(9002, "bot-cmd")])
 
