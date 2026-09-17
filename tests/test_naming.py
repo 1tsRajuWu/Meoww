@@ -163,14 +163,16 @@ class TestCardMentionSafety(unittest.IsolatedAsyncioTestCase):
 
     async def test_editing_a_legacy_message_still_clears_content_and_embed(self):
         """Upgrading an embed to V2 must actively clear it, so the edit path
-        cannot filter explicit ``None`` values out of the payload."""
+        cannot filter explicit ``None`` values out of the payload — while
+        carrying only one embed keyword, since discord.py raises ``TypeError``
+        for a payload that has both and would drop the edit into its fallback."""
         target = _Interaction()
         await style.edit_card(target, embed=discord.Embed(title="x"))
         payload = target.response.edited
         self.assertIn("content", payload)
         self.assertIsNone(payload["content"])
-        self.assertIn("embed", payload)
-        self.assertIsNone(payload["embed"])
+        self.assertEqual(payload.get("embeds"), [], "the legacy embed was not cleared")
+        self.assertNotIn("embed", payload)
 
     async def test_send_panel_suppresses_mentions_by_default(self):
         channel = _Channel()

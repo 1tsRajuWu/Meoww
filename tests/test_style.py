@@ -117,6 +117,64 @@ class EmbedConversion(unittest.TestCase):
             self.assertIn("body text", _view_text(panel))
 
 
+class _EditTarget:
+    """A Message stand-in that enforces discord.py's own payload rule.
+
+    ``handle_message_parameters`` rejects a payload carrying ``embed`` and
+    ``embeds`` at once, checking for the *keys* rather than the values — so a
+    payload with both cannot be sent even when one of them is ``None``.
+    """
+
+    def __init__(self, *, components_v2: bool = False, break_layout: bool = False):
+        self.flags = type("Flags", (), {"components_v2": components_v2})()
+        self.break_layout = break_layout
+        self.calls: list[dict] = []
+
+    async def edit(self, **kwargs):
+        if "embed" in kwargs and "embeds" in kwargs:
+            raise TypeError("Cannot mix embed and embeds keyword arguments.")
+        if self.break_layout and "view" in kwargs:
+            raise RuntimeError("the layout was rejected")
+        self.calls.append(kwargs)
+        return self
+
+
+class CardEdits(unittest.IsolatedAsyncioTestCase):
+    """Editing is how a card is kept current, so its payload has to be sendable."""
+
+    async def test_an_upgrade_clears_the_legacy_payload_with_one_embed_keyword(self):
+        target = _EditTarget()
+        await style.edit_card(target, embed=discord.Embed(title="hi", description="there"))
+        self.assertEqual(len(target.calls), 1)
+        payload = target.calls[0]
+        self.assertNotIn("embed", payload)
+        self.assertEqual(payload["embeds"], [])
+        self.assertIsNone(payload["content"])
+        self.assertIsNotNone(payload["view"])
+
+    async def test_a_view_edit_never_carries_both_embed_keywords(self):
+        target = _EditTarget()
+        await style.edit_card(target, content="hi", embed=discord.Embed(title="x"), view=object())
+        self.assertEqual(len(target.calls), 1)
+        self.assertNotIn("embeds", target.calls[0])
+
+    async def test_a_legacy_message_still_falls_back_to_a_plain_edit(self):
+        target = _EditTarget(break_layout=True)
+        await style.edit_card(target, embed=discord.Embed(title="hi"))
+        self.assertEqual(len(target.calls), 1)
+        self.assertIn("embed", target.calls[0])
+        self.assertNotIn("view", target.calls[0])
+        self.assertNotIn("embeds", target.calls[0])
+
+    async def test_a_card_that_cannot_be_edited_reports_why_not_the_retry(self):
+        # Discord refuses an embed on a card, so the retry cannot succeed — and it
+        # used to replace the real error with that rejection.
+        target = _EditTarget(components_v2=True, break_layout=True)
+        with self.assertRaises(RuntimeError):
+            await style.edit_card(target, embed=discord.Embed(title="hi"))
+        self.assertEqual(target.calls, [])
+
+
 class RegistryIndependence(unittest.TestCase):
     def test_style_exports_survive(self):
         """The panels/helpers other cogs import must keep existing."""

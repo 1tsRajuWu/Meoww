@@ -40,6 +40,26 @@ class _Guild:
         return next((c for c in self.text_channels if c.id == cid), None)
 
 
+class _Role:
+    def __init__(self, rid, name, default=False):
+        self.id = rid
+        self.name = name
+        self._default = default
+
+    def is_default(self):
+        return self._default
+
+
+class _RoleGuild:
+    """Just enough guild for the ping lookup, which only reads roles."""
+
+    def __init__(self, roles):
+        self.roles = roles
+
+    def get_role(self, rid):
+        return next((r for r in self.roles if r.id == rid), None)
+
+
 def _setting(guild_id: int, key: str):
     conn = db.connect()
     try:
@@ -99,6 +119,46 @@ class NameMatching(unittest.TestCase):
     def test_every_role_has_somewhere_to_be_stored(self):
         keys = {bot_channels.setting_key(role) for role in bot_channels.ROLES}
         self.assertEqual(len(keys), len(bot_channels.ROLES), "two roles share a key")
+
+    def test_a_decorated_channel_name_still_binds(self):
+        """The home server's own channels are decorated, so exact matches are not enough."""
+        channels = [_Channel(11, "💬・bot-cmd"), _Channel(22, "🤖🦊 bot-error"), _Channel(33, "📋 logs")]
+        self.assertEqual(bot_channels.pick(channels, "commands"), 11)
+        self.assertEqual(bot_channels.pick(channels, "error"), 22)
+        self.assertEqual(bot_channels.pick(channels, "log"), 33)
+
+    def test_an_exact_name_beats_a_decorated_one(self):
+        self.assertEqual(
+            bot_channels.pick([_Channel(11, "💬・update"), _Channel(22, "updates")], "update"),
+            22,
+        )
+
+    def test_a_decorated_name_cannot_answer_for_another_role(self):
+        """Stripping decoration must not let one channel satisfy two roles."""
+        channels = [_Channel(11, "💬・logs"), _Channel(22, "💬・bug-report")]
+        self.assertIsNone(bot_channels.pick(channels, "update"))
+        self.assertIsNone(bot_channels.pick(channels, "error"))
+        self.assertEqual(bot_channels.pick(channels, "bug"), 22)
+
+
+class NotifyRole(unittest.TestCase):
+    """Who a release note tags. A server added later used to be tagged with nothing."""
+
+    def test_the_server_that_always_got_the_ping_keeps_exactly_that_role(self):
+        guild = _RoleGuild([_Role(1, "@everyone", default=True), _Role(5, "Dev"), _Role(9, "Admin")])
+        self.assertEqual(bot_channels.notify_role(guild, 5).id, 5)
+
+    def test_a_server_without_that_role_is_tagged_by_name_instead(self):
+        guild = _RoleGuild([_Role(1, "@everyone", default=True), _Role(7, "Dev")])
+        self.assertEqual(bot_channels.notify_role(guild, 999).id, 7)
+
+    def test_a_server_with_no_such_role_gets_a_note_with_no_mention(self):
+        guild = _RoleGuild([_Role(1, "@everyone", default=True), _Role(7, "Friends")])
+        self.assertIsNone(bot_channels.notify_role(guild, 999))
+
+    def test_the_highest_matching_role_is_the_one_tagged(self):
+        guild = _RoleGuild([_Role(3, "dev"), _Role(8, "Dev")])
+        self.assertEqual(bot_channels.notify_role(guild, None).id, 8)
 
 
 class Binding(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
@@ -248,18 +308,27 @@ class _DeployChannel:
         return await self.sink.send(**kwargs)
 
 
+class _DeployRole:
+    def __init__(self, rid, name):
+        self.id = rid
+        self.name = name
+
+    def is_default(self):
+        return self.name == "@everyone"
+
+
 class _DeployGuild:
     def __init__(self, gid, name, channels, roles=()):
         self.id = gid
         self.name = name
         self.text_channels = list(channels)
-        self._roles = set(roles)
+        self.roles = list(roles)
 
     def get_channel(self, cid):
         return next((c for c in self.text_channels if c.id == cid), None)
 
     def get_role(self, rid):
-        return object() if rid in self._roles else None
+        return next((r for r in self.roles if r.id == rid), None)
 
 
 def _drop(guilds, cid):
@@ -284,10 +353,16 @@ class TheDigestReachesEveryServer(TempDatabaseMixin, unittest.IsolatedAsyncioTes
         self.home_update = _DeployChannel(bot_module.LEGACY_UPDATE_CHANNEL_ID, "meow-bot-update")
         self.new_update = _DeployChannel(1550230595085275247, "update")
         self.home = _DeployGuild(
-            HOME_SERVER, "Meow", [self.home_update], roles=[bot_module.DEV_ROLE_ID]
+            HOME_SERVER,
+            "Meow",
+            [self.home_update],
+            roles=[_DeployRole(bot_module.DEV_ROLE_ID, "Dev")],
         )
+        # The second server's own dev role, under a different id — the real
+        # situation, and the one that used to arrive with no mention in it.
+        self.new_dev = _DeployRole(1550227368889684357, "Dev")
         self.new = _DeployGuild(
-            NEW_SERVER, "Development", [self.new_update]
+            NEW_SERVER, "Development", [self.new_update], roles=[self.new_dev]
         )
         self.bot = mock.Mock(guilds=[self.home, self.new], user=None)
 
@@ -309,16 +384,23 @@ class TheDigestReachesEveryServer(TempDatabaseMixin, unittest.IsolatedAsyncioTes
             self.assertIsNotNone(message["embed"])
             self.assertEqual(message["embed"].title, "🆕 Bot Updated — Meow")
 
-    async def test_the_role_is_pinged_only_where_it_exists(self):
+    async def test_the_ping_is_the_right_role_for_each_server(self):
         await self._boot()
         self.assertEqual(
             self.home_update.sink.messages[0]["content"],
             f"<@&{bot_module.DEV_ROLE_ID}>",
+            "the server that always got the ping keeps exactly that role",
         )
-        self.assertIsNone(
+        self.assertEqual(
             self.new_update.sink.messages[0]["content"],
-            "an unknown role id is an unreadable mention in another server",
+            f"<@&{self.new_dev.id}>",
+            "another server's role id would be an unreadable mention there",
         )
+
+    async def test_a_server_with_no_dev_role_gets_a_note_with_no_mention(self):
+        self.new.roles = []
+        await self._boot()
+        self.assertIsNone(self.new_update.sink.messages[0]["content"])
 
     async def test_a_second_boot_announces_nothing_at_all(self):
         await self._boot()
@@ -409,7 +491,7 @@ class TheBotUsesThem(unittest.TestCase):
         )
 
     def test_the_dev_role_is_pinged_only_where_that_role_exists(self):
-        self.assertIn("if guild.get_role(DEV_ROLE_ID) else None", self.bot_src)
+        self.assertIn("bot_channels.notify_role(guild, DEV_ROLE_ID)", self.bot_src)
 
     def test_every_server_is_bound_on_boot(self):
         self.assertIn("await bot_channels.ensure_bound(guild)", self.bot_src)

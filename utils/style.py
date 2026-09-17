@@ -440,6 +440,29 @@ def _layout_from(
     return None
 
 
+def _one_embed(embed: discord.Embed | None, embeds: list[discord.Embed] | None) -> dict:
+    """The single embed keyword to send — never both.
+
+    discord.py raises ``TypeError('Cannot mix embed and embeds keyword
+    arguments.')`` when a payload carries ``embed`` *and* ``embeds`` at once,
+    checking for the keys rather than for values, so ``embed=None`` beside
+    ``embeds=[]`` is a payload that can never be sent at all.
+    """
+    if embeds is not None:
+        return {"embeds": embeds}
+    return {"embed": embed}
+
+
+def _is_v2_message(target) -> bool:
+    """True when this target is an already-sent Components V2 message.
+
+    Such a message may not carry content or embeds, so a legacy edit is not a
+    valid fallback for it: Discord refuses the payload and reports that instead
+    of whatever actually went wrong.
+    """
+    return bool(getattr(getattr(target, "flags", None), "components_v2", False))
+
+
 def _is_interaction(target) -> bool:
     """True for a real Interaction (or a duck-typed stand-in)."""
     if isinstance(target, discord.Interaction):
@@ -543,18 +566,24 @@ async def edit_card(
 
     if view is not None:
         return await _dispatch_edit(
-            target, {"content": content, "embed": embed, "embeds": embeds, "view": view, **passthrough}
+            target, {**_one_embed(embed, embeds), "content": content, "view": view, **passthrough}
         )
 
-    legacy = {"content": content, "embed": embed, "embeds": embeds, **passthrough}
+    legacy = {**_one_embed(embed, embeds), "content": content, **passthrough}
     layout = _layout_from(embed, embeds, content, timeout)
     if layout is None:
         return await _dispatch_edit(target, {k: v for k, v in legacy.items() if v is not None})
 
-    v2_payload = {"content": None, "embed": None, "embeds": [], "view": layout, **passthrough}
+    # A V2 message carries neither content nor embeds, so an upgrade clears both
+    # — with exactly one embed keyword. Sending ``embed=None`` beside
+    # ``embeds=[]`` raised ``TypeError`` inside discord.py on every V2 edit,
+    # which dropped every one of them into the legacy retry below.
+    v2_payload = {"content": None, "embeds": [], "view": layout, **passthrough}
     try:
         return await _dispatch_edit(target, v2_payload)
     except Exception:
+        if _is_v2_message(target):
+            raise  # the retry cannot work here; report what really failed
         return await _dispatch_edit(target, {k: v for k, v in legacy.items() if v is not None})
 
 

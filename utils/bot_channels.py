@@ -28,6 +28,19 @@ ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log")
 #: The roles whose setting predates this module and does not follow the naming.
 _KEYS: dict[str, str] = {"commands": "bot_cmd_channel_id"}
 
+#: Roles a release note may ping. Matched by name against the server's own roles
+#: (decorations ignored), most specific first, and only after the role id this bot
+#: has always pinged. A server with none of them gets a note with no mention in it
+#: rather than an @everyone nobody asked for.
+NOTIFY_ROLE_NAMES: tuple[str, ...] = (
+    "bot-dev",
+    "dev",
+    "developer",
+    "admin",
+    "administrator",
+    "owner",
+)
+
 #: Matched in order, most specific first, so ``#bug-report`` wins over ``#bug``
 #: and a server that names its channel exactly gets it. No name appears under two
 #: roles: an ambiguous name can only ever bind one thing, and guessing which is
@@ -56,20 +69,39 @@ def candidates(role: str) -> tuple[str, ...]:
     return _NAMES.get(role, ())
 
 
+def normalize(name: str) -> str:
+    """A channel or role name reduced to its letters and digits.
+
+    Servers decorate names — ``💬・bot-cmd``, ``🤖 bot-logs`` — and an exact
+    match against ``bot-cmd`` then finds nothing at all, so the bot's own
+    channels stayed unbound in exactly the servers that had renamed them.
+    """
+    return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+
+
 def pick(channels, role: str) -> int | None:
     """The id of the channel named for ``role``, or ``None``.
 
     Order comes from :func:`candidates` rather than from the guild, so the result
-    does not depend on where Discord happens to put a channel in its cache.
+    does not depend on where Discord happens to put a channel in its cache. An
+    exact name is preferred; a name that only matches once its decoration is
+    stripped is the fallback for that same candidate.
     """
     by_name: dict[str, int] = {}
+    by_normal: dict[str, int] = {}
     for channel in channels or ():
         name = (getattr(channel, "name", "") or "").lower()
         channel_id = getattr(channel, "id", None)
-        if name and channel_id:
-            by_name.setdefault(name, int(channel_id))
+        if not name or not channel_id:
+            continue
+        by_name.setdefault(name, int(channel_id))
+        normal = normalize(name)
+        if normal:
+            by_normal.setdefault(normal, int(channel_id))
     for name in candidates(role):
         found = by_name.get(name)
+        if found is None:
+            found = by_normal.get(normalize(name))
         if found:
             return found
     return None
@@ -121,6 +153,32 @@ async def ensure_bound(guild) -> dict[str, int]:
         await db.set_setting(guild.id, setting_key(role), found)
         bound_now[role] = found
     return bound_now
+
+
+def notify_role(guild, legacy_role_id: int | None = None):
+    """The role to ping when a release note lands in this server, or ``None``.
+
+    The id this bot has always pinged wins where that server has it, so the
+    server that was already being tagged keeps exactly the ping it had. Every
+    other server is matched by role name instead — which is how a server added
+    later gets tagged at all, rather than the note arriving with no mention.
+    """
+    if legacy_role_id is not None:
+        role = getattr(guild, "get_role", lambda _id: None)(legacy_role_id)
+        if role is not None:
+            return role
+    by_name: dict[str, object] = {}
+    # Highest role first, so a server with two roles sharing a name pings the one
+    # that actually carries the permissions.
+    for role in reversed(list(getattr(guild, "roles", []) or [])):
+        name = (getattr(role, "name", "") or "").strip().lower()
+        if name:
+            by_name.setdefault(name, role)
+    for name in NOTIFY_ROLE_NAMES:
+        role = by_name.get(name)
+        if role is not None and not getattr(role, "is_default", lambda: False)():
+            return role
+    return None
 
 
 def describe(guild, bound_now: dict[str, int]) -> str:
