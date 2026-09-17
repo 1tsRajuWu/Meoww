@@ -24,6 +24,10 @@
            border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; }
   button { cursor: pointer; }
   button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* Keyboard users otherwise get only the browser's default ring, which
+     disappears against the accent fill of the selected period button. White
+     clears 4.6:1 on that fill and 13:1 on the page. */
+  :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; padding: 16px 20px 40px; }
   @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }

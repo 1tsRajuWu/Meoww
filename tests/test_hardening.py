@@ -192,6 +192,7 @@ class TheAuditFixesAreInTheShippedPages(unittest.TestCase):
         self.assertIn('aria-live="polite"', html)
         self.assertIn('aria-pressed=', html)
         self.assertIn('role="img"', html)
+        self.assertIn(':focus-visible', html, "keyboard users need to see where they are")
         self.assertNotIn("tr.innerHTML = `", html, "data is text, never markup")
 
     def test_the_composer_keeps_a_draft_across_an_expired_session(self):
