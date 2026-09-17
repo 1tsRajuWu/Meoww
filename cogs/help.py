@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils import features as feature_registry
+from utils import bot_channels, features as feature_registry
 from utils.style import send_panel, ACCENT, avatar_url, guild_banner
 
 HELP_MODULES = {
@@ -44,7 +44,7 @@ HELP_MODULES = {
         "emoji": "⭐"
     },
     "social": {
-        "title": "🐾 Safari Pets & Social Roleplay",
+        "title": "Safari Pets & Social Roleplay",
         "desc": (
             "Wild animal hunting, zoo collection, high-stakes crash, anime actions, and marriage!\n\n"
             "> `/hunt` — Catch rare animals in the wild\n"
@@ -57,7 +57,7 @@ HELP_MODULES = {
             "> `/uwu <text>` — Translate any message into cute anime text"
         ),
         "color": 0xE91E63,
-        "emoji": "🐾"
+        "emoji": "🐱"
     },
     "economy": {
         "title": "💰 Economy & Currency",
@@ -278,6 +278,101 @@ class HelpSelectMenu(discord.ui.Select):
         await interaction.response.edit_message(view=self.view)
 
 
+BUG_REPORT_HINT = (
+    "What happened, and what you expected instead? The command you ran, the "
+    "steps to reproduce it, and any error text all help."
+)
+
+
+class BugReportModal(discord.ui.Modal, title="Report a bug"):
+    """The free-text half of a report; the destination is resolved on submit."""
+
+    def __init__(self, channel_id: int):
+        super().__init__()
+        self.channel_id = channel_id
+        self.what_happened = discord.ui.TextInput(
+            label="What went wrong?",
+            placeholder=BUG_REPORT_HINT,
+            style=discord.TextStyle.paragraph,
+            max_length=1500,
+            required=True,
+        )
+        self.add_item(self.what_happened)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        channel = guild.get_channel(self.channel_id) if guild else None
+        if channel is None:
+            return await interaction.response.send_message(
+                "❌ I can no longer reach the bug-report channel — it may have "
+                "been moved or deleted since this panel was posted.",
+                ephemeral=True,
+            )
+        report = str(self.what_happened.value or "").strip()
+        embed = discord.Embed(
+            title="🐞 Bug report",
+            description=report[:4000] or "*(no description given)*",
+            color=0xE74C3C,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Reported by", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Server", value=guild.name, inline=True)
+        embed.set_footer(text=f"User ID {interaction.user.id}")
+        try:
+            message = await channel.send(embed=embed)
+        except discord.Forbidden:
+            return await interaction.response.send_message(
+                f"❌ I don't have permission to post in {channel.mention}. Tell an "
+                "administrator, or send them this report directly.",
+                ephemeral=True,
+            )
+        # The thread keeps the conversation next to the report instead of buried
+        # in the channel. A server that has threads disabled still gets the post.
+        follow_up = ""
+        try:
+            first_line = (report.splitlines() or [""])[0].strip()
+            thread = await message.create_thread(
+                name=f"🐞 {first_line[:80] or interaction.user.name}",
+                auto_archive_duration=1440,
+            )
+            follow_up = f" Follow it in {thread.mention}."
+        except Exception as e:
+            print(f"[BUG] Could not open a thread on the report: {e}", flush=True)
+        await interaction.response.send_message(
+            f"✅ Thanks — your report is in {channel.mention}.{follow_up}",
+            ephemeral=True,
+        )
+
+
+class BugReportButton(discord.ui.Button):
+    """Files a report without spending one of Discord's 100 command slots.
+
+    The bot sits at that ceiling, so the entry point rides on the panel people
+    already open instead of a command that could not be published.
+    """
+
+    def __init__(self):
+        super().__init__(
+            label="Report a bug", emoji="🐞", style=discord.ButtonStyle.secondary
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message(
+                "Bug reports need a server to file them in.", ephemeral=True
+            )
+        channel_id = await bot_channels.bound(guild.id, "bug")
+        if channel_id is None:
+            return await interaction.response.send_message(
+                "❌ This server has no bug-report channel yet. Create one named "
+                "`#bug` or `#bug-report` and it is picked up automatically on the "
+                "next startup.",
+                ephemeral=True,
+            )
+        await interaction.response.send_modal(BugReportModal(channel_id))
+
+
 class HelpLayout(discord.ui.LayoutView):
     def __init__(self, *, thumbnail: str | None, gallery: list[str] | None = None):
         super().__init__(timeout=300)
@@ -294,6 +389,7 @@ class HelpLayout(discord.ui.LayoutView):
             parts.append(discord.ui.MediaGallery(*[discord.MediaGalleryItem(u) for u in gallery[:4]]))
         row = discord.ui.ActionRow()
         row.add_item(HelpSelectMenu())
+        row.add_item(BugReportButton())
         parts.append(row)
         parts.append(discord.ui.TextDisplay("-# Tap a category anytime  ·  Meow"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
