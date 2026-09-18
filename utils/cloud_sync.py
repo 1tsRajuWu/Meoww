@@ -578,25 +578,63 @@ def _lease_problem() -> str | None:
     )
 
 
-def other_live_owner() -> str | None:
-    """The *other* copy of this bot that is running right now, or ``None``.
+def _service_of(instance: str) -> str | None:
+    """The hosting *service* an instance name belongs to, when it names one.
 
-    The lease exists so two copies cannot fight over the backup; this exposes the
-    same answer for the other half of that problem. Two copies do not only race
-    each other over the database — they race over the **gateway**, where Discord
-    delivers every interaction to both, one answers, and the loser's command ends
-    in ``Interaction has already been acknowledged``. The boot path reports that
-    card so a duplicated bot is a named fault instead of commands that randomly
-    say "the application did not respond".
+    Render names a container ``srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4``:
+    the service id, the service's own name, the deployment hash, then the pod. Two
+    containers of one deployment share the ``srv-<id>`` head and differ after it.
+    """
+    parts = (instance or "").split("-")
+    if len(parts) >= 3 and parts[0] == "srv":
+        return "-".join(parts[:2])
+    return None
 
-    A lease that cannot be read, an empty bucket and a lease older than
-    :data:`LEASE_TTL` all answer ``None``: "I cannot tell" must never be the
-    reason a legitimate boot is held back or shouted about. What it returns is the
-    other copy's own name for itself and nothing else, because it is quoted in a
-    card an operator reads.
+
+def _previous_container_of_this_service(owner: str) -> bool:
+    """Whether ``owner`` is the last container of *this* deployment, not a copy.
+
+    A rolling deploy starts the new container while the old one is still
+    renewing the lease for a few seconds, and each container gets its own
+    hostname — so the lease names "another instance" that is really the same
+    deployment's previous pod. Reporting that as two copies of the bot is a card
+    telling the operator to stop the copy they just deployed: a false alarm on
+    the one warning that has to be believed, which is how a real duplicate gets
+    ignored by the person who most needs to act on it. The lease's own rule is
+    untouched (the new container still waits for the old writer to go), because
+    that wait is what stops two writers touching one backup.
+    """
+    return _service_of(owner) is not None and _service_of(owner) == _service_of(_INSTANCE_ID)
+
+
+def other_live_copy() -> str | None:
+    """A *second copy* of this bot that is serving right now, or ``None``.
+
+    The lease exists so two copies cannot fight over the backup; this asks it the
+    other half of the same question. Two copies do not only race over the database
+    — they race over the **gateway**, where Discord delivers every interaction to
+    both, one answers, and the loser's command ends in ``Interaction has already
+    been acknowledged``. The boot reports that, so a duplicated bot is a named
+    fault instead of commands that randomly say "the application did not respond".
+
+    Everything that is not a second copy answers ``None``: a lease that cannot be
+    read, an empty bucket, a lease older than :data:`LEASE_TTL`, and the previous
+    container of this very deployment. What it returns is the other copy's own
+    name for itself and nothing else, because it is quoted in a card an operator
+    reads.
     """
     live = _live_other_owner()
-    return live[0] if live else None
+    if live is None:
+        return None
+    owner = live[0]
+    if _previous_container_of_this_service(owner):
+        print(
+            f"[INSTANCE] {owner} is this deployment's previous container, still "
+            "holding the sync lease — not a second copy of the bot.",
+            flush=True,
+        )
+        return None
+    return owner
 
 
 def _lease_touch(force: bool = False) -> None:

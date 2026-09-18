@@ -549,43 +549,73 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
 
 class WhoElseIsRunning(unittest.TestCase):
-    """``other_live_owner`` — the question the boot asks the same lease.
+    """``other_live_copy`` — the question the boot asks the same lease.
 
     The lease stopped two copies fighting over the backup; the gateway has the
     same hazard and no guard at all, because Discord delivers every interaction
     to *every* connected session of one application: one copy answers, the other
     raises ``Interaction has already been acknowledged``, and the interactions
     that reach a session that has gone quiet are answered too late — a member
-    sees "the application did not respond". The boot reports whichever copy the
-    lease names. A wrong name here is a false alarm in the operator's channels,
-    so "I cannot tell" must answer ``None`` rather than guess.
+    sees "the application did not respond". The boot reports the copy the lease
+    names. A wrong name here is a false alarm in the operator's channels, so
+    anything that is not a second copy must answer ``None`` rather than guess —
+    wrong in both directions costs the same thing: a warning nobody reads.
     """
 
     def setUp(self):
-        self._was = (cs._cloud_has_data, cs._remote_checked)
+        self._was = (cs._cloud_has_data, cs._remote_checked, cs._INSTANCE_ID)
         cs._remote_checked = True  # the state a running instance is already in
 
     def tearDown(self):
-        cs._cloud_has_data, cs._remote_checked = self._was
+        cs._cloud_has_data, cs._remote_checked, cs._INSTANCE_ID = self._was
 
     def _owner(self, lease: bytes | None, has_data: bool = True):
         cs._cloud_has_data = has_data
         with mock.patch.object(cs, "_storage_download", return_value=lease):
-            return cs.other_live_owner()
+            return cs.other_live_copy()
+
+    def _lease(self, owner: str, age: float = 0.0) -> bytes:
+        return cs._json.dumps({"owner": owner, "ts": cs.time.time() - age}).encode()
 
     def test_a_fresh_lease_names_the_other_copy(self):
-        lease = cs._json.dumps({"owner": "srv-render-abc", "ts": cs.time.time()}).encode()
-        self.assertIn("srv-render-abc", self._owner(lease))
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        self.assertEqual(
+            self._owner(self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4")),
+            "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4",
+        )
+
+    def test_the_previous_container_of_this_deployment_is_not_a_second_copy(self):
+        """A rolling deploy's own old pod holds the lease for a few seconds.
+
+        Observed live: the container that came up from a push reported "another
+        copy of me is online — stop this one" about the pod it had just replaced,
+        which is advice to stop the deployment that was just made. Same service
+        id, different pod, one deployment.
+        """
+        cs._INSTANCE_ID = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
+        self.assertIsNone(
+            self._owner(self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"))
+        )
+
+    def test_a_second_copy_on_another_host_is_reported(self):
+        """The case this exists for: a deploy and a laptop, same token."""
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        self.assertIsNotNone(self._owner(self._lease("srv-aaaaaaaaaaaaaaaaaaaa-other-1-abc")))
+        cs._INSTANCE_ID = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
+        self.assertIsNotNone(
+            self._owner(self._lease("Himanshus-MacBook-Air.local")),
+            "a laptop while a deploy runs is the duplicate that breaks commands",
+        )
+
+    def test_a_different_service_running_the_same_token_is_reported(self):
+        cs._INSTANCE_ID = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
+        self.assertIsNotNone(self._owner(self._lease("srv-bbbbbbbbbbbbbbbbbbbb-two-1-xyz")))
 
     def test_our_own_lease_is_not_somebody_else(self):
-        lease = cs._json.dumps({"owner": cs._INSTANCE_ID, "ts": cs.time.time()}).encode()
-        self.assertIsNone(self._owner(lease))
+        self.assertIsNone(self._owner(self._lease(cs._INSTANCE_ID)))
 
     def test_a_stale_lease_is_not_someone_who_is_running(self):
-        lease = cs._json.dumps(
-            {"owner": "srv-dead", "ts": cs.time.time() - cs.LEASE_TTL - 60}
-        ).encode()
-        self.assertIsNone(self._owner(lease))
+        self.assertIsNone(self._owner(self._lease("srv-dead", age=cs.LEASE_TTL + 60)))
 
     def test_an_absent_or_unreadable_lease_is_not_an_owner(self):
         for lease in (None, b"", b"not json", b"{}"):
@@ -601,8 +631,22 @@ class WhoElseIsRunning(unittest.TestCase):
 
     def test_the_name_it_answers_with_is_just_the_name(self):
         """It is quoted in a card an operator reads, not pasted into a sentence."""
-        lease = cs._json.dumps({"owner": "srv-render-abc", "ts": cs.time.time()}).encode()
-        self.assertEqual(self._owner(lease), "srv-render-abc")
+        cs._INSTANCE_ID = "Housemate-Mac.local"
+        self.assertEqual(self._owner(self._lease("srv-render-abc")), "srv-render-abc")
+
+    def test_the_backup_still_waits_for_the_previous_container(self):
+        """The sibling rule is about the gateway only: two writers on one bucket
+        is the loss the lease exists to prevent, and the wait costs a deploy
+        nothing."""
+        cs._INSTANCE_ID = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
+        cs._cloud_has_data = True
+        sibling = self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4")
+        with mock.patch.object(cs, "_storage_download", return_value=sibling):
+            self.assertIsNone(cs.other_live_copy(), "not a second *copy*")
+            self.assertIn(
+                "owns the bucket", cs._lease_problem() or "",
+                "but the upload still refuses while that container writes",
+            )
 
     def test_an_empty_bucket_has_nobody_to_name(self):
         lease = cs._json.dumps({"owner": "srv-x", "ts": cs.time.time()}).encode()

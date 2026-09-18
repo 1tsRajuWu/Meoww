@@ -708,8 +708,10 @@ async def report_duplicate_instance() -> str | None:
         from utils import cloud_sync
 
         # On a thread: the lease is an HTTPS round trip, and a boot that blocks
-        # the loop for it delays the first commands of the deploy.
-        owner = await asyncio.to_thread(cloud_sync.other_live_owner)
+        # the loop for it delays the first commands of the deploy. What it answers
+        # is a *second copy*: a rolling deploy's own previous container holds the
+        # lease for a few seconds and is not one.
+        owner = await asyncio.to_thread(cloud_sync.other_live_copy)
         if not owner:
             return None
         print(

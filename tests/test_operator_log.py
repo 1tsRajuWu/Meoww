@@ -906,7 +906,13 @@ class BotWiring(unittest.TestCase):
         self.assertEqual(seen, [])
 
     def test_the_boot_reports_a_second_copy_of_the_bot(self):
-        """The database lease already knows; the boot has to say it out loud."""
+        """The database lease already knows; the boot has to say it out loud.
+
+        What it asks is ``other_live_copy`` and not the lease's raw owner: a
+        rolling deploy's own previous container holds that lease for a few
+        seconds, and the card tells its reader to stop the copy that just
+        arrived — so a false one is worse than none.
+        """
         seen = []
 
         async def spy(bot, owner):
@@ -915,7 +921,7 @@ class BotWiring(unittest.TestCase):
 
         from utils import cloud_sync
 
-        with mock.patch.object(cloud_sync, "other_live_owner", lambda: "srv-render-abc"), \
+        with mock.patch.object(cloud_sync, "other_live_copy", lambda: "srv-render-abc"), \
              mock.patch.object(operator_log, "report_second_instance", spy):
             reported = asyncio.run(bot_module.report_duplicate_instance())
         self.assertEqual(reported, "srv-render-abc")
@@ -927,7 +933,7 @@ class BotWiring(unittest.TestCase):
         async def never(*_args):
             raise AssertionError("nothing to report")
 
-        with mock.patch.object(cloud_sync, "other_live_owner", lambda: None), \
+        with mock.patch.object(cloud_sync, "other_live_copy", lambda: None), \
              mock.patch.object(operator_log, "report_second_instance", never):
             self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
 
@@ -940,7 +946,7 @@ class BotWiring(unittest.TestCase):
         def boom():
             raise RuntimeError("supabase is down")
 
-        with mock.patch.object(cloud_sync, "other_live_owner", boom), \
+        with mock.patch.object(cloud_sync, "other_live_copy", boom), \
              mock.patch.object(operator_log, "report_second_instance", nothing):
             self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
 
