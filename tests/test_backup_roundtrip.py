@@ -546,3 +546,64 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # Should have pruned old snapshots (new one + BACKUP_KEEP oldest)
         snaps = [n for n in fake.files if n.startswith("bot-db-")]
         self.assertLessEqual(len(snaps), cs.BACKUP_KEEP + 1)  # +1 for the new snapshot just created
+
+
+class WhoElseIsRunning(unittest.TestCase):
+    """``other_live_owner`` — the question the boot asks the same lease.
+
+    The lease stopped two copies fighting over the backup; the gateway has the
+    same hazard and no guard at all, because Discord delivers every interaction
+    to *every* connected session of one application: one copy answers, the other
+    raises ``Interaction has already been acknowledged``, and the interactions
+    that reach a session that has gone quiet are answered too late — a member
+    sees "the application did not respond". The boot reports whichever copy the
+    lease names. A wrong name here is a false alarm in the operator's channels,
+    so "I cannot tell" must answer ``None`` rather than guess.
+    """
+
+    def setUp(self):
+        self._was = (cs._cloud_has_data, cs._remote_checked)
+        cs._remote_checked = True  # the state a running instance is already in
+
+    def tearDown(self):
+        cs._cloud_has_data, cs._remote_checked = self._was
+
+    def _owner(self, lease: bytes | None, has_data: bool = True):
+        cs._cloud_has_data = has_data
+        with mock.patch.object(cs, "_storage_download", return_value=lease):
+            return cs.other_live_owner()
+
+    def test_a_fresh_lease_names_the_other_copy(self):
+        lease = cs._json.dumps({"owner": "srv-render-abc", "ts": cs.time.time()}).encode()
+        self.assertIn("srv-render-abc", self._owner(lease))
+
+    def test_our_own_lease_is_not_somebody_else(self):
+        lease = cs._json.dumps({"owner": cs._INSTANCE_ID, "ts": cs.time.time()}).encode()
+        self.assertIsNone(self._owner(lease))
+
+    def test_a_stale_lease_is_not_someone_who_is_running(self):
+        lease = cs._json.dumps(
+            {"owner": "srv-dead", "ts": cs.time.time() - cs.LEASE_TTL - 60}
+        ).encode()
+        self.assertIsNone(self._owner(lease))
+
+    def test_an_absent_or_unreadable_lease_is_not_an_owner(self):
+        for lease in (None, b"", b"not json", b"{}"):
+            with self.subTest(lease=lease):
+                self.assertIsNone(self._owner(lease))
+
+    def test_a_lease_with_an_unreadable_timestamp_is_not_an_owner(self):
+        """A ``ts`` nobody can parse is not a *stale* lease — that would invite a
+        takeover of a bucket whose owner is alive, which is the loss the lease
+        exists to prevent."""
+        lease = cs._json.dumps({"owner": "srv-x", "ts": "about an hour ago"}).encode()
+        self.assertIsNone(self._owner(lease))
+
+    def test_the_name_it_answers_with_is_just_the_name(self):
+        """It is quoted in a card an operator reads, not pasted into a sentence."""
+        lease = cs._json.dumps({"owner": "srv-render-abc", "ts": cs.time.time()}).encode()
+        self.assertEqual(self._owner(lease), "srv-render-abc")
+
+    def test_an_empty_bucket_has_nobody_to_name(self):
+        lease = cs._json.dumps({"owner": "srv-x", "ts": cs.time.time()}).encode()
+        self.assertIsNone(self._owner(lease, has_data=False))

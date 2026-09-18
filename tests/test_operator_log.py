@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 import discord
+from discord import app_commands
 
 import bot as bot_module
 from tests.support import TempDatabaseMixin
@@ -185,13 +186,18 @@ class _Command:
     def __init__(self, qualified_name):
         self.qualified_name = qualified_name
 
+    @property
+    def name(self):  # what discord.py's own error wrapper reads
+        return self.qualified_name.split(" ")[-1]
+
 
 class _Interaction:
-    def __init__(self, guild, channel, user, data=None):
+    def __init__(self, guild, channel, user, data=None, command=None):
         self.guild = guild
         self.channel = channel
         self.user = user
         self.data = data or {}
+        self.command = command
 
 
 class OperatorLogCase(TempDatabaseMixin, unittest.TestCase):
@@ -343,6 +349,152 @@ class CommandLog(OperatorLogCase):
         text = _text_of(self.cmdlog_channel.sent[0])
         self.assertIn("help", text)
         self.assertIn("Direct message", text)
+
+
+class FailedCommands(OperatorLogCase):
+    """A command that breaks is the entry an operator most needs, and gets.
+
+    ``on_app_command_completion`` only fires for a command that finished without
+    raising — so before this card existed, the log was silent for exactly the
+    failures it exists to surface, and an empty ``#real-time-cmd-data`` read as
+    "nobody uses this bot".
+    """
+
+    def _interaction(self, command="balance"):
+        return _Interaction(
+            _Guild(MEMBER_SERVER, "Hmm", [self.foreign]),
+            self.foreign,
+            _User(777, "RAJ"),
+            command=_Command(command),
+        )
+
+    def _invoke_error(self, original):
+        """What the tree hands the handler: discord.py's wrapper around the cause."""
+        return app_commands.CommandInvokeError(_Command("balance"), original)
+
+    def test_a_failed_command_is_written_to_the_channel_the_others_go_to(self):
+        error = self._invoke_error(
+            discord.NotFound(_Response(), "404 Not Found (error code: 10062): Unknown interaction")
+        )
+
+        async def run():
+            await self._bind_operator_roles()
+            return await operator_log.command_failed(
+                self.bot, self._interaction(), error
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertEqual(len(self.cmdlog_channel.sent), 1)
+        self.assertEqual(self.foreign.sent, [], "a member's server never sees this")
+        text = _text_of(self.cmdlog_channel.sent[0])
+        self.assertIn("balance", text)
+        self.assertIn("RAJ", text)
+        self.assertIn("Hmm", text)
+        self.assertIn("10062", text, "the reason is the point of this entry")
+        self.assertIn("NotFound", text)
+        self.assertIn("failed", text)
+
+    def test_the_reason_is_unwrapped_from_the_wrapper_discord_py_adds(self):
+        error = self._invoke_error(discord.Forbidden(_Response(), "Missing Access"))
+        self.assertNotIn("CommandInvokeError", operator_log._reason(error))
+        self.assertIn("Forbidden", operator_log._reason(error))
+
+    def test_a_failure_never_copies_what_somebody_typed(self):
+        """A Python error raised while handling an argument can quote it back.
+
+        Discord's own errors are transport facts and are carried in full; a
+        message from anywhere else is left out, because this log promises never
+        to copy the values typed into a command. The traceback still reaches the
+        error channel through ``bot.py``'s report.
+        """
+        typed = "my-private-report-text"
+        error = self._invoke_error(ValueError(f"bad value: {typed}"))
+
+        async def run():
+            await self._bind_operator_roles()
+            return await operator_log.command_failed(
+                self.bot, self._interaction(), error
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        text = _text_of(self.cmdlog_channel.sent[0])
+        self.assertIn("ValueError", text, "the type is still worth having")
+        self.assertNotIn(typed, text)
+
+    def test_a_run_in_a_direct_message_is_still_written_down(self):
+        interaction = _Interaction(None, None, _User(9, "RAJ"), command=_Command("help"))
+
+        async def run():
+            await self._bind_operator_roles()
+            return await operator_log.command_failed(
+                self.bot, interaction, self._invoke_error(discord.NotFound(_Response(), "gone"))
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        text = _text_of(self.cmdlog_channel.sent[0])
+        self.assertIn("Direct message", text)
+
+    def test_a_command_the_interaction_cannot_name_is_still_an_entry(self):
+        """The failure path runs when things are already wrong: no command, no name."""
+
+        async def run():
+            await self._bind_operator_roles()
+            return await operator_log.command_failed(
+                self.bot,
+                _Interaction(None, None, None, command=None),
+                self._invoke_error(RuntimeError("boom")),
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertIn("unknown", _text_of(self.cmdlog_channel.sent[0]))
+
+    def test_a_failure_with_nothing_bound_anywhere_is_reported_not_raised(self):
+        async def run():
+            await db.setup()
+            return await operator_log.command_failed(
+                self.bot, self._interaction(), self._invoke_error(RuntimeError("boom"))
+            )
+
+        self.assertFalse(asyncio.run(run()))
+
+
+class SecondInstance(OperatorLogCase):
+    """The card that names why commands fail at random when two copies run."""
+
+    def test_it_names_the_other_copy_where_the_operator_reads(self):
+        async def run():
+            await db.setup()
+            await db.set_setting(
+                BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id
+            )
+            return await operator_log.report_second_instance(
+                self.bot, "srv-render-abc"
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertEqual(len(self.foreign.sent), 1)
+        text = _text_of(self.foreign.sent[0])
+        self.assertIn("srv-render-abc", text)
+        self.assertIn("did not respond", text, "the symptom is what the operator saw")
+
+    def test_it_never_pings_the_operator(self):
+        async def run():
+            await db.setup()
+            await db.set_setting(
+                BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id
+            )
+            return await operator_log.report_second_instance(self.bot, "other@here")
+
+        self.assertTrue(asyncio.run(run()))
+        sent = self.foreign.sent[0]
+        self.assertEqual(sent.get("allowed_mentions"), style.NO_PINGS)
+
+    def test_with_nowhere_to_say_it_returns_false_instead_of_raising(self):
+        async def run():
+            await db.setup()
+            return await operator_log.report_second_instance(self.bot, "srv-x")
+
+        self.assertFalse(asyncio.run(run()))
 
 
 class FailureRules(OperatorLogCase):
@@ -704,6 +856,93 @@ class BotWiring(unittest.TestCase):
                 bot_module.on_app_command_completion(interaction, command)
             )
         self.assertEqual(seen, [(interaction, command)])
+
+    def test_a_failed_command_reaches_the_log_too(self):
+        """Completion never fires for a failure, so this is the only path it has."""
+        interaction = mock.Mock()
+        interaction.user = _User(1, "RAJ")
+        interaction.guild = None
+        interaction.command = _Command("balance")
+        error = app_commands.CommandInvokeError(
+            _Command("balance"), RuntimeError("boom")
+        )
+        seen = []
+
+        async def spy(bot, got_interaction, got_error):
+            seen.append((got_interaction, got_error))
+            return True
+
+        async def nothing(*_args, **_kwargs):
+            return None
+
+        with mock.patch.object(operator_log, "command_failed", spy), \
+             mock.patch.object(bot_module, "_report_error", lambda *a, **k: None), \
+             mock.patch.object(bot_module, "_report_error_to_channel", nothing):
+            asyncio.run(bot_module.on_app_command_error(interaction, error))
+        self.assertEqual(seen, [(interaction, error)])
+
+    def test_a_permission_refusal_is_not_logged_as_a_failure(self):
+        """A refusal is an answer, not a broken command."""
+        interaction = mock.Mock()
+        interaction.user = _User(1, "RAJ")
+        interaction.guild = None
+        interaction.command = _Command("balance")
+        seen = []
+
+        async def spy(*_args):
+            seen.append(True)
+
+        async def nothing(*_args, **_kwargs):
+            return None
+
+        with mock.patch.object(operator_log, "command_failed", spy), \
+             mock.patch.object(bot_module, "_report_error", lambda *a, **k: None), \
+             mock.patch.object(bot_module, "_report_error_to_channel", nothing):
+            asyncio.run(
+                bot_module.on_app_command_error(
+                    interaction, app_commands.MissingPermissions(["administrator"])
+                )
+            )
+        self.assertEqual(seen, [])
+
+    def test_the_boot_reports_a_second_copy_of_the_bot(self):
+        """The database lease already knows; the boot has to say it out loud."""
+        seen = []
+
+        async def spy(bot, owner):
+            seen.append(owner)
+            return True
+
+        from utils import cloud_sync
+
+        with mock.patch.object(cloud_sync, "other_live_owner", lambda: "srv-render-abc"), \
+             mock.patch.object(operator_log, "report_second_instance", spy):
+            reported = asyncio.run(bot_module.report_duplicate_instance())
+        self.assertEqual(reported, "srv-render-abc")
+        self.assertEqual(seen, ["srv-render-abc"])
+
+    def test_a_boot_that_is_the_only_copy_says_nothing(self):
+        from utils import cloud_sync
+
+        async def never(*_args):
+            raise AssertionError("nothing to report")
+
+        with mock.patch.object(cloud_sync, "other_live_owner", lambda: None), \
+             mock.patch.object(operator_log, "report_second_instance", never):
+            self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
+
+    def test_a_lease_that_cannot_be_read_cannot_stop_the_boot(self):
+        from utils import cloud_sync
+
+        async def nothing(*_args, **_kwargs):
+            return None
+
+        def boom():
+            raise RuntimeError("supabase is down")
+
+        with mock.patch.object(cloud_sync, "other_live_owner", boom), \
+             mock.patch.object(operator_log, "report_second_instance", nothing):
+            self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
 
     def test_a_command_the_bot_does_not_recognise_is_not_an_error(self):
         """A context menu and a subcommand both reach here, and names vary."""

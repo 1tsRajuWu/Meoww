@@ -1,18 +1,23 @@
-"""Serve the real dashboard template with stub APIs, to eyeball the composer.
+"""Serve the real dashboard and market templates with stub APIs, to eyeball them.
 
 Usage (run from the repo root): ``python scripts/preview_dashboard.py``
-then open http://localhost:5000/ (or the printed port).
+then open http://127.0.0.1:8099/ (or the port it prints — ``PORT`` moves it).
 
-Verification harness only: it renders ``templates/dashboard.html`` exactly as the
-dashboard route does, and answers the three composer endpoints with plausible
-data so the page's own JavaScript runs end to end. Nothing here is imported by
-the bot.
+Verification harness only: it renders ``templates/dashboard.html`` and
+``templates/market_live.html`` exactly as their routes do, and answers the
+endpoints those pages call with plausible data so their own JavaScript runs end
+to end. Nothing here is imported by the bot.
+
+Where a payload has a builder in the real code — the market's quotes and
+candles, the module catalog, the scheduling limits — this file calls it rather
+than describing it, because a stub that is *written* to look right is a stub
+that drifts, and the page then gets blamed for the harness's shape.
 """
 import os
 import sys
 import time
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -22,6 +27,7 @@ app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"))
 # The real app's security headers, applied to every response — otherwise this
 # harness would prove nothing about whether the pages survive our own CSP.
 import keep_alive  # noqa: E402
+from utils import digest, market as market_module  # noqa: E402
 
 
 @app.after_request
@@ -92,20 +98,54 @@ SPECIAL = [
 ]
 
 
+#: The servers this harness pretends the bot is in. The page's own switcher
+#: navigates to ``/dashboard?guild_id=``, so the preview has to answer for the
+#: server that was asked for: it used to render the first one whatever the query
+#: said, which made the switcher look broken in the one place it gets checked.
+GUILDS = [
+    {"id": 777001, "name": "Meow Server", "members": 1627},
+    {"id": 777002, "name": "Second Server", "members": 42},
+]
+
+
+@app.route("/")
+def home():
+    """The entry point this module's own usage line tells you to open.
+
+    Production answers ``/`` for both a monitor and a person — a liveness line,
+    then a redirect into the dashboard (or the sign-in). Opening the printed
+    port here used to land on Flask's 404, so the documented first step of
+    checking the dashboard was itself the thing that looked broken. There is no
+    sign-in to redirect to in a preview, so a browser goes straight in.
+    """
+    user_agent = request.headers.get("User-Agent", "").lower()
+    if "uptimerobot" in user_agent or "curl" in user_agent:
+        return "Meow Bot is alive and operational!"
+    return redirect("/dashboard")
+
+
 @app.route("/dashboard")
 def dashboard():
+    try:
+        guild_id = int(request.args.get("guild_id"))
+    except (TypeError, ValueError):
+        guild_id = GUILDS[0]["id"]
+    # An unknown id falls back to the first server, exactly as
+    # ``keep_alive._resolve_guild_id`` does, so the select can never point at a
+    # server it does not also list.
+    guild = next((g for g in GUILDS if g["id"] == guild_id), GUILDS[0])
     return render_template(
         "dashboard.html",
-        guild_id=777001,
-        guild_name="Meow Server",
-        member_count=1627,
+        guild_id=guild["id"],
+        guild_name=guild["name"],
+        member_count=guild["members"],
         bot_ping=int(os.environ.get("PREVIEW_PING", "41")),
         bot_ready=True,
         modules=MODULES,
         active_count=2,
         total_count=3,
         csrf_token="preview-token",
-        guilds=[{"id": 777001, "name": "Meow Server"}, {"id": 777002, "name": "Second Server"}],
+        guilds=[{"id": g["id"], "name": g["name"]} for g in GUILDS],
         can_switch_guild=True,
         composer_max_channels=keep_alive.MESSAGE_MAX_CHANNELS,
         # The real scheduling limits, so the page cannot look right here while the
@@ -116,6 +156,17 @@ def dashboard():
         ],
         schedule_max_pending=keep_alive.scheduled.MAX_PENDING_PER_GUILD,
         schedule_catchup_hours=keep_alive.scheduled.MISS_CATCHUP_SECONDS // 3600,
+        # The real content sources, from the registry the endpoint validates
+        # against — without this the picker offered "Message I write" and
+        # nothing else, so the one scheduled-message kind that builds its own
+        # text could not be reached from the preview at all.
+        schedule_content_choices=[
+            {"value": "", "label": "Message I write", "blurb": ""},
+            *[
+                {"value": name, "label": entry["label"], "blurb": entry["blurb"]}
+                for name, entry in digest.GENERATORS.items()
+            ],
+        ],
         server_now=int(time.time()),
     )
 
@@ -138,14 +189,70 @@ def market_page(symbol):
     )
 
 
+#: A few plausible prices for the preview board, in USD.
+_PREVIEW_PRICES = {"BTC": 96400.0, "ETH": 3180.0, "SOL": 182.0, "XRP": 2.15, "BNB": 610.0}
+
+
+def _preview_snapshot():
+    """A small, real snapshot — built by the code the live endpoint calls.
+
+    The shapes here are the endpoint's, not this file's: a hand-written
+    ``{"quotes": {}}`` looked fine and was not. The page does
+    ``quotes.quotes.find(...)``, so an object threw a TypeError that its own
+    ``catch`` reported as "could not reach the bot" — a permanent outage drawn
+    over a page whose every request had answered 200. Going through
+    ``quotes_payload`` means the preview cannot drift from production again.
+    """
+    now = time.time()
+    quotes = {
+        instrument.symbol: market_module.Quote(
+            symbol=instrument.symbol,
+            price_usd=_PREVIEW_PRICES.get(instrument.symbol, 100.0 + index),
+            change_pct=((index % 7) - 3) * 0.75,
+            source="preview",
+            # Fresh enough to be tradable, so the board shows a live page rather
+            # than the paused one.
+            as_of=now - 12,
+        )
+        for index, instrument in enumerate(market_module.INSTRUMENTS[:5])
+    }
+    return market_module.Snapshot(quotes)
+
+
+def _preview_series(symbol: str):
+    """A short history shaped the way the bot's own polling is: flat points.
+
+    Labelled as observed rather than as exchange OHLC on purpose — the page
+    prints that label, and claiming "real candle data" over points nobody traded
+    is the kind of thing this project keeps taking out.
+    """
+    now = time.time()
+    start = _PREVIEW_PRICES.get(symbol, 100.0)
+    candles = []
+    for i in range(60):
+        price = round(start * (1 + ((i % 11) - 5) / 100.0), 4)
+        candles.append(market_module.Candle(
+            ts=now - (60 - i) * 86400,
+            open=price, high=price, low=price, close=price,
+        ))
+    return market_module.CandleSeries(
+        symbol=symbol, candles=tuple(candles),
+        source="this bot's own polling", axis_label="observed prices",
+    )
+
+
 @app.route("/api/market/quotes")
 def api_market_quotes():
-    return jsonify({"success": True, "quotes": {}})
+    return jsonify(market_module.quotes_payload(_preview_snapshot(), time.time()))
 
 
 @app.route("/api/market/candles")
 def api_market_candles():
-    return jsonify({"success": True, "candles": []})
+    symbol = str(request.args.get("symbol") or "BTC").strip().upper()
+    period = str(request.args.get("period") or market_module.DEFAULT_PERIOD)
+    if period not in market_module.PERIODS:
+        period = market_module.DEFAULT_PERIOD
+    return jsonify(market_module.series_payload(symbol, _preview_series(symbol), period))
 
 
 @app.route("/api/channels")

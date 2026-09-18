@@ -337,6 +337,8 @@ async def _publish_scope(
     Returns ``(ok, detail, error, published)``.
     """
     published = 0
+    refused: list[str] = []
+    budget_error: BaseException | None = None
     suffix = "" if guild is not None else " (global)"
     for name in names:
         payload = payloads.get(name)
@@ -348,9 +350,25 @@ async def _publish_scope(
             else:
                 await bot.http.upsert_guild_command(bot.application_id, guild.id, payload)
         except Exception as exc:
-            return False, f"/{name}: {exc}", exc, published
+            refused.append(name)
+            if budget_error is None and _is_write_budget_error(exc):
+                budget_error = exc
+            print(f"[SYNC] ⚠️ /{name}{suffix}: {exc}", flush=True)
+            if _is_write_budget_error(exc):
+                # The daily window is closed for *every* command, so the rest
+                # would be refused too — walking away is cheaper than a hundred
+                # doomed requests. Any other refusal is about one command (a
+                # full scope answers ``30032`` for a *new* name only, and the
+                # updates behind it are still allowed), and stopping at the
+                # first one is how 30 unchanged-by-discord commands stayed
+                # unpublished for weeks while the log said only "published 0".
+                break
+            continue
         published += 1
         print(f"[SYNC] ✅ /{name}{suffix}", flush=True)
+    if refused:
+        shown = ", ".join(refused[:6]) + (" …" if len(refused) > 6 else "")
+        return False, f"{len(refused)} refused ({shown})", budget_error, published
     return True, "", None, published
 
 
@@ -377,6 +395,30 @@ async def _retire_scope(bot: commands.Bot, registered, guild=None) -> int:
         removed += 1
         print(f"[SYNC] 🗑️ Retired /{name}", flush=True)
     return removed
+
+
+def _explain_sync_stop(scope: str, status: dict) -> None:
+    """Say *why* a scope still has commands pending — the line that was missing.
+
+    A scope that published nothing printed a count and nothing else, so a bot
+    refused at Discord's 100-command ceiling looked exactly like one whose writes
+    were merely slow: every boot repeated "published 0, 32 still pending" while
+    members looked at a picker missing the new commands and still offering the
+    retired ones. The reason was already being carried in ``status['detail']``;
+    nothing printed it.
+    """
+    detail = status.get("detail") or "no reason was reported"
+    print(f"[SYNC] {scope}: {detail}", flush=True)
+    if status.get("retry_after") is not None:
+        return
+    if "30032" in detail or "Maximum number of application commands" in detail:
+        print(
+            "[SYNC] That is Discord's ceiling of 100 chat-input commands, and this "
+            "scope is full. Commands this bot no longer has hold the last of it, so "
+            "they are deleted first (utils/commands_sync.RETIRED_COMMANDS) — a new "
+            "command cannot be created until a slot is free.",
+            flush=True,
+        )
 
 
 async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> dict:
@@ -475,6 +517,7 @@ async def sync_commands(
             f"{global_status['published']}, {global_status['pending']} still pending.",
             flush=True,
         )
+        _explain_sync_stop("global", global_status)
         if drain and global_status["retry_after"] is not None:
             wait = global_status["retry_after"]
             print(
@@ -619,6 +662,8 @@ async def on_ready():
     except Exception as e:
         print(f"[CHANNELS] Channel binding error: {e}", flush=True)
 
+    await report_duplicate_instance()
+
     # Auto-announce updates to each server's own update channel on every deploy
     # with changes.
     await _announce_release_notes()
@@ -638,6 +683,46 @@ async def on_ready():
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] 🐾 Meow Bot is ONLINE and ready! Connected to {len(bot.guilds)} guild(s).", flush=True)
+
+async def report_duplicate_instance() -> str | None:
+    """Name a second copy of the bot that is connected, once, where it is read.
+
+    Two copies of the same token online at once is the one fault nobody can see
+    from inside Discord: the gateway delivers every interaction to *both*, so
+    whichever copy answers first wins and the other's command ends in
+    ``Interaction has already been acknowledged`` — while the interactions that
+    reach a session that has gone quiet are answered too late to be accepted,
+    which members see as "the application did not respond". Both copies' host logs
+    name nothing, and the damage reads as a broken bot rather than a duplicated
+    one.
+
+    The database lease already knows another copy is alive — it is what stops the
+    two of them fighting over the backup — so the boot asks it the same question
+    about the gateway and reports the answer in the operator's own channels.
+
+    Returns the other copy's name, or ``None`` when there is not one. Never
+    raises: a boot has work left to do, and a check that cannot reach Supabase has
+    no business stopping it.
+    """
+    try:
+        from utils import cloud_sync
+
+        # On a thread: the lease is an HTTPS round trip, and a boot that blocks
+        # the loop for it delays the first commands of the deploy.
+        owner = await asyncio.to_thread(cloud_sync.other_live_owner)
+        if not owner:
+            return None
+        print(
+            f"[INSTANCE] ⚠️ another copy of this bot is running ({owner}) — "
+            "commands will fail at random until one of them stops.",
+            flush=True,
+        )
+        await operator_log.report_second_instance(bot, owner)
+        return owner
+    except Exception as e:
+        print(f"[INSTANCE] could not check for another copy of the bot: {e}", flush=True)
+        return None
+
 
 @bot.event
 async def on_member_join(member: discord.Member):
@@ -1020,6 +1105,15 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         print(f"Error in command {interaction.command.name if interaction.command else 'Unknown'}: {error}")
         _report_error(error, interaction)
         await _report_error_to_channel(interaction, error)
+        # The same failure, in the channel an operator actually watches. This is
+        # the only place it can be seen: discord.py dispatches the completion
+        # event — the one that feeds the command log — only for a command that
+        # finished without raising, so a broken command used to leave no trace
+        # anywhere but a container log.
+        try:
+            await operator_log.command_failed(bot, interaction, error)
+        except Exception as exc:
+            print(f"[LOG] could not write the failed-command entry: {exc}", flush=True)
         message = "❌ An unexpected error occurred. Please try again."
         try:
             # A command that deferred and then failed never answered the user, so

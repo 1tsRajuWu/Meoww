@@ -12,6 +12,8 @@ Two failures are pinned here.
    to one. The sync now upserts each missing/changed command individually, which
    can only ever add or replace.
 """
+import asyncio
+import contextlib
 import io
 import tokenize
 import unittest
@@ -332,7 +334,12 @@ class RetiredCommandsAreDeleted(unittest.IsolatedAsyncioTestCase):
     from clearing the guild — so a retired command has no local counterpart,
     which makes it neither missing nor stale: nothing would ever remove it.
     `/upload`, `/upload-big` and `/pin-upload-info` were retired with the upload
-    feature on 2026-09-14, and only names on that list may be deleted.
+    feature on 2026-09-14, and the twelve folded ones (`/dashboard`, `/sync`,
+    `/updatedb`, `/setavatar`, `/setbanner`, `/addlevelrole`,
+    `/removelevelrole`, `/privacy`, `/tos`, `/meowfee`, `/activity-top`,
+    `/activity-channel`) stayed in Discord's picker holding its 100 slots, which
+    is what refused `/bot` and `/legal` with `30032`. Only names on that list may
+    be deleted.
     """
 
     def _tree_with(self, *registered: str, with_id: bool = True):
@@ -389,23 +396,137 @@ class RetiredCommandsAreDeleted(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.deleted, [])
 
-    def test_the_real_retirement_list_is_exactly_the_upload_commands(self):
+    def test_the_real_retirement_list_names_every_command_we_folded_away(self):
+        """These names have to be here, or they hold Discord's slots forever.
+
+        Being on this list is the *only* way a command leaves Discord's picker:
+        a retired name has no local counterpart, so it is neither missing nor
+        stale, and nothing else would ever remove it.
+        """
         self.assertEqual(
             commands_sync.RETIRED_COMMANDS,
-            {"upload", "upload-big", "pin-upload-info"},
+            {
+                "upload", "upload-big", "pin-upload-info",
+                "dashboard", "setavatar", "setbanner", "sync", "updatedb",
+                "addlevelrole", "removelevelrole", "privacy", "tos", "meowfee",
+                "activity-top", "activity-channel",
+            },
+        )
+
+    def test_a_slot_can_be_freed_so_a_new_command_fits(self):
+        """The 100-command ceiling is why this list has to be complete.
+
+        Discord answers ``30032 Maximum number of application commands reached``
+        for a *new* name once the scope holds 100 chat-input commands, and the
+        twelve folded commands were still holding slots — so `/bot` and `/legal`
+        could not be created by any path. The delete of a retired name is what
+        makes the create possible, and it happens before the upserts.
+        """
+        http = _FakeHTTP()
+
+        async def run():
+            await bot_module.sync_commands(
+                _FakeBot([], self._tree_with("updatedb", "dashboard"), http)
+            )
+
+        asyncio.run(run())
+        self.assertEqual(
+            sorted(http.deleted),
+            [("global", "id-dashboard"), ("global", "id-updatedb")],
         )
 
     async def test_no_retired_name_is_still_a_command_we_ship(self):
-        """Retiring a name the tree still has would delete a live command."""
+        """Retiring a name the tree still has would delete a live command.
+
+        **Top-level names only.** Discord's 100-command ceiling and every delete
+        here are about the top level, and a subcommand is free to share a label
+        with a retired one: `/bot sync` is not `/sync`, and retiring the old
+        top-level name must not be read as retiring the subcommand that replaced
+        it. Walking the whole tree would fail on exactly that pair.
+        """
         bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
         try:
             for cog in features.cog_paths():
                 await bot.load_extension(cog)
-            live = {command.name for command in bot.tree.walk_commands()}
+            live = {command.name for command in bot.tree.get_commands()}
         finally:
             await bot.close()
 
         self.assertEqual(commands_sync.RETIRED_COMMANDS & live, set())
+
+
+class ARefusalCannotHideTheRest(unittest.IsolatedAsyncioTestCase):
+    """One refused command used to stop the whole publish.
+
+    ``_publish_scope`` returned on the first exception, so a single name Discord
+    would not take — which is what a *new* command gets while a scope is at its
+    100-command ceiling — left every update behind it unpublished, for weeks,
+    with a summary that printed the count and not the reason.
+    """
+
+    def _tree(self, *names, registered=()):
+        tree = _FakeTree(local_count=len(names), registered=list(registered) or None)
+        tree.local = [_FakeCommand(name) for name in names]
+        return tree
+
+    def test_a_refused_command_does_not_stop_the_ones_behind_it(self):
+        http = _FakeHTTP(fail_on="bot")
+        tree = self._tree("bot", "alpha", "beta")
+
+        status = asyncio.run(bot_module._sync_scope(_FakeBot([], tree, http)))
+
+        self.assertEqual(status["published"], 2, "the two updates behind it went out")
+        self.assertEqual(status["pending"], 1)
+        self.assertEqual(
+            sorted(http.global_sent), ["alpha", "beta", "bot"],
+            "the ones behind the refusal were still attempted",
+        )
+        self.assertIn("bot", status["detail"], "and the refused one is named")
+
+    def test_a_spent_write_budget_still_stops_immediately(self):
+        """That window is closed for every command, so walking away is right."""
+        http = _FakeHTTP(fail_on="bot", fail_code=30034, retry_after=900.0)
+        tree = self._tree("bot", "alpha", "beta")
+
+        status = asyncio.run(bot_module._sync_scope(_FakeBot([], tree, http)))
+
+        self.assertEqual(status["published"], 0)
+        self.assertEqual(
+            http.global_sent, ["bot"],
+            "nothing after a closed window may even be attempted",
+        )
+        self.assertEqual(status["retry_after"], 900.0, "and it says when to come back")
+
+
+class TheStopIsExplained(unittest.IsolatedAsyncioTestCase):
+    """A scope that published nothing has to say why — in the boot log."""
+
+    def _run(self, status):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bot_module._explain_sync_stop("global", status)
+        return out.getvalue()
+
+    def test_a_full_scope_names_the_ceiling_and_the_cure(self):
+        text = self._run(
+            {"detail": "/bot: 400 Bad Request (error code: 30032): Maximum number of application commands reached"}
+        )
+        self.assertIn("30032", text)
+        self.assertIn("100", text)
+        self.assertIn("RETIRED_COMMANDS", text, "the cure, not just the cause")
+
+    def test_an_ordinary_refusal_is_reported_verbatim(self):
+        text = self._run({"detail": "/wat: 400 Invalid Form Body"})
+        self.assertIn("Invalid Form Body", text)
+        self.assertNotIn("RETIRED_COMMANDS", text, "no invented explanation")
+
+    def test_a_budget_wait_is_not_explained_as_a_ceiling(self):
+        text = self._run({"detail": "/bot: 429", "retry_after": 600.0})
+        self.assertIn("/bot: 429", text)
+        self.assertNotIn("ceiling", text)
+
+    def test_a_scope_with_nothing_to_report_still_says_something(self):
+        self.assertIn("no reason", self._run({}))
 
 
 class CommandComparison(unittest.TestCase):

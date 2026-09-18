@@ -9,7 +9,7 @@ All of them need `DISCORD_TOKEN` in `.env` — copy `.env.example` to `.env` fir
 | `scripts/update_avatar.py` | **Changes the bot.** Sets its avatar from an image file. | `python scripts/update_avatar.py assets/avatar.png` |
 | `scripts/update_banner.py` | **Changes the bot.** Sets its profile banner from an image file. | `python scripts/update_banner.py assets/banner.png` |
 | `scripts/run-dev.sh` | Dev loop: runs `bot.py`, restarts it on crash. | `bash scripts/run-dev.sh` |
-| `scripts/preview_dashboard.py` | Renders the real dashboard template with fake data so you can eyeball UI changes without Discord. | `python scripts/preview_dashboard.py` |
+| `scripts/preview_dashboard.py` | Serves the real dashboard **and** market templates with fake data so you can eyeball UI changes without Discord, at <http://127.0.0.1:8099/> (set `PORT` to move it). | `python scripts/preview_dashboard.py` |
 
 Notes for newbies:
 

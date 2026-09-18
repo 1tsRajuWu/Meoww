@@ -557,6 +557,95 @@ class PreviewHarness(unittest.TestCase):
         self.assertIn("/dashboard", routes)
         self.assertIn("/market/<symbol>", routes)
 
+    def _load_harness(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "preview_dashboard_for_test",
+            os.path.join(self.ROOT, "scripts", "preview_dashboard.py"),
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_entry_point_the_usage_line_names_is_served(self):
+        """Step one of the documented check is "open the printed port".
+
+        That used to be Flask's 404, so the first thing an administrator saw
+        while checking the dashboard was a broken dashboard.
+        """
+        client = self._load_harness().app.test_client()
+
+        browser = client.get("/", headers={"User-Agent": "Mozilla/5.0"})
+        self.assertEqual(browser.status_code, 302)
+        self.assertTrue(browser.headers["Location"].endswith("/dashboard"))
+
+        monitor = client.get("/", headers={"User-Agent": "curl/8.4.0"})
+        self.assertEqual(monitor.status_code, 200)
+        self.assertIn("alive", monitor.get_data(as_text=True))
+
+    def test_the_server_switcher_lands_on_the_server_that_was_asked_for(self):
+        """The page navigates with ``?guild_id=``; the preview used to ignore it.
+
+        Picking "Second Server" came back showing the first one with the select
+        snapped back to it — a control that visibly does nothing, in the tool
+        whose whole job is showing what the page does.
+        """
+        client = self._load_harness().app.test_client()
+
+        page = client.get("/dashboard?guild_id=777002").get_data(as_text=True)
+        self.assertIn("<strong>Second Server</strong>", page)
+        self.assertIn('<option value="777002" selected>', page)
+
+        # An id that is not a server the bot is in falls back to the first one,
+        # the way ``_resolve_guild_id`` does, rather than rendering no server.
+        fallback = client.get("/dashboard?guild_id=nonsense").get_data(as_text=True)
+        self.assertIn("<strong>Meow Server</strong>", fallback)
+        self.assertIn('<option value="777001" selected>', fallback)
+
+    def test_the_market_stubs_are_the_shapes_the_live_endpoints_send(self):
+        """The page reads these with ``.find()`` and an age; an object throws.
+
+        The stubs answered ``{"quotes": {}}`` and ``{"candles": []}``, which the
+        page's ``renderQuotes`` threw on — and its ``catch`` blames the network,
+        so the preview drew "offline · could not reach the bot" over a page whose
+        every request had answered 200.
+        """
+        client = self._load_harness().app.test_client()
+
+        quotes = client.get("/api/market/quotes").get_json()
+        for key in ("as_of", "age_seconds", "sources", "max_quote_age_seconds",
+                    "coins_per_usd", "quotes"):
+            self.assertIn(key, quotes, "the live payload carries this key")
+        self.assertIsInstance(quotes["quotes"], list)
+        btc = next(row for row in quotes["quotes"] if row["symbol"] == "BTC")
+        self.assertTrue(btc["available"])
+        self.assertIn("coins", btc)
+        self.assertLessEqual(btc["age_seconds"], quotes["max_quote_age_seconds"],
+                             "a preview quoting a paused board teaches the wrong state")
+
+        series = client.get("/api/market/candles?symbol=BTC&period=week").get_json()
+        for key in ("symbol", "period", "source", "observed", "candles"):
+            self.assertIn(key, series)
+        self.assertEqual(series["symbol"], "BTC")
+        self.assertEqual(series["period"], "week")
+        self.assertGreaterEqual(len(series["candles"]), 2, "the chart needs points")
+        for key in ("ts", "open", "high", "low", "close"):
+            self.assertIn(key, series["candles"][0])
+
+    def test_the_preview_offers_every_content_source_the_route_reads(self):
+        """The generator picker was degenerate: one option, so the one kind of
+        scheduled message that writes itself could not be reached from here."""
+        from utils import digest
+
+        client = self._load_harness().app.test_client()
+        page = client.get("/dashboard").get_data(as_text=True)
+
+        self.assertIn("Message I write", page)
+        self.assertTrue(digest.GENERATORS, "this test would pass vacuously")
+        for entry in digest.GENERATORS.values():
+            self.assertIn(entry["label"], page)
+
     def test_toggling_a_module_in_the_harness_is_reversible(self):
         """The switches have to be drivable, not merely answered."""
         import importlib.util

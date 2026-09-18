@@ -130,8 +130,29 @@ def matches(local, remote) -> bool:
 #: feature, retired on 2026-09-14 (archived in ``deleted_features/``). Once a
 #: deploy has deleted them this list is history rather than a to-do: it simply
 #: stops matching anything.
+#:
+#: The rest were **folded away and left behind in Discord**. `/dashboard` became
+#: the ⚡ button on the `/help` panel; `/setavatar`, `/setbanner`, `/sync` and
+#: `/updatedb` became `/bot avatar`, `/bot banner`, `/bot sync` and `/bot db`;
+#: `/addlevelrole` and `/removelevelrole` became `/levelroles add` and
+#: `/levelroles remove`; `/privacy` and `/tos` became `/legal`; `/meowfee`
+#: became the fee view on the same panel as `/eco-admin fee`; and
+#: `/activity-top` and `/activity-channel` became `/activity top` and
+#: `/activity channel`. Folding them without this list is not harmless. Discord
+#: allows an application **100 chat-input commands**, those twelve were still
+#: holding slots, and with the ceiling reached every *new* command was refused
+#: with **``30032 Maximum number of application commands reached``** — `/bot`
+#: and `/legal` among them, which is why neither ever appeared in anyone's
+#: picker. (`/activity` is deliberately *not* here: the group is that name now,
+#: so it is an update, not a retirement — deleting it would take the group with
+#: it.)
 RETIRED_COMMANDS: frozenset[str] = frozenset(
-    {"upload", "upload-big", "pin-upload-info"}
+    {
+        "upload", "upload-big", "pin-upload-info",
+        "dashboard", "setavatar", "setbanner", "sync", "updatedb",
+        "addlevelrole", "removelevelrole", "privacy", "tos", "meowfee",
+        "activity-top", "activity-channel",
+    }
 )
 
 

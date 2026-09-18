@@ -1253,6 +1253,31 @@ class ScheduleTemplateCase(unittest.TestCase):
             self.assertEqual(out["late"], offset < 0)
             self.assertTrue(out["absolute"], "the exact moment is always given")
 
+    def test_a_time_two_days_out_is_never_read_as_one_day(self):
+        """The picker stores minutes, so the gap is never a whole number of units.
+
+        A target half a minute short of two days is 1 d 23 h 59 m away. Truncating
+        that said "in 1 day" — a full day early, on the one sentence that decides
+        whether an administrator double-books an announcement. The nearest unit is
+        right; the truncated one is wrong by a whole day at every boundary.
+        """
+        cases = [
+            (2 * 86400 - 30, "in 2 days"),
+            (2 * 86400 - 59, "in 2 days"),
+            (86400 - 30, "in 1 day"),
+            (86400 - 60, "in 1 day"),
+            (3600 - 20, "in 1 hour"),
+            (2700, "in 45 minutes"),
+            # Rounding must not invent a unit either: half an hour is not "1 hour".
+            (1800, "in 30 minutes"),
+            (5400, "in 2 hours"),
+        ]
+        for offset, expected in cases:
+            out = self._schedule_js(
+                f"console.log(JSON.stringify(scheduleWhen(1000000 + ({offset}), 1000000)));"
+            )
+            self.assertEqual(out["text"], expected, offset)
+
     def test_a_scheduled_outcome_is_read_as_sent_partial_failed_or_skipped(self):
         def outcome(msg):
             return self._schedule_js(

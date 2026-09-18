@@ -522,8 +522,20 @@ def _snapshot_bytes(path: str) -> bytes | None:
 # Single writer
 # --------------------------------------------------------------------------- #
 
-def _lease_problem() -> str | None:
-    """Whether some other live instance owns the bucket."""
+def _live_other_owner() -> tuple[str, float] | None:
+    """The name of another copy that is running now, and how long ago it spoke.
+
+    One place decides what the lease means, because two callers need it for two
+    halves of the same problem: the backup refuses to write while another copy
+    owns the bucket, and the boot says out loud that another copy is answering
+    Discord. The *name* is what the second caller needs, so it is not baked into
+    a sentence here.
+
+    ``None`` means every flavour of "I cannot tell": no bucket, no lease, an
+    unreadable lease, a lease with no name in it, our own lease, or one whose
+    timestamp will not parse. A lease older than :data:`LEASE_TTL` is reported as
+    a takeover (the other copy is gone) and also answers ``None``.
+    """
     if not _cloud_has_data:
         return None
     raw = _storage_download(LEASE_FILE, quiet=True)
@@ -536,7 +548,14 @@ def _lease_problem() -> str | None:
     owner = str(lease.get("owner") or "")
     if not owner or owner == _INSTANCE_ID:
         return None
-    age = time.time() - float(lease.get("ts") or 0)
+    try:
+        ts = float(lease.get("ts") or 0)
+    except (TypeError, ValueError):
+        # A lease nobody can read is not a claim on the bucket, and it is not an
+        # owner either — treating the unreadable as stale would invite a
+        # takeover of a bucket whose real owner is in fact alive.
+        return None
+    age = time.time() - ts
     if age > LEASE_TTL:
         print(
             f"[CLOUD SYNC] Taking over the sync lease from '{owner}' "
@@ -544,10 +563,40 @@ def _lease_problem() -> str | None:
             flush=True,
         )
         return None
+    return owner, age
+
+
+def _lease_problem() -> str | None:
+    """Whether some other live instance owns the bucket."""
+    live = _live_other_owner()
+    if live is None:
+        return None
+    owner, age = live
     return (
         f"'{owner}' owns the bucket ({age / 60:.1f} min ago) — running two "
         "instances of the bot against one backup is how progress gets reverted"
     )
+
+
+def other_live_owner() -> str | None:
+    """The *other* copy of this bot that is running right now, or ``None``.
+
+    The lease exists so two copies cannot fight over the backup; this exposes the
+    same answer for the other half of that problem. Two copies do not only race
+    each other over the database — they race over the **gateway**, where Discord
+    delivers every interaction to both, one answers, and the loser's command ends
+    in ``Interaction has already been acknowledged``. The boot path reports that
+    card so a duplicated bot is a named fault instead of commands that randomly
+    say "the application did not respond".
+
+    A lease that cannot be read, an empty bucket and a lease older than
+    :data:`LEASE_TTL` all answer ``None``: "I cannot tell" must never be the
+    reason a legitimate boot is held back or shouted about. What it returns is the
+    other copy's own name for itself and nothing else, because it is quoted in a
+    card an operator reads.
+    """
+    live = _live_other_owner()
+    return live[0] if live else None
 
 
 def _lease_touch(force: bool = False) -> None:

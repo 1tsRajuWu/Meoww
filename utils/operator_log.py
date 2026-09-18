@@ -29,6 +29,16 @@ Four rules, three of them learned from a failure this project already had:
   entry with nowhere to go now posts a card where the operator already looks,
   naming the channel to create (:func:`_notice_missing`), and the boot that wires
   these channels up says what they are for (:func:`announce_setup`).
+* **A command that breaks is written down too** (:func:`command_failed`).
+  Completion only fires for a command that worked, so the log used to be silent
+  for exactly the entries that matter most — and an empty ``#real-time-cmd-data``
+  then reads as "nobody uses this bot" instead of "this bot is broken".
+* **One copy of this bot answers.** Discord delivers an interaction to every
+  connected session of the same application, so a second copy — a laptop running
+  ``bot.py`` while the deploy is up — races the first one: one of them answers,
+  the loser raises *Interaction has already been acknowledged*, and the Discord
+  user sees "the application did not respond". The boot that finds another live
+  copy says so where the operator looks (:func:`report_second_instance`).
 
 What is deliberately *not* recorded: the values typed into the command. Those are
 whatever a person chose to write — a `/bug` report, a `/pay` note, a `/purge`
@@ -70,6 +80,11 @@ _NOTICE_ROLES: tuple[str, ...] = ("update", "error", "log")
 #: Roles that have already reported having nowhere to write. A notice that
 #: repeats on every command would bury the very channel it is trying to save.
 _warned: set[str] = set()
+
+#: Where a "two copies of me are running" card goes, best fit first: a duplicated
+#: bot is a fault about the bot itself, so the error channel comes first here even
+#: though the update channel is the one read most.
+_INSTANCE_ROLES: tuple[str, ...] = ("error", "update", "log")
 
 
 async def _notice_missing(bot, role: str, kind: str) -> None:
@@ -137,6 +152,64 @@ async def _notice_missing(bot, role: str, kind: str) -> None:
         await style.send_card(target, embed=embed, timeout=None)
     except Exception as exc:
         print(f"[LOG] could not even report the missing {role} channel: {exc}", flush=True)
+
+
+async def report_second_instance(bot, owner: str) -> bool:
+    """Say that another copy of this bot is connected and answering.
+
+    This is the one fault that is invisible from inside Discord. Two sessions of
+    one application both receive every interaction, so each command is handled
+    twice: whichever copy answers first wins, the other raises *Interaction has
+    already been acknowledged*, and any interaction delivered to a session that
+    has since gone quiet is answered too late to count — which is what a member
+    sees as "the application did not respond". Nothing in either copy's host log
+    names the cause, and the damage looks like a broken bot rather than a
+    duplicated one.
+
+    ``owner`` is the other copy's own name for itself, from the database lease in
+    :mod:`utils.cloud_sync` — the same lease that already stops the two copies
+    fighting over the backup, read here for the other half of the same problem.
+    """
+    target = None
+    for role in _INSTANCE_ROLES:
+        target = await _channel(bot, role)
+        if target is not None:
+            break
+    if target is None:
+        return False
+
+    embed = discord.Embed(
+        title="🚨 Another copy of me is online",
+        description=(
+            "Two sessions are connected with this bot's token, so **every command "
+            "is delivered to both of them**. One answers; the other fails — and "
+            "the commands that fail look like *The application did not respond* "
+            "in the channel they were run in."
+        ),
+        color=style.DANGER,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="The copy that was already serving", value=f"`{owner}`", inline=False)
+    embed.add_field(
+        name="Which one to stop",
+        value=(
+            f"**This** one. `{owner}` is holding the backup and is already "
+            "serving — the copy that reads this card is the second one to arrive. "
+            "Nothing needs deleting in the backup bucket: that claim is refreshed "
+            "every two minutes and disappears on its own once one copy stops."
+        ),
+        inline=False,
+    )
+    # Not "reported once": this fires on every boot that finds the other copy,
+    # which is the cadence that keeps a forgotten duplicate from being forgotten
+    # again — and a boot is rare enough that it cannot become noise.
+    embed.set_footer(text="Meow · reported by the copy that found it")
+    try:
+        await style.send_card(target, embed=embed, timeout=None)
+        return True
+    except Exception as exc:
+        print(f"[LOG] could not report the second instance: {exc}", flush=True)
+        return False
 
 
 async def _post(bot, role: str, kind: str, embed: discord.Embed) -> bool:
@@ -322,6 +395,79 @@ def _joined_at(guild) -> str:
     if joined is None:
         return "unknown"
     return f"<t:{int(joined.timestamp())}:f> (<t:{int(joined.timestamp())}:R>)"
+
+
+#: How much of an error's own words the log carries. Discord's errors are one
+#: line; this is a ceiling, not a target.
+_REASON_LIMIT: int = 300
+
+
+def _reason(error) -> str:
+    """What went wrong, named — the one field a failure entry is worth having for.
+
+    ``CommandInvokeError`` is discord.py's wrapper around whatever the command
+    actually raised, and the wrapper's own text is the noisy one, so it is
+    unwrapped first.
+
+    Only a *Discord* error carries its message. A Python-level failure is
+    written down as its type alone: an exception raised while handling what
+    somebody typed can quote it back, and this log promises never to copy the
+    values typed into a command. The full traceback goes to the error channel
+    through ``bot.py``'s report, which is where a message may legitimately live.
+    """
+    original = getattr(error, "original", None)
+    cause = original if isinstance(original, BaseException) else error
+    name = type(cause).__name__
+    if not isinstance(cause, discord.DiscordException):
+        return f"`{name}`"
+    detail = " ".join(str(cause).split())
+    return f"`{name}` — {detail[:_REASON_LIMIT]}" if detail else f"`{name}`"
+
+
+async def command_failed(bot, interaction: discord.Interaction, error) -> bool:
+    """A command that ended in an error, in the channel the successes go to.
+
+    A second card rather than an ``outcome`` field on :func:`command_used`, and
+    not because of taste: ``on_app_command_completion`` is dispatched only in the
+    ``else`` branch of discord.py's own call, so a command that raised never
+    reaches that function at all. Before this existed, a broken command wrote
+    nothing anywhere the operator reads.
+
+    The interaction is never touched. A command whose *answer* already failed —
+    an expired interaction, a second copy of the bot that got there first — still
+    has a name, a runner and a reason worth writing down, and a channel send is
+    not an interaction response. That is the case this entry exists for.
+    """
+    guild = getattr(interaction, "guild", None)
+    channel = getattr(interaction, "channel", None)
+    command = getattr(interaction, "command", None)
+    name = getattr(command, "qualified_name", None) or "unknown"
+    # The command's own name goes in the author line — the same place the
+    # success card puts it — so the two entries read as a pair in the channel.
+    embed = discord.Embed(
+        title="❌ Command failed",
+        color=style.DANGER,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Reason", value=_reason(error), inline=False)
+    embed.add_field(
+        name="User",
+        value=_member_value(getattr(interaction, "user", None)),
+        inline=True,
+    )
+    embed.add_field(
+        name="Server",
+        value=_server_value(guild) if guild is not None else "**Direct message**",
+        inline=True,
+    )
+    embed.add_field(
+        name="Channel",
+        value=f"#{getattr(channel, 'name', 'unknown')}" if channel is not None else "—",
+        inline=True,
+    )
+    embed.set_author(name="/" + str(name).split(" ")[0])
+    embed.set_footer(text="Meow · command log")
+    return await _post(bot, "cmdlog", f"failed /{name}", embed)
 
 
 async def command_used(bot, interaction: discord.Interaction, command) -> bool:

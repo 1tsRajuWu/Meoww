@@ -2481,14 +2481,25 @@
             const seconds = Math.round(runAt - now);
             const past = seconds < 0;
             const total = Math.abs(seconds);
-            const days = Math.floor(total / 86400);
-            const hours = Math.floor((total % 86400) / 3600);
-            const minutes = Math.floor((total % 3600) / 60);
-            let span;
-            if (days) span = days + (days === 1 ? " day" : " days");
-            else if (hours) span = hours + (hours === 1 ? " hour" : " hours");
-            else if (minutes) span = minutes + (minutes === 1 ? " minute" : " minutes");
-            else span = "less than a minute";
+            // The *nearest* whole unit, never the truncated one. The picker
+            // stores minutes, so "the same time in two days" is really 1 d 23 h
+            // 59 m away, and flooring it answered "in 1 day" — a whole day
+            // early, on the one word that decides whether you double-book.
+            // Rounding is out by half a unit at most; flooring by a whole one.
+            const spans = [[86400, "day"], [3600, "hour"], [60, "minute"]];
+            let span = "less than a minute";
+            if (total >= 45) {
+                let index = spans.findIndex(([size]) => total >= size);
+                if (index < 0) index = spans.length - 1;
+                const [size, name] = spans[index];
+                const count = Math.round(total / size);
+                // Rounding can land exactly on the next unit up (23 h 59 m,
+                // 59 m 40 s). Say that unit rather than "24 hours".
+                const next = spans[index - 1];
+                span = (next && count * size >= next[0])
+                    ? "1 " + next[1]
+                    : count + " " + name + (count === 1 ? "" : "s");
+            }
             // "0 minutes ago" is not how anyone says it five seconds after a post.
             const text = past && total < 60 ? "just now"
                 : (past ? span + " ago" : "in " + span);

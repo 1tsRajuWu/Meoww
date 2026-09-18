@@ -401,10 +401,16 @@ class Tracker(commands.Cog):
 
     @activity_top.error
     async def activity_top_error(self, interaction: discord.Interaction, error):
+        # A cog's error handler runs *before* the tree's, so raising here would
+        # abort the chain: the tree's handler never runs and the interaction is
+        # never answered — which Discord shows as "the application did not
+        # respond". Anything that is not the permission case is left to it.
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ You need **Administrator** permission to use this command.", ephemeral=True)
-        else:
-            raise error
+            await style.send_card(
+                interaction,
+                content="❌ You need **Administrator** permission to use this command.",
+                ephemeral=True,
+            )
 
     @activity_group.command(name="me", description="Your personal activity stats on this server!")
     @app_commands.describe(member="Check another member", period="Time range")
@@ -459,10 +465,14 @@ class Tracker(commands.Cog):
 
     @activity.error
     async def activity_error(self, interaction: discord.Interaction, error):
+        # Never re-raise: see ``activity_top_error`` above — a raise here skips
+        # the tree's own handler and leaves the command unanswered.
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ You need **Administrator** permission to use this command.", ephemeral=True)
-        else:
-            raise error
+            await style.send_card(
+                interaction,
+                content="❌ You need **Administrator** permission to use this command.",
+                ephemeral=True,
+            )
 
     @activity_group.command(name="channel", description="Activity stats for a specific channel!")
     @app_commands.describe(channel="Channel to check", period="Time range")
@@ -519,10 +529,14 @@ class Tracker(commands.Cog):
 
     @activity_channel.error
     async def activity_channel_error(self, interaction: discord.Interaction, error):
+        # Never re-raise: see ``activity_top_error`` above — a raise here skips
+        # the tree's own handler and leaves the command unanswered.
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ You need **Administrator** permission to use this command.", ephemeral=True)
-        else:
-            raise error
+            await style.send_card(
+                interaction,
+                content="❌ You need **Administrator** permission to use this command.",
+                ephemeral=True,
+            )
 
 
 async def setup(bot: commands.Bot):

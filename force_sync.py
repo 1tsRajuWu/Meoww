@@ -92,10 +92,19 @@ def _rate_limit_wait(body) -> float:
 
 
 def _limit_reason(body) -> str:
-    if isinstance(body, dict) and body.get("code") == 30034:
+    if not isinstance(body, dict):
+        return ""
+    if body.get("code") == 30034:
         return (
             " Discord's daily application-command write limit for this scope is "
             "spent; the rest will go through after it resets."
+        )
+    if body.get("code") == 30032:
+        return (
+            " Discord allows 100 chat-input commands per scope and this one is "
+            "full: the commands this bot has retired "
+            "(utils/commands_sync.RETIRED_COMMANDS) are deleted first, which is "
+            "what frees a slot for a new one."
         )
     return ""
 
@@ -167,7 +176,7 @@ def _upsert_many(
                 time.sleep(wait + 1.0)
                 continue
             detail = body if isinstance(body, str) else json.dumps(body)
-            return False, f"/{name}: {status} {detail}"
+            return False, f"/{name}: {status} {detail}.{_limit_reason(body)}"
         time.sleep(PACE_SECONDS)
     return True, ""
 
@@ -180,6 +189,47 @@ def _bulk_overwrite(path: str, token: str, payload: list[dict]):
     return False, f"{status} {body if isinstance(body, str) else json.dumps(body)}"
 
 
+def _retire(label: str, path: str, token: str, registered: list[dict], args) -> int:
+    """Delete the commands this bot has retired, one named command at a time.
+
+    The boot does this (``bot._retire_scope``) and this script did not, which made
+    the terminal path unable to do the one thing a *full* scope needs: Discord
+    allows 100 chat-input commands, twelve of them were commands the code had
+    folded away, and with the ceiling reached every new command was refused with
+    ``30032`` — so ``/bot`` and ``/legal`` could not be published by any path.
+    Freeing the slots has to come before the upserts, never after.
+    """
+    doomed = commands_sync.retired(registered)
+    if not doomed:
+        return 0
+    if args.dry_run:
+        print(
+            f"   dry run: would retire {len(doomed)} command(s): "
+            f"{', '.join(name for name, _ in doomed)}"
+        )
+        return 0
+    removed = 0
+    for name, command_id in doomed:
+        # A 429 is not a failure — a burst of deletes earns one even at the pace
+        # below, and a command that was refused is simply deleted on the next run
+        # (the boot retries the whole list every time). Waiting out a short one
+        # here is what makes a single run finish the job.
+        for attempt in range(3):
+            status, body = _request("DELETE", f"{path}/{command_id}", token)
+            if status == 429 and attempt < 2:
+                time.sleep(min(_rate_limit_wait(body), MAX_WAIT) + 0.5)
+                continue
+            break
+        if status in (200, 204):
+            removed += 1
+            print(f"   🗑️  retired /{name}", flush=True)
+        else:
+            print(f"   ! could not retire /{name}: {status} {body}", flush=True)
+        time.sleep(PACE_SECONDS)
+    print(f"   {removed} of {len(doomed)} retired command(s) deleted ({label})", flush=True)
+    return removed
+
+
 def _publish(label: str, path: str, token: str, commands: list[dict], args) -> int:
     """Sync one scope. Returns the number of failures."""
     payloads = commands_sync.index(commands)
@@ -188,6 +238,13 @@ def _publish(label: str, path: str, token: str, commands: list[dict], args) -> i
     registered = _registered(path, token)
     if registered is None:
         return 1
+    # Before the diff: a retired command is neither missing nor stale (it has no
+    # local counterpart), and on a scope at its ceiling the delete is what makes
+    # the create possible at all.
+    if _retire(label, path, token, registered, args) and not args.dry_run:
+        registered = _registered(path, token)
+        if registered is None:
+            return 1
     missing, stale = commands_sync.diff(commands, registered)
     print(f"   Discord has {len(registered)}: {commands_sync.summary(commands, registered)}")
 

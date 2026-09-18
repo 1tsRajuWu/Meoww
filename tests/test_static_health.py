@@ -224,5 +224,44 @@ class StaticHealth(unittest.TestCase):
         self.assertEqual(problems, [], "duplicate definitions")
 
 
+def _is_error_decorator(node) -> bool:
+    """``@<something>.error`` — discord.py's per-command error handler."""
+    return isinstance(node, ast.Attribute) and node.attr == "error"
+
+
+def re_raising_error_handlers(path, src) -> list[str]:
+    """Command error handlers that raise instead of letting the tree's run.
+
+    discord.py calls a command's own ``on_error`` *before* ``tree.on_error`` and
+    does not guard the call, so a ``raise`` in the cog's handler means the tree's
+    handler never runs and the interaction is never answered at all — which the
+    member sees as "the application did not respond", the least diagnosable
+    failure the bot can produce. ``cogs/tracker.py`` re-raised every error that
+    was not a permission failure.
+    """
+    found = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not any(_is_error_decorator(d) for d in node.decorator_list):
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Raise):
+                found.append(f"{rel(path)}:{child.lineno} {node.name} raises")
+    return found
+
+
+class CommandErrorHandlers(unittest.TestCase):
+    def test_no_command_error_handler_re_raises(self):
+        problems = []
+        for path in live_files():
+            problems += re_raising_error_handlers(path, read(path))
+        self.assertEqual(
+            problems,
+            [],
+            "a cog error handler that raises leaves the command unanswered",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
