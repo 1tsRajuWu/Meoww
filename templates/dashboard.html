@@ -1330,6 +1330,12 @@
                     {% endfor %}
                 </select>
                 {% endif %}
+                {# The market pages had no way in from anywhere: the charts are
+                   served at /market/<symbol> and every other route to them is a
+                   member's command in Discord, so an operator reading this page
+                   had to already know the URL. Same tab, because it is the same
+                   control center. #}
+                <a class="btn" href="/market">📈 Market</a>
                 <form method="POST" action="/logout" class="logout-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn btn-danger">Sign out</button>

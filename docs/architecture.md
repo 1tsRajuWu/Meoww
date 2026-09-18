@@ -51,6 +51,7 @@ can never disagree.
 | Is feature X on for server Y? | `utils/modules.py` — cached, thread-safe, shared with the dashboard |
 | Who may run command Z? | `utils/permissions.py` — `COMMAND_ACCESS` table + picker-visibility stamping |
 | Where is data stored? | `utils/db.py` — SQLite (`bot.db`), migrated on boot |
+| Where do the tests and the preview write? | *Not* `bot.db`, and this is load-bearing rather than tidy. `tests/__init__.py` points the whole suite at a throwaway file in a temporary directory — `__init__.py` and not `conftest.py`, because CI discovers with `unittest`, which never loads a conftest — and `scripts/preview_dashboard.py` copies `bot.db` aside before it imports `keep_alive`. Both used to write the operator's live database: 3,680 test fixtures (guild `777001`) landed in `scheduled_messages`, and a click on the preview's bulk toggle switched every module off in the Development server, which the bot then uploaded as the production backup. `tests/test_db_isolation.py` fails if either drifts, and it checks the live file's size and mtime, not just the code path |
 | How do commands reach Discord? | `bot.py → sync_commands()` on every boot: compare-then-upsert, never bulk-overwrite (a rejected bulk sync once wiped a guild to 1 command) |
 | How does data survive redeploys? | `utils/cloud_sync.py` — restore from Supabase on boot, upload every 25s, final flush on SIGTERM |
 | Where's the dashboard? | `keep_alive.py` + `templates/` — magic-link + passkey auth, module toggles, message composer, scheduler, live market pages |

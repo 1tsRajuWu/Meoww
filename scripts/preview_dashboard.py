@@ -8,19 +8,53 @@ Verification harness only: it renders ``templates/dashboard.html`` and
 endpoints those pages call with plausible data so their own JavaScript runs end
 to end. Nothing here is imported by the bot.
 
+It writes to a **copy** of the database, in a temporary directory — not to the
+project's ``bot.db``. The pages here toggle real modules and queue real
+scheduled messages, so a preview that shares the live database is a preview that
+edits production state.
+
+It has no session, and says so: ``/login`` and ``/logout`` (the header's own
+Sign out button) answer a page explaining that instead of Flask's 404.
+
 Where a payload has a builder in the real code — the market's quotes and
 candles, the module catalog, the scheduling limits — this file calls it rather
 than describing it, because a stub that is *written* to look right is a stub
 that drifts, and the page then gets blamed for the harness's shape.
 """
 import os
+import shutil
 import sys
+import tempfile
 import time
 
 from flask import Flask, jsonify, redirect, render_template, request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
+# --------------------------------------------------------------------------- #
+# This harness gets its own copy of the database
+#
+# The pages it serves write through the *real* ``utils.db`` — module toggles,
+# scheduled messages, channel bindings — so driving this preview used to change
+# the operator's live state. It did: a click on the bulk toggle during a
+# playthrough turned every module off in the Development server, on the database
+# the running bot then uploaded as the production backup, and the symptom was
+# commands answering "the X system is currently turned off" in the only server
+# the operator was watching.
+#
+# A copy, not a promise: what a person clicks here is discarded with the process,
+# and the live file is never opened. It is made *before* ``keep_alive`` is
+# imported, because that import is what reads the path.
+_LIVE_DB = os.path.join(ROOT, "bot.db")
+_WORKDIR = tempfile.mkdtemp(prefix="meow-preview-")
+_PREVIEW_DB = os.path.join(_WORKDIR, "bot.db")
+if os.path.exists(_LIVE_DB):
+    shutil.copy2(_LIVE_DB, _PREVIEW_DB)
+
+from utils import db as _db  # noqa: E402
+
+_db.DB_PATH = _PREVIEW_DB
 
 app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"))
 
@@ -171,6 +205,37 @@ def dashboard():
     )
 
 
+@app.route("/market")
+def market_index():
+    """Bare ``/market`` — production redirects it to the first instrument.
+
+    The dashboard's own 📈 Market button lands here, so a preview that answered
+    Flask's 404 made the one link to the charts look broken.
+    """
+    return redirect("/market/BTC")
+
+
+@app.route("/login", methods=["GET", "POST"])
+@app.route("/logout", methods=["GET", "POST"])
+def no_session():
+    """Say there is no session here rather than 404-ing on a visible button.
+
+    The rendered page carries the real header, Sign out included, so a playtester
+    clicks it — and a 404 reads as "the dashboard is broken" when the truth is
+    that this harness has no sign-in to begin with. Production sends both of these
+    to `/login`; there is no sign-in here, so it says that instead of pretending.
+    """
+    return (
+        "<h1>Preview harness — no sign-in</h1>"
+        "<p>This page renders the real dashboard's templates with stand-in data; "
+        "it has no session, so there is nothing to sign in to or out of."
+        "</p>"
+        "<p><a href='/dashboard'>Back to the dashboard</a></p>",
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
 @app.route("/market/<symbol>")
 def market_page(symbol):
     """The real market route, so the chart can be checked under the real CSP."""
@@ -178,7 +243,16 @@ def market_page(symbol):
 
     instrument = market_module.BY_SYMBOL.get(str(symbol).strip().upper())
     if instrument is None:
-        return f"<h1>404 {symbol}</h1>", 404
+        # Production's own refusal, in production's own words: a misspelt symbol
+        # is a thing people do, and "404 nope" tells them nothing. Same sentence,
+        # same way out, so the preview cannot flatter the real page.
+        safe = str(symbol).replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;").replace('"', "&quot;")
+        return (
+            f"<h1>404 — {safe} is not on the market</h1>"
+            "<p><a href='/market/BTC'>Open BTC instead</a></p>",
+            404,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
     return render_template(
         "market_live.html",
         symbol=instrument.symbol,

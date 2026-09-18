@@ -556,6 +556,45 @@ class PreviewHarness(unittest.TestCase):
         routes = self._harness_routes()
         self.assertIn("/dashboard", routes)
         self.assertIn("/market/<symbol>", routes)
+        # The bare index production redirects to the first instrument, and the two
+        # session routes the rendered header's own Sign out button posts to — all
+        # three were Flask 404s in the preview, which is a wall where the real
+        # deployment answers.
+        for route in ("/market", "/login", "/logout"):
+            self.assertIn(route, routes, f"the harness serves no {route}")
+
+    def test_the_dashboard_links_to_the_market_pages_and_the_harness_serves_them(self):
+        """The market pages had no way in from anywhere.
+
+        They are served at ``/market/<symbol>`` and the only other route to them
+        was a member's command in Discord, so an operator reading the dashboard
+        had to already know the URL. The header links there now — and the link is
+        only worth having if the page it points at exists in the preview too,
+        which is the pairing this test is for.
+        """
+        page = open(
+            os.path.join(self.ROOT, "templates", "dashboard.html"), encoding="utf-8"
+        ).read()
+        self.assertIn('href="/market"', page, "the dashboard links nowhere to the charts")
+
+        client = self._load_harness().app.test_client()
+        landing = client.get("/market")
+        self.assertEqual(landing.status_code, 302)
+        self.assertTrue(landing.headers["Location"].endswith("/market/BTC"))
+        self.assertEqual(client.get("/market/BTC").status_code, 200)
+
+    def test_the_unknown_symbol_page_says_what_production_says(self):
+        """A misspelt symbol is a thing people do, and "404 nope" teaches nothing.
+
+        Production writes the symbol into the refusal and offers BTC; the harness
+        rendered a bare heading, so the preview flattered the real page.
+        """
+        client = self._load_harness().app.test_client()
+        refused = client.get("/market/nope")
+        self.assertEqual(refused.status_code, 404)
+        body = refused.get_data(as_text=True)
+        self.assertIn("nope is not on the market", body)
+        self.assertIn("href='/market/BTC'", body)
 
     def _load_harness(self):
         import importlib.util
