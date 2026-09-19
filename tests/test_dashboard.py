@@ -698,6 +698,39 @@ class PreviewHarness(unittest.TestCase):
         self.assertIn("<strong>Meow Server</strong>", fallback)
         self.assertIn('<option value="777001" selected>', fallback)
 
+    def test_the_pickers_manage_button_actually_switches(self):
+        """**Manage** posts and has to land in that server's dashboard.
+
+        It was answered with the same picker page — the harness holds no session,
+        so there was nothing to switch — which left a visible button that did
+        nothing but reload, in the one tool whose job is showing what the page
+        does. The real route redirects; so does this one now, and it moves the
+        preview's own idea of the current server with it, so the picker offers
+        **Open** where you are and **Manage** on the rest.
+        """
+        module = self._load_harness()
+        client = module.app.test_client()
+        self.addCleanup(
+            lambda: module.CURRENT_GUILD.update({"id": module.GUILDS[0]["id"]})
+        )
+
+        picked = client.post("/servers", data={"guild_id": "777002"})
+        self.assertEqual(picked.status_code, 302, picked.get_data(as_text=True))
+        self.assertTrue(picked.headers["Location"].endswith("/dashboard?guild_id=777002"))
+
+        page = client.get("/servers").get_data(as_text=True)
+        current = page.split("777002", 1)[1].split("</li>", 1)[0]
+        self.assertIn("Open", current, "the server just picked is the one that is open")
+        other = page.split("777001", 1)[1].split("</li>", 1)[0]
+        self.assertIn("Manage", other, "the server left behind offers Manage")
+
+        # An id that is not one the bot is in is refused in production's own
+        # words, and does not move the preview.
+        refused = client.post("/servers", data={"guild_id": "999999"})
+        self.assertEqual(refused.status_code, 403)
+        self.assertIn("You do not manage that server.", refused.get_data(as_text=True))
+        self.assertEqual(module.CURRENT_GUILD["id"], 777002)
+
     def test_the_market_stubs_are_the_shapes_the_live_endpoints_send(self):
         """The page reads these with ``.find()`` and an age; an object throws.
 
@@ -742,7 +775,16 @@ class PreviewHarness(unittest.TestCase):
             self.assertIn(entry["label"], page)
 
     def test_toggling_a_module_in_the_harness_is_reversible(self):
-        """The switches have to be drivable, not merely answered."""
+        """The switches have to be drivable, not merely answered.
+
+        The cards describe the **real** module store, not the seed values at the
+        top of the harness: a preview whose switches moved a number nobody else
+        read showed the module and the command list disagreeing about the same
+        system. So this test reads its baseline the way the page does — after a
+        render has synced the cards — and uses a server id no other test
+        touches, because a baseline of seed values is only ever right by
+        accident once another test has legitimately changed the store.
+        """
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
@@ -752,20 +794,138 @@ class PreviewHarness(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
+        # A server this harness knows and no other test switches: an id outside
+        # ``GUILDS`` falls back to the first one, so the baseline would be a
+        # different server's state wearing this one's name.
+        guild = 777002
         client = module.app.test_client()
+        # Render first: the cards are decided by the store, so "where they were"
+        # has to be read from a page that has already asked for them.
+        client.get(f"/dashboard?guild_id={guild}")
         before = {m["id"]: m["enabled"] for m in module.MODULES}
         target = next(m["id"] for m in module.MODULES if m["enabled"])
 
-        off = client.post("/api/toggle", json={"guild_id": 777001, "module": target, "enabled": False})
+        off = client.post("/api/toggle", json={"guild_id": guild, "module": target, "enabled": False})
         self.assertEqual(off.status_code, 200, off.get_data(as_text=True))
         self.assertTrue(off.get_json()["success"])
         self.assertFalse(next(m for m in module.MODULES if m["id"] == target)["enabled"])
         self.assertEqual(client.get("/__last-toggle").get_json(),
                          {"module": target, "enabled": False})
 
-        back = client.post("/api/toggle", json={"guild_id": 777001, "module": target, "enabled": True})
+        back = client.post("/api/toggle", json={"guild_id": guild, "module": target, "enabled": True})
         self.assertEqual(back.status_code, 200)
         self.assertEqual({m["id"]: m["enabled"] for m in module.MODULES}, before)
+
+    def test_no_preview_endpoint_accepts_a_message_the_bot_would_refuse(self):
+        """A preview may not answer success for what production refuses.
+
+        It did, on both composer endpoints: a 2,100-character body came back
+        with a receipt reading "SENT 13:24" — the page had even marked its own
+        counter ``over`` — where the bot answers *"That message is 2100
+        characters; the limit is 2000."* and posts nothing. Driving the page is
+        how a defect is *found*, so a page that lies about the outcome is worse
+        than useless: it hides the defect and invents a working feature.
+
+        The harness now calls the real builder, and this compares its answer with
+        the bot's own word for word rather than trusting that they are wired to
+        the same function — a shared function is shared until somebody copies it.
+        """
+        import time
+
+        import keep_alive
+
+        module = self._load_harness()
+        client = module.app.test_client()
+        channel = module.CHANNELS[0]["id"]
+
+        refusals = {
+            "no channel at all": {"content": "hello"},
+            "nothing written": {"channel_ids": [channel], "content": "   "},
+            "a body past Discord's limit": {
+                "channel_ids": [channel],
+                "content": "x" * (keep_alive.MESSAGE_MAX_CHARS + 100),
+            },
+            "a title with no embed": {
+                "channel_ids": [channel], "content": "", "title": "Notice"
+            },
+            "more channels than one send may reach": {
+                "channel_ids": ["1", "2", "3", "4", "5", "6"], "content": "hi"
+            },
+        }
+        for label, body in refusals.items():
+            _, _, expected = keep_alive._build_message(module._PreviewGuild(), body)
+            self.assertTrue(expected, f"{label} is not a refusal the bot makes")
+            for endpoint in ("/api/send-message", "/api/schedule-message"):
+                payload = dict(body)
+                if endpoint.endswith("schedule-message"):
+                    # A time the timing rule accepts, so the *message* rule is
+                    # the one under test on this endpoint too.
+                    payload["run_at"] = int(time.time()) + 3600
+                answer = client.post(endpoint, json=payload)
+                self.assertEqual(answer.status_code, 400, f"{endpoint}: {label}")
+                self.assertEqual(answer.get_json()["error"], expected, endpoint)
+
+        # And the endpoints still accept what the bot accepts, so the check above
+        # cannot pass by refusing everything.
+        sent = client.post("/api/send-message",
+                           json={"channel_ids": [channel], "content": "hello"})
+        self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True))
+        self.assertTrue(sent.get_json()["success"])
+
+        # A generated message is the one kind with no text to validate, and the
+        # real route deliberately does *not* run the builder for it. A harness
+        # that did would refuse the only scheduled message that writes itself —
+        # the same defect from the other side: refusing what production accepts.
+        from utils import digest
+
+        generated = client.post("/api/schedule-message", json={
+            "channel_ids": [channel],
+            "generator": next(iter(digest.GENERATORS)),
+            "run_at": int(time.time()) + 3600,
+        })
+        self.assertEqual(generated.status_code, 200, generated.get_data(as_text=True))
+
+        unknown = client.post("/api/schedule-message", json={
+            "channel_ids": [channel], "generator": "not_a_generator",
+            "run_at": int(time.time()) + 3600,
+        })
+        self.assertEqual(unknown.status_code, 400)
+        self.assertIn("content source", unknown.get_json()["error"])
+
+    def test_the_preview_enforces_the_queue_cap_the_bot_enforces(self):
+        """The page shows "N of 25" from ``max_pending``, so 26 may not be one.
+
+        The harness reported the cap to the page and then accepted past it — the
+        queue read "32 of 25", holding messages the bot refuses to queue at all
+        (``429``, *"cancel one before adding another"*). A preview that lets the
+        page print an impossible number hides the one limit an administrator
+        actually hits, at the moment the queue fills and they need to know why.
+        """
+        import time
+
+        import keep_alive
+
+        module = self._load_harness()
+        client = module.app.test_client()
+        channel = module.CHANNELS[0]["id"]
+        at = int(time.time()) + 3600
+        cap = keep_alive.scheduled.MAX_PENDING_PER_GUILD
+
+        refusals = 0
+        answer = None
+        for i in range(cap * 2):
+            answer = client.post("/api/schedule-message", json={
+                "channel_ids": [channel], "content": f"filler {i}", "run_at": at,
+            })
+            if answer.status_code != 200:
+                refusals += 1
+                break
+        self.assertEqual(answer.status_code, 429, answer.get_data(as_text=True))
+        self.assertIn("cancel one before adding another", answer.get_json()["error"])
+        self.assertEqual(
+            client.get("/api/scheduled").get_json()["pending"], cap,
+            "the queue filled past the cap the page reports",
+        )
 
     def test_the_harness_refuses_what_the_real_endpoint_refuses(self):
         """Same status and same words, or the page's error path learns the wrong

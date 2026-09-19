@@ -342,8 +342,17 @@ class BotConfig(commands.Cog):
         name="bug",
         description="Report a bug in the bot itself — files a report card, not a ticket.",
     )
+    @app_commands.describe(
+        command="What you ran, if it was a command (for example /balance).",
+        when="When it happened, as best you can say (for example “about ten minutes ago”).",
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    async def bug(self, interaction: discord.Interaction):
+    async def bug(
+        self,
+        interaction: discord.Interaction,
+        command: str | None = None,
+        when: str | None = None,
+    ):
         """The administrator's way into the bug-report path.
 
         A fault in the bot is an operator's to report — they are the ones who can
@@ -353,10 +362,20 @@ class BotConfig(commands.Cog):
         server's bug channel instead, so a report can never be swallowed. It
         deliberately does not open a ticket: tickets are for members' own problems,
         and a bug in the bot is not the bot's customer support.
+
+        ``command`` and ``when`` are optional and only prefill the form: a report
+        nobody can check is a report that names neither what was run nor when,
+        and typing those twice — once here and once in the modal — is how they end
+        up left blank.
         """
         from cogs import help as help_cog
 
-        await help_cog.open_bug_report(interaction, source="`/bot bug`")
+        await help_cog.open_bug_report(
+            interaction,
+            source="`/bot bug`",
+            command=command or "",
+            when=when or "",
+        )
 
 
 async def setup(bot: commands.Bot):

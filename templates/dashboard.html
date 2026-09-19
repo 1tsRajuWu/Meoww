@@ -187,6 +187,25 @@
             max-width: 240px;
         }
 
+        .signed-in {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .signed-in img { border-radius: 50%; flex: none; }
+
         .guild-select:focus-visible,
         .btn:focus-visible,
         .toggle-switch input:focus-visible + .slider {
@@ -541,6 +560,14 @@
            attribute alone would leave the embed title sitting on the page. */
         .composer-field[hidden] { display: none; }
 
+        /* The same trap, found in the command list: this note is a ``.field-head``,
+           so without a rule the page said "every command the bot has is offered
+           on this server" directly above the thirty-one names that are not — in
+           the server's own render and in the live refresh, which sets ``hidden``
+           and then watched the CSS keep it on the page. Written for the class
+           rather than the one element, so the next ``.field-head`` is covered. */
+        .field-head[hidden] { display: none; }
+
         .composer-field > label,
         .field-head > label,
         .field-label {
@@ -885,6 +912,12 @@
 
         .counter { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
         .counter.over { color: #ff6b6b; }
+        /* Why the send button is disabled, in the bot's own words. Red, not muted:
+           this line is the refusal, and it arrives before the click instead of
+           after it. */
+        .composer-blocked { color: #ff6b6b; }
+        .composer-blocked[hidden] { display: none; }
+        #composer-send:disabled { opacity: 0.55; cursor: not-allowed; }
 
         .preview {
             background: #12161f;
@@ -1348,6 +1381,18 @@
                 </div>
             </div>
             <div class="header-actions">
+                {# Who is signed in, because a session can now be somebody's own
+                   account rather than the operator's passkey, and the servers
+                   offered below depend on which of the two it is. #}
+                {% if signed_in_as and signed_in_as.name %}
+                <span class="signed-in" title="Signed in with Discord">
+                    {% if signed_in_as.avatar %}<img src="{{ signed_in_as.avatar }}" alt="" width="22" height="22">{% endif %}
+                    {{ signed_in_as.name }}
+                </span>
+                {% endif %}
+                {% if pick_server_url %}
+                <a class="btn" href="{{ pick_server_url }}">🗂 Servers</a>
+                {% endif %}
                 {% if can_switch_guild and guilds and guilds|length > 1 %}
                 <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
                 <select id="guild-select" class="guild-select" aria-label="Select server" onchange="window.location.href='/dashboard?guild_id=' + encodeURIComponent(this.value)">
@@ -1362,6 +1407,12 @@
                    had to already know the URL. Same tab, because it is the same
                    control center. #}
                 <a class="btn" href="/market">📈 Market</a>
+                {# Adding the bot somewhere else is the one action here that is not
+                   about the server currently open, and it is the action a person
+                   who manages several servers reaches for most often. #}
+                {% if invite_url %}
+                <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">➕ Add to a server</a>
+                {% endif %}
                 <form method="POST" action="/logout" class="logout-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn btn-danger">Sign out</button>
@@ -1492,7 +1543,7 @@
                             <div class="picker" id="composer-channels" role="listbox" aria-multiselectable="true"
                                  aria-label="Channels" aria-describedby="composer-channels-hint"></div>
                         </div>
-                        <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_max_channels|default(5) }} — the bot posts the same message to every one. A <strong>voice</strong> channel needs its text chat turned on.</span>
+                        <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_limits.channels }} — the bot posts the same message to every one. A <strong>voice</strong> channel needs its text chat turned on.</span>
                     </div>
                     <div class="composer-field">
                         <label for="composer-mention-search">Tag people or roles</label>
@@ -1513,13 +1564,18 @@
                     <div class="composer-field">
                         <div class="field-head">
                             <label for="composer-body">Message</label>
-                            <span class="counter" id="composer-counter">0 / 2000</span>
+                            <span class="counter" id="composer-counter">0 / {{ composer_limits.chars }}</span>
                         </div>
-                        <textarea id="composer-body" class="composer-textarea" maxlength="2000" placeholder="Write the announcement…"></textarea>
+                        <textarea id="composer-body" class="composer-textarea" maxlength="{{ composer_limits.chars }}" placeholder="Write the announcement…"></textarea>
+                        <!-- Why this cannot be sent, in the bot's own words, the
+                             moment it cannot — instead of after a click that was
+                             always going to fail. Filled by ``refreshComposerGate``,
+                             which is also what disables the button. -->
+                        <span class="composer-hint composer-blocked" id="composer-blocked" role="status" hidden></span>
                     </div>
                     <div class="composer-field" id="composer-title-field" hidden>
                         <label for="composer-title">Embed title</label>
-                        <input id="composer-title" class="composer-input" type="text" maxlength="256" placeholder="Optional headline">
+                        <input id="composer-title" class="composer-input" type="text" maxlength="{{ composer_limits.title }}" placeholder="Optional headline">
                     </div>
                     <div class="receipt" id="composer-receipt" role="status" hidden>
                         <div class="receipt-head">
@@ -1951,7 +2007,19 @@
         const composerSelection = [];   // chosen channel ids, in the order they were picked
         let draftApplied = false;       // a restored draft is applied once per load
         // Rendered from the server's own limit rather than a second copy of it.
-        const COMPOSER_MAX_CHANNELS = {{ composer_max_channels|default(5) }};
+        // The composer's rulebook, handed over by the server from the same
+        // constants its own endpoint validates with. Nothing here is a literal:
+        // a page that states its own limits is a page that goes on stating the
+        // old ones after somebody changes them where they actually live, and the
+        // user is held to a rule the bot has already stopped enforcing.
+        // (Keep this a no-digits comment: a test renders this page with a
+        // different rulebook and fails if the default numbers appear anywhere.)
+        const COMPOSER_LIMITS = {
+            chars: {{ composer_limits.chars }},
+            tags: {{ composer_limits.tags }},
+            channels: {{ composer_limits.channels }},
+            title: {{ composer_limits.title }},
+        };
         let mentionTimer = null;
         let mentionRequest = 0;         // drops an out-of-order answer
         let mentionActive = -1;         // the highlighted row, for the keyboard
@@ -1968,6 +2036,9 @@
         const CLOCK_SKEW = SERVER_NOW ? (SERVER_NOW * 1000 - Date.now()) : 0;
         let scheduleMode = "now";       // "now" or "later"
         let scheduleCache = null;       // the last reply from /api/scheduled
+        // True while a send or a schedule is in flight: the gate keeps the button
+        // disabled for that as well, so the two reasons cannot fight over it.
+        let composerBusy = false;
         // What a scheduled message may carry: text you write, or a generator the
         // bot runs when it posts (see utils/digest.py). Offered from the registry
         // the endpoint validates against, so the page cannot name something the
@@ -1992,6 +2063,7 @@
             search: document.getElementById("composer-mention-search"),
             results: document.getElementById("composer-mention-results"),
             send: document.getElementById("composer-send"),
+            blocked: document.getElementById("composer-blocked"),
             clear: document.getElementById("composer-clear"),
             receipt: document.getElementById("composer-receipt"),
             receiptTitle: document.getElementById("composer-receipt-title"),
@@ -2140,9 +2212,12 @@
         function updateChannelCount() {
             const chosen = composerSelection.length;
             composerEls.channelCount.textContent = chosen
-                ? `${chosen} of ${COMPOSER_MAX_CHANNELS} selected`
-                : `0 of ${COMPOSER_MAX_CHANNELS} selected`;
-            composerEls.channelCount.classList.toggle("full", chosen >= COMPOSER_MAX_CHANNELS);
+                ? `${chosen} of ${COMPOSER_LIMITS.channels} selected`
+                : `0 of ${COMPOSER_LIMITS.channels} selected`;
+            composerEls.channelCount.classList.toggle("full", chosen >= COMPOSER_LIMITS.channels);
+            // Picking the first channel is what makes an otherwise empty form
+            // sendable (or stops it being), so the gate is asked here too.
+            refreshComposerGate();
         }
 
         function renderChannelPicker() {
@@ -2185,8 +2260,8 @@
             if (index >= 0) {
                 composerSelection.splice(index, 1);
             } else {
-                if (composerSelection.length >= COMPOSER_MAX_CHANNELS) {
-                    showToast(`Up to ${COMPOSER_MAX_CHANNELS} channels per send — untick one first.`, "error");
+                if (composerSelection.length >= COMPOSER_LIMITS.channels) {
+                    showToast(`Up to ${COMPOSER_LIMITS.channels} channels per send — untick one first.`, "error");
                     return;
                 }
                 composerSelection.push(id);
@@ -2244,7 +2319,7 @@
             );
             composerSelection.length = 0;
             (draft.channels || []).forEach(id => {
-                if (known.has(String(id)) && composerSelection.length < COMPOSER_MAX_CHANNELS) {
+                if (known.has(String(id)) && composerSelection.length < COMPOSER_LIMITS.channels) {
                     composerSelection.push(String(id));
                 }
             });
@@ -2331,6 +2406,13 @@
 
         function addMention(item) {
             if (composerMentions.some(m => String(m.id) === String(item.id))) return;
+            // The tag cap, in the bot's own sentence. It used to exist only on the
+            // server, so a message with a 26th tag was refused after the fact —
+            // having been assembled tag by tag, which is the one way to reach the
+            // cap without noticing.
+            if (composerMentions.length >= COMPOSER_LIMITS.tags) {
+                return showToast(`At most ${COMPOSER_LIMITS.tags} tags per message.`, "error");
+            }
             composerMentions.push({ id: item.id, label: item.label, kind: item.kind });
             composerEls.search.value = "";
             closeMentionResults();
@@ -2474,8 +2556,71 @@
             // In embed mode the tags ride in the content and the text sits in the
             // description, so they are counted separately — same as the server does.
             const total = asEmbed ? length : length + pingLength();
-            composerEls.counter.textContent = `${total} / 2000${asEmbed ? "" : " incl. tags"}`;
-            composerEls.counter.classList.toggle("over", total > 2000);
+            // The label only earns its place when tags are actually in the count: a
+            // bare box has nothing to include, and an empty counter claiming tags
+            // are included invites the reader to hunt for tags that are not there.
+            const countedTags = !asEmbed && composerMentions.length;
+            composerEls.counter.textContent = `${total} / ${COMPOSER_LIMITS.chars}${countedTags ? " incl. tags" : ""}`;
+            composerEls.counter.classList.toggle("over", total > COMPOSER_LIMITS.chars);
+            refreshComposerGate();
+        }
+
+        function composerTotal() {
+            return composerEls.embed.checked
+                ? composerEls.body.value.length
+                : composerEls.body.value.length + pingLength();
+        }
+
+        function composerRuleBreak() {
+            // The composer's whole rulebook, in the server's own order and the
+            // server's own words. It answers one question — *why can this not be
+            // sent?* — and everything that can refuse a send asks it: the button's
+            // disabled state, the reason under the box, and the click path. The
+            // point is not to save a request; it is that the user learns the rule
+            // where they can still do something about it, rather than from a
+            // refusal after committing to a send.
+            //
+            // A generated message is the exception: it has no text yet, so the
+            // bot validates only its channels. Refusing "write something" there
+            // would block the one kind of message that writes itself.
+            const generated = composerUsesGenerator();
+            if (!composerSelection.length) return "Pick at least one channel.";
+            if (generated) return null;
+            const body = composerEls.body.value.trim();
+            const title = composerEls.title.value.trim();
+            const asEmbed = composerEls.embed.checked;
+            // The tag cap is checked before anything is written, exactly as the
+            // bot does: a message that already has too many tags is refused
+            // whatever it says.
+            if (composerMentions.length > COMPOSER_LIMITS.tags) {
+                return `At most ${COMPOSER_LIMITS.tags} tags per message.`;
+            }
+            if (!body && title && !asEmbed) {
+                return 'A title is only posted with an embed — tick "Send as an embed", or write a message.';
+            }
+            if (!body && !title) return "Write something to send.";
+            // The body alone first: that is the sentence the bot answers with when
+            // the text itself is over, and it counts the text, not the tags.
+            if (body.length > COMPOSER_LIMITS.chars) {
+                return `That message is ${body.length} characters; the limit is ${COMPOSER_LIMITS.chars}.`;
+            }
+            if (!asEmbed && composerTotal() > COMPOSER_LIMITS.chars) {
+                return `${composerTotal()} characters once the tags are added; the limit is `
+                    + `${COMPOSER_LIMITS.chars}. Shorten it, or send it as an embed.`;
+            }
+            return null;
+        }
+
+        function refreshComposerGate() {
+            const reason = composerRuleBreak();
+            composerEls.blocked.textContent = reason || "";
+            composerEls.blocked.hidden = !reason;
+            // Disabled rather than merely warned about: a button that looks ready
+            // and then refuses teaches the rule at the worst moment. The reason is
+            // on the page next to it, so a disabled button is never a dead end —
+            // and it is a plain attribute, so a send that starts anyway (a script,
+            // an old tab) still meets the server's own refusal.
+            composerEls.send.disabled = Boolean(reason) || composerBusy;
         }
 
         function renderPreview() {
@@ -2852,6 +2997,10 @@
                 ? (chosenContent().blurb || "Built when it posts.")
                 : "";
             renderPreview();
+            // Choosing a generator changes the answer to "can this be sent?" — it
+            // is the one kind of message whose text is not validated — so the gate
+            // is asked again rather than left holding the previous verdict.
+            refreshComposerGate();
         }
 
         function scheduleEmpty(message) {
@@ -3153,7 +3302,8 @@
         async function submitSchedule(payload) {
             const timing = scheduleRequest();
             if (timing.error) return showToast(timing.error, "error");
-            composerEls.send.disabled = true;
+            composerBusy = true;
+            refreshComposerGate();
             composerEls.send.textContent = "Scheduling…";
             try {
                 const data = await apiPost("/api/schedule-message", Object.assign(
@@ -3174,8 +3324,11 @@
                     showToast(`Could not schedule: ${err.message}`, "error");
                 }
             } finally {
-                composerEls.send.disabled = false;
+                composerBusy = false;
                 composerEls.send.textContent = sendButtonLabel();
+                // Back through the gate, never straight to enabled: a form that
+                // filled up while the request was in flight is still unsendable.
+                refreshComposerGate();
             }
         }
 
@@ -3198,7 +3351,8 @@
         }
 
         async function submitPayload(payload, carried) {
-            composerEls.send.disabled = true;
+            composerBusy = true;
+            refreshComposerGate();
             composerEls.send.textContent = "Sending…";
             try {
                 const data = await apiPostResult("/api/send-message", payload);
@@ -3214,8 +3368,9 @@
                     else showToast(`Could not send: ${err.message}`, "error");
                 }
             } finally {
-                composerEls.send.disabled = false;
+                composerBusy = false;
                 composerEls.send.textContent = sendButtonLabel();
+                refreshComposerGate();
             }
         }
 
@@ -3239,14 +3394,18 @@
         }
 
         async function sendComposedMessage() {
-            if (!composerSelection.length) return showToast("Pick at least one channel first.", "error");
+            // One question, one answer, one place: the same rulebook that decides
+            // the button's state and the reason under the box. The four refusals
+            // that used to live here by hand had drifted from the bot's — this one
+            // said "Pick at least one channel first." where the bot says "Pick at
+            // least one channel.", and the two rules that mattered most (the
+            // character limit and the tag cap) were not here at all.
+            const broken = composerRuleBreak();
+            if (broken) return showToast(broken, "error");
             const payload = composePayload(composerSelection.slice());
             const generated = composerUsesGenerator();
-            if (!generated && !payload.content && !payload.title) {
-                return showToast("Write something to send.", "error");
-            }
-            if (payload.channel_ids.length > COMPOSER_MAX_CHANNELS) {
-                return showToast(`At most ${COMPOSER_MAX_CHANNELS} channels per send.`, "error");
+            if (payload.channel_ids.length > COMPOSER_LIMITS.channels) {
+                return showToast(`At most ${COMPOSER_LIMITS.channels} channels per send.`, "error");
             }
             const ping = massPingKeyword();
             if (scheduleMode === "later") {

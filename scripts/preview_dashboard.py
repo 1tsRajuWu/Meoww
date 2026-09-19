@@ -21,6 +21,7 @@ candles, the module catalog, the scheduling limits — this file calls it rather
 than describing it, because a stub that is *written* to look right is a stub
 that drifts, and the page then gets blamed for the harness's shape.
 """
+import html
 import os
 import shutil
 import sys
@@ -56,13 +57,42 @@ from utils import db as _db  # noqa: E402
 
 _db.DB_PATH = _PREVIEW_DB
 
+# --------------------------------------------------------------------------- #
+# A preview client id, so the two Discord surfaces can be looked at
+#
+# The sign-in button and the "add to a server" link are both gated on a client
+# id, which a preview process does not have — without one they are invisible in
+# the one tool that exists to look at the page. These are placeholders for
+# rendering only: there is no real secret here and nothing in this file talks to
+# Discord, which is why ``/login/discord`` says so instead of redirecting.
+if not os.environ.get("DISCORD_CLIENT_ID"):
+    os.environ["DISCORD_CLIENT_ID"] = "1234567890123456789"
+    os.environ.setdefault("DISCORD_CLIENT_SECRET", "preview-only-no-real-secret")
+    print(
+        "[PREVIEW] No DISCORD_CLIENT_ID in the environment — using a placeholder so "
+        "the Discord sign-in button and the invite link render. No request is ever "
+        "made to Discord.",
+        flush=True,
+    )
+os.environ.setdefault(
+    "DASHBOARD_BASE_URL", f"http://localhost:{os.environ.get('PORT', '8099')}"
+)
+
 app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"))
+
+# Templates are edited *while this harness runs* — that is the whole point of it.
+# Flask defaults ``TEMPLATES_AUTO_RELOAD`` to ``app.debug``, which is off here, so a
+# long-lived preview would keep serving the bytecode-cached template from before the
+# edit: you change the page, reload, and look at the old one. Cheaper to reread the
+# file per request than to trust the cache, and the harness never serves real users.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # The real app's security headers, applied to every response — otherwise this
 # harness would prove nothing about whether the pages survive our own CSP.
 import keep_alive  # noqa: E402
 from utils import (  # noqa: E402
-    command_scope, digest, features, identity, market as market_module,
+    command_scope, digest, discord_auth, features, identity,
+    market as market_module,
 )
 
 
@@ -157,6 +187,61 @@ GUILDS = [
     {"id": 777002, "name": "Second Server", "members": 42},
 ]
 
+class _PreviewMentionable:
+    """A member or role carrying only what ``_build_message`` reads off one.
+
+    The real builder needs ``.id`` and ``.mention``; a stub shaped like the
+    endpoint's own JSON would raise an ``AttributeError`` halfway through it.
+    """
+
+    def __init__(self, entry: dict, prefix: str):
+        self.id = int(entry["id"])
+        self.mention = f"<{prefix}{entry['id']}>"
+        self.name = str(entry.get("label") or "")
+
+
+class _PreviewGuild:
+    """The guild half of ``keep_alive._build_message``, over this file's stubs.
+
+    The harness has no gateway, so there is nothing real to resolve a tag
+    against — but every *refusal* the builder makes (which channels, how many,
+    how long, how many tags, a title with no embed) is decided before it looks
+    at a member, and the sentence the preview shows should be the bot's own.
+    Answering ``None`` for an id it was not given is what the real code calls
+    *unresolved*, so an id the preview never offered comes back as ignored
+    rather than silently accepted.
+    """
+
+    def __init__(self):
+        self.id = GUILDS[0]["id"]
+        self._members = {int(m["id"]): _PreviewMentionable(m, "@") for m in MEMBERS}
+        self._roles = {int(r["id"]): _PreviewMentionable(r, "@&") for r in ROLES}
+
+    def get_member(self, user_id):
+        try:
+            return self._members.get(int(user_id))
+        except (TypeError, ValueError):
+            return None
+
+    def get_role(self, role_id):
+        try:
+            return self._roles.get(int(role_id))
+        except (TypeError, ValueError):
+            return None
+
+    async def fetch_member(self, user_id):
+        """No gateway, so nothing to ask: the real code treats this as ignored."""
+        return None
+
+
+#: Which server this harness is "in". Production keeps that in the session and a
+#: passkey session can move between servers; here it is one process-wide value,
+#: which is the only sense in which this harness has a session at all. It exists
+#: because the picker's own **Manage** button posts to ``/servers`` and has to go
+#: somewhere: answering with the same page left a visible control that did
+#: nothing, in the one tool whose job is showing what the page does.
+CURRENT_GUILD: dict = {"id": GUILDS[0]["id"]}
+
 
 @app.route("/")
 def home():
@@ -179,11 +264,16 @@ def dashboard():
     try:
         guild_id = int(request.args.get("guild_id"))
     except (TypeError, ValueError):
-        guild_id = GUILDS[0]["id"]
+        # No id named: the server this harness is "in", the way production falls
+        # back to the session's. It is what makes the picker's **Manage** land on
+        # the server that was chosen rather than on the first one in the file.
+        guild_id = CURRENT_GUILD["id"]
     # An unknown id falls back to the first server, exactly as
     # ``keep_alive._resolve_guild_id`` does, so the select can never point at a
     # server it does not also list.
     guild = next((g for g in GUILDS if g["id"] == guild_id), GUILDS[0])
+    # The cards describe the real store, not the seed values in this file.
+    _sync_module_cards(guild["id"])
     return render_template(
         "dashboard.html",
         guild_id=guild["id"],
@@ -197,7 +287,25 @@ def dashboard():
         csrf_token="preview-token",
         guilds=[{"id": g["id"], "name": g["name"]} for g in GUILDS],
         can_switch_guild=True,
-        composer_max_channels=keep_alive.MESSAGE_MAX_CHANNELS,
+        # A passkey-shaped session (the operator's), which is the one this page
+        # renders: no Discord identity in the header, no picker link — but the
+        # invite link is gated on the client id alone, exactly as production
+        # gates it, so the header button is the real one.
+        signed_in_as={},
+        pick_server_url="",
+        invite_url=discord_auth.invite_url(),
+        invite_here_url=discord_auth.invite_url(guild_id=guild["id"]),
+        # The composer's rulebook, read from the bot rather than restated: the
+        # page refuses locally with these sentences and these numbers, so a
+        # preview that invented its own would show a different composer. (The
+        # template has no defaults on purpose, which is what named this file the
+        # moment the view grew the panel.)
+        composer_limits={
+            "chars": keep_alive.MESSAGE_MAX_CHARS,
+            "tags": keep_alive.MESSAGE_MAX_MENTIONS,
+            "channels": keep_alive.MESSAGE_MAX_CHANNELS,
+            "title": keep_alive.MESSAGE_TITLE_MAX,
+        },
         # The real scheduling limits, so the page cannot look right here while the
         # endpoint would refuse what it offers.
         schedule_repeat_choices=[
@@ -250,19 +358,104 @@ def market_index():
 
 
 @app.route("/login", methods=["GET", "POST"])
+def login_page():
+    """The real sign-in page, rendered with its real context.
+
+    The page is here to be *looked at* — its layout, the Discord button, the
+    callback URL an operator has to register. Nothing here can complete a
+    sign-in: the passkey is not configured in a preview and `/login/discord`
+    says so rather than bouncing through Discord.
+    """
+    return render_template(
+        "login.html",
+        error=None,
+        csrf_token="preview-token",
+        passkey_enabled=bool(keep_alive.ADMIN_PASSKEY),
+        oauth_enabled=discord_auth.enabled(),
+        oauth_callback=keep_alive.oauth_redirect_uri(),
+        oauth_hint=keep_alive._oauth_setup_hint(),
+    )
+
+
+@app.route("/login/discord")
+def discord_sign_in():
+    """Honest refusal: this process cannot do a real OAuth round trip."""
+    return (
+        "<h1>Preview harness — Discord sign-in</h1>"
+        "<p>Signing in with Discord needs a registered redirect URL and a client "
+        "secret, and this harness has neither: it never talks to Discord. Run the "
+        "bot with <code>DISCORD_CLIENT_ID</code> and "
+        "<code>DISCORD_CLIENT_SECRET</code> set to exercise the real redirect.</p>"
+        f"<p>The callback URL this host would register is "
+        f"<code>{html.escape(keep_alive.oauth_redirect_uri())}</code>.</p>"
+        "<p><a href='/login'>Back to sign-in</a></p>",
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
+@app.route("/servers", methods=["GET", "POST"])
+def servers_page():
+    """The picker in both of its shapes, so its layout and invite can be checked.
+
+    ``?as=user`` is what somebody who signed in with Discord sees; the default is
+    the operator's, which is the same page over every server the bot is in with
+    what each one is running. The numbers come from ``_module_summary`` — the real
+    function, reading the harness's copy of the database — so a preview cannot
+    show a count that production would not.
+
+    A POST really does switch, because that is what the page does: **Manage**
+    posts the server it names and lands in that server's dashboard. It used to be
+    answered with the same page — "this harness holds no session, so there is
+    nothing to switch" — and the result was a button that visibly did nothing.
+    """
+    operator = (request.args.get("as") or "operator").strip().lower() != "user"
+    error = None
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or request.form
+        try:
+            chosen = int(payload.get("guild_id"))
+        except (TypeError, ValueError):
+            chosen = None
+        if chosen is None or not any(g["id"] == chosen for g in GUILDS):
+            # The real route's own words, and for the same reason: the id came
+            # from a form, so it is a request and not a fact.
+            error = "You do not manage that server."
+        else:
+            CURRENT_GUILD["id"] = chosen
+            return redirect(f"/dashboard?guild_id={chosen}")
+    servers = [{"id": str(g["id"]), "name": g["name"], "icon": ""} for g in GUILDS]
+    if operator:
+        for entry in servers:
+            entry["scope"] = keep_alive._module_summary(int(entry["id"]))
+    body = render_template(
+        "servers.html",
+        servers=servers,
+        error=error,
+        operator=operator,
+        user={} if operator else {"id": "1", "name": "Preview Admin", "avatar": ""},
+        invite_url=discord_auth.invite_url(),
+        # Which server is open, so the picker says **Open** where you already are
+        # and **Manage** on the others — the same distinction production draws
+        # from the session, and the reason the button choice is worth looking at.
+        current_guild_id=int(CURRENT_GUILD["id"]),
+        csrf_token="preview-token",
+    )
+    return (body, 403) if error else body
+
+
 @app.route("/logout", methods=["GET", "POST"])
 def no_session():
     """Say there is no session here rather than 404-ing on a visible button.
 
-    The rendered page carries the real header, Sign out included, so a playtester
-    clicks it — and a 404 reads as "the dashboard is broken" when the truth is
-    that this harness has no sign-in to begin with. Production sends both of these
-    to `/login`; there is no sign-in here, so it says that instead of pretending.
+    The rendered dashboard carries the real header, Sign out included, so a
+    playtester clicks it — and a 404 reads as "the dashboard is broken" when the
+    truth is that this harness has no sign-in to begin with.
     """
     return (
-        "<h1>Preview harness — no sign-in</h1>"
+        "<h1>Preview harness — no session</h1>"
         "<p>This page renders the real dashboard's templates with stand-in data; "
-        "it has no session, so there is nothing to sign in to or out of."
+        "it has no session, so there is nothing to sign out of."
         "</p>"
         "<p><a href='/dashboard'>Back to the dashboard</a></p>",
         200,
@@ -384,17 +577,40 @@ def api_mentionables():
 LAST_SEND: dict = {}
 
 
+def _sync_module_cards(guild_id) -> None:
+    """Point this file's module cards at the **real** module store.
+
+    The switch used to flip the in-memory stub and write nothing down, while the
+    command-scope panel and the ``/servers`` list read the real cache — so the
+    same page could show two different answers about the same system, and only
+    the stub was believed. Writing through the real store (safe here: this
+    process works on its own copy of the database, made at import) makes every
+    panel agree, and makes the preview show what production would instead of
+    what a stub was seeded with.
+    """
+    from utils import modules
+
+    try:
+        states = modules.get_states(int(guild_id))
+    except Exception as exc:
+        print(f"[PREVIEW] could not read module state: {exc}", flush=True)
+        return
+    for module in MODULES:
+        if module["id"] in states:
+            module["enabled"] = bool(states[module["id"]])
+
+
 @app.route("/api/toggle", methods=["POST"])
 def api_toggle():
-    """Flip one module, the way the real endpoint does.
+    """Flip one module, through the same store the real endpoint writes to.
 
     Missing until a playtest drove the switches in a browser: every toggle was
     answered with the Flask 404 page, so the dashboard's headline control showed
     a red "Request failed (404)" toast and a switch that sprang back — the page
-    looked broken when only the harness was. Nothing here writes anything down;
-    the point is that the page's own optimistic-update-and-revert path can be
-    exercised at all.
+    looked broken when only the harness was.
     """
+    from utils import modules
+
     payload = request.get_json(silent=True) or {}
     if payload.get("guild_id") is None:
         return jsonify({"success": False, "error": "No guild available"}), 400
@@ -406,7 +622,10 @@ def api_toggle():
         # 400 "Unknown module", and a harness that answers differently teaches
         # the page's error path the wrong lesson.
         return jsonify({"success": False, "error": "Unknown module"}), 400
-    module["enabled"] = enabled
+    if not modules.set_enabled(int(payload["guild_id"]), module_id, enabled):
+        # The real route refuses to report success for a change it did not save.
+        return jsonify({"success": False, "error": "Could not save that change. Please try again."}), 500
+    _sync_module_cards(payload["guild_id"])
     LAST_TOGGLE.clear()
     LAST_TOGGLE.update({"module": module_id, "enabled": enabled})
     return jsonify({
@@ -421,12 +640,27 @@ def api_toggle():
 @app.route("/api/toggle-all", methods=["POST"])
 def api_toggle_all():
     """Enable or disable every module at once — the real route's shape."""
+    from utils import modules
+
     payload = request.get_json(silent=True) or {}
     if payload.get("guild_id") is None:
         return jsonify({"success": False, "error": "No guild available"}), 400
     enabled = bool(payload.get("enabled"))
-    for module in MODULES:
-        module["enabled"] = enabled
+    # Every module the real registry can toggle, not just the three cards this
+    # page happens to show: "disable all" is what an operator presses when the
+    # bot looks broken, and a harness where it only reaches the visible three
+    # would hide exactly the state that matters.
+    failed = modules.set_many(
+        int(payload["guild_id"]), {mid: enabled for mid in keep_alive.ALLOWED_MODULE_IDS}
+    )
+    if failed:
+        return jsonify({
+            "success": False,
+            "error": f"Could not save: {', '.join(failed)}",
+            "guild_id": payload.get("guild_id"),
+            "enabled": enabled,
+        }), 500
+    _sync_module_cards(payload["guild_id"])
     LAST_TOGGLE.clear()
     LAST_TOGGLE.update({"module": "*", "enabled": enabled})
     return jsonify({
@@ -491,13 +725,23 @@ def api_send_message():
 
     An id the page rounded is an id nothing matches, and the answer says so in
     the same words the bot uses — which is the whole failure this harness is
-    here to make visible.
+    here to make visible. The *validation* is the real function
+    (``keep_alive._build_message``), for the reason the scheduling endpoints call
+    ``_schedule_timing``: this route used to answer ``success: true`` to whatever
+    it was handed, so a 2,100-character body came back as "SENT 13:24" with a
+    receipt where the bot answers *"That message is 2100 characters; the limit is
+    2000."* and posts nothing — a preview teaching the page's happy path an
+    outcome production refuses.
     """
+    data = request.get_json(silent=True) or {}
+    payload, channel_ids, error = keep_alive._build_message(_PreviewGuild(), data)
+    if error:
+        return jsonify({"success": False, "error": error}), 400
     LAST_SEND.clear()
-    LAST_SEND.update(request.get_json(silent=True) or {})
+    LAST_SEND.update(data)
     by_id = {c["id"]: c for c in CHANNELS}
     sent, failed = [], []
-    for cid in LAST_SEND.get("channel_ids") or []:
+    for cid in channel_ids:
         channel = by_id.get(str(cid))
         if channel is None:
             failed.append({"channel_id": cid, "name": None, "error": "That channel no longer exists"})
@@ -523,8 +767,11 @@ def api_send_message():
     SCHEDULE.append({
         "id": max([r["id"] for r in SCHEDULE] + [0]) + 1,
         "channel_ids": [str(item["channel_id"]) for item in results],
-        "payload": {"content": LAST_SEND.get("content") or ""},
-        "preview": LAST_SEND.get("content") or "(an embed)",
+        # The payload the real builder made, not a hand-rolled one: it is what
+        # carries the tags' resolved text and the mentions Discord is allowed to
+        # notify, and the page renders its preview from it.
+        "payload": payload,
+        "preview": " ".join(str(payload.get("content") or "").split()) or "(an embed)",
         "run_at": now,
         "repeat_minutes": 0,
         "source": "now",
@@ -540,7 +787,7 @@ def api_send_message():
         "results": [],
         "sent": sent,
         "failed": failed,
-        "ignored_mentions": [],
+        "ignored_mentions": payload.get("ignored_mentions", []),
     })
 
 
@@ -648,38 +895,80 @@ def api_schedule_message():
     run_at, repeat, error = keep_alive._schedule_timing(body, now)
     if error:
         return jsonify({"success": False, "error": error, "server_now": now}), 400
-    if not body.get("channel_ids"):
-        return jsonify({"success": False, "error": "Pick at least one channel."}), 400
-    if not str(body.get("content") or "").strip() and not body.get("title"):
-        return jsonify({"success": False, "error": "Write something to send."}), 400
+    # The real route's own order and own sentences: timing, then the channels,
+    # then the content. This route used to hand-roll its checks, which meant a
+    # body the bot refuses could still be *queued* here and reported as scheduled.
+    channel_ids = keep_alive._parse_channel_ids(body)
+    if not channel_ids:
+        return jsonify({"success": False, "error": "Pick at least one channel.", "server_now": now}), 400
+    if len(channel_ids) > keep_alive.MESSAGE_MAX_CHANNELS:
+        return jsonify({
+            "success": False,
+            "error": f"At most {keep_alive.MESSAGE_MAX_CHANNELS} channels per send.",
+            "server_now": now,
+        }), 400
     by_id = {c["id"]: c for c in CHANNELS}
-    if any(str(cid) not in by_id for cid in body.get("channel_ids") or []):
+    if any(str(cid) not in by_id for cid in channel_ids):
         return jsonify({
             "success": False,
             "error": "That channel no longer exists — reload the page and pick one again.",
             "server_now": now,
         }), 400
 
-    mentions = [str(m) for m in (body.get("mentions") or [])]
-    user_ids = {m["id"] for m in MEMBERS}
-    content = str(body.get("content") or "").strip()
-    ping = " ".join(tag for tag in mentions if tag in ("@everyone", "@here"))
-    content = (ping + "\n" + content).strip() if ping else content
+    generator = str(body.get("generator") or "").strip()
+    if generator and generator not in digest.GENERATORS:
+        return jsonify({
+            "success": False,
+            "error": "Unknown content source — reload the page and pick one again.",
+            "server_now": now,
+        }), 400
+    if generator:
+        # A generated message has no text to validate — its content does not
+        # exist until the moment it posts — so this must *not* run the message
+        # builder, exactly as the real route does not. Running it here would
+        # refuse the one kind of scheduled message that writes itself.
+        payload = {
+            "generator": generator,
+            "content": None,
+            "embed": None,
+            "users": [],
+            "roles": [],
+            "everyone": False,
+            "ignored_mentions": [],
+        }
+        preview = f"{digest.label(generator)} — built when it posts"
+    else:
+        # The same builder "send now" uses, so a queued message is validated
+        # exactly as an immediate one is — including resolving every tag.
+        payload, channel_ids, error = keep_alive._build_message(_PreviewGuild(), body)
+        if error:
+            return jsonify({"success": False, "error": error, "server_now": now}), 400
+        preview = ""
+
+    # The queue cap, which the real route enforces when it cannot create a row:
+    # it answers 429 in these words. The harness reported ``max_pending`` to the
+    # page and then accepted past it, so the preview let the queue read "32 of 25"
+    # for a message the bot would have refused to queue at all.
+    pending = sum(1 for r in SCHEDULE if r["status"] == "pending")
+    if pending >= keep_alive.scheduled.MAX_PENDING_PER_GUILD:
+        return jsonify({
+            "success": False,
+            "error": (
+                f"This server already has {keep_alive.scheduled.MAX_PENDING_PER_GUILD} "
+                "scheduled messages — cancel one before adding another."
+            ),
+            "server_now": now,
+            "pending": pending,
+            "max_pending": keep_alive.scheduled.MAX_PENDING_PER_GUILD,
+            "catchup_hours": keep_alive.scheduled.MISS_CATCHUP_SECONDS // 3600,
+        }), 429
+
+    content = str(payload.get("content") or "")
     row = {
         "id": (max((r["id"] for r in SCHEDULE), default=0) + 1),
-        "channel_ids": [str(cid) for cid in body["channel_ids"]],
-        "payload": {
-            "content": content,
-            "embed": {"title": body.get("title")} if body.get("embed") else None,
-            "users": sorted(uid for uid in mentions if uid in user_ids),
-            "everyone": bool(ping),
-            "ignored_mentions": sorted(
-                tag for tag in mentions
-                if tag not in user_ids and tag not in ("@everyone", "@here")
-                and tag not in {r["id"] for r in ROLES}
-            ),
-        },
-        "preview": " ".join(content.split())[:140],
+        "channel_ids": [str(cid) for cid in channel_ids],
+        "payload": payload,
+        "preview": preview or " ".join(content.split())[:140],
         "run_at": run_at,
         "repeat_minutes": repeat,
         "status": "pending",

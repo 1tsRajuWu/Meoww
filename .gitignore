@@ -9,8 +9,10 @@ venv/
 .pytest_cache/
 
 # Local bot state (recreated from cloud backup on boot)
+# The live database and anything derived from it — a refresh keeps a safety copy
+# beside it, and neither belongs in the repository.
 bot.db
-bot.db.tmp
+bot.db.*
 bot.db-wal
 bot.db-shm
 *.db-journal

@@ -270,8 +270,84 @@ class FilingAReport(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
         embed = self._channel(self.bot_server, BOT_SERVER_CHANNEL).posted[0]
         fields = {field.name: field.value for field in embed.fields}
-        self.assertEqual(fields["Server"], "Hmm")
+        # The name *and* the id: the id is what makes the card joinable to the
+        # command log and to that server's module rows when the report is checked,
+        # and a name alone cannot be searched for.
+        self.assertIn("Hmm", fields["Server"])
+        self.assertIn(str(self.reporting.id), fields["Server"])
         self.assertEqual(fields["Filed via"], "the /help panel")
+
+    async def test_the_card_carries_the_command_and_when_it_happened(self):
+        """A report nobody can check names neither what was run nor when."""
+        await db.set_setting(REPORTING_GUILD, "bug_channel_id", REPORTING_CHANNEL)
+        interaction = _Interaction(self.reporting, self.client)
+
+        await help_cog.open_bug_report(interaction, source="`/bot bug`")
+        modal = self._fill(interaction.response.modal)
+        modal.command_used._value = "/balance"
+        modal.when_happened._value = "today around 19:40"
+        await modal.on_submit(interaction)
+
+        embed = self._channel(self.reporting, REPORTING_CHANNEL).posted[0]
+        fields = {field.name: field.value for field in embed.fields}
+        self.assertEqual(fields["Command"], "/balance")
+        self.assertEqual(fields["When it happened"], "today around 19:40")
+        self.assertIn("filed <t:", embed.footer.text, "the card has no timestamp to search around")
+        self.assertIn(str(interaction.user.id), embed.footer.text)
+
+    async def test_a_blank_command_and_time_say_so_rather_than_vanishing(self):
+        """An absent field reads as a field nobody asked for; "not given" is the
+        thing worth seeing, because it is why the report cannot be checked."""
+        await db.set_setting(REPORTING_GUILD, "bug_channel_id", REPORTING_CHANNEL)
+        interaction = _Interaction(self.reporting, self.client)
+
+        await help_cog.open_bug_report(interaction, source="`/bot bug`")
+        await self._fill(interaction.response.modal).on_submit(interaction)
+
+        embed = self._channel(self.reporting, REPORTING_CHANNEL).posted[0]
+        fields = {field.name: field.value for field in embed.fields}
+        self.assertEqual(fields["Command"], "*not given*")
+        self.assertEqual(fields["When it happened"], "*not given*")
+
+    async def test_the_command_line_prefills_the_form(self):
+        """Typing the same two facts twice is how they end up left blank."""
+        await db.set_setting(REPORTING_GUILD, "bug_channel_id", REPORTING_CHANNEL)
+        interaction = _Interaction(self.reporting, self.client)
+
+        await help_cog.open_bug_report(
+            interaction,
+            source="`/bot bug`",
+            command="/market",
+            when="about ten minutes ago",
+        )
+
+        modal = interaction.response.modal
+        self.assertEqual(modal.command_used.default, "/market")
+        self.assertEqual(modal.when_happened.default, "about ten minutes ago")
+        self.assertIsNone(
+            help_cog._prefill("   ", 100),
+            "an empty prefill should leave the box empty, not show whitespace",
+        )
+        self.assertLessEqual(len(help_cog._prefill("x" * 500, 100)), 100)
+
+    async def test_the_thread_is_named_after_the_command(self):
+        """A list of report threads is scanned by what was being run."""
+        interaction = _Interaction(self.reporting, self.client)
+        message = _Message(_Channel(REPORTING_CHANNEL, self.reporting))
+
+        await help_cog._open_report_thread(
+            message, "Nothing happens when I check my balance", interaction, "/balance"
+        )
+
+        self.assertIn("/balance", message.thread)
+        self.assertIn("Nothing happens", message.thread)
+        self.assertLessEqual(len(message.thread), 100, "Discord caps a thread name at 100")
+
+    async def test_a_thread_with_no_command_still_gets_a_name(self):
+        interaction = _Interaction(self.reporting, self.client)
+        message = _Message(_Channel(REPORTING_CHANNEL, self.reporting))
+        await help_cog._open_report_thread(message, "   ", interaction, "")
+        self.assertTrue(message.thread.strip(), "a nameless thread would be refused")
 
     async def test_the_administrators_command_is_named_as_the_source(self):
         await db.set_setting(REPORTING_GUILD, "bug_channel_id", REPORTING_CHANNEL)

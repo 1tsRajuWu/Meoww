@@ -13,7 +13,9 @@ import socket
 import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
-from utils import command_scope, db, digest, features, identity, modules, scheduled
+from utils import (
+    command_scope, db, digest, discord_auth, features, identity, modules, scheduled,
+)
 
 LOG_RING = deque(maxlen=600)
 
@@ -76,13 +78,22 @@ _trust_proxy_headers = _behind_https_host or (os.environ.get("TRUST_PROXY_HEADER
 # terminator issued a session cookie with no Secure flag, and a plaintext request
 # to port 8080 would carry it. DASHBOARD_HTTPS=1 says "this host is HTTPS only".
 _https_only_override = (os.environ.get("DASHBOARD_HTTPS") or "").strip().lower() in {"1", "true", "yes"}
+#: Almost every body here is a small JSON object — a message of at most 2000
+#: characters, a switch, a schedule — and 16 KB is generous for that.
+JSON_BODY_LIMIT = 16 * 1024
+#: The one exception is ``/api/identity``, which carries two images of up to
+#: ``identity.MAX_IMAGE_BYTES`` each plus the rest of the form.
+UPLOAD_BODY_LIMIT = 2 * identity.MAX_IMAGE_BYTES + 64 * 1024
+#: The app-level cap is the **outer** bound Werkzeug enforces while a body
+#: streams, so it has to be the largest legitimate request. The per-route limit
+#: is what actually applies (see ``_enforce_body_limit``).
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=_behind_https_host or _https_only_override,
     SESSION_COOKIE_NAME="meow_session",
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=8),
-    MAX_CONTENT_LENGTH=16 * 1024,
+    MAX_CONTENT_LENGTH=UPLOAD_BODY_LIMIT,
 )
 
 BOT_INSTANCE = None
@@ -201,6 +212,75 @@ def dashboard_base_url() -> str:
     # Anywhere else the dashboard is a local one, and the admin is on the same
     # machine as the process that minted the token.
     return f"http://localhost:{os.environ.get('PORT', '8080')}"
+
+
+def oauth_redirect_uri() -> str:
+    """The callback URL Discord must have registered for this deployment.
+
+    Built from where *this* process is reachable rather than from a constant:
+    the same mistake as the one-time link (a token minted here and redeemed
+    against another host) is available to OAuth too, and Discord refuses a
+    callback that does not match what the Developer Portal has on file — which
+    is the single most common reason a sign-in "just says no".
+    """
+    return f"{dashboard_base_url().rstrip('/')}/login/discord/callback"
+
+
+def _oauth_setup_hint() -> str:
+    """What an operator has to set before Discord sign-in can work."""
+    if discord_auth.enabled():
+        return ""
+    return (
+        "Signing in with Discord is switched off: DISCORD_CLIENT_ID and "
+        "DISCORD_CLIENT_SECRET are not both set. Take them from the Developer "
+        "Portal's OAuth2 page and register the callback URL it shows below."
+    )
+
+
+def _safe_next(raw) -> str | None:
+    r"""A return path we are willing to follow after signing in.
+
+    ``next`` arrives in a URL, so it is attacker-controlled: only a same-site
+    absolute path is allowed, which excludes ``//evil.example`` (a protocol-
+    relative URL browsers treat as another host) and anything with a scheme.
+
+    Control characters are refused as well, and that is not extra caution — it
+    was a real open redirect. A *tab* is stripped when the redirect's ``Location``
+    header is built, so ``/\t/evil.example`` reached the browser as
+    ``//evil.example``: the person completed Discord's sign-in on this domain and
+    was then handed to somebody else's site, which is the whole shape of a
+    phishing link. A newline or carriage return is worse again — the header setter
+    refuses to write the value at all, so the callback raised and answered **500**
+    *after* the sign-in had succeeded. A backslash is refused for the same reason
+    as a tab one layer down: browsers normalise it to ``/`` for http(s), so
+    ``/\evil.example`` is another way to spell ``//evil.example``.
+    """
+    if not raw:
+        return None
+    candidate = str(raw)
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+    if "\\" in candidate:
+        return None
+    for char in candidate:
+        code = ord(char)
+        if code < 0x20 or code == 0x7F:
+            return None
+    return candidate[:512]
+
+
+def _login_page(error=None, status: int | None = None):
+    """The sign-in page, with every method's availability read from the environment."""
+    body = render_template(
+        "login.html",
+        error=error,
+        csrf_token=get_csrf_token(),
+        passkey_enabled=bool(ADMIN_PASSKEY),
+        oauth_enabled=discord_auth.enabled(),
+        oauth_callback=oauth_redirect_uri(),
+        oauth_hint=_oauth_setup_hint(),
+    )
+    return (body, status) if status else body
 
 
 def generate_magic_token(guild_id: int | None = None, user_id: int | None = None) -> str:
@@ -356,6 +436,56 @@ def _known_guilds():
     return [{"id": g.id, "name": g.name} for g in BOT_INSTANCE.guilds]
 
 
+def _visible_guilds():
+    """The servers **this session** may act on, in the order it may see them.
+
+    A passkey session is the operator's and sees every server the bot is in. A
+    Discord sign-in sees the servers that person administers; a one-time link
+    sees the one server it was minted for. The list is derived from the bot's
+    live guilds every time rather than trusted from the session, so a server the
+    bot has been removed from stops being offered immediately.
+    """
+    known = {g["id"]: g for g in _known_guilds()}
+    scope = session.get("auth_scope")
+    if scope == "user":
+        # Only the *ids* live in the session. The session is a signed cookie, and
+        # a name per server would push a person who administers a few dozen of
+        # them past the 4 KB a browser will store — a session that vanishes on
+        # sign-out with no error anywhere, which is the worst kind of bug to
+        # debug. Names come from the bot's live cache instead, so a renamed
+        # server shows its new name and one the bot has left disappears by
+        # itself.
+        wanted = []
+        for raw in session.get("admin_guild_ids") or []:
+            gid = _int_or_none(raw)
+            if gid is not None:
+                wanted.append(gid)
+        return [known[gid] for gid in wanted if gid in known]
+    if scope == "guild":
+        gid = _int_or_none(session.get("guild_id"))
+        return [known[gid]] if gid in known else []
+    return list(known.values())
+
+
+def _guild_icon(guild_id) -> str:
+    """A server's picture as a URL the page can load, or empty when it has none.
+
+    Read from the gateway's own cache rather than stored in the session, for the
+    same reason the names are: a cookie is not a place to keep a copy of
+    Discord's state.
+    """
+    if not BOT_INSTANCE or not guild_id:
+        return ""
+    try:
+        guild = BOT_INSTANCE.get_guild(int(guild_id))
+        icon = getattr(guild, "icon", None) if guild else None
+        if icon is None:
+            return ""
+        return str(getattr(icon, "url", "") or "")
+    except Exception:
+        return ""
+
+
 def _bot_ping_ms():
     """Gateway latency in whole milliseconds, or ``None`` when there is none.
 
@@ -423,6 +553,29 @@ def _resolve_guild_id(requested=None):
             return None
         return gid
 
+    if session.get("auth_scope") == "user":
+        # A Discord sign-in reaches only the servers it was told this person
+        # administers, and the set is recomputed from the bot's live guilds on
+        # every request — so a server they were demoted from, or one the bot has
+        # left, stops being reachable the moment either becomes true rather than
+        # when their session happens to expire.
+        allowed = {g["id"] for g in _visible_guilds()}
+        wanted_candidates = []
+        if requested not in (None, "", 0):
+            try:
+                wanted_candidates.append(int(requested))
+            except (TypeError, ValueError):
+                pass
+        stored = _int_or_none(session.get("guild_id"))
+        if stored is not None:
+            wanted_candidates.append(stored)
+        for gid in wanted_candidates:
+            if gid in allowed:
+                return gid
+        # Someone who manages none of them is not an error: they are signed in,
+        # and the picker's job is to tell them what to do about it.
+        return min(allowed) if allowed else None
+
     session_guild = session.get("guild_id")
     candidates = []
     if requested not in (None, "", 0):
@@ -457,17 +610,70 @@ def _require_auth_api():
     return None
 
 
+def _body_limit_for(path: str) -> int:
+    """This route's real limit. Only the picture upload is allowed to be big."""
+    return UPLOAD_BODY_LIMIT if path == "/api/identity" else JSON_BODY_LIMIT
+
+
+def _body_too_large_error(path: str, limit: int) -> str:
+    """The refusal, naming the limit that was actually hit.
+
+    One sentence used to cover both cases, and it talked about messages — so an
+    image upload that was too big was answered with "That message is larger than
+    the dashboard accepts (16 KB). Shorten it or split the send.", which names
+    neither the file nor a limit it could ever have met.
+    """
+    if path == "/api/identity":
+        return (
+            f"That upload is {limit // (1024 * 1024)} MB at most — two pictures of "
+            f"{identity.MAX_IMAGE_BYTES // (1024 * 1024)} MB each, plus the form. "
+            "Pick a smaller file."
+        )
+    return (
+        f"That message is larger than the dashboard accepts ({limit // 1024} KB). "
+        "Shorten it or split the send."
+    )
+
+
+@app.before_request
+def _enforce_body_limit():
+    """Apply each route's own body limit, before the view reads anything.
+
+    Flask's ``MAX_CONTENT_LENGTH`` is a single number for the whole app and it is
+    checked *before* any view runs, so the one route that legitimately carries
+    megabytes made the app-level cap that number — and then the 16 KB the
+    dashboard is happy to accept everywhere else had to be re-stated per route,
+    which is what this does. Without it the "picture for this server" panel could
+    only ever accept a file smaller than a favicon, which is exactly what it did:
+    a 20 KB PNG was refused where a 48-byte one was applied.
+    """
+    limit = _body_limit_for(request.path)
+    try:
+        # Flask 3.1's per-request switch: the bound actually applied while the
+        # body streams. Harmless where it does not exist, because the explicit
+        # check below and the app-level cap still hold.
+        request.max_content_length = limit
+    except Exception:
+        pass
+    length = request.content_length
+    if length is not None and length > limit:
+        return jsonify({"success": False, "error": _body_too_large_error(request.path, limit)}), 413
+    return None
+
+
 @app.errorhandler(413)
 def _payload_too_large(_error):
     """A JSON answer for the JSON-only client.
 
     Flask's default 413 is HTML, so the page's ``response.json()`` threw and the
     catch-all turned it into "Request failed (413)" — honest, but it never said
-    which limit was hit or what to do about it.
+    which limit was hit or what to do about it. This is the backstop for a body
+    that announced no length (or lied about it) and was caught while streaming.
     """
+    limit = _body_limit_for(request.path)
     return jsonify({
         "success": False,
-        "error": "That message is larger than the dashboard accepts (16 KB). Shorten it or split the send.",
+        "error": _body_too_large_error(request.path, limit),
     }), 413
 
 
@@ -688,47 +894,29 @@ def login():
                 session["user_id"] = meta["user_id"]
             get_csrf_token()
             return redirect("/dashboard")
-        return render_template(
-            "login.html",
-            error=(
-                "That sign-in link has expired or already been used. "
-                "Tap ⚡ Open Dashboard on /help in Discord for a new one."
-            ),
-            csrf_token=get_csrf_token(),
-            passkey_enabled=bool(ADMIN_PASSKEY),
+        return _login_page(
+            "That sign-in link has expired or already been used. "
+            "Tap ⚡ Open Dashboard on /help in Discord for a new one."
         )
 
     if request.method == "POST":
         if not validate_csrf():
-            return render_template(
-                "login.html",
-                error="Your session expired. Please refresh and try again.",
-                csrf_token=get_csrf_token(),
-                passkey_enabled=bool(ADMIN_PASSKEY),
+            return _login_page(
+                "Your session expired. Please refresh and try again."
             ), 403
 
         ip = _client_ip()
         if not _login_allowed(ip):
-            return render_template(
-                "login.html",
-                error=(
-                    "Too many failed attempts. Wait a few minutes and try again, "
-                    "or tap ⚡ Open Dashboard on /help in Discord."
-                ),
-                csrf_token=get_csrf_token(),
-                passkey_enabled=bool(ADMIN_PASSKEY),
+            return _login_page(
+                "Too many failed attempts. Wait a few minutes and try again, "
+                "sign in with Discord, or tap ⚡ Open Dashboard on /help in Discord."
             ), 429
 
         if not ADMIN_PASSKEY:
             _record_login_failure(ip)
-            return render_template(
-                "login.html",
-                error=(
-                    "Passkey login is disabled. Tap ⚡ Open Dashboard on /help in "
-                    "Discord for a one-time sign-in link."
-                ),
-                csrf_token=get_csrf_token(),
-                passkey_enabled=False,
+            return _login_page(
+                "Passkey login is disabled. Sign in with Discord, or tap "
+                "⚡ Open Dashboard on /help in Discord for a one-time link."
             )
 
         entered_passkey = request.form.get("passkey") or ""
@@ -742,21 +930,11 @@ def login():
             return redirect("/dashboard")
 
         _record_login_failure(ip)
-        return render_template(
-            "login.html",
-            error="Invalid admin passkey. Please try again.",
-            csrf_token=get_csrf_token(),
-            passkey_enabled=True,
-        ), 401
+        return _login_page("Invalid admin passkey. Please try again."), 401
 
     if is_authenticated():
         return redirect("/dashboard")
-    return render_template(
-        "login.html",
-        error=None,
-        csrf_token=get_csrf_token(),
-        passkey_enabled=bool(ADMIN_PASSKEY),
-    )
+    return _login_page()
 
 
 @app.route("/logout", methods=["GET", "POST"])
@@ -767,6 +945,166 @@ def logout():
         session.clear()
         return redirect("/login")
     return redirect("/dashboard" if is_authenticated() else "/login")
+
+
+# ---------------------------------------------------------------------------
+# Signing in as yourself
+# ---------------------------------------------------------------------------
+# The two ways in above belong to the operator: a one-time link is scoped to the
+# one server it was minted in, and the passkey is the whole bot. Neither can
+# answer the question a member actually has — *which of my servers is this bot
+# in, and which of those may I manage?* — because the answer depends on the
+# person, not on a server. Discord sign-in answers it in one redirect: who you
+# are, which servers you see, and whether each of them gives you Manage Server.
+# The session then carries that list, and every server-scoped route is checked
+# against it (see ``_resolve_guild_id``), so a hand-edited cookie cannot reach a
+# server the person does not administer.
+
+
+@app.route("/login/discord")
+def login_discord():
+    """Send somebody to Discord to prove who they are."""
+    if not discord_auth.enabled():
+        return _login_page(_oauth_setup_hint(), 503)
+    state = secrets.token_urlsafe(24)
+    session["oauth_state"] = state
+    session["oauth_next"] = _safe_next(request.args.get("next"))
+    return redirect(discord_auth.authorize_url(oauth_redirect_uri(), state))
+
+
+@app.route("/login/discord/callback")
+def login_discord_callback():
+    """Discord sends the person back here, and the code is traded for who they are."""
+    if not discord_auth.enabled():
+        return _login_page(_oauth_setup_hint(), 503)
+
+    # Pressing "Cancel" on Discord's own screen is a normal thing to do, and
+    # Discord reports it through the same two parameters as a real refusal.
+    refused = request.args.get("error_description") or request.args.get("error")
+    if refused:
+        return _login_page(f"Discord sign-in was not completed ({str(refused)[:200]}).")
+
+    # Single-use and compared in constant time. Without this the callback is a
+    # URL anybody can make a browser follow, so a code issued against somebody
+    # else's state would be accepted here.
+    expected = session.pop("oauth_state", None)
+    given = request.args.get("state") or ""
+    if not expected or not given or not secrets.compare_digest(str(expected), str(given)):
+        print("[DASHBOARD] Refused a Discord callback whose state did not match.", flush=True)
+        return _login_page("That sign-in did not come from this dashboard. Start again."), 400
+
+    code = (request.args.get("code") or "").strip()
+    if not code:
+        return _login_page("Discord did not return a sign-in code. Start again."), 400
+
+    next_path = _safe_next(session.get("oauth_next"))
+    try:
+        token = discord_auth.exchange_code(code, oauth_redirect_uri())
+        user = discord_auth.fetch_user(token)
+        guilds = discord_auth.fetch_user_guilds(token)
+    except discord_auth.AuthError as exc:
+        print(f"[DASHBOARD] Discord sign-in failed: {exc.reason}", flush=True)
+        return _login_page(exc.reason)
+
+    servers = discord_auth.servers_for(
+        guilds, user.get("id"), [g["id"] for g in _known_guilds()]
+    )
+    session.clear()
+    # Ids only — see ``_visible_guilds`` for why the names are not kept here.
+    session["authenticated"] = True
+    session.permanent = True
+    session["auth_scope"] = "user"
+    session["user_id"] = _int_or_none(user.get("id"))
+    session["discord_user"] = {
+        "id": str(user.get("id") or ""),
+        "name": discord_auth.display_name(user),
+        "avatar": discord_auth.avatar_url(user),
+    }
+    session["admin_guild_ids"] = [int(entry["id"]) for entry in servers]
+    get_csrf_token()
+    print(
+        f"[DASHBOARD] {session['discord_user']['name']} signed in — {len(servers)} "
+        "server(s) they administer that this bot is in.",
+        flush=True,
+    )
+    if len(servers) == 1:
+        session["guild_id"] = int(servers[0]["id"])
+    if len(servers) == 1 or next_path:
+        return redirect(next_path or "/dashboard")
+    return redirect("/servers")
+
+
+def _module_summary(guild_id) -> dict:
+    """What one server is currently running, so the picker can say which to fix.
+
+    Counted from the same cache the dashboard reads, so the list and the page it
+    opens cannot disagree about whether a system is on — and a server showing
+    "2 of 11 on" is exactly the one an operator is looking for after a deploy
+    that went wrong somewhere.
+    """
+    total = len(AVAILABLE_MODULES)
+    try:
+        states = modules.get_states(int(guild_id))
+    except Exception as exc:
+        print(f"[DASHBOARD] could not read module state for {guild_id}: {exc}", flush=True)
+        return {"known": False, "on": 0, "total": total, "off": []}
+    off = [
+        module["name"]
+        for module in AVAILABLE_MODULES
+        if not states.get(module["id"], features.default_enabled(module["id"]))
+    ]
+    return {"known": True, "on": total - len(off), "total": total, "off": off}
+
+
+def _servers_page(error=None, status: int | None = None):
+    """The servers this session may manage, and how to add the bot to another."""
+    operator = session.get("auth_scope") == "global"
+    servers = [
+        {**entry, "icon": _guild_icon(entry["id"])} for entry in _visible_guilds()
+    ]
+    if operator:
+        # The operator's reach is every server the bot is in, so the list says
+        # what each of them is currently running. Choosing which server to open
+        # is otherwise a guess from a list of names.
+        for entry in servers:
+            entry["scope"] = _module_summary(entry["id"])
+    body = render_template(
+        "servers.html",
+        servers=servers,
+        error=error,
+        operator=operator,
+        user=session.get("discord_user") or {},
+        # The invite is offered even with nothing to pick: a person whose
+        # servers do not have the bot yet is exactly who needs this page.
+        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        current_guild_id=_int_or_none(session.get("guild_id")),
+        csrf_token=get_csrf_token(),
+    )
+    return (body, status) if status else body
+
+
+@app.route("/servers", methods=["GET", "POST"])
+def servers():
+    """Pick which server the dashboard is looking at."""
+    if not is_authenticated():
+        return redirect("/login")
+    if session.get("auth_scope") == "guild":
+        # A one-time link is scoped to exactly one server, so there is nothing to
+        # pick. The operator's passkey reaches every server and wants this page
+        # most of all: it is how a second server is fixed without first knowing
+        # its id.
+        return redirect("/dashboard")
+    if request.method == "POST":
+        if not validate_csrf():
+            return _servers_page("Your session expired. Refresh and try again."), 403
+        gid = _int_or_none(request.form.get("guild_id"))
+        allowed = {g["id"] for g in _visible_guilds()}
+        if gid is None or gid not in allowed:
+            # The id came from a form, so it is a request and not a fact.
+            return _servers_page("You do not manage that server."), 403
+        session["guild_id"] = gid
+        return redirect(f"/dashboard?guild_id={gid}")
+    return _servers_page()
 
 
 # ---------------------------------------------------------------------------
@@ -971,11 +1309,31 @@ def dashboard():
         active_count=active_count,
         total_count=len(AVAILABLE_MODULES),
         csrf_token=get_csrf_token(),
-        guilds=_known_guilds(),
-        can_switch_guild=session.get("auth_scope") == "global",
-        # The picker's cap comes from the same constant the endpoint enforces, so
-        # the page cannot offer a sixth channel the send would then refuse.
-        composer_max_channels=MESSAGE_MAX_CHANNELS,
+        # Only the servers this session may act on, so the switcher cannot even
+        # offer one it would then refuse.
+        guilds=_visible_guilds(),
+        can_switch_guild=session.get("auth_scope") in ("global", "user"),
+        signed_in_as=session.get("discord_user") or {},
+        pick_server_url=(
+            "/servers" if session.get("auth_scope") in ("user", "global") else ""
+        ),
+        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        invite_here_url=(
+            discord_auth.invite_url(guild_id=guild_id)
+            if (discord_auth.client_id() and guild_id) else ""
+        ),
+        # The composer's whole rulebook, from the same constants the endpoint
+        # validates with: the character limit, the tag cap, the channel cap and
+        # the title length. One owner each, so the page's counter, its button and
+        # the bot cannot disagree — it used to hand over the channel cap alone,
+        # which left the other three written into the template as literals, where
+        # the page would go on stating the old number the day one moved here.
+        composer_limits={
+            "chars": MESSAGE_MAX_CHARS,
+            "tags": MESSAGE_MAX_MENTIONS,
+            "channels": MESSAGE_MAX_CHANNELS,
+            "title": MESSAGE_TITLE_MAX,
+        },
         # The scheduling controls read their limits from the store itself, so the
         # page cannot offer a repeat or a queue depth the endpoint would refuse.
         schedule_repeat_choices=[

@@ -285,15 +285,29 @@ class HelpSelectMenu(discord.ui.Select):
 # was dead for everyone. `tests/test_static_health.py` now holds every component
 # string in the tree to its limit.
 BUG_REPORT_HINT = (
-    "What happened, and what you expected instead? The command you ran, the "
-    "steps, and any error text."
+    "What happened, and what you expected instead? The steps you took, and any "
+    "error text."
 )
+#: The two things a report needs before anybody can *look*: which command, and
+#: when. The card carries the time the report was filed, which is often hours
+#: after the thing broke — so "when it happened" is asked for separately.
+#: Discord caps a placeholder at 100 characters and a label at 45, and refuses
+#: the whole modal when one is over; both are measured by
+#: ``tests/test_static_health.py``.
+BUG_COMMAND_HINT = "e.g. /balance — leave it blank if it was not a command"
+BUG_WHEN_HINT = "e.g. “today around 19:40” or “about ten minutes ago”"
 
 
 class BugReportModal(discord.ui.Modal, title="Report a bug"):
     """The free-text half of a report; the destination is resolved on submit."""
 
-    def __init__(self, channel_ids: list[int], source: str = "the /help panel"):
+    def __init__(
+        self,
+        channel_ids: list[int],
+        source: str = "the /help panel",
+        command: str = "",
+        when: str = "",
+    ):
         super().__init__()
         self.channel_ids = list(channel_ids)
         self.source = source
@@ -304,11 +318,33 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
             max_length=1500,
             required=True,
         )
+        self.command_used = discord.ui.TextInput(
+            label="Command you ran",
+            placeholder=BUG_COMMAND_HINT,
+            default=_prefill(command, 100),
+            max_length=100,
+            required=False,
+        )
+        self.when_happened = discord.ui.TextInput(
+            label="When did it happen?",
+            placeholder=BUG_WHEN_HINT,
+            default=_prefill(when, 100),
+            max_length=100,
+            required=False,
+        )
         self.add_item(self.what_happened)
+        self.add_item(self.command_used)
+        self.add_item(self.when_happened)
 
     async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
+        guild = getattr(interaction, "guild", None)
+        # ``getattr`` like the rest of this module: a partial stand-in (and a
+        # Discord interaction object that is mid-reconnect) must not turn filing
+        # a bug report into a second bug.
+        here = getattr(interaction, "channel", None)
         report = str(self.what_happened.value or "").strip()
+        command = str(self.command_used.value or "").strip()
+        when = str(self.when_happened.value or "").strip()
         embed = discord.Embed(
             title="🐞 Bug report",
             description=report[:4000] or "*(no description given)*",
@@ -318,11 +354,26 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
         embed.add_field(name="Reported by", value=interaction.user.mention, inline=True)
         embed.add_field(
             name="Server",
-            value=guild.name if guild is not None else "Direct message",
+            # The id, not just the name: this is what makes the card joinable to
+            # the command log and to ``guild_modules`` when the report is checked.
+            value=(f"{guild.name} · `{guild.id}`" if guild is not None else "Direct message"),
             inline=True,
         )
+        embed.add_field(
+            name="Channel",
+            value=(f"#{getattr(here, 'name', 'unknown')}" if here is not None else "—"),
+            inline=True,
+        )
+        # Both are always shown, even when blank. A report cannot be checked
+        # without the command and the time, so "not given" is the useful thing to
+        # see — an absent field reads as a field nobody asked for.
+        embed.add_field(name="Command", value=command or "*not given*", inline=True)
+        embed.add_field(name="When it happened", value=when or "*not given*", inline=True)
         embed.add_field(name="Filed via", value=self.source, inline=True)
-        embed.set_footer(text=f"User ID {interaction.user.id}")
+        filed = int(discord.utils.utcnow().timestamp())
+        embed.set_footer(
+            text=f"User ID {interaction.user.id} · filed <t:{filed}:f>"
+        )
 
         # Targets, best first — and the first one that accepts the post ends the
         # walk, so one report is never posted twice. A server with no bug channel
@@ -341,7 +392,7 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
                 print(f"[BUG] Could not file the report in {channel_id}: {exc}", flush=True)
                 refusal = f"posting in {channel.mention} failed"
                 continue
-            follow_up = await _open_report_thread(message, report, interaction)
+            follow_up = await _open_report_thread(message, report, interaction, command)
             where = channel.mention
             if getattr(getattr(channel, "guild", None), "id", None) != getattr(guild, "id", None):
                 # Filed in the bot's own server on this server's behalf: say so, or
@@ -359,12 +410,18 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
         )
 
 
-async def _open_report_thread(message, report: str, interaction) -> str:
-    """A thread on the report, or ``""`` if this server will not have one."""
+async def _open_report_thread(message, report: str, interaction, command: str = "") -> str:
+    """A thread on the report, or ``""`` if this server will not have one.
+
+    The command leads the thread's name when the reporter gave one, because a
+    list of threads is scanned by what was being run — "🐞 /balance" says more
+    than the first line of a paragraph does.
+    """
     try:
         first_line = (report.splitlines() or [""])[0].strip()
+        named = f"/{command.lstrip('/')} {first_line}".strip() if command else first_line
         thread = await message.create_thread(
-            name=f"🐞 {first_line[:80] or interaction.user.name}",
+            name=f"🐞 {named[:95] or interaction.user.name}",
             auto_archive_duration=1440,
         )
         return f" Follow it in {thread.mention}."
@@ -373,12 +430,32 @@ async def _open_report_thread(message, report: str, interaction) -> str:
         return ""
 
 
-async def open_bug_report(interaction: discord.Interaction, source: str = "the /help panel"):
+def _prefill(value: str, limit: int) -> str | None:
+    """A modal field's starting text, or ``None`` so it opens empty.
+
+    ``/bot bug command:/balance when:2 minutes ago`` fills the form in rather than
+    making somebody type the same sentence twice; a field with nothing to prefill
+    is left empty rather than showing a blank string.
+    """
+    text = str(value or "").strip()
+    return text[:limit] or None
+
+
+async def open_bug_report(
+    interaction: discord.Interaction,
+    source: str = "the /help panel",
+    command: str = "",
+    when: str = "",
+):
     """Open the report modal, or say plainly why nothing can be filed.
 
     One entry point for the panel button and for ``/bot bug`` alike: the
     destinations are resolved by the same call either time, which is the only
     reason a report sent from either surface ends up in the same place.
+
+    ``command`` and ``when`` are optional and only *prefill* the form: the report
+    still cannot be filed without saying what went wrong, and a reporter who
+    gives them at the command line should not have to type them again.
     """
     guild = interaction.guild
     if guild is None:
@@ -396,7 +473,9 @@ async def open_bug_report(interaction: discord.Interaction, source: str = "the /
             "one without a restart.",
             ephemeral=True,
         )
-    await interaction.response.send_modal(BugReportModal(targets, source=source))
+    await interaction.response.send_modal(
+        BugReportModal(targets, source=source, command=command, when=when)
+    )
 
 
 class BugReportButton(discord.ui.Button):

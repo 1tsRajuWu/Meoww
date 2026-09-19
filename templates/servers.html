@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b0e13">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Choose a server — Meow Control Center</title>
+    <style>
+        :root {
+            --bg: #0b0e13;
+            --surface: #12161e;
+            --surface-card: #161b25;
+            --border: #232b38;
+            --accent: #5865F2;
+            --green: #3ba55d;
+            --text-primary: #f0f3f8;
+            --text-secondary: #94a3b8;
+            --text-muted: #8494ab;
+            --radius-md: 10px;
+            --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            padding: 40px 20px 64px;
+        }
+
+        .wrap { max-width: 720px; margin: 0 auto; }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: wrap;
+            margin-bottom: 28px;
+        }
+
+        .who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+        .who img,
+        .who .monogram {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--surface-card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex: none;
+        }
+
+        .who .name { font-size: 14px; font-weight: 600; }
+        .who .sub { font-size: 12px; color: var(--text-muted); }
+
+        h1 { font-size: 22px; margin-bottom: 6px; }
+        .lead { color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin-bottom: 22px; }
+
+        .error-banner {
+            background: rgba(237, 66, 69, 0.12);
+            border: 1px solid rgba(237, 66, 69, 0.45);
+            color: #ffb4b4;
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        .server-list { display: flex; flex-direction: column; gap: 10px; list-style: none; }
+
+        .server-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+        }
+
+        .server-row.current { border-color: var(--accent); }
+
+        .server-row img,
+        .server-row .monogram {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            flex: none;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+
+        .server-meta { flex: 1; min-width: 0; }
+        .server-meta b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .server-meta span { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+
+        /* The operator's reach is every server, so the list says what each one is
+           running — a server showing "2 of 11 on" is the one being looked for. */
+        .server-meta .scope-line {
+            display: block;
+            margin-top: 4px;
+            font-family: var(--font-sans);
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .tag {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--green);
+            border: 1px solid rgba(59, 165, 93, 0.45);
+            background: rgba(59, 165, 93, 0.12);
+            border-radius: 999px;
+            padding: 3px 9px;
+            flex: none;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            background: var(--surface-card);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .btn:hover { border-color: var(--accent); }
+        .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn-primary:hover { filter: brightness(1.08); }
+        .btn-danger { color: #ffb4b4; }
+
+        .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+
+        .empty {
+            background: var(--surface);
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-md);
+            padding: 26px 22px;
+            text-align: center;
+        }
+
+        .empty p { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+        .empty .btn { margin-top: 16px; }
+
+        .note { margin-top: 22px; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+        .note code { font-family: var(--font-mono); color: var(--text-secondary); }
+
+        @media (max-width: 560px) {
+            body { padding: 24px 14px 48px; }
+            .server-row { flex-wrap: wrap; }
+            .server-row form { width: 100%; }
+            .server-row .btn { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header>
+            <div class="who">
+                {% if user.avatar %}
+                <img src="{{ user.avatar }}" alt="" width="40" height="40">
+                {% else %}
+                <span class="monogram" aria-hidden="true">{{ (user.name or "O")[0]|upper }}</span>
+                {% endif %}
+                <span>
+                    <span class="name">{{ user.name or "Operator" }}</span>
+                    <span class="sub">{{ "via Discord" if user.name else "passkey session · every server" }}</span>
+                </span>
+            </div>
+            <form method="POST" action="/logout">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-danger">Sign out</button>
+            </form>
+        </header>
+
+        <h1>{{ "All servers" if operator else "Choose a server" }}</h1>
+        <p class="lead">
+            {% if operator %}
+            Every server <strong>Meow</strong> is in, with what each one is currently
+            running. Open one to start or stop its systems and change its command list —
+            a change here applies to that server only, never to the others.
+            {% else %}
+            These are the servers you help run that <strong>Meow</strong> is already in.
+            Only servers you have <em>Manage Server</em> in are listed, and the dashboard
+            can only ever change the one you pick.
+            {% endif %}
+        </p>
+
+        {% if error %}
+        <div class="error-banner" role="alert">{{ error }}</div>
+        {% endif %}
+
+        {% if servers %}
+        <ul class="server-list">
+            {% for server in servers %}
+            <li class="server-row {{ 'current' if current_guild_id == server.id|int else '' }}">
+                {% if server.icon %}
+                <img src="{{ server.icon }}" alt="" width="44" height="44">
+                {% else %}
+                <span class="monogram" aria-hidden="true">{{ (server.name or "?")[0]|upper }}</span>
+                {% endif %}
+                <span class="server-meta">
+                    <b>{{ server.name }}</b>
+                    <span>{{ server.id }}</span>
+                    {% if server.scope %}
+                    <span class="scope-line">
+                        {% if server.scope.known %}
+                        {{ server.scope.on }} of {{ server.scope.total }} systems on{% if server.scope.off %} · off: {{ server.scope.off|join(", ") }}{% endif %}
+                        {% else %}
+                        module state could not be read
+                        {% endif %}
+                    </span>
+                    {% endif %}
+                </span>
+                {% if current_guild_id == server.id|int %}
+                <span class="tag">Open now</span>
+                {% endif %}
+                <form method="POST" action="/servers">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="guild_id" value="{{ server.id }}">
+                    <button type="submit" class="btn btn-primary">{{ "Open" if current_guild_id == server.id|int else "Manage" }}</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty">
+            <p>
+                You are signed in, but you do not manage any server that has this bot —
+                and a server the bot is not in has nothing for this dashboard to change.
+            </p>
+            {% if invite_url %}
+            <a class="btn btn-primary" href="{{ invite_url }}" target="_blank" rel="noopener">Add Meow to a server</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="actions">
+            {% if invite_url %}
+            <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener">➕ Add the bot to another server</a>
+            {% endif %}
+            <form method="POST" action="/logout">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-danger">Sign out</button>
+            </form>
+        </div>
+
+        <p class="note">
+            {% if operator %}
+            This session is the operator's passkey, so it reaches every server the bot
+            is in. A module switch, a command-list change or a name is still applied to
+            <strong>one</strong> server at a time — open the server you mean.
+            {% else %}
+            Signing in asks Discord for your <code>identify</code> and <code>guilds</code>
+            — your name, your picture, and the list of servers you are in with your
+            permissions on each. Nothing else is requested: no email, no messages, and
+            the access token is used for those two lookups and then discarded.
+            {% endif %}
+        </p>
+    </div>
+</body>
+</html>

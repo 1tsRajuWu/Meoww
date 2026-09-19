@@ -48,6 +48,82 @@
             text-align: center;
         }
 
+        /* Discord's own blurple, because the button's job is to be recognised as
+           the thing people have pressed on every other bot's dashboard. */
+        .btn-discord {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            margin-top: 24px;
+            padding: 13px 18px;
+            background: var(--accent);
+            color: #fff;
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-md);
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: filter 120ms ease, transform 120ms ease;
+        }
+
+        .btn-discord:hover { filter: brightness(1.08); }
+        .btn-discord:active { transform: translateY(1px); }
+        .btn-discord:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 22px 0 6px;
+            color: var(--text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .setup-note {
+            margin-top: 24px;
+            padding: 14px 16px;
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.55;
+            text-align: left;
+        }
+
+        .setup-note strong { color: var(--text-primary); }
+
+        .setup-value { margin-top: 10px; }
+
+        .setup-value span {
+            display: block;
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 4px;
+        }
+
+        .setup-value code {
+            display: block;
+            word-break: break-all;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 12px;
+        }
+
         /* A monogram, not a gradient tile: the same mark the dashboard uses,
            just larger. */
         .bot-avatar {
@@ -210,10 +286,27 @@
     <main class="login-card">
         <div class="bot-avatar" aria-hidden="true">M</div>
         <h1>Meow Admin Portal</h1>
-        <p class="lead">Sign in with your admin passkey, or tap <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord for a one-time 15-minute link.</p>
+        <p class="lead">Sign in with Discord to see the servers you manage, use your admin passkey, or tap <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord for a one-time 15-minute link.</p>
 
         {% if error %}
         <div class="error-banner" role="alert">{{ error }}</div>
+        {% endif %}
+
+        {# Signing in as yourself is the way a member gets here: it is the only
+           method that can say which servers they run, because that depends on
+           the person rather than on a server or a shared secret. #}
+        {% if oauth_enabled %}
+        <a class="btn-discord" href="/login/discord">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 15.437 3c-.21.375-.45.88-.617 1.28a18.27 18.27 0 0 0-5.64 0A12.6 12.6 0 0 0 8.55 3a19.74 19.74 0 0 0-4.886 1.372C.61 9.05-.29 13.62.16 18.13a19.9 19.9 0 0 0 5.993 3.02c.48-.656.907-1.353 1.276-2.086a12.9 12.9 0 0 1-2.01-.965c.169-.123.334-.251.492-.383a14.2 14.2 0 0 0 12.18 0c.16.133.325.26.492.383a12.9 12.9 0 0 1-2.013.966c.37.732.796 1.43 1.276 2.085a19.86 19.86 0 0 0 5.996-3.02c.53-5.226-.9-9.757-3.535-13.761ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.955 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418Z"/></svg>
+            Sign in with Discord
+        </a>
+        <div class="divider"><span>or</span></div>
+        {% else %}
+        <div class="setup-note" role="status">
+            <strong>Discord sign-in is off.</strong>
+            {{ oauth_hint }}
+            <div class="setup-value"><span>Callback URL</span><code>{{ oauth_callback }}</code></div>
+        </div>
         {% endif %}
 
         {% if passkey_enabled %}

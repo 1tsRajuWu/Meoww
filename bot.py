@@ -736,10 +736,18 @@ async def _resync_server(bot: commands.Bot, guild) -> None:
     Loops rather than running once: a switch that flips *while* this is
     publishing marks the server dirty again, and reading the state a second time
     is the difference between a server being correct and being one click stale.
+
+    The dirty flag is cleared **after** the wait, not before. Clicking a bulk
+    button fires one request per module, and every one of them lands inside this
+    wait — clearing first would book each of those clicks as a fresh change and
+    spend a second full pass (and a second read of every scope) re-publishing a
+    state that had not moved. Clearing after means the wait absorbs the whole
+    burst and the pass publishes what the clicking left behind, while a click
+    that arrives once the publishes have started still gets its own pass.
     """
     while guild.id in _resync_dirty:
-        _resync_dirty.discard(guild.id)
         await asyncio.sleep(RESYNC_SETTLE_SECONDS)
+        _resync_dirty.discard(guild.id)
         try:
             status = await _sync_guild(bot, guild)
         except Exception as exc:

@@ -805,6 +805,134 @@ class TheRealTreeRoundTrips(unittest.IsolatedAsyncioTestCase):
             await bot.close()
 
 
+class ASwitchBurstCostsOnePublish(unittest.IsolatedAsyncioTestCase):
+    """Switching modules off is one command-set change, not one per click.
+
+    The dashboard's "disable all" flips eleven modules back to back, and each
+    flip asks the bot to republish that server's commands. Eleven publishes of
+    ninety commands each is how a server's daily write budget disappears, so a
+    burst is coalesced: the pass waits for the clicking to stop, then reads the
+    state the clicking left behind. Nothing else in this file would notice if
+    that coalescing broke, which is the point of pinning it here.
+    """
+
+    GUILD_ID = 4242
+
+    def setUp(self):
+        self.guild = SimpleNamespace(id=self.GUILD_ID, name="Development")
+        self.bot = SimpleNamespace(guilds=[self.guild])
+        self.publishes: list[dict] = []
+        self.state = {"market": True, "economy": True}
+        self.in_flight = None
+        self.release = None
+        self.hold_once = False
+        bot_module._resync_dirty.clear()
+        bot_module._resync_tasks.clear()
+
+    def tearDown(self):
+        bot_module._resync_dirty.clear()
+        for task in list(bot_module._resync_tasks.values()):
+            task.cancel()
+        bot_module._resync_tasks.clear()
+
+    async def _fake_sync(self, _bot, _guild, *, force=False):
+        """Stands in for the publisher, recording the state it would send."""
+        del force
+        self.publishes.append(dict(self.state))
+        if self.hold_once:
+            self.hold_once = False
+            self.in_flight.set()
+            await self.release.wait()
+        return {
+            "registered": len(self.state), "pending": 0, "published": 0,
+            "retry_after": None, "summary": "up to date", "detail": "",
+        }
+
+    def _patched(self):
+        return (
+            mock.patch.object(bot_module, "RESYNC_SETTLE_SECONDS", 0.3),
+            mock.patch.object(bot_module, "_sync_guild", new=self._fake_sync),
+        )
+
+    async def test_eleven_switches_clicked_fast_are_one_publish(self):
+        settle, sync = self._patched()
+        with settle, sync:
+            for _ in range(11):
+                await bot_module._kick_guild_resync(self.bot, self.guild)
+                await asyncio.sleep(0.01)  # a person clicking, not a tight loop
+            self.state = {"market": False, "economy": False}
+            await asyncio.sleep(0.5)
+
+        self.assertEqual(
+            len(self.publishes), 1,
+            f"eleven clicks cost {len(self.publishes)} publishes of the whole tree",
+        )
+        self.assertEqual(
+            self.publishes[0], {"market": False, "economy": False},
+            "the single pass published the state from before the clicking stopped",
+        )
+        self.assertFalse(bot_module._resync_dirty, "the server was left queued")
+        self.assertFalse(bot_module._resync_tasks, "the pass left itself behind")
+
+    async def test_a_switch_landing_during_the_publish_gets_its_own_pass(self):
+        """The case the loop exists for: the publish is already running."""
+        self.in_flight, self.release = asyncio.Event(), asyncio.Event()
+        self.hold_once = True
+        settle, sync = self._patched()
+        with settle, sync:
+            await bot_module._kick_guild_resync(self.bot, self.guild)
+            await asyncio.wait_for(self.in_flight.wait(), timeout=5)
+            self.state = {"market": False, "economy": True}
+            await bot_module._kick_guild_resync(self.bot, self.guild)
+            self.release.set()
+            await asyncio.sleep(0.6)
+
+        self.assertEqual(
+            len(self.publishes), 2,
+            "a switch that landed mid-publish was never published",
+        )
+        self.assertEqual(self.publishes[0], {"market": True, "economy": True})
+        self.assertEqual(self.publishes[1], {"market": False, "economy": True})
+        self.assertFalse(bot_module._resync_dirty)
+        self.assertFalse(bot_module._resync_tasks)
+
+    async def test_a_second_click_does_not_start_a_second_pass(self):
+        settle, sync = self._patched()
+        with settle, sync:
+            await bot_module._kick_guild_resync(self.bot, self.guild)
+            queued = bot_module._resync_tasks[self.GUILD_ID]
+            for _ in range(5):
+                await bot_module._kick_guild_resync(self.bot, self.guild)
+            self.assertIs(
+                bot_module._resync_tasks[self.GUILD_ID], queued,
+                "a click while one was already queued started another pass",
+            )
+            await asyncio.sleep(0.5)
+        self.assertEqual(len(self.publishes), 1)
+
+
+class TheResyncTriggerIsHonestAboutFailing(unittest.TestCase):
+    """A request for a republish that cannot happen says so rather than lying."""
+
+    def setUp(self):
+        self.client = mock.Mock()
+
+    def test_a_server_the_bot_is_not_in_is_refused(self):
+        self.client.get_guild.return_value = None
+        with mock.patch.object(bot_module, "bot", self.client):
+            self.assertFalse(bot_module.resync_guild_commands(1234))
+
+    def test_a_bot_that_is_not_running_is_refused(self):
+        self.client.get_guild.return_value = SimpleNamespace(id=1, name="x")
+        self.client.loop = None
+        with mock.patch.object(bot_module, "bot", self.client):
+            self.assertFalse(bot_module.resync_guild_commands(1))
+
+    def test_no_server_named_is_refused(self):
+        with mock.patch.object(bot_module, "bot", self.client):
+            self.assertFalse(bot_module.resync_guild_commands(0))
+
+
 class TheSyncCommandIsNotDestructive(unittest.TestCase):
     """`/sync` was a second route to the wipe the boot sync had already had.
 

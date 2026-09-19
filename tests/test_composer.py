@@ -648,6 +648,8 @@ def render_dashboard(**overrides) -> str:
     """
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+    import keep_alive
+
     env = Environment(
         loader=FileSystemLoader("templates"),
         autoescape=select_autoescape(["html"]),
@@ -678,6 +680,15 @@ def render_dashboard(**overrides) -> str:
         command_scope={
             "total": 90, "available": 90, "hidden": 0,
             "hidden_names": [], "modules": {},
+        },
+        # The composer's rulebook, which the view hands over from the constants
+        # the endpoint validates with. Read from ``keep_alive`` here rather than
+        # restated, so this fixture cannot pin numbers the bot does not use.
+        composer_limits={
+            "chars": keep_alive.MESSAGE_MAX_CHARS,
+            "tags": keep_alive.MESSAGE_MAX_MENTIONS,
+            "channels": keep_alive.MESSAGE_MAX_CHANNELS,
+            "title": keep_alive.MESSAGE_TITLE_MAX,
         },
     )
     context.update(overrides)
@@ -743,6 +754,173 @@ class DashboardTemplateCase(unittest.TestCase):
             finally:
                 os.unlink(handle.name)
             self.assertEqual(result.returncode, 0, result.stderr[:800])
+
+    @staticmethod
+    def _script_slice(script: str, start: str, end: str) -> str:
+        """The page's own source between two anchors, or a loud failure.
+
+        A silent miss would let the equality test below pass vacuously.
+        """
+        begin = script.find(start)
+        stop = script.find(end, begin + 1) if begin >= 0 else -1
+        if begin < 0 or stop < 0:
+            raise AssertionError(f"the page no longer carries {start!r} … {end!r}")
+        return script[begin:stop]
+
+    def test_the_pages_rulebook_answers_exactly_what_the_bot_answers(self):
+        """The composer's own rules, run against the real validator, case by case.
+
+        The page refuses locally so the user is told before committing to a send —
+        and that is only an improvement while both sides give the *same* answer. A
+        form that refuses what the bot accepts is a dead end; one that accepts what
+        the bot refuses teaches the rule by failing. It was the second kind: the
+        character limit was a literal the counter coloured red and nothing acted
+        on, and the tag cap did not exist on the page at all.
+
+        So the page's own functions are executed in a real JS engine on stubs, and
+        every sentence is compared with ``keep_alive._build_message``'s for the
+        equivalent payload. A comparison of strings would have missed the drift
+        this is here to catch.
+        """
+        import json
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+
+        import keep_alive
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+
+        html = self.render()
+        script = re.findall(r"<script>(.*?)</script>", html, re.S)[-1]
+        rulebook = self._script_slice(script, "function pingLength()", "function renderPreview()")
+        generator = self._script_slice(
+            script, "function composerUsesGenerator()", "function applyContentMode()"
+        )
+
+        limit = keep_alive.MESSAGE_MAX_CHARS
+        tags = keep_alive.MESSAGE_MAX_MENTIONS
+        member = f"<@1542296506290143349>"
+        member_id = "1542296506290143349"
+        one_channel = ["1548437081120833657"]
+        cases = [
+            # name, payload the browser would post, what it looks like to the page
+            ("no channel", {"channel_ids": [], "content": "hi"}, []),
+            ("nothing written", {"channel_ids": one_channel, "content": "   "}, one_channel),
+            (
+                "exactly at the limit",
+                {"channel_ids": one_channel, "content": "x" * limit},
+                one_channel,
+            ),
+            (
+                "one past the limit",
+                {"channel_ids": one_channel, "content": "x" * (limit + 1)},
+                one_channel,
+            ),
+            (
+                "fits alone, not with the tag",
+                {
+                    "channel_ids": one_channel,
+                    "content": "x" * (limit - len(member)),
+                    "mentions": [member_id],
+                },
+                one_channel,
+            ),
+            (
+                "a title with no embed",
+                {"channel_ids": one_channel, "content": "", "title": "Notice"},
+                one_channel,
+            ),
+            (
+                "too many tags",
+                {
+                    "channel_ids": one_channel,
+                    "content": "hi",
+                    "mentions": [str(1000 + i) for i in range(tags + 1)],
+                },
+                one_channel,
+            ),
+            (
+                "an over-long body in embed mode",
+                {"channel_ids": one_channel, "content": "x" * (limit + 5), "embed": True},
+                one_channel,
+            ),
+            ("a sendable message", {"channel_ids": one_channel, "content": "hello"}, one_channel),
+        ]
+
+        program = "\n".join([
+            "const COMPOSER_LIMITS = " + json.dumps({
+                "chars": limit,
+                "tags": tags,
+                "channels": keep_alive.MESSAGE_MAX_CHANNELS,
+                "title": keep_alive.MESSAGE_TITLE_MAX,
+            }) + ";",
+            "let scheduleMode = 'now';",
+            "let composerBusy = false;",
+            "let composerMentions = [];",
+            "let composerSelection = [];",
+            "const composerEls = {body: {value: ''}, title: {value: ''},",
+            "  embed: {checked: false}, content: {value: ''},",
+            "  blocked: {textContent: '', hidden: true}, send: {disabled: false}};",
+            rulebook,
+            generator,
+            "const CASES = " + json.dumps([case[1] for case in cases]) + ";",
+            "const PAGE = CASES.map(function (c) {",
+            "  composerSelection = (c.channel_ids || []).map(String);",
+            "  composerMentions = (c.mentions || []).map(function (id) {",
+            "    return {id: id, label: id, kind: 'user'};",
+            "  });",
+            "  composerEls.body.value = c.content || '';",
+            "  composerEls.title.value = c.title || '';",
+            "  composerEls.embed.checked = !!c.embed;",
+            "  scheduleMode = c.generator ? 'later' : 'now';",
+            "  composerEls.content.value = c.generator || '';",
+            "  return composerRuleBreak();",
+            "});",
+            "console.log(JSON.stringify(PAGE));",
+        ])
+
+        class _Member:
+            id = int(member_id)
+            mention = member
+
+        class _Guild:
+            """Only what ``_build_message`` reads: one member it can resolve."""
+
+            def get_member(self, user_id):
+                return _Member() if str(user_id) == member_id else None
+
+            def get_role(self, user_id):
+                return None
+
+            async def fetch_member(self, user_id):
+                return None
+
+        handle = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+        try:
+            handle.write(program)
+            handle.close()
+            result = subprocess.run(
+                [node, handle.name], capture_output=True, text=True, timeout=60
+            )
+        finally:
+            os.unlink(handle.name)
+        self.assertEqual(result.returncode, 0, result.stderr[:800])
+        page = json.loads(result.stdout)
+
+        self.assertEqual(len(page), len(cases))
+        for (name, payload, _), page_answer in zip(cases, page):
+            data = dict(payload)
+            if data.get("mentions"):
+                data["mentions"] = [str(m) for m in data["mentions"]]
+            _, _, bot_answer = keep_alive._build_message(_Guild(), data)
+            self.assertEqual(
+                page_answer, bot_answer,
+                f"{name}: the page says {page_answer!r}, the bot says {bot_answer!r}",
+            )
 
     def test_every_element_the_script_reaches_for_exists(self):
         """``getElementById`` on an id the markup does not have is ``null``, and
@@ -926,26 +1104,58 @@ class DashboardTemplateCase(unittest.TestCase):
         self.assertIn('channel.kind === "voice"', html, "the row has to look like a voice channel")
         self.assertIn("text chat turned on", html, "and the one way it can refuse is said up front")
 
-    def test_the_picker_uses_the_servers_own_channel_limit(self):
+    def test_the_page_states_the_servers_own_limits_and_no_others(self):
         """Two copies of a limit drift; the page must not offer a sixth channel
-        the endpoint would then refuse."""
+        the endpoint would then refuse — nor count to a 2,000 the bot no longer
+        has. Every number the composer states comes out of the rulebook the view
+        builds from the same constants the endpoint validates with.
+        """
         import keep_alive
 
-        limit = keep_alive.MESSAGE_MAX_CHANNELS
-        html = self.render(composer_max_channels=limit)
-        self.assertIn(f"const COMPOSER_MAX_CHANNELS = {limit};", html)
-        self.assertIn(f"up to {limit}", html)
-
-    def test_anything_the_script_hides_is_actually_hidden(self):
-        """``display: flex`` outranks the browser's own ``[hidden]`` rule.
-
-        The page already carried three ``[hidden]`` guards for exactly this reason,
-        and the fourth was missing: the receipt's footer is set ``hidden`` when
-        there is nothing to retry, and stayed on screen offering to "Retry the 0
-        failed channels". A rule is only needed for a class that declares its own
-        ``display``, which is what this checks — the whole family, not the one case.
-        """
         html = self.render()
+        for name, value in (
+            ("chars", keep_alive.MESSAGE_MAX_CHARS),
+            ("tags", keep_alive.MESSAGE_MAX_MENTIONS),
+            ("channels", keep_alive.MESSAGE_MAX_CHANNELS),
+            ("title", keep_alive.MESSAGE_TITLE_MAX),
+        ):
+            self.assertIn(f"{name}: {value},", html, f"the page does not carry the bot's {name}")
+        self.assertIn(f"up to {keep_alive.MESSAGE_MAX_CHANNELS}", html)
+
+    def test_a_different_rulebook_reaches_the_page(self):
+        """The page has no limits of its own: change them and the page changes.
+
+        Written because they used to be literals in the template — the counter
+        said 2000 because the template said 2000 — so a page that ignores what
+        the view hands it looks exactly like a correct one, right up until the
+        constant moves and the page goes on stating the old number.
+        """
+        html = self.render(
+            composer_limits={"chars": 1234, "tags": 7, "channels": 3, "title": 99}
+        )
+        for fragment in (
+            "chars: 1234,", "tags: 7,", "channels: 3,", "title: 99,",
+            'maxlength="1234"', 'maxlength="99"', ">0 / 1234<",
+            "up to 3",
+            # The counter's threshold is that number, not a second copy of it.
+            "total > COMPOSER_LIMITS.chars",
+        ):
+            self.assertIn(fragment, html)
+        # A number the template still states for itself would survive this render.
+        # Everything after the stylesheet is the page: the CSS ``z-index: 2000``
+        # is not a message limit, so it is excluded by looking past ``</style>``.
+        self.assertNotIn(
+            "2000", html.split("</style>", 1)[1],
+            "a limit the template states for itself is back",
+        )
+
+    @staticmethod
+    def _unguarded_hidden(html: str) -> list[str]:
+        """Classes that carry ``hidden`` and their own ``display``, unguarded.
+
+        A rule is only needed for a class that declares its own ``display``,
+        because the user-agent's ``[hidden]`` rule loses to any author one.
+        """
         missing = []
         for element in re.finditer(r"<[^>]*\shidden[^>]*>", html):
             classes = re.search(r'class="([^"]*)"', element.group(0))
@@ -957,8 +1167,41 @@ class DashboardTemplateCase(unittest.TestCase):
                     continue
                 if not re.search(r"\.%s\[hidden\]" % re.escape(name), html):
                     missing.append(f".{name}")
+        return missing
+
+    def test_anything_the_script_hides_is_actually_hidden(self):
+        """``display: flex`` outranks the browser's own ``[hidden]`` rule.
+
+        The page already carried three ``[hidden]`` guards for exactly this reason,
+        and the fourth was missing: the receipt's footer is set ``hidden`` when
+        there is nothing to retry, and stayed on screen offering to "Retry the 0
+        failed channels". A rule is only needed for a class that declares its own
+        ``display``, which is what this checks — the whole family, not the one case.
+        """
+        missing = self._unguarded_hidden(self.render())
         self.assertEqual(
             missing, [], f"hidden elements whose own rule sets display, with no guard: {missing}"
+        )
+
+    def test_anything_the_server_can_hide_is_actually_hidden(self):
+        """The same trap through the *other* door: the server's own ``hidden``.
+
+        An element with ``{% if ... %} hidden{% endif %}`` only carries the
+        attribute in the renders where its condition is true, so a fixture whose
+        state has nothing hidden cannot see it at all. That is how the command
+        list's "every command the bot has is offered on this server" note — a
+        ``.field-head``, so ``display: flex`` — shipped saying exactly that
+        directly above the thirty-one names that were not offered, in the page's
+        own render and in the live refresh that sets ``hidden`` afterwards.
+
+        Read from the template source, therefore, not from one render.
+        """
+        source = open("templates/dashboard.html", encoding="utf-8").read()
+        missing = self._unguarded_hidden(source)
+        self.assertEqual(
+            missing, [],
+            f"elements the server can hide, whose own rule sets display, with no "
+            f"guard: {missing}",
         )
 
     def test_the_page_calls_the_composer_endpoints(self):

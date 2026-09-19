@@ -1,7 +1,7 @@
 # Terms of Service
 
-**Effective Date:** September 18, 2026 · **Version 2** (supersedes the
-September 16, 2026 version).
+**Effective Date:** September 19, 2026 · **Version 3** (adds the dashboard's
+Discord sign-in).
 
 By inviting, configuring or using this Discord bot ("the Bot") you agree to these
 Terms. If you do not agree, remove the Bot from your server. They are between you
@@ -32,7 +32,11 @@ change, break or be discontinued at any time.
   members send with it.
 * Keep the dashboard passkey and any sign-in link private. Access is the
   credential, so anything done with it is treated as your instruction. Sign-in
-  links are single use and expire in 15 minutes.
+  links are single use and expire in 15 minutes. Where "Sign in with Discord" is
+  enabled, your own Discord account is the credential and your own permissions
+  decide what you may change: only servers where you hold Manage Server or better
+  are offered, and the session can reach no others — so removing somebody's roles
+  in Discord removes their access here.
 * Scheduled messages depend on the host being up. A post more than 24 hours late
   is skipped and says so rather than arriving at the wrong time, and a repeat
   stops after three failed attempts.

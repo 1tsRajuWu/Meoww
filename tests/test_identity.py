@@ -237,6 +237,58 @@ class TheEndpoint(_DashboardFixture):
         self.assertEqual(served.status_code, 200)
         self.assertEqual(served.data, png)
 
+    def test_a_real_sized_picture_is_accepted(self):
+        """A photograph, not a favicon.
+
+        The app-level body cap was 16 KB and it is checked *before* any view runs,
+        so this panel could only ever accept a file smaller than a favicon: a 20 KB
+        PNG was answered with the 413 handler's sentence about *messages* ("That
+        message is larger than the dashboard accepts (16 KB). Shorten it or split
+        the send."), and a 48-byte one was applied. The only uploaded file in the
+        suite was 46 bytes, which is why nothing caught it.
+        """
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        png = b"\x89PNG\r\n\x1a\n" + b"0" * 60_000
+        response = self.multipart(guild_id=str(GUILD_ID), avatar=(io.BytesIO(png), "pic.png"))
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(self.member.calls, [{"avatar": png}])
+
+    def test_a_picture_over_discords_limit_names_that_limit(self):
+        """4 MB, in the validator's own words — not the generic body refusal."""
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        oversized = b"\x89PNG\r\n\x1a\n" + b"0" * (identity.MAX_IMAGE_BYTES + 1)
+        response = self.multipart(guild_id=str(GUILD_ID), avatar=(io.BytesIO(oversized), "big.png"))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(str(identity.MAX_IMAGE_BYTES // (1024 * 1024)), response.get_json()["error"])
+        self.assertEqual(self.member.calls, [])
+
+    def test_a_body_past_what_two_pictures_can_be_is_refused_as_an_upload(self):
+        """The outer bound, and the sentence that names it."""
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        huge = b"\x89PNG\r\n\x1a\n" + b"0" * (2 * identity.MAX_IMAGE_BYTES + 200_000)
+        response = self.multipart(guild_id=str(GUILD_ID), avatar=(io.BytesIO(huge), "big.png"))
+        self.assertEqual(response.status_code, 413)
+        error = response.get_json()["error"]
+        self.assertIn("upload", error)
+        self.assertNotIn("message is larger", error)
+        self.assertEqual(self.member.calls, [])
+
+    def test_the_other_routes_keep_the_small_limit(self):
+        """Widening the bound for pictures must not widen it anywhere else.
+
+        Every other endpoint here takes a small JSON object, and the composer's
+        ceiling is Discord's own 2000 characters — so a body past 16 KB is still
+        refused, in the words that fit it.
+        """
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        response = self.client.post(
+            "/api/send-message",
+            json={"guild_id": GUILD_ID, "channel_ids": [7], "content": "x" * 30_000},
+            headers={"X-CSRF-Token": CSRF},
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("16 KB", response.get_json()["error"])
+
     def test_nothing_to_change_is_refused_rather_than_answered_ok(self):
         self.sign_in(scope="guild", guild_id=GUILD_ID)
         response = self.save(guild_id=GUILD_ID)
