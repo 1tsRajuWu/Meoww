@@ -81,10 +81,27 @@ jobs:
           # build_site.py is written to survive, which keeps the output
           # deployable to either.
           SITE_URL: ${{ vars.SITE_URL || 'https://meow-bot-site.pages.dev' }}
+          # Where the paid cards send a buyer. Public checkout links, so they
+          # live in repository *variables* rather than secrets; set them once and
+          # both hosts sell the same thing. Without them this copy of the page
+          # says "No billing yet" while the Render one charges — two hosts giving
+          # a visitor two different answers about the same product.
+          LEMONSQUEEZY_CHECKOUT_PRO: ${{ vars.LEMONSQUEEZY_CHECKOUT_PRO }}
+          LEMONSQUEEZY_CHECKOUT_ENTERPRISE: ${{ vars.LEMONSQUEEZY_CHECKOUT_ENTERPRISE }}
         # The builder exits non-zero if any root-relative URL survives its
         # rewrite, so a link that would 404 on a static host fails the job here
         # rather than in a visitor's browser.
         run: python scripts/build_site.py --out _site --proxy
+
+      - name: Warn when this copy cannot sell
+        # A warning rather than a failure: the site is published from a workflow
+        # the operator may not have finished configuring, and blocking every
+        # deploy on a variable is how a working site goes stale. Silence is the
+        # thing to avoid, because the two hosts would then disagree in public.
+        run: |
+          if grep -q "No billing yet" _site/pricing.html; then
+            echo "::warning title=Checkout is not configured::This build has no LEMONSQUEEZY_CHECKOUT_PRO or _ENTERPRISE, so its pricing page says 'No billing yet' while the bot's own host may be selling. Set both as repository variables and re-run."
+          fi
 
       - name: Check the build did not lose its call to action
         # The templates omit the invite button when no client id is known, so a
