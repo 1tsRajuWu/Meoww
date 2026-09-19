@@ -19,7 +19,7 @@
        the dashboard and market templates are also rendered by the test-suite's
        own Jinja environment, which has no Flask context, and the static path is
        fixed by the application in any case. #}
-    <link rel="stylesheet" href="/static/meow.css">
+    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
     <style>
         :root {
             /* Flat surfaces, hairline borders, one accent. The gradient blobs,

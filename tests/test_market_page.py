@@ -31,6 +31,13 @@ def render_page(symbol="BTC"):
         loader=FileSystemLoader(os.path.join(ROOT, "templates")),
         autoescape=select_autoescape(["html"]),
     )
+    # Handed over because the template asks the *app* for it: `/static/*` is
+    # cached immutable for a year, so the stylesheet link carries a token that
+    # changes with the file. A bare environment has no such global, and the
+    # page would fail to render here while working in production.
+    import keep_alive
+
+    env.globals["asset_version"] = keep_alive.asset_version
     return env.get_template("market_live.html").render(
         symbol=instrument.symbol,
         name=instrument.name,

@@ -654,6 +654,13 @@ def render_dashboard(**overrides) -> str:
         loader=FileSystemLoader("templates"),
         autoescape=select_autoescape(["html"]),
     )
+    # The templates ask the *app* for a cache-busting token (`asset_version`),
+    # because `/static/*` is served immutable for a year. This environment is
+    # not the app, so it has to be handed the same function — otherwise every
+    # page that links the stylesheet fails to render here while working
+    # perfectly in production, which is the least useful direction for a test
+    # to be wrong in.
+    env.globals["asset_version"] = keep_alive.asset_version
     context = dict(
         guild_id=GUILD_ID,
         guild_name="Meow Server",

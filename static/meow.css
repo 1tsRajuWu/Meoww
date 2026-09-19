@@ -1542,3 +1542,924 @@ main {
     .card-tilt:hover { transform: translateY(-3px); }
 }
 
+
+/* ===========================================================================
+   The landing page — `body.landing`
+   ===========================================================================
+   A different surface from the dashboard, and deliberately a different
+   language: the dashboard is a control panel and reads as one (dense, quiet,
+   uniform), while the front door has to *land*. Everything here is scoped to
+   `body.landing` so none of it can reach a page whose job is to be used rather
+   than looked at.
+
+   Two decisions worth stating, because they are where this deviates from the
+   reference it was built from:
+
+   * **Clamped sizes, not a computed rem root.** The reference recomputes the
+     root `font-size` from the viewport so the whole page scales as one. That is
+     the right tool for a single page and the wrong one here: this sheet is
+     shared with the dashboard, where a root font-size that follows the viewport
+     would rescale every control, and `clamp()` on the display sizes gets the
+     same proportional behaviour without touching anything global.
+
+   * **The page is dark, and one band is paper.** The rhythm is the point — a
+     long dark page reads as a wall, whatever the type on it. The systems band
+     is off-white with near-black type, which is the reference's own light/dark
+     alternation inverted, and it is the single strongest interruption on the
+     page: the one thing a visitor remembers is where the list was.
+   =========================================================================== */
+
+body.landing {
+    --lp-ink: #08080a;
+    --lp-ink-2: #101014;
+    --lp-ink-3: #17171d;
+    --lp-paper: #f1efea;
+    --lp-paper-2: #e6e3dc;
+    --lp-on-paper: #0c0c0f;
+    --lp-on-paper-soft: #5f5d63;
+    --lp-hair: rgba(255, 255, 255, 0.12);
+    --lp-hair-soft: rgba(255, 255, 255, 0.06);
+    --lp-hair-paper: rgba(12, 12, 15, 0.14);
+    --lp-ghost: rgba(255, 255, 255, 0.07);
+    --lp-accent: #5b5ef0;
+    --lp-accent-soft: #a3a8ff;
+    --lp-radius: 1.25rem;
+    --lp-radius-lg: 2rem;
+    background: var(--lp-ink);
+    color: var(--text-primary);
+}
+
+body.landing.menu-open,
+body.landing:has([data-menu].is-open) {
+    overflow: hidden;
+}
+
+/* The page inset: the bands are cards on a black page, which is what gives the
+   hero and the footer their rounded frame. */
+.lp {
+    width: 100%;
+    padding: 0.5rem;
+    overflow-x: clip;
+}
+
+.lp-band {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--lp-radius-lg);
+}
+
+.lp-inner {
+    padding-left: clamp(1.25rem, 4vw, 3.5rem);
+    padding-right: clamp(1.25rem, 4vw, 3.5rem);
+}
+
+.lp-section {
+    padding-top: clamp(3.5rem, 7vw, 6.5rem);
+    padding-bottom: clamp(3.5rem, 7vw, 6.5rem);
+}
+
+.lp-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.lp-eyebrow::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 50%;
+    background: var(--lp-accent);
+}
+
+.lp-eyebrow.on-paper { color: var(--lp-on-paper-soft); }
+.lp-eyebrow.on-dark { color: rgba(255, 255, 255, 0.65); }
+
+/* Accessible-hidden, and shared rather than re-declared per page: the landing
+   page's live figures are a `<dt>`/`<dd>` pair, and without this the term
+   rendered *visibly* above its own definition — "systems 11 systems". The
+   dashboard defined it in its own `<style>` block, which is exactly how a
+   utility ends up missing from the page that needed it next. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Clip-masked text — the reveal primitive
+   -------------------------------------------------------------------------- */
+.clip {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: bottom;
+    /* Descenders are clipped without this: "your" loses its tail. */
+    padding-bottom: 0.14em;
+}
+
+.clip-inner { display: inline-block; will-change: transform; }
+
+.line {
+    display: block;
+    overflow: hidden;
+    padding-bottom: 0.14em;
+}
+
+.line-inner { display: block; will-change: transform; }
+
+/* --------------------------------------------------------------------------
+   Type
+   -------------------------------------------------------------------------- */
+.lp-display {
+    margin: 0;
+    font-size: clamp(2.5rem, 12.5vw, 15rem);
+    font-weight: 650;
+    line-height: 0.85;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+}
+
+.lp-h2 {
+    margin: 0;
+    font-size: clamp(1.75rem, 5vw, 3rem);
+    font-weight: 650;
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+}
+
+.lp-h3 {
+    margin: 0;
+    font-size: clamp(1.125rem, 2vw, 1.5rem);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.lp-lede {
+    margin: 0;
+    font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
+    line-height: 1.65;
+    color: var(--text-secondary);
+    max-width: 34rem;
+}
+
+.lp-tagline {
+    margin: 0;
+    font-size: clamp(1.5rem, 2.6vw, 2.4rem);
+    font-weight: 600;
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.86);
+}
+
+/* --------------------------------------------------------------------------
+   The loader
+   -------------------------------------------------------------------------- */
+.lp-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    gap: 2rem;
+    background: var(--lp-ink);
+    color: #fff;
+    will-change: transform;
+}
+
+.lp-loader-inner {
+    display: grid;
+    justify-items: center;
+    gap: 2rem;
+}
+
+.lp-loader-word {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+}
+
+.lp-loader-word img { width: 1.75rem; height: 1.75rem; }
+
+.lp-loader-track {
+    position: relative;
+    width: 10rem;
+    height: 1px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.2);
+    overflow: hidden;
+}
+
+.loader-fill {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    transform-origin: left center;
+    transform: scaleX(0);
+}
+
+.is-ready .lp-loader { pointer-events: none; }
+
+/* If the script never runs, the curtain must not strand the page: a CSS
+   animation dismisses it anyway at the maximum-visible mark. */
+.lp-loader {
+    animation: lp-curtain-away 850ms cubic-bezier(0.65, 0, 0.35, 1) 2600ms forwards;
+}
+
+@keyframes lp-curtain-away {
+    to { transform: translateY(-105%); visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lp-loader { animation-delay: 200ms; animation-duration: 1ms; }
+}
+
+/* --------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+.lp-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem clamp(1.25rem, 4vw, 3.5rem) 0;
+    font-size: 0.8125rem;
+    color: #fff;
+}
+
+.lp-nav {
+    display: none;
+    flex: 1;
+    gap: 2rem;
+}
+
+.lp-nav a {
+    color: rgba(255, 255, 255, 0.9);
+    text-decoration: none;
+}
+
+.lp-nav a:hover { color: #fff; }
+
+.lp-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    color: #fff;
+    text-decoration: none;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+}
+
+.lp-brand img { width: 1.25rem; height: 1.25rem; }
+
+.lp-header-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex: 1;
+}
+
+.lp-burger {
+    display: grid;
+    place-items: center;
+    gap: 5px;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--lp-hair);
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+}
+
+.lp-burger span {
+    display: block;
+    width: 1rem;
+    height: 1px;
+    background: #fff;
+}
+
+.lp-burger:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* --------------------------------------------------------------------------
+   Hero
+   -------------------------------------------------------------------------- */
+.lp-hero {
+    display: flex;
+    flex-direction: column;
+    /* Shorter than a full viewport on purpose. At 100svh the headline and the
+       bottom row were pulled to opposite ends of an empty field, which reads as
+       a broken layout rather than as room to breathe — the reference fills that
+       space with a photograph and this one has a gradient. */
+    min-height: min(34rem, calc(74svh - 1rem));
+    isolation: isolate;
+    background: var(--lp-ink-2);
+}
+
+/* One oversized mark bleeding off the plate. It is what gives the hero a
+   subject instead of a void, and it is the project's own logo rather than a
+   stock image the bot cannot honestly use. */
+.lp-plate-mark {
+    position: absolute;
+    right: -4%;
+    bottom: -14%;
+    width: min(44rem, 66vw);
+    height: auto;
+    opacity: 0.07;
+    filter: grayscale(1);
+}
+
+.lp-plate {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+}
+
+/* The plate is oversized and pushed up so the parallax shift can never expose
+   an edge — the whole reason the reference's layer is 132% tall. */
+.lp-plate-layer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -16%;
+    height: 132%;
+    background:
+        radial-gradient(80% 60% at 15% 20%, rgba(91, 94, 240, 0.42), transparent 60%),
+        radial-gradient(70% 55% at 85% 10%, rgba(163, 168, 255, 0.18), transparent 62%),
+        radial-gradient(90% 70% at 60% 110%, rgba(91, 94, 240, 0.22), transparent 60%),
+        linear-gradient(180deg, #0b0c18 0%, #0a0a12 55%, #08080c 100%);
+}
+
+.lp-plate-grid {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background-image:
+        linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 4.5rem 4.5rem;
+    mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 80%);
+    -webkit-mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 80%);
+}.lp-hero-title {
+    position: relative;
+    z-index: 2;
+    padding: clamp(1rem, 3vw, 2.5rem) clamp(1.25rem, 4vw, 3.5rem) 0;
+}
+
+/* Never wraps: the fit script measures it and shrinks the size to the width it
+   actually has. The `9vw` here is the no-script fallback and is deliberately
+   smaller than the ceiling the script aims for. */
+.lp-hero-title .lp-display {
+    white-space: nowrap;
+    font-size: clamp(2.25rem, 9vw, 11rem);
+}
+
+.lp-hero-bottom {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-top: auto;
+    padding: clamp(2rem, 8vh, 5rem) clamp(1.25rem, 4vw, 3.5rem) 2rem;
+}
+
+.lp-hero-cluster {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+   Glass — the hero cards
+   -------------------------------------------------------------------------- */
+.lp-glass {
+    border: 1px solid var(--lp-hair);
+    border-radius: var(--lp-radius);
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.85);
+    padding: 0.875rem 1rem;
+}
+
+.lp-status-card {
+    display: grid;
+    gap: 0.5rem;
+    max-width: 22rem;
+}
+
+.lp-status-card p {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.lp-figure-card {
+    display: flex;
+    align-items: stretch;
+    gap: 0.875rem;
+    min-width: 13rem;
+}
+
+.lp-figure-card b {
+    font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+    font-weight: 650;
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+
+.lp-figure-card span {
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.72);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.lp-figure-dots {
+    display: flex;
+    margin: 0.5rem 0 0;
+    padding: 0;
+}
+
+.lp-figure-dots i {
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    margin-left: -0.4rem;
+}
+
+.lp-figure-dots i:first-child { margin-left: 0; }
+
+/* --------------------------------------------------------------------------
+   Ghost words
+   -------------------------------------------------------------------------- */
+.lp-ghost {
+    padding: clamp(3rem, 8vw, 7rem) clamp(1.25rem, 4vw, 3.5rem);
+    background: var(--lp-ink);
+}
+
+.lp-ghost-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1.5rem;
+    font-size: clamp(1.5rem, 7vw, 7.5rem);
+    font-weight: 650;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
+    color: var(--lp-ghost);
+    user-select: none;
+    pointer-events: none;
+}
+
+.lp-ghost-row .accent { color: rgba(255, 255, 255, 0.9); }
+
+/* --------------------------------------------------------------------------
+   The paper band — the systems list
+   -------------------------------------------------------------------------- */
+.lp-paper {
+    background: var(--lp-paper);
+    color: var(--lp-on-paper);
+}
+
+.lp-paper .lp-eyebrow { color: var(--lp-on-paper-soft); }
+.lp-paper .lp-eyebrow::before { background: var(--lp-accent); }
+
+.lp-paper-head {
+    display: grid;
+    gap: 1rem;
+    max-width: 44rem;
+}
+
+.lp-paper-head p {
+    margin: 0;
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: var(--lp-on-paper-soft);
+    max-width: 38rem;
+}
+
+.lp-rows {
+    margin: clamp(2rem, 4vw, 3.5rem) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.lp-row {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.375rem 0;
+    border-top: 1px solid var(--lp-hair-paper);
+    color: inherit;
+    text-decoration: none;
+}
+
+.lp-rows li:last-child .lp-row { border-bottom: 1px solid var(--lp-hair-paper); }
+
+.lp-row:hover { background: rgba(12, 12, 15, 0.03); }
+
+.lp-row-index {
+    width: 2.25rem;
+    flex: none;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--lp-on-paper-soft);
+}
+
+.lp-row-body { flex: 1; min-width: 0; }
+
+.lp-row-body h3 {
+    margin: 0;
+    font-size: clamp(1.0625rem, 1.8vw, 1.5rem);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+}
+
+.lp-row-body p {
+    margin: 0.35rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--lp-on-paper-soft);
+}
+
+.lp-row-arrow {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    flex: none;
+    border: 1px solid var(--lp-hair-paper);
+    border-radius: 50%;
+    color: var(--lp-on-paper);
+    opacity: 0.6;
+}
+
+.lp-row:hover .lp-row-arrow { opacity: 1; border-color: var(--lp-on-paper); }
+
+/* --------------------------------------------------------------------------
+   Tilted preview panels
+   -------------------------------------------------------------------------- */
+.lp-panels {
+    display: grid;
+    gap: 1.5rem;
+    align-items: end;
+    margin-top: clamp(2rem, 4vw, 3.5rem);
+}
+
+.lp-panel {
+    position: relative;
+    border-radius: var(--lp-radius);
+    overflow: hidden;
+    background: var(--lp-ink-2);
+    color: var(--text-primary);
+    border: 1px solid var(--lp-hair-soft);
+    box-shadow: 0 40px 80px -50px rgba(0, 0, 0, 0.9);
+}
+
+.lp-panel-tilt-a { transform: rotate(-1.6deg); }
+.lp-panel-tilt-b { transform: rotate(1.4deg); }
+
+.lp-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--lp-hair-soft);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.lp-panel-body { padding: 1rem; display: grid; gap: 0.875rem; }
+
+.lp-mock-tiles {
+    display: grid;
+    /* auto-fit rather than a fixed three: the number of live figures differs
+       between a cold host (systems, commands) and a connected one (servers,
+       members, commands, systems), and a fixed track leaves a hole. */
+    grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+    gap: 0.5rem;
+}
+
+.lp-mock-tile {
+    border: 1px solid var(--lp-hair-soft);
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--lp-ink-3);
+}
+
+.lp-mock-tile b {
+    display: block;
+    font-size: 1.125rem;
+    letter-spacing: -0.02em;
+}
+
+.lp-mock-tile span {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+}
+
+.lp-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.375rem;
+    height: 4.5rem;
+}
+
+.lp-bars i {
+    flex: 1;
+    border-radius: 0.25rem 0.25rem 0 0;
+    background: linear-gradient(180deg, var(--lp-accent), rgba(91, 94, 240, 0.25));
+}
+
+/* In the flow, not overlaid. The reference floats this caption over a
+   photograph; here the panel's content is the whole point, and an absolutely
+   positioned caption sat *on* the chart until the panel became a positioning
+   context — a layering bug that costs a caption instead of a few pixels of
+   empty space. */
+.lp-panel-caption {
+    border-top: 1px solid var(--lp-hair-soft);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.875rem 1rem;
+}
+
+.lp-panel-caption strong { display: block; font-size: 0.875rem; }
+.lp-panel-caption span { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.75); }
+
+/* --------------------------------------------------------------------------
+   Numbers, steps, cards
+   -------------------------------------------------------------------------- */
+.lp-deep { background: linear-gradient(180deg, #0a0a14 0%, #0d0d1c 100%); }
+
+.lp-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(1.5rem, 3vw, 2rem) 2rem;
+    margin: clamp(2.5rem, 5vw, 4rem) 0 0;
+}
+
+/* The figure above its label, which is the reverse of the markup: a `<dt>` must
+   come before its `<dd>`, and the term is the label, so the visual order is
+   done here instead of by putting the words in twice. */
+.lp-stat {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-top: 1.25rem;
+}
+
+.lp-stat dd {
+    order: -1;
+    margin: 0 0 0.75rem;
+    font-size: clamp(2.25rem, 5vw, 4.5rem);
+    font-weight: 650;
+    line-height: 1;
+    letter-spacing: -0.03em;
+}
+
+.lp-stat dt {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.lp-cards {
+    display: grid;
+    gap: 1.25rem;
+    margin-top: clamp(2rem, 4vw, 3.5rem);
+}
+
+.lp-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 1.25rem;
+    height: 100%;
+    border-radius: var(--lp-radius);
+    border: 1px solid var(--lp-hair-soft);
+    background: var(--lp-ink-2);
+    padding: 1.5rem;
+}
+
+.lp-card h3 {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 600;
+}
+
+.lp-card p {
+    margin: 0.625rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.65;
+    color: var(--text-secondary);
+}
+
+.lp-step-num {
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: 1px solid var(--lp-hair);
+    font-size: 0.8125rem;
+    color: #fff;
+}
+
+/* --------------------------------------------------------------------------
+   Closing band and footer
+   -------------------------------------------------------------------------- */
+.lp-cta {
+    display: grid;
+    gap: 1.5rem;
+    align-items: end;
+}
+
+.lp-cta-price {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.lp-price-chip {
+    border: 1px solid var(--lp-hair);
+    border-radius: var(--lp-radius);
+    padding: 0.75rem 1rem;
+    min-width: 8rem;
+}
+
+.lp-price-chip b { display: block; font-size: 1.25rem; letter-spacing: -0.02em; }
+
+.lp-price-chip span {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+}
+
+.lp-price-chip.is-current { border-color: var(--lp-accent); background: rgba(91, 94, 240, 0.14); }
+
+.lp-footer { background: #06060a; }
+
+.lp-footer-grid {
+    display: grid;
+    gap: 2.5rem;
+    padding-top: 3rem;
+    padding-bottom: 2.5rem;
+}
+
+.lp-footer h4 {
+    margin: 0 0 1rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.lp-footer ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.75rem; }
+
+.lp-footer a {
+    color: rgba(255, 255, 255, 0.8);
+    text-decoration: none;
+    font-size: 0.875rem;
+}
+
+.lp-footer a:hover { color: #fff; }
+
+.lp-footer-blurb {
+    margin: 1rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.6);
+    max-width: 22rem;
+}
+
+.lp-footer-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    border-top: 1px solid var(--lp-hair);
+    padding: 2rem 0 0;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.lp-footer-bottom nav { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+
+/* --------------------------------------------------------------------------
+   Fullscreen menu
+   -------------------------------------------------------------------------- */
+.lp-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    padding: 0.5rem;
+    background: rgba(8, 8, 10, 0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 260ms var(--ease), visibility 260ms var(--ease);
+}
+
+.lp-menu.is-open { opacity: 1; visibility: visible; }
+
+.lp-menu-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    height: 100%;
+    padding: 1.25rem clamp(1.25rem, 4vw, 2.5rem);
+    transform: translateY(-24px);
+    transition: transform 320ms var(--ease);
+}
+
+.lp-menu.is-open .lp-menu-panel { transform: translateY(0); }
+
+.lp-menu-nav {
+    display: grid;
+    align-content: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.lp-menu-nav a {
+    color: #fff;
+    text-decoration: none;
+    font-size: clamp(2rem, 7vw, 4.5rem);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+}
+
+.lp-menu-nav a:hover { color: var(--lp-accent-soft); }
+
+.lp-menu-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--lp-hair);
+    padding-top: 1.5rem;
+}
+
+/* --------------------------------------------------------------------------
+   Wider screens
+   -------------------------------------------------------------------------- */
+@media (min-width: 640px) {
+    .lp { padding: 0.75rem; }
+    .lp-hero { min-height: calc(100svh - 1.5rem); }
+}
+
+@media (min-width: 768px) {
+    .lp-panels { grid-template-columns: 1.15fr 1fr; }
+    .lp-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1024px) {
+    .lp-nav { display: flex; }
+    .lp-brand { justify-content: center; }
+    .lp-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .lp-cta { grid-template-columns: 1.4fr 1fr; align-items: end; }
+    .lp-footer-grid { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
+    .lp-footer-bottom { flex-direction: row; align-items: center; justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .clip-inner,
+    .line-inner,
+    [data-reveal] {
+        transform: none !important;
+        opacity: 1 !important;
+    }
+
+    .lp-panel-tilt-a,
+    .lp-panel-tilt-b { transform: none; }
+}

@@ -87,6 +87,33 @@ sys.stdout = LogTee(sys.stdout)
 sys.stderr = LogTee(sys.stderr)
 
 app = Flask(__name__, template_folder="templates")
+
+
+#: Static assets are served with a **one-year immutable** cache by the `_headers`
+#: file the static build emits, which is only safe when the URL changes as soon
+#: as the file does. Hand-written `?v=` strings do not survive contact with this
+#: repository: the sheet had none at all while the build's own comment claimed
+#: they were everywhere, so a year of CSS edits would never have reached a
+#: returning visitor on the CDN — the worst kind of bug, because the site looks
+#: right for whoever deployed it and stale for everybody else. The token is
+#: derived from the file itself instead of being maintained by hand.
+def asset_version(name: str) -> str:
+    """A short token that changes whenever ``static/<name>`` changes."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", name)
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return "0"
+    return f"{int(stat.st_mtime):x}{stat.st_size:x}"
+
+
+# Four environments render these templates in this repository — this app, the
+# `scripts/preview_dashboard.py` harness, and two test helpers that build a bare
+# Jinja environment to render a page and read it — and Jinja 3 gives each of them
+# its own globals dict, so there is no single place to put this. Each registers
+# the same function, and a missing registration fails loudly the moment anything
+# renders that page rather than quietly shipping an unversioned URL.
+app.jinja_env.globals["asset_version"] = asset_version
 _env_secret = (os.environ.get("FLASK_SECRET_KEY") or "").strip()
 if _env_secret:
     app.secret_key = _env_secret
@@ -994,12 +1021,12 @@ def _home_stats() -> list[dict]:
 
 
 def _static_site() -> bool:
-    """Is this the GitHub Pages copy rather than a running process?
+    """Is this the published copy rather than a running process?
 
-    The status line below is a claim about *this process*. Pages serves files,
-    so there is no process, nothing will ever connect, and "a sleeping free-tier
-    host takes a moment to wake" becomes a promise that never resolves — a
-    visitor reads a permanently half-started bot. Set only by
+    The status line below is a claim about *this process*. A static host serves
+    files, so there is no process, nothing will ever connect, and "a sleeping
+    free-tier host takes a moment to wake" becomes a promise that never resolves
+    — a visitor reads a permanently half-started bot. Set only by
     ``scripts/build_site.py``; the bot never sets it.
     """
     return (os.environ.get("MEOW_STATIC_SITE") or "").strip().lower() in {"1", "true", "yes"}
@@ -1017,8 +1044,8 @@ def _home_status() -> dict:
             "dot": "dot-live",
             "label": "Always on",
             "detail": (
-                "Served by GitHub Pages, so it answers whether the bot is awake or "
-                "not. Live status and figures are on the bot's own host."
+                "Served by Cloudflare Pages, so it answers whether the bot is awake "
+                "or not. Live status and figures are on the bot's own host."
             ),
         }
     started, connected = _gateway_state()
@@ -1068,6 +1095,16 @@ def _home_page():
         # needs both the client id and the secret, and the page must not list a
         # method the dashboard does not offer — which it did, for weeks.
         oauth_enabled=discord_auth.enabled(),
+        # The tier prices and whether anything can be bought, from the same model
+        # `/pricing` renders: the landing page used to carry its own hard-coded
+        # dollars ($4.99/$14.99) and they had already drifted from the rupees the
+        # store actually charges, which is the whole failure a single model
+        # exists to prevent.
+        price_free=plans.FREE.price,
+        price_pro=plans.PRO.price,
+        price_enterprise=plans.ENTERPRISE.price,
+        selling=plans.selling_enabled(),
+        source_repository=SOURCE_REPOSITORY,
         meta_description=(
             f"{name} — moderation, tickets, leveling, an economy, a live market and "
             "per-server activity tracking, driven from a real-time web dashboard."

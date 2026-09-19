@@ -1,4 +1,4 @@
-"""The static site built for GitHub Pages.
+"""The static site built for the static host (Cloudflare Pages).
 
 The bot's own pages are rendered by a Flask app that happens to be running; the
 copy published to Pages is a set of files, and every way that difference can bite

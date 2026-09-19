@@ -114,7 +114,7 @@ class TheLandingPage(unittest.TestCase):
             "systems",                  # how many there are
             'href="/login"',            # a way in
             "/privacy", "/terms",       # the policies
-            'class="aurora"',           # the shared background
+            'class="landing"',          # which surface this page is
             "/static/meow.css",         # the shared design system
         ):
             self.assertIn(fragment, body, fragment)
@@ -233,10 +233,22 @@ class TheSiteIsOneDesign(unittest.TestCase):
     """Every page wears the same system, and none of them calls out."""
 
     def test_every_page_links_the_shared_stylesheet(self):
+        """The sheet, and a version token on it.
+
+        Matched as a prefix because the URL now carries `?v=` — and it has to:
+        `/static/*` is served `immutable` for a year, so a stylesheet edit with a
+        stable URL is a year of invisibility on the CDN. Asserting the bare
+        `"` here was what made the version token impossible to add.
+        """
         for page in PAGES:
+            markup = (ROOT / "templates" / page).read_text(encoding="utf-8")
             self.assertIn(
-                'href="/static/meow.css"', (ROOT / "templates" / page).read_text(encoding="utf-8"),
+                'href="/static/meow.css', markup,
                 f"{page} does not use the shared design system",
+            )
+            self.assertIn(
+                "asset_version('meow.css')", markup,
+                f"{page} links the shared sheet without a version token",
             )
 
     def test_no_page_loads_a_third_party_except_the_chart_library(self):

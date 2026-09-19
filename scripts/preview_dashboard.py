@@ -127,9 +127,17 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 # it never leaves the process, and nothing this harness holds is a credential.
 app.secret_key = "preview-only-not-a-credential"
 
-# The real app's security headers, applied to every response — otherwise this
-# harness would prove nothing about whether the pages survive our own CSP.
+# The real app is imported for two reasons now: its security headers, applied to
+# every response below (otherwise this harness would prove nothing about whether
+# the pages survive our own CSP), and the cache-busting token its templates ask
+# for. This app is not `keep_alive`'s and Jinja 3 keeps each environment's globals
+# to itself, so the harness has to be handed the same function — otherwise every
+# page here renders without the token its stylesheet link needs, which is exactly
+# the sort of thing only the harness would show.
 import keep_alive  # noqa: E402
+
+app.jinja_env.globals["asset_version"] = keep_alive.asset_version
+
 from utils import (  # noqa: E402
     command_scope, digest, discord_auth, features, identity,
     market as market_module,

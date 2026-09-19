@@ -1,305 +1,507 @@
 {#
-  The page somebody who is not signed in actually lands on.
+  The front door.
 
-  Until now `/` redirected straight to a bare sign-in card, so the first thing a
-  visitor saw — a server owner following an invite, or anybody reading the link
-  in a README — was a password box for a panel they had never heard of. This is
-  the front door: what the bot is, what it is doing *right now*, what is in it,
-  how to add it, and where the policies live.
+  `/` used to redirect straight to a sign-in card, so the first thing a server
+  owner following an invite saw was a password box for a panel they had never
+  heard of. This is the page that greets them instead: what the bot is, what it
+  is doing right now, what is in it, how to add it, and where the policies live.
 
-  Two rules about the numbers on it. **None of them are invented** — every
-  figure is read from the running process (`BOT_INSTANCE`), the feature registry
-  and the command tree, and the feature cards are the registry's own list, so
-  this page cannot advertise a system the bot does not have (a hand-written copy
-  is exactly what once let a removed module keep showing as a green card on the
-  dashboard). And **a number nobody can vouch for is not shown at all**: on
-  Render's free tier the process sleeps, so a cold start would otherwise render
-  a confident `0 servers` — a page claiming the bot is in nobody's server reads
-  as broken rather than as asleep, so it says what is actually true instead.
+  **Every number here is read, not written.** The figures come from the running
+  process, the feature registry and the command tree, and the systems list *is*
+  the registry — which is what stops this page advertising a module the bot does
+  not have, the failure that once left a removed feature showing as a green card
+  on the dashboard. A number nobody can vouch for is left out rather than
+  guessed: on a host that sleeps, a cold start would otherwise render a
+  confident `0 servers`, which reads as a bot nobody uses rather than as a
+  process that has not woken up yet.
+
+  The composition is the landing page's own (see the `body.landing` block in
+  `static/meow.css`): a full-height navy hero with a giant clip-masked headline,
+  a paper band holding the systems list, and the live figures as a numbered
+  band. The motion is `static/motion.js` — springs, clip-masked reveals and a
+  curtain, all declared in this markup as `data-*` and all optional: with the
+  script blocked, or under `prefers-reduced-motion`, the page renders whole and
+  static rather than blank.
 #}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b0e13">
+    <meta name="theme-color" content="#08080a">
     <meta name="description" content="{{ meta_description }}">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2.2">
     <title>{{ bot_name }} — moderation, leveling, tickets, a live market and a real-time dashboard</title>
-    <link rel="stylesheet" href="/static/meow.css">
+    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
 </head>
-<body>
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <a class="skip-link" href="#features">Skip to features</a>
+<body class="landing">
+    <a class="skip-link" href="#features">Skip to what's in it</a>
 
-    <header class="site-header">
-        <div class="page">
-            <a class="brand" href="/">
-                <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
+    {#
+      The curtain. It is in the markup, not injected, so there is no flash of
+      the page underneath before the script runs; the CSS dismisses it on its
+      own after the maximum-visible mark, so a blocked script cannot strand a
+      visitor behind it.
+    #}
+    <div class="lp-loader" data-loader aria-hidden="true">
+        <div class="lp-loader-inner">
+            <div class="lp-loader-word">
+                <img src="/static/logo.svg" alt="">
                 <span>{{ bot_name }}</span>
-            </a>
-            <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
-                <span></span><span></span><span></span>
-            </button>
-            <nav class="site-nav" aria-label="Main">
-                <a href="#features">Features</a>
+            </div>
+            <div class="lp-loader-track"><span class="loader-fill"></span></div>
+        </div>
+    </div>
+
+    {#
+      The menu. One overlay rather than a second navigation system: the header
+      keeps the two links a desktop visitor needs, and everything else lives
+      here so a phone gets a real menu instead of a wrapped row of links.
+    #}
+    <div class="lp-menu" data-menu aria-hidden="true">
+        <div class="lp-menu-panel">
+            <div class="lp-header" style="padding-left: 0; padding-right: 0">
+                <a class="lp-brand" href="/">
+                    <img src="/static/logo.svg" alt="">
+                    <span>{{ bot_name }}</span>
+                </a>
+                <div class="lp-header-right">
+                    <button class="lp-burger" data-menu-close aria-label="Close menu" aria-expanded="false">
+                        <span></span><span></span>
+                    </button>
+                </div>
+            </div>
+            <nav class="lp-menu-nav" aria-label="Menu">
+                <a href="#features">Systems</a>
                 <a href="/pricing">Pricing</a>
                 <a href="#start">Get started</a>
+                <a href="#ways-in">Signing in</a>
                 <a href="/privacy">Privacy</a>
-                <a href="/terms">Terms</a>
-                {% if invite_url %}
-                <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>
-                {% endif %}
-                <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
             </nav>
-        </div>
-    </header>
-
-    <main>
-        <section class="hero page">
-            <span class="pill {{ status.class }}" style="--i: 0">
-                <span class="dot {{ status.dot }}" aria-hidden="true"></span>{{ status.label }}
-            </span>
-            <h1 style="--i: 1" class="reveal">
-                One bot for your whole server — and a <span class="gradient-text">dashboard that keeps up</span>.
-            </h1>
-            <p class="lede reveal" style="--i: 2">
-                Moderation, tickets with feedback, leveling, an economy, a live market, a
-                starboard and social commands — every system switchable per server, every
-                message and voice minute counted, and all of it driven from a real-time
-                control panel rather than a wall of slash commands.
-            </p>
-            {#
-              Two actions, not four. This row used to carry the invite, the
-              pricing page, **sign in** — which is already the last item in the
-              nav above it — and a "see what's in it" that scrolled to the
-              section immediately below. Four equally-weighted buttons is the
-              same as no recommendation: the eye has nowhere to land, and on a
-              narrow window they wrapped into a ragged second row. The page's
-              job is one thing (add it), with one alternative for somebody who
-              wants to know the price first.
-            #}
-            <div class="hero-cta reveal" style="--i: 3">
+            <div class="lp-menu-foot">
                 {% if invite_url %}
-                <a class="btn btn-primary btn-lg" href="{{ invite_url }}">Add {{ bot_name }} to a server</a>
+                <a class="btn btn-primary" href="{{ invite_url }}">Add to Discord</a>
                 {% endif %}
-                <a class="btn btn-lg" href="/pricing">See pricing</a>
+                <a class="lp-nav" style="display:block" href="{{ enter_url }}">{{ enter_label }}</a>
             </div>
-            <p class="hero-status reveal" style="--i: 4">
-                <span class="dot {{ status.dot }}" aria-hidden="true"></span>
-                {{ status.detail }}
-            </p>
-        </section>
+        </div>
+    </div>
 
-        <section class="page" aria-label="Live figures">
-            <div class="stats">
-                {% for stat in stats %}
-                <div class="stat reveal" style="--i: {{ loop.index0 }}">
-                    <b>{{ stat.value }}</b>
-                    <span>{{ stat.label }}</span>
+    <main class="lp">
+        {# ------------------------------------------------------------------ #}
+        {# Hero                                                               #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-hero">
+            <div class="lp-plate" aria-hidden="true">
+                <div class="lp-plate-layer" data-parallax="0,12">
+                    <span class="lp-plate-grid"></span>
+                    <img class="lp-plate-mark" src="/static/logo.svg" alt="">
                 </div>
-                {% endfor %}
+            </div>
+
+            <header class="lp-header">
+                <nav class="lp-nav" aria-label="Main">
+                    <a href="#features">Systems</a>
+                    <a href="/pricing">Pricing</a>
+                </nav>
+                <a class="lp-brand" href="/">
+                    <img src="/static/logo.svg" alt="{{ bot_name }} logo">
+                    <span>{{ bot_name }}</span>
+                </a>
+                <div class="lp-header-right">
+                    {% if invite_url %}
+                    <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>
+                    {% endif %}
+                    <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+                    <button class="lp-burger" data-menu-open aria-label="Open menu" aria-expanded="false">
+                        <span></span><span></span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="lp-hero-title">
+                {# Words are split into clip masks by the script; the sentence here
+                   is the sentence a reader — and a test — sees. #}
+                <h1 class="lp-display" data-fit="12.5" data-text-reveal="words"
+                    data-stagger="140" data-duration="1100">
+                    Own your server
+                </h1>
+            </div>
+
+            <div class="lp-hero-bottom">
+                <p class="lp-tagline" data-lines data-base-delay="350" data-stagger="110" data-duration="900">
+                    <span class="line"><span class="line-inner">{{ features|length }} systems,</span></span>
+                    <span class="line"><span class="line-inner">one dashboard</span></span>
+                </p>
+
+                <div class="lp-hero-cluster">
+                    <div class="lp-glass lp-status-card" data-reveal data-reveal-delay="650">
+                        <span class="pill {{ status.class }}">
+                            <span class="dot {{ status.dot }}" aria-hidden="true"></span>{{ status.label }}
+                        </span>
+                        <p>{{ status.detail }}</p>
+                    </div>
+                    <div class="lp-glass lp-figure-card" data-reveal data-reveal-delay="780">
+                        <div>
+                            <b>{{ features|length }}</b>
+                            <span>systems</span>
+                            <p class="lp-figure-dots" aria-hidden="true">
+                                <i style="background:#5b5ef0"></i>
+                                <i style="background:#a3a8ff"></i>
+                                <i style="background:#2b2b33"></i>
+                                <i style="background:#f4f2ef"></i>
+                            </p>
+                        </div>
+                        <div style="display:flex; align-items:flex-end">
+                            <span>each switched on or off per server</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <section class="section page" id="features">
-            <div class="section-head">
-                <span class="eyebrow">What's in it</span>
-                <h2>{{ features|length }} systems, each switched on or off per server</h2>
+        {# ------------------------------------------------------------------ #}
+        {# Ghost words — the system's own promise, oversized and quiet        #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-ghost" aria-label="Switch anything off">
+            <div data-lines data-base-delay="120" data-stagger="120" data-duration="700">
+                <div class="lp-ghost-row">
+                    <span class="line" data-parallax-x="-2,2"><span class="line-inner">Switch</span></span>
+                    <span class="line" data-parallax-x="2,-2"><span class="line-inner">it</span></span>
+                </div>
+                <div class="lp-ghost-row">
+                    <span class="line" data-parallax-x="-1.5,2.5"><span class="line-inner accent">off</span></span>
+                    <span class="line" data-parallax-x="2.5,-2"><span class="line-inner">anytime</span></span>
+                </div>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# The paper band — every system, numbered                            #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-paper lp-section lp-inner" id="features">
+            <div class="lp-paper-head">
+                <span class="lp-eyebrow">What's in it</span>
+                <h2 class="lp-h2" data-lines data-base-delay="0" data-stagger="120" data-duration="950">
+                    <span class="line"><span class="line-inner">{{ features|length }} systems,</span></span>
+                    <span class="line"><span class="line-inner">each yours to switch</span></span>
+                </h2>
                 <p>
                     Discord cannot hide one command in one server, so {{ bot_name }} registers
                     every server's command list from that server's own settings: switch a system
-                    off here and its commands leave that server's picker, while every other
-                    server keeps them.
+                    off and its commands leave that server's picker, while every other server
+                    keeps them. The list below is the registry the bot actually runs on — not a
+                    hand-written copy of it.
                 </p>
             </div>
-            <div class="features">
+
+            <ul class="lp-rows">
                 {% for feature in features %}
-                <article class="card card-hover card-tilt feature reveal" style="--i: {{ loop.index0 % 6 }}">
-                    <h3>
-                        <span class="icon" aria-hidden="true">{{ feature.icon }}</span>
-                        {{ feature.name }}
-                    </h3>
-                    <p>{{ feature.desc }}</p>
-                    {% if feature.commands %}
-                    <p class="dim mono" style="margin-top: 10px">
-                        {{ feature.commands|length }} command{{ '' if feature.commands|length == 1 else 's' }}
-                    </p>
-                    {% endif %}
-                </article>
+                <li data-reveal data-reveal-delay="{{ (loop.index0 % 6) * 70 }}">
+                    <div class="lp-row">
+                        <span class="lp-row-index">{{ "%02d"|format(loop.index) }}</span>
+                        <div class="lp-row-body">
+                            <h3><span aria-hidden="true">{{ feature.icon }}</span> {{ feature.name }}</h3>
+                            <p>{{ feature.desc }}</p>
+                        </div>
+                        {% if feature.commands %}
+                        <span class="lp-row-arrow mono" aria-label="{{ feature.commands|length }} commands">
+                            {{ feature.commands|length }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </li>
                 {% endfor %}
+            </ul>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# Two previews of the thing that is actually shipped                 #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-section lp-inner" aria-label="The dashboard">
+            <span class="lp-eyebrow on-dark">What you get</span>
+            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">A dashboard,</span></span>
+                <span class="line"><span class="line-inner">not a wall of commands</span></span>
+            </h2>
+
+            <div class="lp-panels">
+                <figure class="lp-panel lp-panel-tilt-a" style="margin:0" data-reveal data-reveal-delay="0">
+                    <div class="lp-panel-head"><span>Control panel</span><span>per server</span></div>
+                    <div class="lp-panel-body">
+                        <div class="lp-mock-tiles">
+                            {% for stat in stats[:3] %}
+                            <div class="lp-mock-tile">
+                                <b>{{ stat.value }}</b>
+                                <span>{{ stat.label }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="lp-bars" aria-hidden="true">
+                            <i style="height: 38%"></i><i style="height: 62%"></i><i style="height: 48%"></i>
+                            <i style="height: 84%"></i><i style="height: 55%"></i><i style="height: 71%"></i>
+                            <i style="height: 92%"></i><i style="height: 44%"></i><i style="height: 66%"></i>
+                        </div>
+                    </div>
+                    <figcaption class="lp-panel-caption">
+                        <strong>Every system, its own toggle</strong>
+                        <span>Switches and figures are live, and the figures above are this deployment's own.</span>
+                    </figcaption>
+                </figure>
+
+                <figure class="lp-panel lp-panel-tilt-b" style="margin:0" data-reveal data-reveal-delay="140">
+                    <div class="lp-panel-head"><span>Activity</span><span>message &amp; voice</span></div>
+                    <div class="lp-panel-body">
+                        <div class="lp-mock-tiles" style="grid-template-columns: 1fr">
+                            <div class="lp-mock-tile">
+                                <b>#general · #help · #memes</b>
+                                <span>messages counted per channel</span>
+                            </div>
+                            <div class="lp-mock-tile">
+                                <b>Voice channels · hours tracked</b>
+                                <span>joined, left and totalled per member</span>
+                            </div>
+                        </div>
+                    </div>
+                    <figcaption class="lp-panel-caption">
+                        <strong>Activity tracker</strong>
+                        <span>
+                            Per channel and per voice channel{% if retention_days %}, kept
+                            {{ retention_days }} days{% endif %} — and readable by the members
+                            themselves.
+                        </span>
+                    </figcaption>
+                </figure>
             </div>
         </section>
 
-        <section class="section page" id="start">
-            <div class="section-head">
-                <span class="eyebrow">Get started</span>
-                <h2>Three steps, about five minutes</h2>
-            </div>
-            <div class="steps">
-                <div class="step reveal" style="--i: 0">
-                    <h3>Add the bot</h3>
-                    <p>
-                        The invite asks for the two scopes a working bot needs — the bot itself
-                        and its commands. Without the second one you get a bot with nothing in
-                        the picker.
-                    </p>
+        {# ------------------------------------------------------------------ #}
+        {# The figures, as they stand                                         #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-deep lp-section lp-inner" aria-label="Live figures">
+            <span class="lp-eyebrow on-dark">Right now</span>
+            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">The numbers,</span></span>
+                <span class="line"><span class="line-inner">as they stand</span></span>
+            </h2>
+            <dl class="lp-stats">
+                {% for stat in stats %}
+                {# A real term and definition, in that order in the markup, with the
+                   CSS putting the figure above its label. The first version hid the
+                   <dt> and repeated the label in the <dd> — which read as
+                   "systems 11 systems" both to a screen reader and, because the
+                   utility that hides it was never defined here, to everybody. #}
+                <div class="lp-stat" data-reveal data-reveal-delay="{{ loop.index0 * 110 }}">
+                    <dt>{{ stat.label }}</dt>
+                    <dd>{{ stat.value }}</dd>
                 </div>
-                <div class="step reveal" style="--i: 1">
-                    <h3>Run <code>/help</code></h3>
-                    <p>
-                        That panel lists every command you can reach, and its ⚡ Open Dashboard
-                        button mints a single-use sign-in link for an administrator of that
-                        server — valid for fifteen minutes, and only for that server.
-                    </p>
-                </div>
-                <div class="step reveal" style="--i: 2">
-                    <h3>Switch off what you don't want</h3>
-                    <p>
-                        Every system has its own toggle. Turning one off removes its commands
-                        from that server's picker and its jobs stop running there; nothing else
-                        changes anywhere.
-                    </p>
-                </div>
-            </div>
+                {% endfor %}
+            </dl>
         </section>
 
-        <section class="section page">
-            <div class="card">
-                <div class="panel-head">
-                    <h3>How signing in works</h3>
-                    {# The count is the deployment's own answer, not a fixed
-                       number: a sign-in method that is switched off must not be
-                       listed as a way in. #}
-                    <span class="pill">{{ "Three ways in" if oauth_enabled else "Two ways in" }}</span>
-                </div>
-                <div class="features">
-                    {#
-                      Listed only while it is actually offered. This card sat on
-                      the front door while `discord_auth.enabled()` was false —
-                      it needs both the client id and the secret — so the page
-                      advertised a sign-in method the dashboard never showed,
-                      which is the same shape of inaccuracy as a pricing page
-                      for a checkout that does not exist.
-                    #}
-                    {% if oauth_enabled %}
-                    <div class="feature">
+        {# ------------------------------------------------------------------ #}
+        {# Ways in                                                            #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-section lp-inner" id="ways-in">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap">
+                <span class="lp-eyebrow on-dark">Signing in</span>
+                {# The count is the deployment's own answer: a method that is
+                   switched off must not be listed as a way in. #}
+                <span class="pill">{{ "Three ways in" if oauth_enabled else "Two ways in" }}</span>
+            </div>
+            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">Only the people</span></span>
+                <span class="line"><span class="line-inner">you let in</span></span>
+            </h2>
+
+            <div class="lp-cards">
+                {% if oauth_enabled %}
+                <article class="lp-card" data-reveal data-reveal-delay="0" data-hover="y:-8">
+                    <div>
                         <h3>Sign in with Discord</h3>
                         <p>
-                            Asks for <code>identify</code> and <code>guilds</code> and nothing
-                            else, then shows you the servers you run <em>that the bot is already
-                            in</em>. Your access token is used for two lookups in the same
-                            request and never stored.
+                            Asks for <code>identify</code> and <code>guilds</code> and nothing else,
+                            then shows the servers you run <em>that the bot is already in</em>. The
+                            token is used for two lookups in the same request and never stored.
                         </p>
                     </div>
-                    {% endif %}
-                    <div class="feature">
+                    <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+                </article>
+                {% endif %}
+                <article class="lp-card" data-reveal data-reveal-delay="120" data-hover="y:-8">
+                    <div>
                         <h3>One-time link</h3>
                         <p>
-                            Minted by the ⚡ Open Dashboard button on <code>/help</code>, scoped
-                            to the one server it was created in, single-use and good for fifteen
+                            Minted by the ⚡ Open Dashboard button on <code>/help</code>, scoped to
+                            the one server it was created in, single use and good for fifteen
                             minutes. It is a credential — don't share it.
                         </p>
                     </div>
-                    <div class="feature">
+                    <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+                </article>
+                <article class="lp-card" data-reveal data-reveal-delay="240" data-hover="y:-8">
+                    <div>
                         <h3>Admin passkey</h3>
                         <p>
-                            The operator's own way in, and the only one that reaches every
-                            server. Rate-limited, compared in constant time, and never read
-                            from a query string.
+                            The operator's own way in, and the only one that reaches every server.
+                            Rate-limited, compared in constant time, and never read from a query
+                            string.
                         </p>
                     </div>
-                </div>
+                    <a class="btn btn-sm" href="/health">Status</a>
+                </article>
             </div>
         </section>
 
-        <section class="section page" id="pricing-preview">
-            <div class="card glass">
-                <div class="panel-head">
+        {# ------------------------------------------------------------------ #}
+        {# Get started                                                        #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-section lp-inner" id="start">
+            <span class="lp-eyebrow on-dark">Get started</span>
+            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">Three steps,</span></span>
+                <span class="line"><span class="line-inner">about five minutes</span></span>
+            </h2>
+            <div class="lp-cards">
+                <article class="lp-card" data-reveal data-reveal-delay="0">
+                    <span class="lp-step-num">1</span>
                     <div>
-                        <span class="eyebrow">Plans &amp; Pricing</span>
-                        <h3 style="font-size: 20px; margin-top: 4px;">Choose the right tier for your community</h3>
+                        <h3>Add the bot</h3>
+                        <p>
+                            The invite asks for the permissions a working bot needs and nothing
+                            else — no Administrator. Without the <code>applications.commands</code>
+                            scope you get a bot with nothing in the picker, so that is in the link
+                            too.
+                        </p>
                     </div>
-                    <a class="btn btn-primary btn-sm" href="/pricing">View All Tiers &amp; Features →</a>
+                    {% if invite_url %}<a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>{% endif %}
+                </article>
+                <article class="lp-card" data-reveal data-reveal-delay="120">
+                    <span class="lp-step-num">2</span>
+                    <div>
+                        <h3>Run <code>/help</code></h3>
+                        <p>
+                            That panel lists every command you can reach, and its ⚡ Open Dashboard
+                            button mints a single-use sign-in link for an administrator of that
+                            server.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="#ways-in">How signing in works</a>
+                </article>
+                <article class="lp-card" data-reveal data-reveal-delay="240">
+                    <span class="lp-step-num">3</span>
+                    <div>
+                        <h3>Switch off what you don't want</h3>
+                        <p>
+                            Every system has its own toggle. Turning one off removes its commands
+                            from that server's picker and stops its jobs there; nothing else changes
+                            anywhere.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+                </article>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# Plans                                                              #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-deep lp-section lp-inner" id="plans">
+            <div class="lp-cta">
+                <div>
+                    <span class="lp-eyebrow on-dark">Plans</span>
+                    <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="110">
+                        <span class="line"><span class="line-inner">Everything is free</span></span>
+                        <span class="line"><span class="line-inner">today</span></span>
+                    </h2>
+                    <p class="lp-lede" style="margin-top: 1.25rem">
+                        {% if selling %}
+                            The paid tiers are on sale, and every system above is still free to
+                            use without one.
+                        {% else %}
+                            Nothing is on sale yet: every system above is free to use right now,
+                            and the tiers say where the project is heading rather than what it
+                            charges.
+                        {% endif %}
+                    </p>
+                    <div class="lp-cta-price">
+                        <div class="lp-price-chip is-current">
+                            <b>{{ price_free }}</b><span>Free</span>
+                        </div>
+                        <div class="lp-price-chip">
+                            <b>{{ price_pro }}</b><span>Pro / mo</span>
+                        </div>
+                        <div class="lp-price-chip">
+                            <b>{{ price_enterprise }}</b><span>Enterprise / mo</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="features" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
-                    <div class="card card-hover card-tilt">
-                        <span class="pill">Free</span>
-                        <div style="font-size: 28px; font-weight: 700; margin: 12px 0 6px;">$0</div>
-                        <p class="dim" style="font-size: 13px;">1 server, moderation, leveling, fun, games &amp; hourly backups.</p>
-                        <a class="btn btn-sm btn-block" style="margin-top: 14px;" href="{{ invite_url or '#' }}">Get Started Free</a>
-                    </div>
-                    <div class="card card-hover card-tilt gradient-border">
-                        <span class="pill pill-ok">Pro — Most Popular</span>
-                        <div style="font-size: 28px; font-weight: 700; margin: 12px 0 6px;">$4.99<span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">/mo</span></div>
-                        <p class="dim" style="font-size: 13px;">Up to 5 servers, tickets, casino, live market, scheduled posts &amp; real-time backups.</p>
-                        <a class="btn btn-primary btn-sm btn-block" style="margin-top: 14px;" href="/pricing">Explore Pro</a>
-                    </div>
-                    <div class="card card-hover card-tilt">
-                        <span class="pill">Enterprise</span>
-                        <div style="font-size: 28px; font-weight: 700; margin: 12px 0 6px;">$14.99<span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">/mo</span></div>
-                        <p class="dim" style="font-size: 13px;">Unlimited servers, custom branding, priority support &amp; dedicated features.</p>
-                        <a class="btn btn-sm btn-block" style="margin-top: 14px;" href="/pricing">Learn More</a>
-                    </div>
+                <div style="display:grid; gap:0.75rem">
+                    <a class="btn btn-primary" href="/pricing">See the tiers</a>
+                    {% if invite_url %}
+                    <a class="btn" href="{{ invite_url }}">Add {{ bot_name }} — free</a>
+                    {% endif %}
                 </div>
             </div>
         </section>
     </main>
 
-    <footer class="site-footer">
-        <div class="page">
-            <div class="links">
-                <a href="/pricing">Pricing</a>
-                <a href="/privacy">Privacy Policy</a>
-                <a href="/terms">Terms of Service</a>
-                <a href="/market/BTC">Live market</a>
-                <a href="/health">Status</a>
-                {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
+    <footer class="lp-footer lp">
+        <div class="lp-footer-grid lp-inner">
+            <div>
+                <a class="lp-brand" href="/">
+                    <img src="/static/logo.svg" alt="">
+                    <span>{{ bot_name }}</span>
+                </a>
+                <p class="lp-footer-blurb">
+                    One bot for the whole server: moderation, tickets with feedback, leveling, an
+                    economy, a live market and per-channel activity — every system switchable, and
+                    a real-time panel to drive it from.
+                </p>
             </div>
-            <p>
-                {{ bot_name }} stores what it needs to run the systems you switch on —
-                {% if retention_days %}activity counts kept for {{ retention_days }} days,{% endif %}
-                queued and sent message history for 90 — and the policy above says exactly what
+            <nav aria-label="Product">
+                <h4>Product</h4>
+                <ul>
+                    <li><a href="#features">Systems</a></li>
+                    <li><a href="#start">Get started</a></li>
+                    <li><a href="/pricing">Pricing</a></li>
+                    <li><a href="{{ enter_url }}">{{ enter_label }}</a></li>
+                </ul>
+            </nav>
+            <nav aria-label="Live">
+                <h4>Live</h4>
+                <ul>
+                    <li><a href="/market/BTC">Live market</a></li>
+                    <li><a href="/health">Status</a></li>
+                    <li><a href="/dashboard">Dashboard</a></li>
+                    {% if invite_url %}<li><a href="{{ invite_url }}">Add to Discord</a></li>{% endif %}
+                </ul>
+            </nav>
+            <nav aria-label="Legal">
+                <h4>Legal</h4>
+                <ul>
+                    <li><a href="/privacy">Privacy Policy</a></li>
+                    <li><a href="/terms">Terms of Service</a></li>
+                    <li><a href="{{ source_repository }}" rel="noopener">Source code</a></li>
+                </ul>
+            </nav>
+        </div>
+        <div class="lp-footer-bottom lp-inner">
+            <p style="margin:0">
+                © 2026 {{ bot_name }}. Not affiliated with Discord Inc.
+                {% if retention_days %}Activity counts are kept {{ retention_days }} days;{% endif %}
+                queued and sent message history is kept 90 — the policy above says exactly what
                 that is, in the same words the Discord command shows.
             </p>
+            <nav aria-label="Elsewhere">
+                <a href="{{ source_repository }}" rel="noopener">GitHub</a>
+                <a href="/health">Status</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+            </nav>
         </div>
     </footer>
 
-    <script>
-        // The entrance is driven by the observer when it works, and by the CSS
-        // animation alone when it does not: `.reveal` carries its own `rise`, so
-        // a browser without IntersectionObserver (or with the script blocked by
-        // our own CSP) still gets the content. This only re-runs the animation
-        // for the grid as it comes into view.
-        (function () {
-            const items = document.querySelectorAll("#features .reveal, .stats .reveal");
-            if (!items.length || typeof IntersectionObserver !== "function") return;
-            items.forEach(function (item) { item.style.animationPlayState = "paused"; });
-            const seen = new IntersectionObserver(function (entries) {
-                entries.forEach(function (entry) {
-                    if (!entry.isIntersecting) return;
-                    const el = entry.target;
-                    const index = Array.prototype.indexOf.call(items, el);
-                    el.style.setProperty("--i", String(index % 6));
-                    el.style.animationPlayState = "running";
-                    seen.unobserve(el);
-                });
-            }, { rootMargin: "0px 0px -40px 0px" });
-            items.forEach(function (item) { seen.observe(item); });
-        })();
-
-        // Mobile Nav Toggle
-        (function() {
-            const toggle = document.querySelector('.nav-toggle');
-            const nav = document.querySelector('.site-nav');
-            if (toggle && nav) {
-                toggle.addEventListener('click', () => {
-                    const open = nav.classList.toggle('open');
-                    toggle.setAttribute('aria-expanded', String(open));
-                });
-            }
-        })();
-    </script>
-    <script src="/static/particles.js?v=2.2"></script>
+    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>
 </html>
