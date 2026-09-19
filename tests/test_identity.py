@@ -323,7 +323,14 @@ class TheEndpoint(_DashboardFixture):
         self.assertEqual(page.status_code, 200)
         body = page.get_data(as_text=True)
         self.assertIn('value="Here"', body)
-        self.assertNotIn("There", body)
+        # Matched as the rendered *value*, not as a bare word anywhere on the
+        # page. The bare word was the first version of this line, and it failed
+        # the moment an unrelated comment in `dashboard.html` used the English
+        # word "There" — a test that goes red on prose teaches the next person to
+        # delete the prose, and the thing it was guarding (this server's nickname
+        # is the only one on the page) is exactly the value, rendered in one
+        # place: the input on the identity card.
+        self.assertNotIn('value="There"', body)
 
     def test_an_unreadable_member_does_not_break_the_page(self):
         self.sign_in(scope="guild", guild_id=GUILD_ID)

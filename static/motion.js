@@ -69,7 +69,7 @@
        Integrated per step, and settled when both position and velocity are
        within a pixel, so a finished spring stops the loop rather than
        leaving a transform micro-updating for the life of the page. */
-    function spring(from, to, cfg, onValue) {
+    function spring(from, to, cfg, onValue, onDone) {
         var x = from;
         var v = 0;
         var tension = (cfg && cfg.tension) || 200;
@@ -79,6 +79,7 @@
             x += v * dt;
             if (Math.abs(x - to) < 0.01 && Math.abs(v) < 0.01) {
                 onValue(to);
+                if (onDone) onDone();
                 return false;
             }
             onValue(x);
@@ -200,6 +201,22 @@
            function of that progress. Deriving progress from the y value instead
            is the version that divides by zero the first time a reveal wants a
            scale and no movement. */
+        /* Once the reveal has finished, the element is handed back to its
+           stylesheet.
+
+           An inline style outranks every CSS rule for the rest of the page's
+           life, so leaving `opacity: 1; transform: none` in place is not
+           "finished" — it is a permanent override of rules this file has never
+           seen. On the dashboard that silently disabled `.module-card.busy`'s
+           dimming and the hover springs on anything that was also revealed: a
+           reveal that removes behaviours it never touched, and invisible in
+           both files, because each one is correct on its own. */
+        function release() {
+            el.style.removeProperty("transform");
+            el.style.removeProperty("opacity");
+            el.style.removeProperty("will-change");
+        }
+
         function play() {
             setTimeout(function () {
                 spring(0, 1, cfg, function (p) {
@@ -208,16 +225,18 @@
                         ? from.scale + (1 - from.scale) * p
                         : undefined;
                     apply(y, scale, Math.min(1, p * 3));
-                });
+                }, release);
                 el.dataset.revealed = "1";
             }, delay);
         }
 
         apply(from.y || 0, from.scale, 0);
 
+        // Same hand-back for the paths that never animate — writing "none"/"1"
+        // inline here would be the identical permanent override, from the path
+        // that exists precisely so the page can be still.
         if (reduced || typeof IntersectionObserver !== "function") {
-            el.style.transform = "none";
-            el.style.opacity = "1";
+            release();
             el.dataset.revealed = "1";
             return;
         }

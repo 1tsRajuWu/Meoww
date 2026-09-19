@@ -341,6 +341,7 @@ def dashboard():
         signed_in_as={},
         pick_server_url="",
         invite_url=discord_auth.invite_url(),
+        invite_limited_url=discord_auth.invite_url(minimal=True),
         invite_here_url=discord_auth.invite_url(guild_id=guild["id"]),
         # The composer's rulebook, read from the bot rather than restated: the
         # page refuses locally with these sentences and these numbers, so a
@@ -462,6 +463,7 @@ def servers_page():
         operator=operator,
         user={} if operator else {"id": "1", "name": "Preview Admin", "avatar": ""},
         invite_url=discord_auth.invite_url(),
+        invite_limited_url=discord_auth.invite_url(minimal=True),
         # Which server is open, so the picker says **Open** where you already are
         # and **Manage** on the others — the same distinction production draws
         # from the session, and the reason the button choice is worth looking at.

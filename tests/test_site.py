@@ -219,14 +219,42 @@ class ThePricingPage(unittest.TestCase):
     def setUp(self):
         self.client = keep_alive.app.test_client()
 
-    def test_pricing_page_renders_tiers_and_options(self):
+    def test_pricing_page_renders_the_product_that_exists(self):
+        """One plan, every system, and the stylesheet.
+
+        This asserted the three tier names while the page was listing Pro and
+        Enterprise at prices nobody could pay — a test that passes on a page
+        advertising a shop that is not open. What the route owes a visitor with
+        nothing on sale is the product: the free plan, the systems it includes,
+        and a stylesheet to read it with.
+        """
         response = self.client.get("/pricing")
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Free", body)
+        self.assertIn("No billing yet", body)
+        self.assertIn("Everything included", body)
+        self.assertIn("Support Tickets", body)
+        self.assertIn("/static/meow.css", body)
+
+    def test_the_tiers_come_back_only_when_the_store_is_really_open(self):
+        """The switch, through the live route rather than the template.
+
+        `PLAN_CHECKOUT` is what separates a page describing a store from a page
+        selling from one, and this is the route an operator actually flips it on.
+        """
+        with mock.patch.dict(
+            os.environ,
+            {
+                "PLAN_CHECKOUT": "1",
+                "LEMONSQUEEZY_CHECKOUT_PRO": "https://store.lemonsqueezy.com/checkout/buy/aaa-pro",
+                "LEMONSQUEEZY_CHECKOUT_ENTERPRISE": "https://store.lemonsqueezy.com/checkout/buy/aaa-ent",
+            },
+        ):
+            body = self.client.get("/pricing").get_data(as_text=True)
         self.assertIn("Pro", body)
         self.assertIn("Enterprise", body)
-        self.assertIn("/static/meow.css", body)
+        self.assertNotIn("No billing yet", body)
 
 
 class TheSiteIsOneDesign(unittest.TestCase):

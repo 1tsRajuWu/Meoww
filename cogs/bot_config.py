@@ -547,10 +547,20 @@ class BotConfig(commands.Cog):
                 "server regardless of tier."
             )
 
-        lines.append(
-            f"-# Activate with `/bot plan key:…` — a key covers as many servers as the "
-            f"store allows, one activation each. Pricing: {_pricing_url()}"
-        )
+        # The closing line is the only place this card tells somebody what to do
+        # next, and "activate with a key" is advice for a product that is on sale.
+        # With selling off there is no key to buy, so pointing at one is the kind
+        # of instruction that reads as true and wastes a support conversation.
+        if plans.selling_enabled():
+            lines.append(
+                f"-# Activate with `/bot plan key:…` — a key covers as many servers as the "
+                f"store allows, one activation each. Pricing: {_pricing_url()}"
+            )
+        else:
+            lines.append(
+                "-# Nothing is on sale right now, so there is no key to activate — every "
+                f"system is free to use. What may come later: {_pricing_url()}"
+            )
         body = "\n".join(lines)
         if followup:
             await interaction.followup.send(body, ephemeral=True)

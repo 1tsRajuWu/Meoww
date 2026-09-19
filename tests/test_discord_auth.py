@@ -633,34 +633,61 @@ class TheLoginPageForTheOperator(unittest.TestCase):
 
 
 class InvitePermissionsCase(unittest.TestCase):
-    """What the public invite link asks permission to do.
+    """Both invite links, and what each one asks permission to do.
 
-    It asked for `ADMINISTRATOR` — a blanket grant, published on the page whose
-    whole job is to earn enough trust to be added. The argument for it was that
-    one digit is easier to check than a bitfield, which is true and was still the
-    wrong trade: it is the first thing a careful owner reads, and it makes every
-    other permission irrelevant, so a fault in one command can do anything
-    anywhere instead of being bounded by what that command needs.
+    This class used to pin the opposite of its first test. The link carried the
+    explicit least-privilege list and an assertion failed if `Administrator` ever
+    came back, on the argument that a public invite is the page's whole job and
+    Administrator is the first thing a careful owner reads before closing the tab.
 
-    These tests decode the number with discord.py rather than comparing it to a
-    literal, because a literal is exactly what drifted here: the *value* was
-    asserted nowhere, so changing the grant was invisible.
+    The operator weighed that against the other cost and chose differently: the
+    explicit list is **always one permission behind the code**, so every feature
+    added after it was written reaches somebody's server as *Missing Permissions*.
+    So the rule is no longer "never Administrator" — it is that there are **two**
+    links, and each must be exactly what it claims: the default asks for
+    Administrator and nothing else, and the limited one asks for the explicit list
+    and must never carry the blanket grant.
+
+    Both are pinned here, because the way this goes wrong is silent: a link that
+    drifts to Administrator while the button beside it still promises "only the
+    permissions it uses" is a grant nobody agreed to. These tests decode the
+    numbers with discord.py rather than comparing them to a literal, because a
+    literal is exactly what drifted here before.
     """
 
-    def perms(self):
+    def perms(self, *, minimal: bool = False):
         import discord
 
-        return discord.Permissions(discord_auth.INVITE_PERMISSIONS)
-
-    def test_it_is_no_longer_a_blanket_administrator(self):
-        self.assertFalse(
-            self.perms().administrator,
-            "the invite grants Administrator — that is the thing this replaced",
+        return discord.Permissions(
+            discord_auth.MINIMAL_INVITE_PERMISSIONS
+            if minimal
+            else discord_auth.INVITE_PERMISSIONS
         )
 
-    def test_every_named_permission_is_really_in_the_bitfield(self):
+    def test_the_default_link_asks_for_administrator_and_nothing_else(self):
+        """One bit, literally: Administrator makes every other bit irrelevant."""
+        import discord
+
         perms = self.perms()
-        for name, bit in discord_auth.INVITE_PERMISSION_BITS:
+        self.assertTrue(
+            perms.administrator,
+            "the default invite no longer grants Administrator",
+        )
+        self.assertEqual(
+            perms.value,
+            discord.Permissions(administrator=True).value,
+            "the default link carries more than the single bit it claims to",
+        )
+
+    def test_the_limited_link_is_the_safe_one(self):
+        self.assertFalse(
+            self.perms(minimal=True).administrator,
+            "the limited link grants Administrator — then it is not a choice",
+        )
+
+    def test_every_named_permission_is_really_in_the_limited_bitfield(self):
+        perms = self.perms(minimal=True)
+        for name, bit in discord_auth.MINIMAL_PERMISSION_BITS:
             self.assertTrue(
                 hasattr(perms, name),
                 f"{name} is not a permission discord.py knows — typo?",
@@ -670,24 +697,30 @@ class InvitePermissionsCase(unittest.TestCase):
                 f"{name} ({bit}) is listed but is not set in the bitfield",
             )
             self.assertEqual(
-                discord_auth.INVITE_PERMISSIONS & bit,
+                discord_auth.MINIMAL_INVITE_PERMISSIONS & bit,
                 bit,
                 f"{name}: the bit and the name disagree",
             )
 
-    def test_the_list_has_no_duplicate_or_conflicting_entries(self):
-        names = [name for name, _bit in discord_auth.INVITE_PERMISSION_BITS]
+    def test_the_limited_list_has_no_duplicate_or_conflicting_entries(self):
+        names = [name for name, _bit in discord_auth.MINIMAL_PERMISSION_BITS]
         self.assertEqual(len(names), len(set(names)), "a permission is listed twice")
-        bits = [bit for _name, bit in discord_auth.INVITE_PERMISSION_BITS]
+        bits = [bit for _name, bit in discord_auth.MINIMAL_PERMISSION_BITS]
         self.assertEqual(len(bits), len(set(bits)), "two names share one bit")
         # And the sum is a bitfield, so nothing may overlap by construction.
         self.assertEqual(
-            discord_auth.INVITE_PERMISSIONS,
+            discord_auth.MINIMAL_INVITE_PERMISSIONS,
             sum(bits),
-            "INVITE_PERMISSIONS is not the sum of the named bits",
+            "MINIMAL_INVITE_PERMISSIONS is not the sum of the named bits",
+        )
+        # Checked against the sum as well as the names, because a bit that is
+        # *added* to the list would keep both of the assertions above passing.
+        self.assertFalse(
+            discord_auth.MINIMAL_INVITE_PERMISSIONS & discord_auth.ADMINISTRATOR_PERMISSIONS,
+            "Administrator is inside the limited bitfield",
         )
 
-    def test_nothing_is_granted_that_no_call_site_needs(self):
+    def test_the_limited_link_grants_nothing_no_call_site_needs(self):
         """The grants a hijacked token would reach for first.
 
         Each of these was checked against the tree before being left out: no
@@ -697,9 +730,8 @@ class InvitePermissionsCase(unittest.TestCase):
         nothing moves, mutes or deafens members or edits their nicknames — the
         only nickname the bot changes is its own, under `change_nickname`.
         """
-        perms = self.perms()
+        perms = self.perms(minimal=True)
         for name in (
-            "administrator",
             "mention_everyone",
             "connect",
             "manage_guild",
@@ -713,18 +745,38 @@ class InvitePermissionsCase(unittest.TestCase):
         ):
             self.assertFalse(
                 getattr(perms, name),
-                f"the invite grants {name}, which nothing in the tree uses",
+                f"the limited invite grants {name}, which nothing in the tree uses",
             )
 
-    def test_the_invite_url_carries_that_number(self):
-        """The list is only real if the link is built from it."""
+    def _query(self, **kwargs):
         with mock.patch.dict(os.environ, {"DISCORD_CLIENT_ID": "1234567890"}):
-            url = discord_auth.invite_url()
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-        self.assertEqual(query["permissions"], [str(discord_auth.INVITE_PERMISSIONS)])
-        self.assertNotEqual(query["permissions"][0], "8")
-        # The two scopes a working bot needs, unchanged by this.
-        self.assertEqual(set(query["scope"][0].split()), set(discord_auth.INVITE_SCOPES))
+            url = discord_auth.invite_url(**kwargs)
+        return urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+
+    def test_each_link_carries_its_own_number(self):
+        """A list is only real if the link is built from it."""
+        self.assertEqual(self._query()["permissions"], [str(discord_auth.INVITE_PERMISSIONS)])
+        self.assertEqual(
+            self._query(minimal=True)["permissions"],
+            [str(discord_auth.MINIMAL_INVITE_PERMISSIONS)],
+        )
+        self.assertNotEqual(
+            self._query()["permissions"],
+            self._query(minimal=True)["permissions"],
+            "both links carry the same bitfield — so one of them is mislabelled",
+        )
+
+    def test_both_links_carry_the_two_scopes_a_working_bot_needs(self):
+        """Without `applications.commands` the bot arrives with an empty picker."""
+        for kwargs in (
+            {},
+            {"minimal": True},
+            {"guild_id": 4242},
+            {"guild_id": 4242, "minimal": True},
+        ):
+            with self.subTest(**kwargs):
+                query = self._query(**kwargs)
+                self.assertEqual(set(query["scope"][0].split()), set(discord_auth.INVITE_SCOPES))
 
 
 if __name__ == "__main__":

@@ -4,14 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>🐾 {{ symbol }} · Meow Markets</title>
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2.2">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
 <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
 <style>
   :root {
-    /* This page's own names for the shared palette, so its rules keep working. */
-    --bg: #0b0e13; --panel: #161b25; --panel-2: #1d2431; --line: #232b38;
-    --text: #f0f3f8; --muted: #94a3b8; --up: #2ecc71; --down: #ed4245;
-    --accent: #5865f2; --treat: #f1c40f;
+    /* This page's own names for the shared palette — **aliases, not values**.
+
+       They used to be copies of the hexes, from before `meow.css` settled on
+       its palette, so the market was painted blue-black #0b0e13 and Discord
+       blurple #5865f2 while the rest of the product had moved on. Worse, two of
+       the names it redefined — `--bg` and `--accent` — are the shared sheet's
+       own, so a page that only meant to name its locals was also repainting
+       every shared rule that read them. Mapping to the tokens means this page
+       cannot drift from the palette again, and still reads the way it did. */
+    --panel: var(--surface-card); --panel-2: var(--surface-hover);
+    --line: var(--border); --text: var(--text-primary); --muted: var(--text-secondary);
+    --up: var(--green); --down: var(--red); --treat: var(--gold);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text);

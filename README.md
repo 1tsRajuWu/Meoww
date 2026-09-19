@@ -39,10 +39,12 @@ else is linked from the [table of contents](#contents).
    `DISCORD_TOKEN`, shown only once).
 2. **Turn on intents** on the same Bot page: **Server Members Intent** +
    **Message Content Intent**.
-3. **Invite it**: the simplest way is the ⚡ invite button on the dashboard or
-   the front page, which already carries the exact permission set the bot uses.
-   By hand: OAuth2 → URL Generator → scopes `bot` + `applications.commands` →
-   the permissions listed under "What the invite asks for" below.
+3. **Invite it**: the simplest way is an invite button on the dashboard or the
+   front page. Two are offered, and they are a real choice — **Administrator**
+   (one permission, so nothing can ever report `Missing Permissions`) or the
+   explicit list. By hand: OAuth2 → URL Generator → scopes `bot` +
+   `applications.commands` → either permission. See
+   "[What the invite asks for](#what-the-invite-asks-for)" below.
 4. **Run it**:
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
@@ -127,8 +129,8 @@ Each folder has its own `README.md` explaining what's inside in plain words.
    the bot still runs, but message text is invisible — automod can't filter
    links and XP uses the baseline rate.)
 4. Sidebar **OAuth2 → URL Generator** → scopes `bot` + `applications.commands`
-   → the permissions listed under "What the invite asks for" below → open the
-   generated URL to invite the bot.
+   → **Administrator**, or the narrower list under "What the invite asks for"
+   below → open the generated URL to invite the bot.
 
 ### Step 2 — Get the files + configure
 
@@ -225,9 +227,12 @@ To sell plans:
 2. Paste each product's checkout link (product → **Share → Copy link**) into
    `LEMONSQUEEZY_CHECKOUT_PRO` and `LEMONSQUEEZY_CHECKOUT_ENTERPRISE`. Nothing is
    shown for them yet — see the next step.
-3. Set `PLAN_CHECKOUT=1` when you actually want to sell. Until then the page says
-   "No billing yet" and every button stays on the invite page, however many links
-   are configured, which is the state to configure the store in.
+3. Set `PLAN_CHECKOUT=1` when you actually want to sell. Until then the pricing
+   page carries **no premium surface at all** — no tiers, no prices, no Buy
+   buttons, however many checkout links are configured — and reads as a free
+   product's page with a note about what may come later. That is the state to
+   configure the store in: the page describes one product, and the tiers only
+   reappear when they are really on sale.
 4. In a server, an administrator runs `/bot plan key:…` with the key from their
    receipt. `/bot plan` shows the plan and how many activations are used,
    re-checks the licence with the store, and `remove:true` gives the activation
@@ -337,9 +342,25 @@ Voice rewards misbehaving? → [`docs/voice-debug.md`](docs/voice-debug.md).
 
 ### What the invite asks for
 
-The invite link asks for the permissions the bot actually uses, not
-`Administrator`. Each one is there because a call site needs it, and
-`utils/discord_auth.py` names that call site beside each entry:
+There are **two invite links**, and every page that offers one offers both:
+
+| Link | Asks for |
+|---|---|
+| The default "Add" button | **Administrator** — one permission, and nothing else |
+| "Add with limited permissions" | the explicit list below |
+
+The default asks for `Administrator` so that **no feature can fail later** while
+you work out which permission it wanted. The explicit list is always one
+permission behind the code: every feature added after it was written reaches a
+server as `Missing Permissions`, which reads as a broken bot. One bit cannot fall
+behind.
+
+It is also the larger grant, and the cost is worth stating rather than leaving in
+a comment: an Administrator bot can do **anything** in a server that adds it, so
+a fault in one command is unbounded — it reaches the whole server rather than the
+one thing that command does. If you would rather not hand that over, the second
+link asks only for what the bot uses, and each entry names the call site that
+needs it (`utils/discord_auth.py`):
 
 | Permission | Needed by |
 |---|---|
@@ -353,15 +374,15 @@ The invite link asks for the permissions the bot actually uses, not
 | View Audit Log | telling you who added the bot |
 | Create Public Threads, Send Messages in Threads | the ticket panel and the `/help` panel |
 
-Deliberately **not** asked for, because nothing uses them: `Administrator`,
-`Mention Everyone` (announcements ping a role, which needs no permission),
-`Connect` (nothing joins voice — the tracker reads state changes), Manage Server,
-Manage Webhooks, Create Invite, and the member move/mute/deafen bits. A grant
-nothing uses is still a grant, and it is what a leaked token reaches for first.
+That list deliberately leaves out `Mention Everyone` (announcements ping a role,
+which needs no permission), `Connect` (nothing joins voice — the tracker reads
+state changes), Manage Server, Manage Webhooks, Create Invite, and the member
+move/mute/deafen bits. A grant nothing uses is still a grant, and it is what a
+leaked token reaches for first.
 
-> If a feature in *your* server reports "Missing Permissions", grant that one
+> On the limited link, if a feature reports "Missing Permissions", grant that one
 > permission to the bot's role. Existing servers keep whatever they already
-> approved — changing the invite link never alters a bot that is already in.
+> approved — changing an invite link never alters a bot that is already in.
 
 ---
 

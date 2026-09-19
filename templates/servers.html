@@ -18,7 +18,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0b0e13">
     <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2.2">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>{{ "All servers" if operator else "Choose a server" }} — {{ bot_name }}</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
 </head>
@@ -119,6 +119,11 @@
             </p>
             {% if invite_url %}
             <a class="btn btn-primary" href="{{ invite_url }}" target="_blank" rel="noopener">Add {{ bot_name }} to a server</a>
+            {% if invite_limited_url %}
+            <a class="hint" href="{{ invite_limited_url }}" target="_blank" rel="noopener">
+                or add it with only the permissions it uses
+            </a>
+            {% endif %}
             {% endif %}
         </div>
         {% endif %}
@@ -147,6 +152,6 @@
             </div>
         </div>
     </footer>
-    <script src="/static/particles.js?v=2.2"></script>
+    <script src="/static/particles.js?v={{ asset_version('particles.js') }}"></script>
 </body>
 </html>

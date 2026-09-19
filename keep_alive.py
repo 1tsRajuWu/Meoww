@@ -1077,6 +1077,24 @@ def _home_status() -> dict:
     }
 
 
+def _invite_context(*, guild_id: int | str | None = None) -> dict:
+    """Both invite links, or neither, for every page that offers to add the bot.
+
+    Built here rather than at each call site because there are two of them now
+    and they must always agree: the page that offers the Administrator link has
+    to offer the least-privilege one beside it, or a careful owner is left with
+    no way in that they are willing to take. An empty string when the application
+    id is unset is the same "no invite" every template already tests for.
+    """
+    if not discord_auth.client_id():
+        return {"invite_url": "", "invite_limited_url": "", "invite_here_url": ""}
+    return {
+        "invite_url": discord_auth.invite_url(),
+        "invite_limited_url": discord_auth.invite_url(minimal=True),
+        "invite_here_url": discord_auth.invite_url(guild_id=guild_id) if guild_id else "",
+    }
+
+
 def _home_page():
     """The public landing page for somebody who is not signed in."""
     name = _bot_display_name()
@@ -1087,7 +1105,7 @@ def _home_page():
         status=_home_status(),
         stats=_home_stats(),
         features=features.dashboard_modules(),
-        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        **_invite_context(),
         enter_url="/login",
         enter_label="Sign in",
         retention_days=_retention_days(),
@@ -1175,7 +1193,7 @@ def _policy_page(slug: str):
         bot_initial=(_bot_display_name()[:1] or "M").upper(),
         enter_url="/login",
         enter_label="Sign in",
-        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        **_invite_context(),
         repository=SOURCE_REPOSITORY,
     )
 
@@ -1212,15 +1230,23 @@ def pricing_page():
     # cannot advertise a tier or a number the code does not know about — and the
     # "is this enforced yet" sentence is read from the deployment rather than
     # written into the template, because it is a fact about this process.
+    #
+    # ``selling`` gates the premium surface itself. While it is off the page is a
+    # free product's page: one plan, every system, no price for anything anybody
+    # cannot buy. It used to keep advertising the tiers — prices, feature lists,
+    # a "most popular" badge — with the buttons just switched off, which reads as
+    # a shop whose door has been left open rather than as a product that is free.
     checkout_pro = plans.checkout_url(plans.PRO)
     checkout_enterprise = plans.checkout_url(plans.ENTERPRISE)
     return render_template(
         "pricing.html",
         bot_name=name,
         bot_initial=(name[:1] or "M").upper(),
-        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        **_invite_context(),
         enter_url="/login",
         enter_label="Sign in",
+        features=features.dashboard_modules(),
+        selling=plans.selling_enabled(),
         price_free=plans.FREE.price,
         price_pro=plans.PRO.price,
         price_enterprise=plans.ENTERPRISE.price,
@@ -1434,7 +1460,7 @@ def _servers_page(error=None, status: int | None = None):
         user=session.get("discord_user") or {},
         # The invite is offered even with nothing to pick: a person whose
         # servers do not have the bot yet is exactly who needs this page.
-        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        **_invite_context(),
         current_guild_id=_int_or_none(session.get("guild_id")),
         csrf_token=get_csrf_token(),
     )
@@ -1675,11 +1701,7 @@ def dashboard():
         pick_server_url=(
             "/servers" if session.get("auth_scope") in ("user", "global") else ""
         ),
-        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
-        invite_here_url=(
-            discord_auth.invite_url(guild_id=guild_id)
-            if (discord_auth.client_id() and guild_id) else ""
-        ),
+        **_invite_context(guild_id=guild_id),
         # The composer's whole rulebook, from the same constants the endpoint
         # validates with: the character limit, the tag cap, the channel cap and
         # the title length. One owner each, so the page's counter, its button and

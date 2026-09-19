@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#090c10">
     <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2.2">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>Meow Control Center — Real-Time Admin Dashboard</title>
     <!-- No web fonts: the system stack is what every control panel ships, and it
          was a third-party request on every page load for a typeface nobody
@@ -21,38 +21,22 @@
        fixed by the application in any case. #}
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
     <style>
-        :root {
-            /* Flat surfaces, hairline borders, one accent. The gradient blobs,
-               glass blur, gradient fills and coloured glow this file used to be
-               built from were decoration that said nothing the border and the
-               accent colour do not already say — and a page assembled from them
-               reads as generated rather than designed. */
-            --bg: #0b0e13;
-            --surface: #12161e;
-            --surface-card: #161b25;
-            --surface-hover: #1d2431;
-            --border: #232b38;
-            --border-active: #3a4356;
-            --text-primary: #f0f3f8;
-            --text-secondary: #94a3b8;
-            /* #64748b read at 3.7:1 on this card, under the 4.5:1 AA floor, and it
-               carries 22 pieces of small text (counters, notes, timestamps). */
-            --text-muted: #8494ab;
-            --accent: #5865F2;
-            /* --accent fills a button behind white text; as *text* on the dark
-               card it only reached 3.9:1, so coloured words use this instead. */
-            --accent-text: #9aa5ff;
-            --green: #23a55a;
-            --red: #f23f43;
-            --radius-lg: 12px;
-            --radius-md: 10px;
-            --radius-sm: 6px;
-            /* System fonts. The Google Fonts pair was a third-party request on
-               every page load, a CSP host to maintain, and the loudest
-               "generated landing page" signal on the page. */
-            --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-        }
+        /* There is deliberately **no `:root` here.**
+
+           There was one, and it was the reason this panel and the landing page
+           never read as one product: it re-declared every token under the *same
+           name* with a different value, so a page linking the shared sheet and
+           this one was painting two palettes at once. Its `--bg` was the
+           blue-black #0b0e13 that `meow.css` documents as the thing it moved
+           away from, its text was cool white rather than the warm off-white the
+           shared sheet settles on, and its accent was Discord blurple #5865F2
+           beside the shared #5b5ef0 — two accents, a couple of degrees apart,
+           which is the most visible way to look assembled rather than designed.
+           Radii disagreed by 2px for the same reason.
+
+           The palette is the shared sheet's, and this file adds nothing to it.
+           If a token is missing, it belongs there, where every other page sees
+           it — not here, where only this one does. */
 
         * {
             box-sizing: border-box;
@@ -162,20 +146,20 @@
 
         .badge-online {
             background: rgba(35, 165, 90, 0.15);
-            color: #4ade80;
+            color: var(--green);
             border: 1px solid rgba(35, 165, 90, 0.3);
         }
 
         .badge-offline {
             background: rgba(242, 63, 67, 0.15);
-            color: #ff6b6b;
+            color: var(--red);
             border: 1px solid rgba(242, 63, 67, 0.3);
         }
 
         .badge-pulse {
             width: 6px;
             height: 6px;
-            background: #4ade80;
+            background: var(--green);
             border-radius: 50%;
         }
 
@@ -253,7 +237,7 @@
         .btn-danger {
             background: rgba(242, 63, 67, 0.15);
             border: 1px solid rgba(242, 63, 67, 0.3);
-            color: #ff6b6b;
+            color: var(--red);
         }
 
         .btn-primary {
@@ -263,8 +247,8 @@
         }
 
         .btn-primary:hover {
-            background: #6b76f5;
-            border-color: #6b76f5;
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
         }
 
         .btn-danger:hover {
@@ -428,7 +412,7 @@
             padding: 3px 8px;
             font-family: var(--font-mono);
             font-size: 11px;
-            color: #cbd5e1;
+            color: var(--text-secondary);
         }
 
         .module-footer {
@@ -449,8 +433,8 @@
             gap: 6px;
         }
 
-        .state-enabled { color: #4ade80; }
-        .state-disabled { color: #ff6b6b; }
+        .state-enabled { color: var(--green); }
+        .state-disabled { color: var(--red); }
 
         .toggle-switch {
             position: relative;
@@ -513,7 +497,7 @@
         }
 
         .toast {
-            background: #171d29;
+            background: var(--surface-hover);
             border: 1px solid var(--border);
             border-left: 4px solid var(--accent);
             border-radius: var(--radius-md);
@@ -627,7 +611,7 @@
             max-height: 264px;
             overflow-y: auto;
             overscroll-behavior: contain;
-            background: rgba(13, 17, 24, 0.6);
+            background: var(--surface-hover);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
             scrollbar-width: thin;
@@ -646,7 +630,7 @@
             position: sticky;
             top: 0;
             z-index: 2;
-            background: #151b26;
+            background: var(--surface-card);
             padding: 7px 12px;
             font-size: 10px;
             font-weight: 800;
@@ -687,7 +671,7 @@
         }
 
         .picker-row[aria-selected="true"] {
-            background: rgba(88, 101, 242, 0.18);
+            background: var(--accent-quiet);
             color: #fff;
             box-shadow: inset 3px 0 0 var(--accent);
         }
@@ -754,8 +738,8 @@
         }
 
         .badge-count.full {
-            color: #facc15;
-            border-color: rgba(250, 204, 21, 0.4);
+            color: var(--gold);
+            border-color: var(--gold);
         }
 
         .composer-input:focus-visible,
@@ -776,7 +760,7 @@
             max-height: min(320px, 50vh);
             overflow-y: auto;
             overscroll-behavior: contain;
-            background: #171d29;
+            background: var(--surface-hover);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -790,7 +774,7 @@
             position: sticky;
             top: 0;
             z-index: 2;
-            background: #1b2231;
+            background: var(--surface-card);
             padding: 6px 14px;
             font-size: 10px;
             font-weight: 800;
@@ -862,7 +846,7 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            background: rgba(88, 101, 242, 0.18);
+            background: var(--accent-quiet);
             border: 1px solid var(--border-active);
             border-radius: 999px;
             padding: 5px 6px 5px 12px;
@@ -922,16 +906,16 @@
         }
 
         .counter { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .counter.over { color: #ff6b6b; }
+        .counter.over { color: var(--red); }
         /* Why the send button is disabled, in the bot's own words. Red, not muted:
            this line is the refusal, and it arrives before the click instead of
            after it. */
-        .composer-blocked { color: #ff6b6b; }
+        .composer-blocked { color: var(--red); }
         .composer-blocked[hidden] { display: none; }
         #composer-send:disabled { opacity: 0.55; cursor: not-allowed; }
 
         .preview {
-            background: #12161f;
+            background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
             padding: 14px 16px;
@@ -1014,8 +998,8 @@
         .preview-empty { color: var(--text-muted); font-style: italic; }
 
         .mention-text {
-            color: #a5b4fc;
-            background: rgba(88, 101, 242, 0.16);
+            color: var(--accent-text);
+            background: var(--accent-quiet);
             border-radius: 4px;
             padding: 0 4px;
         }
@@ -1027,7 +1011,7 @@
         .receipt {
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            background: rgba(13, 17, 24, 0.8);
+            background: var(--surface);
             margin-bottom: 14px;
             overflow: hidden;
         }
@@ -1049,9 +1033,9 @@
             text-transform: uppercase;
         }
 
-        .receipt-title.ok { color: #4ade80; }
-        .receipt-title.warn { color: #facc15; }
-        .receipt-title.fail { color: #ff6b6b; }
+        .receipt-title.ok { color: var(--green); }
+        .receipt-title.warn { color: var(--gold); }
+        .receipt-title.fail { color: var(--red); }
 
         .receipt-time {
             margin-left: auto;
@@ -1086,9 +1070,9 @@
 
         .receipt-row:last-child { border-bottom: 0; }
         .receipt-mark { width: 14px; flex-shrink: 0; font-weight: 800; }
-        .receipt-row.ok .receipt-mark { color: #4ade80; }
-        .receipt-row.fail .receipt-mark { color: #ff6b6b; }
-        .receipt-row.note .receipt-mark { color: #facc15; }
+        .receipt-row.ok .receipt-mark { color: var(--green); }
+        .receipt-row.fail .receipt-mark { color: var(--red); }
+        .receipt-row.note .receipt-mark { color: var(--gold); }
 
         .receipt-name {
             font-weight: 600;
@@ -1111,7 +1095,7 @@
             flex-shrink: 0;
             font-size: 11.5px;
             font-weight: 600;
-            color: #a5b4fc;
+            color: var(--accent-text);
             text-decoration: none;
             white-space: nowrap;
         }
@@ -1137,7 +1121,7 @@
             margin-top: 8px;
             font-size: 11.5px;
             font-weight: 600;
-            color: #facc15;
+            color: var(--gold);
         }
 
         .composer-status { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
@@ -1224,8 +1208,8 @@
         }
 
         .schedule-row.done { opacity: 0.94; }
-        .schedule-row.failed { border-color: rgba(242, 63, 67, 0.35); }
-        .schedule-row.missed { border-color: rgba(250, 204, 21, 0.35); }
+        .schedule-row.failed { border-color: rgba(242, 63, 67, 0.45); }
+        .schedule-row.missed { border-color: rgba(240, 178, 50, 0.45); }
 
         .schedule-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
@@ -1238,8 +1222,8 @@
             font-weight: 700;
         }
 
-        .schedule-when-text { font-variant-numeric: tabular-nums; color: #4ade80; }
-        .schedule-when-text.late { color: #facc15; }
+        .schedule-when-text { font-variant-numeric: tabular-nums; color: var(--green); }
+        .schedule-when-text.late { color: var(--gold); }
         .schedule-when-text.done { color: var(--text-secondary); }
 
         .schedule-abs {
@@ -1262,12 +1246,12 @@
             white-space: nowrap;
         }
 
-        .pill.repeat { color: #a5b4fc; border-color: rgba(88, 101, 242, 0.45); }
+        .pill.repeat { color: var(--accent-text); border-color: var(--accent); }
         .pill.now { color: #7dd3fc; border-color: rgba(56, 189, 248, 0.45); }
-        .pill.ping { color: #facc15; border-color: rgba(250, 204, 21, 0.45); }
-        .pill.ok { color: #4ade80; border-color: rgba(35, 165, 90, 0.4); }
-        .pill.warn { color: #facc15; border-color: rgba(250, 204, 21, 0.4); }
-        .pill.fail { color: #ff8a8a; border-color: rgba(242, 63, 67, 0.4); }
+        .pill.ping { color: var(--gold); border-color: var(--gold); }
+        .pill.ok { color: var(--green); border-color: var(--green); }
+        .pill.warn { color: var(--gold); border-color: var(--gold); }
+        .pill.fail { color: var(--red); border-color: var(--red); }
 
         .schedule-preview {
             font-size: 12.5px;
@@ -1282,8 +1266,8 @@
 
         .schedule-results { list-style: none; display: flex; flex-direction: column; gap: 3px; }
         .schedule-results li { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--text-muted); }
-        .schedule-results li.ok .mark { color: #4ade80; }
-        .schedule-results li.fail .mark { color: #ff6b6b; }
+        .schedule-results li.ok .mark { color: var(--green); }
+        .schedule-results li.fail .mark { color: var(--red); }
         .schedule-results a { color: var(--accent-text); text-decoration: none; }
         .schedule-results a:hover { text-decoration: underline; }
 
@@ -1329,7 +1313,7 @@
                 position: sticky;
                 bottom: 0;
                 z-index: 5;
-                background: #12161f;
+                background: var(--bg);
                 border-top: 1px solid var(--border);
                 padding: 12px 0 4px;
             }
@@ -1377,7 +1361,23 @@
     <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
     <a class="skip-link" href="#modules">Skip to modules</a>
     <div class="container">
-        <header>
+        {# The motion system, the same one the landing page uses (`static/motion.js`,
+           whose primitives are all opt-in through `data-` attributes).
+
+           What is deliberately absent is the **curtain**. A landing page has one
+           job — to arrive — and a gate in front of it is the point. A control
+           panel's job is to be *there*: somebody opens it to flip a switch, and
+           a second of a progress bar in front of the thing they came to do is a
+           cost paid every visit to make a first impression once. So no
+           `data-loader`: no curtain, no scroll lock, nothing gated on it.
+
+           The reveals are also smaller and faster than the landing page's. It
+           moves things 28px over ~600ms, which is right for a page you read and
+           wrong for one you use. Here it is 10px and a delay only across the
+           first screen — `inview` fires on scroll for everything below, so the
+           stagger is not paid again by a card further down that nobody is
+           waiting for. #}
+        <header data-reveal data-reveal-y="10">
             <div class="brand-section">
                 <img src="/static/logo.svg" alt="Meow Bot" class="brand-logo" style="width:40px;height:40px;">
                 <div class="brand-text">
@@ -1429,25 +1429,25 @@
         </header>
 
         <div class="metrics-grid">
-            <div class="metric-card">
+            <div class="metric-card" data-reveal data-reveal-y="10">
                 <div class="metric-info">
                     <h3>Sync</h3>
                     <p>Instant</p>
                 </div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="60">
                 <div class="metric-info">
                     <h3>Active Modules</h3>
                     <p id="metric-active" aria-live="polite">{{ active_count }} / {{ total_count }}</p>
                 </div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="120">
                 <div class="metric-info">
                     <h3>Server Members</h3>
                     <p>{{ member_count }}</p>
                 </div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="180">
                 <div class="metric-info">
                     <h3>Discord Ping</h3>
                     <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} ms{% else %}—{% endif %}</p>
@@ -1455,12 +1455,12 @@
             </div>
         </div>
 
-        <div class="section-header" id="identity">
+        <div class="section-header" id="identity" data-reveal data-reveal-y="10">
             <h2>This server's bot</h2>
             <span class="composer-hint">Discord keeps a name, picture and bio <strong>per server</strong>: what you set here is what this server sees, and nothing on this page can change the bot anywhere else.</span>
         </div>
 
-        <div class="composer-card">
+        <div class="composer-card" data-reveal data-reveal-y="10">
             <div class="identity-grid">
                 <div class="identity-preview">
                     <div class="identity-avatar" id="identity-avatar">
@@ -1507,12 +1507,12 @@
             </div>
         </div>
 
-        <div class="section-header" id="command-scope">
+        <div class="section-header" id="command-scope" data-reveal data-reveal-y="10">
             <h2>Commands in this server</h2>
             <span class="composer-hint">Discord cannot hide a globally-registered command in one server, so every server is registered with <strong>its own</strong> list: a command whose system is off here is not in this server's picker at all.</span>
         </div>
 
-        <div class="composer-card">
+        <div class="composer-card" data-reveal data-reveal-y="10">
             <div class="scope-summary">
                 <div class="scope-stat"><b id="scope-available">{{ command_scope.available }}</b><span>offered here</span></div>
                 <div class="scope-stat"><b id="scope-hidden">{{ command_scope.hidden }}</b><span>hidden here</span></div>
@@ -1532,12 +1532,12 @@
             </div>
         </div>
 
-        <div class="section-header" id="composer">
+        <div class="section-header" id="composer" data-reveal data-reveal-y="10">
             <h2>Message composer</h2>
             <span class="composer-hint">The bot posts it as itself, in any channel, tagging anyone.</span>
         </div>
 
-        <div class="composer-card">
+        <div class="composer-card" data-reveal data-reveal-y="10">
             <div class="composer-grid">
                 <div class="composer-col">
                     <div class="composer-field">
@@ -1650,12 +1650,12 @@
             </div>
         </div>
 
-        <div class="section-header" id="schedule">
+        <div class="section-header" id="schedule" data-reveal data-reveal-y="10">
             <h2>Scheduled messages</h2>
             <span class="badge-count" id="schedule-pending" aria-live="polite">0 of {{ schedule_max_pending|default(25) }}</span>
         </div>
 
-        <div class="schedule-card">
+        <div class="schedule-card" data-reveal data-reveal-y="10">
             <div class="field-head">
                 <span class="field-label">Queued</span>
                 <span class="composer-hint">Times are shown in your own time zone. A message more than {{ schedule_catchup_hours|default(24) }}h late is skipped instead of posted.</span>
@@ -1669,7 +1669,7 @@
             <div class="composer-status" id="schedule-status" role="status"></div>
         </div>
 
-        <div class="section-header" id="modules">
+        <div class="section-header" id="modules" data-reveal data-reveal-y="10">
             <h2>Bot systems</h2>
             <div class="bulk-controls">
                 <button type="button" class="btn" id="btn-enable-all">Enable all</button>
@@ -1677,9 +1677,9 @@
             </div>
         </div>
 
-        <div class="modules-grid">
+        <div class="modules-grid" data-reveal data-reveal-y="10">
             {% for mod in modules %}
-            <div class="module-card" id="card-{{ mod.id }}">
+            <div class="module-card" id="card-{{ mod.id }}" data-hover="y:-3">
                 <div class="module-header">
                     <div class="module-meta">
                         <div class="module-icon-box" aria-hidden="true">{{ mod.name[:1] | upper }}</div>
@@ -3526,6 +3526,7 @@
         document.getElementById("btn-enable-all").addEventListener("click", () => toggleAll(true));
         document.getElementById("btn-disable-all").addEventListener("click", () => toggleAll(false));
     </script>
-    <script src="/static/particles.js?v=2.2"></script>
+    <script src="/static/particles.js?v={{ asset_version('particles.js') }}"></script>
+    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>
 </html>

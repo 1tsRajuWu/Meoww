@@ -45,19 +45,42 @@ LOGIN_SCOPES = ("identify", "guilds")
 #: documents under "No slash commands at all".
 INVITE_SCOPES = ("bot", "applications.commands")
 
-#: Every permission the invite asks for, as ``(name, bit)``, so the list can be
-#: read and checked rather than decoded. **Each entry names the call site that
-#: needs it** — a permission with no call site is one this bot does not need, and
-#: that is the whole point of the list.
+#: The grant the invite link asks for. **Administrator**, one bit, and this is a
+#: deliberate reversal of what used to live here: for a while the link carried
+#: the explicit list below, each entry naming the call site that needs it.
 #:
-#: This used to be Discord's blanket ``ADMINISTRATOR``, and the argument for it
-#: was that a single digit in the URL is easier to check than a long bitfield.
-#: That was the wrong trade for *this* link: it is published on a public page
-#: whose entire job is to earn enough trust to be added, and "Administrator" is
-#: the first thing a careful owner reads and the most common reason to close the
-#: tab. Administrator also makes every other bit irrelevant, so a fault in one
-#: command is unbounded — it can do anything, anywhere, instead of being limited
-#: to what that command actually does.
+#: The argument for the long list was that a public invite is the page's real job
+#: and "Administrator" is the first thing a careful owner reads before deciding
+#: whether to add a bot. That is still true. The operator chose the other trade
+#: anyway, for a reason that is equally real: **the long list is always one
+#: permission behind the code.** Every feature added after it was written — a
+#: moderation path Discord gates behind Manage Server, a webhook the bot grew, a
+#: command needing something nobody listed — arrives in somebody's server as
+#: *Missing Permissions*, which reads to them as a broken bot and costs a support
+#: conversation every time it happens. One bit can never be behind.
+#:
+#: What it costs, said plainly rather than left in a comment: an Administrator
+#: bot can do anything in any server that adds it. A fault in one command is
+#: unbounded — it reaches the whole server rather than the one thing that command
+#: does — and a leaked token is worse here than anywhere else.
+#:
+#: Which is why this is not the only link the bot offers. ``MINIMAL_PERMISSION_BITS``
+#: is the old list, kept current, and ``invite_url(..., minimal=True)`` builds a
+#: second link from it. Both are offered wherever somebody decides to add the
+#: bot, so an owner who will not grant Administrator can still let it in — and
+#: knows, from the copy beside that link, that a feature may then report a missing
+#: permission they can grant one at a time.
+ADMINISTRATOR_PERMISSIONS = 1 << 3
+
+#: The bitfield the **default** invite link carries. One bit, and nothing else:
+#: Administrator makes every other permission irrelevant, so OR-ing the list below
+#: into it would only make the number harder to read.
+INVITE_PERMISSIONS = ADMINISTRATOR_PERMISSIONS
+
+#: The least-privilege alternative, as ``(name, bit)``, so the list can be read
+#: and checked rather than decoded. **Each entry names the call site that needs
+#: it** — a permission with no call site is one this bot does not need, and that
+#: is the whole point of the list.
 #:
 #: What is *not* here is as deliberate as what is. There is no **Mention
 #: Everyone** (no code path pings ``@everyone``; announcements ping a role, which
@@ -66,7 +89,7 @@ INVITE_SCOPES = ("bot", "applications.commands")
 #: ``view_channel``), no **Manage Server**, no **Manage Webhooks**, no **Create
 #: Invite**, and none of the member-move/mute/deafen bits. A grant nothing uses
 #: is still a grant: it is what a hijacked token reaches for.
-INVITE_PERMISSION_BITS = (
+MINIMAL_PERMISSION_BITS = (
     # --- answering at all ---
     ("view_channel", 1 << 10),
     ("send_messages", 1 << 11),
@@ -91,8 +114,8 @@ INVITE_PERMISSION_BITS = (
     ("send_messages_in_threads", 1 << 38),
 )
 
-#: The bitfield the invite link carries.
-INVITE_PERMISSIONS = sum(bit for _name, bit in INVITE_PERMISSION_BITS)
+#: The bitfield the **limited** invite link carries.
+MINIMAL_INVITE_PERMISSIONS = sum(bit for _name, bit in MINIMAL_PERMISSION_BITS)
 
 #: How long any single call may take. These are two small JSON requests made
 #: while somebody waits for a sign-in, so a hung socket is worse than a clear
@@ -133,7 +156,7 @@ def enabled() -> bool:
     return bool(client_id() and client_secret())
 
 
-def invite_url(*, guild_id: int | str | None = None) -> str:
+def invite_url(*, guild_id: int | str | None = None, minimal: bool = False) -> str:
     """The URL that adds this bot to a server.
 
     With ``guild_id`` the target server is chosen already and Discord hides its
@@ -141,11 +164,16 @@ def invite_url(*, guild_id: int | str | None = None) -> str:
     needs; without it the person picks any server they manage, which is what
     "add it somewhere else" needs. Somebody who manages nothing sees Discord's
     own "you need Manage Server" refusal, which is clearer than ours would be.
+
+    ``minimal`` builds the least-privilege link instead of the Administrator one
+    — same scopes, a different bitfield — for an owner who will not hand a bot
+    the whole server. It is a second *link*, not a second code path: whichever
+    one is used, the bot that arrives is the same bot.
     """
     params = {
         "client_id": client_id(),
         "scope": " ".join(INVITE_SCOPES),
-        "permissions": str(INVITE_PERMISSIONS),
+        "permissions": str(MINIMAL_INVITE_PERMISSIONS if minimal else INVITE_PERMISSIONS),
     }
     if guild_id:
         params["guild_id"] = str(guild_id)

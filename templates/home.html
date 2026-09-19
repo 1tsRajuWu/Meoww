@@ -30,7 +30,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#08080a">
     <meta name="description" content="{{ meta_description }}">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2.2">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>{{ bot_name }} — moderation, leveling, tickets, a live market and a real-time dashboard</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
 </head>
@@ -368,13 +368,23 @@
                     <div>
                         <h3>Add the bot</h3>
                         <p>
-                            The invite asks for the permissions a working bot needs and nothing
-                            else — no Administrator. Without the <code>applications.commands</code>
-                            scope you get a bot with nothing in the picker, so that is in the link
-                            too.
+                            The invite asks for <b>Administrator</b> — one permission, so no
+                            feature can fail later with "Missing Permissions" while you work out
+                            which bit it wanted. Prefer not to hand over that much? The second
+                            link asks only for the permissions {{ bot_name }} actually uses, and
+                            a system that needs one more will say which. Either way the link
+                            carries <code>applications.commands</code>: without it you get a bot
+                            with nothing in the picker.
                         </p>
                     </div>
-                    {% if invite_url %}<a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>{% endif %}
+                    {% if invite_url %}
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
+                        <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add with Administrator</a>
+                        {% if invite_limited_url %}
+                        <a class="btn btn-sm" href="{{ invite_limited_url }}">Add with limited permissions</a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 </article>
                 <article class="lp-card" data-reveal data-reveal-delay="120">
                     <span class="lp-step-num">2</span>
@@ -419,27 +429,36 @@
                             The paid tiers are on sale, and every system above is still free to
                             use without one.
                         {% else %}
-                            Nothing is on sale yet: every system above is free to use right now,
-                            and the tiers say where the project is heading rather than what it
-                            charges.
+                            Nothing is on sale and there is nothing to buy: every system above
+                            is free in your server today, with no card, no trial and no licence
+                            key. We may introduce paid plans later — for a network that wants
+                            more servers, its own branding, or priority support — and this page
+                            will say so in advance if we do.
                         {% endif %}
                     </p>
                     <div class="lp-cta-price">
                         <div class="lp-price-chip is-current">
-                            <b>{{ price_free }}</b><span>Free</span>
+                            <b>{{ price_free }}</b><span>{% if selling %}Free{% else %}Everything included{% endif %}</span>
                         </div>
+                        {% if selling %}
                         <div class="lp-price-chip">
                             <b>{{ price_pro }}</b><span>Pro / mo</span>
                         </div>
                         <div class="lp-price-chip">
                             <b>{{ price_enterprise }}</b><span>Enterprise / mo</span>
                         </div>
+                        {% endif %}
                     </div>
                 </div>
                 <div style="display:grid; gap:0.75rem">
-                    <a class="btn btn-primary" href="/pricing">See the tiers</a>
+                    <a class="btn btn-primary" href="/pricing">See what you get</a>
                     {% if invite_url %}
                     <a class="btn" href="{{ invite_url }}">Add {{ bot_name }} — free</a>
+                    {% endif %}
+                    {% if invite_limited_url %}
+                    <a class="dim" href="{{ invite_limited_url }}" style="font-size:0.875rem">
+                        …or add it with limited permissions
+                    </a>
                     {% endif %}
                 </div>
             </div>

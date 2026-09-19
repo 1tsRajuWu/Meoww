@@ -7,7 +7,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0b0e13">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2.2">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>Pricing — {{ bot_name }}</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
     <style>
@@ -250,21 +250,40 @@
     <main>
         <section class="hero page center">
             <h1 class="reveal" style="--i: 0; max-width: none;">
-                Simple, <span class="shine">transparent pricing</span>.
+                {% if selling %}
+                    Simple, <span class="shine">transparent pricing</span>.
+                {% else %}
+                    Everything is <span class="shine">free</span>.
+                {% endif %}
             </h1>
+
+            {#
+              What the page says above the fold is the difference between a
+              product and an advertisement: while nothing is on sale there is no
+              "upgrade", no price to be billed and nothing to cancel, and copy
+              that says otherwise is describing a shop that does not exist.
+
+              No yearly switch in either state. Both products in the store are
+              monthly subscriptions, so a toggle that halved the number and
+              promised "Save 20%" was offering a price nobody could be charged —
+              the same defect as a dead button, one layer further in.
+            #}
+            {% if selling %}
             <p class="lede reveal" style="--i: 1; margin-left: auto; margin-right: auto;">
                 Everything you need to grow your community. Upgrade when you need more power, custom branding, or priority support.
             </p>
-
-            {#
-              No yearly switch. Both products in the store are monthly
-              subscriptions, so a toggle that halved the number and promised
-              "Save 20%" was offering a price nobody could be charged — the same
-              defect as a dead button, one layer further in.
-            #}
             <p class="dim reveal" style="--i: 2; margin: 0">
                 Billed monthly in Indian rupees. Cancel any time.
             </p>
+            {% else %}
+            <p class="lede reveal" style="--i: 1; margin-left: auto; margin-right: auto;">
+                Every system {{ bot_name }} has, in your server, for nothing — with no
+                card, no trial and no licence key.
+            </p>
+            <p class="dim reveal" style="--i: 2; margin: 0">
+                No limit is switched on today, so every tier below is the same one.
+            </p>
+            {% endif %}
         </section>
 
         <section class="page" style="padding-top: 0">
@@ -295,12 +314,17 @@
                             </p>
                         {% else %}
                             <span class="pill pill-ok">No billing yet</span>
-                            <h3 style="margin: 10px 0 6px">Every plan on this page is free today</h3>
+                            <h3 style="margin: 10px 0 6px">Everything on this page is free today</h3>
                             <p class="dim" style="margin: 0">
-                                There is no checkout and nothing to pay: add {{ bot_name }} and every
-                                system below is available in your server right now. These tiers say
-                                where the project is heading, so you know what is coming — not what
-                                is being charged.
+                                Add {{ bot_name }} and every system below is on in your server right
+                                now: nothing to buy, no card to enter, no licence key to activate.
+                                {% if not plans_enforced %}
+                                    Nor is anything held back — <strong>no limit is switched on</strong>,
+                                    so no tier is missing a feature.
+                                {% endif %}
+                                We may introduce paid plans later, for a network that wants more
+                                servers, its own branding, or priority support; if that ever happens,
+                                this page will say so first, rather than the bot going quiet on you.
                             </p>
                         {% endif %}
                     </div>
@@ -310,7 +334,8 @@
 
         <section class="page">
             <div class="pricing-cards">
-                
+                {% if selling %}
+
                 <!-- Free Tier -->
                 <div class="card card-hover pricing-card reveal" style="--i: 3">
                     <h3>Free</h3>
@@ -385,9 +410,51 @@
                         <a href="/servers" class="btn btn-block">Open the dashboard</a>
                     {% endif %}
                 </div>
+
+                {% else %}
+                {#
+                  The whole premium surface is gone while nothing is for sale. A
+                  tier the code does not enforce, priced at money nobody can pay,
+                  is not a roadmap — it is a page that contradicts itself, and it
+                  was still carrying a "Most Popular" badge for the privilege.
+                  What replaces it is the product as it exists: one plan, every
+                  system from the registry the bot actually loads, and no number
+                  anybody is being asked for.
+                #}
+                <div class="card card-hover pricing-card reveal" style="--i: 3; max-width: 620px; margin: 0 auto;">
+                    <span class="tier-badge">Everything included</span>
+                    <h3>Free</h3>
+                    <div class="price">
+                        <span class="static-num">{{ price_free }}</span><span class="period static-period">/mo</span>
+                    </div>
+                    <p class="dim">Every system, with no limit switched on</p>
+
+                    <ul class="features-list">
+                        {% for feature in features %}
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> {{ feature.name }}</li>
+                        {% endfor %}
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Real-time dashboard &amp; message composer</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Scheduled messages</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Your own name and picture for the bot, per server</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Hourly cloud backups</li>
+                    </ul>
+
+                    <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free' if invite_url else 'Open the dashboard' }}</a>
+                    {% if invite_limited_url %}
+                    <a href="{{ invite_limited_url }}" class="btn btn-block" style="margin-top: 0.5rem">Add with limited permissions</a>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
         </section>
 
+        {% if selling %}
+        {#
+          The three-column table only means anything when there are three things
+          to choose between. With the premium surface gone it would be a column of
+          "Included", a column of "-" and a row about who gets priority support
+          for a product with no support tier.
+        #}
         <section class="section page compare-section">
             <details class="accordion reveal" style="--i: 6">
                 <summary class="accordion-head">
@@ -452,6 +519,7 @@
                 </div>
             </details>
         </section>
+        {% endif %}
 
         <section class="section page" id="faq">
             <div class="section-head reveal" style="--i: 7">
@@ -459,6 +527,7 @@
                 <h2>Common Questions</h2>
             </div>
             <div class="faq-grid">
+                {% if selling %}
                 <div class="faq-item reveal" style="--i: 8">
                     {#
                       The old answer promised "a 7-day free trial of Pro features"
@@ -485,6 +554,39 @@
                     your servers until the end of the period you already paid for, and the licence key in
                     <code>/bot plan</code> stops working after that.</p>
                 </div>
+                {% else %}
+                {#
+                  While nothing is on sale the questions a visitor actually has are
+                  not about payment methods: they are "is this really free", "will
+                  it start charging me", and "what do I have to hand over". Each
+                  answer is a fact about the deployment — no checkout exists, no
+                  limit is enforced, and the only thing asked for is Discord's own
+                  permission to add a bot.
+                #}
+                <div class="faq-item reveal" style="--i: 8">
+                    <h4>Is everything really free?</h4>
+                    <p>Yes. Every system {{ bot_name }} has is available in your server today, with no
+                    trial and no time limit on any of it. There is no checkout on this page, no card
+                    to enter, and no key to activate — an administrator adds the bot and the whole
+                    panel is open. See <a href="/#features">what each system does</a>.</p>
+                </div>
+                <div class="faq-item reveal" style="--i: 9">
+                    <h4>Will it start costing money later?</h4>
+                    <p>It might, and we would rather say so than surprise you. A paid tier would be
+                    for a network that wants more servers, its own branding, or priority support —
+                    not for the systems you already use. If one is ever introduced, this page will
+                    say so before anything changes, and no limit is switched on today, so no tier is
+                    currently missing anything.</p>
+                </div>
+                <div class="faq-item reveal" style="--i: 10">
+                    <h4>What does adding the bot cost me in permissions?</h4>
+                    <p>Discord's own permission to add a bot — that is the whole list. The invite
+                    asks for <b>Administrator</b> so that no feature fails later while you work out
+                    which permission it wanted; if you would rather not grant that, the second link
+                    asks only for the permissions {{ bot_name }} actually uses, and you can grant one
+                    more if a system asks for it.</p>
+                </div>
+                {% endif %}
                 <div class="faq-item reveal" style="--i: 11">
                     {#
                       "We use encrypted backups" was false: the cloud backup is a
@@ -499,6 +601,7 @@
                     is what protects it. Only what the systems you switch on need is stored, and
                     <a href="/privacy">the privacy policy</a> lists each kind with how long it is kept.</p>
                 </div>
+                {% if selling %}
                 <div class="faq-item reveal" style="--i: 12">
                     <h4>What happens if I downgrade?</h4>
                     <p>Nothing is deleted on a downgrade: the plan changes, and the retention windows
@@ -506,6 +609,15 @@
                     systems are held back on the free plan, they stop being available until a licence
                     is active again — and activating one puts them back exactly as they were.</p>
                 </div>
+                {% else %}
+                <div class="faq-item reveal" style="--i: 12">
+                    <h4>What happens if I remove the bot?</h4>
+                    <p>Your records are not deleted the moment it leaves: the retention windows in
+                    <a href="/privacy">the privacy policy</a> go on applying, so activity counts age
+                    out after their own window and queued message history after 90 days. Adding it
+                    back picks up from what is still stored.</p>
+                </div>
+                {% endif %}
             </div>
         </section>
     </main>
@@ -557,6 +669,6 @@
             }
         })();
     </script>
-    <script src="/static/particles.js?v=2.2"></script>
+    <script src="/static/particles.js?v={{ asset_version('particles.js') }}"></script>
 </body>
 </html>

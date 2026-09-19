@@ -251,8 +251,8 @@ code, pre, kbd {
     inset: 0;
     opacity: 0.5;
     background-image:
-        linear-gradient(to right, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+        linear-gradient(to right, rgba(244, 242, 239, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(244, 242, 239, 0.05) 1px, transparent 1px);
     background-size: 46px 46px;
     mask-image: radial-gradient(ellipse at 50% 20%, #000 20%, transparent 78%);
     -webkit-mask-image: radial-gradient(ellipse at 50% 20%, #000 20%, transparent 78%);
@@ -494,7 +494,7 @@ code, pre, kbd {
     --btn-bg: var(--accent);
     --btn-border: var(--accent);
     --btn-text: #fff;
-    box-shadow: 0 8px 24px -12px rgba(88, 101, 242, 0.9);
+    box-shadow: 0 8px 24px -12px rgba(91, 94, 240, 0.9);
 }
 
 .btn-primary:hover {
@@ -1178,8 +1178,8 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 /* Glow effect on primary buttons */
 .btn-primary:hover {
     box-shadow:
-        0 0 20px rgba(88, 101, 242, 0.5),
-        0 8px 24px -12px rgba(88, 101, 242, 0.9);
+        0 0 20px rgba(91, 94, 240, 0.5),
+        0 8px 24px -12px rgba(91, 94, 240, 0.9);
 }
 
 /* Ripple click effect */
@@ -1214,7 +1214,7 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 .card-tilt:hover {
     transform: translateY(-4px) rotateX(2deg) rotateY(-1deg);
     border-color: var(--border-active);
-    box-shadow: var(--shadow-lift), 0 0 40px -15px rgba(88, 101, 242, 0.15);
+    box-shadow: var(--shadow-lift), 0 0 40px -15px rgba(91, 94, 240, 0.15);
 }
 
 /* --------------------------------------------------------------------------
@@ -1475,7 +1475,7 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 .pricing-toggle button.active {
     background: var(--accent);
     color: #fff;
-    box-shadow: 0 2px 8px rgba(88, 101, 242, 0.4);
+    box-shadow: 0 2px 8px rgba(91, 94, 240, 0.4);
 }
 
 .gradient-border {

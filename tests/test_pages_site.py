@@ -25,11 +25,13 @@ import re
 import shutil
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
 import keep_alive
 from scripts import build_site
+from utils import discord_auth
 
 ROOT = Path(__file__).resolve().parent.parent
 LIVE = "https://bot.example.test"
@@ -167,6 +169,35 @@ class BuiltSiteCase(unittest.TestCase):
         self.assertIn("discord.com/oauth2/authorize", self.pages["index.html"])
         self.assertIn("client_id=1548380269776605324", self.pages["index.html"])
 
+    def test_the_pages_offer_both_grants_and_the_second_one_is_smaller(self):
+        """The limited link is the entire justification for the default one.
+
+        A careful owner who will not hand a bot the whole server has to be able
+        to *see* the alternative before clicking add, and it has to be a real
+        alternative — the same two scopes, a smaller bitfield. A page that offered
+        one link while describing two would be worse than the blanket grant alone,
+        because it would read as a choice that does not exist.
+        """
+        for name in ("index.html", "pricing.html"):
+            with self.subTest(page=name):
+                urls = re.findall(
+                    r"https://discord\.com/oauth2/authorize\?[^\"'\s]+", self.pages[name]
+                )
+                grants = {
+                    # Jinja escapes the `&` between parameters, and a browser
+                    # reads `&amp;` as `&` — so the mark-up has to be decoded
+                    # before the query is parsed, or every key is "amp;…".
+                    urllib.parse.parse_qs(
+                        urllib.parse.urlparse(url.replace("&amp;", "&")).query
+                    )["permissions"][0]
+                    for url in urls
+                }
+                self.assertEqual(
+                    grants,
+                    {str(discord_auth.INVITE_PERMISSIONS), str(discord_auth.MINIMAL_INVITE_PERMISSIONS)},
+                    f"{name} does not offer both grants, it offers {grants}",
+                )
+
     def test_no_page_is_a_dead_end(self):
         for name, text in self.pages.items():
             self.assertNotIn('href="#"', text, f"{name} has a link that goes nowhere")
@@ -182,8 +213,8 @@ class BuiltSiteCase(unittest.TestCase):
         self.assertIn("No billing yet", pricing)
         self.assertNotIn("lemonsqueezy.com", pricing)
 
-    def test_the_prices_on_the_page_are_the_ones_the_bot_will_hold_servers_to(self):
-        """One source for both, so the site cannot advertise a tier the code lacks.
+    def test_the_price_on_the_page_is_the_one_the_bot_will_hold_servers_to(self):
+        """One source for both, so the site cannot advertise a number the code lacks.
 
         They were two: the page carried its own literal prices while the plan
         model in ``utils/plans.py`` carried the limits, and the only thing keeping
@@ -192,11 +223,42 @@ class BuiltSiteCase(unittest.TestCase):
         from utils import plans
 
         pricing = self.pages["pricing.html"]
-        for plan in (plans.FREE, plans.PRO, plans.ENTERPRISE):
-            self.assertIn(
-                f">{plan.price}<", pricing,
-                f"{plan.label} is {plan.price} in the plan model but not on the page",
-            )
+        self.assertIn(
+            f">{plans.FREE.price}<", pricing,
+            f"Free is {plans.FREE.price} in the plan model but not on the page",
+        )
+
+    def test_a_page_that_has_nothing_to_sell_does_not_describe_a_shop(self):
+        """The premium surface is gone while ``PLAN_CHECKOUT`` is off.
+
+        It used to stay up with the buttons switched off: three tiers, their
+        prices, a "Most Popular" badge, and a comparison table with columns for
+        plans nobody could buy. That is not a roadmap, it is a page advertising a
+        product that does not exist — and the one answer it could not give a
+        visitor was the one they came for, which is "what does this cost me".
+        """
+        pricing = self.pages["pricing.html"]
+        for ghost in ("₹499", "₹1,499", "Most Popular", ">Pro<", ">Enterprise<"):
+            self.assertNotIn(ghost, pricing, f"the free pricing page still offers {ghost}")
+        # The element, not the string: `compare-table` is also a class name in
+        # the page's own stylesheet, which is still emitted in both states.
+        self.assertNotIn("<table", pricing, "the free page still renders a comparison table")
+
+    def test_the_free_page_says_what_happens_later_without_promising_the_world(self):
+        """A price may come back, and the page has to be able to say so.
+
+        Two failure modes are pinned here together because they are each other's
+        opposite: a page that says nothing about the future (so a free product
+        reads as one that may start charging without warning), and a page that
+        promises it will never charge, or that nothing will ever be taken away —
+        a promise the plan model can break from the environment, since turning
+        ``PLAN_ENFORCEMENT`` on withholds systems from a server with no licence.
+        """
+        pricing = self.pages["pricing.html"]
+        self.assertIn("paid plans", pricing)
+        self.assertIn("this page will say so first", pricing)
+        for overreach in ("stays free forever", "never charge", "will always be free"):
+            self.assertNotIn(overreach, pricing, f"the page promises {overreach!r}")
 
     def test_the_page_does_not_sell_a_yearly_price_that_does_not_exist(self):
         """Both products in the store are monthly subscriptions.
@@ -293,20 +355,35 @@ class BuiltSiteWithCheckout(unittest.TestCase):
 
         The way this goes wrong is quiet: a store is set up over an evening, one
         link is pasted into the host, and the page starts charging before anyone
-        meant it to. ``PLAN_CHECKOUT`` is what separates the two, and with it off
-        the tiers are still described — prices, features, all of it — with nothing
-        to click but the invite.
+        meant it to. ``PLAN_CHECKOUT`` is what separates the two — and with it off
+        the premium surface goes with the buttons, rather than staying up as a
+        price list nobody can pay. This is the assertion that flipped: it used to
+        require the tiers to remain.
         """
         pricing, out = self._build(PLAN_CHECKOUT="0")
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         self.assertNotIn("lemonsqueezy.com", pricing, "a Buy link survived the switch")
         self.assertIn("No billing yet", pricing)
         self.assertNotIn("Checkout by Lemon Squeezy", pricing)
-        # The premium things stay: this is "not on sale yet", not "not for sale".
-        self.assertIn("₹499", pricing)
-        self.assertIn("₹1,499", pricing)
-        self.assertIn("Message Composer", pricing)
+        for ghost in ("₹499", "₹1,499", ">Pro<", ">Enterprise<"):
+            self.assertNotIn(ghost, pricing, f"a configured store still shows {ghost}")
+        # What a visitor is left with is the product, still addable and still
+        # fully described — including the systems this page used to sell.
+        for system in ("Support Tickets", "Activity Tracker", "Real-time dashboard"):
+            self.assertIn(system, pricing)
         self.assertIn("discord.com/oauth2/authorize", pricing)
+
+    def test_a_store_that_is_really_open_still_sells_the_named_prices(self):
+        """Switching it on brings the tiers back, at the model's own numbers."""
+        from utils import plans
+
+        pricing, out = self._build(PLAN_ENFORCEMENT="1")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        for plan in (plans.FREE, plans.PRO, plans.ENTERPRISE):
+            self.assertIn(
+                f">{plan.price}<", pricing,
+                f"{plan.label} is {plan.price} in the plan model but not on the page",
+            )
 
 
 class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):
