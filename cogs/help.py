@@ -279,9 +279,14 @@ class HelpSelectMenu(discord.ui.Select):
         await interaction.response.edit_message(view=self.view)
 
 
+# Discord refuses a text input whose placeholder runs past 100 characters, and it
+# refuses it when the modal is *opened* — so the member never sees the form at
+# all, only "An unexpected error occurred". This string sat at 122 and `/bot bug`
+# was dead for everyone. `tests/test_static_health.py` now holds every component
+# string in the tree to its limit.
 BUG_REPORT_HINT = (
     "What happened, and what you expected instead? The command you ran, the "
-    "steps to reproduce it, and any error text all help."
+    "steps, and any error text."
 )
 
 

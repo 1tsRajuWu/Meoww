@@ -263,5 +263,110 @@ class CommandErrorHandlers(unittest.TestCase):
         )
 
 
+# Discord measures these strings and rejects the whole component when one runs
+# long. The rejection arrives as an HTTP 50035 when the component is *sent* — for
+# a modal, that is the moment it would have opened, so the member sees only
+# "An unexpected error occurred" and the form never appears. `BUG_REPORT_HINT`
+# was 122 characters against the 100 a text input's placeholder allows, which
+# made ``/bot bug`` unusable with nothing in the source to suggest why.
+TEXT_LIMITS = {
+    ("TextInput", "placeholder"): 100,
+    ("TextInput", "label"): 45,
+    ("Select", "placeholder"): 150,
+    ("SelectOption", "label"): 100,
+    ("SelectOption", "description"): 100,
+    ("Button", "label"): 80,
+}
+
+
+def _call_name(func):
+    """The last name in a call target — ``discord.ui.TextInput`` → ``TextInput``."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def module_strings(tree) -> dict:
+    """Module-level ``NAME = "literal"``, so a constant's length can be judged.
+
+    The offending value was a constant that was then passed by name, which is
+    exactly the indirection a reader skips over.
+    """
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        elif isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        else:
+            continue
+        if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                out[target.id] = value.value
+    return out
+
+
+def _static_text(node, constants):
+    """The literal a keyword argument carries, or ``None`` if it is computed.
+
+    An f-string is left alone: its length is not knowable without running it, and
+    guessing would produce false failures.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return constants.get(node.id)
+    return None
+
+
+def over_long_component_text(path, src) -> list[str]:
+    found = []
+    tree = ast.parse(src)
+    constants = module_strings(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        widget = _call_name(node.func)
+        for kw in node.keywords:
+            limit = TEXT_LIMITS.get((widget, kw.arg))
+            if limit is None:
+                continue
+            text = _static_text(kw.value, constants)
+            if text is None or len(text) <= limit:
+                continue
+            found.append(
+                f"{rel(path)}:{node.lineno} {widget}({kw.arg}=…) is "
+                f"{len(text)} characters (Discord allows {limit})"
+            )
+    return found
+
+
+class ComponentTextLimits(unittest.TestCase):
+    def test_no_component_text_exceeds_its_discord_limit(self):
+        problems = []
+        for path in live_files():
+            problems += over_long_component_text(path, read(path))
+        self.assertEqual(
+            problems,
+            [],
+            "Discord rejects the component, so it never reaches the member",
+        )
+
+    def test_the_check_reads_a_constant_and_measures_it(self):
+        """The guard has to catch the shape that broke, not just a literal."""
+        src = (
+            "TOO_LONG = %r\n"
+            "other = discord.ui.TextInput(placeholder=TOO_LONG)\n"
+            "fine = discord.ui.TextInput(placeholder='short')\n"
+        ) % ("x" * 101)
+        found = over_long_component_text("<synthetic>", src)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("101 characters (Discord allows 100)", found[0])
+
+
 if __name__ == "__main__":
     unittest.main()
