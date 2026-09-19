@@ -37,7 +37,15 @@ on:
       - "static/**"
       - "scripts/build_site.py"
       - "keep_alive.py"
-      - "utils/webdocs.py"
+      # Every module the pages actually read, not just the policy renderer.
+      # `discord_auth` is where the invite link is built and `features` is where
+      # the feature cards come from, so a change to either changes the rendered
+      # page — and the check below asserts the invite link is present, which is
+      # exactly the kind of edit that would need this job to run. Listing
+      # `webdocs.py` alone was the narrow version of this list, and it missed a
+      # real change: the invite permissions were narrowed without the site
+      # being rebuilt or verified, because nothing here matched.
+      - "utils/**"
       - "PRIVACY.md"
       - "TERMS.md"
       - ".github/workflows/site.yml"
