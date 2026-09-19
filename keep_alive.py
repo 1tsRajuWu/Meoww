@@ -903,8 +903,17 @@ def api_voice_debug():
         "opus_finder": opus_finder,
         "opus_loaded": is_opus_loaded,
         "system_ffmpeg": shutil.which("ffmpeg"),
-        "libopus_so_files": glob.glob("/usr/lib/**/libopus*.so*", recursive=True) + glob.glob("/lib/**/libopus*.so*", recursive=True),
-        "voice_clients": vcs
+        "libopus_so_files": (
+            glob.glob("/usr/lib/libopus*.so*")
+            + glob.glob("/usr/lib/*-linux-*/libopus*.so*")
+            + glob.glob("/usr/lib64/libopus*.so*")
+            + glob.glob("/usr/local/lib/libopus*.so*")
+            + glob.glob("/lib/libopus*.so*")
+            + glob.glob("/lib/*-linux-*/libopus*.so*")
+            + glob.glob("/opt/homebrew/lib/libopus*.dylib*")
+            + glob.glob("/usr/local/lib/libopus*.dylib*")
+        ),
+        "voice_clients": vcs,
     })
 
 
