@@ -567,7 +567,36 @@ class Help(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="help", description="Explore all features, commands, and modules in Meow.")
-    async def help_cmd(self, interaction: discord.Interaction):
+    @app_commands.describe(search="Search for a specific command, feature, or keyword")
+    async def help_cmd(self, interaction: discord.Interaction, search: str | None = None):
+        if search:
+            query = search.strip().lower().lstrip("/")
+            matches = []
+            for mod_id, mod in HELP_MODULES.items():
+                for line in mod["desc"].split("\n"):
+                    line_clean = line.strip().lstrip("> ")
+                    if line_clean.startswith("`/"):
+                        if query in line_clean.lower():
+                            matches.append((mod["title"], line_clean))
+            if matches:
+                embed = discord.Embed(
+                    title=f"🔍 Help Search: '{search}'",
+                    description=f"Found **{len(matches)}** matching command(s):\n\n" + "\n".join(
+                        f"**{title}**\n> {cmd}" for title, cmd in matches[:10]
+                    ),
+                    color=ACCENT,
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            else:
+                embed = discord.Embed(
+                    title="🔍 No Commands Found",
+                    description=f"No commands matching **{search}** were found. Use `/help` to browse all categories.",
+                    color=0xED4245,
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
         thumb = avatar_url(interaction.client.user)
         banner = guild_banner(interaction.guild)
         view = HelpLayout(

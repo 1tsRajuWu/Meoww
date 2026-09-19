@@ -524,6 +524,8 @@ async def setup():
             "CREATE INDEX IF NOT EXISTS idx_custom_quotes_guild ON custom_quotes(guild_id)",
             "CREATE INDEX IF NOT EXISTS idx_warnings_owner ON warnings(guild_id, user_id)",
             "CREATE INDEX IF NOT EXISTS idx_mod_cases_guild ON mod_cases(guild_id, user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_economy_guild ON economy(guild_id)",
+            "CREATE INDEX IF NOT EXISTS idx_economy_wealth ON economy(guild_id, wallet, bank)",
         ):
             await db.execute(statement)
         # ``CREATE TABLE IF NOT EXISTS`` never changes a table that already exists,
@@ -532,6 +534,16 @@ async def setup():
         await ensure_columns(db, "scheduled_messages", {
             "generator": "TEXT DEFAULT ''",
             "source": "TEXT DEFAULT 'schedule'",
+        })
+        # Databases restored from legacy schemas might lack guild_id in economy/inventory.
+        await ensure_columns(db, "economy", {
+            "guild_id": "INTEGER DEFAULT 0",
+        })
+        await ensure_columns(db, "inventory", {
+            "guild_id": "INTEGER DEFAULT 0",
+        })
+        await ensure_columns(db, "item_effects", {
+            "guild_id": "INTEGER DEFAULT 0",
         })
 
         # A server's own name and picture for the bot. Discord keeps these

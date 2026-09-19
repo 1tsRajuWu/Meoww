@@ -4,12 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>🐾 {{ symbol }} · Meow Markets</title>
-<!-- The shared system first, this page's own CSS second: where the two overlap
-     the rules below win, and everything else — the tokens under these same names,
-     the focus ring, the aurora — comes from the one file the whole site uses. The
-     palette is the site's rather than this page's: the market used to be a second
-     opinion on what dark looks like, which is exactly what made it read as a
-     different product. -->
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="stylesheet" href="/static/meow.css">
 <style>
   :root {
@@ -63,6 +58,9 @@
 <body>
 <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
 <header>
+  <a href="/dashboard" aria-label="Back to dashboard" style="display:flex;align-items:center;text-decoration:none;">
+    <img src="/static/logo.svg" alt="Meow Bot" class="brand-logo" style="width:34px;height:34px;">
+  </a>
   <div>
     <h1>{{ symbol }} <span class="muted" style="font-weight:400">· {{ name }}</span></h1>
     <!-- Live regions: this line is the only place "stale — trading paused" and

@@ -1,14 +1,35 @@
+# Secrets — NEVER include in Docker images
+.env
+.env.*
+
+# Python
 .venv
 __pycache__
 *.pyc
 .pytest_cache
+
+# Git
 .git
+.gitattributes
+
+# Local bot state (restored from cloud on boot)
+bot.db
+bot.db-*
+*.db-journal
+
+# OS / editor noise
 .DS_Store
 *.log
 deploy_trigger.txt
+
+# Not needed in production image
 .freebuff
 deleted_features
 tests
 .github
 docs
 scripts
+assets
+CONTRIBUTING.md
+CHANGELOG.md
+README.md

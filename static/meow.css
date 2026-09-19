@@ -1073,3 +1073,434 @@ body.has-aurora .aurora { z-index: -1; }
     .site-nav .btn { padding: 7px 12px; font-size: 13px; }
     .brand-mark { width: 30px; height: 30px; font-size: 14px; }
 }
+
+/* ==========================================================================
+   PREMIUM ENHANCEMENTS
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Custom Cat Cursors
+   -------------------------------------------------------------------------- */
+html {
+    cursor: url('/static/cursor-default.svg') 6 2, auto;
+}
+
+a, button, [role="button"], label, select, summary,
+input[type="submit"], input[type="button"], input[type="checkbox"],
+input[type="radio"], .btn, .card-hover, .server-row, .toggle-track {
+    cursor: url('/static/cursor-pointer.svg') 16 8, pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Glassmorphism Surfaces
+   -------------------------------------------------------------------------- */
+.glass {
+    background: rgba(22, 27, 37, 0.6);
+    backdrop-filter: blur(20px) saturate(1.3);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.card.glass {
+    background: rgba(22, 27, 37, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* --------------------------------------------------------------------------
+   Animated Gradient Text
+   -------------------------------------------------------------------------- */
+.gradient-text {
+    background: linear-gradient(
+        135deg,
+        var(--accent-text) 0%,
+        #d8b4fe 25%,
+        #f9a8d4 50%,
+        var(--accent-text) 75%,
+        #d8b4fe 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-shift 4s ease infinite;
+}
+
+@keyframes gradient-shift {
+    0%   { background-position: 0% center; }
+    50%  { background-position: 100% center; }
+    100% { background-position: 0% center; }
+}
+
+/* --------------------------------------------------------------------------
+   Enhanced Button Effects
+   -------------------------------------------------------------------------- */
+.btn-primary {
+    position: relative;
+    overflow: hidden;
+    z-index: 0;
+}
+
+/* Glow effect on primary buttons */
+.btn-primary:hover {
+    box-shadow:
+        0 0 20px rgba(88, 101, 242, 0.5),
+        0 8px 24px -12px rgba(88, 101, 242, 0.9);
+}
+
+/* Ripple click effect */
+.btn .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    transform: scale(0);
+    animation: ripple-effect 0.6s ease-out forwards;
+    pointer-events: none;
+}
+
+@keyframes ripple-effect {
+    to {
+        transform: scale(3);
+        opacity: 0;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   3D Card Tilt on Hover
+   -------------------------------------------------------------------------- */
+.card-tilt {
+    transition:
+        transform var(--base) var(--ease),
+        box-shadow var(--base) var(--ease),
+        border-color var(--base) var(--ease);
+    transform-style: preserve-3d;
+    perspective: 800px;
+}
+
+.card-tilt:hover {
+    transform: translateY(-4px) rotateX(2deg) rotateY(-1deg);
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-lift), 0 0 40px -15px rgba(88, 101, 242, 0.15);
+}
+
+/* --------------------------------------------------------------------------
+   Animated Toggle Switch
+   -------------------------------------------------------------------------- */
+.toggle-track {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: background var(--base) var(--ease), border-color var(--base) var(--ease);
+    flex-shrink: 0;
+}
+
+.toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform var(--base) var(--ease), background var(--base) var(--ease);
+    box-shadow: var(--shadow-sm);
+}
+
+.toggle-track.active {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.toggle-track.active::after {
+    transform: translateX(20px);
+    background: #fff;
+}
+
+/* --------------------------------------------------------------------------
+   Toast Notifications
+   -------------------------------------------------------------------------- */
+.toast-container {
+    position: fixed;
+    top: var(--space-5);
+    right: var(--space-5);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    pointer-events: none;
+}
+
+.toast {
+    pointer-events: auto;
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--text-primary);
+    font-size: 13.5px;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 280px;
+    max-width: 420px;
+    animation: toast-in var(--base) var(--ease) forwards;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.toast.toast-out {
+    animation: toast-out var(--base) var(--ease) forwards;
+}
+
+.toast-success { border-left: 3px solid var(--green); }
+.toast-error   { border-left: 3px solid var(--red); }
+.toast-info    { border-left: 3px solid var(--accent); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(100%) scale(0.95); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes toast-out {
+    from { opacity: 1; transform: translateX(0) scale(1); }
+    to   { opacity: 0; transform: translateX(100%) scale(0.95); }
+}
+
+/* --------------------------------------------------------------------------
+   Skeleton Loading
+   -------------------------------------------------------------------------- */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--surface-card) 25%,
+        var(--surface-hover) 50%,
+        var(--surface-card) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+    border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-pulse {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-line {
+    height: 14px;
+    margin-bottom: 8px;
+}
+
+.skeleton-line:last-child { width: 60%; }
+
+/* --------------------------------------------------------------------------
+   Hamburger Menu (mobile nav)
+   -------------------------------------------------------------------------- */
+.nav-toggle {
+    display: none;
+    flex-direction: column;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.nav-toggle span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: currentColor;
+    border-radius: 2px;
+    transition: transform var(--base) var(--ease), opacity var(--fast) var(--ease);
+}
+
+.nav-toggle[aria-expanded="true"] span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+.nav-toggle[aria-expanded="true"] span:nth-child(2) {
+    opacity: 0;
+}
+.nav-toggle[aria-expanded="true"] span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+@media (max-width: 640px) {
+    .nav-toggle {
+        display: flex;
+        order: 2;
+    }
+
+    .site-nav {
+        display: none;
+        width: 100%;
+        flex-direction: column;
+        gap: 0;
+        order: 3;
+        padding-top: var(--space-2);
+        border-top: 1px solid var(--border);
+    }
+
+    .site-nav.open {
+        display: flex;
+    }
+
+    .site-nav a {
+        width: 100%;
+        padding: 12px;
+        border-radius: var(--radius-sm);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Nav Link Underline Animation
+   -------------------------------------------------------------------------- */
+.site-nav a:not(.btn) {
+    position: relative;
+}
+
+.site-nav a:not(.btn)::after {
+    content: "";
+    position: absolute;
+    bottom: 4px;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    transform: scaleX(0);
+    transition: transform var(--base) var(--ease);
+    transform-origin: center;
+}
+
+.site-nav a:not(.btn):hover::after {
+    transform: scaleX(1);
+}
+
+/* --------------------------------------------------------------------------
+   Cat Logo (replaces monogram brand-mark)
+   -------------------------------------------------------------------------- */
+.brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+}
+
+.auth-card .brand-logo {
+    width: 52px;
+    height: 52px;
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-4);
+}
+
+/* --------------------------------------------------------------------------
+   Enhanced Feature Card Icon Hover
+   -------------------------------------------------------------------------- */
+.feature.card-hover:hover .icon {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    transition: all var(--base) var(--ease);
+}
+
+.feature .icon {
+    transition: all var(--base) var(--ease);
+}
+
+/* --------------------------------------------------------------------------
+   Pricing Utility Classes
+   -------------------------------------------------------------------------- */
+.pricing-toggle {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    padding: 3px;
+}
+
+.pricing-toggle button {
+    padding: 8px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-pill);
+    transition: all var(--base) var(--ease);
+}
+
+.pricing-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(88, 101, 242, 0.4);
+}
+
+.gradient-border {
+    position: relative;
+    z-index: 0;
+}
+
+.gradient-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--accent), var(--violet), var(--pink), var(--accent));
+    background-size: 300% 300%;
+    animation: gradient-rotate 4s ease infinite;
+    z-index: -1;
+    opacity: 0.7;
+}
+
+@keyframes gradient-rotate {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.check { color: var(--green); }
+.cross { color: var(--text-muted); opacity: 0.5; }
+
+/* --------------------------------------------------------------------------
+   Smooth page entry
+   -------------------------------------------------------------------------- */
+main {
+    animation: page-enter var(--slow) var(--ease);
+}
+
+@keyframes page-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* --------------------------------------------------------------------------
+   prefers-reduced-motion — disable ALL premium animations
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    .gradient-text,
+    .gradient-border::before {
+        animation: none;
+    }
+
+    .toast {
+        animation: none;
+        opacity: 1;
+        transform: none;
+    }
+
+    html { cursor: auto; }
+
+    a, button, [role="button"], .btn, .card-hover { cursor: pointer; }
+
+    .card-tilt:hover { transform: translateY(-3px); }
+}
+

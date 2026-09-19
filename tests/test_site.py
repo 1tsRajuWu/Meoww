@@ -18,7 +18,7 @@ from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
 from utils import webdocs
 
 ROOT = Path(__file__).resolve().parent.parent
-PAGES = ("home.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market_live.html")
+PAGES = ("home.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market_live.html", "pricing.html")
 
 
 class TheRenderer(unittest.TestCase):
@@ -213,6 +213,20 @@ class ThePolicyPages(unittest.TestCase):
             response = self.client.get("/privacy")
         self.assertEqual(response.status_code, 404)
         self.assertIn("missing from this deploy", response.get_data(as_text=True))
+
+
+class ThePricingPage(unittest.TestCase):
+    def setUp(self):
+        self.client = keep_alive.app.test_client()
+
+    def test_pricing_page_renders_tiers_and_options(self):
+        response = self.client.get("/pricing")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Free", body)
+        self.assertIn("Pro", body)
+        self.assertIn("Enterprise", body)
+        self.assertIn("/static/meow.css", body)
 
 
 class TheSiteIsOneDesign(unittest.TestCase):

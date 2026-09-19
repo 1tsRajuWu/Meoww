@@ -1,0 +1,575 @@
+{#
+  Pricing page for the bot.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b0e13">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <title>Pricing — {{ bot_name }}</title>
+    <link rel="stylesheet" href="/static/meow.css">
+    <style>
+        /* Pricing page specific styles */
+        .billing-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-4);
+            margin-top: var(--space-5);
+        }
+
+        .toggle-btn {
+            position: relative;
+            width: 56px;
+            height: 30px;
+            border-radius: var(--radius-pill);
+            background: var(--surface-hover);
+            border: 1px solid var(--border-active);
+            cursor: pointer;
+            transition: background var(--base) var(--ease), border-color var(--base) var(--ease);
+        }
+
+        .toggle-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .toggle-btn[aria-pressed="true"] {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .toggle-btn .knob {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: var(--shadow-sm);
+            transition: transform var(--base) var(--ease);
+        }
+
+        .toggle-btn[aria-pressed="true"] .knob {
+            transform: translateX(26px);
+        }
+
+        .pricing-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--space-5);
+            margin-top: var(--space-7);
+            align-items: stretch;
+        }
+
+        @media (min-width: 1024px) {
+            .pricing-cards {
+                align-items: center;
+            }
+        }
+
+        .pricing-card {
+            display: flex;
+            flex-direction: column;
+            padding: var(--space-6);
+            position: relative;
+        }
+
+        .pro-card {
+            background: rgba(22, 27, 37, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 20px 40px -10px rgba(88,101,242,0.2);
+            z-index: 2;
+        }
+
+        @media (min-width: 1024px) {
+            .pro-card {
+                transform: scale(1.05);
+            }
+            .pro-card:hover {
+                transform: scale(1.08); /* slight extra hover lift */
+            }
+        }
+
+        .pro-card::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            padding: 2px;
+            background: linear-gradient(135deg, var(--accent), var(--violet), var(--pink));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            background-size: 200% 200%;
+            animation: gradient-shift 6s ease infinite;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .tier-badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, var(--accent), var(--violet));
+            color: #fff;
+            padding: 4px 14px;
+            border-radius: var(--radius-pill);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            box-shadow: var(--shadow-md);
+            white-space: nowrap;
+        }
+
+        .price {
+            font-size: 42px;
+            font-weight: 700;
+            margin: var(--space-3) 0;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .price .period {
+            font-size: 16px;
+            color: var(--text-muted);
+            font-weight: 400;
+            display: inline-block;
+            transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+        }
+
+        .price .num {
+            display: inline-block;
+            transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+        }
+        
+        .price .num.switching, .price .period.switching {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+
+        .features-list {
+            list-style: none;
+            padding: 0;
+            margin: var(--space-5) 0;
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+            flex-grow: 1;
+        }
+
+        .features-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-3);
+            font-size: 14.5px;
+            color: var(--text-secondary);
+        }
+
+        .features-list li svg {
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            color: var(--green);
+            margin-top: 2px;
+        }
+
+        .compare-section {
+            margin-top: var(--space-8);
+        }
+        
+        .compare-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: var(--space-3);
+            font-size: 14px;
+            text-align: left;
+        }
+        
+        .compare-table th, .compare-table td {
+            padding: var(--space-3) var(--space-4);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .compare-table th {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .compare-table td {
+            color: var(--text-secondary);
+        }
+        
+        .compare-table tr:hover td {
+            background: rgba(255,255,255,0.02);
+        }
+
+        .accordion {
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+        
+        .accordion-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--space-4) var(--space-5);
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            user-select: none;
+            color: var(--text-primary);
+        }
+        
+        .accordion-head::-webkit-details-marker {
+            display: none;
+        }
+        
+        .accordion[open] .accordion-head {
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .accordion-head .icon {
+            transition: transform var(--base) var(--ease);
+            color: var(--text-muted);
+        }
+        
+        .accordion[open] .accordion-head .icon {
+            transform: rotate(180deg);
+        }
+        
+        .accordion-body {
+            padding: var(--space-5);
+        }
+
+        .faq-grid {
+            display: grid;
+            gap: var(--space-4);
+            margin-top: var(--space-5);
+        }
+        
+        .faq-item {
+            background: var(--surface-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+        }
+        
+        .faq-item h4 {
+            margin-bottom: var(--space-2);
+            font-size: 16px;
+            color: var(--text-primary);
+        }
+        
+        .faq-item p {
+            color: var(--text-secondary);
+            font-size: 14.5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
+
+    <header class="site-header">
+        <div class="page">
+            <a class="brand" href="/">
+                <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
+                <span>{{ bot_name }}</span>
+            </a>
+            <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+                <span></span><span></span><span></span>
+            </button>
+            <nav class="site-nav" aria-label="Main">
+                <a href="/#features">Features</a>
+                <a href="/#start">Get started</a>
+                <a href="/pricing">Pricing</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+                {% if invite_url %}
+                <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>
+                {% endif %}
+                <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero page center">
+            <h1 class="reveal" style="--i: 0; max-width: none;">
+                Simple, <span class="shine">transparent pricing</span>.
+            </h1>
+            <p class="lede reveal" style="--i: 1; margin-left: auto; margin-right: auto;">
+                Everything you need to grow your community. Upgrade when you need more power, custom branding, or priority support.
+            </p>
+
+            <div class="billing-toggle reveal" style="--i: 2">
+                <span class="label">Monthly</span>
+                <button type="button" class="toggle-btn" id="billingToggle" aria-pressed="false" aria-label="Toggle yearly billing">
+                    <span class="knob"></span>
+                </button>
+                <span class="label">Yearly <span class="pill pill-ok">Save 20%</span></span>
+            </div>
+        </section>
+
+        <section class="page">
+            <div class="pricing-cards">
+                
+                <!-- Free Tier -->
+                <div class="card card-hover pricing-card reveal" style="--i: 3">
+                    <h3>Free</h3>
+                    <div class="price">
+                        $<span class="static-num">0</span><span class="period static-period">/mo</span>
+                    </div>
+                    <p class="dim">Perfect for getting started</p>
+                    
+                    <ul class="features-list">
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> 1 server</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Moderation & Logs</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Automod & Shield</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Leveling & XP</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Fun & Memes</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Social Roleplay</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Mini-Games Hub</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Basic Dashboard</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Hourly backups</li>
+                    </ul>
+                    <a href="{{ invite_url }}" class="btn btn-block">Get Started Free</a>
+                </div>
+
+                <!-- Pro Tier -->
+                <div class="card card-hover pricing-card pro-card reveal" style="--i: 4">
+                    <span class="tier-badge">Most Popular</span>
+                    <h3>Pro</h3>
+                    <div class="price">
+                        $<span class="num" data-monthly="4.99" data-yearly="47.88">4.99</span><span class="period dynamic-period">/mo</span>
+                    </div>
+                    <p class="dim">Power up your communities</p>
+                    
+                    <ul class="features-list">
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Up to 5 servers</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Everything in Free</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Support Tickets</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Economy & Casino</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Market (Live Trading)</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Starboard</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Activity Tracker</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Full Dashboard (Real-time)</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Message Composer</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> 5 Scheduled Messages / server</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Bot Identity (per server)</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Real-time backups</li>
+                    </ul>
+                    <a href="#" class="btn btn-primary btn-block">Upgrade to Pro</a>
+                </div>
+
+                <!-- Enterprise Tier -->
+                <div class="card card-hover pricing-card reveal" style="--i: 5">
+                    <h3>Enterprise</h3>
+                    <div class="price">
+                        $<span class="num" data-monthly="14.99" data-yearly="143.88">14.99</span><span class="period dynamic-period">/mo</span>
+                    </div>
+                    <p class="dim">For large networks & brands</p>
+                    
+                    <ul class="features-list">
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Unlimited servers</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Everything in Pro</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Unlimited Scheduled Messages</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Custom Branding</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Priority Discord Support</li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Custom backup schedule</li>
+                    </ul>
+                    <a href="#" class="btn btn-block">Contact Us</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="section page compare-section">
+            <details class="accordion reveal" style="--i: 6">
+                <summary class="accordion-head">
+                    Full Feature Comparison
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </summary>
+                <div class="accordion-body" style="overflow-x: auto;">
+                    <table class="compare-table">
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th>Free</th>
+                                <th>Pro</th>
+                                <th>Enterprise</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Servers limit</td>
+                                <td>1</td>
+                                <td>Up to 5</td>
+                                <td>Unlimited</td>
+                            </tr>
+                            <tr>
+                                <td>Dashboard Experience</td>
+                                <td>Basic</td>
+                                <td>Real-time live updates</td>
+                                <td>Custom Branded</td>
+                            </tr>
+                            <tr>
+                                <td>Moderation & Automod</td>
+                                <td>Included</td>
+                                <td>Included</td>
+                                <td>Included</td>
+                            </tr>
+                            <tr>
+                                <td>Economy & Casino</td>
+                                <td>-</td>
+                                <td>Included</td>
+                                <td>Included</td>
+                            </tr>
+                            <tr>
+                                <td>Scheduled Messages</td>
+                                <td>-</td>
+                                <td>5 per server</td>
+                                <td>Unlimited</td>
+                            </tr>
+                            <tr>
+                                <td>Support Level</td>
+                                <td>Community Support</td>
+                                <td>Priority Support Tickets</td>
+                                <td>Priority Discord Support</td>
+                            </tr>
+                            <tr>
+                                <td>Backup Frequency</td>
+                                <td>Hourly</td>
+                                <td>Real-time</td>
+                                <td>Custom Schedule</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        </section>
+
+        <section class="section page" id="faq">
+            <div class="section-head reveal" style="--i: 7">
+                <span class="eyebrow">FAQ</span>
+                <h2>Common Questions</h2>
+            </div>
+            <div class="faq-grid">
+                <div class="faq-item reveal" style="--i: 8">
+                    <h4>Can I try Pro features for free?</h4>
+                    <p>Yes, all new servers get a 7-day free trial of Pro features automatically.</p>
+                </div>
+                <div class="faq-item reveal" style="--i: 9">
+                    <h4>What payment methods do you accept?</h4>
+                    <p>We're setting up our payment processors right now. (Coming soon!)</p>
+                </div>
+                <div class="faq-item reveal" style="--i: 10">
+                    <h4>Can I cancel anytime?</h4>
+                    <p>Yes, you can cancel your subscription at any time from the dashboard. Your benefits will remain active until the end of your billing cycle.</p>
+                </div>
+                <div class="faq-item reveal" style="--i: 11">
+                    <h4>Is my data safe?</h4>
+                    <p>Yes, we use encrypted backups and only store what is strictly necessary to run the systems you enable.</p>
+                </div>
+                <div class="faq-item reveal" style="--i: 12">
+                    <h4>What happens if I downgrade?</h4>
+                    <p>Your premium features will be disabled, but your data is kept safe for 30 days in case you decide to upgrade again.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="page">
+            <div class="links">
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/market/BTC">Live market</a>
+                <a href="/health">Status</a>
+                {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
+            </div>
+            <p>
+                {{ bot_name }} stores what it needs to run the systems you switch on —
+                {% if retention_days %}activity counts kept for {{ retention_days }} days,{% endif %}
+                queued and sent message history for 90 — and the policy above says exactly what
+                that is, in the same words the Discord command shows.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Entrance animation matching home.html
+        (function () {
+            const items = document.querySelectorAll(".reveal");
+            if (!items.length || typeof IntersectionObserver !== "function") return;
+            items.forEach(function (item) { item.style.animationPlayState = "paused"; });
+            const seen = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (!entry.isIntersecting) return;
+                    const el = entry.target;
+                    el.style.animationPlayState = "running";
+                    seen.unobserve(el);
+                });
+            }, { rootMargin: "0px 0px -40px 0px" });
+            items.forEach(function (item) { seen.observe(item); });
+        })();
+
+        // Monthly/Yearly toggle
+        (function() {
+            const toggle = document.getElementById('billingToggle');
+            if (!toggle) return;
+            
+            const priceNums = document.querySelectorAll('.price .num');
+            const pricePeriods = document.querySelectorAll('.price .dynamic-period');
+            
+            toggle.addEventListener('click', () => {
+                const isYearly = toggle.getAttribute('aria-pressed') === 'true';
+                toggle.setAttribute('aria-pressed', !isYearly);
+                
+                priceNums.forEach(el => {
+                    el.classList.add('switching');
+                    setTimeout(() => {
+                        const price = !isYearly ? el.dataset.yearly : el.dataset.monthly;
+                        el.textContent = price;
+                        el.classList.remove('switching');
+                    }, 120);
+                });
+
+                pricePeriods.forEach(el => {
+                    el.classList.add('switching');
+                    setTimeout(() => {
+                        el.textContent = !isYearly ? '/yr' : '/mo';
+                        el.classList.remove('switching');
+                    }, 120);
+                });
+            });
+        })();
+
+        // Mobile Nav Toggle
+        (function() {
+            const toggle = document.querySelector('.nav-toggle');
+            const nav = document.querySelector('.site-nav');
+            if (toggle && nav) {
+                toggle.addEventListener('click', () => {
+                    const open = nav.classList.toggle('open');
+                    toggle.setAttribute('aria-expanded', String(open));
+                });
+            }
+        })();
+    </script>
+    <script src="/static/particles.js"></script>
+</body>
+</html>

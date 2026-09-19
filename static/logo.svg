@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <defs>
+    <linearGradient id="catGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5865F2" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <path d="M20 34c-8.837 0-16-6.268-16-14 0-4.043 1.954-7.687 5-10.217V5l7 4.5c1.266-.328 2.607-.5 4-.5s2.734.172 4 .5L31 5v4.783C34.046 12.313 36 15.957 36 20c0 7.732-7.163 14-16 14z" fill="url(#catGrad)" />
+</svg>

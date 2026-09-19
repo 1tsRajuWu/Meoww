@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <g fill="#f0f3f8" stroke="#10141b" stroke-width="1.5" stroke-linejoin="round" transform="translate(-1, 2) rotate(-15 16 16)">
+    <!-- main pad -->
+    <path d="M16 26c-4.5 0-8-3.5-8-8 0-3.5 3-6.5 8-6.5s8 3 8 6.5c0 4.5-3.5 8-8 8z" />
+    <!-- toes -->
+    <circle cx="9" cy="11" r="3.5" />
+    <circle cx="13" cy="6" r="3.5" />
+    <circle cx="19" cy="6" r="3.5" />
+    <circle cx="23" cy="11" r="3.5" />
+  </g>
+</svg>

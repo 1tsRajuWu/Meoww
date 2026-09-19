@@ -1,6 +1,33 @@
 """
 Real-Time Web Admin Dashboard & Keep-Alive Server for Meow Discord Bot.
 Enables administrators to toggle modules and features ON/OFF with 0-second (1:1 instant) latency.
+
+Code Architecture & Navigation:
+===============================
+1. CONFIG & SETUP (Lines 1-100):
+   Flask initialization, session cookies (HttpOnly, Lax, Secure), memory body limits.
+2. AUTH & CREDENTIALS (Lines 100-340):
+   Passkey comparison, magic single-use links, Discord OAuth2 sessions.
+3. RATE LIMITING & SECURITY (Lines 340-750):
+   Sliding-window IP rate limiters, CSRF validation, CSP & Cache-Control security headers.
+4. HEALTH & UTILITY ROUTES (Lines 750-990):
+   /health, /api/voice-debug, /api/live-logs.
+5. PUBLIC PAGES (Lines 990-1100):
+   Landing page (/), /privacy, /terms, and /pricing.
+6. SESSION & OAUTH FLOWS (Lines 1100-1380):
+   /login, /logout, /login/discord, /login/discord/callback, /servers.
+7. MARKET VISUALIZATION (Lines 1380-1440):
+   /market, /market/<symbol>, /api/market/quotes, /api/market/candles.
+8. ADMIN DASHBOARD & MODULE CONTROL (Lines 1440-1820):
+   /dashboard, /api/toggle, /api/command-scope, /api/toggle-all.
+9. BOT IDENTITY API (Lines 1820-2000):
+   /api/identity, /api/identity/image/<kind>.
+10. COMPOSER & MENTIONABLES (Lines 2000-2620):
+    /api/channels, /api/mentionables, /api/send-message.
+11. MESSAGE SCHEDULER (Lines 2620-3020):
+    /api/scheduled, /api/schedule-message, cancellation, manual triggers, delivery alerts.
+12. RUNNER & BACKGROUND LOOPS (Lines 3020-3300):
+    Background scheduled message daemon and keep_alive() entrypoint.
 """
 import math
 import os
@@ -719,7 +746,11 @@ def set_security_headers(response):
     # server, deploy after deploy, with no error anywhere to show for it. The two
     # public market endpoints say what they want to be cached; anything that has
     # already spoken is left alone.
-    if "Cache-Control" not in response.headers:
+    # Static assets (css, svg, js) are cached for performance; everything else
+    # defaults to no-store to prevent stale dashboards across deploys.
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=3600"
+    elif "Cache-Control" not in response.headers:
         response.headers["Cache-Control"] = "no-store"
     if request.headers.get("X-Forwarded-Proto", request.scheme) == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -1080,6 +1111,19 @@ def policy_privacy():
 @app.route("/terms")
 def policy_terms():
     return _policy_page("terms")
+
+
+@app.route("/pricing")
+def pricing_page():
+    name = _bot_display_name()
+    return render_template(
+        "pricing.html",
+        bot_name=name,
+        bot_initial=(name[:1] or "M").upper(),
+        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        enter_url="/login",
+        enter_label="Sign in",
+    )
 
 
 @app.route("/login", methods=["GET", "POST"])

@@ -14,11 +14,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0b0e13">
     <meta name="robots" content="index, follow">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <title>{{ title }} — {{ bot_name }}</title>
-    {# The shared design system. A literal path rather than ``url_for``:
-       the dashboard and market templates are also rendered by the test-suite's
-       own Jinja environment, which has no Flask context, and the static path is
-       fixed by the application in any case. #}
     <link rel="stylesheet" href="/static/meow.css">
 </head>
 <body>
@@ -28,11 +25,12 @@
     <header class="site-header">
         <div class="page">
             <a class="brand" href="/">
-                <span class="brand-mark" aria-hidden="true">{{ bot_initial }}</span>
+                <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
                 <span>{{ bot_name }}</span>
             </a>
             <nav class="site-nav" aria-label="Main">
                 <a href="/">Home</a>
+                <a href="/pricing">Pricing</a>
                 <a href="/privacy" {% if current == "privacy" %}aria-current="page"{% endif %}>Privacy</a>
                 <a href="/terms" {% if current == "terms" %}aria-current="page"{% endif %}>Terms</a>
                 <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
@@ -57,6 +55,7 @@
         <div class="page">
             <div class="links">
                 <a href="/">Home</a>
+                <a href="/pricing">Pricing</a>
                 <a href="/privacy">Privacy Policy</a>
                 <a href="/terms">Terms of Service</a>
                 <a href="/health">Status</a>
@@ -70,5 +69,6 @@
             </p>
         </div>
     </footer>
+    <script src="/static/particles.js"></script>
 </body>
 </html>

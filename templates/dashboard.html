@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#090c10">
     <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <title>Meow Control Center — Real-Time Admin Dashboard</title>
     <!-- No web fonts: the system stack is what every control panel ships, and it
          was a third-party request on every page load for a typeface nobody
@@ -1378,7 +1379,7 @@
     <div class="container">
         <header>
             <div class="brand-section">
-                <div class="bot-avatar" aria-hidden="true">M</div>
+                <img src="/static/logo.svg" alt="Meow Bot" class="brand-logo" style="width:40px;height:40px;">
                 <div class="brand-text">
                     <h1>
                         Meow Control Center
@@ -1412,11 +1413,7 @@
                     {% endfor %}
                 </select>
                 {% endif %}
-                {# The market pages had no way in from anywhere: the charts are
-                   served at /market/<symbol> and every other route to them is a
-                   member's command in Discord, so an operator reading this page
-                   had to already know the URL. Same tab, because it is the same
-                   control center. #}
+                <a class="btn" href="/pricing">💳 Pricing</a>
                 <a class="btn" href="/market">📈 Market</a>
                 {# Adding the bot somewhere else is the one action here that is not
                    about the server currently open, and it is the action a person

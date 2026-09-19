@@ -50,7 +50,10 @@ CURRENT_FILE: str = "bot.db"
 SNAPSHOT_PREFIX: str = "bot-db-"
 SNAPSHOT_SUFFIX: str = ".db"
 #: How many snapshots to keep (oldest pruned first).
-BACKUP_KEEP: int = 5
+try:
+    BACKUP_KEEP: int = max(1, int(os.environ.get("BACKUP_KEEP", "5")))
+except (TypeError, ValueError):
+    BACKUP_KEEP = 5
 #: Seconds between snapshot rotations.
 SNAPSHOT_INTERVAL: int = 3600  # 1 hour
 
@@ -246,6 +249,8 @@ _INSTANCE_ID: str = socket.gethostname() or f"pid-{os.getpid()}"
 _lease_touched: float = 0.0
 #: How many consecutive checks a shrunken database has been held back.
 _shrink_refusals: int = 0
+#: How many consecutive upload attempts have failed.
+_consecutive_upload_failures: int = 0
 
 _warned: set[str] = set()
 
@@ -380,6 +385,28 @@ def _restore_once() -> str:
         temp = f"{db_path()}.tmp"
         with open(temp, "wb") as f:
             f.write(data)
+
+        # Verify SQLite file integrity before trusting it
+        try:
+            conn = sqlite3.connect(f"file:{temp}?mode=ro", uri=True, timeout=5.0)
+            try:
+                row = conn.execute("PRAGMA integrity_check").fetchone()
+                if not row or row[0] != "ok":
+                    print(
+                        f"[CLOUD SYNC] ⚠️ '{name}' failed PRAGMA integrity_check: {row} — skipping.",
+                        flush=True,
+                    )
+                    _remove(temp)
+                    continue
+            finally:
+                conn.close()
+        except Exception as exc:
+            print(
+                f"[CLOUD SYNC] ⚠️ '{name}' failed integrity check: {exc} — skipping.",
+                flush=True,
+            )
+            _remove(temp)
+            continue
 
         # The downloaded file must hold the tables we count before it replaces a
         # working database, or a corrupt copy would be swapped in and lose
@@ -765,7 +792,7 @@ def backup_to_cloud_sync() -> bool:
 
 
 def _backup_inner() -> bool:
-    global _last_sync_hash, _last_snapshot_ts, _last_upload_ts
+    global _last_sync_hash, _last_snapshot_ts, _last_upload_ts, _consecutive_upload_failures
 
     reason = upload_refusal_reason()
     if reason:
@@ -791,7 +818,16 @@ def _backup_inner() -> bool:
         return True
 
     if not _storage_upload(CURRENT_FILE, raw):
+        _consecutive_upload_failures += 1
+        if _consecutive_upload_failures >= 3:
+            print(
+                f"[CLOUD SYNC] 🚨 ALERT: {_consecutive_upload_failures} consecutive backup uploads have failed! "
+                "Database state may not be persisted.",
+                flush=True,
+            )
         return False
+
+    _consecutive_upload_failures = 0
 
     _lease_touch(force=True)
     _last_upload_ts = time.time()

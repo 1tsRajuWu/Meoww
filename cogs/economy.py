@@ -767,26 +767,47 @@ class Economy(commands.Cog):
         embed.set_footer(text=f"Wallet: {new_wallet:,} 🪙 • Unlimited Capacity")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="richlist", description="Top 10 richest members in the server.")
-    async def richlist(self, interaction: discord.Interaction):
+    @app_commands.command(name="richlist", description="Server wealth leaderboard with page navigation.")
+    @app_commands.describe(page="Page number to view (default: 1)")
+    async def richlist(self, interaction: discord.Interaction, page: int = 1):
         await interaction.response.defer()
+        page = max(1, page)
+        limit = 10
+        offset = (page - 1) * limit
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
-                "SELECT user_id, wallet+bank as net FROM economy WHERE guild_id=? ORDER BY net DESC LIMIT 10",
+                "SELECT COUNT(*) FROM economy WHERE guild_id=?",
                 (interaction.guild.id,)
+            ) as cur:
+                total_count = (await cur.fetchone())[0] or 0
+            total_pages = max(1, (total_count + limit - 1) // limit)
+            if page > total_pages and total_pages > 0:
+                page = total_pages
+                offset = (page - 1) * limit
+
+            async with conn.execute(
+                "SELECT user_id, wallet+bank as net FROM economy WHERE guild_id=? ORDER BY net DESC LIMIT ? OFFSET ?",
+                (interaction.guild.id, limit, offset)
             ) as cur:
                 rows = await cur.fetchall()
 
-        embed = discord.Embed(title="🏆 Server Rich List", color=0xFFD700, timestamp=discord.utils.utcnow())
+        embed = discord.Embed(
+            title=f"🏆 Server Rich List (Page {page}/{total_pages})",
+            color=0xFFD700,
+            timestamp=discord.utils.utcnow()
+        )
         medals = ["👑", "💎", "⭐"]
         # Plain resolved names, not mentions: a mention in a V2 card pings, and
         # guild.get_member is empty without the Members intent (raw "User 123…").
         names = await display_names(interaction.guild, [uid for uid, _ in rows], client=interaction.client)
         desc = []
+        start_rank = offset + 1
         for i, ((uid, net), name) in enumerate(zip(rows, names)):
-            medal = medals[i] if i < 3 else f"`#{i+1}`"
+            rank = start_rank + i
+            medal = medals[rank - 1] if rank <= 3 else f"`#{rank}`"
             desc.append(f"{medal} **{name}** — {net:,} 🪙")
         embed.description = "\n".join(desc) if desc else "No data yet."
+        embed.set_footer(text=f"Total Members: {total_count:,} · Page {page} of {total_pages}")
         await send_card(interaction, embed=embed)
 
     @eco_admin.command(name="add", description="Give coins to a member (Owner has unlimited power, Admins have strict limits).")
