@@ -363,6 +363,78 @@ async def site_guard_alert(bot, verdict) -> bool:
         return False
 
 
+async def uptime_alert(bot, snapshot, message: str) -> bool:
+    """Say that a monitor changed state, with the evidence beside it.
+
+    This is the half of :mod:`utils.uptime_status` that has an audience. The
+    history itself is read wherever somebody looks for it (the dashboard's
+    status panel, `/health`), but a *change* is only useful if it arrives
+    without anybody looking — and this is the one place the bot already talks to
+    the operator.
+
+    It is honest about its own limit, which is worth saying because the monitor
+    most likely to matter watches this very host: a process that is down cannot
+    announce that it is down, so this card reports what UptimeRobot saw, and a
+    monitor **of this host** is the case where UptimeRobot's own notification is
+    the only one that can arrive.
+    """
+    down = [row for row in snapshot.get("monitors") or [] if row.get("down")]
+    embed = discord.Embed(
+        title="📉 UptimeRobot reports a monitor down" if down else "📈 UptimeRobot reports a recovery",
+        description=message,
+        color=style.DANGER if down else style.SUCCESS,
+        timestamp=discord.utils.utcnow(),
+    )
+    if down:
+        embed.add_field(
+            name="Down right now",
+            value="\n".join(f"`{row['name']}` — {row['label']}" for row in down)[:1024],
+            inline=False,
+        )
+    rows = [
+        f"**{row['name']}** — {row['label']}"
+        + (
+            f", {(row.get('ratios') or {}).get('30d'):.2f}% over 30 days"
+            if (row.get("ratios") or {}).get("30d") is not None
+            else ""
+        )
+        for row in (snapshot.get("monitors") or [])[:10]
+    ]
+    embed.add_field(
+        name=f"Every monitor ({snapshot.get('total', 0)})",
+        value="\n".join(rows)[:1024] or "none configured",
+        inline=False,
+    )
+    embed.add_field(
+        name="What to do",
+        value=(
+            "UptimeRobot holds the check history and its own notification "
+            "settings; this card is the bot telling you what it read. A monitor "
+            "watching **this host** cannot be announced by this host — for that "
+            "one, UptimeRobot's own alert is what reaches you."
+            if down
+            else "Nothing to do. This is the recovery, sent because the last card said down."
+        ),
+        inline=False,
+    )
+    weakest = snapshot.get("ratio_30d")
+    if weakest is not None:
+        embed.set_footer(text=f"Weakest 30-day uptime across monitors: {weakest:.2f}%")
+    target = None
+    for role in _INSTANCE_ROLES:
+        target = await _channel(bot, role)
+        if target is not None:
+            break
+    if target is None:
+        return False
+    try:
+        await style.send_card(target, embed=embed, timeout=None)
+        return True
+    except Exception as exc:
+        print(f"[LOG] could not report the uptime change: {exc}", flush=True)
+        return False
+
+
 async def _post(bot, role: str, kind: str, embed: discord.Embed) -> bool:
     """Send one entry, and never raise: the caller is a command that just worked."""
     try:

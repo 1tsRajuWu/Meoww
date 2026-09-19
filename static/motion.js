@@ -36,9 +36,19 @@
     "use strict";
 
     // Universal cross-browser animation support (Edge, Chrome, Safari, Firefox)
-    var reduced = false;
-    var prefersReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    /* Read once, and *assigned* — which it was not. `reduced` was declared
+       false and read in four places (the loader's timings, the parallax guard
+       and the pointer layer), so every one of those branches was dead code and
+       the rule below was only true in the stylesheet: a person who had asked
+       their system for less motion still got parallax and a cursor chasing the
+       pointer. Found while adding the pointer layer, which is gated on it. */
+    var prefersReduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    var reduced = prefersReduced;
     var hoverable = true;
+    // A mouse or a trackpad: anything that can hover and be followed. A phone
+    // reports `coarse`, and a device with neither query support (or no
+    // pointer) reports nothing — so the test is positive, never "not coarse".
+    var fine = !!(window.matchMedia && window.matchMedia("(pointer: fine)").matches);
 
     /* ---------------------------------------------------------------------
        One rAF loop for every spring on the page
@@ -370,6 +380,142 @@
     }
 
     /* ---------------------------------------------------------------------
+       The pointer: a cat that follows, and a light that drifts after it
+       --------------------------------------------------------------------- */
+    /* Two enhancements, both opt-in by capability and both purely additive.
+
+       * **The cursor.** A dot on the pointer's exact position and a ring that
+         chases it, easing in as it goes, so a move reads as having weight. The
+         native cursor is hidden only **after** this layer exists and only on a
+         device with a fine pointer — `cursor: none` with a script that then
+         fails is a page with no pointer at all, which is a far worse trade than
+         never having a custom one. A click prints a paw where it landed.
+       * **The glow.** One large, dim accent light drifting behind the content.
+         It carries no information, so it is the first thing removed when motion
+         is not wanted.
+
+       The loop is *not* always on, and that is deliberate. A rAF loop that runs
+       for the life of every page is the exact cost this project already paid
+       once and removed (see `tests/test_shared_system.py`, which pins the
+       absence of the old particle canvas): 45 shapes redrawn every frame behind
+       content that never moved. This one starts on a pointer move and stops
+       itself as soon as the ring has caught up, so an idle page costs nothing
+       and a page whose pointer never moves costs nothing either. */
+    function pointerLayer() {
+        if (reduced || !fine || !document.body) return;
+
+        var host = document.createElement("div");
+        host.className = "meow-cursor";
+        host.setAttribute("aria-hidden", "true");
+        var ring = document.createElement("span");
+        ring.className = "meow-cursor-ring";
+        var dot = document.createElement("span");
+        dot.className = "meow-cursor-dot";
+        host.appendChild(ring);
+        host.appendChild(dot);
+
+        var glow = document.createElement("div");
+        glow.className = "meow-glow";
+        glow.setAttribute("aria-hidden", "true");
+
+        document.body.appendChild(host);
+        document.body.appendChild(glow);
+        document.documentElement.classList.add("has-meow-cursor");
+
+        var x = window.innerWidth / 2;
+        var y = window.innerHeight / 2;
+        var ringX = x;
+        var ringY = y;
+        var glowX = x;
+        var glowY = y;
+        var scale = 1;
+        var scaleTo = 1;
+        var running = false;
+
+        function frame() {
+            ringX += (x - ringX) * 0.18;
+            ringY += (y - ringY) * 0.18;
+            glowX += (x - glowX) * 0.05;
+            glowY += (y - glowY) * 0.05;
+            scale += (scaleTo - scale) * 0.16;
+            ring.style.transform =
+                "translate3d(" + ringX.toFixed(2) + "px," + ringY.toFixed(2) + "px,0) " +
+                "scale(" + scale.toFixed(3) + ")";
+            glow.style.transform =
+                "translate3d(" + glowX.toFixed(2) + "px," + glowY.toFixed(2) + "px,0)";
+            running = Math.abs(x - ringX) > 0.3 || Math.abs(y - ringY) > 0.3 ||
+                Math.abs(scaleTo - scale) > 0.002;
+            if (running) requestAnimationFrame(frame);
+        }
+
+        function wake() {
+            if (running) return;
+            running = true;
+            requestAnimationFrame(frame);
+        }
+
+        window.addEventListener("pointermove", function (event) {
+            // Touch reports itself as a pointer too, and on touch there is no
+            // hover to enhance: the first move both reveals and deactivates the
+            // layer, so a phone never carries it.
+            if (event.pointerType === "touch") { hide(); return; }
+            var first = !host.classList.contains("is-on");
+            host.classList.add("is-on");
+            glow.classList.add("is-on");
+            x = event.clientX;
+            y = event.clientY;
+            if (first) {
+                ringX = x;
+                ringY = y;
+                glowX = x;
+                glowY = y;
+            }
+            dot.style.transform = "translate3d(" + x + "px," + y + "px,0)";
+            wake();
+        }, { passive: true });
+
+        function hide() {
+            host.classList.remove("is-on");
+            glow.classList.remove("is-on");
+        }
+        document.addEventListener("pointerleave", hide);
+        window.addEventListener("blur", hide);
+
+        // What is under the pointer decides the ring's state, and it is read
+        // from the event's own target rather than from `elementFromPoint`: one
+        // is the browser answering, the other is us measuring.
+        var LINK = "a, button, [role='button'], label, select, summary, input[type='checkbox'], input[type='radio'], .btn, .chip, [data-hover]";
+        var TEXT = "input[type='text'], input[type='password'], input[type='search'], input[type='email'], textarea";
+        document.addEventListener("pointerover", function (event) {
+            var node = event.target;
+            if (!node || !node.closest) return;
+            var text = !!node.closest(TEXT);
+            var link = !text && !!node.closest(LINK);
+            host.classList.toggle("is-text", text);
+            host.classList.toggle("is-link", link);
+            scaleTo = link ? 1.7 : 1;
+            wake();
+        }, { passive: true });
+
+        // A paw at the point of contact, capped: a rapid clicker on a slow frame
+        // should not be able to leave a page full of elements behind.
+        var paws = 0;
+        document.addEventListener("pointerdown", function (event) {
+            if (event.pointerType === "touch" || paws >= 8) return;
+            var paw = document.createElement("span");
+            paw.className = "meow-paw";
+            paw.style.left = event.clientX + "px";
+            paw.style.top = event.clientY + "px";
+            paws += 1;
+            paw.addEventListener("animationend", function () {
+                paws -= 1;
+                paw.remove();
+            });
+            document.body.appendChild(paw);
+        }, { passive: true });
+    }
+
+    /* ---------------------------------------------------------------------
        Number counter — count from 0 to the displayed value on scroll
        --------------------------------------------------------------------- */
     /* Each `.lp-stat dd` that contains a plain number (or a number with a comma
@@ -643,6 +789,7 @@
         fitLines();
         parallax();
         hoverSprings();
+        pointerLayer();
         counterAnimations();
         perspectiveTilt();
         chartBarAnimation();

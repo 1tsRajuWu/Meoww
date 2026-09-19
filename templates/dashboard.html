@@ -21,2079 +21,1150 @@
        fixed by the application in any case. #}
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
     <style>
-        /* There is deliberately **no `:root` here.**
-
-           There was one, and it was the reason this panel and the landing page
-           never read as one product: it re-declared every token under the *same
-           name* with a different value, so a page linking the shared sheet and
-           this one was painting two palettes at once. Its `--bg` was the
-           blue-black #0b0e13 that `meow.css` documents as the thing it moved
-           away from, its text was cool white rather than the warm off-white the
-           shared sheet settles on, and its accent was Discord blurple #5865F2
-           beside the shared #5b5ef0 — two accents, a couple of degrees apart,
-           which is the most visible way to look assembled rather than designed.
-           Radii disagreed by 2px for the same reason.
-
-           The palette is the shared sheet's, and this file adds nothing to it.
-           If a token is missing, it belongs there, where every other page sees
-           it — not here, where only this one does. */
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background-color: var(--bg);
-            color: var(--text-primary);
-            font-family: var(--font-sans);
-            font-size: 14px;
-            line-height: 1.5;
-            min-height: 100vh;
-            padding: 20px;
-            overflow-x: hidden;
-        }
-
-        .skip-link {
-            position: absolute;
-            left: -999px;
-            top: 8px;
-            background: var(--accent);
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 8px;
-            z-index: 2000;
-        }
-
-        .skip-link:focus {
-            left: 16px;
-        }
-
-        .container {
-            max-width: 1280px;
-            margin: 0 auto;
-        }
-
-        /* The toolbar. It sticks, because the two things at the top of this page
-           — which server am I looking at, and how do I get out — are the two
-           things somebody scrolls back up for, and a control panel is used by
-           scrolling it.
-
-           Translucent rather than solid: the aurora has to read through it or
-           the bar looks pasted on top of the page. ``color-mix`` keeps that
-           value derived from the token instead of a second hardcoded hex, and
-           the opaque declaration above it is the fallback for a browser without
-           it. */
-        header {
-            position: sticky;
-            top: 0;
-            z-index: 40;
-            background: var(--surface);
-            background: color-mix(in srgb, var(--surface) 82%, transparent);
-            backdrop-filter: blur(16px) saturate(140%);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-md);
-            padding: 12px 14px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 22px;
-        }
-
-        .brand-section {
-            display: flex;
-            align-items: center;
-            gap: 13px;
-            min-width: 0;
-        }
-
-        /* The mark sits on a tinted tile with a lit top edge rather than on a
-           flat card, so the bar has one anchored focal point instead of being a
-           row of equally-weighted boxes. */
-        .bot-avatar {
-            width: 42px;
-            height: 42px;
-            background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 22%, var(--surface-card)), var(--surface-card));
-            border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
-            border-radius: 13px;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: var(--font-mono);
-            font-size: 17px;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.5px;
-            flex-shrink: 0;
-        }
-
-        .brand-text h1 {
-            font-size: 16px;
-            font-weight: 700;
-            letter-spacing: -0.2px;
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 9px;
-            line-height: 1.25;
-        }
-
-        .brand-text p {
-            color: var(--text-muted);
-            font-size: 12.5px;
-            font-weight: 500;
-            margin-top: 3px;
-            word-break: break-word;
-        }
-
-        /* A dot and a word. The uppercase, the tracking and the bordered pill
-           were three decorations on a two-word piece of state, and the border
-           around a live indicator is what makes a bar look busy. */
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 3px 9px 3px 7px;
-            border-radius: var(--radius-pill);
-            font-size: 10.5px;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-        }
-
-        .badge-online {
-            background: rgba(35, 165, 90, 0.14);
-            color: #57d68d;
-        }
-
-        .badge-offline {
-            background: rgba(242, 63, 67, 0.14);
-            color: #f4777a;
-        }
-
-        .badge-pulse {
-            width: 6px;
-            height: 6px;
-            background: currentColor;
-            border-radius: 50%;
-            box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
-        }
-
-        /* One row, right-aligned, and it wraps as a group rather than putting a
-           single control on a line of its own: the five controls here used to
-           break 4 + 1, which left Sign out stranded under the rest of them. */
-        .header-actions {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-left: auto;
-        }
-
-        /* Native select chrome, replaced: ``appearance: none`` plus a chevron
-           drawn as a background, so the one control in the bar that opens a
-           menu looks like the buttons beside it instead of like a form field. */
-        .guild-select {
-            -webkit-appearance: none;
-            appearance: none;
-            background-color: var(--surface-card);
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238b8883' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 12px center;
-            border: 1px solid var(--border);
-            color: var(--text-primary);
-            height: 36px;
-            padding: 0 34px 0 13px;
-            border-radius: var(--radius-md);
-            font-size: 13px;
-            font-weight: 600;
-            font-family: inherit;
-            max-width: 220px;
-            cursor: pointer;
-            transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease);
-        }
-
-        .guild-select:hover { border-color: var(--border-active); }
-
-        .signed-in {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            max-width: 220px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .signed-in img { border-radius: 50%; flex: none; }
-
-        .guild-select:focus-visible,
-        .btn:focus-visible,
-        .toggle-switch input:focus-visible + .slider {
-            outline: 2px solid var(--accent);
-            outline-offset: 2px;
-        }
-
-        /* One height (36px), one radius, one padding step. The buttons used to
-           be three different sizes in the same bar, which is most of what makes
-           a row of them look assembled rather than designed. */
-        .btn {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            color: var(--text-primary);
-            min-height: 36px;
-            padding: 0 14px;
-            border-radius: var(--radius-md);
-            font-size: 13px;
-            font-weight: 600;
-            font-family: inherit;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
-            transition:
-                background-color var(--fast) var(--ease),
-                border-color var(--fast) var(--ease),
-                transform var(--fast) var(--ease),
-                box-shadow var(--fast) var(--ease);
-            text-decoration: none;
-            white-space: nowrap;
-        }
-
-        .btn:hover {
-            background: var(--surface-hover);
-            border-color: var(--border-active);
-        }
-
-        .btn:active { transform: translateY(1px); }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* The press is the only place the accent is spent in the toolbar, so the
-           one destructive control reads as quiet until it is over it. */
-        .btn-danger {
-            background: transparent;
-            border-color: color-mix(in srgb, var(--red) 32%, var(--border));
-            color: #f4777a;
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: #fff;
-            box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--accent) 90%, transparent);
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-hover);
-            border-color: var(--accent-hover);
-            box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--accent) 95%, transparent);
-        }
-
-        .btn-danger:hover {
-            background: rgba(242, 63, 67, 0.14);
-            border-color: var(--red);
-            color: #ff8f91;
-        }
-
-        /* An icon in a button is a 16px stroked glyph, never an emoji: an emoji
-           is the operating system's own artwork at its own weight and colour,
-           which is the one thing in a designed row that cannot be styled. */
-        .btn svg {
-            width: 15px;
-            height: 15px;
-            flex-shrink: 0;
-            stroke: currentColor;
-            stroke-width: 1.7;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            fill: none;
-            opacity: 0.85;
-        }
-
-        .logout-form {
-            display: inline-flex;
-            margin: 0;
-        }
-
-        /* Four equal tiles, then two, then one — a fixed count rather than
-           ``auto-fit``, which decided 3 + 1 on a 1000px window and left the
-           fourth tile alone on its own row. */
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 14px;
-            margin-bottom: 30px;
-        }
-
-        .metric-card {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-sm);
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            transition:
-                transform var(--base) var(--ease),
-                border-color var(--base) var(--ease),
-                box-shadow var(--base) var(--ease);
-        }
-
-        .metric-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--border-active);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow-lift);
-        }
-
-        /* A tinted glyph tile is what turns four labels into four readings: it
-           carries the meaning at a glance and gives the tile a top-left anchor,
-           which is what the empty upper half of these cards was missing. */
-        .metric-icon {
-            width: 34px;
-            height: 34px;
-            border-radius: 11px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-        }
-
-        .metric-icon svg {
-            width: 17px;
-            height: 17px;
-            stroke: currentColor;
-            stroke-width: 1.7;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            fill: none;
-        }
-
-        .metric-icon.is-accent {
-            background: var(--accent-quiet);
-            border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-            color: var(--accent-text);
-        }
-
-        .metric-icon.is-good {
-            background: rgba(35, 165, 90, 0.13);
-            border-color: rgba(35, 165, 90, 0.3);
-            color: #57d68d;
-        }
-
-        .metric-info h3 {
-            font-size: 10.5px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.09em;
-            margin-bottom: 4px;
-        }
-
-        .metric-info p {
-            font-size: 27px;
-            font-weight: 700;
-            font-family: var(--font-mono);
-            font-variant-numeric: tabular-nums;
-            color: var(--text-primary);
-            letter-spacing: -0.5px;
-            line-height: 1.1;
-        }
-
-        .metric-info p .unit {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text-muted);
-            letter-spacing: 0;
-        }
-
-        .metric-hint {
-            display: block;
-            margin-top: 5px;
-            font-size: 11.5px;
-            color: var(--text-muted);
-        }
-
-        /* The one tile that is a proportion gets a proportion's shape. */
-        .metric-meter {
-            height: 5px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.07);
-            overflow: hidden;
-            margin-top: 2px;
-        }
-
-        .metric-meter span {
-            display: block;
-            height: 100%;
-            border-radius: 999px;
-            background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff));
-            transition: width var(--base) var(--ease);
-        }
-
-        /* The heading is a block, not a two-column row: the explanatory line
-           belongs under the title it explains, and putting it beside the title
-           put it in the vertical middle of an empty band at the top of every
-           section, which is where the page read as unfinished. */
-        .section-header {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            align-items: end;
-            gap: 6px 16px;
-            margin: 34px 0 16px;
-        }
-
-        .section-header h2 {
-            grid-column: 1;
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: -0.3px;
-            display: flex;
-            align-items: center;
-            gap: 9px;
-        }
-
-        .section-header .eyebrow {
-            grid-column: 1;
-            grid-row: 1;
-            margin-bottom: -2px;
-        }
-
-        /* The description spans both columns under the title, capped at a
-           readable measure instead of running the full width of the page. */
-        .section-header .composer-hint {
-            grid-column: 1 / -1;
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-            max-width: 82ch;
-        }
-
-        .section-header > h2 + .composer-hint { margin-top: 2px; }
-
-        .section-header .bulk-controls,
-        .section-header > .btn {
-            grid-column: 2;
-            grid-row: 1 / -1;
-            align-self: center;
-        }
-
-        .bulk-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .modules-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
-            gap: 16px;
-            align-items: stretch;
-            margin-bottom: 44px;
-        }
-
-        /* No ``transform`` on hover here, and that is deliberate: the card carries
-           ``data-hover``, so `motion.js` owns its transform with a spring. A CSS
-           transform on the same element would be overwritten by that inline one —
-           or, worse, fight it — so the lift is spent on the border and the
-           shadow, and the spring moves the card. */
-        .module-card {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-sm);
-            padding: 18px;
-            display: flex;
-            flex-direction: column;
-            gap: 13px;
-            position: relative;
-            overflow: hidden;
-            transition:
-                border-color var(--base) var(--ease),
-                background-color var(--base) var(--ease),
-                box-shadow var(--base) var(--ease),
-                opacity 0.2s;
-        }
-
-        .module-card.busy {
-            opacity: 0.7;
-            pointer-events: none;
-        }
-
-        .module-card:hover {
-            border-color: var(--border-active);
-            background: var(--surface-hover);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow-lift);
-        }
-
-        /* A hairline down the leading edge is how these cards say which systems
-           are on without a second word for it: a grid of eleven identical grey
-           boxes makes "which of these is running" a reading task. */
-        .module-card::before {
-            content: "";
-            position: absolute;
-            inset: 0 auto 0 0;
-            width: 2px;
-            background: var(--border-active);
-            opacity: 0.6;
-        }
-
-        .module-card:has(.state-enabled)::before {
-            background: var(--green);
-            opacity: 0.85;
-        }
-
-        .module-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 12px;
-        }
-
-        .module-meta {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            min-width: 0;
-        }
-
-        /* The module's initial, in the label typeface, instead of an emoji tile:
-           six emoji tiles in a grid is the house style of a generated page. */
-        .module-icon-box {
-            width: 38px;
-            height: 38px;
-            border-radius: 11px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: var(--font-mono);
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            flex-shrink: 0;
-        }
-
-        .module-card:has(.state-enabled) .module-icon-box {
-            background: var(--accent-quiet);
-            border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-            color: var(--accent-text);
-        }
-
-        .module-titles h3 {
-            font-size: 15px;
-            font-weight: 700;
-            letter-spacing: -0.2px;
-            margin-bottom: 3px;
-        }
-
-        .module-category {
-            font-size: 10.5px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.09em;
-        }
-
-        /* ``flex: 1`` rather than ``margin-top`` on the footer: the cards in a row
-           are the same height because the grid stretches them, so the slack has
-           to land somewhere, and letting the description absorb it is what keeps
-           every footer on one line instead of each card ending where its own
-           text happens to end. */
-        .module-desc {
-            color: var(--text-secondary);
-            font-size: 13px;
-            line-height: 1.55;
-            font-weight: 400;
-            flex: 1 1 auto;
-        }
-
-        .module-commands {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-        }
-
-        .cmd-pill {
-            background: rgba(255, 255, 255, 0.045);
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: var(--radius-sm);
-            padding: 3px 8px;
-            font-family: var(--font-mono);
-            font-size: 11px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-        }
-
-        .module-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: auto;
-            padding-top: 13px;
-            border-top: 1px solid rgba(255, 255, 255, 0.055);
-            gap: 8px;
-        }
-
-        /* The dot is drawn, not typed. "●" is a text character whose size and
-           baseline come from the font, so it sat low and changed weight between
-           the two fonts this page falls back to; a pseudo-element is the same dot
-           in both states and in every browser. */
-        .state-label {
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            display: flex;
-            align-items: center;
-            gap: 7px;
-        }
-
-        .state-label::before {
-            content: "";
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: currentColor;
-            box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
-            flex-shrink: 0;
-        }
-
-        .state-enabled { color: #57d68d; }
-        .state-disabled { color: var(--text-muted); }
-
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 46px;
-            height: 26px;
-            flex-shrink: 0;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        /* Recessed when off, filled when on, and the knob carries a soft shadow
-           so it reads as sitting *above* the track rather than inside it. */
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.35);
-            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
-            transition: background-color var(--base) var(--ease), border-color var(--base) var(--ease);
-            border-radius: 999px;
-            border: 1px solid var(--border);
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: #e9e7e4;
-            transition: transform var(--base) var(--ease), background-color var(--base) var(--ease);
-            border-radius: 50%;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-        }
-
-        input:checked + .slider {
-            background-color: rgba(35, 165, 90, 0.85);
-            border-color: color-mix(in srgb, var(--green) 60%, transparent);
-        }
-
-        input:checked + .slider:before {
-            transform: translateX(20px);
-            background-color: #fff;
-        }
-
-        #toast-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            max-width: min(360px, calc(100vw - 32px));
-        }
-
-        .toast {
-            background: var(--surface-hover);
-            border: 1px solid var(--border);
-            border-left: 4px solid var(--accent);
-            border-radius: var(--radius-md);
-            padding: 14px 20px;
-            color: var(--text-primary);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 13px;
-            font-weight: 600;
-            animation: slideIn 0.3s forwards cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .toast-success { border-left-color: var(--green); }
-        .toast-error { border-left-color: var(--red); }
-
-        /* ---- Message composer ---- */
-        .composer-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 18px;
-            margin-bottom: 26px;
-        }
-
-        .composer-grid {
-            display: grid;
-            grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-            gap: 22px;
-            align-items: start;
-        }
-
-        /* ``minmax(0, 1fr)`` above and this: without it a long channel name or a
-           wide preview stretches the column past the card and the page scrolls
-           sideways. */
-        .composer-col { min-width: 0; }
-
-        .field-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            min-height: 20px;
-        }
-
-        .composer-field {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-bottom: 16px;
-        }
-
-        /* ``display: flex`` outranks the user-agent's ``[hidden]`` rule, so the
-           attribute alone would leave the embed title sitting on the page. */
-        .composer-field[hidden] { display: none; }
-
-        /* The same trap, found in the command list: this note is a ``.field-head``,
-           so without a rule the page said "every command the bot has is offered
-           on this server" directly above the thirty-one names that are not — in
-           the server's own render and in the live refresh, which sets ``hidden``
-           and then watched the CSS keep it on the page. Written for the class
-           rather than the one element, so the next ``.field-head`` is covered. */
-        .field-head[hidden] { display: none; }
-
-        .composer-field > label,
-        .field-head > label,
-        .field-label {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-        }
-
-        .composer-hint {
-            font-size: 12px;
-            color: var(--text-muted);
-            line-height: 1.5;
-        }
-
-        .composer-input,
-        .composer-textarea,
-        .composer-select {
-            width: 100%;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            color: var(--text-primary);
-            border-radius: var(--radius-md);
-            padding: 11px 14px;
-            font-size: 13px;
-            font-family: inherit;
-            font-weight: 500;
-        }
-
-        .composer-textarea {
-            min-height: 132px;
-            resize: vertical;
-            line-height: 1.55;
-        }
-
-        /* ---- Channel picker ---- */
-        /* A native ``<select multiple>`` needs Ctrl-click, cannot be searched,
-           hides what is selected and does nothing on a touch screen — all of
-           which made picking a channel the hardest part of sending one
-           message. These are toggle rows instead. */
-        .picker-wrap { position: relative; }
-
-        .picker {
-            margin-top: 8px;
-            max-height: 264px;
-            overflow-y: auto;
-            overscroll-behavior: contain;
-            background: var(--surface-hover);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            scrollbar-width: thin;
-        }
-
-        /* Before the fetch lands, and again if it returns nothing at all. */
-        .picker:empty::before {
-            content: "Loading channels…";
-            display: block;
-            padding: 14px 12px;
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        .picker-group {
-            position: sticky;
-            top: 0;
-            z-index: 2;
-            background: var(--surface-card);
-            padding: 7px 12px;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.9px;
-            text-transform: uppercase;
-            color: var(--text-muted);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .picker-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            width: 100%;
-            padding: 9px 12px;
-            background: none;
-            border: 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            color: var(--text-secondary);
-            font: inherit;
-            font-size: 13px;
-            font-weight: 600;
-            text-align: left;
-            cursor: pointer;
-            transition: background 0.15s, color 0.15s;
-        }
-
-        .picker-row:last-child { border-bottom: 0; }
-
-        .picker-row:hover:not(:disabled) {
-            background: var(--surface-hover);
-            color: var(--text-primary);
-        }
-
-        .picker-row:focus-visible {
-            outline: 2px solid var(--accent);
-            outline-offset: -2px;
-        }
-
-        .picker-row[aria-selected="true"] {
-            background: var(--accent-quiet);
-            color: #fff;
-            box-shadow: inset 3px 0 0 var(--accent);
-        }
-
-        .picker-row:disabled {
-            cursor: not-allowed;
-            opacity: 0.45;
-        }
-
-        .picker-tick {
-            width: 18px;
-            height: 18px;
-            flex-shrink: 0;
-            border-radius: 5px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            line-height: 1;
-            color: transparent;
-        }
-
-        .picker-row[aria-selected="true"] .picker-tick {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: #fff;
-        }
-
-        .picker-name {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .picker-meta {
-            margin-left: auto;
-            flex-shrink: 0;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: var(--text-muted);
-        }
-
-        .picker-note {
-            padding: 14px 12px;
-            font-size: 12px;
-            line-height: 1.5;
-            color: var(--text-muted);
-        }
-
-        .badge-count {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.4px;
-            color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 3px 10px;
-            font-variant-numeric: tabular-nums;
-            white-space: nowrap;
-        }
-
-        .badge-count.full {
-            color: var(--gold);
-            border-color: var(--gold);
-        }
-
-        .composer-input:focus-visible,
-        .composer-textarea:focus-visible,
-        .composer-search:focus-visible {
-            outline: 2px solid var(--accent);
-            outline-offset: 2px;
-        }
-
-        .composer-search-wrap { position: relative; }
-
-        .mention-results {
-            position: absolute;
-            z-index: 60;
-            top: calc(100% + 6px);
-            left: 0;
-            right: 0;
-            max-height: min(320px, 50vh);
-            overflow-y: auto;
-            overscroll-behavior: contain;
-            background: var(--surface-hover);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-            display: none;
-            scrollbar-width: thin;
-        }
-
-        .mention-results.open { display: block; }
-
-        .mention-group {
-            position: sticky;
-            top: 0;
-            z-index: 2;
-            background: var(--surface-card);
-            padding: 6px 14px;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.9px;
-            text-transform: uppercase;
-            color: var(--text-muted);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .mention-result {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            width: 100%;
-            padding: 9px 14px;
-            background: none;
-            border: 0;
-            color: var(--text-primary);
-            font: inherit;
-            font-size: 13px;
-            text-align: left;
-            cursor: pointer;
-        }
-
-        .mention-result:hover,
-        .mention-result.active { background: var(--surface-hover); }
-
-        .mention-result .kind {
-            margin-left: auto;
-            flex-shrink: 0;
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            color: var(--text-muted);
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 999px;
-            padding: 2px 8px;
-        }
-
-        .mention-result .sub {
-            font-size: 11px;
-            color: var(--text-muted);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        /* The "we can only see N of M members" line and the empty state are
-           notes, not choices — they must not look like something to click. */
-        .mention-note {
-            padding: 11px 14px;
-            font-size: 11.5px;
-            line-height: 1.5;
-            color: var(--text-muted);
-            background: rgba(255, 255, 255, 0.02);
-            border-top: 1px solid var(--border);
-        }
-
-        .chips {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            min-height: 34px;
-            align-items: center;
-        }
-
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--accent-quiet);
-            border: 1px solid var(--border-active);
-            border-radius: 999px;
-            padding: 5px 6px 5px 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .chip button {
-            background: none;
-            border: 0;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 13px;
-            line-height: 1;
-            padding: 3px 6px;
-            border-radius: 50%;
-        }
-
-        .chip button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-
-        .composer-actions {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .composer-buttons {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-left: auto;
-        }
-
-        #composer-send { padding: 11px 20px; }
-
-        #composer-mention-search { padding-left: 34px; background-image: none; }
-
-        .search-icon {
-            position: absolute;
-            left: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 12px;
-            color: var(--text-muted);
-            pointer-events: none;
-        }
-
-        .composer-check {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            cursor: pointer;
-        }
-
-        .counter { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .counter.over { color: var(--red); }
-        /* Why the send button is disabled, in the bot's own words. Red, not muted:
-           this line is the refusal, and it arrives before the click instead of
-           after it. */
-        .composer-blocked { color: var(--red); }
-        .composer-blocked[hidden] { display: none; }
-        #composer-send:disabled { opacity: 0.55; cursor: not-allowed; }
-
-        .preview {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 14px 16px;
-            margin-top: 4px;
-            min-height: 112px;
-        }
-
-        .preview-head {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .preview-avatar {
-            width: 26px;
-            height: 26px;
-            flex-shrink: 0;
-            border-radius: var(--radius-sm);
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-family: var(--font-mono);
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--accent-text);
-        }
-
-        .preview-time {
-            font-size: 11px;
-            font-weight: 500;
-            color: var(--text-muted);
-        }
-
-        .preview-bot-tag {
-            background: var(--accent);
-            color: #fff;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 1px 5px;
-            border-radius: 4px;
-        }
-
-        .preview-body {
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .preview-embed {
-            border-left: 3px solid var(--accent);
-            background: var(--surface-card);
-            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-            padding: 12px 14px;
-            margin-top: 10px;
-        }
-
-        .preview-embed-title {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 6px;
-            line-height: 1.4;
-        }
-
-        .preview-embed-body {
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .preview-empty { color: var(--text-muted); font-style: italic; }
-
-        .mention-text {
-            color: var(--accent-text);
-            background: var(--accent-quiet);
-            border-radius: 4px;
-            padding: 0 4px;
-        }
-
-        /* ---- The receipt ---- */
-        /* What actually happened, kept on the page. A toast that disappears after
-           three seconds is a plausible-looking way to lose the only record of a
-           message that has already been sent as the bot and cannot be recalled. */
-        .receipt {
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            background: var(--surface);
-            margin-bottom: 14px;
-            overflow: hidden;
-        }
-
-        .receipt[hidden] { display: none; }
-
-        .receipt-head {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 11px 14px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .receipt-title {
-            font-size: 12px;
-            font-weight: 800;
-            letter-spacing: 0.6px;
-            text-transform: uppercase;
-        }
-
-        .receipt-title.ok { color: var(--green); }
-        .receipt-title.warn { color: var(--gold); }
-        .receipt-title.fail { color: var(--red); }
-
-        .receipt-time {
-            margin-left: auto;
-            font-size: 11px;
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-        }
-
-        .receipt-close {
-            background: none;
-            border: 0;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 13px;
-            line-height: 1;
-            padding: 4px 6px;
-            border-radius: 6px;
-        }
-
-        .receipt-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-
-        .receipt-rows { list-style: none; margin: 0; padding: 0; }
-
-        .receipt-row {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            padding: 8px 14px;
-            font-size: 12.5px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        }
-
-        .receipt-row:last-child { border-bottom: 0; }
-        .receipt-mark { width: 14px; flex-shrink: 0; font-weight: 800; }
-        .receipt-row.ok .receipt-mark { color: var(--green); }
-        .receipt-row.fail .receipt-mark { color: var(--red); }
-        .receipt-row.note .receipt-mark { color: var(--gold); }
-
-        .receipt-name {
-            font-weight: 600;
-            color: var(--text-primary);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .receipt-why {
-            margin-left: auto;
-            flex-shrink: 0;
-            font-size: 11.5px;
-            color: var(--text-secondary);
-            text-align: right;
-        }
-
-        .receipt-link {
-            margin-left: auto;
-            flex-shrink: 0;
-            font-size: 11.5px;
-            font-weight: 600;
-            color: var(--accent-text);
-            text-decoration: none;
-            white-space: nowrap;
-        }
-
-        .receipt-link:hover { text-decoration: underline; }
-
-        .receipt-foot {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 11px 14px;
-            border-top: 1px solid var(--border);
-        }
-
-        /* Same trap as the fields above: this footer is set ``hidden`` whenever
-           there is nothing to retry, and its own ``display: flex`` would keep it on
-           screen saying "Retry the 0 failed channels". */
-        .receipt-foot[hidden] { display: none; }
-        .receipt-foot .btn { padding: 8px 14px; font-size: 12px; }
-        .receipt-note { margin-left: auto; font-size: 11px; color: var(--text-muted); text-align: right; }
-
-        .preview-warn {
-            margin-top: 8px;
-            font-size: 11.5px;
-            font-weight: 600;
-            color: var(--gold);
-        }
-
-        .composer-status { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
-
-        /* ── Scheduled messages ─────────────────────────────────────────────
-           Nothing here invents a new look: it is the same card, pill and receipt
-           vocabulary as the composer, because a queued message is the same
-           message with a different delivery time. */
-        .seg {
-            display: inline-flex;
-            gap: 3px;
-            padding: 3px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-        }
-
-        .seg-btn {
-            font: inherit;
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            background: none;
-            border: 0;
-            border-radius: 999px;
-            padding: 7px 14px;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-
-        .seg-btn:hover { color: var(--text-primary); }
-        .seg-btn[aria-checked="true"] { background: var(--accent); color: #fff; }
-        .seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-        .schedule-when {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 10px;
-        }
-
-        .schedule-when[hidden] { display: none; }
-        .schedule-when input[type="datetime-local"],
-        .schedule-when select { padding: 9px 12px; font-size: 12.5px; width: auto; }
-        .schedule-when .composer-hint { margin: 0; }
-        .schedule-when .content-hint { flex-basis: 100%; }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            overflow: hidden;
-            clip: rect(0 0 0 0);
-            white-space: nowrap;
-        }
-
-        .schedule-card {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 16px;
-        }
-
-        .schedule-subhead { margin-top: 18px; }
-        .schedule-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-
-        .schedule-empty {
-            font-size: 12.5px;
-            line-height: 1.6;
-            color: var(--text-muted);
-            padding: 10px 2px;
-        }
-
-        .schedule-row {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 12px;
-            align-items: start;
-            padding: 12px 14px;
-            background: rgba(255, 255, 255, 0.025);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-        }
-
-        .schedule-row.done { opacity: 0.94; }
-        .schedule-row.failed { border-color: rgba(242, 63, 67, 0.45); }
-        .schedule-row.missed { border-color: rgba(240, 178, 50, 0.45); }
-
-        .schedule-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-
-        .schedule-head {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .schedule-when-text { font-variant-numeric: tabular-nums; color: var(--green); }
-        .schedule-when-text.late { color: var(--gold); }
-        .schedule-when-text.done { color: var(--text-secondary); }
-
-        .schedule-abs {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: 500;
-            color: var(--text-muted);
-        }
-
-        .pill {
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 3px 9px;
-            white-space: nowrap;
-        }
-
-        .pill.repeat { color: var(--accent-text); border-color: var(--accent); }
-        .pill.now { color: #7dd3fc; border-color: rgba(56, 189, 248, 0.45); }
-        .pill.ping { color: var(--gold); border-color: var(--gold); }
-        .pill.ok { color: var(--green); border-color: var(--green); }
-        .pill.warn { color: var(--gold); border-color: var(--gold); }
-        .pill.fail { color: var(--red); border-color: var(--red); }
-
-        .schedule-preview {
-            font-size: 12.5px;
-            line-height: 1.55;
-            color: var(--text-secondary);
-            overflow-wrap: anywhere;
-        }
-
-        .schedule-note { font-size: 11.5px; color: var(--text-muted); overflow-wrap: anywhere; }
-        .schedule-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-        .schedule-actions .btn { padding: 7px 12px; font-size: 12px; }
-
-        .schedule-results { list-style: none; display: flex; flex-direction: column; gap: 3px; }
-        .schedule-results li { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--text-muted); }
-        .schedule-results li.ok .mark { color: var(--green); }
-        .schedule-results li.fail .mark { color: var(--red); }
-        .schedule-results a { color: var(--accent-text); text-decoration: none; }
-        .schedule-results a:hover { text-decoration: underline; }
-
-        @keyframes slideIn {
-            from { transform: translateY(30px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-
-        @keyframes fadeOut {
-            to { transform: translateY(-10px); opacity: 0; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            * { animation: none !important; transition: none !important; }
-        }
-
-        @media (max-width: 1024px) {
-            .composer-grid { grid-template-columns: 1fr; gap: 18px; }
-            .composer-col + .composer-col {
-                border-top: 1px solid var(--border);
-                padding-top: 18px;
-            }
-        }
-
-        @media (max-width: 768px) {
-            body { padding: 12px; }
-            .schedule-row { grid-template-columns: 1fr; }
-            .schedule-actions { justify-content: flex-start; }
-            .schedule-when input[type="datetime-local"],
-            .schedule-when select { width: 100%; }
-            header { padding: 16px; }
-            .brand-text h1 { font-size: 19px; }
-            .metrics-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-            .metric-card { padding: 14px 16px; gap: 12px; }
-            .modules-grid { grid-template-columns: 1fr; }
-            .guild-select { max-width: 100%; width: 100%; }
-            .header-actions { width: 100%; }
-            .section-header { flex-wrap: wrap; }
-            .picker { max-height: 220px; }
-            /* Keep Send within reach instead of a scroll away at the bottom of a
-               long form. */
-            .composer-actions {
-                position: sticky;
-                bottom: 0;
-                z-index: 5;
-                background: var(--bg);
-                border-top: 1px solid var(--border);
-                padding: 12px 0 4px;
-            }
-            .composer-buttons { margin-left: 0; width: 100%; }
-            .composer-buttons .btn { flex: 1; min-height: 44px; justify-content: center; }
-            #toast-container { left: 12px; right: 12px; bottom: 12px; max-width: none; }
-        }
-
-        @media (max-width: 520px) {
-            .brand-text h1 { font-size: 17px; }
-            .section-header h2 { font-size: 17px; }
-            .composer-card { padding: 16px; }
-            .mention-results { max-height: 240px; }
-            .bot-avatar { width: 44px; height: 44px; font-size: 22px; }
-        }
-        /* This server's bot: the picture the server actually has, the fields that
-           change it, and the command list this server is registered with. */
-        .identity-grid { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
-        .identity-preview { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 150px; }
-        .identity-avatar,
-        .identity-banner {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            background: var(--surface-hover);
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            font-weight: 600;
-        }
-        .identity-avatar { width: 96px; height: 96px; border-radius: 50%; font-size: 34px; }
-        .identity-banner { width: 220px; height: 72px; border-radius: 12px; font-size: 12px; }
-        .identity-avatar img,
-        .identity-banner img { width: 100%; height: 100%; object-fit: cover; }
-        .identity-fields { flex: 1 1 320px; display: flex; flex-direction: column; gap: 14px; }
-        /* The native control is gone from the page; the input is not. It stays in
-           the DOM — focusable, still the element whose ``files`` the save reads —
-           and a styled ``<label for>`` takes its place on screen. A file input's
-           own "Choose file / No file chosen" is drawn by the browser in the
-           browser's typeface and cannot be styled, so it was the one place on
-           this page where the product stopped and the operating system started:
-           two of them sat under the identity fields in grey system type, next to
-           buttons this page drew itself. Visually hidden rather than
-           ``display:none``, because a display-none input cannot be focused and
-           the whole control would then be keyboard-unreachable. */
-        .identity-file { display: grid; gap: 12px; }
-        .upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .upload-input {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip-path: inset(50%);
-            white-space: nowrap;
-            border: 0;
-        }
-        .upload-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 8px 13px;
-            border-radius: var(--radius-md);
-            border: 1px dashed var(--border-active);
-            background: rgba(255, 255, 255, 0.02);
-            color: var(--text-primary);
-            font-size: 12.5px;
-            font-weight: 600;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: border-color var(--base) var(--ease), background var(--base) var(--ease);
-        }
-        .upload-btn:hover { border-color: var(--accent); background: var(--accent-quiet); }
-        .upload-btn svg { width: 14px; height: 14px; opacity: 0.85; }
-        .upload-input:focus-visible + .upload-btn { outline: 2px solid var(--accent); outline-offset: 2px; }
-        .upload-input:disabled + .upload-btn {
-            opacity: 0.45;
-            cursor: not-allowed;
-            border-style: solid;
-        }
-        .upload-input:disabled + .upload-btn:hover {
-            border-color: var(--border-active);
-            background: rgba(255, 255, 255, 0.02);
-        }
-        .upload-name {
-            font-family: var(--font-mono);
-            font-size: 11.5px;
-            color: var(--text-muted);
-            max-width: 260px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        /* Two rules that belong to the *document* rather than to the sheet, and
+           both are here for the same reason: they are about this page's own
+           state and its own paper, so a stylesheet shared with the landing page
+           has no business carrying them.
+
+           Everything else — the shell, the rail, every card, every control, the
+           palette, the toasts — is in `/static/dashboard.css`. It used to be
+           1,660 lines right here, which made this template the third-largest
+           file in the repository and meant a change to one card was a change to
+           a page. The split follows the rule `static/meow.css` already set:
+           **the palette is shared, the layout is the page's.** */
+        body.is-palette-open { overflow: hidden; }
+        @media print {
+            .rail, .topbar, .palette, #toast-container, .scroll-progress { display: none !important; }
+            body { background: #fff; color: #111; }
+            .app { grid-template-columns: minmax(0, 1fr); }
         }
-        .upload-name.is-chosen { color: var(--accent-text); }
-        .identity-live { font-size: 12px; color: var(--text-muted); text-align: center; }
-        .identity-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .scope-summary { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 16px; }
-        .scope-stat b { font-size: 24px; color: var(--text-primary); }
-        .scope-stat span { display: block; font-size: 12px; color: var(--text-muted); }
     </style>
+    {# The dashboard's own sheet, after the shared one so its layout wins where
+       the two overlap, and versioned by content for the same reason every other
+       asset is: `/static/*` is served `immutable`, so a URL that does not change
+       with the file is a year of invisibility. #}
+    <link rel="stylesheet" href="/static/dashboard.css?v={{ asset_version('dashboard.css') }}">
 </head>
 <body>
+    {# Three values only the live view can supply, each about the *deployment*
+       rather than the server being looked at: what UptimeRobot last saw, what
+       the site check last found, and how the configuration reads. Declared here
+       so this page is renderable by anything that renders it — the test suite's
+       own Jinja environment and the preview harness both do — and so a missing
+       one shows an honest "not read yet" instead of taking the whole page down
+       with an `UndefinedError`, which is what a bare attribute chain on a
+       missing name does. #}
+    {% set system_status = system_status if system_status is defined else {} %}
+    {% set site_guard_status = site_guard_status if site_guard_status is defined else {} %}
+    {% set config_status = config_status if config_status is defined else {} %}
     <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <a class="skip-link" href="#modules">Skip to modules</a>
-    <div class="container">
-        {# The motion system, the same one the landing page uses (`static/motion.js`,
-           whose primitives are all opt-in through `data-` attributes).
+    <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
+    <a class="skip-link" href="#modules">Skip to systems</a>
 
-           What is deliberately absent is the **curtain**. A landing page has one
-           job — to arrive — and a gate in front of it is the point. A control
-           panel's job is to be *there*: somebody opens it to flip a switch, and
-           a second of a progress bar in front of the thing they came to do is a
-           cost paid every visit to make a first impression once. So no
-           `data-loader`: no curtain, no scroll lock, nothing gated on it.
+    {# The shell. A rail that says where you are, and one column that holds the
+       sections in the order the work happens: what is running, what to post,
+       what is queued, who the bot is here, what it offers, and what the
+       infrastructure is doing.
 
-           The reveals are also smaller and faster than the landing page's. It
-           moves things 28px over ~600ms, which is right for a page you read and
-           wrong for one you use. Here it is 10px and a delay only across the
-           first screen — `inview` fires on scroll for everything below, so the
-           stagger is not paid again by a card further down that nobody is
-           waiting for. #}
-        <header data-reveal data-reveal-y="10">
-            <div class="brand-section">
-                <img src="/static/logo.svg" alt="Meow Bot" class="brand-logo" style="width:40px;height:40px;">
-                <div class="brand-text">
+       The motion system is the landing page's (`static/motion.js`, all of it
+       opt-in through `data-` attributes). What is deliberately absent is the
+       **curtain**: a landing page has one job — to arrive — and a gate in front
+       of it is the point, while a control panel's job is to be *there*. So no
+       `data-loader`, and the reveals move 10px rather than 28: a page you use
+       should not make you wait to use it. #}
+    <div class="app">
+        <aside class="rail">
+            <div class="rail-brand">
+                <img src="/static/logo.svg" alt="">
+                <div class="rail-brand-text">
+                    <strong>Meow</strong>
+                    <span>Control Center</span>
+                </div>
+            </div>
+            <nav class="rail-nav" id="rail-nav" aria-label="Sections">
+                <a href="#overview" data-spy="overview">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/></svg>
+                    Overview
+                </a>
+                <a href="#modules" data-spy="modules">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 21 8l-9 4.5L3 8z"/><path d="m3 12 9 4.5L21 12"/><path d="m3 16 9 4.5L21 16"/></svg>
+                    Systems
+                    <span class="rail-count" id="rail-modules-count">{{ active_count }} / {{ total_count }}</span>
+                </a>
+                <a href="#composer" data-spy="composer">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12.5c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 21l1.2-3.6C4.1 16.2 3.5 14.4 3.5 12.5c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z"/></svg>
+                    Composer
+                </a>
+                <a href="#schedule" data-spy="schedule">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+                    Scheduled
+                </a>
+                <a href="#identity" data-spy="identity">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/></svg>
+                    Identity
+                </a>
+                <a href="#command-scope" data-spy="command-scope">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/></svg>
+                    Commands
+                </a>
+                <a href="#status" data-spy="status">
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/></svg>
+                    Status
+                </a>
+            </nav>
+            <div class="rail-foot">
+                {% if signed_in_as and signed_in_as.name %}
+                <div class="rail-account" title="Signed in with Discord">
+                    {% if signed_in_as.avatar %}<img src="{{ signed_in_as.avatar }}" alt="" width="22" height="22">{% endif %}
+                    <span class="rail-account-name">{{ signed_in_as.name }}</span>
+                </div>
+                {% endif %}
+                {# Both keys, because the handler accepts both and the operator's own
+                   machine is a Mac: a hint that names Ctrl at somebody holding a
+                   Command key is a hint they have to translate before they can use
+                   it. Naming them together costs one glyph and is true everywhere. #}
+                <span class="rail-hint"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> for anything on this page</span>
+            </div>
+        </aside>
+
+        <div class="main">
+            <header class="topbar">
+                <div class="topbar-title">
                     <h1>
-                        Meow Control Center
+                        {{ guild_name }}
                         {% if bot_ready %}
                         <span class="status-badge badge-online"><span class="badge-pulse" aria-hidden="true"></span> Live</span>
                         {% else %}
                         <span class="status-badge badge-offline">Bot offline</span>
                         {% endif %}
                     </h1>
-                    <p>Connected to <strong>{{ guild_name }}</strong></p>
+                    <p>Connected to <strong>{{ guild_name }}</strong> — changes here apply in Discord immediately.</p>
                 </div>
-            </div>
-            <div class="header-actions">
-                {# Who is signed in, because a session can now be somebody's own
-                   account rather than the operator's passkey, and the servers
-                   offered below depend on which of the two it is. #}
-                {% if signed_in_as and signed_in_as.name %}
-                <span class="signed-in" title="Signed in with Discord">
-                    {% if signed_in_as.avatar %}<img src="{{ signed_in_as.avatar }}" alt="" width="22" height="22">{% endif %}
-                    {{ signed_in_as.name }}
-                </span>
-                {% endif %}
-                {% if pick_server_url %}
-                <a class="btn" href="{{ pick_server_url }}">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
-                    Servers
-                </a>
-                {% endif %}
-                {% if can_switch_guild and guilds and guilds|length > 1 %}
-                <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
-                <select id="guild-select" class="guild-select" aria-label="Select server" onchange="window.location.href='/dashboard?guild_id=' + encodeURIComponent(this.value)">
-                    {% for g in guilds %}
-                    <option value="{{ g.id }}" {{ "selected" if g.id == guild_id else "" }}>{{ g.name }}</option>
-                    {% endfor %}
-                </select>
-                {% endif %}
-                <a class="btn" href="/pricing">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.8h19"/><path d="M6.5 14.5h3"/></svg>
-                    Pricing
-                </a>
-                <a class="btn" href="/market">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5 9 11l4 3.6L21 6"/><path d="M15.2 6H21v5.8"/></svg>
-                    Market
-                </a>
-                {# Adding the bot somewhere else is the one action here that is not
-                   about the server currently open, and it is the action a person
-                   who manages several servers reaches for most often. #}
-                {% if invite_url %}
-                <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
-                    Add to a server
-                </a>
-                {% endif %}
-                <form method="POST" action="/logout" class="logout-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-danger">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4.5h3A1.5 1.5 0 0 1 19.5 6v12a1.5 1.5 0 0 1-1.5 1.5h-3"/><path d="M10 8.4 6 12l4 3.6"/><path d="M6 12h8"/></svg>
-                        Sign out
+                <div class="topbar-actions">
+                    {# The label is an attribute, not only the hidden text: below 860px
+                       the stylesheet hides both the wording and the key hint, which
+                       left a 39px magnifier with no accessible name at all. The
+                       wording here starts with the visible text, so the two never
+                       disagree for anybody reading the screen. #}
+                    <button type="button" class="palette-trigger" id="palette-open"
+                            aria-haspopup="dialog"
+                            aria-label="Jump to anything on this page"
+                            title="Jump to anything on this page (Ctrl/⌘ K)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                        <span>Jump to anything…</span>
+                        <kbd>Ctrl/⌘ K</kbd>
                     </button>
-                </form>
-            </div>
-        </header>
+                    {% if pick_server_url %}
+                    <a class="btn" href="{{ pick_server_url }}">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+                        Servers
+                    </a>
+                    {% endif %}
+                    {% if can_switch_guild and guilds and guilds|length > 1 %}
+                    <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
+                    <select id="guild-select" class="guild-select" aria-label="Select server" onchange="window.location.href='/dashboard?guild_id=' + encodeURIComponent(this.value)">
+                        {% for g in guilds %}
+                        <option value="{{ g.id }}" {{ "selected" if g.id == guild_id else "" }}>{{ g.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                    <a class="btn" href="/pricing">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.8h19"/><path d="M6.5 14.5h3"/></svg>
+                        Pricing
+                    </a>
+                    <a class="btn" href="/market">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5 9 11l4 3.6L21 6"/><path d="M15.2 6H21v5.8"/></svg>
+                        Market
+                    </a>
+                    {# Adding the bot somewhere else is the one action here that is
+                       not about the server currently open, and it is the action a
+                       person who manages several servers reaches for most. #}
+                    {% if invite_url %}
+                    <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                        Add to a server
+                    </a>
+                    {% endif %}
+                    <form method="POST" action="/logout" class="logout-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="btn btn-danger">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4.5h3A1.5 1.5 0 0 1 19.5 6v12a1.5 1.5 0 0 1-1.5 1.5h-3"/><path d="M10 8.4 6 12l4 3.6"/><path d="M6 12h8"/></svg>
+                            Sign out
+                        </button>
+                    </form>
+                </div>
+            </header>
 
-        <div class="metrics-grid">
-            <div class="metric-card" data-reveal data-reveal-y="10">
-                <div class="metric-icon is-accent" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M13 2.5 4.5 13H11l-.5 8.5L19 10.5h-6.5z"/></svg>
-                </div>
-                <div class="metric-info">
-                    <h3>Sync</h3>
-                    <p>Instant</p>
-                    <span class="metric-hint">A switch applies here and in Discord together</span>
-                </div>
-            </div>
-            <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="60">
-                <div class="metric-icon is-good" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
-                </div>
-                <div class="metric-info">
-                    <h3>Active Modules</h3>
-                    <p id="metric-active" aria-live="polite">{{ active_count }} / {{ total_count }}</p>
-                    {# The meter is a second reading of the same number, so it is
-                       driven by the same call that writes the number — a bar that
-                       disagreed with the text beside it would be worse than no
-                       bar. #}
-                    <div class="metric-meter" aria-hidden="true">
-                        <span id="metric-meter" style="width: {% if total_count %}{{ (active_count * 100 / total_count) | round(1) }}{% else %}0{% endif %}%"></span>
-                    </div>
-                    <span class="metric-hint">Systems running in this server</span>
-                </div>
-            </div>
-            <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="120">
-                <div class="metric-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M16 19.5v-1.8a3.7 3.7 0 0 0-3.7-3.7H6.7A3.7 3.7 0 0 0 3 17.7v1.8"/><circle cx="9.5" cy="7.5" r="3.7"/><path d="M21 19.5v-1.8a3.7 3.7 0 0 0-2.8-3.6"/><path d="M15.5 4a3.7 3.7 0 0 1 0 7"/></svg>
-                </div>
-                <div class="metric-info">
-                    <h3>Server Members</h3>
-                    <p>{{ member_count }}</p>
-                    <span class="metric-hint">Discord counts members this server can see</span>
-                </div>
-            </div>
-            <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="180">
-                <div class="metric-icon{% if bot_ping is defined and bot_ping is not none %} is-good{% endif %}" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M3 12h3.5l2-5 3 10 2.5-6 1.8 3H21"/></svg>
-                </div>
-                <div class="metric-info">
-                    <h3>Discord Ping</h3>
-                    <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} <span class="unit">ms</span>{% else %}<span class="unit">Not answering</span>{% endif %}</p>
-                    <span class="metric-hint">Round trip to the Discord gateway</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-header" id="identity" data-reveal data-reveal-y="10">
-            <span class="eyebrow">Per-server identity</span>
-            <h2>This server's bot</h2>
-            <span class="composer-hint">Discord keeps a name, picture and bio <strong>per server</strong>: what you set here is what this server sees, and nothing on this page can change the bot anywhere else.</span>
-        </div>
-
-        <div class="composer-card" data-reveal data-reveal-y="10">
-            <div class="identity-grid">
-                <div class="identity-preview">
-                    <div class="identity-avatar" id="identity-avatar">
-                        {% if server_identity.has_avatar %}
-                        <img src="/api/identity/image/avatar?guild_id={{ guild_id }}" alt="The avatar this server gave the bot">
-                        {% elif server_identity.global_avatar_url %}
-                        <img src="{{ server_identity.global_avatar_url }}" alt="The bot's default avatar">
-                        {% else %}
-                        <span>{{ (server_identity.live_name or guild_name)[:1] | upper }}</span>
-                        {% endif %}
-                    </div>
-                    <div class="identity-banner" id="identity-banner">
-                        {% if server_identity.has_banner %}<img src="/api/identity/image/banner?guild_id={{ guild_id }}" alt="The banner this server gave the bot">
-                        {% else %}<span>No banner here</span>{% endif %}
-                    </div>
-                    <div class="identity-live" id="identity-live">
-                        {% if server_identity.live %}Discord shows <strong>{{ server_identity.live_name or "—" }}</strong> here{% else %}This server cannot be read right now{% endif %}
-                    </div>
-                </div>
-
-                <div class="identity-fields">
-                    <div class="field-head">
-                        <span class="field-label">Nickname in this server</span>
-                        <span class="composer-hint">{{ server_identity.max_nick }} characters at most — leave it empty and the bot uses its own name.</span>
-                    </div>
-                    <input class="composer-input" type="text" id="identity-nick" maxlength="{{ server_identity.max_nick }}"
-                           placeholder="What this server calls the bot" value="{{ server_identity.nick }}"{% if not server_identity.can_edit %} disabled{% endif %}>
-
-                    <div class="field-head">
-                        <span class="field-label">Bio in this server</span>
-                        <span class="composer-hint">{{ server_identity.max_bio }} characters.</span>
-                    </div>
-                    <textarea class="composer-textarea" id="identity-bio" rows="2" maxlength="{{ server_identity.max_bio }}"{% if not server_identity.can_edit %} disabled{% endif %}>{{ server_identity.bio }}</textarea>
-
-                    <div class="identity-file">
+            <div class="container">
+                <!-- ── Overview ───────────────────────────────────────────── -->
+                <section id="overview" aria-labelledby="overview-title">
+                    <div class="section-header">
                         <div>
-                            <div class="field-head"><span class="field-label">Picture for this server (PNG, JPEG, GIF or WEBP)</span></div>
-                            <div class="upload">
-                                <input class="upload-input" type="file" id="identity-avatar-file" accept="image/png,image/jpeg,image/gif,image/webp"{% if not server_identity.can_edit %} disabled{% endif %}>
-                                <label class="upload-btn" for="identity-avatar-file">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-                                    Choose picture
-                                </label>
-                                <span class="upload-name" id="identity-avatar-name">No file chosen</span>
+                            <span class="eyebrow">Overview</span>
+                            <h2 id="overview-title">At a glance</h2>
+                        </div>
+                    </div>
+                    <div class="metrics-grid" style="margin-top:16px;">
+                        <div class="metric-card" data-reveal data-reveal-y="10">
+                            <div class="metric-icon is-good" aria-hidden="true">
+                                <svg viewBox="0 0 24 24"><path d="M3 12h3.5l2-5 3 10 2.5-6 1.8 3H21"/></svg>
+                            </div>
+                            <div class="metric-info">
+                                <h3>Discord ping</h3>
+                                <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} <span class="unit">ms</span>{% else %}<span class="unit">Not answering</span>{% endif %}</p>
+                                <span class="metric-hint">Round trip to the gateway</span>
                             </div>
                         </div>
+                        <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="60">
+                            <div class="metric-icon is-accent" aria-hidden="true">
+                                <svg viewBox="0 0 24 24"><path d="M13 2.5 4.5 13H11l-.5 8.5L19 10.5h-6.5z"/></svg>
+                            </div>
+                            <div class="metric-info">
+                                <h3>Systems on</h3>
+                                <p id="metric-active" aria-live="polite">{{ active_count }} / {{ total_count }}</p>
+                                {# The meter is a second reading of the same number, so it
+                                   is driven by the same call that writes the number — a
+                                   bar that disagreed with the text beside it would be
+                                   worse than no bar. #}
+                                <div class="metric-meter" aria-hidden="true">
+                                    <span id="metric-meter" style="width: {% if total_count %}{{ (active_count * 100 / total_count) | round(1) }}{% else %}0{% endif %}%"></span>
+                                </div>
+                                <span class="metric-hint">Switchable per server</span>
+                            </div>
+                        </div>
+                        <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="120">
+                            <div class="metric-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24"><path d="M16 19.5v-1.8a3.7 3.7 0 0 0-3.7-3.7H6.7A3.7 3.7 0 0 0 3 17.7v1.8"/><circle cx="9.5" cy="7.5" r="3.7"/><path d="M21 19.5v-1.8a3.7 3.7 0 0 0-2.8-3.6"/><path d="M15.5 4a3.7 3.7 0 0 1 0 7"/></svg>
+                            </div>
+                            <div class="metric-info">
+                                <h3>Members</h3>
+                                <p>{{ member_count }}</p>
+                                <span class="metric-hint">As many as Discord lets the bot see</span>
+                            </div>
+                        </div>
+                        <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="180">
+                            <div class="metric-icon{% if bot_ready %} is-good{% endif %}" aria-hidden="true">
+                                <svg viewBox="0 0 24 24"><path d="M12 4.5v15M4.5 12h15"/><circle cx="12" cy="12" r="8.5"/></svg>
+                            </div>
+                            <div class="metric-info">
+                                <h3>Commands offered</h3>
+                                <p>{{ command_scope.available }}</p>
+                                <span class="metric-hint">of {{ command_scope.total }} the bot has</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Systems ────────────────────────────────────────────── -->
+                <section id="modules" aria-labelledby="modules-title">
+                    <div class="section-header">
                         <div>
-                            <div class="field-head"><span class="field-label">Banner for this server</span></div>
-                            <div class="upload">
-                                <input class="upload-input" type="file" id="identity-banner-file" accept="image/png,image/jpeg,image/gif,image/webp"{% if not server_identity.can_edit %} disabled{% endif %}>
-                                <label class="upload-btn" for="identity-banner-file">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-                                    Choose banner
+                            <span class="eyebrow">Systems</span>
+                            <h2 id="modules-title">What this server runs</h2>
+                        </div>
+                        <div class="bulk-controls">
+                            <button type="button" class="btn" id="btn-enable-all">Enable all</button>
+                            <button type="button" class="btn" id="btn-disable-all">Disable all</button>
+                        </div>
+                    </div>
+                    <div class="module-toolbar" style="margin-top:16px;">
+                        <input id="module-search" class="composer-input" type="search" autocomplete="off"
+                               placeholder="Filter systems and commands…" aria-label="Filter systems">
+                        <div class="module-filters" role="group" aria-label="Show">
+                            <button type="button" class="filter-btn" data-filter="all" aria-pressed="true">All</button>
+                            <button type="button" class="filter-btn" data-filter="on" aria-pressed="false">On</button>
+                            <button type="button" class="filter-btn" data-filter="off" aria-pressed="false">Off</button>
+                        </div>
+                    </div>
+                    <div class="modules-grid" data-reveal data-reveal-y="10">
+                        {% for mod in modules %}
+                        <div class="module-card{{ ' is-on' if mod.enabled else '' }}" id="card-{{ mod.id }}" data-hover="y:-3" data-module-card="{{ mod.id }}"
+                             data-surface="{{ 'on' if mod.enabled else 'off' }}"
+                             data-find="{{ mod.name|lower }} {{ mod.category|lower }} {{ mod.desc|lower }} {{ mod.commands|join(' ')|lower }}">
+                            <div class="module-header">
+                                <div class="module-meta">
+                                    <div class="module-icon-box" aria-hidden="true">{{ mod.name[:1] | upper }}</div>
+                                    <div class="module-titles">
+                                        <h3 id="title-{{ mod.id }}">{{ mod.name }}</h3>
+                                        <div class="module-category">{{ mod.category }}</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-{{ mod.id }}"
+                                           class="module-toggle"
+                                           data-module="{{ mod.id }}"
+                                           {{ "checked" if mod.enabled else "" }}
+                                           aria-labelledby="title-{{ mod.id }}"
+                                           role="switch"
+                                           aria-checked="{{ "true" if mod.enabled else "false" }}">
+                                    <span class="slider"></span>
                                 </label>
-                                <span class="upload-name" id="identity-banner-name">No file chosen</span>
+                            </div>
+                            <div class="module-desc">{{ mod.desc }}</div>
+                            <div class="module-commands">
+                                {% for cmd in mod.commands %}
+                                <span class="cmd-pill">{{ cmd }}</span>
+                                {% endfor %}
+                            </div>
+                            <div class="module-footer">
+                                <span class="state-label {{ "state-enabled" if mod.enabled else "state-disabled" }}" id="label-{{ mod.id }}">
+                                    {{ "Enabled" if mod.enabled else "Disabled" }}
+                                </span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="module-empty" id="module-empty" hidden>
+                            Nothing matches that filter. Clear the box, or switch back to <strong>All</strong>.
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Composer ───────────────────────────────────────────── -->
+                {# The heading's id is *not* `composer-title`: that one belongs to the
+                   embed-title input below, which the script reaches through
+                   `getElementById`. Two elements sharing it meant the script read the
+                   <h2>, whose `.value` is undefined, so every call to the composer's
+                   rulebook threw on `.trim()` — leaving the Send button disabled
+                   forever and the reason under the box frozen on a sentence that was
+                   no longer true. It is the only section whose heading is not
+                   `<section>-title`, and that is deliberate. #}
+                <section id="composer" aria-labelledby="composer-heading">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Send as the bot</span>
+                            <h2 id="composer-heading">Message composer</h2>
+                        </div>
+                        <span class="composer-hint">Posts as the bot, in any channel, tagging anyone — now or later.</span>
+                    </div>
+                    <div class="composer-card" data-reveal data-reveal-y="10" style="margin-top:16px;">
+                        <div class="composer-grid">
+                            <div class="composer-col">
+                                <div class="composer-field">
+                                    <div class="field-head">
+                                        <label for="composer-channel-search">Channels</label>
+                                        <span class="badge-count" id="composer-channel-count" aria-live="polite">0 of {{ composer_max_channels|default(5) }} selected</span>
+                                    </div>
+                                    <div class="picker-wrap">
+                                        <input id="composer-channel-search" class="composer-input composer-search" type="search" autocomplete="off"
+                                               placeholder="Filter channels…" aria-label="Filter channels" aria-controls="composer-channels">
+                                        <div class="picker" id="composer-channels" role="listbox" aria-multiselectable="true"
+                                             aria-label="Channels" aria-describedby="composer-channels-hint"></div>
+                                    </div>
+                                    <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_limits.channels }} — the bot posts the same message to every one. A <strong>voice</strong> channel needs its text chat turned on.</span>
+                                </div>
+                                <div class="composer-field">
+                                    <label for="composer-mention-search">Tag people or roles</label>
+                                    <div class="composer-search-wrap">
+                                        <span class="search-icon" aria-hidden="true">🔍</span>
+                                        <input id="composer-mention-search" class="composer-input composer-search" type="text" autocomplete="off"
+                                               placeholder="Search people and roles — @everyone and @here work too"
+                                               role="combobox" aria-expanded="false" aria-controls="composer-mention-results"
+                                               aria-autocomplete="list" aria-haspopup="listbox">
+                                        <div class="mention-results" id="composer-mention-results" role="listbox" aria-label="Matches"></div>
+                                    </div>
+                                    <div class="chips" id="composer-chips"></div>
+                                    <span class="composer-hint">↑ ↓ to move, Enter to pick, Esc to close — or focus the box to browse everyone.</span>
+                                </div>
+                            </div>
+
+                            <div class="composer-col">
+                                <div class="composer-field">
+                                    <div class="field-head">
+                                        <label for="composer-body">Message</label>
+                                        <span class="counter" id="composer-counter">0 / {{ composer_limits.chars }}</span>
+                                    </div>
+                                    <textarea id="composer-body" class="composer-textarea" maxlength="{{ composer_limits.chars }}" placeholder="Write the announcement…"></textarea>
+                                    <!-- Why this cannot be sent, in the bot's own words, the
+                                         moment it cannot — instead of after a click that was
+                                         always going to fail. Filled by ``refreshComposerGate``,
+                                         which is also what disables the button. -->
+                                    <span class="composer-hint composer-blocked" id="composer-blocked" role="status" hidden></span>
+                                </div>
+                                <div class="composer-field" id="composer-title-field" hidden>
+                                    <label for="composer-title">Embed title</label>
+                                    <input id="composer-title" class="composer-input" type="text" maxlength="{{ composer_limits.title }}" placeholder="Optional headline">
+                                </div>
+                                <div class="receipt" id="composer-receipt" role="status" hidden>
+                                    <div class="receipt-head">
+                                        <span class="receipt-title" id="composer-receipt-title"></span>
+                                        <span class="receipt-time" id="composer-receipt-time"></span>
+                                        <button type="button" class="receipt-close" id="composer-receipt-dismiss"
+                                                aria-label="Dismiss this result">✕</button>
+                                    </div>
+                                    <ul class="receipt-rows" id="composer-receipt-rows"></ul>
+                                    <div class="receipt-foot" id="composer-receipt-foot" hidden>
+                                        <button type="button" class="btn" id="composer-retry"></button>
+                                        <span class="receipt-note" id="composer-receipt-note"></span>
+                                    </div>
+                                </div>
+
+                                <div class="composer-field">
+                                    <div class="field-head">
+                                        <span class="field-label" id="composer-deliver-label">Deliver</span>
+                                        <span class="composer-hint">Later keeps working after you close this page.</span>
+                                    </div>
+                                    <div class="seg" role="radiogroup" aria-labelledby="composer-deliver-label">
+                                        <button type="button" class="seg-btn" id="composer-when-now" role="radio" aria-checked="true">Send now</button>
+                                        <button type="button" class="seg-btn" id="composer-when-later" role="radio" aria-checked="false">Schedule</button>
+                                    </div>
+                                    <div class="schedule-when" id="composer-when-fields" hidden>
+                                        <label class="sr-only" for="composer-content">What to post</label>
+                                        <select id="composer-content" class="composer-input" aria-describedby="composer-content-hint">
+                                            {% for choice in schedule_content_choices|default([{'value': '', 'label': 'Message I write', 'blurb': ''}]) %}
+                                            <option value="{{ choice.value }}" data-blurb="{{ choice.blurb }}">{{ choice.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <label class="sr-only" for="composer-run-at">Date and time</label>
+                                        <input type="datetime-local" id="composer-run-at" class="composer-input">
+                                        <label class="sr-only" for="composer-repeat">Repeat</label>
+                                        <select id="composer-repeat" class="composer-input">
+                                            {% for choice in schedule_repeat_choices|default([{'minutes': 0, 'label': 'Once'}]) %}
+                                            <option value="{{ choice.minutes }}">{{ choice.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <span class="composer-hint" id="composer-run-hint"></span>
+                                        <span class="composer-hint content-hint" id="composer-content-hint"></span>
+                                    </div>
+                                </div>
+                                <div class="composer-field">
+                                    <div class="composer-actions">
+                                        <label class="composer-check" for="composer-embed">
+                                            <input type="checkbox" id="composer-embed"> Send as an embed
+                                        </label>
+                                        <div class="composer-buttons">
+                                            <button type="button" class="btn" id="composer-clear">Clear</button>
+                                            <button type="button" class="btn btn-primary" id="composer-send">Send message</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="composer-field">
+                                    <div class="field-head">
+                                        <span class="field-label">Preview</span>
+                                        <span class="composer-hint">What Discord will show</span>
+                                    </div>
+                                    <div class="preview" id="composer-preview"></div>
+                                </div>
+                                <div class="composer-status" id="composer-status" role="status"></div>
                             </div>
                         </div>
                     </div>
+                </section>
 
-                    <div class="identity-actions">
-                        <button type="button" class="btn btn-primary" id="identity-save"{% if not server_identity.can_edit %} disabled{% endif %}>Save for this server</button>
-                        <button type="button" class="btn" id="identity-clear"{% if not server_identity.can_edit %} disabled{% endif %}>Reset to the bot's own</button>
-                        {% if not server_identity.can_edit %}<span class="composer-hint">Only an administrator of this server can change this.</span>{% endif %}
+                <!-- ── Scheduled ──────────────────────────────────────────── -->
+                <section id="schedule" aria-labelledby="schedule-title">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Delivery</span>
+                            <h2 id="schedule-title">Scheduled messages</h2>
+                        </div>
+                        <span class="badge-count" id="schedule-pending" aria-live="polite">0 of {{ schedule_max_pending|default(25) }}</span>
                     </div>
-                    <div class="composer-status" id="identity-status" role="status"></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-header" id="command-scope" data-reveal data-reveal-y="10">
-            <span class="eyebrow">Command scope</span>
-            <h2>Commands in this server</h2>
-            <span class="composer-hint">Discord cannot hide a globally-registered command in one server, so every server is registered with <strong>its own</strong> list: a command whose system is off here is not in this server's picker at all.</span>
-        </div>
-
-        <div class="composer-card" data-reveal data-reveal-y="10">
-            <div class="scope-summary">
-                <div class="scope-stat"><b id="scope-available">{{ command_scope.available }}</b><span>offered here</span></div>
-                <div class="scope-stat"><b id="scope-hidden">{{ command_scope.hidden }}</b><span>hidden here</span></div>
-                <div class="scope-stat"><b>{{ command_scope.total }}</b><span>in the bot</span></div>
-            </div>
-            <div id="scope-hidden-wrap"{% if not command_scope.hidden %} hidden{% endif %}>
-                <div class="field-head">
-                    <span class="field-label">Not offered here</span>
-                    <span class="composer-hint">Turn the matching system back on and the command returns to this server's picker.</span>
-                </div>
-                <div class="module-commands" id="scope-hidden-pills">
-                    {% for cmd in command_scope.hidden_names %}<span class="cmd-pill">/{{ cmd }}</span>{% endfor %}
-                </div>
-            </div>
-            <div class="field-head" id="scope-all-note"{% if command_scope.hidden %} hidden{% endif %}>
-                <span class="composer-hint">Every command the bot has is offered on this server.</span>
-            </div>
-        </div>
-
-        <div class="section-header" id="composer" data-reveal data-reveal-y="10">
-            <span class="eyebrow">Send as the bot</span>
-            <h2>Message composer</h2>
-            <span class="composer-hint">The bot posts it as itself, in any channel, tagging anyone.</span>
-        </div>
-
-        <div class="composer-card" data-reveal data-reveal-y="10">
-            <div class="composer-grid">
-                <div class="composer-col">
-                    <div class="composer-field">
+                    <div class="schedule-card" data-reveal data-reveal-y="10" style="margin-top:16px;">
                         <div class="field-head">
-                            <label for="composer-channel-search">Channels</label>
-                            <span class="badge-count" id="composer-channel-count" aria-live="polite">0 of {{ composer_max_channels|default(5) }} selected</span>
+                            <span class="field-label">Queued</span>
+                            <span class="composer-hint">Times are shown in your own time zone. A message more than {{ schedule_catchup_hours|default(24) }}h late is skipped instead of posted.</span>
                         </div>
-                        <div class="picker-wrap">
-                            <input id="composer-channel-search" class="composer-input composer-search" type="search" autocomplete="off"
-                                   placeholder="Filter channels…" aria-label="Filter channels" aria-controls="composer-channels">
-                            <div class="picker" id="composer-channels" role="listbox" aria-multiselectable="true"
-                                 aria-label="Channels" aria-describedby="composer-channels-hint"></div>
+                        <div class="schedule-list" id="schedule-upcoming" role="list"></div>
+                        <div class="field-head schedule-subhead">
+                            <span class="field-label">Recently sent</span>
+                            <span class="composer-hint">Every message the dashboard has posted here — sent now or on a schedule — and what happened per channel.</span>
                         </div>
-                        <span class="composer-hint" id="composer-channels-hint">Tick up to {{ composer_limits.channels }} — the bot posts the same message to every one. A <strong>voice</strong> channel needs its text chat turned on.</span>
+                        <div class="schedule-list" id="schedule-recent" role="list"></div>
+                        <div class="composer-status" id="schedule-status" role="status"></div>
                     </div>
-                    <div class="composer-field">
-                        <label for="composer-mention-search">Tag people or roles</label>
-                        <div class="composer-search-wrap">
-                            <span class="search-icon" aria-hidden="true">🔍</span>
-                            <input id="composer-mention-search" class="composer-input composer-search" type="text" autocomplete="off"
-                                   placeholder="Search people and roles — @everyone and @here work too"
-                                   role="combobox" aria-expanded="false" aria-controls="composer-mention-results"
-                                   aria-autocomplete="list" aria-haspopup="listbox">
-                            <div class="mention-results" id="composer-mention-results" role="listbox" aria-label="Matches"></div>
-                        </div>
-                        <div class="chips" id="composer-chips"></div>
-                        <span class="composer-hint">↑ ↓ to move, Enter to pick, Esc to close — or focus the box to browse everyone.</span>
-                    </div>
-                </div>
+                </section>
 
-                <div class="composer-col">
-                    <div class="composer-field">
-                        <div class="field-head">
-                            <label for="composer-body">Message</label>
-                            <span class="counter" id="composer-counter">0 / {{ composer_limits.chars }}</span>
+                <!-- ── Identity ───────────────────────────────────────────── -->
+                <section id="identity" aria-labelledby="identity-title">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Per-server identity</span>
+                            <h2 id="identity-title">This server's bot</h2>
                         </div>
-                        <textarea id="composer-body" class="composer-textarea" maxlength="{{ composer_limits.chars }}" placeholder="Write the announcement…"></textarea>
-                        <!-- Why this cannot be sent, in the bot's own words, the
-                             moment it cannot — instead of after a click that was
-                             always going to fail. Filled by ``refreshComposerGate``,
-                             which is also what disables the button. -->
-                        <span class="composer-hint composer-blocked" id="composer-blocked" role="status" hidden></span>
+                        <span class="composer-hint">Discord keeps a name, picture and bio <strong>per server</strong>: what you set here is what this server sees, and nothing on this page can change the bot anywhere else.</span>
                     </div>
-                    <div class="composer-field" id="composer-title-field" hidden>
-                        <label for="composer-title">Embed title</label>
-                        <input id="composer-title" class="composer-input" type="text" maxlength="{{ composer_limits.title }}" placeholder="Optional headline">
-                    </div>
-                    <div class="receipt" id="composer-receipt" role="status" hidden>
-                        <div class="receipt-head">
-                            <span class="receipt-title" id="composer-receipt-title"></span>
-                            <span class="receipt-time" id="composer-receipt-time"></span>
-                            <button type="button" class="receipt-close" id="composer-receipt-dismiss"
-                                    aria-label="Dismiss this result">✕</button>
-                        </div>
-                        <ul class="receipt-rows" id="composer-receipt-rows"></ul>
-                        <div class="receipt-foot" id="composer-receipt-foot" hidden>
-                            <button type="button" class="btn" id="composer-retry"></button>
-                            <span class="receipt-note" id="composer-receipt-note"></span>
-                        </div>
-                    </div>
+                    <div class="composer-card" data-reveal data-reveal-y="10" style="margin-top:16px;">
+                        <div class="identity-grid">
+                            <div class="identity-preview">
+                                <div class="identity-avatar" id="identity-avatar">
+                                    {% if server_identity.has_avatar %}
+                                    <img src="/api/identity/image/avatar?guild_id={{ guild_id }}" alt="The avatar this server gave the bot">
+                                    {% elif server_identity.global_avatar_url %}
+                                    <img src="{{ server_identity.global_avatar_url }}" alt="The bot's default avatar">
+                                    {% else %}
+                                    <span>{{ (server_identity.live_name or guild_name)[:1] | upper }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="identity-banner" id="identity-banner">
+                                    {% if server_identity.has_banner %}<img src="/api/identity/image/banner?guild_id={{ guild_id }}" alt="The banner this server gave the bot">
+                                    {% else %}<span>No banner here</span>{% endif %}
+                                </div>
+                                <div class="identity-live" id="identity-live">
+                                    {% if server_identity.live %}Discord shows <strong>{{ server_identity.live_name or "—" }}</strong> here{% else %}This server cannot be read right now{% endif %}
+                                </div>
+                            </div>
 
-                    <div class="composer-field">
-                        <div class="field-head">
-                            <span class="field-label" id="composer-deliver-label">Deliver</span>
-                            <span class="composer-hint">Later keeps working after you close this page.</span>
-                        </div>
-                        <div class="seg" role="radiogroup" aria-labelledby="composer-deliver-label">
-                            <button type="button" class="seg-btn" id="composer-when-now" role="radio" aria-checked="true">Send now</button>
-                            <button type="button" class="seg-btn" id="composer-when-later" role="radio" aria-checked="false">Schedule</button>
-                        </div>
-                        <div class="schedule-when" id="composer-when-fields" hidden>
-                            <label class="sr-only" for="composer-content">What to post</label>
-                            <select id="composer-content" class="composer-input" aria-describedby="composer-content-hint">
-                                {% for choice in schedule_content_choices|default([{'value': '', 'label': 'Message I write', 'blurb': ''}]) %}
-                                <option value="{{ choice.value }}" data-blurb="{{ choice.blurb }}">{{ choice.label }}</option>
-                                {% endfor %}
-                            </select>
-                            <label class="sr-only" for="composer-run-at">Date and time</label>
-                            <input type="datetime-local" id="composer-run-at" class="composer-input">
-                            <label class="sr-only" for="composer-repeat">Repeat</label>
-                            <select id="composer-repeat" class="composer-input">
-                                {% for choice in schedule_repeat_choices|default([{'minutes': 0, 'label': 'Once'}]) %}
-                                <option value="{{ choice.minutes }}">{{ choice.label }}</option>
-                                {% endfor %}
-                            </select>
-                            <span class="composer-hint" id="composer-run-hint"></span>
-                            <span class="composer-hint content-hint" id="composer-content-hint"></span>
-                        </div>
-                    </div>
-                    <div class="composer-field">
-                        <div class="composer-actions">
-                            <label class="composer-check" for="composer-embed">
-                                <input type="checkbox" id="composer-embed"> Send as an embed
-                            </label>
-                            <div class="composer-buttons">
-                                <button type="button" class="btn" id="composer-clear">Clear</button>
-                                <button type="button" class="btn btn-primary" id="composer-send">Send message</button>
+                            <div class="identity-fields">
+                                <div class="field-head">
+                                    <span class="field-label">Nickname in this server</span>
+                                    <span class="composer-hint">{{ server_identity.max_nick }} characters at most — leave it empty and the bot uses its own name.</span>
+                                </div>
+                                <input class="composer-input" type="text" id="identity-nick" maxlength="{{ server_identity.max_nick }}"
+                                       placeholder="What this server calls the bot" value="{{ server_identity.nick }}"{% if not server_identity.can_edit %} disabled{% endif %}>
+
+                                <div class="field-head">
+                                    <span class="field-label">Bio in this server</span>
+                                    <span class="composer-hint">{{ server_identity.max_bio }} characters.</span>
+                                </div>
+                                <textarea class="composer-textarea" id="identity-bio" rows="2" maxlength="{{ server_identity.max_bio }}"{% if not server_identity.can_edit %} disabled{% endif %}>{{ server_identity.bio }}</textarea>
+
+                                <div class="identity-file">
+                                    <div>
+                                        <div class="field-head"><span class="field-label">Picture for this server</span></div>
+                                        <div class="upload">
+                                            <input class="upload-input" type="file" id="identity-avatar-file" accept="image/png,image/jpeg,image/gif,image/webp"{% if not server_identity.can_edit %} disabled{% endif %}>
+                                            <label class="upload-btn" for="identity-avatar-file">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                                                Choose picture
+                                            </label>
+                                            <span class="upload-name" id="identity-avatar-name">No file chosen</span>
+                                        </div>
+                                        <span class="composer-hint">PNG, JPEG, GIF or WEBP.</span>
+                                    </div>
+                                    <div>
+                                        <div class="field-head"><span class="field-label">Banner for this server</span></div>
+                                        <div class="upload">
+                                            <input class="upload-input" type="file" id="identity-banner-file" accept="image/png,image/jpeg,image/gif,image/webp"{% if not server_identity.can_edit %} disabled{% endif %}>
+                                            <label class="upload-btn" for="identity-banner-file">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                                                Choose banner
+                                            </label>
+                                            <span class="upload-name" id="identity-banner-name">No file chosen</span>
+                                        </div>
+                                        <span class="composer-hint">Shown on the bot's profile card.</span>
+                                    </div>
+                                </div>
+
+                                <div class="identity-actions">
+                                    <button type="button" class="btn btn-primary" id="identity-save"{% if not server_identity.can_edit %} disabled{% endif %}>Save for this server</button>
+                                    <button type="button" class="btn" id="identity-clear"{% if not server_identity.can_edit %} disabled{% endif %}>Reset to the bot's own</button>
+                                    {% if not server_identity.can_edit %}<span class="composer-hint">Only an administrator of this server can change this.</span>{% endif %}
+                                </div>
+                                <div class="composer-status" id="identity-status" role="status"></div>
                             </div>
                         </div>
                     </div>
-                    <div class="composer-field">
-                        <div class="field-head">
-                            <span class="field-label">Preview</span>
-                            <span class="composer-hint">What Discord will show</span>
+                </section>
+
+                <!-- ── Command scope ──────────────────────────────────────── -->
+                <section id="command-scope" aria-labelledby="command-scope-title">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Command scope</span>
+                            <h2 id="command-scope-title">Commands in this server</h2>
                         </div>
-                        <div class="preview" id="composer-preview"></div>
+                        <span class="composer-hint">Discord cannot hide a globally-registered command in one server, so every server is registered with <strong>its own</strong> list: a command whose system is off here is not in this server's picker at all.</span>
                     </div>
-                    <div class="composer-status" id="composer-status" role="status"></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-header" id="schedule" data-reveal data-reveal-y="10">
-            <span class="eyebrow">Delivery</span>
-            <h2>Scheduled messages</h2>
-            <span class="badge-count" id="schedule-pending" aria-live="polite">0 of {{ schedule_max_pending|default(25) }}</span>
-        </div>
-
-        <div class="schedule-card" data-reveal data-reveal-y="10">
-            <div class="field-head">
-                <span class="field-label">Queued</span>
-                <span class="composer-hint">Times are shown in your own time zone. A message more than {{ schedule_catchup_hours|default(24) }}h late is skipped instead of posted.</span>
-            </div>
-            <div class="schedule-list" id="schedule-upcoming" role="list"></div>
-            <div class="field-head schedule-subhead">
-                <span class="field-label">Recently sent</span>
-                <span class="composer-hint">Every message the dashboard has posted on this server — sent now or on a schedule — and what happened per channel.</span>
-            </div>
-            <div class="schedule-list" id="schedule-recent" role="list"></div>
-            <div class="composer-status" id="schedule-status" role="status"></div>
-        </div>
-
-        <div class="section-header" id="modules" data-reveal data-reveal-y="10">
-            <span class="eyebrow">Modules</span>
-            <h2>Bot systems</h2>
-            <div class="bulk-controls">
-                <button type="button" class="btn" id="btn-enable-all">Enable all</button>
-                <button type="button" class="btn" id="btn-disable-all">Disable all</button>
-            </div>
-        </div>
-
-        <div class="modules-grid" data-reveal data-reveal-y="10">
-            {% for mod in modules %}
-            <div class="module-card" id="card-{{ mod.id }}" data-hover="y:-3">
-                <div class="module-header">
-                    <div class="module-meta">
-                        <div class="module-icon-box" aria-hidden="true">{{ mod.name[:1] | upper }}</div>
-                        <div class="module-titles">
-                            <h3 id="title-{{ mod.id }}">{{ mod.name }}</h3>
-                            <div class="module-category">{{ mod.category }}</div>
+                    <div class="composer-card" data-reveal data-reveal-y="10" style="margin-top:16px;">
+                        <div class="scope-summary">
+                            <div class="scope-stat"><b id="scope-available">{{ command_scope.available }}</b><span>offered here</span></div>
+                            <div class="scope-stat"><b id="scope-hidden">{{ command_scope.hidden }}</b><span>hidden here</span></div>
+                            <div class="scope-stat"><b>{{ command_scope.total }}</b><span>in the bot</span></div>
+                        </div>
+                        <div id="scope-hidden-wrap"{% if not command_scope.hidden %} hidden{% endif %}>
+                            <div class="field-head">
+                                <span class="field-label">Not offered here</span>
+                                <span class="composer-hint">Turn the matching system back on and the command returns to this server's picker.</span>
+                            </div>
+                            <div class="module-commands" id="scope-hidden-pills">
+                                {% for cmd in command_scope.hidden_names %}<span class="cmd-pill">/{{ cmd }}</span>{% endfor %}
+                            </div>
+                        </div>
+                        <div class="field-head" id="scope-all-note"{% if command_scope.hidden %} hidden{% endif %}>
+                            <span class="composer-hint">Every command the bot has is offered on this server.</span>
                         </div>
                     </div>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="toggle-{{ mod.id }}"
-                               class="module-toggle"
-                               data-module="{{ mod.id }}"
-                               {{ "checked" if mod.enabled else "" }}
-                               aria-labelledby="title-{{ mod.id }}"
-                               role="switch"
-                               aria-checked="{{ "true" if mod.enabled else "false" }}">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                <div class="module-desc">{{ mod.desc }}</div>
-                <div class="module-commands">
-                    {% for cmd in mod.commands %}
-                    <span class="cmd-pill">{{ cmd }}</span>
-                    {% endfor %}
-                </div>
-                <div class="module-footer">
-                    <span class="state-label {{ "state-enabled" if mod.enabled else "state-disabled" }}" id="label-{{ mod.id }}">
-                        {{ "Enabled" if mod.enabled else "Disabled" }}
-                    </span>
-                </div>
+                </section>
+
+                <!-- ── Status ─────────────────────────────────────────────── -->
+                {# The one panel on this page that is *not* about this server: it is
+                   about the service the server is using. UptimeRobot holds the
+                   history — the same account whose probe makes `/` answer a
+                   monitor with one line — so the page can say "up" and "up for
+                   how long" instead of only the first. It is server-rendered
+                   from the last snapshot the background loop took, so opening
+                   this page never waits on a third party, and the refresh button
+                   asks `/api/uptime`, which reads the same snapshot. #}
+                <section id="status" aria-labelledby="status-title">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Status</span>
+                            <h2 id="status-title">System status</h2>
+                        </div>
+                        <div class="status-actions">
+                            {% if system_status.page|default('') %}
+                            <a class="btn" href="{{ system_status.page }}" target="_blank" rel="noopener">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>
+                                Public status page
+                            </a>
+                            {% endif %}
+                            <button type="button" class="btn" id="status-refresh">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="status-grid" data-reveal data-reveal-y="10" style="margin-top:16px;">
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">UptimeRobot monitors</span>
+                                {# Age is a fact about *now*, not about the answer, so it is worded when the
+   snapshot is read (``age_text``). Rendering the raw ``at`` here is how this
+   line used to say "read 1789848173 seconds ago". #}
+<span class="composer-hint" id="status-seen">{{ system_status.age_text or "not read yet in this process" }}</span>
+                            </div>
+                            <div id="status-monitors">
+                                {% if system_status.monitors|default([]) %}
+                                    {% for mon in system_status.monitors %}
+                                    <div class="status-row">
+                                        <span class="status-dot {{ 'up' if mon.up else ('down' if mon.down else 'paused') }}" aria-hidden="true"></span>
+                                        <div class="status-main">
+                                            <div class="status-name">{{ mon.name }}</div>
+                                            <div class="status-url">{{ mon.url or 'no address recorded' }}</div>
+                                        </div>
+                                        <div class="status-figures">
+                                            {% if mon.ratios.get('30d') is not none %}
+                                            <span><b>{{ '%.2f'|format(mon.ratios['30d']) }}%</b> 30d</span>
+                                            {% endif %}
+                                            {% if mon.response_ms is not none %}
+                                            <span><b>{{ mon.response_ms|round|int }}</b> ms</span>
+                                            {% endif %}
+                                            <span class="pill {{ 'ok' if mon.up else ('fail' if mon.down else 'warn') }}">{{ mon.label }}</span>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                <div class="status-empty" id="status-empty">{{ system_status.detail|default('No monitor history is being read yet.') }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">This deployment</span>
+                                <span class="composer-hint">Read at render time, not cached in a browser.</span>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-dot {{ 'up' if bot_ready else 'down' }}" aria-hidden="true"></span>
+                                <div class="status-main">
+                                    <div class="status-name">Discord gateway</div>
+                                    <div class="status-url">{% if bot_ready %}Connected and answering{% else %}Not connected yet{% endif %}</div>
+                                </div>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-dot {{ 'up' if (site_guard_status.status|default('unknown')) == 'clean' else 'paused' }}" aria-hidden="true"></span>
+                                <div class="status-main">
+                                    <div class="status-name">Public site publishing</div>
+                                    <div class="status-url">{{ site_guard_status.status|default('unknown') }}{% if site_guard_status.exposed|default(0) %} — {{ site_guard_status.exposed }} repository paths are public{% endif %}</div>
+                                </div>
+                            </div>
+                            <div class="status-row">
+                                <span class="status-dot {{ 'up' if (config_status.attention|default(0)) == 0 else 'paused' }}" aria-hidden="true"></span>
+                                <div class="status-main">
+                                    <div class="status-name">Configuration</div>
+                                    <div class="status-url">{{ config_status.unset|default(0) }} unset, {{ config_status.attention|default(0) }} needing attention</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             </div>
-            {% endfor %}
         </div>
     </div>
 
     <div id="toast-container" aria-live="polite" aria-relevant="additions"></div>
 
+    {# The palette. Every destination on this page, plus the actions a control
+       panel is opened for — and it is the same list the rail shows, so there is
+       one idea of "where things are" rather than two. #}
+    {# One arrow, held once. The palette's actions are the only rows whose icon
+       is not already somewhere on the page, and cloning a drawing out of here
+       is how the script avoids building an SVG of its own — which is also what
+       keeps `createElementNS` (and the `www.w3.org/2000/svg` namespace string)
+       out of the page's script entirely. #}
+    <template id="palette-action-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+    </template>
+    <div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="Jump to anything">
+        <div class="palette-panel">
+            <input type="text" class="palette-input" id="palette-input" placeholder="Jump to a system, a section, or an action…"
+                   autocomplete="off" role="combobox" aria-expanded="true" aria-controls="palette-list"
+                   aria-autocomplete="list" aria-label="Search the dashboard">
+            <ul class="palette-list" id="palette-list" role="listbox" aria-label="Matches"></ul>
+            <div class="palette-foot">
+                <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
+                <span><kbd>Enter</kbd> to open</span>
+                <span><kbd>Esc</kbd> to close</span>
+            </div>
+        </div>
+    </div>
+    <script>
+        /* ===================================================================
+           The shell
+           ===================================================================
+           Everything above this block is the page's *features* — the composer,
+           the switches, the schedule, the identity form — and every one of them
+           is unchanged. This block is the panel around them, and it is written
+           as one group so the next person can find it: where you are (the rail
+           and its scroll spy), how you get anywhere (the palette), how you find
+           a system in a list of eleven (the filter), and what the service is
+           doing (the status panel's refresh).
+
+           Three rules it follows, all of them this project's:
+
+           1. **Nothing here is required to read the page.** No element is
+              hidden by markup that only this script reveals; the rail is in the
+              document, the sections render server-side, and the palette is
+              `display: none` until it is opened. A blocked script costs the
+              shortcuts, not the dashboard.
+           2. **Text is text.** Every row the palette draws and every monitor
+              row the refresh draws goes in through `createElement` and
+              `textContent` — a server's name or a monitor's name is a name, and
+              this page has never built markup out of either (`innerHTML` is
+              deliberately absent from this file's script).
+           3. **Keyboard first, and reversible.** The palette opens on
+              Ctrl/⌘-K, moves on arrows, runs on Enter, closes on Escape or a
+              click outside, and hands focus back to whatever opened it.
+           =================================================================== */
+        (function () {
+            "use strict";
+
+            function make(tag, className, text) {
+                const node = document.createElement(tag);
+                if (className) node.className = className;
+                if (text !== undefined && text !== null) node.textContent = String(text);
+                return node;
+            }
+
+            /* ── Where the page is scrolled, at the top of the column ────── */
+            (function scrollProgress() {
+                const bar = document.getElementById("scroll-progress");
+                if (!bar) return;
+                let queued = false;
+                function apply() {
+                    queued = false;
+                    const max = document.documentElement.scrollHeight - window.innerHeight;
+                    const ratio = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+                    bar.style.transform = "scaleX(" + ratio.toFixed(4) + ")";
+                }
+                window.addEventListener("scroll", function () {
+                    if (queued) return;
+                    queued = true;
+                    requestAnimationFrame(apply);
+                }, { passive: true });
+                window.addEventListener("resize", apply, { passive: true });
+                apply();
+            })();
+
+            /* ── The rail says where you are ──────────────────────────────
+               Read with an observer rather than from the scroll position: the
+               sections are different heights, so "which one is on screen" is a
+               question about the viewport, and answering it by comparing
+               offsets needs every height and a rule for the ties. */
+            (function railSpy() {
+                const links = Array.prototype.slice.call(document.querySelectorAll("#rail-nav a[data-spy]"));
+                if (!links.length || typeof IntersectionObserver !== "function") return;
+                const byId = {};
+                const targets = [];
+                links.forEach(function (link) {
+                    const section = document.getElementById(link.dataset.spy);
+                    if (!section) return;
+                    byId[link.dataset.spy] = link;
+                    targets.push(section);
+                });
+                if (!targets.length) return;
+
+                function mark(id) {
+                    links.forEach(function (link) {
+                        link.classList.toggle("is-current", link.dataset.spy === id);
+                    });
+                }
+
+                /* The one that owns the *top* of the viewport wins, which is
+                   what a reader means by "where am I": with several sections on
+                   screen at once, the highest one is where they started. */
+                function bestVisible(entries) {
+                    const visible = entries
+                        .filter(function (entry) { return entry.isIntersecting; })
+                        .sort(function (a, b) {
+                            return a.boundingClientRect.top - b.boundingClientRect.top;
+                        });
+                    if (visible.length) {
+                        mark(visible[0].target.id);
+                        return;
+                    }
+                }
+
+                const seen = new IntersectionObserver(bestVisible, {
+                    rootMargin: "-72px 0px -55% 0px",
+                    threshold: [0, 0.05, 0.3]
+                });
+                targets.forEach(function (section) { seen.observe(section); });
+
+                // A click marks immediately: the observer only fires on a
+                // crossing, so a jump to a section already fully on screen
+                // would otherwise leave the previous one highlighted.
+                links.forEach(function (link) {
+                    link.addEventListener("click", function () { mark(link.dataset.spy); });
+                });
+            })();
+
+            /* ── Finding a system ─────────────────────────────────────────
+               Eleven cards is enough that scanning is slower than typing, and
+               the filter is the *page's*, not a second list to keep in step: it
+               reads `data-find` (name, category, description and every command,
+               lowercased server-side) and `data-surface` (on/off) off the cards
+               that already exist. */
+            (function moduleFilter() {
+                const grid = document.querySelector(".modules-grid");
+                if (!grid) return;
+                const box = document.getElementById("module-search");
+                const empty = document.getElementById("module-empty");
+                const buttons = Array.prototype.slice.call(document.querySelectorAll(".filter-btn"));
+                const cards = Array.prototype.slice.call(grid.querySelectorAll("[data-module-card]"));
+                let state = "all";
+
+                function apply() {
+                    const needle = (box && box.value ? box.value : "").trim().toLowerCase();
+                    let shown = 0;
+                    cards.forEach(function (card) {
+                        const text = card.dataset.find || "";
+                        const surface = card.dataset.surface || "off";
+                        const matchesText = !needle || text.indexOf(needle) !== -1;
+                        const matchesState = state === "all" || state === surface;
+                        const keep = matchesText && matchesState;
+                        card.hidden = !keep;
+                        if (keep) shown += 1;
+                    });
+                    if (empty) empty.hidden = shown !== 0 || (!needle && state === "all");
+                }
+
+                if (box) {
+                    box.addEventListener("input", apply);
+                    // Escape clears rather than closing anything: a filter box is
+                    // not a dialog, and the thing a person wants from Escape here
+                    // is the full list back.
+                    box.addEventListener("keydown", function (event) {
+                        if (event.key === "Escape") {
+                            box.value = "";
+                            apply();
+                        }
+                    });
+                }
+                buttons.forEach(function (button) {
+                    button.addEventListener("click", function () {
+                        state = button.dataset.filter || "all";
+                        buttons.forEach(function (other) {
+                            other.setAttribute("aria-pressed", String(other === button));
+                        });
+                        apply();
+                    });
+                });
+                apply();
+                // The filter is part of the page's state, so a switch that
+                // changes which side of "on"/"off" a card is on re-applies it.
+                document.addEventListener("meow:module-state", apply);
+            })();
+
+            /* ── A card says what its switch says ─────────────────────────
+               The accent bar and the tile colour are keyed to `is-on`, and the
+               page has to keep them true for the same reason the meter follows
+               the counter: a card that disagreed with its own switch would be
+               worse than a card with no state on it at all. Listened for on the
+               document, so a card rendered later is covered by the same rule. */
+            (function moduleState() {
+                const rail = document.getElementById("rail-modules-count");
+                function syncCard(input) {
+                    const card = input.closest ? input.closest(".module-card") : null;
+                    if (card) {
+                        card.classList.toggle("is-on", input.checked);
+                        card.dataset.surface = input.checked ? "on" : "off";
+                    }
+                    document.dispatchEvent(new CustomEvent("meow:module-state"));
+                }
+                function syncCount() {
+                    if (!rail) return;
+                    const all = document.querySelectorAll(".module-toggle");
+                    let on = 0;
+                    all.forEach(function (box) { if (box.checked) on += 1; });
+                    rail.textContent = on + " / " + all.length;
+                }
+                document.addEventListener("change", function (event) {
+                    const target = event.target;
+                    if (!target || !target.classList || !target.classList.contains("module-toggle")) return;
+                    syncCard(target);
+                    syncCount();
+                });
+            })();
+
+            /* ── The status panel, re-read on demand ─────────────────────── */
+            (function statusPanel() {
+                const button = document.getElementById("status-refresh");
+                const list = document.getElementById("status-monitors");
+                const seen = document.getElementById("status-seen");
+                if (!button || !list) return;
+
+                function render(data) {
+                    list.replaceChildren();
+                    list.removeAttribute("data-error");
+                    const monitors = data.monitors || [];
+                    if (!monitors.length) {
+                        const note = make("div", "status-empty");
+                        note.appendChild(document.createTextNode(data.detail || "No monitors to show."));
+                        if (data.status === "unconfigured") {
+                            note.appendChild(document.createTextNode(" "));
+                            note.appendChild(make("code", null, "UPTIMEROBOT_API_KEY"));
+                        }
+                        list.appendChild(note);
+                    }
+                    monitors.forEach(function (mon) {
+                        const row = make("div", "status-row");
+                        const dot = make("span", "status-dot " + (mon.up ? "up" : (mon.down ? "down" : "paused")));
+                        dot.setAttribute("aria-hidden", "true");
+                        const main = make("div", "status-main");
+                        main.appendChild(make("div", "status-name", mon.name));
+                        main.appendChild(make("div", "status-url", mon.url || "no address recorded"));
+                        const figures = make("div", "status-figures");
+                        const ratio = mon.ratios && mon.ratios["30d"];
+                        if (typeof ratio === "number") {
+                            const span = make("span", null);
+                            span.appendChild(make("b", null, ratio.toFixed(2) + "%"));
+                            span.appendChild(document.createTextNode(" 30d"));
+                            figures.appendChild(span);
+                        }
+                        if (mon.response_ms !== undefined && mon.response_ms !== null) {
+                            const span = make("span", null);
+                            span.appendChild(make("b", null, String(Math.round(mon.response_ms))));
+                            span.appendChild(document.createTextNode(" ms"));
+                            figures.appendChild(span);
+                        }
+                        figures.appendChild(make(
+                            "span",
+                            "pill " + (mon.up ? "ok" : (mon.down ? "fail" : "warn")),
+                            mon.label || "unknown"
+                        ));
+                        row.append(dot, main, figures);
+                        list.appendChild(row);
+                    });
+                }
+
+                button.addEventListener("click", async function () {
+                    button.disabled = true;
+                    const was = button.textContent;
+                    button.textContent = "Reading…";
+                    try {
+                        // The page's own GET helper, not a bare `fetch`: it adds
+                        // the CSRF header every API route here requires and it
+                        // turns an expired session into the same saved-draft
+                        // redirect every other call on the page gives.
+                        const data = await apiGet("/api/uptime");
+                        render(data);
+                        if (seen) {
+                            // The server's own wording, because the server is the
+                            // one that knows when it asked: a browser clock that is
+                            // minutes out would otherwise report a reading from the
+                            // future, or one that never happened.
+                            seen.textContent = data.age_text
+                                || "not read yet in this process";
+                        }
+                        showToast(data.total ? "Status refreshed" : "No monitors to show");
+                    } catch (error) {
+                        showToast(error.message, "error");
+                    } finally {
+                        button.disabled = false;
+                        button.textContent = was;
+                    }
+                });
+            })();
+
+            /* ── The palette ─────────────────────────────────────────────── */
+            (function palette() {
+                const root = document.getElementById("palette");
+                const input = document.getElementById("palette-input");
+                const list = document.getElementById("palette-list");
+                const opener = document.getElementById("palette-open");
+                if (!root || !input || !list) return;
+
+                const items = [];
+
+                // Where you can go: the rail's own list, so there is one idea of
+                // "where things are" rather than two that drift.
+                document.querySelectorAll("#rail-nav a[data-spy]").forEach(function (link) {
+                    items.push({
+                        label: (link.textContent || "").trim(),
+                        kind: "Section",
+                        // The rail's own icon, cloned: one drawing per idea, so a
+                        // section cannot end up with two different pictures.
+                        icon: cloneIcon(link),
+                        run: function () {
+                            const target = document.getElementById(link.dataset.spy);
+                            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }
+                    });
+                });
+
+                // Every system, by name and by the commands it owns.
+                document.querySelectorAll("[data-module-card]").forEach(function (card) {
+                    const id = card.dataset.moduleCard;
+                    const title = card.querySelector("h3");
+                    const name = title ? title.textContent.trim() : id;
+                    items.push({
+                        label: name,
+                        kind: "System",
+                        hint: card.dataset.find || "",
+                        glyph: (name[0] || "?").toUpperCase(),
+                        run: function () {
+                            card.scrollIntoView({ behavior: "smooth", block: "center" });
+                            card.animate(
+                                [{ outlineColor: "var(--accent)" }, { outlineColor: "transparent" }],
+                                { duration: 1200, easing: "ease-out" }
+                            );
+                        }
+                    });
+                });
+
+                // The actions the page exists for.
+                const actions = [
+                    { label: "Write a message", kind: "Action", run: function () { focus("#composer-body"); } },
+                    { label: "Enable every system", kind: "Action", run: function () { click("#btn-enable-all"); } },
+                    { label: "Disable every system", kind: "Action", run: function () { click("#btn-disable-all"); } },
+                    { label: "Refresh the status panel", kind: "Action", run: function () { click("#status-refresh"); } },
+                    { label: "Open the live market", kind: "Link", run: function () { window.location.href = "/market"; } },
+                    { label: "Choose another server", kind: "Link", run: function () { window.location.href = "/servers"; } },
+                    { label: "Plans and pricing", kind: "Link", run: function () { window.location.href = "/pricing"; } }
+                ];
+                const actionIcon = document.getElementById("palette-action-icon");
+                actions.forEach(function (action) {
+                    items.push({
+                        label: action.label,
+                        kind: action.kind,
+                        icon: actionIcon ? actionIcon.content.firstElementChild.cloneNode(true) : null,
+                        run: action.run
+                    });
+                });
+
+                function cloneIcon(from) {
+                    const svg = from.querySelector("svg");
+                    return svg ? svg.cloneNode(true) : null;
+                }
+
+                function focus(selector) {
+                    const node = document.querySelector(selector);
+                    if (!node) return;
+                    node.scrollIntoView({ behavior: "smooth", block: "center" });
+                    node.focus({ preventScroll: true });
+                }
+                function click(selector) {
+                    const node = document.querySelector(selector);
+                    if (node) node.click();
+                }
+
+                let matches = items.slice();
+                let active = 0;
+
+                function draw() {
+                    list.replaceChildren();
+                    if (!matches.length) {
+                        const none = make("li", "palette-empty", "Nothing matches that.");
+                        none.setAttribute("role", "presentation");
+                        list.appendChild(none);
+                        return;
+                    }
+                    matches.forEach(function (item, index) {
+                        const row = make("li", "palette-item" + (index === active ? " is-active" : ""));
+                        row.setAttribute("role", "option");
+                        row.setAttribute("aria-selected", String(index === active));
+                        // The icon is cloned from the page (or from the template
+                        // below) rather than drawn here, so this script creates
+                        // no SVG of its own.
+                        if (item.icon) row.appendChild(item.icon.cloneNode(true));
+                        else if (item.glyph) row.appendChild(make("span", "palette-glyph", item.glyph));
+                        row.appendChild(make("span", null, item.label));
+                        row.appendChild(make("span", "palette-kind", item.kind));
+                        row.addEventListener("mouseenter", function () {
+                            active = index;
+                            draw();
+                        });
+                        row.addEventListener("click", function () { run(item); });
+                        list.appendChild(row);
+                    });
+                    const current = list.querySelector(".is-active");
+                    if (current && current.scrollIntoView) current.scrollIntoView({ block: "nearest" });
+                }
+
+                function filter(value) {
+                    const needle = String(value || "").trim().toLowerCase();
+                    matches = !needle ? items.slice() : items.filter(function (item) {
+                        const haystack = (item.label + " " + item.kind + " " + (item.hint || "")).toLowerCase();
+                        return haystack.indexOf(needle) !== -1;
+                    });
+                    active = 0;
+                    draw();
+                }
+
+                function run(item) {
+                    if (!item) return;
+                    close();
+                    // After the close, so a run that moves focus is not fighting
+                    // the focus restore the close performs.
+                    setTimeout(function () { item.run(); }, 0);
+                }
+
+                function open() {
+                    root.classList.add("is-open");
+                    document.body.classList.add("is-palette-open");
+                    input.value = "";
+                    filter("");
+                    input.focus();
+                }
+
+                function close() {
+                    if (!root.classList.contains("is-open")) return;
+                    root.classList.remove("is-open");
+                    document.body.classList.remove("is-palette-open");
+                    if (opener) opener.focus();
+                }
+
+                if (opener) opener.addEventListener("click", open);
+                input.addEventListener("input", function () { filter(input.value); });
+                input.addEventListener("keydown", function (event) {
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        if (!matches.length) return;
+                        active = (active + (event.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length;
+                        draw();
+                    } else if (event.key === "Enter") {
+                        event.preventDefault();
+                        run(matches[active]);
+                    } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        close();
+                    }
+                });
+                root.addEventListener("mousedown", function (event) {
+                    // Only the backdrop: a click inside the panel is a click on
+                    // the list or the field, and closing on those would make the
+                    // palette unusable with a mouse.
+                    if (event.target === root) close();
+                });
+                document.addEventListener("keydown", function (event) {
+                    const key = (event.key || "").toLowerCase();
+                    if ((event.ctrlKey || event.metaKey) && key === "k") {
+                        event.preventDefault();
+                        if (root.classList.contains("is-open")) close(); else open();
+                    } else if (key === "escape" && root.classList.contains("is-open")) {
+                        close();
+                    }
+                });
+            })();
+        })();
+    </script>
     <script>
         // A string, not a number: a Discord snowflake does not survive being held
         // in a JavaScript number, and this id is sent back with every request.
@@ -2104,7 +1175,16 @@
             {% for mod in modules %}{{ mod.id|tojson }}: {{ mod.name|tojson }}{% if not loop.last %},{% endif %}
             {% endfor %}
         };
-        const pending = new Set();
+        // Which switch has a request in flight, and what that request is making
+        // it *become*. A Map rather than a Set because a click that arrives
+        // during a request has to be put back to the state in flight: the
+        // browser has already flipped the checkbox by the time the handler runs,
+        // so dropping the click silently left the switch showing a state the
+        // server would never hold — and the next reload flipped it back, which a
+        // person reads as "my toggle did not stick". Measured before the fix: a
+        // double-click left `checked=true` beside `aria-checked="false"` and a
+        // label reading "Disabled".
+        const pending = new Map();
 
         function moduleName(moduleId) {
             return MODULE_NAMES[moduleId] || moduleId;
@@ -2344,8 +1424,18 @@
         wireUpload("identity-banner-file", "identity-banner-name");
 
         async function onToggleChange(moduleId, isEnabled) {
-            if (pending.has(moduleId)) return;
-            pending.add(moduleId);
+            const inFlight = pending.get(moduleId);
+            if (inFlight !== undefined) {
+                const already = document.getElementById(`toggle-${moduleId}`);
+                if (already) already.checked = inFlight;
+                showToast(
+                    `${moduleName(moduleId)} is already being `
+                    + `${inFlight ? "enabled" : "disabled"} — one moment.`,
+                    "error"
+                );
+                return;
+            }
+            pending.set(moduleId, isEnabled);
             const card = document.getElementById(`card-${moduleId}`);
             const input = document.getElementById(`toggle-${moduleId}`);
             if (card) card.classList.add("busy");
@@ -2993,6 +2083,17 @@
             // would block the one kind of message that writes itself.
             const generated = composerUsesGenerator();
             if (!composerSelection.length) return "Pick at least one channel.";
+            // The time is part of the rulebook, not a separate check made at the
+            // moment of commitment. It used to live only in the click path, so a
+            // time in the past left the button looking ready and the field above
+            // saying it was not — the exact shape this function exists to avoid,
+            // taught at the worst possible moment. Before the generator's early
+            // return, because a message that writes itself is still unsendable at
+            // a time that has already been.
+            if (scheduleMode === "later") {
+                const timing = scheduleRequest();
+                if (timing.error) return timing.error;
+            }
             if (generated) return null;
             const body = composerEls.body.value.trim();
             const title = composerEls.title.value.trim();
@@ -3683,12 +2784,17 @@
             const ms = raw ? new Date(raw).getTime() : NaN;
             if (!Number.isFinite(ms)) {
                 composerEls.runHint.textContent = "Pick a date and time.";
-                return;
+            } else {
+                const when = scheduleWhen(Math.round(ms / 1000), serverNowSeconds());
+                composerEls.runHint.textContent = when.late
+                    ? `${when.absolute} — that is in the past.`
+                    : `${when.absolute} · ${when.text}`;
             }
-            const when = scheduleWhen(Math.round(ms / 1000), serverNowSeconds());
-            composerEls.runHint.textContent = when.late
-                ? `${when.absolute} — that is in the past.`
-                : `${when.absolute} · ${when.text}`;
+            // Changing the time changes the answer to "can this be sent?", so the
+            // button and the reason beside it are asked again. Without this the
+            // hint moved and the gate did not, which is how a past time ended up
+            // with an enabled button under it.
+            refreshComposerGate();
         }
 
         function sendButtonLabel() {

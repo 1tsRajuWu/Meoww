@@ -7,6 +7,7 @@ being written to, a channel the bot cannot send in, and a guild the signed-in
 session was not pinned to. Everything the browser sends is re-resolved against
 the live guild, because a browser can send anything.
 """
+import os
 import re
 import unittest
 from types import SimpleNamespace
@@ -1156,6 +1157,22 @@ class DashboardTemplateCase(unittest.TestCase):
             "a limit the template states for itself is back",
         )
 
+    #: The dashboard's own rules, which used to be a `<style>` block in the
+    #: template and are now a linked sheet. The hidden-element guards below read
+    #: it *as well as* the template, because a rule that sets `display` is
+    #: exactly as authoritative from a linked sheet as from an inline one — and
+    #: reading only the template would have left this check passing while it
+    #: checked almost nothing, which is the failure it was written to catch.
+    STYLESHEET = os.path.join("static", "dashboard.css")
+
+    @classmethod
+    def _with_stylesheet(cls, markup: str) -> str:
+        try:
+            with open(cls.STYLESHEET, encoding="utf-8") as handle:
+                return markup + "\n" + handle.read()
+        except OSError:
+            return markup
+
     @staticmethod
     def _unguarded_hidden(html: str) -> list[str]:
         """Classes that carry ``hidden`` and their own ``display``, unguarded.
@@ -1185,7 +1202,7 @@ class DashboardTemplateCase(unittest.TestCase):
         failed channels". A rule is only needed for a class that declares its own
         ``display``, which is what this checks — the whole family, not the one case.
         """
-        missing = self._unguarded_hidden(self.render())
+        missing = self._unguarded_hidden(self._with_stylesheet(self.render()))
         self.assertEqual(
             missing, [], f"hidden elements whose own rule sets display, with no guard: {missing}"
         )
@@ -1204,7 +1221,7 @@ class DashboardTemplateCase(unittest.TestCase):
         Read from the template source, therefore, not from one render.
         """
         source = open("templates/dashboard.html", encoding="utf-8").read()
-        missing = self._unguarded_hidden(source)
+        missing = self._unguarded_hidden(self._with_stylesheet(source))
         self.assertEqual(
             missing, [],
             f"elements the server can hide, whose own rule sets display, with no "

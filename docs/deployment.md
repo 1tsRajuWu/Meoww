@@ -133,6 +133,15 @@ shortly after boot).
 - `ENABLE_MESSAGE_CONTENT_INTENT=1`: Enable message content intent
 - `ENABLE_MEMBERS_INTENT=1`: Enable members intent
 - `ERROR_WEBHOOK_URL`: Error reporting webhook
+- `UPTIMEROBOT_API_KEY`: the **read-only** UptimeRobot key (My Settings -> API
+  Settings -> Read-Only API Key). Turns the dashboard's status panel from "not
+  read yet in this process" into the history this host has actually had, and
+  lets `/health` say whether the bot has been up *lately* rather than only
+  whether it is up now. It is declared in `render.yaml`, so the deploy prompts
+  for it — undeclared, Render never asks and the panel stays off with no error
+  to show for it, which is the omission this manifest has been caught by before
+- `UPTIMEROBOT_STATUS_PAGE`: a public UptimeRobot status page to link from that
+  panel for visitors who are not signed in
 - `DASHBOARD_HTTPS=1`: force the dashboard's session cookie to `Secure`. Render
   and Railway are detected automatically; set this when you terminate TLS
   yourself (the server binds `0.0.0.0`, so without it a plaintext request to the
@@ -215,9 +224,15 @@ The bot includes automatic cloud sync:
 - `[SYNC]`: Command tree synchronization
 - `[SITE-GUARD]`: whether the public site is serving this repository (once per
   cycle, and the line to grep when asking *was the tree public, and when*)
+- `[UPTIME]`: one line per refresh with UptimeRobot's own status and detail —
+  the line that says `Not connected` when `UPTIMEROBOT_API_KEY` is unset, so an
+  integration that is off is never mistaken for one that is broken
 
 ### Health Checks
 - Bot online status
 - Command permissions
 - Backup sync frequency
 - Database integrity
+- `GET /health` -> `uptime`: monitor counts and the weakest 30-day ratio. Counts
+  rather than names, because the endpoint is unauthenticated; the rows live in
+  `/api/uptime` behind the dashboard's sign-in.

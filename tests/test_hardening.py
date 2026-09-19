@@ -232,6 +232,11 @@ class ThePagesStayReadable(unittest.TestCase):
         "templates/market_live.html",
         "templates/login.html",
         "static/meow.css",
+        # The dashboard's own rules moved out of the template into this sheet.
+        # It is in the list for the same reason `meow.css` is: the page no
+        # longer holds most of its own colour, so a guard that read only the
+        # template would go on passing while checking very little of it.
+        "static/dashboard.css",
     )
     FLOOR = 4.5
 

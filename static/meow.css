@@ -2563,3 +2563,144 @@ body.landing:has([data-menu].is-open) {
     .lp-panel-tilt-a,
     .lp-panel-tilt-b { transform: none; }
 }
+
+/* ==========================================================================
+   The pointer, when the device has one
+   ==========================================================================
+   Two enhancements, both of them additive and both opt-in by capability:
+
+   1. **A cursor.** A dot that tracks the pointer exactly and a ring that
+      follows it on a spring, so a move has a little weight to it. The native
+      cursor is hidden *only* once that layer is running and only on a fine
+      pointer, because `cursor: none` on a page whose script then fails is a
+      page with no cursor at all — the worst possible trade. Text fields keep
+      their I-beam for the same reason: a caret you cannot see where you are
+      placing is not a decoration worth having.
+
+   2. **A glow.** One large, very dim accent light that drifts after the
+      pointer. On a page this dark, a flat ground reads as unfinished, and this
+      is the cheapest honest way to give it a sense of place — it carries no
+      information, so `prefers-reduced-motion` removes it with no loss.
+
+   Neither is in the document until `motion.js` puts it there, so a blocked
+   script leaves the ordinary pointer and an ordinary background.
+   -------------------------------------------------------------------------- */
+.meow-cursor,
+.meow-glow {
+    position: fixed;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    z-index: 90;
+}
+
+.meow-cursor { inset: 0 auto auto 0; }
+
+.meow-cursor-dot,
+.meow-cursor-ring {
+    position: absolute;
+    border-radius: var(--radius-pill);
+    will-change: transform;
+}
+
+/* Half its own size, so the transform the script writes is the *centre* of
+   the dot rather than its corner. */
+.meow-cursor-dot {
+    left: -3px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    background: var(--accent-text);
+    box-shadow: 0 0 10px rgba(163, 168, 255, 0.7);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor-ring {
+    left: -16px;
+    top: -16px;
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(163, 168, 255, 0.55);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
+                background-color 0.25s var(--ease);
+}
+
+.meow-cursor.is-on .meow-cursor-dot,
+.meow-cursor.is-on .meow-cursor-ring { opacity: 1; }
+
+/* Over anything clickable the ring takes the accent and a wash of it, so the
+   control under the pointer is named by the cursor as well as by its own hover
+   state. The scale itself is animated by the script, which owns the ring's
+   transform. */
+.meow-cursor.is-link .meow-cursor-ring {
+    border-color: var(--accent);
+    background-color: var(--accent-quiet);
+}
+.meow-cursor.is-text .meow-cursor-ring {
+    border-color: rgba(244, 242, 239, 0.35);
+    border-style: dashed;
+}
+
+/* A paw where a click landed, then gone. Physics rather than a fade: it is
+   printed *at* the point of contact and pushes out of it. */
+.meow-paw {
+    position: fixed;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    pointer-events: none;
+    z-index: 89;
+    opacity: 0.75;
+    background: currentColor;
+    color: var(--accent-text);
+    -webkit-mask: no-repeat center / contain url('/static/cursor-default.svg');
+    mask: no-repeat center / contain url('/static/cursor-default.svg');
+    animation: meow-paw 850ms cubic-bezier(0.16, 0.84, 0.44, 1) forwards;
+}
+
+@keyframes meow-paw {
+    0%   { opacity: 0.8; transform: scale(0.35) rotate(-8deg); }
+    55%  { opacity: 0.45; }
+    100% { opacity: 0; transform: scale(1.9) rotate(6deg); }
+}
+
+.meow-glow {
+    width: 620px;
+    height: 620px;
+    margin: -310px 0 0 -310px;
+    border-radius: var(--radius-pill);
+    background: radial-gradient(circle, rgba(91, 94, 240, 0.14), rgba(91, 94, 240, 0) 62%);
+    opacity: 0;
+    transition: opacity 0.6s var(--ease);
+    will-change: transform;
+}
+.meow-glow.is-on { opacity: 1; }
+
+/* `cursor: none` is scoped to the elements the script actually draws the
+   cursor over: a text field keeps its beam, and anything disabled keeps the
+   refusal the browser draws, because both are information. */
+html.has-meow-cursor,
+html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled) {
+    cursor: none !important;
+}
+html.has-meow-cursor input[type="text"],
+html.has-meow-cursor input[type="password"],
+html.has-meow-cursor input[type="search"],
+html.has-meow-cursor input[type="email"],
+html.has-meow-cursor textarea {
+    cursor: text !important;
+}
+html.has-meow-cursor [disabled],
+html.has-meow-cursor :disabled,
+html.has-meow-cursor .disabled {
+    cursor: not-allowed !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .meow-cursor,
+    .meow-glow { display: none !important; }
+    html.has-meow-cursor,
+    html.has-meow-cursor * { cursor: auto; }
+}

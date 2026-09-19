@@ -464,6 +464,33 @@ SETTINGS: tuple[Setting, ...] = (
         "how long after boot to perform the initial site guard check",
         "the default 90-second delay is used.",
     ),
+    # The read-only UptimeRobot key. Read-only on purpose: it can list monitors
+    # and nothing else, so the worst a leak of it costs is somebody reading which
+    # addresses are watched — which is the same thing the public status page it
+    # powers already says. Absent is a supported state rather than a fault: the
+    # dashboard's Status panel says which variable to set and the bot carries on.
+    Setting(
+        "UPTIMEROBOT_API_KEY", TUNING,
+        "the read-only UptimeRobot key whose monitors the dashboard's status panel shows",
+        "the status panel says the integration is off, and nothing is read from "
+        "UptimeRobot. \u201cNot configured\u201d and \u201ceverything is down\u201d are "
+        "different things, and this is the one that is said.",
+    ),
+    Setting(
+        "UPTIMEROBOT_STATUS_PAGE", TUNING,
+        "the public UptimeRobot status page linked from the dashboard",
+        "the panel shows no link out.",
+    ),
+    Setting(
+        "UPTIME_INTERVAL_SECONDS", TUNING,
+        "how often the bot re-reads UptimeRobot",
+        "the default 5-minute interval is used.",
+    ),
+    Setting(
+        "UPTIME_FIRST_CHECK_SECONDS", TUNING,
+        "how long after boot to read UptimeRobot for the first time",
+        "the default 60-second delay is used.",
+    ),
 )
 
 #: Fast lookup for renderers and for anything holding a name from elsewhere.

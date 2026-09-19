@@ -24,11 +24,13 @@ that drifts, and the page then gets blamed for the harness's shape.
 import asyncio
 import html
 import os
+import re
 import shutil
 import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request
 
@@ -88,16 +90,45 @@ if not _COPIED_LIVE_DB:
 #
 # The sign-in button and the "add to a server" link are both gated on a client
 # id, which a preview process does not have — without one they are invisible in
-# the one tool that exists to look at the page. These are placeholders for
-# rendering only: there is no real secret here and nothing in this file talks to
-# Discord, which is why ``/login/discord`` says so instead of redirecting.
+# the one tool that exists to look at the page.
+#
+# The id itself is **public by design** and is already committed: it is in every
+# invite link anybody can read, and ``render.yaml`` stores it as a value rather
+# than a prompt for exactly that reason. So the preview reads it from there and
+# its "Add to Discord" button goes to the real application. The placeholder that
+# used to stand in here made that button a dead end — Discord answers
+# "application not found" — which is the wrong thing for a preview to teach about
+# the page's most important link. Only the client *secret* is made up: nothing in
+# this file talks to Discord, which is why ``/login/discord`` says so instead of
+# redirecting.
+_PLACEHOLDER_CLIENT_ID = "1234567890123456789"
+
+
+def _committed_client_id() -> str:
+    """The public application id the deploy manifest commits, if it is readable."""
+    try:
+        manifest = (Path(__file__).resolve().parent.parent / "render.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(
+        r'^\s*-\s*key:\s*DISCORD_CLIENT_ID\s*\n\s*value:\s*"?(\d[\d]*)"?',
+        manifest,
+        flags=re.MULTILINE,
+    )
+    return match.group(1) if match else ""
+
+
 if not os.environ.get("DISCORD_CLIENT_ID"):
-    os.environ["DISCORD_CLIENT_ID"] = "1234567890123456789"
+    real = _committed_client_id()
+    os.environ["DISCORD_CLIENT_ID"] = real or _PLACEHOLDER_CLIENT_ID
     os.environ.setdefault("DISCORD_CLIENT_SECRET", "preview-only-no-real-secret")
     print(
-        "[PREVIEW] No DISCORD_CLIENT_ID in the environment — using a placeholder so "
-        "the Discord sign-in button and the invite link render. No request is ever "
-        "made to Discord.",
+        "[PREVIEW] No DISCORD_CLIENT_ID in the environment — using "
+        + (f"the public id from render.yaml ({real}) so the invite link works."
+           if real else
+           "a placeholder id so the Discord buttons render; that invite link "
+           "will not resolve.")
+        + " No request is ever made to Discord.",
         flush=True,
     )
 os.environ.setdefault(
@@ -140,7 +171,7 @@ app.jinja_env.globals["asset_version"] = keep_alive.asset_version
 
 from utils import (  # noqa: E402
     command_scope, digest, discord_auth, features, identity,
-    market as market_module,
+    market as market_module, uptime_status,
 )
 
 
@@ -305,6 +336,15 @@ for _rule, _name, _view in (
     ("/privacy", "policy_privacy", keep_alive.policy_privacy),
     ("/terms", "policy_terms", keep_alive.policy_terms),
     ("/login", "login", keep_alive.login),
+    # The dashboard's own topbar links to Pricing, and the landing page links to
+    # it twice; the harness answered both with Flask's 404, so the one control a
+    # person is most likely to click from the preview was the one that did not
+    # work. `/health` is bound for the smaller reason that it is the endpoint the
+    # deployment docs tell an operator to read and UptimeRobot polls — a preview
+    # that 404s the address it publishes invites a wrong conclusion about
+    # production.
+    ("/pricing", "pricing", keep_alive.pricing_page),
+    ("/health", "health", keep_alive.health),
 ):
     app.add_url_rule(_rule, _name, _view, methods=["GET", "POST"])
 
@@ -397,7 +437,84 @@ def dashboard():
             PREVIEW_COMMANDS,
             {module["id"]: module["enabled"] for module in MODULES},
         ),
+        # The Status panel. Stubbed rather than read from a live UptimeRobot,
+        # because this harness has no key and no network on purpose — and both
+        # *are* stubs the page has to tolerate: one row up with a measured
+        # ratio, one paused, so the dot colours, the figures and the pills all
+        # appear in the preview instead of an empty state that shows none of
+        # them. The panel refreshes through the route below, which serves the
+        # same shape the real `/api/uptime` does.
+        system_status=preview_uptime_snapshot(),
+        site_guard_status={"status": "clean", "exposed": 0, "probes": 9},
+        config_status={"unset": 22, "attention": 5, "status": "attention"},
     )
+
+
+#: What the preview's Status panel shows. Deliberately two monitors in two
+#: different states — the defect this guards against is a panel that renders one
+#: state and silently drops the other.
+PREVIEW_UPTIME: dict = {
+    "status": "attention",
+    "at": None,
+    "page": "",
+    "monitors": [
+        {
+            "id": "803978677",
+            "name": "Meow Bot",
+            "url": "https://meow-discord-bot.onrender.com",
+            "status": 2,
+            "label": "up",
+            "up": True,
+            "down": False,
+            "paused": False,
+            "ratios": {"1d": 100.0, "7d": 99.99, "30d": 99.97},
+            "response_ms": 157.0,
+        },
+        {
+            "id": "803978678",
+            "name": "Public site",
+            "url": "https://meow-bot.pages.dev",
+            "status": 0,
+            "label": "paused",
+            "up": False,
+            "down": False,
+            "paused": True,
+            "ratios": {},
+            "response_ms": None,
+        },
+    ],
+    "total": 2,
+    "up": 1,
+    "down": 0,
+    "paused": 1,
+    "waiting": 0,
+    "ratio_30d": 99.97,
+    "detail": "1 monitor is paused, so nothing is watching that address.",
+}
+
+#: When this process "read" the stub. Production's panel words the age of its
+#: last reading — "read 2 minutes ago" — so a stub with a fixed `at` of ``None``
+#: pinned that line to "not read yet in this process" through every Refresh, which
+#: made the panel's own refresh look like it did nothing. Seeded a little in the
+#: past so the line has something truthful to say as soon as the page opens.
+_PREVIEW_READ_AT: int = int(time.time()) - 95
+
+
+def preview_uptime_snapshot() -> dict:
+    """The stub, carrying the fields the real snapshot always carries.
+
+    ``age_text`` is produced by :func:`utils.uptime_status.age_text` — the same
+    function production uses — rather than spelled again here, because the whole
+    class of defect this harness keeps producing is a hand-written stub that
+    agrees with the real endpoint about the shape and disagrees about a field.
+    """
+    age = max(0, int(time.time()) - _PREVIEW_READ_AT)
+    return {
+        **PREVIEW_UPTIME,
+        "at": _PREVIEW_READ_AT,
+        "age_seconds": age,
+        "age_text": uptime_status.age_text(age),
+    }
 
 
 @app.route("/market")
@@ -708,6 +825,25 @@ def api_toggle_all():
 #: What the preview's identity form is holding. In memory only, and for display:
 #: a save cannot reach Discord from here, which the endpoint says out loud.
 _PREVIEW_IDENTITY: dict = {"nick": "", "bio": ""}
+
+
+@app.route("/api/uptime")
+def api_uptime():
+    """The same rows the panel rendered, for the panel's Refresh button.
+
+    The real route answers from a background loop's snapshot; this one answers
+    the stub above, stamped with *now* so the "read N seconds ago" line moves
+    the way it does in production.
+    """
+    return jsonify({
+        "success": True,
+        "configured": False,
+        **preview_uptime_snapshot(),
+        "detail": (
+            "Not connected: this is the preview harness, so there is no "
+            "UPTIMEROBOT_API_KEY and these two rows are stand-ins."
+        ),
+    })
 
 
 @app.route("/api/command-scope")

@@ -43,7 +43,7 @@ import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
     command_scope, config_audit, db, digest, discord_auth, features, identity,
-    modules, plans, scheduled, site_guard, webdocs,
+    modules, plans, scheduled, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -870,7 +870,41 @@ def health():
         # claims, and a monitor that pages on `status` should not be woken
         # because a static host was given the wrong directory.
         "site_guard": site_guard.health_json(),
+        # What UptimeRobot has seen of this host and anything else it watches.
+        # A fourth separate claim, for the same reason as the third: the process
+        # being healthy, the deployment being configured, the site publishing the
+        # right directory and the service *having been* reliable are four answers
+        # to four questions, and a monitor that pages on `status` should not be
+        # woken by any of the other three.
+        #
+        # Counts and one ratio, no names — this endpoint is unauthenticated, and
+        # the rows (monitor names and their URLs) are behind `/api/uptime`.
+        "uptime": uptime_status.health_json(),
         "timestamp": int(time.time()),
+    })
+
+
+@app.route("/api/uptime")
+def api_uptime():
+    """UptimeRobot's monitors, as rows, for the dashboard's status panel.
+
+    Signed-in only, and that is the whole difference between this and the
+    ``uptime`` block in ``/health``: a monitor's name is usually the address it
+    watches, and the operator's own monitors may include hosts that have nothing
+    to do with this product.
+
+    It never fetches. The background loop owns the network call, so this answers
+    from the last snapshot — which is also why it can be polled by a page that is
+    open all day without ever costing UptimeRobot a request.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+    current = uptime_status.snapshot()
+    return jsonify({
+        "success": True,
+        "configured": uptime_status.configured(),
+        **current,
     })
 
 
@@ -1105,12 +1139,29 @@ def _home_status() -> dict:
             ),
         }
     started, connected = _gateway_state()
+    # "Connected right now" and "has been connected lately" are different
+    # claims, and the second one is the one a visitor is making. When
+    # UptimeRobot has actually measured it, the sentence carries the measurement
+    # and says which window it covers; when it has not, the sentence is what it
+    # was. Nothing is invented either way.
+    measured = ""
+    if connected:
+        current = uptime_status.snapshot()
+        ratio = current.get("ratio_30d")
+        if ratio is not None and current.get("total"):
+            measured = (
+                f" UptimeRobot has measured {ratio:.2f}% over the last 30 days "
+                f"across {current['total']} monitor"
+                f"{'s' if current['total'] != 1 else ''}."
+            )
     if connected:
         return {
             "class": "pill-ok",
             "dot": "dot-live",
             "label": "Online",
-            "detail": "Connected to Discord right now — the figures below are live.",
+            "detail": (
+                "Connected to Discord right now — the figures below are live." + measured
+            ),
         }
     if started:
         return {
@@ -1794,6 +1845,14 @@ def dashboard():
             ],
         ],
         server_now=int(time.time()),
+        # The Status panel, server-rendered so the page can say "up for how
+        # long" the moment it opens rather than after a round trip. All three
+        # are read from state this process already holds — UptimeRobot's last
+        # snapshot, the site check's last verdict, the configuration audit — so
+        # none of them costs a request while somebody is waiting for a page.
+        system_status=uptime_status.snapshot(),
+        site_guard_status=site_guard.health_json(),
+        config_status=config_audit.health_json(),
     )
 
 
@@ -3570,6 +3629,70 @@ def start_site_guard(bot):
         print("[SITE-GUARD] No event loop — the site will not be watched.", flush=True)
         return None
     return bot.loop.create_task(site_guard_loop())
+
+
+#: How often to re-read UptimeRobot. Five minutes is chosen against the source,
+#: not against the page: the free API allows ten calls a minute and the numbers
+#: it returns are computed on UptimeRobot's side over a day or a month, so a
+#: faster poll would spend somebody's rate limit to learn the same thing. The
+#: first pass is early because a boot is a deploy, and "did the deploy stay up?"
+#: is the question this panel answers.
+UPTIME_INTERVAL_SECONDS = int(os.environ.get("UPTIME_INTERVAL_SECONDS") or 300)
+UPTIME_FIRST_CHECK_SECONDS = int(os.environ.get("UPTIME_FIRST_CHECK_SECONDS") or 60)
+
+
+async def _run_uptime_check() -> None:
+    """One refresh, one line to the host log, and a card only when it *changes*.
+
+    The transition, not the state, is what is worth a message: a monitor that is
+    down and was down is a standing condition, and repeating it every five
+    minutes would bury the one card that mattered.
+    """
+    import asyncio
+
+    current = await asyncio.to_thread(uptime_status.check)
+    previous = uptime_status.record(current)
+    print(f"[UPTIME] {current['status']}: {current['detail']}", flush=True)
+    if previous is None or previous == current["status"]:
+        return
+    message = uptime_status.headline(current)
+    if message and BOT_INSTANCE is not None:
+        from utils import operator_log
+
+        await operator_log.uptime_alert(BOT_INSTANCE, current, message)
+
+
+async def uptime_status_loop():
+    """Read UptimeRobot on a timer, so no page ever waits on it.
+
+    Every branch is best-effort for the same reason the site check is: a
+    background loop that dies quietly leaves a panel showing a number from an
+    hour ago with nothing anywhere saying so.
+    """
+    import asyncio
+
+    if not uptime_status.configured():
+        print(
+            "[UPTIME] Not connected — set UPTIMEROBOT_API_KEY to show monitor "
+            "history on the dashboard and in /health.",
+            flush=True,
+        )
+    await asyncio.sleep(max(1, UPTIME_FIRST_CHECK_SECONDS))
+    while True:
+        try:
+            await _run_uptime_check()
+            await asyncio.sleep(max(60, UPTIME_INTERVAL_SECONDS))
+        except Exception as e:
+            print(f"[UPTIME] Loop error (will retry): {e}", flush=True)
+            await asyncio.sleep(60)
+
+
+def start_uptime_status(bot):
+    """Start the refresh on the bot's own event loop."""
+    if bot is None or getattr(bot, "loop", None) is None:
+        print("[UPTIME] No event loop — monitors will not be read.", flush=True)
+        return None
+    return bot.loop.create_task(uptime_status_loop())
 
 
 def find_free_port(start=8080):

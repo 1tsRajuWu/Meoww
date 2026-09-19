@@ -69,3 +69,21 @@ services:
       # be real.
       - key: PLAN_ENFORCEMENT
         value: "0"
+      # The monitors the dashboard's status panel reads. UptimeRobot is already
+      # watching this host if a monitor points at it; the **read-only** key
+      # (My Settings -> API Settings -> Read-Only API Key) is what turns the panel
+      # from "not read yet in this process" into the history this host has
+      # actually had — and what makes `/health` able to answer whether the bot has
+      # been up *lately*, not merely whether it is up now.
+      #
+      # It is declared here because of the omission this manifest keeps being
+      # caught by: a setting that is documented in `.env.example` and read by the
+      # code, but never offered by the deploy, is a feature that is simply off on
+      # the host with no error anywhere to show for it. Optional rather than
+      # essential — with no key the panel says so in a sentence.
+      - key: UPTIMEROBOT_API_KEY
+        sync: false
+      # Optional: a public UptimeRobot status page for visitors who are not
+      # signed in. No value, no link.
+      - key: UPTIMEROBOT_STATUS_PAGE
+        sync: false

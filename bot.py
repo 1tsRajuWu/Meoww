@@ -992,6 +992,17 @@ async def on_ready():
     except Exception as e:
         print(f"[SITE-GUARD] Failed to start the check: {e}", flush=True)
 
+    # Read UptimeRobot's view of this service, on a timer. The dashboard's
+    # status panel and `/health`'s `uptime` block both read the snapshot this
+    # keeps, so no page load ever waits on a third party's API — and a monitor
+    # that changes state is announced in the operator's own channels rather
+    # than only being readable by whoever thinks to look.
+    try:
+        from keep_alive import start_uptime_status
+        start_uptime_status(bot)
+    except Exception as e:
+        print(f"[UPTIME] Failed to start the monitor refresh: {e}", flush=True)
+
     # Every server keeps its own house channels. A server nobody has configured
     # yet is bound by channel name here — once — so a server added today has
     # somewhere to log and announce without anyone running a command.
