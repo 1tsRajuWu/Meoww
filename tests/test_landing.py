@@ -170,6 +170,128 @@ class AssetsAreCacheSafe(unittest.TestCase):
         self.assertIn("scrollWidth", script)
 
 
+class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
+    """The one claim on this page a reader cannot check by reading.
+
+    The page says a system switched off disappears from *one server's* command
+    picker. That is the product's actual difference from a bot whose commands are
+    global, so it ships as something the reader can operate — press a system and
+    watch the list change — rather than as another paragraph asserting it.
+
+    What is pinned here is the set of ways that could quietly stop being true:
+    the panel is drawn from the registry rather than a hand-written copy, the
+    names it prints are the names the bot registers, the payload is escaped so it
+    can neither close its own `<script>` nor be mangled by Jinja, and the section
+    says nothing before the script runs that the script then contradicts.
+    """
+
+    def setUp(self):
+        self.markup = LANDING.read_text(encoding="utf-8")
+
+    def test_a_command_is_printed_with_the_one_slash_it_already_has(self):
+        """`/{{ cmd }}` rendered `//rank`, `//balance` and `//daily` on this page.
+
+        Every name in the registry carries its own leading slash, and the
+        dashboard's module cards have always rendered `{{ cmd }}` — so the two
+        surfaces disagreed and only this one was wrong. It is the kind of defect
+        that survives review because a double slash still *reads* as a command.
+        """
+        import keep_alive
+
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", None):
+            commands = [
+                command
+                for module in keep_alive.AVAILABLE_MODULES
+                for command in (module.get("commands") or [])
+            ]
+        self.assertTrue(commands, "no commands in the registry, so nothing is checked")
+        without = [c for c in commands if not str(c).startswith("/")]
+        self.assertEqual(without, [], "a name without a slash would now render as /name")
+
+        # And the template must not add one of its own. Matched on the *loop
+        # bodies*, because the same page prints a slash in prose elsewhere.
+        for body in re.findall(r"\{%\s*for cmd in [^%]*%\}(.*?)\{%\s*endfor\s*%\}", self.markup, re.S):
+            with self.subTest(body=body.strip()[:60]):
+                self.assertNotIn(">/{{ cmd }}<", body)
+                self.assertNotIn("textContent = \"/\"", body)
+
+    def test_the_panel_is_drawn_from_the_registry_not_a_copy_of_it(self):
+        self.assertIn("{% for feature in features %}", self.markup)
+        self.assertIn('data-system="{{ feature.id }}"', self.markup)
+        self.assertIn("try_payload", self.markup)
+
+    def test_the_payload_cannot_close_its_own_script_element(self):
+        """A `</script` inside the data would end the tag and spill into the page."""
+        import keep_alive
+
+        payload = keep_alive._try_payload()
+        self.assertNotIn("<", payload)
+        self.assertNotIn("</script", payload.lower())
+        self.assertTrue(payload.startswith("["))
+
+    def test_the_payload_is_json_that_the_page_can_actually_parse(self):
+        """Autoescaping turned every quote into `&#34;`, which is valid HTML and
+        invalid JSON — so the panel silently fell back to its static state on
+        every page while looking perfectly correct in the markup."""
+        import json
+
+        import keep_alive
+        from flask import render_template
+
+        with keep_alive.app.test_request_context("/"):
+            rendered = render_template("home.html", **{**self._minimal_home(), "try_payload": keep_alive._try_payload()})
+        found = re.search(
+            r'<script type="application/json" data-try-data>(.*?)</script>', rendered, re.S
+        )
+        self.assertIsNotNone(found, "the payload is not in the rendered page")
+        parsed = json.loads(found.group(1))
+        self.assertTrue(parsed, "the payload parsed to nothing")
+        self.assertIn("id", parsed[0])
+        self.assertIn("commands", parsed[0])
+
+    def test_the_sections_static_state_is_the_truthful_one(self):
+        """With no script at all it must claim everything is on, not nothing.
+
+        A server nobody has configured runs every system, so that is what the
+        markup says. A panel that started from "nothing is on" would be telling a
+        reader something false about the product every time the script failed.
+        """
+        self.assertIn("aria-pressed=\"true\"", self.markup)
+        self.assertIn("All {{ features|length }} systems on.", self.markup)
+
+    def test_the_empty_state_is_in_the_markup_rather_than_built_by_script(self):
+        self.assertIn('data-try-empty hidden', self.markup)
+
+    def test_it_promises_that_nothing_is_sent(self):
+        """A visitor who has not added the bot must not be made to wonder."""
+        self.assertIn("Nothing is sent anywhere", self.markup)
+
+    @staticmethod
+    def _minimal_home():
+        """The names `home.html` reaches for that this test does not care about."""
+        return {
+            "bot_name": "Meow Bot",
+            "bot_initial": "M",
+            "status": {"state": "up", "label": "Up"},
+            "stats": [],
+            "features": [],
+            "invite_url": "",
+            "invite_limited_url": "",
+            "invite_here_url": "",
+            "enter_url": "/login",
+            "enter_label": "Sign in",
+            "retention_days": 30,
+            "oauth_enabled": False,
+            "price_free": "Free",
+            "price_pro": "",
+            "price_enterprise": "",
+            "selling": False,
+            "source_repository": "https://example.test/repo",
+            "meta_description": "a bot",
+            "asset_version": lambda name: "0",
+        }
+
+
 class TheMenuIsUsableFromTheKeyboard(unittest.TestCase):
     """The bug this pins: an overlay that opens and forgets the caret.
 

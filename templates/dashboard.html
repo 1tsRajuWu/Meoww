@@ -57,6 +57,11 @@
     {% set system_status = system_status if system_status is defined else {} %}
     {% set site_guard_status = site_guard_status if site_guard_status is defined else {} %}
     {% set config_status = config_status if config_status is defined else {} %}
+    {# The operator's way out, offered only where it would open. Empty is the
+       same "no link" every other optional destination on this page tests for,
+       so a renderer that passes nothing gets the page an administrator sees
+       rather than an `UndefinedError`. #}
+    {% set fleet_url = fleet_url if fleet_url is defined else '' %}
     <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
     <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
     <a class="skip-link" href="#modules">Skip to systems</a>
@@ -112,6 +117,15 @@
                     Status
                 </a>
             </nav>
+            {% if fleet_url %}
+            {# Kept out of the section nav above, because it is not a section of
+               this page: it is the way out of it, to the view where every server
+               sits beside the number that says which one to come back to. #}
+            <a class="rail-fleet" href="{{ fleet_url }}">
+                <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+                The whole fleet
+            </a>
+            {% endif %}
             <div class="rail-foot">
                 {% if signed_in_as and signed_in_as.name %}
                 <div class="rail-account" title="Signed in with Discord">
@@ -168,10 +182,12 @@
                         {% endfor %}
                     </select>
                     {% endif %}
+                    {% if selling %}
                     <a class="btn" href="/pricing">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.8h19"/><path d="M6.5 14.5h3"/></svg>
                         Pricing
                     </a>
+                    {% endif %}
                     <a class="btn" href="/market">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5 9 11l4 3.6L21 6"/><path d="M15.2 6H21v5.8"/></svg>
                         Market
@@ -1036,8 +1052,8 @@
                     { label: "Disable every system", kind: "Action", run: function () { click("#btn-disable-all"); } },
                     { label: "Refresh the status panel", kind: "Action", run: function () { click("#status-refresh"); } },
                     { label: "Open the live market", kind: "Link", run: function () { window.location.href = "/market"; } },
-                    { label: "Choose another server", kind: "Link", run: function () { window.location.href = "/servers"; } },
-                    { label: "Plans and pricing", kind: "Link", run: function () { window.location.href = "/pricing"; } }
+                    { label: "Choose another server", kind: "Link", run: function () { window.location.href = "/servers"; } }{% if selling %},
+                    { label: "Plans and pricing", kind: "Link", run: function () { window.location.href = "/pricing"; } }{% endif %}
                 ];
                 const actionIcon = document.getElementById("palette-action-icon");
                 actions.forEach(function (action) {

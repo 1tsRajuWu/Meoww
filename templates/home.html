@@ -73,7 +73,7 @@
             </div>
             <nav class="lp-menu-nav" aria-label="Menu">
                 <a href="#features">Systems</a>
-                <a href="/pricing">Pricing</a>
+                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 <a href="#start">Get started</a>
                 <a href="#ways-in">Signing in</a>
                 <a href="/privacy">Privacy</a>
@@ -102,7 +102,7 @@
             <header class="lp-header">
                 <nav class="lp-nav" aria-label="Main">
                     <a href="#features">Systems</a>
-                    <a href="/pricing">Pricing</a>
+                    {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 </nav>
                 <a class="lp-brand" href="/">
                     <img src="/static/logo.svg" alt="{{ bot_name }} logo">
@@ -205,8 +205,15 @@
                             <p>{{ feature.desc }}</p>
                             {% if feature.commands %}
                             <div class="lp-row-commands">
+                                {# No leading slash of our own: every name in the
+                                   registry already carries one, so the old
+                                   `/{{​ cmd }}` rendered `//rank`, `//balance`,
+                                   `//daily` on this page and nowhere else. The
+                                   dashboard's module cards render `{{ cmd }}` and
+                                   always have, which is why the two surfaces
+                                   disagreed and only one of them was wrong. #}
                                 {% for cmd in feature.commands[:4] %}
-                                <span class="lp-cmd-pill">/{{ cmd }}</span>
+                                <span class="lp-cmd-pill">{{ cmd }}</span>
                                 {% endfor %}
                                 {% if feature.commands|length > 4 %}
                                 <span class="lp-cmd-more">+{{ feature.commands|length - 4 }} more</span>
@@ -223,6 +230,82 @@
                 </li>
                 {% endfor %}
             </ul>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# The list above, made operable                                            #}
+        {# ------------------------------------------------------------------ #}
+        {# The claim this page makes is the one a reader cannot check by reading:
+           *switching a system off removes its commands from that server's picker
+           and nowhere else*. So this section lets them check it — press the
+           systems and watch the command list underneath change.
+
+           It is server-rendered with **everything on**, which is the truth about
+           a server that has never been configured, so the section says something
+           accurate before any script loads. The payload is the registry the cards
+           above come from, so this cannot drift from them or invent a system.
+
+           Nothing here touches the network: no request is made, no server is
+           configured, and the panel says so — a demo that looked like it had
+           changed somebody's Discord would be worse than no demo. #}
+        <section class="lp-band lp-deep lp-section lp-inner" id="try" aria-labelledby="try-title"
+                 data-try data-try-total="{{ features|length }}">
+            <span class="lp-eyebrow on-dark">Try it</span>
+            <h2 class="lp-h2 on-dark" id="try-title" style="margin-top: 1rem"
+                data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">Switch a system off.</span></span>
+                <span class="line"><span class="line-inner">Watch its commands go.</span></span>
+            </h2>
+            <p class="lp-try-lede">
+                Press any system below. The list under it is the command picker Discord would
+                show in that one server — this is the thing a settings page usually cannot do,
+                because Discord has no per-server command list of its own.
+            </p>
+
+            <div class="lp-try-layout">
+                <div class="lp-try-systems" role="group" aria-label="Systems you can switch">
+                    {% for feature in features %}
+                    <button type="button" class="lp-try-system" data-system="{{ feature.id }}"
+                            aria-pressed="true"
+                            {% if not feature.commands %}data-no-commands="1"{% endif %}>
+                        <span class="lp-try-icon" aria-hidden="true">{{ feature.icon }}</span>
+                        <span class="lp-try-name">{{ feature.name }}</span>
+                        <span class="lp-try-state" aria-hidden="true">On</span>
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <div class="lp-try-panel">
+                    <div class="lp-try-readout" role="status" aria-live="polite" data-try-readout>
+                        All {{ features|length }} systems on.
+                    </div>
+                    <div class="lp-try-picker" data-try-picker>
+                        <div class="lp-try-picker-head">
+                            <span class="lp-try-picker-dot" aria-hidden="true"></span>
+                            <span>{{ bot_name }} would offer</span>
+                            <span class="lp-try-num" data-try-num>0</span>
+                            <span>commands here</span>
+                        </div>
+                        <ul class="lp-try-list" data-try-list></ul>
+                        <div class="lp-try-empty" data-try-empty hidden>
+                            <b>Nothing left.</b>
+                            <span>Every system is off, so this server's picker would be empty — the bot would still be able to answer nothing at all, which is a state you can only reach on purpose.</span>
+                        </div>
+                    </div>
+                    <div class="lp-try-foot">
+                        <span>Nothing is sent anywhere and no server is changed — this is the same rule the dashboard applies, shown rather than described.</span>
+                        <button type="button" class="lp-try-reset" data-try-reset>Reset to all on</button>
+                    </div>
+                </div>
+            </div>
+
+            {# `|safe`, because the escaping that matters has already happened in
+               `_try_payload()` — Jinja's autoescaping would turn every quote in
+               the payload into `&#34;`, which is valid HTML and not valid JSON,
+               so the panel would silently fall back to its static state on every
+               page. What autoescaping protects against here is markup in the
+               data, and the builder has already replaced `<`. #}
+            <script type="application/json" data-try-data>{{ try_payload|safe }}</script>
         </section>
 
         {# ------------------------------------------------------------------ #}
@@ -447,21 +530,31 @@
                         {% endif %}
                     </p>
                     <div class="lp-cta-price">
-                        <div class="lp-price-chip is-current">
-                            <b>{{ price_free }}</b><span>{% if selling %}Free{% else %}Everything included{% endif %}</span>
-                        </div>
                         {% if selling %}
+                        <div class="lp-price-chip is-current">
+                            <b>{{ price_free }}</b><span>Free</span>
+                        </div>
                         <div class="lp-price-chip">
                             <b>{{ price_pro }}</b><span>Pro / mo</span>
                         </div>
                         <div class="lp-price-chip">
                             <b>{{ price_enterprise }}</b><span>Enterprise / mo</span>
                         </div>
+                        {% else %}
+                        {# Nothing is for sale, so there is no number to show: a chip
+                           reading "₹0" is a price tag on a product nobody can buy,
+                           and the tier chips beside it advertise plans that do not
+                           exist yet. #}
+                        <div class="lp-price-chip is-current">
+                            <b>Free</b><span>Everything included</span>
+                        </div>
                         {% endif %}
                     </div>
                 </div>
                 <div style="display:grid; gap:0.75rem">
+                    {% if selling %}
                     <a class="btn btn-primary" href="/pricing">See what you get</a>
+                    {% endif %}
                     {% if invite_url %}
                     <a class="btn" href="{{ invite_url }}">Add {{ bot_name }} — free</a>
                     {% endif %}
@@ -493,7 +586,7 @@
                 <ul>
                     <li><a href="#features">Systems</a></li>
                     <li><a href="#start">Get started</a></li>
-                    <li><a href="/pricing">Pricing</a></li>
+                    {% if selling %}<li><a href="/pricing">Pricing</a></li>{% endif %}
                     <li><a href="{{ enter_url }}">{{ enter_label }}</a></li>
                 </ul>
             </nav>
@@ -531,6 +624,129 @@
         </div>
     </footer>
 
+    <script>
+        // ── the "switch a system off" panel ──────────────────────────────────
+        // The page's one claim a reader cannot check by reading is that switching
+        // a system off removes its commands from *that server's* picker and
+        // nowhere else. So the section ships operable and this makes it work.
+        //
+        // Three decisions worth stating:
+        //
+        // * **The payload is not parsed until the section exists**, and a payload
+        //   that will not parse leaves the server-rendered "all on" state alone.
+        //   A panel that failed to its "nothing on" state would be telling the
+        //   reader something false about the product.
+        // * **The list is capped.** The registry's biggest system carries more
+        //   commands than a marketing page should scroll through, and a count
+        //   plus a truthful "+N more" is more use than a wall.
+        // * **No network.** Nothing here posts anywhere, which is why it can be
+        //   offered to somebody who has not added the bot and has no session.
+        (() => {
+            "use strict";
+
+            const section = document.querySelector("[data-try]");
+            if (!section) return;
+
+            const payload = section.querySelector("[data-try-data]");
+            let systems;
+            try {
+                systems = JSON.parse(payload ? payload.textContent : "[]");
+            } catch (error) {
+                return; // the server-rendered state stands; it is already true
+            }
+            if (!Array.isArray(systems) || !systems.length) return;
+
+            const MAX_LISTED = 24;
+            const buttons = Array.from(section.querySelectorAll("[data-system]"));
+            const list = section.querySelector("[data-try-list]");
+            const num = section.querySelector("[data-try-num]");
+            const readout = section.querySelector("[data-try-readout]");
+            const empty = section.querySelector("[data-try-empty]");
+            const reset = section.querySelector("[data-try-reset]");
+            const total = Number(section.dataset.tryTotal) || systems.length;
+
+            // Everything is on to begin with: a server nobody has configured is
+            // the state the copy describes, and the state that renders without
+            // this script at all.
+            const on = new Set(systems.map((system) => system.id));
+
+            function commandsFrom(ids) {
+                const names = [];
+                systems.forEach((system) => {
+                    if (!ids.has(system.id)) return;
+                    (system.commands || []).forEach((name) => {
+                        if (!names.includes(name)) names.push(name);
+                    });
+                });
+                return names;
+            }
+
+            function plural(count, word) {
+                return count + " " + word + (count === 1 ? "" : "s");
+            }
+
+            function render() {
+                buttons.forEach((button) => {
+                    const on_ = on.has(button.dataset.system);
+                    button.setAttribute("aria-pressed", String(on_));
+                    button.classList.toggle("is-on", on_);
+                    const state = button.querySelector(".lp-try-state");
+                    if (state) state.textContent = on_ ? "On" : "Off";
+                });
+
+                const names = commandsFrom(on);
+                if (num) num.textContent = String(names.length);
+
+                if (readout) {
+                    readout.textContent = on.size === total
+                        ? "All " + total + " systems on."
+                        : plural(on.size, "system") + " on, " + plural(total - on.size, "system") + " off.";
+                }
+
+                if (list) {
+                    list.innerHTML = "";
+                    names.slice(0, MAX_LISTED).forEach((name) => {
+                        // The name arrives with its slash — the registry stores
+                        // `/rank`, not `rank`, which is the whole reason the
+                        // static list above was rendering `//rank`.
+                        const item = document.createElement("li");
+                        item.textContent = name;
+                        list.appendChild(item);
+                    });
+                    if (names.length > MAX_LISTED) {
+                        const more = document.createElement("li");
+                        more.className = "lp-try-more";
+                        more.textContent = "+" + (names.length - MAX_LISTED) + " more";
+                        list.appendChild(more);
+                    }
+                }
+
+                if (empty) empty.hidden = names.length !== 0;
+                if (list) list.hidden = names.length === 0;
+            }
+
+            buttons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    const id = button.dataset.system;
+                    if (on.has(id)) on.delete(id);
+                    else on.add(id);
+                    render();
+                });
+            });
+
+            if (reset) {
+                reset.addEventListener("click", () => {
+                    systems.forEach((system) => on.add(system.id));
+                    render();
+                });
+            }
+
+            // The names appear in the markup order the registry gives, which is
+            // also the order they are grouped in, so a reader sees one system's
+            // commands arrive together as they press it.
+            render();
+        })();
+    </script>
     <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>
 </html>

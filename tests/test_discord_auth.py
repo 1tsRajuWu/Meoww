@@ -44,13 +44,35 @@ class TheAdminRule(unittest.TestCase):
     def test_an_owner_is_an_administrator(self):
         self.assertTrue(discord_auth.is_admin_of(_guild(1, "a", owner=True), 42))
 
-    def test_manage_server_counts(self):
+    def test_manage_server_alone_is_not_enough(self):
+        """The bit Discord hands to moderators must not open a server's dashboard.
+
+        Servers routinely grant Manage Server to a whole staff role, so accepting
+        it let anyone on that role change every system switch, the command list,
+        and the bot's name and picture in that server. The administrator-only
+        one-time link next to it already refused them, which is how this was
+        found: two doors into one room, and the looser one decided.
+        """
         bit = str(discord_auth.MANAGE_GUILD)
-        self.assertTrue(discord_auth.is_admin_of(_guild(1, "a", permissions=bit), 42))
+        self.assertFalse(discord_auth.is_admin_of(_guild(1, "a", permissions=bit), 42))
 
     def test_administrator_counts(self):
         bit = str(discord_auth.ADMINISTRATOR)
         self.assertTrue(discord_auth.is_admin_of(_guild(1, "a", permissions=bit), 42))
+
+    def test_both_ways_in_ask_for_the_same_thing(self):
+        """The one-time link needs Administrator, so Discord sign-in must too.
+
+        Two entry points to one dashboard is exactly why they drifted apart the
+        first time. This pins them together: whoever loosens this bar has to
+        loosen ``dashboard_link`` in ``cogs/help.py`` in the same commit, and
+        will read this failure while doing it.
+        """
+        self.assertEqual(discord_auth.ADMIN_BITS, discord_auth.ADMINISTRATOR)
+        self.assertFalse(
+            discord_auth.ADMIN_BITS & discord_auth.MANAGE_GUILD,
+            "Manage Server is the moderator bit, not the administrator one",
+        )
 
     def test_a_member_with_no_bits_does_not(self):
         self.assertFalse(discord_auth.is_admin_of(_guild(1, "a", permissions="0"), 42))
@@ -80,7 +102,7 @@ class TheServerList(unittest.TestCase):
     """What the picker is allowed to offer."""
 
     def test_only_servers_the_person_runs(self):
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         found = discord_auth.servers_for(
             [
                 _guild(1, "Mine", permissions=admin_bit),
@@ -92,7 +114,7 @@ class TheServerList(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in found], ["Mine"])
 
     def test_only_servers_the_bot_is_in(self):
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         found = discord_auth.servers_for(
             [
                 _guild(1, "Bot is here", permissions=admin_bit),
@@ -104,7 +126,7 @@ class TheServerList(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in found], ["Bot is here"])
 
     def test_the_order_is_stable_and_readable(self):
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         found = discord_auth.servers_for(
             [
                 _guild(3, "zebra", permissions=admin_bit),
@@ -117,14 +139,14 @@ class TheServerList(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in found], ["Apple", "banana", "zebra"])
 
     def test_ids_are_strings_so_a_comparison_cannot_miss(self):
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         found = discord_auth.servers_for(
             [_guild(5, "Five", permissions=admin_bit)], user_id=7, bot_guild_ids=[5]
         )
         self.assertEqual(found[0]["id"], "5")
 
     def test_a_namesless_server_still_appears(self):
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         entry = _guild(5, "", permissions=admin_bit)
         entry["name"] = None
         found = discord_auth.servers_for([entry], user_id=7, bot_guild_ids=[5])
@@ -198,10 +220,9 @@ class TheUrls(unittest.TestCase):
                 self.assertEqual(discord_auth.enabled(), expected, env)
 
     def test_a_picture_is_a_picture_or_nothing(self):
-        self.assertEqual(discord_auth.icon_url({"id": "1", "icon": None}), "")
-        self.assertIn(".png", discord_auth.icon_url({"id": "1", "icon": "abc"}))
-        self.assertIn(".gif", discord_auth.icon_url({"id": "1", "icon": "a_abc"}))
         self.assertEqual(discord_auth.avatar_url({"id": "1", "avatar": None}), "")
+        self.assertIn(".png", discord_auth.avatar_url({"id": "1", "avatar": "abc"}))
+        self.assertIn(".gif", discord_auth.avatar_url({"id": "1", "avatar": "a_abc"}))
 
     def test_the_display_name_prefers_what_people_are_called_now(self):
         self.assertEqual(
@@ -275,7 +296,7 @@ class TheSignInRoutes(_DashboardFixture):
         self.assertIn("not completed", response.get_data(as_text=True))
 
     def test_the_callback_signs_the_person_in_with_their_own_servers(self):
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         user = {"id": "777", "username": "raj", "global_name": "R A J", "avatar": None}
         guilds = [
             _guild(GUILD_ID, "Meow Server", owner=True),
@@ -308,7 +329,7 @@ class TheSignInRoutes(_DashboardFixture):
     def test_the_session_holds_ids_not_a_copy_of_discords_state(self):
         """A cookie has a size limit, and a name per server is how a person who
         administers a few dozen servers gets signed out with no error anywhere."""
-        admin_bit = str(discord_auth.MANAGE_GUILD)
+        admin_bit = str(discord_auth.ADMIN_BITS)
         guilds = [_guild(GUILD_ID, "Meow Server", permissions=admin_bit)]
         user = {"id": "7", "username": "raj"}
         with self._env():

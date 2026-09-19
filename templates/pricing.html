@@ -241,7 +241,7 @@
             <nav class="site-nav" aria-label="Main">
                 <a href="/#features">Features</a>
                 <a href="/#start">Get started</a>
-                <a href="/pricing">Pricing</a>
+                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 <a href="/privacy">Privacy</a>
                 <a href="/terms">Terms</a>
                 {% if invite_url %}
@@ -430,7 +430,12 @@
                     <span class="tier-badge">Everything included</span>
                     <h3>Free</h3>
                     <div class="price">
-                        <span class="static-num">{{ price_free }}</span><span class="period static-period">/mo</span>
+                        {# This card is the only one that shows while nothing is for
+                           sale, and it carried the model's own `₹0` and a `/mo`
+                           period — a price tag and a billing cycle on a product
+                           nobody can buy, on the page whose whole point was that
+                           there is no number to pay. #}
+                        <span class="static-num">Free</span>
                     </div>
                     <p class="dim">Every system, with no limit switched on</p>
 

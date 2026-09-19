@@ -30,7 +30,7 @@
             </a>
             <nav class="site-nav" aria-label="Main">
                 <a href="/">Home</a>
-                <a href="/pricing">Pricing</a>
+                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 <a href="/privacy" {% if current == "privacy" %}aria-current="page"{% endif %}>Privacy</a>
                 <a href="/terms" {% if current == "terms" %}aria-current="page"{% endif %}>Terms</a>
                 <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
@@ -55,7 +55,7 @@
         <div class="page">
             <div class="links">
                 <a href="/">Home</a>
-                <a href="/pricing">Pricing</a>
+                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 <a href="/privacy">Privacy Policy</a>
                 <a href="/terms">Terms of Service</a>
                 <a href="/health">Status</a>

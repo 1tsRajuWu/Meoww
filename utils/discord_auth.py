@@ -20,18 +20,32 @@ access, nothing that could be used for anything but showing those names.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
 
-#: Discord's permission bits. The standard bar for "may configure a bot in this
-#: server": Manage Server, or the blanket Administrator that implies it. An
-#: owner is allowed by definition and Discord reports the bit separately.
+#: Discord's permission bits. The bar for "may configure a bot in this server"
+#: is **Administrator, or being the owner** — not Manage Server.
+#:
+#: Manage Server was the bar until it was held against the bot's own behaviour.
+#: It is the bit Discord hands to moderators, and servers routinely grant it to a
+#: whole staff role, so every one of those people could sign in at
+#: ``/login/discord`` and reach that server's dashboard: all eleven system
+#: switches, the command list, and the bot's name, picture and bio in that server.
+#: The administrator-only one-time link beside it already refused exactly those
+#: people — so the dashboard had **two doors into one room with different locks,
+#: and the looser one decided**. This is the tighter bar, so both doors agree and
+#: the list a person sees is what a server owner means by "the admins".
+#:
+#: A consequence worth stating: a member who can genuinely run the server but is
+#: not an Administrator now signs in and is told so plainly by the picker, rather
+#: than silently receiving control the owner did not mean to hand them.
 MANAGE_GUILD = 0x20
 ADMINISTRATOR = 0x8
-ADMIN_BITS = MANAGE_GUILD | ADMINISTRATOR
+ADMIN_BITS = ADMINISTRATOR
 
 AUTHORIZE_ENDPOINT = "https://discord.com/oauth2/authorize"
 TOKEN_ENDPOINT = "https://discord.com/api/oauth2/token"
@@ -271,16 +285,6 @@ def servers_for(user_guilds, user_id, bot_guild_ids) -> list[dict]:
     return sorted(found.values(), key=lambda entry: (entry["name"].lower(), entry["id"]))
 
 
-def icon_url(server: dict, size: int = 64) -> str:
-    """A server's picture, or empty when it has none."""
-    icon = (server or {}).get("icon") or ""
-    if not icon:
-        return ""
-    if icon.startswith("a_"):
-        return f"https://cdn.discordapp.com/icons/{server['id']}/{icon}.gif?size={size}"
-    return f"https://cdn.discordapp.com/icons/{server['id']}/{icon}.png?size={size}"
-
-
 def avatar_url(user: dict, size: int = 64) -> str:
     """A person's picture, or empty when they have none."""
     user = user or {}
@@ -291,6 +295,56 @@ def avatar_url(user: dict, size: int = 64) -> str:
     if avatar.startswith("a_"):
         return f"https://cdn.discordapp.com/avatars/{uid}/{avatar}.gif?size={size}"
     return f"https://cdn.discordapp.com/avatars/{uid}/{avatar}.png?size={size}"
+
+
+#: The only host a picture is ever fetched from. A helper that fetches a URL a
+#: browser asked for is a request forger waiting to happen; this one is handed
+#: addresses built here, from Discord's own answers, and refuses anything else —
+#: so the worst a crafted parameter can reach is a Discord picture.
+CDN_HOST = "https://cdn.discordapp.com/"
+
+#: How much of one picture to read, and how long to wait. Discord's own ceiling is
+#: 8 MB while the dashboard asks for 64–256 px thumbnails, so this bounds a
+#: response that is not a thumbnail rather than one that is.
+IMAGE_MAX_BYTES = 2 * 1024 * 1024
+IMAGE_TIMEOUT_SECONDS = 6.0
+
+#: One identity for these fetches. Discord answers a bare ``urllib`` request from
+#: some networks with a 403, and a picture that arrives only on one machine is
+#: worse than one that never does.
+CDN_USER_AGENT = "MeowDashboard (image, 1.0)"
+
+
+def fetch_image(url: str) -> tuple[bytes, str] | None:
+    """One picture from Discord's CDN, or ``None``.
+
+    Only ever called with an address built by this module or by the dashboard
+    from a cached Discord object, and it re-checks anyway: the check is what
+    makes the route safe, not the caller being careful.
+
+    Returns ``(bytes, mime)``. Anything unexpected — a redirect off the CDN, a
+    non-image content type, a body past the bound, a timeout — is ``None``, which
+    the caller renders as "no picture" rather than as a broken one.
+    """
+    if not isinstance(url, str) or not url.startswith(CDN_HOST):
+        return None
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": CDN_USER_AGENT})
+        with urllib.request.urlopen(request, timeout=IMAGE_TIMEOUT_SECONDS) as response:
+            if getattr(response, "status", 200) != 200:
+                return None
+            declared = (response.headers.get("Content-Type") or "").split(";")[0]
+            data = response.read(IMAGE_MAX_BYTES + 1)
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException):
+        return None
+    # One byte past the bound is how a too-large body is caught without reading
+    # the whole thing; refusing it beats truncating a picture into a corrupt one.
+    if not data or len(data) > IMAGE_MAX_BYTES:
+        return None
+    mime = declared.strip().lower()
+    if not mime.startswith("image/"):
+        return None
+    return data, mime
 
 
 def display_name(user: dict) -> str:

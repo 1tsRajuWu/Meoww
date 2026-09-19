@@ -131,6 +131,7 @@ class NoTwoElementsShareAnId(unittest.TestCase):
     #: Every page this project renders from a template.
     PAGES = (
         "templates/dashboard.html",
+        "templates/owner.html",
         "templates/home.html",
         "templates/login.html",
         "templates/servers.html",
@@ -295,14 +296,75 @@ class TheCursorCannotBeTheOnlyPointer(unittest.TestCase):
 
 
 class BothSurfacesWearIt(unittest.TestCase):
-    """One system, two pages — the complaint that started this."""
+    """One system, three pages — the complaint that started this."""
 
     def test_each_page_links_the_shared_system(self):
-        for rel in ("templates/home.html", "templates/dashboard.html"):
+        for rel in ("templates/home.html", "templates/dashboard.html", "templates/owner.html"):
             page = _read(rel)
             with self.subTest(page=rel):
                 self.assertIn("/static/meow.css", page)
                 self.assertIn("/static/motion.js", page)
+
+    def test_the_two_control_pages_share_one_shell_sheet(self):
+        """The console reuses the dashboard's layout rather than inventing one.
+
+        A second control room with its own rail, cards and palette is two
+        products, and the whole point of the rebuild was that there is one.
+        """
+        for rel in ("templates/dashboard.html", "templates/owner.html"):
+            with self.subTest(page=rel):
+                self.assertIn("/static/dashboard.css", _read(rel))
+
+
+class NoInlineSvgIsLeftToGuessItsSize(unittest.TestCase):
+    """A bare inline `<svg>` is a 300×150 black shape.
+
+    The ``.search-icon`` class was written for a **text** glyph (``🔍``) and so
+    carries no width, height or fill — perfectly safe for a span, and a ~173 px
+    solid black disc for an `<svg>`, which has neither a font size to inherit nor
+    any reason to default to ``fill: none``. It was drawn straight across the
+    owner console's filter box and found only by rendering the page.
+
+    Two rules cover the two ways out: the class is sized and stroked for an SVG,
+    and every ``<svg>`` in these templates is inside something that sizes it. The
+    second is the general one, and it is checked against the real rule set rather
+    than by pattern-matching the sheet.
+    """
+
+    #: Classes the shared sheets give an explicit width and height to.
+    SIZED = (
+        r"svg\.search-icon",
+        r"\.rail-nav a \.rail-icon",
+        r"\.rail-fleet \.rail-icon",
+        r"\.fleet-open svg",
+        r"\.btn svg",
+    )
+
+    def test_the_search_icon_is_sized_and_stroked_for_an_svg(self):
+        rules = list(_rules(_read("static/dashboard.css")))
+        found = {}
+        for chain, body in rules:
+            if "svg.search-icon" in chain:
+                found[chain] = body
+        self.assertTrue(found, "no rule sizes an SVG wearing .search-icon")
+        body = "".join(found.values())
+        for declaration in ("width:", "height:", "fill: none", "stroke:"):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, body)
+
+    def test_the_sizing_rule_wins_over_the_class_alone(self):
+        """``.search-icon`` sets no width, so a tie would leave the disc.
+
+        Specificity, not order: ``svg.search-icon`` (0,1,1) beats
+        ``.search-icon`` (0,1,0) wherever the two end up in the file.
+        """
+        self.assertIn("svg.search-icon", _read("static/dashboard.css"))
+
+    def test_the_classes_that_size_svgs_are_still_in_the_sheet(self):
+        sheet = _read("static/dashboard.css")
+        for pattern in self.SIZED:
+            with self.subTest(pattern=pattern):
+                self.assertRegex(sheet, pattern)
 
 
 if __name__ == "__main__":

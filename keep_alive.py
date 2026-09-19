@@ -29,12 +29,14 @@ Code Architecture & Navigation:
 12. RUNNER & BACKGROUND LOOPS (Lines 3020-3300):
     Background scheduled message daemon and keep_alive() entrypoint.
 """
+import json
 import math
 import os
 import re
 import sys
 import time
 import secrets
+import urllib.parse
 from collections import defaultdict, deque
 from threading import Lock, Thread
 import socket
@@ -219,6 +221,11 @@ _SECRETISH = __import__("re").compile(
     r"|[\w-]{24,}\.[\w-]{6}\.[\w-]{25,}"  # Discord bot token shape
     r"|Bearer\s+[A-Za-z0-9._-]{20,}"
 )
+
+#: When this process came up. The deploy is a single process, so this is the only
+#: honest answer to "how long has the bot been running" that does not require
+#: asking Discord — and it is the number an operator looks at after a restart.
+PROCESS_STARTED_AT = time.time()
 
 MAGIC_TTL_SECONDS = 15 * 60
 MAGIC_TOKENS = {}
@@ -542,22 +549,96 @@ def _visible_guilds():
 
 
 def _guild_icon(guild_id) -> str:
-    """A server's picture as a URL the page can load, or empty when it has none.
+    """A server's picture as a URL **this origin** can serve, or empty.
 
     Read from the gateway's own cache rather than stored in the session, for the
     same reason the names are: a cookie is not a place to keep a copy of
     Discord's state.
+
+    The address returned is our own ``/api/image`` rather than Discord's CDN, and
+    that is the whole point of the function. The dashboard sets
+    ``img-src 'self' data:``, which is worth keeping — it is what stops a page
+    whose template was tampered with from dialling out — but it also **blocked
+    every ``cdn.discordapp.com`` URL the templates emitted**, so server icons, a
+    signed-in person's picture and the bot's own avatar all rendered as a broken
+    image. Uploaded pictures worked only because ``/api/identity/image`` already
+    served them from here. This is that same idea for the pictures we do not own.
+
+    ``v`` is Discord's own icon hash, so replacing a server's picture changes the
+    URL and no stale copy survives the change.
     """
     if not BOT_INSTANCE or not guild_id:
         return ""
     try:
         guild = BOT_INSTANCE.get_guild(int(guild_id))
         icon = getattr(guild, "icon", None) if guild else None
-        if icon is None:
+        if icon is None or not str(getattr(icon, "url", "") or ""):
             return ""
-        return str(getattr(icon, "url", "") or "")
+        version = str(getattr(icon, "key", "") or "")
+        query = f"kind=guild&guild_id={int(guild_id)}"
+        if version:
+            query += f"&v={urllib.parse.quote(version, safe='')}"
+        return f"/api/image?{query}"
     except Exception:
         return ""
+
+
+def _discord_image_url(kind: str, raw_guild_id=None) -> str:
+    """Which Discord picture a name means, as an address to fetch — or ``""``.
+
+    Every branch reads a **cached Discord object**, never a URL from the query
+    string, so the only addresses that can reach the fetch are ones this process
+    built from Discord's own answers. ``discord_auth.fetch_image`` re-checks the
+    host regardless, because a check that only lives at the call site is one
+    refactor away from being deleted.
+    """
+    if kind == "me":
+        return str((session.get("discord_user") or {}).get("avatar_cdn") or "")
+    if kind == "bot":
+        return str(_BOT_AVATAR_URL or "")
+    if kind == "guild":
+        # The server has to be one this session may see at all, or the route
+        # becomes a way to enumerate the bot's servers by picture.
+        guild_id = _resolve_guild_id(raw_guild_id)
+        if guild_id is None or guild_id not in {g["id"] for g in _visible_guilds()}:
+            return ""
+        guild = BOT_INSTANCE.get_guild(int(guild_id)) if BOT_INSTANCE else None
+        icon = getattr(guild, "icon", None) if guild else None
+        return str(getattr(icon, "url", "") or "") if icon is not None else ""
+    return ""
+
+
+@app.route("/api/image")
+def api_discord_image():
+    """A Discord picture, served from our own origin.
+
+    Not a caching proxy and not an image host: it answers for exactly three
+    pictures — the bot's avatar, the signed-in person's avatar, and a server icon
+    the session may already see — and returns nothing for anything else. That
+    whitelist, plus the host check inside ``fetch_image``, is what keeps a route
+    that makes outbound requests from being an outbound-request gadget.
+
+    A 404 here is a **normal** answer, not a failure: it is what tells the page to
+    draw the server's initial instead of an image, which is why the templates put
+    the letter underneath and let the picture cover it.
+    """
+    if not is_authenticated():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    url = _discord_image_url(
+        str(request.args.get("kind") or ""), request.args.get("guild_id")
+    )
+    if not url:
+        return jsonify({"success": False, "error": "No picture to show"}), 404
+    fetched = discord_auth.fetch_image(url)
+    if fetched is None:
+        return jsonify({"success": False, "error": "Discord did not return that picture"}), 404
+    data, mime = fetched
+    response = Response(data, mimetype=mime)
+    # Private, because the answer depends on who is asking. Ten minutes is short
+    # enough that a changed picture appears on its own and long enough that a
+    # list of servers is one request per picture per visit, not per repaint.
+    response.headers["Cache-Control"] = "private, max-age=600"
+    return response
 
 
 def _bot_ping_ms():
@@ -1202,6 +1283,36 @@ def _invite_context(*, guild_id: int | str | None = None) -> dict:
     }
 
 
+def _try_payload() -> str:
+    """The systems as data, for the landing page's interactive panel.
+
+    Serialised **here** rather than with Jinja's ``tojson``, because four
+    environments render these templates in this repository — this app, the
+    preview harness, and two test helpers that build a bare Jinja environment
+    and read a page — and only Flask's registers that filter. A payload that only
+    exists on one of the four is a landing page that renders in production and
+    raises in the tooling written to check it.
+
+    ``<`` is escaped because this string is injected into a ``<script>`` element:
+    an unescaped ``</script`` anywhere in the data would close the tag and put the
+    rest of the payload into the document as markup.
+    """
+    payload = json.dumps(
+        [
+            {
+                "id": module["id"],
+                "name": module["name"],
+                "icon": module["icon"],
+                "category": module["category"],
+                "commands": [str(c) for c in (module.get("commands") or [])],
+            }
+            for module in AVAILABLE_MODULES
+        ],
+        separators=(",", ":"),
+    )
+    return payload.replace("<", "\\u003c")
+
+
 def _home_page():
     """The public landing page for somebody who is not signed in."""
     name = _bot_display_name()
@@ -1212,6 +1323,10 @@ def _home_page():
         status=_home_status(),
         stats=_home_stats(),
         features=features.dashboard_modules(),
+        # The same registry the cards above are built from, as data — so the
+        # interactive panel cannot advertise a system the bot does not have, and
+        # cannot disagree with the static list beside it.
+        try_payload=_try_payload(),
         **_invite_context(),
         enter_url="/login",
         enter_label="Sign in",
@@ -1302,6 +1417,9 @@ def _policy_page(slug: str):
         enter_label="Sign in",
         **_invite_context(),
         repository=SOURCE_REPOSITORY,
+        # The nav is shared with the pages that do sell, so it asks the same
+        # question they do rather than deciding for itself.
+        selling=plans.selling_enabled(),
     )
 
 
@@ -1503,10 +1621,17 @@ def login_discord_callback():
     session.permanent = True
     session["auth_scope"] = "user"
     session["user_id"] = _int_or_none(user.get("id"))
+    user_avatar = discord_auth.avatar_url(user)
     session["discord_user"] = {
         "id": str(user.get("id") or ""),
         "name": discord_auth.display_name(user),
-        "avatar": discord_auth.avatar_url(user),
+        # What the page shows: our own address, because the dashboard's CSP
+        # allows images from this origin and no other host. A Discord CDN URL
+        # here was silently blocked, and a blocked image is a broken image.
+        "avatar": "/api/image?kind=me" if user_avatar else "",
+        # What that address fetches. Never rendered — the templates above only
+        # ever see ``avatar``, so a CDN address cannot leak back into the page.
+        "avatar_cdn": user_avatar,
     }
     session["admin_guild_ids"] = [int(entry["id"]) for entry in servers]
     get_csrf_token()
@@ -1779,8 +1904,11 @@ def dashboard():
     me = _identity_member(guild_obj)
     # The bot's own global avatar: cached at boot so the template can show
     # the bot's real face instead of a letter tile when no per-server picture
-    # has been uploaded.
-    global_avatar = _BOT_AVATAR_URL
+    # has been uploaded. Served through /api/image rather than linked from
+    # Discord, because the CSP allows this origin's images and no other host —
+    # which is why the first version of this fallback showed a broken image
+    # instead of the avatar it had correctly found.
+    global_avatar = "/api/image?kind=bot" if _BOT_AVATAR_URL else ""
 
     identity_data.update({
         # The live name is what the server actually sees; the record above is
@@ -1814,6 +1942,15 @@ def dashboard():
         pick_server_url=(
             "/servers" if session.get("auth_scope") in ("user", "global") else ""
         ),
+        # The fleet console is the operator's alone, so the link to it is only
+        # offered where it would actually open. A server's administrator seeing
+        # a button that bounces them back to the picker is worse than no button.
+        fleet_url=("/owner" if session.get("auth_scope") == "global" else ""),
+        # Whether anything is on sale. The topbar and the palette both link to
+        # `/pricing`, and while the product is free that page has nothing to
+        # offer — so the link is not offered either. It was: three surfaces
+        # pointed at a shop page that exists only to say there is no shop.
+        selling=plans.selling_enabled(),
         **_invite_context(guild_id=guild_id),
         # The composer's whole rulebook, from the same constants the endpoint
         # validates with: the character limit, the tag cap, the channel cap and
@@ -1853,6 +1990,99 @@ def dashboard():
         system_status=uptime_status.snapshot(),
         site_guard_status=site_guard.health_json(),
         config_status=config_audit.health_json(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# The operator's console
+# ---------------------------------------------------------------------------
+# ``/dashboard`` answers **"what is this one server doing"**, and it is built that
+# way on purpose: every control on it is scoped to a single server, because that
+# is the question an administrator has. The operator has a different question —
+# *which* of these servers is the one that is wrong — and answering it from the
+# same page means opening them one at a time and remembering what the last one
+# said. This page is that answer: every server in one list beside the number that
+# makes a bad one obvious, with the infrastructure the operator owns underneath.
+#
+# It is also the one page that cannot be shown to a server's administrator, so
+# the scope test is the page's **first** line rather than a guard per control: a
+# session without the operator's passkey does not get a reduced version of this
+# page, it gets sent somewhere it can actually act.
+
+
+def _fleet_rows() -> list[dict]:
+    """Every server the bot is in, and the two numbers that make a bad one obvious.
+
+    The module count is read from the same cache the dashboard reads, so a server
+    showing "0 of 11 on" here is genuinely the one to open — and the name is read
+    from the gateway rather than the session, because the bot's nickname *is* per
+    server and is the one field that cannot be looked up anywhere else.
+    """
+    rows = []
+    for entry in _visible_guilds():
+        guild = BOT_INSTANCE.get_guild(entry["id"]) if BOT_INSTANCE else None
+        summary = _module_summary(entry["id"])
+        members = 0
+        if guild is not None:
+            try:
+                members = int(guild.member_count or len(guild.members) or 0)
+            except Exception:
+                members = 0
+        rows.append({
+            "id": entry["id"],
+            "name": entry["name"],
+            "icon": _guild_icon(entry["id"]),
+            "nick": (_live_name(_identity_member(guild)) if guild is not None else ""),
+            "members": members,
+            "on": summary["on"],
+            "total": summary["total"],
+            "known": summary["known"],
+            "off": summary["off"],
+        })
+    # Biggest first: the server a change matters most in is the one with the most
+    # people in it, and that is the order an operator scans for.
+    rows.sort(key=lambda row: (-row["members"], row["name"].lower()))
+    return rows
+
+
+@app.route("/owner")
+def owner_console():
+    """The fleet view. Operator only — see the note above."""
+    if not is_authenticated():
+        return redirect("/login")
+    if session.get("auth_scope") != "global":
+        # A Discord sign-in goes to the picker rather than to a dashboard, so
+        # nobody is dropped onto a server they did not choose.
+        return redirect("/servers" if _visible_guilds() else "/dashboard")
+
+    fleet = _fleet_rows()
+    return render_template(
+        "owner.html",
+        fleet=fleet,
+        totals={
+            "servers": len(fleet),
+            "members": sum(row["members"] for row in fleet),
+            "on": sum(row["on"] for row in fleet),
+            "slots": sum(row["total"] for row in fleet),
+            "modules": len(AVAILABLE_MODULES),
+            "commands": len(_command_tree_names()),
+        },
+        bot_ready=_bot_ready(),
+        bot_ping=_bot_ping_ms(),
+        bot_name=_bot_display_name(),
+        selling=plans.selling_enabled(),
+        process_uptime_seconds=max(0, int(time.time() - PROCESS_STARTED_AT)),
+        csrf_token=get_csrf_token(),
+        signed_in_as=session.get("discord_user") or {},
+        # The same three readings the dashboard's Status panel uses, and the same
+        # rule about cost: all of them are state this process already holds, so
+        # opening this page asks nothing of UptimeRobot or the public site.
+        system_status=uptime_status.snapshot(),
+        site_guard_status=site_guard.health_json(),
+        config_status=config_audit.health_json(),
+        # The tail of this process's own output. It is the only place a failure
+        # that never reached Discord can be seen without SSH.
+        recent_log=[line.rstrip("\n") for line in list(LOG_RING)[-60:]],
     )
 
 

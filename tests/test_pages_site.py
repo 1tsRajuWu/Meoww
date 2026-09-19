@@ -257,20 +257,54 @@ class BuiltSiteCase(unittest.TestCase):
         self.assertIn("No billing yet", pricing)
         self.assertNotIn("lemonsqueezy.com", pricing)
 
+    def _rebuild(self, **env):
+        """A second build under extra environment, inspected the same way.
+
+        The switch that decides whether anything is for sale is a fact about the
+        deployment, so the only honest way to test the *other* position is to
+        build again with it set — a page rendered from a hard-coded boolean would
+        prove nothing about the host.
+        """
+        out = tempfile.mkdtemp(prefix="meow-site-")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        with mock.patch.dict(os.environ, env):
+            build_site.build(out, LIVE, SITE)
+        return {
+            name: (Path(out) / name).read_text(encoding="utf-8")
+            for name in ("index.html", "pricing.html")
+        }
+
     def test_the_price_on_the_page_is_the_one_the_bot_will_hold_servers_to(self):
         """One source for both, so the site cannot advertise a number the code lacks.
 
         They were two: the page carried its own literal prices while the plan
         model in ``utils/plans.py`` carried the limits, and the only thing keeping
         them in step was somebody noticing.
+
+        Checked on the build where the tiers are *on sale*, because that is the
+        only build that shows a number — the free one deliberately names no
+        price at all (see the test below, which pins that).
         """
         from utils import plans
 
+        pricing = self._rebuild(PLAN_CHECKOUT="1")["pricing.html"]
+        for plan in (plans.FREE, plans.PRO, plans.ENTERPRISE):
+            self.assertIn(
+                f">{plan.price}<", pricing,
+                f"{plan.label} is {plan.price} in the plan model but not on the page",
+            )
+
+    def test_the_free_page_quotes_no_price_and_no_billing_period(self):
+        """`₹0` beside a `/mo` is a price tag on a product nobody can buy.
+
+        The page no longer advertises the tiers, but its own free card kept
+        rendering the model's currency and a monthly period — so the one place
+        that should say "free" read as a subscription that costs nothing, which
+        is a different claim from "there is nothing to buy".
+        """
         pricing = self.pages["pricing.html"]
-        self.assertIn(
-            f">{plans.FREE.price}<", pricing,
-            f"Free is {plans.FREE.price} in the plan model but not on the page",
-        )
+        self.assertNotIn("₹", pricing, "the free page still quotes a price")
+        self.assertNotIn("/mo<", pricing, "the free page still names a billing period")
 
     def test_a_page_that_has_nothing_to_sell_does_not_describe_a_shop(self):
         """The premium surface is gone while ``PLAN_CHECKOUT`` is off.

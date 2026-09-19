@@ -371,6 +371,11 @@ def dashboard():
         member_count=guild["members"],
         bot_ping=int(os.environ.get("PREVIEW_PING", "41")),
         bot_ready=True,
+        # Whether the topbar offers the Pricing link, from the same switch the
+        # route reads. Left out, it would read as "off" and the preview would
+        # silently show a topbar production may not have — the harness drift
+        # this file's own comment above warns about.
+        selling=keep_alive.plans.selling_enabled(),
         modules=MODULES,
         # Counted, not seeded: these two were literals from the three-card stub
         # and said "2 / 3" over an eleven-card page after the registry grew.
@@ -593,6 +598,70 @@ def servers_page():
         csrf_token="preview-token",
     )
     return (body, 403) if error else body
+
+
+@app.route("/owner")
+def owner_console():
+    """The fleet console, over the harness's own servers.
+
+    Every number here comes from the real functions — ``_module_summary`` reading
+    the harness's copy of the database, and ``PROCESS_STARTED_AT`` read from
+    ``keep_alive`` rather than restated — so the counts a preview shows are the
+    counts production would show for the same state. What is stubbed is what a
+    harness cannot honestly have: Discord's gateway, and UptimeRobot's key.
+    """
+    fleet = []
+    for guild in GUILDS:
+        summary = keep_alive._module_summary(guild["id"])
+        fleet.append({
+            "id": guild["id"],
+            "name": guild["name"],
+            # No gateway, so no icon — which is exactly the state the letter
+            # fallback exists for, and the reason it is worth seeing here.
+            "icon": "",
+            "nick": guild["name"] + " Bot",
+            "members": guild["members"],
+            "on": summary["on"],
+            "total": summary["total"],
+            "known": summary["known"],
+            "off": summary["off"],
+        })
+    fleet.sort(key=lambda row: (-row["members"], row["name"].lower()))
+    return render_template(
+        "owner.html",
+        fleet=fleet,
+        totals={
+            "servers": len(fleet),
+            "members": sum(row["members"] for row in fleet),
+            "on": sum(row["on"] for row in fleet),
+            "slots": sum(row["total"] for row in fleet),
+            "modules": len(MODULES),
+            "commands": len(PREVIEW_COMMANDS),
+        },
+        bot_ready=True,
+        bot_ping=int(os.environ.get("PREVIEW_PING", "41")),
+        bot_name=keep_alive._bot_display_name(),
+        selling=keep_alive.plans.selling_enabled(),
+        process_uptime_seconds=max(
+            0, int(time.time() - keep_alive.PROCESS_STARTED_AT)
+        ),
+        csrf_token="preview-token",
+        signed_in_as={},
+        system_status=preview_uptime_snapshot(),
+        site_guard_status={"status": "clean", "exposed": 0, "probes": 9},
+        config_status={"unset": 22, "attention": 5, "status": "attention"},
+        # A few real-looking lines so the collapsed section is not empty when it
+        # is opened — the one thing that cannot be demonstrated with none.
+        recent_log=[
+            "[DASHBOARD] preview harness serving templates/owner.html",
+            "[MODULES] module state read from the harness database",
+            "[SITE-GUARD] watching https://meow-bot.pages.dev",
+            "[UPTIME] no API key in this process; the panel shows its stand-in",
+        ],
+        invite_url=discord_auth.invite_url(),
+        invite_limited_url=discord_auth.invite_url(minimal=True),
+        invite_here_url=discord_auth.invite_url(guild_id=CURRENT_GUILD["id"]),
+    )
 
 
 @app.route("/logout", methods=["GET", "POST"])

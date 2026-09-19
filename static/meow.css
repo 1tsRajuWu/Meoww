@@ -966,6 +966,22 @@ textarea:focus {
 .server-icon img,
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 
+/* A server's picture is drawn *over* its initial rather than instead of it, so a
+   picture that never arrives uncovers the letter instead of leaving the
+   browser's broken-image glyph in the row. The picture is the only absolutely
+   positioned thing here, which is what lets the letter hold the cell open. */
+.server-icon { position: relative; }
+
+.server-icon img {
+    position: absolute;
+    inset: 0;
+}
+
+.server-icon-letter {
+    font-weight: 700;
+    color: var(--accent-text);
+}
+
 /* Who is signed in, and which server the dashboard is pointed at. */
 .identity {
     display: flex;
@@ -2703,4 +2719,219 @@ html.has-meow-cursor .disabled {
     .meow-glow { display: none !important; }
     html.has-meow-cursor,
     html.has-meow-cursor * { cursor: auto; }
+}
+
+/* --------------------------------------------------------------------------
+   The "switch a system off" panel
+   --------------------------------------------------------------------------
+   The page's one claim a reader cannot check by reading is that switching a
+   system off removes its commands from *that server's* picker and nowhere else,
+   so this section lets them do it. It sits on a dark band, so everything here
+   resolves to the `--lp-*` tokens rather than inventing colours, and the two
+   states a control has (on, off) are drawn as a surface change rather than as a
+   colour swap alone — a pressed button that only changed hue would be invisible
+   to anyone who cannot separate this hue from that one.
+   -------------------------------------------------------------------------- */
+.lp-try-lede {
+    max-width: 46rem;
+    margin-top: 1.25rem;
+    color: rgba(255, 255, 255, 0.66);
+    line-height: 1.7;
+}
+
+.lp-try-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(1.5rem, 3vw, 2.25rem);
+    margin-top: clamp(2rem, 4vw, 3rem);
+}
+
+@media (min-width: 900px) {
+    .lp-try-layout { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); }
+}
+
+.lp-try-systems {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-content: flex-start;
+}
+
+.lp-try-system {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--lp-hair);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.62);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+
+.lp-try-system:hover {
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+/* On: the accent edge and a lit surface. Off: dimmed and desaturated, which is
+   the state a switched-off system is actually in. */
+.lp-try-system.is-on,
+.lp-try-system[aria-pressed="true"] {
+    background: rgba(91, 94, 240, 0.16);
+    border-color: rgba(163, 168, 255, 0.55);
+    color: #fff;
+}
+
+.lp-try-system:focus-visible {
+    outline: 2px solid var(--lp-accent-soft);
+    outline-offset: 3px;
+}
+
+.lp-try-system[data-no-commands] { cursor: pointer; }
+
+.lp-try-icon { font-size: 0.95rem; line-height: 1; }
+
+.lp-try-state {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.42);
+}
+
+.lp-try-system.is-on .lp-try-state { color: var(--lp-accent-soft); }
+
+.lp-try-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.lp-try-readout {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.lp-try-picker {
+    border: 1px solid var(--lp-hair);
+    border-radius: var(--lp-radius);
+    background: rgba(255, 255, 255, 0.025);
+    padding: 1.1rem 1.15rem 1.25rem;
+}
+
+.lp-try-picker-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.lp-try-picker-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--lp-accent-soft);
+    box-shadow: 0 0 0 3px rgba(163, 168, 255, 0.18);
+}
+
+.lp-try-num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: #fff;
+}
+
+.lp-try-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.9rem 0 0;
+    padding: 0;
+    list-style: none;
+    min-height: 2.25rem;
+}
+
+.lp-try-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--lp-hair);
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.045);
+    color: rgba(255, 255, 255, 0.82);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.2;
+    /* Each name arrives as its system is pressed, and the fade is what makes
+       that legible as "this one appeared" rather than as a redraw. */
+    animation: lp-try-in 0.22s ease both;
+}
+
+.lp-try-list li.lp-try-more {
+    border-style: dashed;
+    color: rgba(255, 255, 255, 0.5);
+    font-family: inherit;
+}
+
+@keyframes lp-try-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: none; }
+}
+
+.lp-try-empty {
+    margin-top: 0.9rem;
+    padding: 1.1rem 1.15rem;
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    color: rgba(255, 255, 255, 0.58);
+}
+
+.lp-try-empty b {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #fff;
+}
+
+.lp-try-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.42);
+}
+
+.lp-try-reset {
+    flex: none;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--lp-hair);
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    font: inherit;
+    font-size: 0.75rem;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.lp-try-reset:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lp-try-list li { animation: none; }
+    .lp-try-system:hover { transform: none; }
 }

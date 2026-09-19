@@ -80,11 +80,19 @@
         <div class="server-list">
             {% for server in servers %}
             <div class="server-row">
-                {% if server.icon %}
-                <span class="server-icon"><img src="{{ server.icon }}" alt="" width="44" height="44"></span>
-                {% else %}
-                <span class="server-icon" aria-hidden="true">{{ (server.name or "?")[0]|upper }}</span>
-                {% endif %}
+                {# The initial is always drawn and the picture sits over it, so a
+                   picture that fails to arrive uncovers the letter rather than
+                   leaving the browser's broken-image glyph in the row. `onerror`
+                   removes the element instead of hiding it, so nothing keeps the
+                   space or a place in the tab order — the route answers 404 for
+                   every picture it will not serve, and that is a normal answer,
+                   not a fault. #}
+                <span class="server-icon">
+                    <span class="server-icon-letter" aria-hidden="true">{{ (server.name or "?")[0]|upper }}</span>
+                    {% if server.icon %}
+                    <img src="{{ server.icon }}" alt="" width="44" height="44" onerror="this.remove()">
+                    {% endif %}
+                </span>
                 <span class="server-meta">
                     <b>{{ server.name }}</b>
                     <span class="mono dim" style="font-size: 12px">{{ server.id }}</span>
