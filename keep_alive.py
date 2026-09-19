@@ -43,7 +43,7 @@ import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
     command_scope, config_audit, db, digest, discord_auth, features, identity,
-    modules, plans, scheduled, webdocs,
+    modules, plans, scheduled, site_guard, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -851,6 +851,21 @@ def health():
         # deployment has no sign-in secret" is not a sentence to hand a stranger.
         # /api/config has the names, behind the administrator's sign-in.
         "config": config_audit.health_json(),
+        # Whether the public site is publishing this checkout. A separate
+        # question again, and one with no symptom in the product: every page
+        # looked correct while `/bot.py` and `/render.yaml` were served from the
+        # site's own address. `unknown` until the first check has run in this
+        # process, and `unreachable` rather than `clean` when the site did not
+        # answer — a check that could not ask has not learned anything.
+        #
+        # Counts and no names, like `config` above: this endpoint is
+        # unauthenticated. The alert that names the paths goes to Discord.
+        #
+        # It is deliberately **not** folded into the top-level `status`: the bot
+        # being healthy and the site being wrongly configured are separate
+        # claims, and a monitor that pages on `status` should not be woken
+        # because a static host was given the wrong directory.
+        "site_guard": site_guard.health_json(),
         "timestamp": int(time.time()),
     })
 
@@ -3474,6 +3489,73 @@ def start_scheduler(bot):
         print("[SCHEDULE] No event loop — nothing will be delivered.", flush=True)
         return None
     return bot.loop.create_task(scheduler_loop())
+
+
+#: How often to ask the public site whether it is serving the repository. Six
+#: hours is chosen against the failure, not against the cost: the check is nine
+#: requests and the exposure it watches for is measured in days if it is
+#: measured at all, so anything faster buys nothing and anything slower delays
+#: the one message that matters. One re-check is done shortly after every boot,
+#: because a boot is a deploy and a deploy is when the output directory could
+#: have changed.
+SITE_GUARD_INTERVAL_SECONDS = int(os.environ.get("SITE_GUARD_INTERVAL_SECONDS") or 6 * 3600)
+SITE_GUARD_FIRST_CHECK_SECONDS = int(os.environ.get("SITE_GUARD_FIRST_CHECK_SECONDS") or 90)
+
+
+async def _run_site_guard() -> None:
+    """One pass: probe, remember the answer, and say something if it warrants it."""
+    import asyncio
+
+    verdict = await asyncio.to_thread(site_guard.check)
+    site_guard.record(verdict)
+    print(f"[SITE-GUARD] {site_guard.describe(verdict)}", flush=True)
+    message = site_guard.note(verdict)
+    if message and BOT_INSTANCE is not None:
+        from utils import operator_log
+
+        await operator_log.site_guard_alert(BOT_INSTANCE, verdict)
+
+
+async def site_guard_loop():
+    """Ask the public site, on a timer, whether it is publishing this checkout.
+
+    It lives here rather than in CI on purpose. CI is where the *build* is
+    verified, and CI is also the thing that can stop: while the Pages project was
+    serving this repository, the `Site` and `Tests` workflows had been failing
+    for an hour and a half because the account's Actions jobs would not start at
+    all (`The job was not started because recent account payments have failed`),
+    so nothing in them ran. A guard against a publishing mistake that shares a
+    failure mode with publishing is not a guard.
+
+    This process is always up and is already in the operator's server, so the
+    alarm reaches a person without a new service or a new credential. Every
+    branch is best-effort: a check that raises is reported and retried, because
+    the alternative is a background loop that dies quietly and a workspace that
+    reports itself as guarded forever.
+    """
+    import asyncio
+
+    print(
+        f"[SITE-GUARD] Watching {site_guard.site_url()} — first check in "
+        f"{SITE_GUARD_FIRST_CHECK_SECONDS}s, then every {SITE_GUARD_INTERVAL_SECONDS}s.",
+        flush=True,
+    )
+    await asyncio.sleep(max(1, SITE_GUARD_FIRST_CHECK_SECONDS))
+    while True:
+        try:
+            await _run_site_guard()
+            await asyncio.sleep(max(60, SITE_GUARD_INTERVAL_SECONDS))
+        except Exception as e:
+            print(f"[SITE-GUARD] Loop error (will retry): {e}", flush=True)
+            await asyncio.sleep(60)
+
+
+def start_site_guard(bot):
+    """Start the check on the bot's own event loop."""
+    if bot is None or getattr(bot, "loop", None) is None:
+        print("[SITE-GUARD] No event loop — the site will not be watched.", flush=True)
+        return None
+    return bot.loop.create_task(site_guard_loop())
 
 
 def find_free_port(start=8080):

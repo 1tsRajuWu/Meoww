@@ -1,26 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="Meow">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Meow">
   <!--
-    A cat's head as one silhouette: a round face and two ears that meet in the
-    dip between them. Three primitives, one hue, no outline.
-
-    The mark it replaces was a gradient face carrying inner ears, two eye
-    whites with pupils, a muzzle, a nose, whiskers and a mouth — nine elements
-    at three sizes, which at the 20-22px the header actually renders it is
-    mud: every detail collapses into the gradient and the whole thing reads as
-    a coloured blob. What is left is the *shape* of a cat, which is the part
-    that still says "cat" when it is 20 pixels wide, in one flat colour so it
-    can never argue with whatever surface it sits on.
+    Meow — Handcrafted Kuro-Cat Mascot
+    Artisanal vector illustration: sculpted feline silhouette, mischievous
+    almond eyes, confident smirk, and hand-drawn whiskers.
   -->
-  <g fill="#5b5ef0">
-    <path d="M12 13 L14.5 4 L20 11 L25.5 4 L28 13 Z" />
-    <circle cx="20" cy="22" r="12" />
-  </g>
-  <!-- Eyes and nose are cut in the page's background colour rather than drawn
-       on top of it: at small sizes a negative-space eye stays a clean dot,
-       where a filled one with a stroke becomes a smudge. -->
-  <g fill="#0c0c0d">
-    <circle cx="15.4" cy="20.4" r="1.75" />
-    <circle cx="24.6" cy="20.4" r="1.75" />
-    <path d="M20 25.4 L18.5 23.7 L21.5 23.7 Z" />
-  </g>
+  <defs>
+    <linearGradient id="meowHeadGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6e72f8" />
+      <stop offset="60%" stop-color="#5b5ef0" />
+      <stop offset="100%" stop-color="#4649de" />
+    </linearGradient>
+  </defs>
+
+  <!-- Head Silhouette -->
+  <path d="M32 18 C28 18 24 12 18 4 C15.5 1 12 2.5 12.5 6.5 C13.5 13 12.5 19.5 9 24 C4 30 5 44 15 51 C20 54.5 26 56 32 56 C38 56 44 54.5 49 51 C59 44 60 30 55 24 C51.5 19.5 50.5 13 51.5 6.5 C52 2.5 48.5 1 46 4 C40 12 36 18 32 18 Z" 
+        fill="url(#meowHeadGrad)" />
+
+  <!-- Inner Ear Facets -->
+  <polygon points="17,10 14,21 21,18" fill="#a3a8ff" opacity="0.65" />
+  <polygon points="47,10 50,21 43,18" fill="#a3a8ff" opacity="0.65" />
+
+  <!-- Sharp Mischievous Almond Eyes -->
+  <path d="M15 30.5 C18 27.5 24.5 28.5 27 32.5 C23 34.5 18 33.5 15 30.5 Z" fill="#ffffff" />
+  <path d="M49 30.5 C46 27.5 39.5 28.5 37 32.5 C41 34.5 46 33.5 49 30.5 Z" fill="#ffffff" />
+
+  <!-- Expressive Irises & Glints -->
+  <ellipse cx="22" cy="31.5" rx="2.2" ry="3" fill="#0b0c16" />
+  <ellipse cx="42" cy="31.5" rx="2.2" ry="3" fill="#0b0c16" />
+  <circle cx="21" cy="30.2" r="1" fill="#ffffff" />
+  <circle cx="41" cy="30.2" r="1" fill="#ffffff" />
+  <circle cx="22.8" cy="32.8" r="0.55" fill="#a3a8ff" />
+  <circle cx="42.8" cy="32.8" r="0.55" fill="#a3a8ff" />
+
+  <!-- Cute Nose -->
+  <polygon points="32,38 30.5,36.5 33.5,36.5" fill="#a3a8ff" />
+
+  <!-- Sly Confident Smirk -->
+  <path d="M32 38.5 L32 40 C30.5 40 28.5 41 27 42.5" fill="none" stroke="#0b0c16" stroke-width="2" stroke-linecap="round" />
+  <path d="M32 40 C34 40 37.2 41 38.8 43.2" fill="none" stroke="#0b0c16" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Hand-Drawn Whiskers -->
+  <path d="M12 34 C8 33 5 34 2 35" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <path d="M11 38 C7 39 5 41 2 43" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <path d="M52 34 C56 33 59 34 62 35" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <path d="M53 38 C57 39 59 41 62 43" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
 </svg>

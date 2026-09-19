@@ -454,6 +454,16 @@ SETTINGS: tuple[Setting, ...] = (
         "the script uses the image in the repository's assets folder.",
         scope=BUILD,
     ),
+    Setting(
+        "SITE_GUARD_INTERVAL_SECONDS", TUNING,
+        "how often to check whether the public site is serving repository paths",
+        "the default 6-hour interval is used.",
+    ),
+    Setting(
+        "SITE_GUARD_FIRST_CHECK_SECONDS", TUNING,
+        "how long after boot to perform the initial site guard check",
+        "the default 90-second delay is used.",
+    ),
 )
 
 #: Fast lookup for renderers and for anything holding a name from elsewhere.

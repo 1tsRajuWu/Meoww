@@ -40,6 +40,13 @@ Four rules, three of them learned from a failure this project already had:
   user sees "the application did not respond". The boot that finds another live
   copy says so where the operator looks (:func:`report_second_instance`).
 
+* **A check that could not be made is reported too**
+  (:func:`site_guard_alert`). The bot also asks, on a timer, whether the public
+  site is serving the repository (see :mod:`utils.site_guard`). That fault has no
+  symptom inside Discord — the pages look right, the bot stays connected, the
+  deploy reports success — so the alert is the whole detection, and a check that
+  could not reach the site is reported as loudly as one that found a leak.
+
 What is deliberately *not* recorded: the values typed into the command. Those are
 whatever a person chose to write — a `/bug` report, a `/pay` note, a `/purge`
 reason — and copying them into a second server is a privacy change, not a logging
@@ -48,7 +55,7 @@ detail. The command's name, its runner and its outcome are what the log is for.
 
 import discord
 
-from utils import bot_channels, style
+from utils import bot_channels, site_guard, style
 
 
 async def _channel(bot, role: str):
@@ -209,6 +216,138 @@ async def report_second_instance(bot, owner: str) -> bool:
         return True
     except Exception as exc:
         print(f"[LOG] could not report the second instance: {exc}", flush=True)
+        return False
+
+
+#: The four cards this check can send, keyed by the verdict it is answering:
+#: ``status -> (title, what the page says, colour, what to do about it)``.
+#:
+#: Kept together because the pairings are the whole content of the alert, and
+#: because two of them are *not* a leak. Telling an operator that a leak has
+#: recurred when the deployment is clean and only a CDN copy is left over — the
+#: mistake the first live run of the check made — sends them to act on the build
+#: settings, which are correct, while the copy keeps being served. Each row
+#: therefore names its own remedy, and only one of them says *purge the cache*.
+_SITE_GUARD_CARDS: dict[str, tuple[str, str, int, str]] = {
+    "exposed": (
+        "🚨 The website is serving the repository",
+        "Paths that belong to the source tree are **readable by anyone** at the "
+        "site's own address. Nothing on the site looks wrong — this is not a "
+        "broken page, it is the checkout being published as one.",
+        style.DANGER,
+        "The Cloudflare Pages build settings: the build command and the **build "
+        "output directory** must both be set, and it is the output directory "
+        "that stops a static host being handed the checkout. "
+        "`docs/deployment.md` has both, and `scripts/build_site.py` refuses to "
+        "build into the repository root.",
+    ),
+    "cached": (
+        "⚠️ A cached copy of the repository is still being served",
+        "The site itself refuses these paths, so the deployment is **not** "
+        "publishing the tree — but a copy left by an earlier deploy is still "
+        "being handed out at the site's address by the CDN.",
+        style.WARN,
+        "Purge the Cloudflare cache for those paths (`Purge Everything` on the "
+        "zone, or the **Caching → Configuration** page). The build settings are "
+        "correct and need no change; this clears on its own once the stored "
+        "copies expire.",
+    ),
+    "fallback": (
+        "⚠️ The site answers everything, so the check cannot tell",
+        "A path that does not exist answered with a page, which means this host "
+        "serves *something* for any address. A `200` on `/bot.py` therefore "
+        "says nothing about `/bot.py`, and whether the tree is public is "
+        "**unknown** rather than clean.",
+        style.WARN,
+        "A single-page-app fallback or a catch-all route is answering for "
+        "missing paths. This is not a leak by itself — but until it is removed "
+        "the site cannot be checked this way, and it hides a real one.",
+    ),
+    "unreachable": (
+        "⚠️ Could not check what the website is serving",
+        "The check ran and the site did not answer, so whether the source tree "
+        "is public was **not** established either way. This is reported rather "
+        "than ignored: a guard that has gone blind looks exactly like a guard "
+        "that found nothing.",
+        style.WARN,
+        "Nothing unless it repeats — a host that is asleep answers like this. "
+        "If it keeps answering this way while the site is up in a browser, "
+        "`SITE_URL` names the wrong address.",
+    ),
+}
+
+
+async def site_guard_alert(bot, verdict) -> bool:
+    """Say what the public site is serving, when it is not simply *nothing*.
+
+    This is the card for the one incident that leaves no trace in the product.
+    When the Pages project published the checkout on 2026-09-19, every page
+    looked correct, the bot stayed connected, and the deploy reported success;
+    the only evidence was a line in a build log. So the card does not describe a
+    symptom, because there is not one — it names what answered and what to do.
+
+    Four states share this entry point because they are one question asked
+    under different conditions, and the operator needs the *difference*: a
+    **DANGER** card for a site publishing the tree, and a **WARN** card for a
+    stale CDN copy, a host that answers everything, or a site that could not be
+    reached. The last three matter as much as the first — the first live run of
+    this check reported a live leak that was only a cached copy, and a guard
+    that has gone blind is indistinguishable from a guard that found nothing,
+    which is how the original exposure stayed invisible.
+    :func:`utils.site_guard.note` decides which of them is worth saying right
+    now, and this just delivers it.
+    """
+    card = _SITE_GUARD_CARDS.get(verdict.status)
+    if card is None:  # `clean` never gets here; `note` does not return for it.
+        return False
+    title, description, colour, remedy = card
+    target = None
+    for role in _NOTICE_ROLES:
+        target = await _channel(bot, role)
+        if target is not None:
+            break
+    if target is None:
+        return False
+
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=colour,
+        timestamp=discord.utils.utcnow(),
+    )
+
+    # What was actually found, in the shape that finding has. Only `exposed` and
+    # `cached` have paths to name; the other two are about the check, not a file.
+    if verdict.status in ("exposed", "cached"):
+        paths = verdict.exposed if verdict.status == "exposed" else verdict.cached_paths
+        embed.add_field(
+            name="Public right now" if verdict.status == "exposed" else "Still served from cache",
+            value="\n".join(f"`/{path}`" for path in paths)[:1024],
+            inline=False,
+        )
+    elif verdict.status == "fallback":
+        embed.add_field(
+            name="A path that does not exist answered",
+            value=f"`HTTP {verdict.control}` for `/{site_guard.CONTROL_PREFIX}-…`",
+            inline=False,
+        )
+    else:
+        embed.add_field(
+            name="No answer for",
+            value="\n".join(f"`/{path}`" for path in verdict.unanswered)[:1024]
+            or "every probe",
+            inline=False,
+        )
+
+    embed.add_field(name="What to do", value=remedy, inline=False)
+    embed.set_footer(
+        text=f"Meow · asked {verdict.site} without its cache · {len(verdict.answers)} paths"
+    )
+    try:
+        await style.send_card(target, embed=embed, timeout=None)
+        return True
+    except Exception as exc:
+        print(f"[LOG] could not report the site check: {exc}", flush=True)
         return False
 
 

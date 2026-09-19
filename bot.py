@@ -974,6 +974,15 @@ async def on_ready():
     except Exception as e:
         print(f"[SCHEDULE] Failed to start the delivery loop: {e}", flush=True)
 
+    # Ask the public site, on a timer, whether it is serving this checkout.
+    # Started here rather than in CI, and started on the bot's own loop because
+    # the only alarm that reaches anybody is a Discord card (see site_guard).
+    try:
+        from keep_alive import start_site_guard
+        start_site_guard(bot)
+    except Exception as e:
+        print(f"[SITE-GUARD] Failed to start the check: {e}", flush=True)
+
     # Every server keeps its own house channels. A server nobody has configured
     # yet is bound by channel name here — once — so a server added today has
     # somewhere to log and announce without anyone running a command.
