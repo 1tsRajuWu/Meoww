@@ -51,10 +51,17 @@ services:
       # they are public in the same way the client id is — a prompt rather than a
       # literal here only because each one belongs to a store. Left blank,
       # /pricing says "No billing yet" and keeps every button on the invite page.
+      # Filling them in does not start selling: PLAN_CHECKOUT does that.
       - key: LEMONSQUEEZY_CHECKOUT_PRO
         sync: false
       - key: LEMONSQUEEZY_CHECKOUT_ENTERPRISE
         sync: false
+      # Whether the plans can be *bought*. A switch, not a credential, so its
+      # value is committed: buying is off, and stays off while the store is set
+      # up, however many checkout URLs are configured. No host shows a Buy button
+      # until this is 1 — the tiers are still described on /pricing.
+      - key: PLAN_CHECKOUT
+        value: "0"
       # Whether a licence is *required* for the paid systems. It is a switch, not
       # a credential, so its value is committed: the deploy has a definite state
       # (plans recorded and shown, nothing withheld) instead of a prompt somebody

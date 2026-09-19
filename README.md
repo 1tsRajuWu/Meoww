@@ -202,22 +202,33 @@ handled by **Lemon Squeezy**; the bot never sees a card, and it validates the
 licence key with the store's own public licence API, so there is no API key to
 store and no webhook endpoint to expose.
 
-**Every system is free today.** Enforcement is off until you set
-`PLAN_ENFORCEMENT=1`: plans are recorded and shown, and nothing is taken away.
-Turning it on holds a server without a licence to the free tier — moderation,
-automod, leveling, fun, games and social — and holds it to one server.
+**Every system is free today, and nothing is on sale.** Two switches hold that
+state, and both are committed at `0` so a deploy has one definite answer instead
+of a prompt somebody answers differently on each host:
+
+| Switch | Off (shipped) | On |
+|---|---|---|
+| `PLAN_CHECKOUT` | no Buy button anywhere, even with the links below filled in; the tiers read as where the project is heading | the paid cards link at the store |
+| `PLAN_ENFORCEMENT` | every server keeps every system; plans are recorded and shown | a server without a licence is held to the free tier — moderation, automod, leveling, fun, games and social — and to one server |
+
+They are separate on purpose. Filling in a checkout link while a store is being
+set up is configuration, not a decision to start taking money, and switching on
+the limits takes systems away from servers using them today.
 
 To sell plans:
 
 1. In Lemon Squeezy, turn **license keys on** for both products (product →
    Settings → Generate license keys) and set the activation limit: 5 for Pro,
    unlimited for Enterprise. That limit *is* the "up to 5 servers" rule — the
-   store counts the activations, not the bot.
+   store counts the activations, not the bot. Until this is on a buyer receives
+   no key to activate.
 2. Paste each product's checkout link (product → **Share → Copy link**) into
-   `LEMONSQUEEZY_CHECKOUT_PRO` and `LEMONSQUEEZY_CHECKOUT_ENTERPRISE`. With them
-   set, the paid cards link at the store; without them the page says
-   "No billing yet" and every button stays on the invite page.
-3. In a server, an administrator runs `/bot plan key:…` with the key from their
+   `LEMONSQUEEZY_CHECKOUT_PRO` and `LEMONSQUEEZY_CHECKOUT_ENTERPRISE`. Nothing is
+   shown for them yet — see the next step.
+3. Set `PLAN_CHECKOUT=1` when you actually want to sell. Until then the page says
+   "No billing yet" and every button stays on the invite page, however many links
+   are configured, which is the state to configure the store in.
+4. In a server, an administrator runs `/bot plan key:…` with the key from their
    receipt. `/bot plan` shows the plan and how many activations are used,
    re-checks the licence with the store, and `remove:true` gives the activation
    back so it can be used in another server.

@@ -88,19 +88,30 @@ jobs:
           # a visitor two different answers about the same product.
           LEMONSQUEEZY_CHECKOUT_PRO: ${{ vars.LEMONSQUEEZY_CHECKOUT_PRO }}
           LEMONSQUEEZY_CHECKOUT_ENTERPRISE: ${{ vars.LEMONSQUEEZY_CHECKOUT_ENTERPRISE }}
+          # Buying is off unless this is 1. Kept alongside the links so a build
+          # here cannot start selling while the bot's own host has it switched
+          # off — the two hosts publish the same page to the same visitors.
+          PLAN_CHECKOUT: ${{ vars.PLAN_CHECKOUT }}
         # The builder exits non-zero if any root-relative URL survives its
         # rewrite, so a link that would 404 on a static host fails the job here
         # rather than in a visitor's browser.
         run: python scripts/build_site.py --out _site --proxy
 
-      - name: Warn when this copy cannot sell
+      - name: Warn when this build intends to sell but cannot
         # A warning rather than a failure: the site is published from a workflow
         # the operator may not have finished configuring, and blocking every
-        # deploy on a variable is how a working site goes stale. Silence is the
-        # thing to avoid, because the two hosts would then disagree in public.
+        # deploy on a variable is how a working site goes stale. It fires only
+        # when selling is *switched on* and the page still has no way to pay —
+        # the state that is a mistake. A build with buying off is not missing
+        # anything; it is doing what it was told, and saying so every push would
+        # be noise that trains the warning away.
+        env:
+          PLAN_CHECKOUT: ${{ vars.PLAN_CHECKOUT }}
         run: |
-          if grep -q "No billing yet" _site/pricing.html; then
-            echo "::warning title=Checkout is not configured::This build has no LEMONSQUEEZY_CHECKOUT_PRO or _ENTERPRISE, so its pricing page says 'No billing yet' while the bot's own host may be selling. Set both as repository variables and re-run."
+          if [ "${PLAN_CHECKOUT:-}" != "1" ]; then
+            echo "Buying is off (PLAN_CHECKOUT is not 1), so this copy has no Buy button by design."
+          elif grep -q "No billing yet" _site/pricing.html; then
+            echo "::warning title=Selling is on but there is no checkout link::PLAN_CHECKOUT is 1 and this build has no LEMONSQUEEZY_CHECKOUT_PRO / _ENTERPRISE, so /pricing advertises the tiers and cannot take a payment. Set both as repository variables and re-run."
           fi
 
       - name: Check the build did not lose its call to action

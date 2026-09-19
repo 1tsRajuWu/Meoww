@@ -11,6 +11,11 @@ Two decisions are kept apart on purpose:
 * the **plan model** — which systems and which limits each tier carries, written
   once here so the pricing page, the command and the enforcement points cannot
   disagree about what "Pro" means;
+* **selling** — whether the tiers can be bought at all. It ships **off**
+  (``PLAN_CHECKOUT``), and it is a switch rather than a consequence of having
+  the checkout URLs, because pasting two links into a host while setting the
+  store up is not a decision to start taking money. With it off there is no Buy
+  button on any host and the tiers read as where the project is heading;
 * **enforcement** — whether a server without a licence is actually held to the
   free tier. It ships **off** (``PLAN_ENFORCEMENT``), because switching it on
   takes systems away from servers that are using them today. That is the
@@ -105,6 +110,13 @@ PLANS: dict[str, Plan] = {plan.id: plan for plan in (FREE, PRO, ENTERPRISE)}
 #: at runtime, because a name built by an f-string is a name no grep finds — and
 #: this repository's own documentation guard reads ``.env.example`` and refuses to
 #: document a variable that appears to be read nowhere.
+#: The switch an operator flips to start *selling*. Off means every Buy button
+#: is gone from every host, whatever checkout URLs happen to be configured.
+SELLING_ENV = "PLAN_CHECKOUT"
+
+#: The switch an operator flips to start *enforcing* the tiers.
+ENFORCEMENT_ENV = "PLAN_ENFORCEMENT"
+
 CHECKOUT_ENV: dict[str, str] = {
     "pro": "LEMONSQUEEZY_CHECKOUT_PRO",
     "enterprise": "LEMONSQUEEZY_CHECKOUT_ENTERPRISE",
@@ -130,6 +142,17 @@ _CACHE: dict[int, str] = {}
 # --------------------------------------------------------------------------- #
 # Is any of this switched on?
 # --------------------------------------------------------------------------- #
+def _switch(name: str) -> bool:
+    """An operator's on/off switch, read fresh every time.
+
+    Spelled out rather than left to ``bool(os.environ.get(...))``, because the
+    empty string and the word "0" are both false strings an operator may well
+    write, and ``bool("0")`` is true — a switch that turns itself on when
+    somebody writes "off" is the worst kind.
+    """
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def enforcement_enabled() -> bool:
     """Whether a licence is *required* for the paid systems.
 
@@ -138,9 +161,19 @@ def enforcement_enabled() -> bool:
     system exactly as before: plans are recorded and displayed, nothing is
     taken away.
     """
-    return os.environ.get("PLAN_ENFORCEMENT", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    return _switch(ENFORCEMENT_ENV)
+
+
+def selling_enabled() -> bool:
+    """Whether the plans can be *bought* right now.
+
+    Off by default, and deliberately separate from having the checkout URLs:
+    setting two environment variables is not a decision to start taking money,
+    and configuring them is exactly when a store is being tested. With this off
+    there is no Buy button anywhere on any host, and the tiers read as what the
+    project is heading towards — which is what the pricing page says in words.
+    """
+    return _switch(SELLING_ENV)
 
 
 # --------------------------------------------------------------------------- #
@@ -302,7 +335,13 @@ def checkout_url(plan: Plan) -> str:
     bot has no business guessing a store's domain, and a Buy button pointing at
     somebody else's storefront is worse than no button. An empty value is the
     honest "not for sale yet" the pricing page renders.
+
+    Gated on :func:`selling_enabled` at this one place, so the switch covers
+    every surface that offers a plan for money — the pricing page on both hosts,
+    and anything added later — rather than each of them remembering to ask.
     """
+    if not selling_enabled():
+        return ""
     return (os.environ.get(CHECKOUT_ENV.get(plan.id, "")) or "").strip()
 
 

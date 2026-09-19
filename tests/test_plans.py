@@ -119,6 +119,35 @@ class PlanModelCase(unittest.TestCase):
         self.assertTrue(plans.PRO_MODULES, "the paid tier withholds nothing")
         self.assertLessEqual(plans.PRO_MODULES, known)
 
+    def test_a_checkout_url_is_only_offered_once_selling_is_switched_on(self):
+        """Filling in a link is setup; the switch is the decision to take money.
+
+        The gate lives in ``checkout_url`` rather than in each caller, so the
+        pricing page on both hosts — and anything added later — is covered by it
+        without having to remember to ask.
+        """
+        pro = "https://store.lemonsqueezy.com/checkout/buy/aaa-pro"
+        ready = {"LEMONSQUEEZY_CHECKOUT_PRO": pro}
+        with mock.patch.dict(os.environ, {**ready, "PLAN_CHECKOUT": "0"}):
+            self.assertFalse(plans.selling_enabled())
+            self.assertEqual(plans.checkout_url(plans.PRO), "")
+        with mock.patch.dict(os.environ, {**ready, "PLAN_CHECKOUT": "1"}):
+            self.assertTrue(plans.selling_enabled())
+            self.assertEqual(plans.checkout_url(plans.PRO), pro)
+
+    def test_the_switch_is_false_for_every_falsey_word_and_not_for_the_string_zero(self):
+        """``bool("0")`` is true, which is why these are spelled out.
+
+        An operator writing ``PLAN_CHECKOUT=off`` means off. A switch that
+        reads its own "off" as on is the one failure a person cannot see.
+        """
+        for value in ("0", "false", "False", "no", "off", "", "  "):
+            with mock.patch.dict(os.environ, {"PLAN_CHECKOUT": value}):
+                self.assertFalse(plans.selling_enabled(), f"{value!r} read as on")
+        for value in ("1", "true", "True", "yes", "on"):
+            with mock.patch.dict(os.environ, {"PLAN_CHECKOUT": value}):
+                self.assertTrue(plans.selling_enabled(), f"{value!r} read as off")
+
     def test_only_the_free_tier_withholds_anything(self):
         """The field means "what this plan is missing", so the paid tiers are empty.
 

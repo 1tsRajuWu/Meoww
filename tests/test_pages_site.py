@@ -260,6 +260,7 @@ class BuiltSiteWithCheckout(unittest.TestCase):
             "DISCORD_CLIENT_ID": "1548380269776605324",
             "LEMONSQUEEZY_CHECKOUT_PRO": cls.CHECKOUT_PRO,
             "LEMONSQUEEZY_CHECKOUT_ENTERPRISE": cls.CHECKOUT_ENTERPRISE,
+            "PLAN_CHECKOUT": "1",
             **extra,
         }
         with mock.patch.dict(os.environ, env):
@@ -286,6 +287,26 @@ class BuiltSiteWithCheckout(unittest.TestCase):
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         self.assertNotIn("Limits are not switched on yet", pricing)
         self.assertIn(self.CHECKOUT_PRO, pricing)
+
+    def test_a_configured_store_does_not_sell_until_the_switch_is_on(self):
+        """Both URLs filled in is configuration, not consent to take money.
+
+        The way this goes wrong is quiet: a store is set up over an evening, one
+        link is pasted into the host, and the page starts charging before anyone
+        meant it to. ``PLAN_CHECKOUT`` is what separates the two, and with it off
+        the tiers are still described — prices, features, all of it — with nothing
+        to click but the invite.
+        """
+        pricing, out = self._build(PLAN_CHECKOUT="0")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        self.assertNotIn("lemonsqueezy.com", pricing, "a Buy link survived the switch")
+        self.assertIn("No billing yet", pricing)
+        self.assertNotIn("Checkout by Lemon Squeezy", pricing)
+        # The premium things stay: this is "not on sale yet", not "not for sale".
+        self.assertIn("₹499", pricing)
+        self.assertIn("₹1,499", pricing)
+        self.assertIn("Message Composer", pricing)
+        self.assertIn("discord.com/oauth2/authorize", pricing)
 
 
 class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):
