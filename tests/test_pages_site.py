@@ -283,6 +283,31 @@ class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):
                 f"{route} rewrite to /{filename} causes a 308 redirect loop on Cloudflare Pages",
             )
 
+    def test_cloudflare_pages_worker_and_routes_are_present(self):
+        """Cloudflare Pages needs _worker.js and _routes.json to proxy dynamic routes."""
+        import json
+        worker_path = Path(self.out) / "_worker.js"
+        routes_path = Path(self.out) / "_routes.json"
+        self.assertTrue(worker_path.is_file(), "_worker.js was not generated")
+        self.assertTrue(routes_path.is_file(), "_routes.json was not generated")
+
+        worker_content = worker_path.read_text(encoding="utf-8")
+        self.assertIn("bot.example.test", worker_content)
+        self.assertIn("/login", worker_content)
+        self.assertIn("/dashboard", worker_content)
+
+        routes_data = json.loads(routes_path.read_text(encoding="utf-8"))
+        self.assertIn("/login", routes_data["include"])
+        self.assertIn("/dashboard", routes_data["include"])
+
+    def test_proxy_mode_keeps_dynamic_links_relative(self):
+        """In proxy mode, dynamic links stay on the Cloudflare domain rather than redirecting."""
+        self.assertEqual(build_site.rewrite_url("/login", LIVE, proxy_mode=True), "/login")
+        self.assertEqual(build_site.rewrite_url("/dashboard", LIVE, proxy_mode=True), "/dashboard")
+        self.assertEqual(build_site.rewrite_url("/servers", LIVE, proxy_mode=True), "/servers")
+        # Static files and assets still rewrite properly
+        self.assertEqual(build_site.rewrite_url("/pricing", LIVE, proxy_mode=True), "pricing.html")
+
 
 class TheLiveSiteIsNotAffected(unittest.TestCase):
     """The static flag must not change what a running bot says about itself."""

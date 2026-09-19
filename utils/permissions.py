@@ -231,6 +231,10 @@ COMMAND_ACCESS: dict[str, str] = {
     # command is the administrator's way in, while the /help panel's 🐞 button
     # stays open to everyone who finds something broken.
     "bot bug": ADMIN,
+    # A server's own licence: the administrator of *that* server spends the
+    # activation on it, which is why this is not the operator's OWNER tier. The
+    # key is the proof of purchase, so there is nothing here to guess at.
+    "bot plan": ADMIN,
     "dbstatus": ADMIN,
     # -- Activity Tracker: admin-only for management ---------------------- #
     "activity me": ADMIN,

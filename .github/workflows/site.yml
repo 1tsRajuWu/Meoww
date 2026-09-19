@@ -84,7 +84,7 @@ jobs:
         # The builder exits non-zero if any root-relative URL survives its
         # rewrite, so a link that would 404 on a static host fails the job here
         # rather than in a visitor's browser.
-        run: python scripts/build_site.py --out _site
+        run: python scripts/build_site.py --out _site --proxy
 
       - name: Check the build did not lose its call to action
         # The templates omit the invite button when no client id is known, so a
@@ -96,7 +96,7 @@ jobs:
             exit 1
           }
 
-      - name: Check the published copy carries its security headers
+      - name: Check the published copy carries its security headers and proxy worker
         # A static host has no Flask, so the CSP, frame denial and HSTS the bot
         # serves come from `_headers` or from nowhere at all. Without this step a
         # build that dropped the file would deploy the least-protected copy of
@@ -107,6 +107,8 @@ jobs:
           grep -q "Content-Security-Policy" _site/_headers
           grep -q "frame-ancestors 'none'" _site/_headers
           test -f _site/_redirects
+          test -f _site/_worker.js
+          test -f _site/_routes.json
 
       - name: Check the cat cursor is still fetchable
         # A cursor image that 404s is invisible everywhere except to a person

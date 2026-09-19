@@ -98,7 +98,7 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
             # so changing a line does not need a redeploy. It is one subcommand
             # with optional options rather than five, because these slots are a
             # budget — see the test below.
-            {"avatar", "banner", "bug", "db", "push", "status", "sync"},
+            {"avatar", "banner", "bug", "db", "plan", "push", "status", "sync"},
         )
 
     def test_the_tree_keeps_a_slot_free(self):

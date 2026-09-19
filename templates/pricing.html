@@ -12,50 +12,6 @@
     <link rel="stylesheet" href="/static/meow.css">
     <style>
         /* Pricing page specific styles */
-        .billing-toggle {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-4);
-            margin-top: var(--space-5);
-        }
-
-        .toggle-btn {
-            position: relative;
-            width: 56px;
-            height: 30px;
-            border-radius: var(--radius-pill);
-            background: var(--surface-hover);
-            border: 1px solid var(--border-active);
-            cursor: pointer;
-            transition: background var(--base) var(--ease), border-color var(--base) var(--ease);
-        }
-
-        .toggle-btn:hover {
-            border-color: var(--accent);
-        }
-
-        .toggle-btn[aria-pressed="true"] {
-            background: var(--accent);
-            border-color: var(--accent);
-        }
-
-        .toggle-btn .knob {
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #fff;
-            box-shadow: var(--shadow-sm);
-            transition: transform var(--base) var(--ease);
-        }
-
-        .toggle-btn[aria-pressed="true"] .knob {
-            transform: translateX(26px);
-        }
-
         .pricing-cards {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -142,17 +98,6 @@
             color: var(--text-muted);
             font-weight: 400;
             display: inline-block;
-            transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
-        }
-
-        .price .num {
-            display: inline-block;
-            transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
-        }
-        
-        .price .num.switching, .price .period.switching {
-            opacity: 0;
-            transform: translateY(-4px);
         }
 
         .features-list {
@@ -311,35 +256,53 @@
                 Everything you need to grow your community. Upgrade when you need more power, custom branding, or priority support.
             </p>
 
-            <div class="billing-toggle reveal" style="--i: 2">
-                <span class="label">Monthly</span>
-                <button type="button" class="toggle-btn" id="billingToggle" aria-pressed="false" aria-label="Toggle yearly billing">
-                    <span class="knob"></span>
-                </button>
-                <span class="label">Yearly <span class="pill pill-ok">Save 20%</span></span>
-            </div>
+            {#
+              No yearly switch. Both products in the store are monthly
+              subscriptions, so a toggle that halved the number and promised
+              "Save 20%" was offering a price nobody could be charged — the same
+              defect as a dead button, one layer further in.
+            #}
+            <p class="dim reveal" style="--i: 2; margin: 0">
+                Billed monthly in Indian rupees. Cancel any time.
+            </p>
         </section>
 
         <section class="page" style="padding-top: 0">
             {#
-              Nothing here can be bought. Every system these tiers describe is
-              switched on and free in every server today, so a page that lists
-              prices and says nothing else is a page that charges for what the
-              visitor can already have — and the two buttons that used to sit on
-              the paid cards went nowhere at all. This says what is true, once,
-              before the prices rather than under them.
+              What a visitor must know before reading a price, and the only place
+              that knows it is the deployment: whether checkout is wired at all,
+              and whether the tiers are actually enforced. A page that states
+              neither is a page that can be wrong in two directions — charging for
+              what is already free, or promising limits that do not exist.
             #}
             <div class="card glass reveal" style="max-width: 760px; margin: 0 auto;">
                 <div class="panel-head" style="justify-content: center; text-align: center">
                     <div>
-                        <span class="pill pill-ok">No billing yet</span>
-                        <h3 style="margin: 10px 0 6px">Every plan on this page is free today</h3>
-                        <p class="dim" style="margin: 0">
-                            There is no checkout and nothing to pay: add {{ bot_name }} and every
-                            system below is available in your server right now. These tiers say
-                            where the project is heading, so you know what is coming — not what
-                            is being charged.
-                        </p>
+                        {% if checkout_ready %}
+                            <span class="pill pill-ok">Checkout by Lemon Squeezy</span>
+                            <h3 style="margin: 10px 0 6px">Buy a plan, or keep using everything for free</h3>
+                            <p class="dim" style="margin: 0">
+                                Payment is handled by Lemon Squeezy — the card details never reach
+                                {{ bot_name }}. You get a licence key, and an administrator of your
+                                server runs <code>/bot plan key:…</code> once to activate it; one key
+                                covers as many servers as your plan allows, and releasing one here
+                                gives nothing away that you cannot take back.
+                                {% if not plans_enforced %}
+                                    <strong>Limits are not switched on yet</strong>, so nothing you
+                                    already use is taken away while you decide: paying supports the
+                                    bot, and the tiers below are what they will be held to.
+                                {% endif %}
+                            </p>
+                        {% else %}
+                            <span class="pill pill-ok">No billing yet</span>
+                            <h3 style="margin: 10px 0 6px">Every plan on this page is free today</h3>
+                            <p class="dim" style="margin: 0">
+                                There is no checkout and nothing to pay: add {{ bot_name }} and every
+                                system below is available in your server right now. These tiers say
+                                where the project is heading, so you know what is coming — not what
+                                is being charged.
+                            </p>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -352,7 +315,7 @@
                 <div class="card card-hover pricing-card reveal" style="--i: 3">
                     <h3>Free</h3>
                     <div class="price">
-                        $<span class="static-num">0</span><span class="period static-period">/mo</span>
+                        <span class="static-num">{{ price_free }}</span><span class="period static-period">/mo</span>
                     </div>
                     <p class="dim">Perfect for getting started</p>
                     
@@ -375,7 +338,7 @@
                     <span class="tier-badge">Most Popular</span>
                     <h3>Pro</h3>
                     <div class="price">
-                        $<span class="num" data-monthly="4.99" data-yearly="47.88">4.99</span><span class="period dynamic-period">/mo</span>
+                        <span class="static-num">{{ price_pro }}</span><span class="period static-period">/mo</span>
                     </div>
                     <p class="dim">Power up your communities</p>
                     
@@ -393,14 +356,18 @@
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Bot Identity (per server)</li>
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Real-time backups</li>
                     </ul>
-                    <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free today' if invite_url else 'Open the dashboard' }}</a>
+                    {% if checkout_pro %}
+                        <a href="{{ checkout_pro }}" class="btn btn-primary btn-block" rel="noopener">Get Pro — {{ price_pro }}/mo</a>
+                    {% else %}
+                        <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free today' if invite_url else 'Open the dashboard' }}</a>
+                    {% endif %}
                 </div>
 
                 <!-- Enterprise Tier -->
                 <div class="card card-hover pricing-card reveal" style="--i: 5">
                     <h3>Enterprise</h3>
                     <div class="price">
-                        $<span class="num" data-monthly="14.99" data-yearly="143.88">14.99</span><span class="period dynamic-period">/mo</span>
+                        <span class="static-num">{{ price_enterprise }}</span><span class="period static-period">/mo</span>
                     </div>
                     <p class="dim">For large networks & brands</p>
                     
@@ -412,7 +379,11 @@
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Priority Discord Support</li>
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Custom backup schedule</li>
                     </ul>
-                    <a href="/servers" class="btn btn-block">Open the dashboard</a>
+                    {% if checkout_enterprise %}
+                        <a href="{{ checkout_enterprise }}" class="btn btn-block" rel="noopener">Get Enterprise — {{ price_enterprise }}/mo</a>
+                    {% else %}
+                        <a href="/servers" class="btn btn-block">Open the dashboard</a>
+                    {% endif %}
                 </div>
             </div>
         </section>
@@ -498,7 +469,9 @@
                 </div>
                 <div class="faq-item reveal" style="--i: 10">
                     <h4>Can I cancel anytime?</h4>
-                    <p>Yes, you can cancel your subscription at any time from the dashboard. Your benefits will remain active until the end of your billing cycle.</p>
+                    <p>Yes, at any time from the link on your Lemon Squeezy receipt. The plan stays active on
+                    your servers until the end of the period you already paid for, and the licence key in
+                    <code>/bot plan</code> stops working after that.</p>
                 </div>
                 <div class="faq-item reveal" style="--i: 11">
                     <h4>Is my data safe?</h4>
@@ -545,37 +518,6 @@
                 });
             }, { rootMargin: "0px 0px -40px 0px" });
             items.forEach(function (item) { seen.observe(item); });
-        })();
-
-        // Monthly/Yearly toggle
-        (function() {
-            const toggle = document.getElementById('billingToggle');
-            if (!toggle) return;
-            
-            const priceNums = document.querySelectorAll('.price .num');
-            const pricePeriods = document.querySelectorAll('.price .dynamic-period');
-            
-            toggle.addEventListener('click', () => {
-                const isYearly = toggle.getAttribute('aria-pressed') === 'true';
-                toggle.setAttribute('aria-pressed', !isYearly);
-                
-                priceNums.forEach(el => {
-                    el.classList.add('switching');
-                    setTimeout(() => {
-                        const price = !isYearly ? el.dataset.yearly : el.dataset.monthly;
-                        el.textContent = price;
-                        el.classList.remove('switching');
-                    }, 120);
-                });
-
-                pricePeriods.forEach(el => {
-                    el.classList.add('switching');
-                    setTimeout(() => {
-                        el.textContent = !isYearly ? '/yr' : '/mo';
-                        el.classList.remove('switching');
-                    }, 120);
-                });
-            });
         })();
 
         // Mobile Nav Toggle

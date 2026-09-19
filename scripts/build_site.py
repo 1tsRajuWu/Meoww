@@ -77,6 +77,18 @@ _ATTR = re.compile(r'\b(href|src|action|poster)\s*=\s*"([^"]*)"', re.IGNORECASE)
 _CSS_URL = re.compile(r"url\(\s*(['\"]?)([^'\")]+)\1\s*\)", re.IGNORECASE)
 
 
+#: Dynamic paths reverse-proxied through Cloudflare Pages to the Render backend.
+PROXIED_ROUTES = (
+    "/login",
+    "/logout",
+    "/dashboard",
+    "/servers",
+    "/api",
+    "/market",
+    "/health",
+)
+
+
 def _split_suffix(url: str) -> tuple[str, str]:
     """``/pricing#faq`` -> ``('/pricing', '#faq')``; the query/fragment is kept."""
     for index, char in enumerate(url):
@@ -85,7 +97,13 @@ def _split_suffix(url: str) -> tuple[str, str]:
     return url, ""
 
 
-def rewrite_url(url: str, live_app: str, *, from_stylesheet: bool = False) -> str:
+def rewrite_url(
+    url: str,
+    live_app: str,
+    *,
+    from_stylesheet: bool = False,
+    proxy_mode: bool = False,
+) -> str:
     """One URL, made correct for a static site served from a subpath.
 
     Pure and total: anything already absolute, external, a fragment or a data
@@ -123,13 +141,17 @@ def rewrite_url(url: str, live_app: str, *, from_stylesheet: bool = False) -> st
             target = "./" if filename == "index.html" else filename
             return target + suffix
 
+    # In proxy mode, dynamic routes stay on the same origin (handled by _worker.js)
+    if proxy_mode and (path in PROXIED_ROUTES or any(path.startswith(r + "/") for r in PROXIED_ROUTES)):
+        return raw
+
     # 3. Everything else needs the live process: send the visitor there rather
     #    than to a dead relative path. This is the whole class of pages a static
     #    host cannot serve — the dashboard, sign-in, the market, the health line.
     return live_app.rstrip("/") + raw
 
 
-def rewrite_html(text: str, live_app: str) -> str:
+def rewrite_html(text: str, live_app: str, *, proxy_mode: bool = False) -> str:
     """Every URL a rendered page carries, rewritten in one pass.
 
     Inline ``<style>`` blocks get the stylesheet's rule, not the page's — the
@@ -138,11 +160,11 @@ def rewrite_html(text: str, live_app: str) -> str:
     file needs the bare form, which is why ``rewrite_css`` exists separately.
     """
     text = _ATTR.sub(
-        lambda match: f'{match.group(1)}="{rewrite_url(match.group(2), live_app)}"',
+        lambda match: f'{match.group(1)}="{rewrite_url(match.group(2), live_app, proxy_mode=proxy_mode)}"',
         text,
     )
     return _CSS_URL.sub(
-        lambda match: f"url('{rewrite_url(match.group(2), live_app)}')",
+        lambda match: f"url('{rewrite_url(match.group(2), live_app, proxy_mode=proxy_mode)}')",
         text,
     )
 
@@ -155,7 +177,7 @@ def rewrite_css(text: str, live_app: str) -> str:
     )
 
 
-def _clean_targets(text: str, live_app: str) -> list[str]:
+def _clean_targets(text: str, live_app: str, *, proxy_mode: bool = False) -> list[str]:
     """Root-relative URLs that survived rewriting — a defect if non-empty.
 
     Kept explicit and used as an assertion rather than trusted to the regexes:
@@ -166,6 +188,9 @@ def _clean_targets(text: str, live_app: str) -> list[str]:
     for match in _ATTR.finditer(text):
         value = match.group(2)
         if value.startswith("/") and not value.startswith("//"):
+            path, _ = _split_suffix(value)
+            if proxy_mode and (path in PROXIED_ROUTES or any(path.startswith(r + "/") for r in PROXIED_ROUTES)):
+                continue
             leftovers.append(value)
     for match in _CSS_URL.finditer(text):
         value = match.group(2)
@@ -296,8 +321,115 @@ def _sitemap(pages, live_app: str) -> str:
     )
 
 
-def build(out_dir: str, live_app: str, site_url: str = "") -> dict:
+def _worker_file(backend_host: str = "meow-discord-bot.onrender.com") -> str:
+    """Cloudflare Pages Advanced Mode Worker (_worker.js).
+
+    Reverse-proxies dynamic bot/dashboard routes to Render while keeping
+    the visitor on the Cloudflare domain.
+    """
+    return f"""/**
+ * Cloudflare Pages Advanced Mode Worker (_worker.js)
+ * Reverse-proxies dynamic routes to the backend on Render
+ * so visitors stay on the Cloudflare domain.
+ */
+const BACKEND_HOST = "{backend_host}";
+
+const DYNAMIC_PREFIXES = [
+  "/login",
+  "/logout",
+  "/dashboard",
+  "/servers",
+  "/api",
+  "/market",
+  "/health"
+];
+
+export default {{
+  async fetch(request, env) {{
+    const url = new URL(request.url);
+
+    const isDynamic = DYNAMIC_PREFIXES.some(
+      (p) => url.pathname === p || url.pathname.startsWith(p + "/")
+    );
+
+    if (isDynamic) {{
+      const backendUrl = new URL(request.url);
+      backendUrl.hostname = BACKEND_HOST;
+      backendUrl.protocol = "https:";
+      backendUrl.port = "";
+
+      const reqHeaders = new Headers(request.headers);
+      reqHeaders.set("X-Forwarded-Host", url.host);
+      reqHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
+
+      const proxyReq = new Request(backendUrl.toString(), {{
+        method: request.method,
+        headers: reqHeaders,
+        body: request.body,
+        redirect: "manual"
+      }});
+
+      const response = await fetch(proxyReq);
+
+      const resHeaders = new Headers(response.headers);
+      const location = resHeaders.get("Location");
+      if (location) {{
+        try {{
+          const locUrl = new URL(location, backendUrl.origin);
+          if (locUrl.hostname === BACKEND_HOST) {{
+            resHeaders.set("Location", locUrl.pathname + locUrl.search + locUrl.hash);
+          }}
+        }} catch {{
+          // Relative location, keep as is
+        }}
+      }}
+
+      return new Response(response.body, {{
+        status: response.status,
+        statusText: response.statusText,
+        headers: resHeaders
+      }});
+    }}
+
+    return env.ASSETS.fetch(request);
+  }}
+}};
+"""
+
+
+def _routes_file() -> str:
+    """Cloudflare Pages _routes.json defining which paths trigger the Worker."""
+    return """{
+  "version": 1,
+  "include": [
+    "/login",
+    "/login/*",
+    "/logout",
+    "/dashboard",
+    "/dashboard/*",
+    "/servers",
+    "/servers/*",
+    "/api/*",
+    "/market",
+    "/market/*",
+    "/health"
+  ],
+  "exclude": [
+    "/static/*"
+  ]
+}
+"""
+
+
+def build(
+    out_dir: str,
+    live_app: str,
+    site_url: str = "",
+    *,
+    proxy_mode: bool = False,
+) -> dict:
     """Render the site into ``out_dir``. Returns a small report."""
+    import urllib.parse
     import keep_alive  # noqa: PLC0415 — imported late so ``--help`` stays instant
     from utils import discord_auth  # noqa: PLC0415
 
@@ -313,8 +445,8 @@ def build(out_dir: str, live_app: str, site_url: str = "") -> dict:
                 "the site would ship a broken page."
             )
         body = response.get_data(as_text=True)
-        body = rewrite_html(body, live_app)
-        leftovers = _clean_targets(body, live_app)
+        body = rewrite_html(body, live_app, proxy_mode=proxy_mode)
+        leftovers = _clean_targets(body, live_app, proxy_mode=proxy_mode)
         if leftovers:
             report["leftovers"].append((filename, sorted(set(leftovers))))
         target = os.path.join(out_dir, filename)
@@ -334,7 +466,7 @@ def build(out_dir: str, live_app: str, site_url: str = "") -> dict:
         with open(path, "r", encoding="utf-8") as handle:
             css = handle.read()
         css = rewrite_css(css, live_app)
-        leftovers = _clean_targets(css, live_app)
+        leftovers = _clean_targets(css, live_app, proxy_mode=proxy_mode)
         if leftovers:
             report["leftovers"].append((name, sorted(set(leftovers))))
         with open(path, "w", encoding="utf-8") as handle:
@@ -351,6 +483,12 @@ def build(out_dir: str, live_app: str, site_url: str = "") -> dict:
         handle.write(_headers_file())
     with open(os.path.join(out_dir, "_redirects"), "w", encoding="utf-8") as handle:
         handle.write(_redirects_file())
+    # Cloudflare Pages Advanced Mode worker and routing config for reverse-proxying
+    backend_host = urllib.parse.urlsplit(live_app).netloc or "meow-discord-bot.onrender.com"
+    with open(os.path.join(out_dir, "_worker.js"), "w", encoding="utf-8") as handle:
+        handle.write(_worker_file(backend_host))
+    with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as handle:
+        handle.write(_routes_file())
     with open(os.path.join(out_dir, "404.html"), "w", encoding="utf-8") as handle:
         handle.write(_not_found_page(live_app))
     with open(os.path.join(out_dir, "robots.txt"), "w", encoding="utf-8") as handle:
@@ -381,6 +519,12 @@ def main() -> int:
         default=os.environ.get("SITE_URL", ""),
         help="public base URL of the built site, used for sitemap.xml",
     )
+    parser.add_argument(
+        "--proxy",
+        action="store_true",
+        default=os.environ.get("CLOUDFLARE_PROXY", "").strip().lower() in ("1", "true", "yes"),
+        help="keep dynamic URLs relative so Cloudflare Pages reverse-proxies them",
+    )
     args = parser.parse_args()
 
     # Must happen before ``keep_alive`` is imported: it reads the environment at
@@ -391,7 +535,7 @@ def main() -> int:
     # resolves.
     os.environ["MEOW_STATIC_SITE"] = "1"
 
-    report = build(args.out, args.live_url, args.site_url)
+    report = build(args.out, args.live_url, args.site_url, proxy_mode=args.proxy)
     for route, filename, size in report["pages"]:
         print(f"  {route:<10} -> {filename}  ({size:,} bytes)")
     if not report["invite"]:

@@ -253,6 +253,24 @@ async def setup():
             PRIMARY KEY (guild_id, module_name)
         )''')
 
+        # One row per server that activated a licence. The activation itself is
+        # counted by Lemon Squeezy against the licence, so this is the bot's
+        # record of *which* server spent it — the store is the authority on how
+        # many are left.
+        await db.execute('''CREATE TABLE IF NOT EXISTS guild_plans (
+            guild_id INTEGER PRIMARY KEY,
+            plan TEXT,
+            license_key TEXT,
+            instance_id TEXT,
+            license_status TEXT,
+            activation_limit INTEGER DEFAULT 0,
+            activation_usage INTEGER DEFAULT 0,
+            customer_email TEXT,
+            activated_by INTEGER,
+            activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            checked_at TIMESTAMP
+        )''')
+
         await db.execute('''CREATE TABLE IF NOT EXISTS loans (
             user_id INTEGER,
             guild_id INTEGER,
@@ -665,6 +683,115 @@ async def add_mod_case(guild_id: int, case_type: str, user_id: int, moderator_id
         return cursor.lastrowid
 
 
+
+
+def read_plan_sync(guild_id: int) -> dict | None:
+    """The licence row for a server, or ``None`` when it never activated one.
+
+    Raises on failure so a caller can tell "no licence" from "could not read":
+    ``utils.plans`` treats a read error as the free plan, and silently returning
+    ``None`` for a broken database would look identical to an honest free tier.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            '''SELECT plan, license_key, instance_id, license_status,
+                      activation_limit, activation_usage, customer_email,
+                      activated_by, activated_at, checked_at
+                 FROM guild_plans WHERE guild_id = ?''',
+            (guild_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        columns = (
+            "plan", "license_key", "instance_id", "license_status",
+            "activation_limit", "activation_usage", "customer_email",
+            "activated_by", "activated_at", "checked_at",
+        )
+        return dict(zip(columns, row))
+    finally:
+        conn.close()
+
+
+def write_plan_sync(guild_id: int, row: dict) -> bool:
+    """Record a server's activated licence. Returns True on success."""
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute('''INSERT INTO guild_plans
+                (guild_id, plan, license_key, instance_id, license_status,
+                 activation_limit, activation_usage, customer_email, activated_by,
+                 activated_at, checked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                plan = excluded.plan,
+                license_key = excluded.license_key,
+                instance_id = excluded.instance_id,
+                license_status = excluded.license_status,
+                activation_limit = excluded.activation_limit,
+                activation_usage = excluded.activation_usage,
+                customer_email = excluded.customer_email,
+                activated_by = excluded.activated_by,
+                activated_at = CURRENT_TIMESTAMP,
+                checked_at = CURRENT_TIMESTAMP''',
+            (
+                int(guild_id), str(row.get("plan") or ""), str(row.get("license_key") or ""),
+                str(row.get("instance_id") or ""), str(row.get("license_status") or ""),
+                int(row.get("activation_limit") or 0), int(row.get("activation_usage") or 0),
+                str(row.get("customer_email") or ""),
+                row.get("activated_by"),
+            ),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[PLANS] ❌ Failed to save the plan for guild {guild_id}: {e}", flush=True)
+        return False
+    finally:
+        conn.close()
+
+
+def write_plan_checked_sync(guild_id: int, *, status: str, activation_limit: int,
+                            activation_usage: int) -> bool:
+    """Record the result of re-validating a licence.
+
+    Only the fields the licence API answers with are touched — the plan and the
+    key stay as they were, so a cancelled subscription shows as non-active
+    without losing which licence it was.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute('''UPDATE guild_plans
+                         SET license_status = ?, activation_limit = ?,
+                             activation_usage = ?, checked_at = CURRENT_TIMESTAMP
+                       WHERE guild_id = ?''',
+                    (str(status or ""), int(activation_limit or 0),
+                     int(activation_usage or 0), int(guild_id)))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[PLANS] ❌ Failed to record the licence check for guild {guild_id}: {e}", flush=True)
+        return False
+    finally:
+        conn.close()
+
+
+def clear_plan_sync(guild_id: int) -> bool:
+    """Forget a server's licence (after the store released the activation)."""
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute('DELETE FROM guild_plans WHERE guild_id = ?', (int(guild_id),))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[PLANS] ❌ Failed to clear the plan for guild {guild_id}: {e}", flush=True)
+        return False
+    finally:
+        conn.close()
 
 
 def read_guild_modules_sync(guild_id: int) -> dict:

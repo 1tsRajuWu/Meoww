@@ -42,8 +42,8 @@ import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
-    command_scope, db, digest, discord_auth, features, identity, modules, scheduled,
-    webdocs,
+    command_scope, db, digest, discord_auth, features, identity, modules, plans,
+    scheduled, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -232,6 +232,15 @@ def dashboard_base_url() -> str:
     explicit = (os.environ.get("DASHBOARD_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
+    try:
+        from flask import has_request_context, request
+        if has_request_context() and _trust_proxy_headers:
+            forwarded_host = (request.headers.get("X-Forwarded-Host") or "").strip()
+            if forwarded_host:
+                proto = (request.headers.get("X-Forwarded-Proto") or "https").strip()
+                return f"{proto}://{forwarded_host}".rstrip("/")
+    except Exception:
+        pass
     # Render sets this to the service's public URL automatically.
     hosted = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
     if hosted:
@@ -496,7 +505,9 @@ def _visible_guilds():
     if scope == "guild":
         gid = _int_or_none(session.get("guild_id"))
         return [known[gid]] if gid in known else []
-    return list(known.values())
+    if scope == "global":
+        return list(known.values())
+    return []
 
 
 def _guild_icon(guild_id) -> str:
@@ -607,6 +618,9 @@ def _resolve_guild_id(requested=None):
         # Someone who manages none of them is not an error: they are signed in,
         # and the picker's job is to tell them what to do about it.
         return min(allowed) if allowed else None
+
+    if session.get("auth_scope") != "global":
+        return None
 
     session_guild = session.get("guild_id")
     candidates = []
@@ -1154,9 +1168,26 @@ def policy_terms():
     return _policy_page("terms")
 
 
+def _checkout_url(plan_id: str) -> str:
+    """The Lemon Squeezy hosted checkout for one tier, when there is one.
+
+    Read from the environment because a checkout URL belongs to a *store*, not
+    to this code: the bot has no business guessing a store's domain, and a Buy
+    button pointing at somebody else's storefront is worse than no button. An
+    empty value is the honest "not for sale yet" the page renders.
+    """
+    return (os.environ.get(f"LEMONSQUEEZY_CHECKOUT_{plan_id}") or "").strip()
+
+
 @app.route("/pricing")
 def pricing_page():
     name = _bot_display_name()
+    # The prices and the limits come from the model the bot enforces, so the page
+    # cannot advertise a tier or a number the code does not know about — and the
+    # "is this enforced yet" sentence is read from the deployment rather than
+    # written into the template, because it is a fact about this process.
+    checkout_pro = _checkout_url("PRO")
+    checkout_enterprise = _checkout_url("ENTERPRISE")
     return render_template(
         "pricing.html",
         bot_name=name,
@@ -1164,6 +1195,13 @@ def pricing_page():
         invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
         enter_url="/login",
         enter_label="Sign in",
+        price_free=plans.FREE.price,
+        price_pro=plans.PRO.price,
+        price_enterprise=plans.ENTERPRISE.price,
+        checkout_pro=checkout_pro,
+        checkout_enterprise=checkout_enterprise,
+        checkout_ready=bool(checkout_pro or checkout_enterprise),
+        plans_enforced=plans.enforcement_enabled(),
     )
 
 
@@ -1634,7 +1672,7 @@ def dashboard():
             {"minutes": minutes, "label": label}
             for minutes, label in scheduled.REPEAT_CHOICES
         ],
-        schedule_max_pending=scheduled.MAX_PENDING_PER_GUILD,
+        schedule_max_pending=plans.scheduled_cap(guild_id, scheduled.MAX_PENDING_PER_GUILD),
         schedule_catchup_hours=scheduled.MISS_CATCHUP_SECONDS // 3600,
         # Offered from the registry the endpoint validates against, so the page can
         # only choose a content source the bot can actually build.
@@ -1664,6 +1702,21 @@ def api_toggle():
         return jsonify({"success": False, "error": "No guild available"}), 400
     if module_id not in ALLOWED_MODULE_IDS:
         return jsonify({"success": False, "error": "Unknown module"}), 400
+
+    # A system this server's plan does not include is refused in its own words.
+    # ``modules.set_enabled`` refuses it too (that is what keeps every reader
+    # agreeing), but it can only answer "could not save", and a switch that
+    # springs back with no reason is the kind of defect this dashboard has
+    # already been reported for twice.
+    if enabled and not plans.feature_allowed(guild_id, module_id):
+        return jsonify({
+            "success": False,
+            "error": (
+                f"{module_id} is part of a paid plan this server does not have. "
+                "Activate a licence with /bot plan to switch it on."
+            ),
+            "plan_required": True,
+        }), 403
 
     session["guild_id"] = guild_id
 
@@ -1735,7 +1788,15 @@ def api_toggle_all():
 
     session["guild_id"] = guild_id
 
-    failed = modules.set_many(guild_id, {m["id"]: enabled for m in AVAILABLE_MODULES})
+    # "Enable all" means every system this server *may* have: offering the ones
+    # its plan withholds would fail the whole bulk save over modules that are
+    # not available to it at all.
+    wanted = {
+        m["id"]: enabled
+        for m in AVAILABLE_MODULES
+        if not enabled or plans.feature_allowed(guild_id, m["id"])
+    }
+    failed = modules.set_many(guild_id, wanted)
 
     if failed:
         return jsonify({
@@ -2683,7 +2744,7 @@ def _schedule_view(guild, msg: dict) -> dict:
 def _scheduled_counts(guild_id: int) -> dict:
     return {
         "pending": scheduled.pending_count(guild_id),
-        "max_pending": scheduled.MAX_PENDING_PER_GUILD,
+        "max_pending": plans.scheduled_cap(guild_id, scheduled.MAX_PENDING_PER_GUILD),
         "catchup_hours": scheduled.MISS_CATCHUP_SECONDS // 3600,
     }
 
@@ -2788,10 +2849,11 @@ def api_schedule_message():
         now=now,
     )
     if msg_id is None:
+        cap = plans.scheduled_cap(guild_id, scheduled.MAX_PENDING_PER_GUILD)
         return jsonify({
             "success": False,
             "error": (
-                f"This server already has {scheduled.MAX_PENDING_PER_GUILD} scheduled "
+                f"This server already has {cap} scheduled "
                 "messages — cancel one before adding another."
             ),
             "server_now": now,

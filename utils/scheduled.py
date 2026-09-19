@@ -22,7 +22,7 @@ dashboard waits for the bot instead of failing.
 """
 import json
 
-from utils import db
+from utils import db, plans
 
 #: How far in the future a message may be scheduled (a year), how soon it may
 #: fire, and how much clock skew between the browser and the server is forgiven.
@@ -120,7 +120,9 @@ def create(
             "SELECT COUNT(*) FROM scheduled_messages WHERE guild_id = ? AND status = 'pending'",
             (guild_id,),
         ).fetchone()[0]
-        if pending >= MAX_PENDING_PER_GUILD:
+        # The cap is the server's own: a plan may lower the queue, and no plan
+        # raises it past this ceiling. Dormant by default — see utils.plans.
+        if pending >= plans.scheduled_cap(guild_id, MAX_PENDING_PER_GUILD):
             return None
         cur.execute(
             """INSERT INTO scheduled_messages

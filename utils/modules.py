@@ -17,13 +17,17 @@ from __future__ import annotations
 
 import threading
 
-from utils import db, features
+from utils import db, features, plans
 
 # guild_id -> {module_id: bool}  (already merged with each feature's default)
 CACHE: dict[int, dict[str, bool]] = {}
 _lock = threading.RLock()
 
 _unknown_warned: set[str] = set()
+
+#: (guild, module) pairs already reported as part of a plan the server lacks, so
+#: a gated system is explained once instead of on every command that asks.
+_plan_blocked_warned: set[tuple[int, str]] = set()
 
 
 def defaults() -> dict[str, bool]:
@@ -63,12 +67,34 @@ def refresh(guild_id: int) -> dict[str, bool]:
 
 
 def get_states(guild_id: int) -> dict[str, bool]:
-    """Cached module states for a guild (loaded from the DB on first use)."""
+    """Cached module states for a guild (loaded from the DB on first use).
+
+    The server's plan is layered on **here** rather than at each gate, because
+    three things read module state through this one function — the command
+    interceptor, the per-server command list and the dashboard cards — and a
+    paid system the server does not have has to be off in one place or those
+    three end up disagreeing about the same server. Dormant by default: while
+    ``plans.enforcement_enabled()`` is false nothing is withheld and this is a
+    plain cache read.
+    """
     with _lock:
         cached = CACHE.get(guild_id)
-    if cached is not None:
-        return cached
-    return refresh(guild_id)
+    states = cached if cached is not None else refresh(guild_id)
+    blocked = plans.blocked_modules(guild_id)
+    if not blocked:
+        return states
+    gated = dict(states)
+    for module_id in blocked:
+        if gated.get(module_id):
+            if (guild_id, module_id) not in _plan_blocked_warned:
+                _plan_blocked_warned.add((guild_id, module_id))
+                print(
+                    f"[MODULES] ⚠️ '{module_id}' is part of a paid plan guild "
+                    f"{guild_id} does not have — treating it as off.",
+                    flush=True,
+                )
+            gated[module_id] = False
+    return gated
 
 
 def is_enabled(guild_id: int, module_id: str) -> bool:
@@ -109,6 +135,17 @@ def set_enabled(guild_id: int, module_id: str, enabled: bool) -> bool:
         return False
     if not feature.toggleable:
         print(f"[MODULES] ⚠️ '{module_id}' is a core feature and cannot be toggled", flush=True)
+        return False
+    if enabled and not plans.feature_allowed(guild_id, module_id):
+        # The dashboard's switch posts here, so refusing is what stops a page
+        # from showing "on" for a system every other reader hides. Turning a
+        # gated system *off* is still allowed: that is a harmless thing to want
+        # and nothing depends on it being refused.
+        print(
+            f"[MODULES] ⚠️ Refusing to enable '{module_id}' for guild {guild_id}: "
+            "it is part of a paid plan this server does not have.",
+            flush=True,
+        )
         return False
     if not db.write_guild_module_sync(guild_id, module_id, enabled):
         return False

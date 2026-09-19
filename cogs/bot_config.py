@@ -7,6 +7,8 @@ loading at all. A subcommand nests inside its parent and costs none of that
 budget, so the commands that address the *bot* rather than any server's members
 now live in one group, and there is room for the next one.
 """
+import os
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -16,6 +18,30 @@ from utils import db
 #: The two seeded channel IDs below only exist in the home server. Writing them
 #: into any other guild pointed its moderation log at a channel that isn't there
 #: (so /modlog went silent) and its level-up card at a foreign channel.
+def _pricing_url() -> str:
+    """Where the tiers are described, on the same host as the dashboard.
+
+    Read from the environment rather than hardcoded so a deployment that has
+    moved hosts (or is being looked at from one) points at its own page instead
+    of at this project's Render URL.
+    """
+    base = os.getenv("DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com")
+    return f"{base.rstrip('/')}/pricing"
+
+
+def _licence_instance_name(guild, guild_id: int | None) -> str:
+    """How this activation is labelled in Lemon Squeezy's own list.
+
+    The store shows an activation name per instance, and "Discord server" for
+    every one of them is exactly as useful as none: the owner looking at the list
+    needs to see *which* server spent the activation.
+    """
+    name = getattr(guild, "name", None)
+    if name and guild_id:
+        return f"{name} ({guild_id})"
+    return f"Discord server {guild_id}"
+
+
 HOME_GUILD_ID = 1542278896148422676
 HOME_BOT_CMD_CHANNEL_ID = 1547637176697757846
 HOME_LOG_CHANNEL_ID = 1546718348119773260
@@ -424,6 +450,113 @@ class BotConfig(commands.Cog):
                 print(f"[PUSH] Could not update the push card: {e}", flush=True)
 
         await interaction.followup.send(f"**{heading}**\n{note}")
+    @operator_group.command(
+        name="plan",
+        description="This server's plan: show it, activate a licence key, or hand one back.",
+    )
+    @app_commands.describe(
+        key="The licence key from your Lemon Squeezy receipt — activates it for this server",
+        remove="Give this server's activation back to the store, freeing it for another server",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def plan(
+        self,
+        interaction: discord.Interaction,
+        key: str | None = None,
+        remove: bool = False,
+    ):
+        """Show, activate or release this server's licence.
+
+        One command with optional options rather than three subcommands, for the
+        reason the group exists at all: ``/bot`` is one of Discord's hundred
+        command slots and nesting is what keeps that budget from running out.
+
+        A licence is activated **per server**, deliberately. Lemon Squeezy counts
+        activations against the limit on the licence, so "up to 5 servers" is the
+        store's own rule rather than a number this bot invents — one key can cover
+        several servers, each keeping its own row, and releasing one here hands
+        that activation back for somewhere else.
+        """
+        from utils import plans
+
+        if key and remove:
+            return await interaction.response.send_message(
+                "Do one at a time: either a key to activate, or `remove` to give the "
+                "current one back.",
+                ephemeral=True,
+            )
+        if key is None and not remove:
+            return await self._show_plan(interaction)
+
+        # Both of the other paths talk to Lemon Squeezy, which is a network call
+        # and can take a moment.
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild_id
+        if key is not None:
+            ok, message = plans.activate(
+                guild_id,
+                key,
+                instance_name=_licence_instance_name(interaction.guild, guild_id),
+                actor_id=getattr(interaction.user, "id", None),
+            )
+        else:
+            ok, message = plans.deactivate(guild_id)
+        await interaction.followup.send(f"{'✅' if ok else '❌'} {message}", ephemeral=True)
+        if ok:
+            await self._show_plan(interaction, followup=True)
+
+    async def _show_plan(self, interaction: discord.Interaction, *, followup: bool = False):
+        """The plan card: what this server has, and what the store says about it."""
+        from utils import plans
+
+        summary = plans.summary(interaction.guild_id)
+        lines = [f"**{summary['label']}** — {summary['price']}/month"]
+
+        if summary["licensed"]:
+            checked, note = plans.check(interaction.guild_id)
+            summary = plans.summary(interaction.guild_id)
+            seats = (
+                f"{summary['activation_usage']} of {summary['activation_limit']} servers"
+                if summary["activation_limit"]
+                else f"{summary['activation_usage']} server(s)"
+            )
+            lines.append(
+                f"Licence `{summary['license_preview']}` — **{summary['license_status'] or 'unknown'}**, "
+                f"active in {seats}"
+            )
+            if checked is False:
+                lines.append(f"⚠️ {note}")
+            elif checked is None:
+                lines.append(f"-# Could not re-check with Lemon Squeezy: {note}")
+        else:
+            lines.append("No licence on this server.")
+
+        if summary["servers"] is None:
+            lines.append("• Unlimited servers")
+        else:
+            lines.append(f"• {summary['servers']} server(s) per licence")
+
+        if summary["enforced"]:
+            if summary["blocked_modules"]:
+                lines.append(f"• Not on this plan: {', '.join(summary['blocked_modules'])}")
+            else:
+                lines.append("• Every system is on for this plan")
+        else:
+            lines.append(
+                "• Plans are **not enforced yet**, so every system is on in every "
+                "server regardless of tier."
+            )
+
+        lines.append(
+            f"-# Activate with `/bot plan key:…` — a key covers as many servers as the "
+            f"store allows, one activation each. Pricing: {_pricing_url()}"
+        )
+        body = "\n".join(lines)
+        if followup:
+            await interaction.followup.send(body, ephemeral=True)
+        else:
+            await interaction.response.send_message(body, ephemeral=True)
+
     @operator_group.command(
         name="bug",
         description="Report a bug in the bot itself — files a report card, not a ticket.",
