@@ -1049,18 +1049,30 @@ class GuildJoinHandler(unittest.TestCase):
             asyncio.run(bot_module.bot.on_guild_remove(self._guild()))
         self.assertEqual(seen, [MEMBER_SERVER])
 
-    def test_the_join_handler_does_not_sync_commands_per_guild(self):
-        """Commands are published globally, so a new server already has them.
+    def test_the_join_handler_publishes_the_new_servers_own_commands(self):
+        """A server added while the bot runs has no commands until it is published.
 
-        A per-guild publish here would burn the 200-writes-a-day budget on a
-        duplicate of a tree Discord is already carrying. Pinned because it looks
-        like an omission otherwise.
+        This used to be the opposite: the tree was registered globally and a new
+        server inherited it, so a per-guild publish would have been a duplicate
+        of what Discord was already carrying. Commands are now registered **per
+        server** — the only mechanism Discord offers for hiding a command in one
+        server while another keeps it — so the global scope holds just the few
+        that must work with no server to resolve, and a server that joins without
+        this call would sit with an almost empty picker until the next deploy.
         """
         source = (ROOT / "bot.py").read_text()
         handler = source.split("async def on_guild_join", 1)[1].split("@bot.event", 1)[0]
-        self.assertNotIn(
+        self.assertIn(
             "_sync_guild", handler,
-            "global commands reach a new server; do not also publish per guild",
+            "a server added while the bot runs must get its own command list",
+        )
+        # And its own guard: the log entry that records the server arriving is
+        # what must not be lost to a refused publish.
+        self.assertIn("await operator_log.guild_joined(bot, guild)", handler)
+        before = handler.split("_sync_guild", 1)[0]
+        self.assertIn(
+            "try:", before.rsplit("operator_log.guild_joined", 1)[-1],
+            "a failed publish must not stop the join path",
         )
 
 

@@ -61,7 +61,9 @@ app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"))
 # The real app's security headers, applied to every response — otherwise this
 # harness would prove nothing about whether the pages survive our own CSP.
 import keep_alive  # noqa: E402
-from utils import digest, market as market_module  # noqa: E402
+from utils import (  # noqa: E402
+    command_scope, digest, features, identity, market as market_module,
+)
 
 
 @app.after_request
@@ -86,6 +88,20 @@ app.after_request(keep_alive.set_security_headers)
 #: What the page last asked a toggle endpoint for. Same idea as ``LAST_SEND``:
 #: it exists so a check can ask the page's question and read the answer back.
 LAST_TOGGLE: dict = {}
+
+#: The command names the previewed page says this server is registered with.
+#: Taken from the registry — the same source the publisher reads — so the panel's
+#: counts and pills are the ones the real rule would produce for this module
+#: state. Invented names here would make a correct panel look wrong.
+#:
+#: ``MODULE_COMMAND_MAP`` and not the features' ``gate_commands``: the commands
+#: several modules gate together (the casino pair, ``/sellanimals``, ``/flex``)
+#: live in ``SHARED_GATES`` and appear in no feature's own list, so reading the
+#: latter left the preview claiming the bot had 79 commands where it has 90 —
+#: a harness that under-counts makes a correct panel look broken.
+PREVIEW_COMMANDS = sorted(
+    set(features.MODULE_COMMAND_MAP) | set(features.ALWAYS_ALLOWED_COMMANDS)
+)
 
 MODULES = [
     {"id": "economy", "name": "Economy", "icon": "🪙", "category": "Economy",
@@ -202,6 +218,24 @@ def dashboard():
             ],
         ],
         server_now=int(time.time()),
+        # This server's bot profile. The controls are live so the flow can be
+        # driven here, and the POST answers with the harness's honest 503 —
+        # there is no gateway to rename anything with. A panel disabled up front
+        # would have hidden the form's own error path from the one tool that
+        # exists to look at it.
+        server_identity={
+            "nick": _PREVIEW_IDENTITY["nick"],
+            "bio": _PREVIEW_IDENTITY["bio"],
+            "has_avatar": False, "has_banner": False,
+            "live_name": guild["name"] + " Bot", "live": False, "can_edit": True,
+            "max_nick": identity.MAX_NICK, "max_bio": identity.MAX_BIO,
+        },
+        # The real command-scope numbers, from the same rule the publisher uses
+        # and the module state this page is showing.
+        command_scope=command_scope.summarise(
+            PREVIEW_COMMANDS,
+            {module["id"]: module["enabled"] for module in MODULES},
+        ),
     )
 
 
@@ -401,6 +435,48 @@ def api_toggle_all():
         "enabled": enabled,
         "sync_latency_ms": 0,
     })
+
+
+#: What the preview's identity form is holding. In memory only, and for display:
+#: a save cannot reach Discord from here, which the endpoint says out loud.
+_PREVIEW_IDENTITY: dict = {"nick": "", "bio": ""}
+
+
+@app.route("/api/command-scope")
+def api_command_scope():
+    """This server's own command list, from the real rule."""
+    if request.args.get("guild_id") is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+    states = {module["id"]: module["enabled"] for module in MODULES}
+    return jsonify({
+        "success": True,
+        "guild_id": request.args.get("guild_id"),
+        **command_scope.summarise(PREVIEW_COMMANDS, states),
+    })
+
+
+@app.route("/api/identity", methods=["POST"])
+def api_identity():
+    """The preview cannot rename anything, and says exactly that.
+
+    The profile lives on the bot's own member in one server, which needs a
+    gateway; a preview that answered success would be teaching the page's happy
+    path something that never happened.
+    """
+    return jsonify({
+        "success": False,
+        "error": (
+            "This is the preview — it has no connection to Discord, so it cannot "
+            "rename the bot or change its picture. Run the bot and open the real "
+            "dashboard to do that."
+        ),
+    }), 503
+
+
+@app.route("/api/identity/image/<kind>")
+def api_identity_image(kind: str):
+    """No stored picture in a preview: the panel shows its placeholder."""
+    return jsonify({"success": False, "error": "Nothing set for this server"}), 404
 
 
 @app.route("/__last-toggle")

@@ -195,6 +195,48 @@ class DashboardCase(_DashboardFixture):
         self.assertTrue(toggled.get_json()["success"])
         self.assertEqual(toggled.get_json()["guild_id"], GUILD_ID)
 
+    # ── a switch is also a command-set change ────────────────────────────
+
+    def test_a_switch_asks_the_bot_to_republish_that_servers_commands(self):
+        """The commands are registered per server, so hiding depends on this call.
+
+        Turning a module off is what removes its commands from *this* server's
+        picker — there is no permission bit that could do it — so a switch that
+        flipped without asking the bot to republish would leave the commands on
+        offer and the dashboard's own scope panel wrong.
+        """
+        self.sign_in()
+        asked: list[int] = []
+        self.bot.resync_commands = lambda gid: asked.append(gid) or True
+
+        self.api("POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": False})
+        self.assertEqual(asked, [GUILD_ID])
+
+        self.api("POST", "/api/toggle-all", {"guild_id": GUILD_ID, "enabled": False})
+        self.assertEqual(asked, [GUILD_ID, GUILD_ID])
+
+    def test_a_bot_with_no_republish_hook_does_not_break_the_switch(self):
+        """The preview harness and the tests' stand-in gateway have no bot loop."""
+        self.sign_in()
+        self.assertFalse(hasattr(self.bot, "resync_commands"))
+        response = self.api(
+            "POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": False}
+        )
+        self.assertTrue(response.get_json()["success"])
+
+    def test_a_republish_that_raises_does_not_fail_the_switch(self):
+        """The switch is already saved; a refused republish is the next boot's job."""
+        self.sign_in()
+
+        def explode(_gid):
+            raise RuntimeError("no loop")
+
+        self.bot.resync_commands = explode
+        response = self.api(
+            "POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": False}
+        )
+        self.assertTrue(response.get_json()["success"])
+
     def test_a_scoped_session_with_no_server_at_all_is_refused(self):
         self.sign_in(guild_id=None)
         self.assertEqual(self.client.get("/dashboard").status_code, 200)
@@ -532,12 +574,26 @@ class PreviewHarness(unittest.TestCase):
 
         Matched at a path boundary, never by a bare ``startswith``: that would
         accept ``/api/toggle-REMOVED`` as an implementation of ``/api/toggle``,
-        which is exactly the renaming this guard exists to catch.
+        which is exactly the renaming this guard exists to catch. A route's own
+        ``<placeholder>`` stands for **one** segment, so
+        ``/api/identity/image/<kind>`` does serve the page's
+        ``/api/identity/image/avatar``, while ``/api/identity/image/a/b`` is
+        still uncovered.
         """
         if path in routes:
             return True
         # ``/api/scheduled/`` is the page's own prefix for ``<id>/cancel``.
-        return path.endswith("/") and any(route.startswith(path) for route in routes)
+        if path.endswith("/"):
+            return any(route.startswith(path) for route in routes)
+        wanted = path.strip("/").split("/")
+        for route in routes:
+            parts = route.strip("/").split("/")
+            if len(parts) == len(wanted) and all(
+                part.startswith("<") or part == called
+                for part, called in zip(parts, wanted)
+            ):
+                return True
+        return False
 
     def test_the_page_only_calls_endpoints_the_harness_serves(self):
         routes = self._harness_routes()

@@ -13,7 +13,7 @@ import socket
 import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
-from utils import db, digest, features, modules, scheduled
+from utils import command_scope, db, digest, features, identity, modules, scheduled
 
 LOG_RING = deque(maxlen=600)
 
@@ -932,11 +932,39 @@ def dashboard():
             "enabled": is_enabled
         })
 
+    # What this server's own command list looks like — computed from the same
+    # rule the publisher uses, so the panel and the picker cannot disagree.
+    tree_names = _command_tree_names()
+    try:
+        commands_data = command_scope.summarise(tree_names, states)
+    except Exception as exc:
+        print(f"[DASHBOARD] ⚠️ Could not summarise the command scope: {exc}", flush=True)
+        commands_data = {"total": 0, "available": 0, "hidden": 0, "hidden_names": [], "modules": {}}
+
+    identity_data = _identity_state(guild_id) if guild_id else {
+        "nick": "", "bio": "", "has_avatar": False, "has_banner": False,
+        "updated_at": None,
+    }
+    identity_data.pop("updated_at", None)
+    guild_obj = BOT_INSTANCE.get_guild(guild_id) if (BOT_INSTANCE and guild_id) else None
+    me = _identity_member(guild_obj)
+    identity_data.update({
+        # The live name is what the server actually sees; the record above is
+        # what was asked for, and the pair is what makes a silent failure visible.
+        "live_name": (_live_name(me) if me is not None else ""),
+        "live": me is not None,
+        "can_edit": bool(guild_obj is not None and _may_edit_identity(guild_obj)),
+        "max_nick": identity.MAX_NICK,
+        "max_bio": identity.MAX_BIO,
+    })
+
     return render_template(
         "dashboard.html",
         guild_id=guild_id,
         guild_name=guild_name,
         member_count=member_count,
+        server_identity=identity_data,
+        command_scope=commands_data,
         bot_ping=bot_ping,
         bot_ready=bot_ready,
         modules=modules_data,
@@ -992,6 +1020,7 @@ def api_toggle():
     if not modules.set_enabled(guild_id, module_id, enabled):
         return jsonify({"success": False, "error": "Could not save that change. Please try again."}), 500
 
+    _resync_commands(guild_id)
     _schedule_cloud_backup()
 
     return jsonify({
@@ -1001,6 +1030,42 @@ def api_toggle():
         "enabled": enabled,
         "sync_latency_ms": 0
     })
+
+
+def _command_tree_names() -> list[str]:
+    """Every top-level command the bot has, as Discord's picker would name it."""
+    tree = getattr(BOT_INSTANCE, "tree", None) if BOT_INSTANCE is not None else None
+    if tree is None:
+        return []
+    try:
+        return [command.name for command in tree.get_commands()]
+    except Exception as exc:
+        print(f"[DASHBOARD] ⚠️ Could not read the command tree: {exc}", flush=True)
+        return []
+
+
+@app.route("/api/command-scope")
+def api_command_scope():
+    """This server's own command list — the same rule the publisher follows.
+
+    Read after a module switch settles rather than guessed in the browser, so
+    the panel and the server's registered commands cannot drift apart.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+    guild_id = _resolve_guild_id(request.args.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No guild available"}), 400
+    try:
+        states = modules.get_states(guild_id)
+    except Exception as exc:
+        # The same fallback the page load uses: show the defaults rather than an
+        # empty panel that reads as "this server has no commands".
+        print(f"[DASHBOARD] ⚠️ Could not read module states: {exc}", flush=True)
+        states = modules.defaults()
+    summary = command_scope.summarise(_command_tree_names(), states)
+    return jsonify({"success": True, "guild_id": guild_id, **summary})
 
 
 @app.route("/api/toggle-all", methods=["POST"])
@@ -1028,6 +1093,7 @@ def api_toggle_all():
             "enabled": enabled,
         }), 500
 
+    _resync_commands(guild_id)
     _schedule_cloud_backup()
 
     return jsonify({
@@ -1036,6 +1102,237 @@ def api_toggle_all():
         "enabled": enabled,
         "sync_latency_ms": 0
     })
+
+
+def _resync_commands(guild_id: int) -> bool:
+    """Ask the bot to republish one server's command list.
+
+    A module switch **is** a command-set change: the market being off here is
+    what takes `/market` out of this server's picker, because the command is
+    registered per server (see ``bot.py``). Nothing is waited for — ninety
+    Discord writes belong on the bot's loop, and the switch is already saved.
+    """
+    hook = getattr(BOT_INSTANCE, "resync_commands", None) if BOT_INSTANCE else None
+    if hook is None:
+        return False
+    try:
+        return bool(hook(guild_id))
+    except Exception as exc:
+        print(f"[SYNC] could not queue a republish for {guild_id}: {exc}", flush=True)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# The bot's name and picture, per server
+# ---------------------------------------------------------------------------
+# Discord keeps a nickname, avatar, banner and bio on the bot's own **member** in
+# each guild, and nothing here can reach the application profile — renaming the
+# bot in one server must not rename it in another, which is the entire point of
+# these being member fields instead of application ones. `/bot avatar` and
+# `/bot banner` stay the operator's, and stay global.
+#
+# Who may do it: a one-time link is minted by the `/help` panel for an
+# **administrator of one server** and is scoped to that server, so that session
+# may change its own server and no other; the passkey is the operator's own
+# credential, so it may do the same in any server the bot is in.
+
+_IMAGE_MIMES = (
+    (b"\x89PNG", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF8", "image/gif"),
+)
+
+
+def _image_mime(data: bytes) -> str:
+    for magic, mime in _IMAGE_MIMES:
+        if data.startswith(magic):
+            return mime
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _may_edit_identity(guild) -> bool:
+    if session.get("auth_scope") == "guild":
+        return _int_or_none(session.get("guild_id")) == getattr(guild, "id", None)
+    return session.get("auth_scope") == "global"
+
+
+def _identity_member(guild):
+    """The bot's own member in one server, a cold member cache included."""
+    if guild is None:
+        return None
+    me = getattr(guild, "me", None)
+    if me is not None:
+        return me
+    user = getattr(BOT_INSTANCE, "user", None) if BOT_INSTANCE is not None else None
+    if user is None:
+        return None
+    return guild.get_member(user.id)
+
+
+def _live_name(member) -> str:
+    """What that server actually calls the bot, as plainly as the object offers."""
+    for attribute in ("display_name", "global_name", "name"):
+        value = getattr(member, attribute, None)
+        if value:
+            return str(value)
+    return ""
+
+
+async def _apply_identity(guild_id: int, wants: dict, updated_by) -> None:
+    """Apply a change to Discord, then record it — Discord first, on purpose.
+
+    Recording a change Discord refused would leave the panel showing a name the
+    server does not have, which is worse than an error that says so.
+    """
+    guild = BOT_INSTANCE.get_guild(guild_id) if BOT_INSTANCE else None
+    member = _identity_member(guild)
+    if member is None:
+        raise RuntimeError(
+            "I could not read my own member in that server, so nothing was "
+            "changed — try again in a moment."
+        )
+    await identity.apply(member, **wants)
+    current = identity.read(guild_id)
+    identity.write(
+        guild_id,
+        # An empty string is how Discord spells "none" for both of these, and the
+        # record says the same thing rather than storing a blank where the server
+        # has nothing.
+        nick=(wants["nick"] or None) if "nick" in wants else current["nick"],
+        bio=(wants["bio"] or None) if "bio" in wants else current["bio"],
+        avatar=wants.get("avatar", identity.KEEP),
+        banner=wants.get("banner", identity.KEEP),
+        updated_by=updated_by,
+    )
+
+
+def _discord_refusal(exc: BaseException) -> str:
+    """What to tell an administrator when Discord turns the change down."""
+    if isinstance(exc, TimeoutError):
+        return "Discord did not answer in time — the change may or may not have landed. Reload the page to see."
+    name = type(exc).__name__
+    text = getattr(exc, "text", None) or str(exc)
+    if name == "Forbidden" or getattr(exc, "code", None) == 50013:
+        return (
+            "Discord refused: I need the **Change Nickname** permission in that "
+            "server to rename myself, and I cannot change my own picture without it "
+            "either."
+        )
+    if getattr(exc, "code", None) == 50035:
+        return f"Discord refused that image or text: {text}"
+    return f"Discord refused the change: {text}"
+
+
+def _identity_state(guild_id: int) -> dict:
+    """What the panel shows: this server's record, minus the image bytes."""
+    try:
+        profile = identity.read(guild_id)
+    except Exception as exc:
+        print(f"[IDENTITY] ⚠️ Could not read the profile for {guild_id}: {exc}", flush=True)
+        profile = dict(identity.EMPTY_PROFILE)
+    return {
+        "nick": profile["nick"] or "",
+        "bio": profile["bio"] or "",
+        "has_avatar": profile["avatar"] is not None,
+        "has_banner": profile["banner"] is not None,
+        "updated_at": profile["updated_at"],
+    }
+
+
+@app.route("/api/identity", methods=["POST"])
+def api_identity():
+    """Set, change or clear the bot's profile **in this server only**."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    # Multipart, because of the two images; the text rides along in the same form
+    # so one save is one request and one apply.
+    form = request.form if request.form else (request.get_json(silent=True) or {})
+    guild_id = _resolve_guild_id(form.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
+    guild = BOT_INSTANCE.get_guild(guild_id) if BOT_INSTANCE else None
+    if guild is None:
+        return jsonify({
+            "success": False,
+            "error": "The bot is not in that server, so it has no profile there to change.",
+        }), 400
+    session["guild_id"] = guild_id
+    if not _may_edit_identity(guild):
+        return jsonify({
+            "success": False,
+            "error": "Only an administrator of that server (or the bot's owner) can rename it there.",
+        }), 403
+
+    wants: dict = {}
+    if "nick" in form:
+        wants["nick"] = (form.get("nick") or "").strip()
+        problem = identity.name_problem(wants["nick"])
+        if problem:
+            return jsonify({"success": False, "error": problem}), 400
+    if "bio" in form:
+        wants["bio"] = (form.get("bio") or "").strip()
+        problem = identity.bio_problem(wants["bio"])
+        if problem:
+            return jsonify({"success": False, "error": problem}), 400
+    for field in ("avatar", "banner"):
+        upload = request.files.get(field)
+        if upload is not None and upload.filename:
+            data = upload.read()
+            problem = identity.image_problem(data)
+            if problem:
+                return jsonify({"success": False, "error": problem}), 400
+            wants[field] = data
+        elif form.get(f"clear_{field}"):
+            wants[field] = None
+
+    if not wants:
+        return jsonify({"success": False, "error": "Nothing to change."}), 400
+
+    try:
+        _run_on_bot_loop(
+            _apply_identity(guild_id, wants, _int_or_none(session.get("user_id"))),
+            timeout=25.0,
+        )
+    except Exception as exc:
+        print(f"[IDENTITY] ⚠️ {guild.name}: {exc}", flush=True)
+        return jsonify({"success": False, "error": _discord_refusal(exc)}), 502
+
+    _schedule_cloud_backup()
+    state = _identity_state(guild_id)
+    return jsonify({"success": True, "guild_id": guild_id, **state})
+
+
+@app.route("/api/identity/image/<kind>")
+def api_identity_image(kind: str):
+    """The picture this server chose, from our own record.
+
+    Served rather than hot-linked from Discord: the dashboard's own CSP allows
+    no third-party images, and the copy the server chose is what belongs beside
+    the form that sets it.
+    """
+    if not is_authenticated():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if kind not in ("avatar", "banner"):
+        return jsonify({"success": False, "error": "Unknown image"}), 404
+    guild_id = _resolve_guild_id(request.args.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server available"}), 400
+    try:
+        data = identity.read(guild_id)[kind]
+    except Exception as exc:
+        print(f"[IDENTITY] ⚠️ Could not read the {kind} for {guild_id}: {exc}", flush=True)
+        data = None
+    if not data:
+        return jsonify({"success": False, "error": "Nothing set for this server"}), 404
+    response = Response(bytes(data), mimetype=_image_mime(bytes(data)))
+    # Per-session and changes on save; a stale copy here is a picture the server
+    # has already replaced.
+    response.headers["Cache-Control"] = "private, max-age=30"
+    return response
 
 
 # ---------------------------------------------------------------------------

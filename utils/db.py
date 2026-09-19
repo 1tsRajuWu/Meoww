@@ -534,6 +534,21 @@ async def setup():
             "source": "TEXT DEFAULT 'schedule'",
         })
 
+        # A server's own name and picture for the bot. Discord keeps these
+        # per guild (they are fields on the bot's *member*, not on the
+        # application), so this table is the dashboard's record of what was
+        # asked for — the live values at Discord are the authority in between,
+        # and they survive a restart on their own.
+        await db.execute('''CREATE TABLE IF NOT EXISTS guild_identity (
+            guild_id INTEGER PRIMARY KEY,
+            nick TEXT,
+            bio TEXT,
+            avatar BLOB,
+            banner BLOB,
+            updated_at TEXT,
+            updated_by INTEGER
+        )''')
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):

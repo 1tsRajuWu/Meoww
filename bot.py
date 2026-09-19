@@ -8,7 +8,9 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils import commands_sync, db, features, modules, operator_log, permissions
+from utils import (
+    command_scope, commands_sync, db, features, modules, operator_log, permissions,
+)
 
 # Force real-time unbuffered log streaming to Render / cloud console
 try:
@@ -331,8 +333,10 @@ async def _publish_scope(
     rejected request can never take a command away.
 
     With ``guild`` omitted the same upsert goes to Discord's **global** scope,
-    which every server the bot is in can see. Discord budgets the two scopes
-    separately, so that is a usable second lane when a guild's is spent.
+    which every server the bot is in can see. That lane is now only for the
+    commands that must work with no server to resolve; everything else is
+    registered per server, because a global command cannot be hidden in one
+    server while another keeps it.
 
     Returns ``(ok, detail, error, published)``.
     """
@@ -397,6 +401,31 @@ async def _retire_scope(bot: commands.Bot, registered, guild=None) -> int:
     return removed
 
 
+async def _delete_scope_commands(bot: commands.Bot, pairs, guild=None, why: str = "") -> int:
+    """Delete named commands from one scope, one request each.
+
+    ``pairs`` is always an explicit ``(name, id)`` list decided by a rule in
+    ``commands_sync`` — never "whatever is registered but not local", which is
+    the bulk-overwrite instinct that once cleared a guild down to one command. A
+    refused delete is logged and left alone: the command is still registered, so
+    the next boot tries again, and the boot itself never fails on it.
+    """
+    suffix = " (global)" if guild is None else f" in {guild.name}"
+    removed = 0
+    for name, command_id in pairs:
+        try:
+            if guild is None:
+                await bot.http.delete_global_command(bot.application_id, command_id)
+            else:
+                await bot.http.delete_guild_command(bot.application_id, guild.id, command_id)
+        except Exception as exc:
+            print(f"[SYNC] ⚠️ Could not remove /{name}{suffix}: {exc}", flush=True)
+            continue
+        removed += 1
+        print(f"[SYNC] 🗑️ {why or 'Removed'} /{name}{suffix}", flush=True)
+    return removed
+
+
 def _explain_sync_stop(scope: str, status: dict) -> None:
     """Say *why* a scope still has commands pending — the line that was missing.
 
@@ -421,14 +450,62 @@ def _explain_sync_stop(scope: str, status: dict) -> None:
         )
 
 
-async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> dict:
-    """Publish a scope's missing/changed commands — one guild, or global.
+def _global_names(everything) -> set[str]:
+    """What belongs in Discord's global scope: only what works outside a server.
+
+    A globally-registered command is visible in **every** server the bot is in
+    and no permission bit, context or option takes it back in one of them — so
+    leaving the whole tree there would defeat per-server command lists entirely.
+    The rule itself lives in ``utils/command_scope``, so this file and the
+    operator's ``force_sync.py`` trim the shared lane by the same one.
+    """
+    return command_scope.global_names(everything)
+
+
+def _scope_names(bot: commands.Bot, guild, everything) -> set[str]:
+    """The command names one scope should be registered with.
+
+    A server's list is decided by **that server's own modules**: a command whose
+    modules are off there is left out of its registration, which is the only
+    thing that takes it out of that server's picker. Nothing here can reach
+    another server's commands, because the scope is the server.
+    """
+    if guild is None:
+        # Nowhere to publish a per-server list yet, and the next invitation must
+        # find a working picker: until there is a server to carry the tree, the
+        # global scope carries all of it.
+        if not bot.guilds:
+            return set(everything)
+        return _global_names(everything)
+    try:
+        states = modules.get_states(guild.id)
+    except Exception as exc:
+        # Failing open: an unreadable state publishes everything, which can only
+        # ever leave a command visible, never take one away.
+        print(
+            f"[SYNC] ⚠️ {guild.name}: could not read module state ({exc}) — "
+            "publishing the whole tree rather than hiding a command.",
+            flush=True,
+        )
+        return set(everything)
+    return set(command_scope.available_names(everything, states))
+
+
+async def _sync_scope(
+    bot: commands.Bot, *, guild=None, force: bool = False, allow_removals: bool = True
+) -> dict:
+    """Publish a scope's missing/changed commands — one server, or global.
 
     Returns ``{"registered", "pending", "published", "retry_after", "summary",
     "detail"}`` so a caller can decide between "done" and "try again later".
     """
     local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
-    payloads = {command["name"]: command for command in local if command.get("name")}
+    everything = {command["name"]: command for command in local if command.get("name")}
+    # This scope's own list. For a server that is every command its modules leave
+    # on; for the global scope it is the DM-safe few (see _global_names).
+    wanted = _scope_names(bot, guild, everything)
+    payloads = {name: payload for name, payload in everything.items() if name in wanted}
+    local = [payload for payload in local if payload.get("name") in wanted]
     registered = await _registered_command_payloads(bot, guild)
     scope = "global" if guild is None else guild.name
 
@@ -444,6 +521,19 @@ async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> 
         # counterpart, so it is neither missing nor stale, and this is the only
         # place that can take it out of the picker.
         await _retire_scope(bot, registered, guild)
+        if allow_removals:
+            # A command this scope must not have is neither missing nor stale, so
+            # nothing else would ever take it out. Every name here is one the
+            # feature registry declares whose modules this server switched off —
+            # so this can only undo something an administrator chose.
+            await _delete_scope_commands(
+                bot,
+                commands_sync.removable(
+                    registered, wanted, set(features.MODULE_COMMAND_MAP)
+                ),
+                guild,
+                "Not for this server",
+            )
         missing, stale = commands_sync.diff(local, registered)
         names = missing + stale
         summary = commands_sync.summary(local, registered)
@@ -467,6 +557,37 @@ async def _sync_scope(bot: commands.Bot, *, guild=None, force: bool = False) -> 
     }
 
 
+async def _prune_global_lane(bot: commands.Bot) -> int:
+    """Take the per-server commands out of Discord's global scope.
+
+    Only ever called once every server has published its own list with nothing
+    pending (see ``sync_commands``). What it removes is decided by the same rule
+    as everywhere else — names the feature registry declares, minus the few that
+    genuinely belong globally — so this can never delete a command it does not
+    recognise, and it is idempotent: once the global scope holds only the DM-safe
+    commands, there is nothing left to match.
+    """
+    registered = await _registered_command_payloads(bot, None)
+    if registered is None:
+        return 0
+    tree = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
+    everything = {payload["name"]: payload for payload in tree if payload.get("name")}
+    pairs = commands_sync.removable(
+        registered,
+        _scope_names(bot, None, everything),
+        set(features.MODULE_COMMAND_MAP),
+    )
+    if not pairs:
+        return 0
+    removed = await _delete_scope_commands(bot, pairs, None, "Per server now")
+    print(
+        f"[SYNC] global: {removed} command(s) are registered per server now, so "
+        "they no longer sit in every server's picker.",
+        flush=True,
+    )
+    return removed
+
+
 async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
     """Publish one guild's missing/changed commands. See ``_sync_scope``."""
     return await _sync_scope(bot, guild=guild, force=force)
@@ -480,7 +601,16 @@ async def _sync_global(bot: commands.Bot, _guild=None, *, force: bool = False) -
 async def sync_commands(
     bot: commands.Bot, *, force: bool = False, drain: bool = True
 ) -> dict[str, int]:
-    """Publish the slash-command tree to every guild the bot is in.
+    """Publish each server's own command list, then trim the shared scope.
+
+    Per server is not a preference: Discord's global scope is visible in every
+    server the bot is in and no permission bit, context or option narrows it per
+    server, so the *only* way a command a server turned off can leave that
+    server's picker is for the command not to be registered there. A server's
+    list therefore comes from its own modules (``utils/command_scope``), and the
+    global scope keeps only what has to work outside a server at all — which is
+    also why the copies that used to sit there are removed, once every server is
+    known to hold its own.
 
     Nothing used to do this automatically, and the one path that existed — the
     manual `/sync` slash command — has to be registered before it can be used, so
@@ -502,16 +632,50 @@ async def sync_commands(
     with the global scope under the key ``"(global)"``.
     """
     results: dict[str, int] = {}
+    every_server_complete = True
 
-    # Discord budgets command writes **per scope**, and the global scope reaches
-    # every server the bot is in, so it is published first: a guild whose daily
-    # budget is spent still shows its commands. Read-compare-write means this
-    # costs nothing once the global tree matches.
-    global_status = await _sync_scope(bot)
+    # The per-server lane, which is now the only lane. Discord's global scope
+    # reaches every server and cannot be narrowed, so a command list that differs
+    # from server to server is only possible by registering each server's own
+    # set. Read-compare-write keeps it affordable: a server that is already right
+    # costs nothing, against the 200 writes a day Discord gives each one.
+    for guild in list(bot.guilds):
+        try:
+            status = await _sync_guild(bot, guild, force=force)
+        except Exception as exc:
+            # Never into on_ready: a failed publish must not stop the bot coming
+            # online, and the next boot tries the same thing again.
+            print(f"[SYNC] ⚠️ {guild.name}: publish failed — {exc}", flush=True)
+            every_server_complete = False
+            results[guild.name] = 0
+            continue
+        results[guild.name] = status["registered"]
+        if not status["pending"]:
+            print(f"[SYNC] ✅ {guild.name}: {status['summary']}.", flush=True)
+            continue
+        every_server_complete = False
+        print(
+            f"[SYNC] {guild.name}: {status['summary']} — published "
+            f"{status['published']}, {status['pending']} still pending.",
+            flush=True,
+        )
+        _explain_sync_stop(guild.name, status)
+        if drain and status["retry_after"] is not None:
+            print(
+                f"[SYNC] Draining {guild.name} in the background "
+                f"(next try in {status['retry_after']:.0f}s).",
+                flush=True,
+            )
+            _schedule_command_drain(bot, guild, status["retry_after"], label=guild.name)
+
+    # Published last, and with removals held back: a server whose scope is spent
+    # still gets its own commands before the shared lane is touched.
+    global_status = await _sync_scope(bot, force=force, allow_removals=False)
     results["(global)"] = global_status["registered"]
     if not global_status["pending"]:
         print(f"[SYNC] ✅ global: {global_status['summary']}.", flush=True)
     else:
+        every_server_complete = False
         print(
             f"[SYNC] global: {global_status['summary']} — published "
             f"{global_status['published']}, {global_status['pending']} still pending.",
@@ -529,9 +693,14 @@ async def sync_commands(
                 bot, None, wait, sync=_sync_global, label="global"
             )
 
-    # Guild lane retired: global commands reach every server, and maintaining a
-    # per-guild duplicate burns the 200-writes-a-day budget on commands that
-    # already exist globally.  The old guild copies were deleted manually.
+    # The migration that makes per-server lists real. Copies of per-server
+    # commands still registered *globally* appear in every server's picker —
+    # which is exactly what a server that turned a module off must not see. They
+    # are only removed once every server already holds its own copy: a failed
+    # publish followed by a successful delete would leave that server with no
+    # commands at all, and that is the one outcome worth being slow to reach.
+    if every_server_complete and bot.guilds:
+        await _prune_global_lane(bot)
     return results
 
 
@@ -539,6 +708,79 @@ async def sync_commands(
 # ``import bot``: this file is what the process runs, so it is ``__main__``, and
 # importing it again would re-execute the whole module on top of a second bot.
 bot.publish_commands = sync_commands
+
+
+# ---------------------------------------------------------------------------
+# A module switch is a command-set change
+# ---------------------------------------------------------------------------
+# Turning the market off is what takes `/market` out of that server's picker, so
+# a switch that has just flipped makes the server's *registration* wrong. These
+# three functions are how the dashboard asks for a republish without waiting for
+# one: the request returns at once, the writes happen on the bot's own loop, and
+# a burst of switches costs one publish rather than one per click — the "disable
+# all" button flips eleven modules in a row, and eleven publishes of ninety
+# commands each is how a daily write budget disappears.
+
+#: How long a republish waits for the switches to stop moving before it reads
+#: them. Long enough for the bulk buttons, short enough that a single click feels
+#: immediate.
+RESYNC_SETTLE_SECONDS = 3.0
+
+_resync_dirty: set[int] = set()
+_resync_tasks: dict[int, "asyncio.Task"] = {}
+
+
+async def _resync_server(bot: commands.Bot, guild) -> None:
+    """Republish one server's list, once, after its switches settle.
+
+    Loops rather than running once: a switch that flips *while* this is
+    publishing marks the server dirty again, and reading the state a second time
+    is the difference between a server being correct and being one click stale.
+    """
+    while guild.id in _resync_dirty:
+        _resync_dirty.discard(guild.id)
+        await asyncio.sleep(RESYNC_SETTLE_SECONDS)
+        try:
+            status = await _sync_guild(bot, guild)
+        except Exception as exc:
+            print(f"[SYNC] ⚠️ {guild.name}: republish failed — {exc}", flush=True)
+            break
+        print(f"[SYNC] {guild.name}: {status['summary']}.", flush=True)
+        if status["retry_after"] is not None:
+            _schedule_command_drain(
+                bot, guild, status["retry_after"], label=guild.name
+            )
+    _resync_tasks.pop(guild.id, None)
+
+
+async def _kick_guild_resync(bot: commands.Bot, guild) -> bool:
+    """Mark a server dirty and make sure a pass is queued. Returns immediately."""
+    _resync_dirty.add(guild.id)
+    task = _resync_tasks.get(guild.id)
+    if task is not None and not task.done():
+        return True
+    _resync_tasks[guild.id] = asyncio.create_task(_resync_server(bot, guild))
+    return True
+
+
+def resync_guild_commands(guild_id: int) -> bool:
+    """Thread-safe: ask for one server's commands to be republished.
+
+    Called from the Flask thread when a module switch flips, so nothing here
+    awaits a Discord write: the page answers immediately and ninety upserts
+    happen on the loop that owns the gateway objects.
+    """
+    guild = bot.get_guild(guild_id) if guild_id else None
+    if guild is None:
+        return False
+    loop = getattr(bot, "loop", None)
+    if loop is None or not loop.is_running():
+        return False
+    asyncio.run_coroutine_threadsafe(_kick_guild_resync(bot, guild), loop)
+    return True
+
+
+bot.resync_commands = resync_guild_commands
 
 
 @bot.event
@@ -804,6 +1046,23 @@ async def on_guild_join(guild: discord.Guild):
     except Exception as exc:
         print(f"[UPDATE] could not announce to {guild.name}: {exc}", flush=True)
     await operator_log.guild_joined(bot, guild)
+    # Its own command list, published now rather than at the next restart. The
+    # global scope holds only the DM-safe commands, so without this a server
+    # added while the bot is running would have an almost empty picker until a
+    # deploy happened.
+    try:
+        status = await _sync_guild(bot, guild)
+        print(
+            f"[SYNC] {guild.name}: published {len(bot.tree.get_commands())} command(s) "
+            f"({status['summary']}).",
+            flush=True,
+        )
+        if status["retry_after"] is not None:
+            _schedule_command_drain(
+                bot, guild, status["retry_after"], label=guild.name
+            )
+    except Exception as exc:
+        print(f"[SYNC] could not publish commands for {guild.name}: {exc}", flush=True)
 
 
 @bot.event

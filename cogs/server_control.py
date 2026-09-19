@@ -93,7 +93,14 @@ class ServerControl(commands.Cog):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
             cmd_name = _root_command_name(interaction)
-            if cmd_name not in ["serverinfo", "userinfo", "defaultrole"]:
+            # ``dbstatus`` belongs on this list for the same reason the other
+            # three do: asking whether the database is healthy has nothing to do
+            # with whether the moderation module is on. It was missing, so a
+            # server with moderation off was refused ``/dbstatus`` — and it is
+            # declared always-reachable in ``features.ALWAYS_ALLOWED_COMMANDS``,
+            # so the per-server command rule and the enforcement disagreed about
+            # it. Caught by ``tests/test_command_scope.py``.
+            if cmd_name not in ["serverinfo", "userinfo", "defaultrole", "dbstatus"]:
                 if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                     await interaction.response.send_message(
                         "⚠️ The **Moderation** system is currently **turned off** on this server.\n"

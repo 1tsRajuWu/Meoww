@@ -150,6 +150,28 @@ class Tracker(commands.Cog):
         )
         self._last_cleanup: float = 0.0
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """The toggle has to gate the commands, not only the collecting.
+
+        Every other cog with a module does this, and this one did not: the
+        listeners that *collect* activity checked the module, but ``/activity``
+        itself did not, so a server that turned the tracker off kept every
+        command — reading rows nothing was writing any more. Caught by the
+        invariant test that every command a server loses is one the bot would
+        refuse (``tests/test_command_scope.py``), which only holds if the gate
+        the registry declares is really enforced.
+        """
+        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            if not self.bot.is_module_enabled(interaction.guild_id, "tracker"):
+                await interaction.response.send_message(
+                    "⚠️ The **Activity Tracker** is currently **turned off** on "
+                    "this server.\nAn administrator can re-enable it in the "
+                    "[Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    ephemeral=True,
+                )
+                return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         # Catch members already in VC on startup

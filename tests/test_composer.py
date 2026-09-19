@@ -664,6 +664,21 @@ def render_dashboard(**overrides) -> str:
         csrf_token=CSRF,
         guilds=[],
         can_switch_guild=False,
+        # The two panels the dashboard adds for one server: the bot's profile
+        # there (Discord's per-guild member fields) and the command list that
+        # server is registered with. Carried here because the page needs them
+        # from the view — the template has no defaults of its own, on purpose,
+        # so a route that forgot them would fail loudly rather than render a
+        # panel that silently says nothing.
+        server_identity={
+            "nick": "", "bio": "", "has_avatar": False, "has_banner": False,
+            "live_name": "Meow", "live": True, "can_edit": True,
+            "max_nick": 32, "max_bio": 190,
+        },
+        command_scope={
+            "total": 90, "available": 90, "hidden": 0,
+            "hidden_names": [], "modules": {},
+        },
     )
     context.update(overrides)
     return env.get_template("dashboard.html").render(**context)

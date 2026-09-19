@@ -37,7 +37,7 @@ import urllib.error
 import urllib.request
 
 import bot as bot_module
-from utils import commands_sync, features, permissions
+from utils import command_scope, commands_sync, features, modules, permissions
 
 API = "https://discord.com/api/v10"
 #: Spacing between upserts, to stay clear of per-route burst limits.
@@ -323,8 +323,20 @@ def main() -> int:
     print(f"Local tree: {len(commands)} top-level commands.")
 
     if args.global_scope:
-        print("Scope: global (Discord allows 100 commands here, separate from a guild's budget)")
-        failures = _publish("global", f"/applications/{app_id}/commands", token, commands, args)
+        # The shared lane is no longer where the tree lives. Every server is
+        # registered with its own list, because Discord cannot hide a global
+        # command in one server — so publishing the whole tree here would put
+        # back exactly the commands a server turned off.
+        shared = command_scope.global_names([command["name"] for command in commands])
+        scoped = [command for command in commands if command["name"] in shared]
+        print(
+            "Scope: global — only the commands that must work outside a server "
+            f"({', '.join(sorted(shared)) or 'none'}). Everything else is "
+            "registered per server; run without --global to publish those."
+        )
+        failures = _publish(
+            "global", f"/applications/{app_id}/commands", token, scoped, args
+        )
     else:
         status, guilds = _request("GET", "/users/@me/guilds", token)
         if status != 200 or not isinstance(guilds, list):
@@ -336,8 +348,24 @@ def main() -> int:
         print(f"Guilds: {', '.join(str(g['name']) for g in guilds)}")
         failures = 0
         for guild in guilds:
+            # Each server's own list, from its own module state — the same rule
+            # ``bot.py`` publishes by, so this tool cannot drift from the bot.
+            try:
+                states = modules.get_states(int(guild["id"]))
+            except Exception as exc:
+                print(f"   ! could not read {guild['name']}'s module state: {exc}")
+                states = {}
+            wanted = set(command_scope.available_names(
+                [command["name"] for command in commands], states
+            ))
+            scoped = [command for command in commands if command["name"] in wanted]
+            hidden = len(commands) - len(scoped)
+            print(
+                f"{guild['name']} ({guild['id']}): {len(scoped)} of {len(commands)} "
+                f"command(s)" + (f", {hidden} off on this server" if hidden else "")
+            )
             path = f"/applications/{app_id}/guilds/{guild['id']}/commands"
-            failures += _publish(f"{guild['name']} ({guild['id']})", path, token, commands, args)
+            failures += _publish(f"{guild['name']} ({guild['id']})", path, token, scoped, args)
 
     if failures:
         print("\nSome commands are still pending — a 30034 body means that scope's daily "

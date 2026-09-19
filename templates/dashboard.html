@@ -1301,6 +1301,32 @@
             .mention-results { max-height: 240px; }
             .bot-avatar { width: 44px; height: 44px; font-size: 22px; }
         }
+        /* This server's bot: the picture the server actually has, the fields that
+           change it, and the command list this server is registered with. */
+        .identity-grid { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+        .identity-preview { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 150px; }
+        .identity-avatar,
+        .identity-banner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .identity-avatar { width: 96px; height: 96px; border-radius: 50%; font-size: 34px; }
+        .identity-banner { width: 220px; height: 72px; border-radius: 12px; font-size: 12px; }
+        .identity-avatar img,
+        .identity-banner img { width: 100%; height: 100%; object-fit: cover; }
+        .identity-fields { flex: 1 1 320px; display: flex; flex-direction: column; gap: 14px; }
+        .identity-file input[type="file"] { font-size: 12px; color: var(--text-secondary); max-width: 100%; }
+        .identity-live { font-size: 12px; color: var(--text-muted); text-align: center; }
+        .identity-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .scope-summary { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 16px; }
+        .scope-stat b { font-size: 24px; color: var(--text-primary); }
+        .scope-stat span { display: block; font-size: 12px; color: var(--text-muted); }
     </style>
 </head>
 <body>
@@ -1367,6 +1393,83 @@
                     <h3>Discord Ping</h3>
                     <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} ms{% else %}—{% endif %}</p>
                 </div>
+            </div>
+        </div>
+
+        <div class="section-header" id="identity">
+            <h2>This server's bot</h2>
+            <span class="composer-hint">Discord keeps a name, picture and bio <strong>per server</strong>: what you set here is what this server sees, and nothing on this page can change the bot anywhere else.</span>
+        </div>
+
+        <div class="composer-card">
+            <div class="identity-grid">
+                <div class="identity-preview">
+                    <div class="identity-avatar" id="identity-avatar">
+                        {% if server_identity.has_avatar %}<img src="/api/identity/image/avatar?guild_id={{ guild_id }}" alt="The avatar this server gave the bot">
+                        {% else %}<span>{{ (server_identity.live_name or guild_name)[:1] | upper }}</span>{% endif %}
+                    </div>
+                    <div class="identity-banner" id="identity-banner">
+                        {% if server_identity.has_banner %}<img src="/api/identity/image/banner?guild_id={{ guild_id }}" alt="The banner this server gave the bot">
+                        {% else %}<span>No banner here</span>{% endif %}
+                    </div>
+                    <div class="identity-live" id="identity-live">
+                        {% if server_identity.live %}Discord shows <strong>{{ server_identity.live_name or "—" }}</strong> here{% else %}This server cannot be read right now{% endif %}
+                    </div>
+                </div>
+
+                <div class="identity-fields">
+                    <div class="field-head">
+                        <span class="field-label">Nickname in this server</span>
+                        <span class="composer-hint">{{ server_identity.max_nick }} characters at most — leave it empty and the bot uses its own name.</span>
+                    </div>
+                    <input class="composer-input" type="text" id="identity-nick" maxlength="{{ server_identity.max_nick }}"
+                           placeholder="What this server calls the bot" value="{{ server_identity.nick }}"{% if not server_identity.can_edit %} disabled{% endif %}>
+
+                    <div class="field-head">
+                        <span class="field-label">Bio in this server</span>
+                        <span class="composer-hint">{{ server_identity.max_bio }} characters.</span>
+                    </div>
+                    <textarea class="composer-textarea" id="identity-bio" rows="2" maxlength="{{ server_identity.max_bio }}"{% if not server_identity.can_edit %} disabled{% endif %}>{{ server_identity.bio }}</textarea>
+
+                    <div class="identity-file">
+                        <div class="field-head"><span class="field-label">Picture for this server (PNG, JPEG, GIF or WEBP)</span></div>
+                        <input type="file" id="identity-avatar-file" accept="image/png,image/jpeg,image/gif,image/webp"{% if not server_identity.can_edit %} disabled{% endif %}>
+                        <div class="field-head"><span class="field-label">Banner for this server</span></div>
+                        <input type="file" id="identity-banner-file" accept="image/png,image/jpeg,image/gif,image/webp"{% if not server_identity.can_edit %} disabled{% endif %}>
+                    </div>
+
+                    <div class="identity-actions">
+                        <button type="button" class="btn btn-primary" id="identity-save"{% if not server_identity.can_edit %} disabled{% endif %}>Save for this server</button>
+                        <button type="button" class="btn" id="identity-clear"{% if not server_identity.can_edit %} disabled{% endif %}>Reset to the bot's own</button>
+                        {% if not server_identity.can_edit %}<span class="composer-hint">Only an administrator of this server can change this.</span>{% endif %}
+                    </div>
+                    <div class="composer-status" id="identity-status" role="status"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-header" id="command-scope">
+            <h2>Commands in this server</h2>
+            <span class="composer-hint">Discord cannot hide a globally-registered command in one server, so every server is registered with <strong>its own</strong> list: a command whose system is off here is not in this server's picker at all.</span>
+        </div>
+
+        <div class="composer-card">
+            <div class="scope-summary">
+                <div class="scope-stat"><b id="scope-available">{{ command_scope.available }}</b><span>offered here</span></div>
+                <div class="scope-stat"><b id="scope-hidden">{{ command_scope.hidden }}</b><span>hidden here</span></div>
+                <div class="scope-stat"><b>{{ command_scope.total }}</b><span>in the bot</span></div>
+            </div>
+            <div id="scope-hidden-wrap"{% if not command_scope.hidden %} hidden{% endif %}>
+                <div class="field-head">
+                    <span class="field-label">Not offered here</span>
+                    <span class="composer-hint">Turn the matching system back on and the command returns to this server's picker.</span>
+                </div>
+                <div class="module-commands" id="scope-hidden-pills">
+                    {% for cmd in command_scope.hidden_names %}<span class="cmd-pill">/{{ cmd }}</span>{% endfor %}
+                </div>
+            </div>
+            <div class="field-head" id="scope-all-note"{% if command_scope.hidden %} hidden{% endif %}>
+                <span class="composer-hint">Every command the bot has is offered on this server.</span>
             </div>
         </div>
 
@@ -1628,6 +1731,154 @@
             return data;
         }
 
+        // ── This server's bot ──────────────────────────────────────────────
+        // Discord's per-guild profile: the member fields, not the application's.
+        // Nothing here can reach the global avatar, which stays the operator's.
+        const IDENTITY_LIVE_NAME = {{ (server_identity.live_name or guild_name)|tojson }};
+        let scopeRefreshTimer = null;
+
+        function identityStatus(message, tone) {
+            const el = document.getElementById("identity-status");
+            if (!el) return;
+            el.textContent = message || "";
+            el.style.color = tone === "error" ? "var(--red)"
+                : (tone === "ok" ? "var(--green)" : "");
+        }
+
+        function drawIdentityImages() {
+            // The picture is served from our own record, so the URL has to change
+            // with the save — otherwise the browser shows the one it cached.
+            const stamp = String(Date.now());
+            ["avatar", "banner"].forEach(function (kind) {
+                const box = document.getElementById(`identity-${kind}`);
+                if (!box) return;
+                const image = document.createElement("img");
+                image.alt = `The ${kind} this server gave the bot`;
+                image.addEventListener("error", function () {
+                    // Nothing stored for this server: show the placeholder rather
+                    // than a broken image.
+                    const note = document.createElement("span");
+                    note.textContent = kind === "avatar"
+                        ? (IDENTITY_LIVE_NAME || "?").slice(0, 1).toUpperCase()
+                        : "No banner here";
+                    box.replaceChildren(note);
+                });
+                image.src = `/api/identity/image/${kind}?guild_id=${encodeURIComponent(GUILD_ID)}&t=${stamp}`;
+                box.replaceChildren(image);
+            });
+        }
+
+        async function saveIdentity(clear) {
+            const nickEl = document.getElementById("identity-nick");
+            const bioEl = document.getElementById("identity-bio");
+            const avatarEl = document.getElementById("identity-avatar-file");
+            const bannerEl = document.getElementById("identity-banner-file");
+            const saveButton = document.getElementById("identity-save");
+            const clearButton = document.getElementById("identity-clear");
+            if (!nickEl) return;
+
+            const form = new FormData();
+            form.append("csrf_token", CSRF_TOKEN);
+            form.append("guild_id", GUILD_ID);
+            if (clear) {
+                // Every field is named, so "reset" means reset rather than
+                // "whatever happened to be in the boxes".
+                form.append("nick", "");
+                form.append("bio", "");
+                form.append("clear_avatar", "1");
+                form.append("clear_banner", "1");
+            } else {
+                form.append("nick", nickEl.value);
+                form.append("bio", bioEl.value);
+                if (avatarEl && avatarEl.files.length) form.append("avatar", avatarEl.files[0]);
+                if (bannerEl && bannerEl.files.length) form.append("banner", bannerEl.files[0]);
+            }
+
+            [saveButton, clearButton].forEach(function (el) { if (el) el.disabled = true; });
+            identityStatus(clear ? "Resetting…" : "Saving…");
+            try {
+                const response = await fetch("/api/identity", {
+                    method: "POST",
+                    headers: { "X-CSRF-Token": CSRF_TOKEN },
+                    credentials: "same-origin",
+                    body: form
+                });
+                let data = {};
+                try { data = await response.json(); } catch (_) {}
+                if (response.status === 401) {
+                    saveDraft();
+                    showToast("Your session expired — redirecting to sign in…", "error");
+                    setTimeout(function () { window.location.href = "/login"; }, 1200);
+                    return;
+                }
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || `Request failed (${response.status})`);
+                }
+                nickEl.value = data.nick || "";
+                bioEl.value = data.bio || "";
+                if (avatarEl) avatarEl.value = "";
+                if (bannerEl) bannerEl.value = "";
+                identityStatus(
+                    clear
+                        ? "Reset — this server uses the bot's own name and picture again."
+                        : "Saved. Discord shows this in this server only.",
+                    "ok"
+                );
+                showToast(clear ? "Reset for this server" : "Saved for this server");
+                drawIdentityImages();
+            } catch (error) {
+                identityStatus(error.message, "error");
+                if (error.message !== "Session expired") showToast(error.message, "error");
+            } finally {
+                [saveButton, clearButton].forEach(function (el) { if (el) el.disabled = false; });
+            }
+        }
+
+        async function refreshCommandScope() {
+            try {
+                // The server is named rather than left to the session: this panel
+                // is about one server's list, and the page can be showing a
+                // different one from the session's default.
+                const data = await apiGet(`/api/command-scope?guild_id=${encodeURIComponent(GUILD_ID)}`);
+                const available = document.getElementById("scope-available");
+                const hidden = document.getElementById("scope-hidden");
+                const wrap = document.getElementById("scope-hidden-wrap");
+                const pills = document.getElementById("scope-hidden-pills");
+                const note = document.getElementById("scope-all-note");
+                if (available) available.textContent = data.available;
+                if (hidden) hidden.textContent = data.hidden;
+                if (pills) {
+                    pills.replaceChildren();
+                    (data.hidden_names || []).forEach(function (name) {
+                        const pill = document.createElement("span");
+                        pill.className = "cmd-pill";
+                        pill.textContent = "/" + name;
+                        pills.appendChild(pill);
+                    });
+                }
+                if (wrap) wrap.hidden = !data.hidden;
+                if (note) note.hidden = !!data.hidden;
+            } catch (_) {
+                // The panel keeps its last numbers rather than emptying itself:
+                // a failed refresh is not a reason to show nothing.
+            }
+        }
+
+        function scheduleScopeRefresh() {
+            // The server's commands are republished a few seconds after the
+            // switch is saved (see bot.py), so asking immediately would read the
+            // state from before the change.
+            if (scopeRefreshTimer) clearTimeout(scopeRefreshTimer);
+            scopeRefreshTimer = setTimeout(refreshCommandScope, 4000);
+        }
+
+        {
+            const saveButton = document.getElementById("identity-save");
+            const clearButton = document.getElementById("identity-clear");
+            if (saveButton) saveButton.addEventListener("click", () => saveIdentity(false));
+            if (clearButton) clearButton.addEventListener("click", () => saveIdentity(true));
+        }
+
         async function onToggleChange(moduleId, isEnabled) {
             if (pending.has(moduleId)) return;
             pending.add(moduleId);
@@ -1644,6 +1895,10 @@
                 });
                 showToast(`${moduleName(moduleId)} ${isEnabled ? "enabled" : "disabled"}.`);
                 updateActiveCount();
+                // That switch is also a command-set change: the server's own
+                // command list is republished a few seconds from now, so the
+                // panel is asked again once it has settled.
+                scheduleScopeRefresh();
             } catch (err) {
                 if (input) input.checked = !isEnabled;
                 setLabel(moduleId, !isEnabled);
@@ -1671,6 +1926,7 @@
                 });
                 updateActiveCount();
                 showToast(`All modules ${enable ? "enabled" : "disabled"}.`);
+                scheduleScopeRefresh();
             } catch (err) {
                 if (err.message !== "Session expired") {
                     showToast(`Bulk update failed: ${err.message}`, "error");

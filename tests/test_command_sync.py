@@ -127,7 +127,6 @@ def _payloads(*names: str) -> list[dict]:
 
 
 class SyncCommands(unittest.IsolatedAsyncioTestCase):
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_every_guild_gets_its_commands(self):
         http = _FakeHTTP()
         fake = _FakeBot([_guild("Hmm"), _guild("Second Server", 2)], _FakeTree(), http)
@@ -136,11 +135,16 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd0", "cmd1", "cmd2"] * 2)
         self.assertEqual(
-            results, {"(global)": 3, "Hmm": 3, "Second Server": 3},
-            "the global scope is a second lane with its own write budget",
+            results, {"(global)": 0, "Hmm": 3, "Second Server": 3},
+            "each server carries the tree now, and the shared scope holds only "
+            "what has to work with no server to resolve it",
+        )
+        self.assertEqual(
+            http.global_sent, [],
+            "the tree was also pushed globally, which is what makes a per-server "
+            "list impossible: a global command is in every server's picker",
         )
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_only_missing_or_changed_commands_are_sent(self):
         """Discord allows 200 writes a day per guild, so unchanged ones are skipped."""
         tree = _FakeTree(local_count=3)
@@ -151,7 +155,6 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd2"], "an unchanged command was re-uploaded")
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_changed_command_is_sent(self):
         tree = _FakeTree(local_count=1)
         tree.local = [_FakeCommand("loan", "new description")]
@@ -162,7 +165,6 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["loan"])
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_an_up_to_date_guild_costs_nothing(self):
         tree = _FakeTree(local_count=3)
         tree.registered = [_FakeCommand(command.name) for command in tree.local]
@@ -174,7 +176,6 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(http.global_sent, [], "an unchanged global tree was re-uploaded")
         self.assertEqual(results, {"(global)": 3, "Hmm": 3})
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_guild_whose_state_cannot_be_read_is_published_anyway(self):
         tree = _FakeTree(local_count=2, fetch_error=True)
         http = _FakeHTTP()
@@ -183,7 +184,6 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd0", "cmd1"])
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_spent_write_budget_schedules_the_background_drain(self):
         """A deploy that lands while the window is closed must not give up."""
         tree = _FakeTree(local_count=3)
@@ -201,11 +201,11 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(http.sent, ["cmd0", "cmd1"], "it kept going after the limit")
         self.assertEqual(
-            sorted(scheduled), [("Hmm", 430.0), ("global", 430.0)],
-            "both lanes wait out the window",
+            sorted(scheduled), [("Hmm", 430.0)],
+            "the server with commands pending waits the window out; the shared "
+            "lane published nothing, so it has nothing to wait for",
         )
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_an_ordinary_failure_does_not_queue_a_drain(self):
         tree = _FakeTree(local_count=2)
         http = _FakeHTTP(fail_on="cmd1", fail_code="500", retry_after=5.0)
@@ -219,7 +219,6 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(scheduled, [], "an ordinary error is not a budget problem")
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_complete_guild_is_not_drained(self):
         tree = _FakeTree(local_count=3)
         tree.registered = [_FakeCommand(command.name) for command in tree.local]
@@ -232,6 +231,117 @@ class SyncCommands(unittest.IsolatedAsyncioTestCase):
             await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, _FakeHTTP()))
 
         self.assertEqual(scheduled, [])
+
+
+class PerServerCommandLists(unittest.IsolatedAsyncioTestCase):
+    """Each server is registered with its own list, which is the whole feature.
+
+    Discord cannot hide a globally-registered command in one server, so what a
+    server's members see in their picker *is* what that server is registered
+    with. These pin the three decisions that follow: what gets published, what
+    gets taken away, and when the shared lane may be trimmed.
+    """
+
+    def _tree(self, *names):
+        tree = _FakeTree(local_count=0)
+        tree.local = [_FakeCommand(name) for name in names]
+        return tree
+
+    async def _sync(self, states, tree, guilds=None, http=None):
+        http = http or _FakeHTTP()
+        fake = _FakeBot(guilds or [_guild("Hmm")], tree, http)
+        with mock.patch.object(
+            bot_module.modules, "get_states", new=lambda _gid: dict(states)
+        ):
+            results = await bot_module.sync_commands(fake)
+        return fake, http, results
+
+    async def test_a_server_that_turned_a_module_off_is_not_registered_with_it(self):
+        tree = self._tree("market", "balance", "help")
+        _, http, _ = await self._sync({"market": False, "economy": True}, tree)
+        self.assertEqual(http.sent, ["balance", "help"])
+
+    async def test_a_server_that_kept_the_module_is_registered_with_it(self):
+        tree = self._tree("market", "help")
+        _, http, _ = await self._sync({"market": True}, tree)
+        self.assertEqual(http.sent, ["market", "help"])
+
+    async def test_a_core_command_is_published_however_the_modules_are_set(self):
+        tree = self._tree("help", "dbstatus", "market")
+        _, http, _ = await self._sync({"market": False}, tree)
+        self.assertEqual(http.sent, ["help", "dbstatus"])
+
+    async def test_a_module_switched_off_takes_its_command_out_of_this_server(self):
+        tree = self._tree("market", "help")
+        tree.registered = [
+            _FakeCommand("market", command_id="id-market"),
+            _FakeCommand("help", command_id="id-help"),
+        ]
+        _, http, _ = await self._sync({"market": False}, tree)
+        self.assertEqual(
+            http.deleted,
+            [("guild", "id-market"), ("global", "id-market")],
+            "the server's own copy goes, and so does the global one — a global "
+            "command is in every server's picker, including the server that just "
+            "turned the module off",
+        )
+
+    async def test_a_command_nobody_declared_is_never_taken_away(self):
+        """The narrow rule is the whole safety of this: no name, no delete."""
+        tree = self._tree("help")
+        tree.registered = [_FakeCommand("mystery", command_id="id-mystery")]
+        _, http, _ = await self._sync({}, tree)
+        self.assertEqual(http.deleted, [])
+
+    async def test_two_servers_get_their_own_lists_from_the_same_tree(self):
+        tree = self._tree("market", "balance")
+        states = {
+            _guild("Hmm", 1).id: {"market": False, "economy": True},
+            _guild("Second Server", 2).id: {"market": True, "economy": True},
+        }
+        http = _FakeHTTP()
+        fake = _FakeBot([_guild("Hmm", 1), _guild("Second Server", 2)], tree, http)
+        with mock.patch.object(
+            bot_module.modules, "get_states", new=lambda gid: dict(states[gid])
+        ):
+            await bot_module.sync_commands(fake)
+        # One request per command per server, in each server's own scope.
+        self.assertEqual(http.sent, ["balance", "market", "balance"])
+
+    async def test_the_shared_lane_is_trimmed_once_every_server_has_its_own(self):
+        tree = self._tree("market", "help")
+        tree.registered = [
+            _FakeCommand("market", command_id="id-market"),
+            _FakeCommand("help", command_id="id-help"),
+        ]
+        _, http, _ = await self._sync({"market": True}, tree)
+        self.assertIn(
+            ("global", "id-market"), http.deleted,
+            "the global copy is in every server's picker, which is what a "
+            "per-server list exists to prevent",
+        )
+        self.assertNotIn(
+            ("global", "id-help"), http.deleted,
+            "help has to work with no server to resolve it",
+        )
+
+    async def test_the_shared_lane_is_left_alone_when_a_server_is_incomplete(self):
+        """A failed publish plus a successful delete would empty that server."""
+        tree = self._tree("market", "help")
+        tree.registered = [_FakeCommand("market", command_id="id-market")]
+        http = _FakeHTTP(fail_on="help", fail_code="500")
+        _, http, _ = await self._sync({"market": True}, tree, http=http)
+        self.assertEqual(http.deleted, [], "a server was still missing commands")
+
+    async def test_a_module_that_cannot_be_read_publishes_everything(self):
+        """Failing open: an unreadable state can only leave a command visible."""
+        tree = self._tree("market", "help")
+        fake = _FakeBot([_guild("Hmm")], tree, _FakeHTTP())
+        with mock.patch.object(
+            bot_module.modules, "get_states", side_effect=RuntimeError("no database")
+        ):
+            await bot_module.sync_commands(fake)
+        self.assertEqual(fake.http.sent, ["market", "help"])
 
 
 class DrainingPendingCommands(unittest.IsolatedAsyncioTestCase):
@@ -286,15 +396,15 @@ class DrainingPendingCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertLessEqual(self.slept[0], bot_module.DRAIN_MAX_WAIT)
 
-    @unittest.skip("Guild lane retired — global commands reach every server")
     async def test_a_failure_never_escapes_into_on_ready(self):
         tree = _FakeTree(local_count=2, fetch_error=True)
         http = _FakeHTTP(fail_on="cmd0", fail_code="500")
 
         results = await bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, http))
 
-        # Reported as a count of zero rather than raising into on_ready.
-        self.assertEqual(results, {"(global)": 0, "Hmm": 0})
+        # Reported as counts rather than raising into on_ready: the one command
+        # Discord accepted is counted, the refused one is not.
+        self.assertEqual(results, {"(global)": 0, "Hmm": 1})
 
     async def test_no_guilds_still_publishes_the_global_scope(self):
         """A bot in no guilds can still be found by the next invitation."""

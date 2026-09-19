@@ -167,6 +167,34 @@ def retired(registered) -> list[tuple[str, str]]:
     return found
 
 
+def removable(registered, wanted, known) -> list[tuple[str, str]]:
+    """``(name, id)`` for commands a scope is registered with and must not have.
+
+    The narrow counterpart to :func:`retired`, and the rule that makes per-server
+    command lists possible: a command may be taken out of **one scope** when that
+    scope is not supposed to offer it — because the server turned the module off,
+    or because the copy belongs in the per-server scope now and this is the stale
+    global one.
+
+    Three constraints, each from a failure this project already had, keep this
+    from becoming the destructive overwrite it resembles:
+
+    * ``known`` is the set of names the feature registry declares. A name nobody
+      declares is *never* removed — a typo upstream cannot delete a command that
+      is working, it can only leave one visible.
+    * Only a name that is registered **and** absent from ``wanted`` is removed, so
+      this can never take away something the scope is meant to keep.
+    * The caller names the scope. Removing is per scope, so one server's choice
+      cannot reach another server's commands.
+    """
+    have = index(registered or ())
+    return [
+        (name, str(payload["id"]))
+        for name, payload in sorted(have.items())
+        if name in known and name not in wanted and payload.get("id")
+    ]
+
+
 def index(commands) -> dict[str, dict]:
     """``{name: payload}`` for a list of command payloads."""
     return {
