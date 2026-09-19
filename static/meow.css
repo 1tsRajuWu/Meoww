@@ -1081,14 +1081,23 @@ body.has-aurora .aurora { z-index: -1; }
 /* --------------------------------------------------------------------------
    Custom Cat Cursors
    -------------------------------------------------------------------------- */
-html {
-    cursor: url('/static/cursor-default.svg') 6 2, auto;
+html, body, div, p, span, h1, h2, h3, h4, h5, h6, section, article, main, header, footer, table, tr, td, th {
+    cursor: url('/static/cursor-default.svg') 6 2, auto !important;
 }
 
 a, button, [role="button"], label, select, summary,
 input[type="submit"], input[type="button"], input[type="checkbox"],
-input[type="radio"], .btn, .card-hover, .server-row, .toggle-track {
-    cursor: url('/static/cursor-pointer.svg') 16 8, pointer;
+input[type="radio"], .btn, .card-hover, .server-row, .toggle-track,
+.brand, .stat, .feature-card, .toggle-btn, .pill, [onclick], [tabindex] {
+    cursor: url('/static/cursor-pointer.svg') 16 8, pointer !important;
+}
+
+input[type="text"], input[type="password"], input[type="search"], textarea {
+    cursor: text !important;
+}
+
+:disabled, [disabled], .disabled {
+    cursor: not-allowed !important;
 }
 
 /* --------------------------------------------------------------------------

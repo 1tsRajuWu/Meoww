@@ -556,7 +556,7 @@ class HelpLayout(discord.ui.LayoutView):
                 )
             )
             parts.append(link_row)
-        parts.append(discord.ui.TextDisplay("-# Tap a category anytime  ·  Meow"))
+        parts.append(discord.ui.TextDisplay("-# 🌐 [Website & Pricing](https://meow-discord-bot.onrender.com)  ·  Tap a category anytime  ·  Meow"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
 
 

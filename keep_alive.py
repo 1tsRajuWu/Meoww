@@ -746,10 +746,9 @@ def set_security_headers(response):
     # server, deploy after deploy, with no error anywhere to show for it. The two
     # public market endpoints say what they want to be cached; anything that has
     # already spoken is left alone.
-    # Static assets (css, svg, js) are cached for performance; everything else
-    # defaults to no-store to prevent stale dashboards across deploys.
+    # Static assets (css, svg, js) require revalidation so new deploys are instantly picked up
     if request.path.startswith("/static/"):
-        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=3600"
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     elif "Cache-Control" not in response.headers:
         response.headers["Cache-Control"] = "no-store"
     if request.headers.get("X-Forwarded-Proto", request.scheme) == "https":

@@ -174,22 +174,28 @@ async def global_module_check(interaction: discord.Interaction) -> bool:
 bot.tree.interaction_check = global_module_check
 
 STATUSES = [
-    ("Meowing at the wall 🐈", discord.ActivityType.playing),
+    ("/help | meow-discord-bot.onrender.com 🌐", discord.ActivityType.watching),
+    ("Protecting your server 🛡️ | /help", discord.ActivityType.watching),
+    ("Listening to commands 🐾 | /help", discord.ActivityType.listening),
+    ("Live crypto & stock markets 📈", discord.ActivityType.watching),
+    ("Meowing at the wall 🐈 | /help", discord.ActivityType.playing),
     ("Knocking over your water glass 🐾", discord.ActivityType.playing),
-    ("Sleeping on the keyboard ⌨️", discord.ActivityType.playing),
     ("Chasing a laser pointer 🔴", discord.ActivityType.competing),
     ("Demanding wet food 🐟", discord.ActivityType.listening),
-    ("Judging you silently 👁️", discord.ActivityType.watching),
+    ("Judging you silently 👁️ | /help", discord.ActivityType.watching),
     ("Zoomies at 3 AM 🏃‍♂️", discord.ActivityType.playing),
-    ("Purring... 🐾", discord.ActivityType.listening),
+    ("Purring happily... 🐾", discord.ActivityType.listening),
     ("Plotting world domination 😼", discord.ActivityType.watching),
-    ("Staring into the void 🕳️", discord.ActivityType.watching),
-    ("Scratching the sofa 🛋️", discord.ActivityType.playing),
-    ("Biting your ankles 🦶", discord.ActivityType.competing),
-    ("Taking a 16-hour nap 💤", discord.ActivityType.playing),
 ]
 
 async def rotate_status():
+    try:
+        await bot.change_presence(
+            activity=discord.Activity(type=discord.ActivityType.watching, name="/help | meow-discord-bot.onrender.com 🌐"),
+            status=discord.Status.online,
+        )
+    except Exception as e:
+        print(f"Failed to set initial status: {e}")
     last_idx = -1
     while True:
         available = [i for i in range(len(STATUSES)) if i != last_idx]
@@ -197,7 +203,7 @@ async def rotate_status():
         last_idx = idx
         name, atype = STATUSES[idx]
         try:
-            await bot.change_presence(activity=discord.Activity(type=atype, name=name), status=discord.Status.dnd)
+            await bot.change_presence(activity=discord.Activity(type=atype, name=name), status=discord.Status.online)
         except Exception as e:
             print(f"Failed to update status: {e}")
         await asyncio.sleep(3600)  # Rotate every 60 minutes
