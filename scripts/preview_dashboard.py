@@ -21,11 +21,13 @@ candles, the module catalog, the scheduling limits — this file calls it rather
 than describing it, because a stub that is *written* to look right is a stub
 that drifts, and the page then gets blamed for the harness's shape.
 """
+import asyncio
 import html
 import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 
 from flask import Flask, jsonify, redirect, render_template, request
@@ -50,12 +52,36 @@ sys.path.insert(0, ROOT)
 _LIVE_DB = os.path.join(ROOT, "bot.db")
 _WORKDIR = tempfile.mkdtemp(prefix="meow-preview-")
 _PREVIEW_DB = os.path.join(_WORKDIR, "bot.db")
-if os.path.exists(_LIVE_DB):
+_COPIED_LIVE_DB = os.path.exists(_LIVE_DB)
+if _COPIED_LIVE_DB:
     shutil.copy2(_LIVE_DB, _PREVIEW_DB)
 
 from utils import db as _db  # noqa: E402
 
 _db.DB_PATH = _PREVIEW_DB
+
+if not _COPIED_LIVE_DB:
+    # A checkout with no ``bot.db`` — a fresh clone, or CI — had nothing to copy,
+    # so the pages were handed an empty file with no tables: every switch here
+    # answered ``500 no such table: guild_modules``, and the two tests that drive
+    # this harness passed only on a machine that happened to have a populated
+    # ``bot.db``. The schema is the bot's own idempotent ``setup()``, run against
+    # the copy, the same call ``tests/__init__.py`` makes for its own file.
+    def _build_schema() -> None:
+        asyncio.run(_db.setup())
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        _build_schema()
+    else:
+        # Imported from inside a running loop (a test that loads this file from
+        # an async case): an import may not block on that loop, and the schema is
+        # needed before the first request, so it is built in a thread of its own
+        # rather than scheduled and hoped for.
+        _schema_thread = threading.Thread(target=_build_schema, daemon=True)
+        _schema_thread.start()
+        _schema_thread.join()
 
 # --------------------------------------------------------------------------- #
 # A preview client id, so the two Discord surfaces can be looked at

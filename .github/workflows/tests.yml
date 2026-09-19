@@ -10,9 +10,21 @@ on:
   # before merging it.
   workflow_dispatch:
 
+concurrency:
+  # A suite that hangs used to leave every push piled up behind it: fourteen runs
+  # were "in progress" at once, none of them publishable and none of them
+  # cancelled. A newer push supersedes an older one — nothing is lost, because
+  # the point of this job is the newest commit.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     runs-on: ubuntu-latest
+    # Belt and braces under the in-process watchdog below: whatever holds the
+    # suite, the job ends. GitHub's own ceiling is six hours, which is why this
+    # was invisible rather than red.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,8 +44,17 @@ jobs:
         # skipping, is the failure this step exists to catch.
         run: |
           python - <<'PY'
+          import faulthandler
           import sys
           import unittest
+
+          # A hang is the one failure that leaves no evidence. Without this, the
+          # suite that blocked on the runner sat at "Run test suite" until
+          # GitHub's six-hour ceiling: no log was published, the check never went
+          # red, and every later push queued behind it. Two minutes is far longer
+          # than the whole suite takes (~15s) and short enough to read a log:
+          # every thread's stack is dumped and the process exits non-zero.
+          faulthandler.dump_traceback_later(120, exit=True)
 
           FLOOR = 740
           SKIP_BUDGET = 20
