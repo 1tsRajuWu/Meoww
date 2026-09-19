@@ -11,7 +11,7 @@ Code Architecture & Navigation:
 3. RATE LIMITING & SECURITY (Lines 340-750):
    Sliding-window IP rate limiters, CSRF validation, CSP & Cache-Control security headers.
 4. HEALTH & UTILITY ROUTES (Lines 750-990):
-   /health, /api/voice-debug, /api/live-logs.
+   /health, /api/voice-debug, /api/live-logs, /api/config.
 5. PUBLIC PAGES (Lines 990-1100):
    Landing page (/), /privacy, /terms, and /pricing.
 6. SESSION & OAUTH FLOWS (Lines 1100-1380):
@@ -42,8 +42,8 @@ import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
-    command_scope, db, digest, discord_auth, features, identity, modules, plans,
-    scheduled, webdocs,
+    command_scope, config_audit, db, digest, discord_auth, features, identity,
+    modules, plans, scheduled, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -840,6 +840,17 @@ def health():
         "bot_ready": started,
         # The live answer, which is what "is it connected?" actually means.
         "gateway": _gateway_label(started, connected),
+        # Whether this deployment is *configured*, which is a different question
+        # from whether it is up — and the one there was previously no way to ask.
+        # It does not touch the top-level ``status``: the process being healthy
+        # and the deployment being fully configured are separate claims, and a
+        # monitor that reads ``status`` should not be told the bot is down
+        # because nobody pasted a webhook URL.
+        #
+        # Counts only, and no names: this endpoint is unauthenticated, and "this
+        # deployment has no sign-in secret" is not a sentence to hand a stranger.
+        # /api/config has the names, behind the administrator's sign-in.
+        "config": config_audit.health_json(),
         "timestamp": int(time.time()),
     })
 
@@ -866,6 +877,32 @@ def api_live_logs():
         return Response(content, mimetype="text/plain; charset=utf-8")
     except Exception as e:
         return Response(f"Error fetching logs: {e}", mimetype="text/plain; charset=utf-8")
+
+
+@app.route("/api/config")
+def api_config():
+    """What this deployment is and is not configured to do, and what it costs.
+
+    Administrator-only, and it can disclose nothing secret by construction: it
+    reports each setting's *name*, what it turns on, and whether a value is
+    present — never a value. That is why it can be answered without the
+    redaction pass ``/api/live-logs`` needs on a log that other code wrote.
+
+    A session opened by a one-time link counts as an administrator here, on
+    purpose. The most useful thing this endpoint has to say is why the operator
+    cannot get in the other way, and ``ADMIN_PASSKEY`` being unset is exactly
+    that case — so requiring the passkey would hide the answer behind the
+    question. A guild-scoped session is still refused: this describes the whole
+    deployment, not one server.
+    """
+    if is_authenticated():
+        if session.get("auth_scope") != "global":
+            return jsonify({
+                "error": "Configuration is available only to an administrator sign-in.",
+            }), 403
+    elif not _passkey_ok():
+        return _passkey_denied()
+    return jsonify(config_audit.full_json())
 
 
 @app.route("/api/set-module", methods=["POST"])

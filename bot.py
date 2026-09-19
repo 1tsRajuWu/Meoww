@@ -7,9 +7,28 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
-from keep_alive import keep_alive
-from utils import (
-    command_scope, commands_sync, db, features, modules, operator_log, permissions,
+
+# Loaded **before** this project's own modules are imported, and that order is
+# load-bearing rather than stylistic: `keep_alive` and `utils.cloud_sync` read
+# the environment at import time — the session key, the passkey, the Supabase
+# credentials — so a `.env` read *after* them is invisible to every one of those
+# reads. The documented way to configure this bot locally is to copy
+# `.env.example` to `.env` and fill it in, and under the old order that file
+# reached `DISCORD_TOKEN` below and nothing else. On a machine where the passkey,
+# the session key and the backups were all configured, the dashboard still ran
+# with a random session key, passkey sign-in switched off and no backups — and
+# said nothing, because each of those modules had already decided what it could
+# see.
+#
+# `load_dotenv` never overrides a variable that is already set, so a real host
+# environment — Render, Railway, an `export` in a shell — still wins, and on those
+# hosts this call is a no-op.
+load_dotenv()
+
+from keep_alive import keep_alive  # noqa: E402
+from utils import (  # noqa: E402
+    command_scope, commands_sync, config_audit, db, features, modules, operator_log,
+    permissions,
 )
 
 # Force real-time unbuffered log streaming to Render / cloud console
@@ -18,8 +37,6 @@ try:
     sys.stderr.reconfigure(line_buffering=True)
 except Exception:
     pass
-
-load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -1494,6 +1511,14 @@ def _install_shutdown_flush() -> None:
 
 
 async def main():
+    # What this deployment is and is not configured to do, at the top of the log
+    # rather than scattered through it. The first question after a deploy that
+    # behaves oddly is whether it was configured at all, and the answer belongs
+    # in one readable block: a setting that is simply absent leaves no error to
+    # search for, which is why these were invisible for so long.
+    for line in config_audit.boot_lines():
+        print(line, flush=True)
+
     # 1. Restore persistent SQLite database from cloud before loading cogs or connecting
     _install_shutdown_flush()
     try:
