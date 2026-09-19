@@ -1,4 +1,4 @@
-"""Build the public site as static files, for GitHub Pages.
+"""Build the public site as static files, for a static host.
 
 Why this exists
 ---------------
@@ -6,16 +6,19 @@ The pages the bot serves (``/``, ``/pricing``, ``/privacy``, ``/terms``) are the
 ones worth reading *before* you trust a bot with your server, and they were
 reachable only from the single Render process that also runs the bot. That host
 is a free tier that sleeps, so the front door was shut whenever nobody had
-knocked recently. GitHub Pages has no such problem.
+knocked recently. A static host has no such problem — Cloudflare Pages is where
+this is deployed, via ``.github/workflows/site.yml``.
 
 Two things make this harder than copying files:
 
-* GitHub Pages serves a *project* site from ``/<repo>/``, so every root-relative
-  URL the templates emit — ``/static/meow.css``, ``/pricing``, the ``url()`` of
-  the cat cursor inside the stylesheet — points outside the site and 404s. Every
-  one of them is rewritten to a relative path here. The cursor is the one that
-  would fail *silently*: a missing cursor image falls back to the system arrow
-  with nothing in any console to say so.
+* Some static hosts serve a site from a subpath — a GitHub *project* site lives
+  at ``/<repo>/`` — and on those every root-relative URL the templates emit
+  (``/static/meow.css``, ``/pricing``, the ``url()`` of the cat cursor inside
+  the stylesheet) points outside the site and 404s. Every one of them is
+  rewritten to a relative path here, which is correct at a subpath *and* at a
+  root, so the output is the same whichever host takes it. The cursor is the one
+  that would fail *silently*: a missing cursor image falls back to the system
+  arrow with nothing in any console to say so.
 * The pages that need the backend (``/dashboard``, ``/login``, ``/servers``, the
   market, ``/health``) cannot be static at all. They are rewritten to the live
   app, so a visitor who wants the real thing is sent to the process that can

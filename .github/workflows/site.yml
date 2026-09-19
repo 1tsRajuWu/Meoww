@@ -3,30 +3,29 @@ name: Site
 # Renders the public pages (front door, pricing, privacy, terms) into static
 # files and checks the result, so the site cannot silently break.
 #
-# **This does not publish anywhere, and that is deliberate.** It was written to
-# deploy to GitHub Pages, and Pages is not available here: this repository is
-# private and the owner is on GitHub's free plan, so the API answers
-# `422 Your current plan does not support GitHub Pages for this repository`.
-# The first two runs proved the *build* was fine and failed on that one
-# platform limit — "the repository has Pages enabled and configured to build
-# using GitHub Actions" after the site had already rendered perfectly. There is
-# no workflow setting that fixes a plan restriction, so this job does the half
-# that can be done anywhere and leaves the host to whoever is deploying.
+# It builds here and deploys to **Cloudflare Pages**, and the split is the
+# point: Cloudflare's build image has no Python, while this job already had a
+# working interpreter — the site is rendered in Actions and the finished
+# directory is handed over, so the host never needs to run any of it.
 #
-# The build is worth running on its own: `scripts/build_site.py` is where every
-# root-relative URL is rewritten, and a single one that survives is a 404 on any
-# static host — including the cat cursor, which fails with the system arrow and
-# nothing in any console. The artifact is uploaded, so the site can be published
-# by hand or by any host that takes a directory.
+# It was written for GitHub Pages first, and Pages is not available at all for
+# this repository: it is private and the owner is on GitHub's free plan, so the
+# API answers `422 Your current plan does not support GitHub Pages for this
+# repository`. Both original runs proved the *build* was fine and failed on that
+# one plan restriction, with no workflow setting able to fix it.
 #
-# When Pages does become available (a public repo, or a paid plan for a private
-# one), publishing it back is two steps from the artifact below:
+# Two repository secrets turn the publish on; with neither set the deploy job
+# skips with a notice rather than failing, so the checks below still guard every
+# push:
 #
-#   permissions: { contents: read, pages: write, id-token: write }
-#   - uses: actions/configure-pages@v5
-#   - uses: actions/upload-pages-artifact@v3
-#     with: { path: _site }
-#   - uses: actions/deploy-pages@v4
+#   CLOUDFLARE_API_TOKEN   — "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID  — from the Cloudflare dashboard's URL or Overview
+#
+# The build is worth running even unpublished: `scripts/build_site.py` is where
+# every root-relative URL is rewritten, and a single one that survives is a 404
+# on a static host — including the cat cursor, which fails with the system arrow
+# and nothing in any console. The artifact is uploaded either way, so the site
+# can also be published by hand or by any host that takes a directory.
 
 on:
   push:
@@ -67,9 +66,13 @@ jobs:
           # is in every invite URL. Override with a repository *variable* of the
           # same name if the application id ever changes.
           DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || '1548380269776605324' }}
-          # A project site is served from /<repo>/, so the sitemap needs the full
-          # public URL rather than the bare file names used inside the pages.
-          SITE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+          # The site's public address, used only to write sitemap.xml. A
+          # Cloudflare Pages project is served from the root of its own hostname,
+          # so there is no /<repo>/ prefix here — that subpath is what GitHub
+          # *project* sites use, and it is still what the rewriting in
+          # build_site.py is written to survive, which keeps the output
+          # deployable to either.
+          SITE_URL: ${{ vars.SITE_URL || 'https://meow-bot-site.pages.dev' }}
         # The builder exits non-zero if any root-relative URL survives its
         # rewrite, so a link that would 404 on a static host fails the job here
         # rather than in a visitor's browser.
@@ -98,3 +101,39 @@ jobs:
           name: static-site
           path: _site
           retention-days: 14
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: static-site
+          path: _site
+
+      # Secrets cannot be read from a job-level `if`, so the check is a step:
+      # a repository with no Cloudflare credentials gets a notice and a green
+      # run, not a red mark on every push for a host nobody has connected yet.
+      - name: Is Cloudflare configured?
+        id: cf
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN is not set — built the site but did not publish it."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to Cloudflare Pages
+        if: steps.cf.outputs.configured == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # `--branch=main` is what makes this a production deployment rather
+          # than a preview URL. The project is created on the first run if it
+          # does not exist yet.
+          command: pages deploy _site --project-name=meow-bot-site --branch=main
