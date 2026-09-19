@@ -973,5 +973,65 @@ class TheSyncCommandIsNotDestructive(unittest.TestCase):
         self.assertIn("bot.publish_commands = sync_commands", source)
 
 
+class ThePublishDoesNotHoldTheBootUp(unittest.IsolatedAsyncioTestCase):
+    """The boot starts the publish; it does not wait for it.
+
+    ``await sync_commands(bot)`` inside ``on_ready`` reads as harmless and is not:
+    Discord gives each server 200 command writes a day and paces them, so a server
+    that had lost its list took eighteen minutes to be given it back — with the
+    backup loop, the channel binding and the release note all queued behind it.
+    What the boot owes *now* must not queue behind what Discord will accept
+    slowly.
+    """
+
+    def _bot(self, loop):
+        return SimpleNamespace(loop=loop)
+
+    async def test_it_returns_before_the_publish_has_finished(self):
+        started = asyncio.Event()
+
+        async def _slowly(_bot):
+            started.set()
+            await asyncio.sleep(30)
+            return {}
+
+        with mock.patch.object(bot_module, "sync_commands", _slowly):
+            task = bot_module._publish_commands_in_background(
+                self._bot(asyncio.get_running_loop())
+            )
+            self.assertIsInstance(task, asyncio.Task)
+            self.assertFalse(task.done(), "the boot waited for the publish")
+            await asyncio.wait_for(started.wait(), timeout=1)
+            self.assertFalse(task.done(), "the boot is still holding the publish")
+            task.cancel()
+
+    async def test_a_publish_that_explodes_is_reported_not_raised(self):
+        logs = io.StringIO()
+
+        async def _explodes(_bot):
+            raise RuntimeError("boom")
+
+        with mock.patch.object(bot_module, "sync_commands", _explodes):
+            with contextlib.redirect_stdout(logs):
+                task = bot_module._publish_commands_in_background(
+                    self._bot(asyncio.get_running_loop())
+                )
+                await asyncio.wait({task}, timeout=2)
+
+        self.assertIn("boom", logs.getvalue(), "a failed publish went unreported")
+
+    async def test_a_loop_that_cannot_take_the_task_is_reported_not_raised(self):
+        class _RefusingLoop:
+            def create_task(self, _coro):
+                raise RuntimeError("no running event loop")
+
+        logs = io.StringIO()
+        with contextlib.redirect_stdout(logs):
+            task = bot_module._publish_commands_in_background(self._bot(_RefusingLoop()))
+
+        self.assertIsNone(task)
+        self.assertIn("could not start the command publish", logs.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

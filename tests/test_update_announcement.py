@@ -29,6 +29,18 @@ def _calls(node, name):
     ]
 
 
+def _named_calls(node, name):
+    """Every call to the bare function ``name(...)`` inside ``node``.
+
+    ``_calls`` above matches ``thing.name(...)``; this matches the module-level
+    ``name(...)``, which is how the boot starts its own helpers.
+    """
+    return [
+        n for n in ast.walk(node)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name
+    ]
+
+
 def _parent_map(tree):
     parents = {}
     for parent in ast.walk(tree):
@@ -82,6 +94,66 @@ class TestAnnouncementOrdering(unittest.TestCase):
                 max(n.lineno for n in sends), store.lineno,
                 "the hash is written before the message is sent",
             )
+
+class TestTheBootDoesNotWaitForThePublish(unittest.TestCase):
+    """The note a deploy owes must not queue behind the command publish.
+
+    ``on_ready`` used to ``await sync_commands(bot)`` before it started the backup
+    loop and posted the release note. Discord paces command writes hard, so a
+    server that had lost its list took **eighteen minutes** to be given it back —
+    and for those eighteen minutes the live process ran with no backup at all and
+    no update note went out, which reads exactly as "the update was never
+    deployed". The publish has to start, but the boot must not wait for it.
+    """
+
+    def setUp(self):
+        self.src = BOT_PY.read_text(errors="replace")
+        self.tree = ast.parse(self.src)
+        self.on_ready = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "on_ready"
+        )
+
+    def _awaited(self) -> set[str]:
+        """The name of every function ``on_ready`` awaits."""
+        found = set()
+        for node in ast.walk(self.on_ready):
+            if not isinstance(node, ast.Await) or not isinstance(node.value, ast.Call):
+                continue
+            func = node.value.func
+            if isinstance(func, ast.Name):
+                found.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                found.add(func.attr)
+        return found
+
+    def test_on_ready_does_not_await_the_command_publish(self):
+        self.assertNotIn(
+            "sync_commands", self._awaited(),
+            "on_ready waits for the command publish again: the backup loop and "
+            "the release note queue behind minutes of Discord command writes",
+        )
+
+    def test_on_ready_still_starts_the_publish(self):
+        called = {node.func.id for node in _named_calls(self.on_ready, "_publish_commands_in_background")}
+        self.assertTrue(called, "nothing publishes the command tree any more")
+
+    def test_the_publish_is_started_on_the_bot_loop_as_a_task(self):
+        helper = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_publish_commands_in_background"
+        )
+        self.assertTrue(_calls(helper, "create_task"), "the publish is awaited somewhere")
+        self.assertTrue(
+            _named_calls(helper, "sync_commands"),
+            "the background task does not actually publish",
+        )
+        self.assertTrue(
+            _calls(helper, "add_done_callback"),
+            "the publish's outcome is never reported",
+        )
+
 
 SAMPLE = """# Changelog
 

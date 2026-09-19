@@ -710,6 +710,45 @@ async def sync_commands(
 bot.publish_commands = sync_commands
 
 
+def _publish_commands_in_background(bot: commands.Bot) -> "asyncio.Task | None":
+    """Start the boot's command publish without holding the boot up.
+
+    ``sync_commands`` sends one request per command Discord is missing, and
+    Discord paces those writes hard: measured on the live host, a server that had
+    lost its whole list spent **eighteen minutes** being given its 90 commands
+    back. Awaiting that inside ``on_ready`` delayed everything after it — the
+    25-second backup loop (so a restart in that window lost every coin and every
+    point of XP earned during it), the per-server channel binding, and the
+    release note the deploy owes each server.
+
+    The publish itself is unchanged: same compare-first rule, same one-request
+    upserts, same background drain when the daily write budget runs out. Only the
+    waiting is gone. Nothing here raises — a publish that cannot even be started
+    is reported, because a boot has other work to do.
+    """
+    publish = sync_commands(bot)
+    try:
+        task = bot.loop.create_task(publish)
+    except Exception as exc:
+        # A loop that cannot take the task would otherwise leave this coroutine
+        # to be collected un-awaited, which is a warning at shutdown and a
+        # publish that silently never happened.
+        publish.close()
+        print(f"[SYNC] ⚠️ could not start the command publish: {exc}", flush=True)
+        return None
+
+    def _report(finished: "asyncio.Task") -> None:
+        try:
+            results = finished.result()
+        except Exception as exc:  # sync_commands never raises; a task still can
+            print(f"[SYNC] ⚠️ command publish failed — {exc}", flush=True)
+            return
+        print(f"[SYNC] command publish finished: {results}", flush=True)
+
+    task.add_done_callback(_report)
+    return task
+
+
 # ---------------------------------------------------------------------------
 # A module switch is a command-set change
 # ---------------------------------------------------------------------------
@@ -845,8 +884,14 @@ async def on_ready():
 
     # Register the command tree with Discord (see sync_commands: relying on the
     # manual /sync command alone is how this server ended up missing 21 of its
-    # commands, /sync included).
-    await sync_commands(bot)
+    # commands, /sync included) — but never by *waiting* for it. Discord paces
+    # command writes hard, and a server whose list drifted takes tens of minutes
+    # to give back (measured on the live host: 90 commands took 18 minutes), so
+    # awaiting it here held up everything below — the 25-second backup loop, the
+    # per-server channel binding, and the release note this deploy owes every
+    # server. That is why an update that had already been deployed looked like it
+    # never arrived, and why nothing earned meanwhile had a backup.
+    _publish_commands_in_background(bot)
 
     # Auto-hoist the bot's role to just below @everyone so it can action anyone
     for guild in bot.guilds:
