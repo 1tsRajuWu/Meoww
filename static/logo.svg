@@ -1,47 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Meow">
   <!--
-    Meow — Handcrafted Kuro-Cat Mascot
-    Artisanal vector illustration: sculpted feline silhouette, mischievous
-    almond eyes, confident smirk, and hand-drawn whiskers.
+    Meow — Handcrafted Chibi Mascot
+    Artisanal vector illustration: chubby kitten cheeks, sparkling anime eyes
+    with dual glints, soft pink inner ear tufts, rosy blush, and a sweet :3 smile.
   -->
   <defs>
-    <linearGradient id="meowHeadGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6e72f8" />
+    <linearGradient id="chibiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6f72f8" />
       <stop offset="60%" stop-color="#5b5ef0" />
       <stop offset="100%" stop-color="#4649de" />
     </linearGradient>
   </defs>
 
-  <!-- Head Silhouette -->
-  <path d="M32 18 C28 18 24 12 18 4 C15.5 1 12 2.5 12.5 6.5 C13.5 13 12.5 19.5 9 24 C4 30 5 44 15 51 C20 54.5 26 56 32 56 C38 56 44 54.5 49 51 C59 44 60 30 55 24 C51.5 19.5 50.5 13 51.5 6.5 C52 2.5 48.5 1 46 4 C40 12 36 18 32 18 Z" 
-        fill="url(#meowHeadGrad)" />
+  <!-- Chubby friendly head -->
+  <path d="M32 15 C26 15 21 8 16 3 C13.5 1 10.5 3 11 6.5 C11.8 12 11 18 7.5 24 C2.5 32 4.5 45 15 52 C20 55.5 26 57 32 57 C38 57 44 55.5 49 52 C59.5 45 61.5 32 56.5 24 C53 18 52.2 12 53 6.5 C53.5 3 50.5 1 48 3 C43 8 38 15 32 15 Z" 
+        fill="url(#chibiGrad)" />
 
-  <!-- Inner Ear Facets -->
-  <polygon points="17,10 14,21 21,18" fill="#a3a8ff" opacity="0.65" />
-  <polygon points="47,10 50,21 43,18" fill="#a3a8ff" opacity="0.65" />
+  <!-- Soft pink inner ears -->
+  <path d="M16.5 8.5 C14.5 14 13.5 18 11.5 21 C14.5 20.5 18 19 19.5 15.5 C18 11.5 17 9.5 16.5 8.5 Z" fill="#ffb4cf" opacity="0.9" />
+  <path d="M47.5 8.5 C49.5 14 50.5 18 52.5 21 C49.5 20.5 46 19 44.5 15.5 C46 11.5 47 9.5 47.5 8.5 Z" fill="#ffb4cf" opacity="0.9" />
 
-  <!-- Sharp Mischievous Almond Eyes -->
-  <path d="M15 30.5 C18 27.5 24.5 28.5 27 32.5 C23 34.5 18 33.5 15 30.5 Z" fill="#ffffff" />
-  <path d="M49 30.5 C46 27.5 39.5 28.5 37 32.5 C41 34.5 46 33.5 49 30.5 Z" fill="#ffffff" />
+  <!-- Soft blush pills -->
+  <ellipse cx="14" cy="38" rx="4" ry="2.2" fill="#ff80bf" opacity="0.45" />
+  <ellipse cx="50" cy="38" rx="4" ry="2.2" fill="#ff80bf" opacity="0.45" />
 
-  <!-- Expressive Irises & Glints -->
-  <ellipse cx="22" cy="31.5" rx="2.2" ry="3" fill="#0b0c16" />
-  <ellipse cx="42" cy="31.5" rx="2.2" ry="3" fill="#0b0c16" />
-  <circle cx="21" cy="30.2" r="1" fill="#ffffff" />
-  <circle cx="41" cy="30.2" r="1" fill="#ffffff" />
-  <circle cx="22.8" cy="32.8" r="0.55" fill="#a3a8ff" />
-  <circle cx="42.8" cy="32.8" r="0.55" fill="#a3a8ff" />
+  <!-- Big sparkling anime eyes -->
+  <ellipse cx="22" cy="31.5" rx="4.2" ry="5.2" fill="#080911" />
+  <ellipse cx="42" cy="31.5" rx="4.2" ry="5.2" fill="#080911" />
+  <circle cx="20.5" cy="29.5" r="1.8" fill="#ffffff" />
+  <circle cx="23.5" cy="33.5" r="0.9" fill="#ffffff" />
+  <circle cx="40.5" cy="29.5" r="1.8" fill="#ffffff" />
+  <circle cx="43.5" cy="33.5" r="0.9" fill="#ffffff" />
 
-  <!-- Cute Nose -->
-  <polygon points="32,38 30.5,36.5 33.5,36.5" fill="#a3a8ff" />
+  <!-- Pink button nose -->
+  <path d="M30 36.5 C30.5 35.8 33.5 35.8 34 36.5 C33.5 38 30.5 38 30 36.5 Z" fill="#ff8bb5" />
 
-  <!-- Sly Confident Smirk -->
-  <path d="M32 38.5 L32 40 C30.5 40 28.5 41 27 42.5" fill="none" stroke="#0b0c16" stroke-width="2" stroke-linecap="round" />
-  <path d="M32 40 C34 40 37.2 41 38.8 43.2" fill="none" stroke="#0b0c16" stroke-width="2" stroke-linecap="round" />
+  <!-- Cute :3 mouth -->
+  <path d="M32 37.8 L32 39.5 C30.5 39.5 28.5 40.5 27 42" fill="none" stroke="#080911" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M32 39.5 C33.5 39.5 35.5 40.5 37 42" fill="none" stroke="#080911" stroke-width="2.2" stroke-linecap="round" />
 
-  <!-- Hand-Drawn Whiskers -->
-  <path d="M12 34 C8 33 5 34 2 35" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
-  <path d="M11 38 C7 39 5 41 2 43" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
-  <path d="M52 34 C56 33 59 34 62 35" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
-  <path d="M53 38 C57 39 59 41 62 43" fill="none" stroke="#a3a8ff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <!-- Whiskers -->
+  <path d="M11 34 C7 33 3 34 0 36" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
+  <path d="M10 38 C6 39 3 41 0 44" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
+  <path d="M53 34 C57 33 61 34 64 36" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
+  <path d="M54 38 C58 39 61 41 64 44" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
 </svg>

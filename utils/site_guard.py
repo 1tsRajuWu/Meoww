@@ -45,13 +45,20 @@ What it is careful about, and why each line is the shape it is:
   with a query string attached, so a genuine leak still reads as ``200``.
 * **The cached copy is still reported, as its own finding** (:attr:`Verdict.cached`).
   It is readable by anyone at that address right now, so staying silent about it
-  would be wrong — but the remedy is *purge the cache*, not *fix the build*, and
-  an operator told the wrong remedy acts on the wrong thing. The bare URL is
-  therefore asked only about a path the authoritative probe **refused**, and
-  where it is asked it is a real question: a deployment that has stopped serving
-  a path while a cache still does is exactly the state a forgotten copy is in.
-  A cycle is two requests per path plus one control, the second skipped wherever
-  the first has already given the worse answer.
+  would be wrong — but it is *not* the same fault as a leak and it has no same
+  fix: the build settings are already right, and **a new deployment does not
+  clear it**. Measured, against this host: three deployments followed the bad one
+  and these paths still answered, `age` climbing past 2500s while the stored
+  response carried `max-age=300, must-revalidate` — and a client
+  ``Cache-Control: no-cache`` did not revalidate either. It is Pages keeping a
+  previous deployment's assets served so a rollout cannot break an app mid-visit,
+  it is out of this project's hands on a ``*.pages.dev`` host, and it expires on
+  its own. So the card says that instead of sending its reader to fix something
+  that is not broken. The bare URL is asked only about a path the authoritative
+  probe **refused**, and where it is asked it is a real question: a deployment
+  that has stopped serving a path while a cache still does is exactly the state a
+  forgotten copy is in. A cycle is two requests per path plus one control, the
+  second skipped wherever the first has already given the worse answer.
 * **A control probe makes the other nine mean something.** Some hosts answer
   every unknown path with a page. On such a host a ``200`` says nothing about
   *this* file, and the whole check reads as a leak. So one path that certainly
@@ -302,8 +309,9 @@ def describe(verdict: Verdict) -> str:
         return (
             f"stale cache — {counts['cached']} repository paths still answer "
             f"from the CDN though {verdict.site} itself refuses them: "
-            f"{', '.join(verdict.cached_paths)}. Purge the cache; the deployment "
-            "is not the problem."
+            f"{', '.join(verdict.cached_paths)}. The deployment is not the "
+            "problem and a redeploy will not clear it; Pages keeps a previous "
+            "deployment's assets served for a while and it expires on its own."
         )
     if verdict.status == Verdict.UNREACHABLE:
         return (

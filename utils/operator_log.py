@@ -244,13 +244,16 @@ _SITE_GUARD_CARDS: dict[str, tuple[str, str, int, str]] = {
     "cached": (
         "⚠️ A cached copy of the repository is still being served",
         "The site itself refuses these paths, so the deployment is **not** "
-        "publishing the tree — but a copy left by an earlier deploy is still "
-        "being handed out at the site's address by the CDN.",
+        "publishing the tree — but a copy left by the deploy that was, is still "
+        "being handed out at the site's address.",
         style.WARN,
-        "Purge the Cloudflare cache for those paths (`Purge Everything` on the "
-        "zone, or the **Caching → Configuration** page). The build settings are "
-        "correct and need no change; this clears on its own once the stored "
-        "copies expire.",
+        "**Not** the build settings — they are correct, and re-deploying does "
+        "not clear this: Cloudflare deliberately keeps a previous deployment's "
+        "assets served for a while so a rollout cannot break an app mid-visit, "
+        "and `Purge Everything` does not reach a `*.pages.dev` host. It expires "
+        "on its own, and this check goes quiet when it does. To make it go "
+        "sooner, Cloudflare support is the only party that can — they own that "
+        "zone.",
     ),
     "fallback": (
         "⚠️ The site answers everything, so the check cannot tell",
@@ -340,8 +343,17 @@ async def site_guard_alert(bot, verdict) -> bool:
         )
 
     embed.add_field(name="What to do", value=remedy, inline=False)
+    # The footer says *how* the site was asked, and it has to agree with the card
+    # above it: an exposure was established by going around the cache, a cached
+    # copy was found by going through it as well. Getting this backwards would
+    # make the reader doubt the card they are looking at.
+    how = (
+        "without its cache" if verdict.status == "exposed"
+        else "with and without its cache" if verdict.status == "cached"
+        else ""
+    )
     embed.set_footer(
-        text=f"Meow · asked {verdict.site} without its cache · {len(verdict.answers)} paths"
+        text=f"Meow · asked {verdict.site}{' ' + how if how else ''} · {len(verdict.answers)} paths"
     )
     try:
         await style.send_card(target, embed=embed, timeout=None)

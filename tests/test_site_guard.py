@@ -395,6 +395,64 @@ class Health(unittest.TestCase):
         self.assertIn("status", body)
 
 
+def _bash_block(text, heading):
+    """The first ```bash block under ``heading``, as text."""
+    after = text.split(heading, 1)[1]
+    return after.split("```bash", 1)[1].split("```", 1)[0]
+
+
+class TheDeploymentDoc(unittest.TestCase):
+    """The documented check must not teach the trap it exists to avoid.
+
+    ``docs/deployment.md`` tells an operator how to check this by hand, and the
+    first version of that recipe would have fallen into exactly the hole this
+    module was built around: a bare ``curl`` for ``/bot.py`` against a host whose
+    cache still held a copy of an older deployment. It is the same mistake the
+    first live run of the check made, so it is worth a test rather than a note —
+    a hand-check that returns ``200`` sends its reader looking for a leak that is
+    not there, and one that returns ``404`` while a copy is cached tells them
+    everything is fine when something is still being handed out.
+    """
+
+    @property
+    def doc(self):
+        return (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+
+    def test_the_documented_terminal_check_bypasses_the_cache(self):
+        block = _bash_block(self.doc, "#### Checking it from a terminal")
+        source_loop = next(c for c in block.split("done") if "bot.py" in c)
+        self.assertIn("curl", source_loop)
+        self.assertIn("?", source_loop,
+                      "the documented hand-check reads the cache, not the deployment")
+
+    def test_the_documented_paths_are_the_ones_actually_watched(self):
+        """Docs drift quietly, and these two lists have to be one list."""
+        block = _bash_block(self.doc, "#### Checking it from a terminal")
+        source_loop = next(c for c in block.split("done") if "bot.py" in c)
+        listed = [tok.lstrip("/") for tok in source_loop.split("for p in", 1)[1]
+                  .split(";", 1)[0].split()]
+        self.assertTrue(listed)
+        unknown = [p for p in listed if p not in site_guard.PROBES]
+        self.assertEqual(unknown, [],
+                         f"docs name paths this check does not watch: {unknown}")
+
+    def test_every_status_the_check_can_report_is_named_in_the_docs(self):
+        """A verdict nobody documented is a status an operator cannot act on."""
+        for status in (site_guard.Verdict.EXPOSED, site_guard.Verdict.CACHED,
+                       site_guard.Verdict.FALLBACK, site_guard.Verdict.UNREACHABLE,
+                       site_guard.Verdict.CLEAN):
+            self.assertIn(status, self.doc)
+
+    def test_the_docs_say_what_to_do_about_a_status_that_is_not_a_leak(self):
+        """The one that bit: a ``200`` with a clean deployment behind it.
+
+        The page has to carry the reason, or the next person to hit it reads the
+        cache hit as a second exposure.
+        """
+        self.assertIn("cf-cache-status", self.doc)
+        self.assertIn("utils/site_guard.py", self.doc)
+
+
 class TheAlert(unittest.TestCase):
     """The card is the whole detection, so it has to be right about which one."""
 
@@ -464,8 +522,23 @@ class TheAlert(unittest.TestCase):
         stale = self._send(site_guard.check("https://site.test",
                                             fetch=_fetch_from({("bot.py", False): 200})))
         self.assertIn("output directory", _text(leak))
-        self.assertIn("urge", _text(stale))
-        self.assertNotIn("output directory", _text(stale))
+        self.assertIn("expires on its own", _text(stale))
+        self.assertNotIn("output directory", _text(stale),
+                         "the cached card sent its reader to build settings that are correct")
+
+    def test_the_footer_says_how_the_site_was_asked_and_agrees_with_the_card(self):
+        """A card that contradicts its own footer is a card nobody trusts.
+
+        An exposure was established by going *around* the cache; a cached copy
+        was found by going through it as well.
+        """
+        leak = self._send(site_guard.check(
+            "https://site.test",
+            fetch=_fetch_from({("bot.py", True): 200, ("bot.py", False): 200})))
+        stale = self._send(site_guard.check("https://site.test",
+                                            fetch=_fetch_from({("bot.py", False): 200})))
+        self.assertIn("without its cache", _embed(leak).footer.text)
+        self.assertIn("with and without its cache", _embed(stale).footer.text)
 
     def test_a_clean_verdict_never_reaches_the_card(self):
         sent = self._send(site_guard.check("https://site.test", fetch=_fetch_from({})))

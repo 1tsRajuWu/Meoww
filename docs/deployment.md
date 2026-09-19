@@ -51,6 +51,18 @@ than in the tree, but the source was readable by anyone until it was caught.
 `scripts/build_site.py` now **refuses** to build into the repository root, so
 the other half of that mistake cannot be made quietly.
 
+**A cached copy can outlive the deploy that put it there, and it looks exactly
+like this failure.** When the mistake above was corrected, seven paths kept
+answering `200` with real source — and the deployment was clean. Pages keeps a
+previous deployment's assets served for a while so that a rollout cannot break
+an app mid-visit, so those responses carried `cf-cache-status: HIT` and a growing
+`age` while every deployment host answered `404`. Re-deploying does not clear it
+(three deploys followed and the copies stayed) and `Purge Everything` does not
+reach a `*.pages.dev` host. They expire on their own. This matters for reading
+the check below: **a `200` at the bare URL is not by itself proof of a leak, and
+a `404` is not proof of safety either** — the next section has the version that
+answers the real question.
+
 The output directory must contain `_worker.js` and `_routes.json` (the builder
 writes both). They are what reverse-proxies `/login`, `/dashboard`, `/servers`,
 `/api`, `/market` and `/health` through to Render, so the dashboard and the
@@ -60,10 +72,14 @@ was diagnosed.
 
 #### Checking it from a terminal
 
+Ask with a unique query string on every path. That is not a formality: it is the
+difference between asking the deployment and asking a cache that remembers an
+older one, and only the first answer tells you what is published now.
+
 ```bash
 # Every one of these must be 404: the source is not a web page.
 for p in /bot.py /utils/cloud_sync.py /cogs/economy.py /render.yaml /.env.example; do
-  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://meow-bot.pages.dev$p"
+  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://meow-bot.pages.dev$p?cachebust=$RANDOM"
 done
 
 # These must NOT be 404: the proxy is running.
@@ -72,6 +88,37 @@ for p in /login /health; do
 done
 # /dashboard and /servers answer 302 -> /login when signed out, which is correct.
 ```
+
+#### The check that runs on its own
+
+The bot watches this on a timer, because the mistake above has no symptom in the
+product: every page looked correct while the tree was public, and the deploy
+reported **success**. `utils/site_guard.py` asks the site for nine paths that
+exist in this repository and says something when one of them answers. It runs
+**in the bot process** rather than in CI for a reason this project learned the
+hard way — CI was switched off for an hour and a half by a billing failure, and
+a guard against a publishing mistake must not share a failure mode with
+publishing.
+
+It asks with a cache-buster, so its answer is about the deployment; it asks the
+bare URL afterwards to tell a stale copy from a real leak; and it asks one path
+that does not exist, because a host that answers everything would make every
+other answer meaningless. Findings go to the operator's channel — an exposure
+every cycle, and a stale copy, a blind check or a catch-all host once a day. The
+state is on `/health` as `site_guard`, counts and no names.
+
+```bash
+curl -s https://meow-discord-bot.onrender.com/health | python3 -m json.tool | grep -A6 site_guard
+# "status": "clean"      the nine paths all answer 404 at the deployment
+# "status": "cached"     the deployment refuses them; a stored copy still answers
+# "status": "exposed"    the deployment is publishing the checkout — act on it
+# "status": "unreachable"  the site did not answer; nothing was established
+# "status": "fallback"   the host answers every path, so the check cannot tell
+```
+
+Tune it with `SITE_GUARD_INTERVAL_SECONDS` (default six hours) and
+`SITE_GUARD_FIRST_CHECK_SECONDS` (default ninety, so a deploy is re-checked
+shortly after boot).
 
 ## Environment Variables Required
 
@@ -166,6 +213,8 @@ The bot includes automatic cloud sync:
 - `[CLOUD SYNC]`: Backup/restore operations
 - `[PERMISSIONS]`: Command permission changes
 - `[SYNC]`: Command tree synchronization
+- `[SITE-GUARD]`: whether the public site is serving this repository (once per
+  cycle, and the line to grep when asking *was the tree public, and when*)
 
 ### Health Checks
 - Bot online status
