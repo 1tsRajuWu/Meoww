@@ -94,7 +94,11 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
         would take away something an administrator reaches for."""
         self.assertEqual(
             set(self.subcommands.get("bot", ())),
-            {"avatar", "banner", "bug", "db", "push", "sync"},
+            # `status` is the newest: the bot's own activity, editable at runtime
+            # so changing a line does not need a redeploy. It is one subcommand
+            # with optional options rather than five, because these slots are a
+            # budget — see the test below.
+            {"avatar", "banner", "bug", "db", "push", "status", "sync"},
         )
 
     def test_the_tree_keeps_a_slot_free(self):

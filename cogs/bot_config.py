@@ -11,6 +11,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils import db
+
 #: The two seeded channel IDs below only exist in the home server. Writing them
 #: into any other guild pointed its moderation log at a channel that isn't there
 #: (so /modlog went silent) and its level-up card at a foreign channel.
@@ -146,6 +148,90 @@ class BotConfig(commands.Cog):
             await interaction.followup.send(f"Failed to update avatar: {e.text}")
         except Exception as e:
             await interaction.followup.send(f"An unexpected error occurred: {e}")
+
+    @operator_group.command(
+        name="status",
+        description="What the bot is doing: show it, add a line, or turn it off (Owner only).",
+    )
+    @app_commands.describe(
+        text="A status line to add, e.g. 'Watching the leaderboard' — leave blank to just look",
+        type="How that line reads: playing, watching, listening or competing",
+        interval="Minutes each line stays up (1-1440)",
+        clear="Turn the activity off entirely (just be online)",
+        reset="Throw away the custom list and go back to the shipped one",
+    )
+    @app_commands.choices(
+        type=[
+            app_commands.Choice(name="Playing", value="playing"),
+            app_commands.Choice(name="Watching", value="watching"),
+            app_commands.Choice(name="Listening to", value="listening"),
+            app_commands.Choice(name="Competing in", value="competing"),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def status(
+        self,
+        interaction: discord.Interaction,
+        text: str | None = None,
+        type: app_commands.Choice[str] | None = None,
+        interval: int | None = None,
+        clear: bool = False,
+        reset: bool = False,
+    ):
+        """Show or change the bot's activity, without a redeploy.
+
+        One command rather than five, because Discord gives an application 100
+        chat-input commands *in total* and this bot has spent that budget before
+        — five slots for a status line is not a trade worth making, and the
+        options make the intent obvious anyway (no option: show; `text`: add;
+        `clear`: off; `reset`: back to the defaults).
+
+        Owner-only, and not because of the guild permission check above it: the
+        activity is **global**. Discord has no per-server presence — a bot's
+        activity comes from its gateway session, so every server sees the same
+        line at the same moment. Letting each server's administrator set its own
+        would mean the last one to speak wins for everyone, which is why the
+        profile pages that *are* per server (name, picture, banner) live on
+        ``/bot avatar`` and in the dashboard's identity panel instead.
+        """
+        from utils import presence
+
+        if not await self._require_app_owner(interaction):
+            return
+
+        changed = False
+        try:
+            if reset:
+                await db.set_setting(presence.GLOBAL_ROW, presence.LINES_KEY, "")
+                changed = True
+            if clear:
+                await presence.set_lines([])
+                changed = True
+            if text is not None:
+                kind = type.value if type is not None else "playing"
+                await presence.add_line(text, kind)
+                changed = True
+            if interval is not None:
+                await presence.set_interval(interval)
+                changed = True
+        except presence.PresenceError as exc:
+            # The library's own words, which name the limit or the valid choices.
+            return await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+
+        lines = await presence.lines()
+        minutes = await presence.interval_minutes()
+        if not lines:
+            body = "The bot will show **no activity** — just as online."
+        else:
+            shown = "\n".join(f"• *{kind}* — {line}" for line, kind in lines[:12])
+            more = f"\n…and {len(lines) - 12} more." if len(lines) > 12 else ""
+            body = f"{len(lines)} line(s), rotating every {minutes} min:\n{shown}{more}"
+        prefix = "Updated." if changed else "Current status:"
+        await interaction.response.send_message(
+            f"{prefix}\n{body}\n\n-# This is application-wide: Discord has no per-server "
+            "status, so every server sees the same line.",
+            ephemeral=True,
+        )
 
     @operator_group.command(name="banner", description="Set the bot's profile banner (Owner only).")
     @app_commands.describe(image="The image file to use as the banner")

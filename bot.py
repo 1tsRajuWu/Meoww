@@ -173,40 +173,61 @@ async def global_module_check(interaction: discord.Interaction) -> bool:
 
 bot.tree.interaction_check = global_module_check
 
-STATUSES = [
-    ("/help | meow-discord-bot.onrender.com 🌐", discord.ActivityType.watching),
-    ("Protecting your server 🛡️ | /help", discord.ActivityType.watching),
-    ("Listening to commands 🐾 | /help", discord.ActivityType.listening),
-    ("Live crypto & stock markets 📈", discord.ActivityType.watching),
-    ("Meowing at the wall 🐈 | /help", discord.ActivityType.playing),
-    ("Knocking over your water glass 🐾", discord.ActivityType.playing),
-    ("Chasing a laser pointer 🔴", discord.ActivityType.competing),
-    ("Demanding wet food 🐟", discord.ActivityType.listening),
-    ("Judging you silently 👁️ | /help", discord.ActivityType.watching),
-    ("Zoomies at 3 AM 🏃‍♂️", discord.ActivityType.playing),
-    ("Purring happily... 🐾", discord.ActivityType.listening),
-    ("Plotting world domination 😼", discord.ActivityType.watching),
-]
+# The status list used to be a hardcoded tuple here, which meant the only way to
+# change one line was to edit this file and redeploy. It lives in
+# ``utils/presence`` now, stored in the database and read fresh every cycle, so a
+# change takes effect on the next rotation without a restart. The reported line
+# ("Knocking over your water glass") is gone from the defaults.
+#
+# Read each pass rather than cached at boot on purpose: that is what makes
+# editing the list *now* matter now, instead of after the next deploy.
 
 async def rotate_status():
-    try:
-        await bot.change_presence(
-            activity=discord.Activity(type=discord.ActivityType.watching, name="/help | meow-discord-bot.onrender.com 🌐"),
-            status=discord.Status.online,
-        )
-    except Exception as e:
-        print(f"Failed to set initial status: {e}")
-    last_idx = -1
+    """Keep the bot's activity on the configured line, rotating on the interval.
+
+    Presence is application-wide — Discord has no per-server status — so this is
+    one rotation for every server at once, and an empty list means "be online with
+    no activity", which is a legitimate choice rather than an error.
+    """
+    from utils import presence
+
+    last: tuple[str, str] | None = None
     while True:
-        available = [i for i in range(len(STATUSES)) if i != last_idx]
-        idx = random.choice(available)
-        last_idx = idx
-        name, atype = STATUSES[idx]
         try:
-            await bot.change_presence(activity=discord.Activity(type=atype, name=name), status=discord.Status.online)
+            entries = await presence.lines()
         except Exception as e:
-            print(f"Failed to update status: {e}")
-        await asyncio.sleep(3600)  # Rotate every 60 minutes
+            # A settings read that fails must not kill the loop: the next cycle
+            # tries again, and in the meantime the bot keeps the last status.
+            print(f"[PRESENCE] Could not read the status list: {e}", flush=True)
+            entries = []
+
+        if entries:
+            # Never show the same line twice in a row, which is what a plain
+            # choice does one time in N and is the one repeat anybody notices.
+            pool = [entry for entry in entries if entry != last] or entries
+            last = random.choice(pool)
+            text, kind = last
+            try:
+                await bot.change_presence(
+                    activity=discord.Activity(type=presence.ACTIVITY_KINDS[kind], name=text),
+                    status=discord.Status.online,
+                )
+            except Exception as e:
+                print(f"[PRESENCE] Could not set the status: {e}", flush=True)
+        else:
+            # Configured empty: clear the activity once, then stop calling the
+            # gateway every cycle to clear something already clear.
+            if last is not None:
+                try:
+                    await bot.change_presence(activity=None, status=discord.Status.online)
+                except Exception as e:
+                    print(f"[PRESENCE] Could not clear the status: {e}", flush=True)
+            last = None
+
+        try:
+            await asyncio.sleep(await presence.interval_seconds())
+        except Exception:
+            await asyncio.sleep(60 * presence.DEFAULT_INTERVAL_MINUTES)
 
 #: How long the background drain keeps trying to publish pending commands, and
 #: the longest it will wait between cycles. Discord's 200-writes-a-day budget is

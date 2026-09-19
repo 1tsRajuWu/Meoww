@@ -220,6 +220,12 @@ COMMAND_ACCESS: dict[str, str] = {
     "bot db": ADMIN,
     "bot avatar": OWNER,
     "bot banner": OWNER,
+    # Owner-only for a reason the other profile commands do not have: the activity
+    # is **global**. Discord has no per-server presence, so a server administrator
+    # who could set it would be setting it for every server — the last one to
+    # speak winning for everyone. What *is* per server (name, picture, banner,
+    # bio) lives in the dashboard's identity panel instead.
+    "bot status": OWNER,
     "bot push": OWNER,
     # Reporting a fault in the bot is an operator's job, not a member's: the
     # command is the administrator's way in, while the /help panel's 🐞 button
