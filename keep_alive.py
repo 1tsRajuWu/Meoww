@@ -1168,17 +1168,6 @@ def policy_terms():
     return _policy_page("terms")
 
 
-def _checkout_url(plan_id: str) -> str:
-    """The Lemon Squeezy hosted checkout for one tier, when there is one.
-
-    Read from the environment because a checkout URL belongs to a *store*, not
-    to this code: the bot has no business guessing a store's domain, and a Buy
-    button pointing at somebody else's storefront is worse than no button. An
-    empty value is the honest "not for sale yet" the page renders.
-    """
-    return (os.environ.get(f"LEMONSQUEEZY_CHECKOUT_{plan_id}") or "").strip()
-
-
 @app.route("/pricing")
 def pricing_page():
     name = _bot_display_name()
@@ -1186,8 +1175,8 @@ def pricing_page():
     # cannot advertise a tier or a number the code does not know about — and the
     # "is this enforced yet" sentence is read from the deployment rather than
     # written into the template, because it is a fact about this process.
-    checkout_pro = _checkout_url("PRO")
-    checkout_enterprise = _checkout_url("ENTERPRISE")
+    checkout_pro = plans.checkout_url(plans.PRO)
+    checkout_enterprise = plans.checkout_url(plans.ENTERPRISE)
     return render_template(
         "pricing.html",
         bot_name=name,

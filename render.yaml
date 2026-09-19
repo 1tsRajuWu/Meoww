@@ -46,3 +46,19 @@ services:
       # be awake to answer.
       - key: ADMIN_PASSKEY
         sync: false
+      # The paid tiers, as Lemon Squeezy hosted checkout URLs (product -> Share
+      # -> Copy link). They are rendered into /pricing for anyone to click, so
+      # they are public in the same way the client id is — a prompt rather than a
+      # literal here only because each one belongs to a store. Left blank,
+      # /pricing says "No billing yet" and keeps every button on the invite page.
+      - key: LEMONSQUEEZY_CHECKOUT_PRO
+        sync: false
+      - key: LEMONSQUEEZY_CHECKOUT_ENTERPRISE
+        sync: false
+      # Whether a licence is *required* for the paid systems. It is a switch, not
+      # a credential, so its value is committed: the deploy has a definite state
+      # (plans recorded and shown, nothing withheld) instead of a prompt somebody
+      # has to answer the same way every time. Set it to 1 when the tiers should
+      # be real.
+      - key: PLAN_ENFORCEMENT
+        value: "0"

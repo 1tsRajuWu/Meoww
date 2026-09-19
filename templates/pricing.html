@@ -460,12 +460,24 @@
             </div>
             <div class="faq-grid">
                 <div class="faq-item reveal" style="--i: 8">
+                    {#
+                      The old answer promised "a 7-day free trial of Pro features"
+                      on every new server. There is no trial in the store (the
+                      products are plain monthly subscriptions) and nothing in the
+                      bot implements one, so it was a promise two systems would
+                      each have to break to keep.
+                    #}
                     <h4>Can I try Pro features for free?</h4>
-                    <p>Yes, all new servers get a 7-day free trial of Pro features automatically.</p>
+                    <p>There is no trial and no time limit on the free plan — it is permanent, and it
+                    includes moderation, automod, leveling, the mini-games, fun and social. Pro adds the
+                    support tickets, economy, market, starboard and activity tracker systems; see
+                    <a href="/#features">what each one does</a> before you pay for it.</p>
                 </div>
                 <div class="faq-item reveal" style="--i: 9">
                     <h4>What payment methods do you accept?</h4>
-                    <p>We're setting up our payment processors right now. (Coming soon!)</p>
+                    <p>Whatever Lemon Squeezy offers in your country — cards and the local methods they
+                    support. The card details are entered on their checkout and are never sent to
+                    {{ bot_name }}, which only ever sees that a licence is active.</p>
                 </div>
                 <div class="faq-item reveal" style="--i: 10">
                     <h4>Can I cancel anytime?</h4>
@@ -474,12 +486,25 @@
                     <code>/bot plan</code> stops working after that.</p>
                 </div>
                 <div class="faq-item reveal" style="--i: 11">
+                    {#
+                      "We use encrypted backups" was false: the cloud backup is a
+                      raw SQLite file in a private bucket, and encryption at rest
+                      was deliberately removed when the Gist backup went. The
+                      Privacy Policy says the true thing, and this page must not
+                      contradict it.
+                    #}
                     <h4>Is my data safe?</h4>
-                    <p>Yes, we use encrypted backups and only store what is strictly necessary to run the systems you enable.</p>
+                    <p>The cloud backup is a raw database file in a private bucket that needs a
+                    service-role key for every read and write, so access control — not encryption —
+                    is what protects it. Only what the systems you switch on need is stored, and
+                    <a href="/privacy">the privacy policy</a> lists each kind with how long it is kept.</p>
                 </div>
                 <div class="faq-item reveal" style="--i: 12">
                     <h4>What happens if I downgrade?</h4>
-                    <p>Your premium features will be disabled, but your data is kept safe for 30 days in case you decide to upgrade again.</p>
+                    <p>Nothing is deleted on a downgrade: the plan changes, and the retention windows
+                    in the privacy policy go on applying to what was already recorded. If the paid
+                    systems are held back on the free plan, they stop being available until a licence
+                    is active again — and activating one puts them back exactly as they were.</p>
                 </div>
             </div>
         </section>

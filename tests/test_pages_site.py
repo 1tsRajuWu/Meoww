@@ -177,8 +177,57 @@ class BuiltSiteCase(unittest.TestCase):
         self.assertNotIn("sleeping free-tier host", self.pages["index.html"])
 
     def test_the_pricing_page_says_that_nothing_can_be_bought_yet(self):
+        """No checkout is configured for this build, so that is what it must say."""
         pricing = self.pages["pricing.html"]
         self.assertIn("No billing yet", pricing)
+        self.assertNotIn("lemonsqueezy.com", pricing)
+
+    def test_the_prices_on_the_page_are_the_ones_the_bot_will_hold_servers_to(self):
+        """One source for both, so the site cannot advertise a tier the code lacks.
+
+        They were two: the page carried its own literal prices while the plan
+        model in ``utils/plans.py`` carried the limits, and the only thing keeping
+        them in step was somebody noticing.
+        """
+        from utils import plans
+
+        pricing = self.pages["pricing.html"]
+        for plan in (plans.FREE, plans.PRO, plans.ENTERPRISE):
+            self.assertIn(
+                f">{plan.price}<", pricing,
+                f"{plan.label} is {plan.price} in the plan model but not on the page",
+            )
+
+    def test_the_page_does_not_sell_a_yearly_price_that_does_not_exist(self):
+        """Both products in the store are monthly subscriptions.
+
+        The toggle switched every price to a yearly number and a "Save 20%"
+        badge, which is a price nobody could ever be charged — the same defect as
+        the dead buttons this page was rebuilt to remove, one layer further in.
+        """
+        pricing = self.pages["pricing.html"]
+        for ghost in ("data-yearly", "billingToggle", "Save 20%", "Yearly"):
+            self.assertNotIn(ghost, pricing, f"the pricing page still offers {ghost}")
+
+    def test_the_pricing_page_does_not_promise_things_the_code_cannot_keep(self):
+        """Four answers on this page described a product that does not exist.
+
+        A trial no product offers and no code implements; a "setting up our
+        payment processors" line that stays on the page after checkout is wired;
+        **encrypted backups**, when the cloud backup is a raw SQLite file in a
+        private bucket and encryption at rest was deliberately removed with the
+        old Gist backup; and a 30-day post-downgrade retention window that
+        appears in no code path and contradicts the policy's own 90/365 days.
+        Each is pinned by name, because all four read perfectly plausible.
+        """
+        pricing = self.pages["pricing.html"]
+        for claim in (
+            "7-day free trial",
+            "payment processors",
+            "encrypted backups",
+            "30 days in case",
+        ):
+            self.assertNotIn(claim, pricing, f"the pricing page still claims {claim!r}")
 
     def test_the_sitemap_names_only_pages_that_exist(self):
         sitemap = (Path(self.out) / "sitemap.xml").read_text(encoding="utf-8")
@@ -189,6 +238,54 @@ class BuiltSiteCase(unittest.TestCase):
         # live app and a sitemap entry for one would 404 for the crawler.
         for path in ("/dashboard", "/login", "/servers"):
             self.assertNotIn(path, sitemap)
+
+
+class BuiltSiteWithCheckout(unittest.TestCase):
+    """The same build with a store behind it — and what it must admit then.
+
+    Two facts only the deployment knows change what is true on this page: whether
+    a checkout exists at all, and whether the tiers are enforced. Getting the
+    first wrong publishes a page that cannot be bought from; getting the second
+    wrong charges for limits that are not in force.
+    """
+
+    CHECKOUT_PRO = "https://store.lemonsqueezy.com/checkout/buy/aaa-pro"
+    CHECKOUT_ENTERPRISE = "https://store.lemonsqueezy.com/checkout/buy/aaa-ent"
+
+    @classmethod
+    def _build(cls, **extra):
+        out = tempfile.mkdtemp(prefix="meow-site-paid-")
+        env = {
+            "MEOW_STATIC_SITE": "1",
+            "DISCORD_CLIENT_ID": "1548380269776605324",
+            "LEMONSQUEEZY_CHECKOUT_PRO": cls.CHECKOUT_PRO,
+            "LEMONSQUEEZY_CHECKOUT_ENTERPRISE": cls.CHECKOUT_ENTERPRISE,
+            **extra,
+        }
+        with mock.patch.dict(os.environ, env):
+            build_site.build(out, LIVE, SITE)
+        return (Path(out) / "pricing.html").read_text(encoding="utf-8"), out
+
+    def test_a_configured_store_is_where_the_buttons_go(self):
+        pricing, out = self._build()
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        self.assertIn(self.CHECKOUT_PRO, pricing)
+        self.assertIn(self.CHECKOUT_ENTERPRISE, pricing)
+        self.assertNotIn("No billing yet", pricing)
+        self.assertIn("Checkout by Lemon Squeezy", pricing)
+        self.assertNotIn('href="#"', pricing)
+
+    def test_the_page_says_plainly_while_the_limits_are_not_enforced(self):
+        """Selling a tier whose limits are dormant has to be said out loud."""
+        pricing, out = self._build()
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        self.assertIn("Limits are not switched on yet", pricing)
+
+    def test_the_admission_disappears_once_the_limits_are_real(self):
+        pricing, out = self._build(PLAN_ENFORCEMENT="1")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        self.assertNotIn("Limits are not switched on yet", pricing)
+        self.assertIn(self.CHECKOUT_PRO, pricing)
 
 
 class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):

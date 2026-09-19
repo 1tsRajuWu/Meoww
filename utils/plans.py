@@ -57,8 +57,11 @@ class Plan:
     servers: int | None
     #: Pending scheduled messages per server (``None`` = no plan limit).
     scheduled_per_server: int | None
-    #: Systems a server needs this plan for (``None`` = nothing is withheld).
-    paid_modules: frozenset[str] = field(default_factory=frozenset)
+    #: Systems this plan does **not** include — empty for the paid tiers, which
+    #: withhold nothing. Written this way round because the only question the
+    #: enforcement points ask is "is this server missing something?", and a set
+    #: that is empty for the top tiers makes that question answer itself.
+    withheld_modules: frozenset[str] = field(default_factory=frozenset)
 
 
 #: The systems the pricing page sells as Pro-only, by the ids in
@@ -75,7 +78,7 @@ FREE = Plan(
     blurb="Perfect for getting started",
     servers=1,
     scheduled_per_server=0,
-    paid_modules=PRO_MODULES,
+    withheld_modules=PRO_MODULES,
 )
 
 PRO = Plan(
@@ -85,7 +88,6 @@ PRO = Plan(
     blurb="Power up your communities",
     servers=5,
     scheduled_per_server=5,
-    paid_modules=PRO_MODULES,
 )
 
 ENTERPRISE = Plan(
@@ -98,6 +100,22 @@ ENTERPRISE = Plan(
 )
 
 PLANS: dict[str, Plan] = {plan.id: plan for plan in (FREE, PRO, ENTERPRISE)}
+
+#: Where each tier is bought. Spelled out rather than assembled from the plan id
+#: at runtime, because a name built by an f-string is a name no grep finds — and
+#: this repository's own documentation guard reads ``.env.example`` and refuses to
+#: document a variable that appears to be read nowhere.
+CHECKOUT_ENV: dict[str, str] = {
+    "pro": "LEMONSQUEEZY_CHECKOUT_PRO",
+    "enterprise": "LEMONSQUEEZY_CHECKOUT_ENTERPRISE",
+}
+
+#: The variant id that maps a licence to a plan, for a store whose products have
+#: been renamed — the ids are stable, the name is not.
+VARIANT_ENV: dict[str, str] = {
+    "pro": "LEMONSQUEEZY_VARIANT_PRO",
+    "enterprise": "LEMONSQUEEZY_VARIANT_ENTERPRISE",
+}
 
 #: The plan a server with no licence is on. Also the answer to every question
 #: about a guild whose row cannot be read — a server that never bought anything
@@ -188,20 +206,14 @@ def feature_allowed(guild_id: int | None, module_id: str) -> bool:
     """
     if not enforcement_enabled():
         return True
-    plan = plan_for(guild_id)
-    if plan.paid_modules is None:
-        return True
-    return str(module_id) not in plan.paid_modules
+    return str(module_id) not in plan_for(guild_id).withheld_modules
 
 
 def blocked_modules(guild_id: int | None) -> frozenset[str]:
     """The paid systems this server does not have. Empty while dormant."""
     if not enforcement_enabled():
         return frozenset()
-    plan = plan_for(guild_id)
-    if plan.paid_modules is None:
-        return frozenset()
-    return frozenset(plan.paid_modules)
+    return plan_for(guild_id).withheld_modules
 
 
 def scheduled_cap(guild_id: int | None, default: int) -> int:
@@ -237,9 +249,11 @@ def servers_allowed(guild_id: int | None) -> int | None:
 def _post(path: str, fields: dict[str, str]) -> dict:
     """POST to the licence API and decode the answer.
 
-    Raises ``OSError`` when the store cannot be reached or does not answer with
-    JSON, so callers can say "could not reach Lemon Squeezy" rather than
-    reporting a refusal the buyer never got.
+    Raises ``OSError`` when the store cannot be reached or answers with
+    something that is not one of its own result bodies, so callers can say
+    "could not reach Lemon Squeezy" rather than reporting a refusal the buyer
+    never got. A documented refusal — including the ``404`` for a key the store
+    does not know — is returned as the store's answer.
     """
     body = urllib.parse.urlencode(fields).encode("utf-8")
     request = urllib.request.Request(
@@ -259,6 +273,18 @@ def _post(path: str, fields: dict[str, str]) -> dict:
             detail = exc.read().decode("utf-8", errors="replace")
         except Exception:  # pragma: no cover - the body is already gone
             detail = ""
+        # A refusal is an answer, not an outage. The licence API reports a key it
+        # does not know as a ``404`` whose body is the documented falsey result
+        # (``{"activated": false, "error": "license_key not found."}``), so
+        # raising here would tell a buyer who mistyped their key that Lemon
+        # Squeezy could not be reached — sending them to check their connection
+        # instead of their receipt.
+        try:
+            refusal = json.loads(detail)
+        except ValueError:
+            refusal = None
+        if isinstance(refusal, dict) and ("activated" in refusal or "valid" in refusal):
+            return refusal
         raise OSError(f"Lemon Squeezy answered {exc.code}: {detail[:200]}") from exc
     except Exception as exc:
         raise OSError(f"could not reach Lemon Squeezy ({exc})") from exc
@@ -267,6 +293,17 @@ def _post(path: str, fields: dict[str, str]) -> dict:
     except ValueError as exc:
         raise OSError("Lemon Squeezy sent something that was not JSON") from exc
     return data if isinstance(data, dict) else {}
+
+
+def checkout_url(plan: Plan) -> str:
+    """The hosted checkout for a tier, or an empty string when there is none.
+
+    Read from the environment because a checkout URL belongs to a *store*: the
+    bot has no business guessing a store's domain, and a Buy button pointing at
+    somebody else's storefront is worse than no button. An empty value is the
+    honest "not for sale yet" the pricing page renders.
+    """
+    return (os.environ.get(CHECKOUT_ENV.get(plan.id, "")) or "").strip()
 
 
 def normalise_key(key: str) -> str:
@@ -296,7 +333,7 @@ def plan_for_product(meta: dict) -> Plan | None:
     variant = str(meta.get("variant_id") or "").strip()
     if variant:
         for plan in (PRO, ENTERPRISE):
-            configured = os.environ.get(f"LEMONSQUEEZY_VARIANT_{plan.id.upper()}", "").strip()
+            configured = (os.environ.get(VARIANT_ENV[plan.id]) or "").strip()
             if configured and configured == variant:
                 return plan
     name = str(meta.get("product_name") or "").strip().lower()

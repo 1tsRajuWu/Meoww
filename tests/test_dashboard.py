@@ -390,7 +390,16 @@ class DeploymentConfig(unittest.TestCase):
     #: of the manifest is not the safe choice — the templates *drop* the invite
     #: button when the id is unknown, so omitting it shipped a landing page with no
     #: way to add the bot and no error anywhere to show for it.
-    PUBLIC_KEYS = frozenset({"DISCORD_CLIENT_ID"})
+    #: ``PLAN_ENFORCEMENT`` is on this list because it is a switch, not a
+    #: credential: committing ``0`` or ``1`` gives the deploy a definite state
+    #: instead of a prompt. The checkout URLs are public by the same argument the
+    #: client id is — the page renders them for anyone to click.
+    PUBLIC_KEYS = frozenset({
+        "DISCORD_CLIENT_ID",
+        "LEMONSQUEEZY_CHECKOUT_PRO",
+        "LEMONSQUEEZY_CHECKOUT_ENTERPRISE",
+        "PLAN_ENFORCEMENT",
+    })
 
     def committed_secrets(self, manifest: str) -> list:
         """Keys carrying a literal value that are not public on purpose.

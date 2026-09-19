@@ -23,6 +23,7 @@ else is linked from the [table of contents](#contents).
 - [🔧 Full setup guide](#-full-setup-guide)
 - [🚀 Hosting (24/7)](#-hosting-247)
 - [🎛️ Dashboard](#️-dashboard)
+- [💳 Plans & licences](#-plans--licences)
 - [📚 Docs & deep-dives](#-docs--deep-dives)
 - [🧪 Tests](#-tests)
 - [🆘 Troubleshooting](#-troubleshooting)
@@ -190,6 +191,40 @@ the bot is, what it is doing now, how to add it), and **`/privacy`** and
 **`/terms`** are the same documents the Discord commands show, rendered from the
 same files — and **`/market/BTC`** is the live chart, public like the price
 data it draws.
+
+---
+
+## 💳 Plans & licences
+
+`/pricing` describes three tiers and `utils/plans.py` is the model behind them,
+so the page and the bot cannot disagree about what "Pro" means. Buying is
+handled by **Lemon Squeezy**; the bot never sees a card, and it validates the
+licence key with the store's own public licence API, so there is no API key to
+store and no webhook endpoint to expose.
+
+**Every system is free today.** Enforcement is off until you set
+`PLAN_ENFORCEMENT=1`: plans are recorded and shown, and nothing is taken away.
+Turning it on holds a server without a licence to the free tier — moderation,
+automod, leveling, fun, games and social — and holds it to one server.
+
+To sell plans:
+
+1. In Lemon Squeezy, turn **license keys on** for both products (product →
+   Settings → Generate license keys) and set the activation limit: 5 for Pro,
+   unlimited for Enterprise. That limit *is* the "up to 5 servers" rule — the
+   store counts the activations, not the bot.
+2. Paste each product's checkout link (product → **Share → Copy link**) into
+   `LEMONSQUEEZY_CHECKOUT_PRO` and `LEMONSQUEEZY_CHECKOUT_ENTERPRISE`. With them
+   set, the paid cards link at the store; without them the page says
+   "No billing yet" and every button stays on the invite page.
+3. In a server, an administrator runs `/bot plan key:…` with the key from their
+   receipt. `/bot plan` shows the plan and how many activations are used,
+   re-checks the licence with the store, and `remove:true` gives the activation
+   back so it can be used in another server.
+
+If a product is renamed in the store, set `LEMONSQUEEZY_VARIANT_PRO` /
+`LEMONSQUEEZY_VARIANT_ENTERPRISE` to its variant id: the name is only a
+fallback, the id is stable.
 
 ---
 
