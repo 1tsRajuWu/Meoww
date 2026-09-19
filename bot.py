@@ -883,6 +883,15 @@ async def on_ready():
 
     await db.setup()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
+    # Cache the bot's global avatar so the dashboard can show it without a
+    # per-request lookup. The user object is fully populated here.
+    try:
+        import keep_alive as _ka
+        _ka._BOT_AVATAR_URL = str(bot.user.display_avatar.url)
+        print(f"[BOOT] Bot avatar cached: {_ka._BOT_AVATAR_URL[:60]}...", flush=True)
+    except Exception as exc:
+        print(f"[BOOT] Could not cache bot avatar: {exc}", flush=True)
     
     # Validate the feature registry once so a malformed manifest is loud.
     try:

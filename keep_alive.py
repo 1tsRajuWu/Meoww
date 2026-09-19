@@ -153,6 +153,10 @@ app.config.update(
 )
 
 BOT_INSTANCE = None
+#: The bot's own global avatar URL, cached at boot so the dashboard template
+#: can show it without a per-request lookup. Set once in ``keep_alive()``
+#: after the bot connects.
+_BOT_AVATAR_URL: str | None = None
 # The passkey must come from the environment. A hardcoded default is a published
 # credential: anyone who read this repository could sign into any deployment that
 # never set the variable, and /api/set-module accepts the same passkey with no
@@ -1722,17 +1726,10 @@ def dashboard():
     identity_data.pop("updated_at", None)
     guild_obj = BOT_INSTANCE.get_guild(guild_id) if (BOT_INSTANCE and guild_id) else None
     me = _identity_member(guild_obj)
-    # The bot's own global avatar: used as a fallback when no per-server
-    # picture has been uploaded, so the panel shows the bot's real face
-    # instead of a letter tile.
-    global_avatar = None
-    try:
-        if BOT_INSTANCE and getattr(BOT_INSTANCE, "user", None):
-            avatar_obj = getattr(BOT_INSTANCE.user, "display_avatar", None)
-            if avatar_obj is not None:
-                global_avatar = str(avatar_obj.url)
-    except Exception as exc:
-        print(f"[IDENTITY] Could not read bot avatar: {exc}", flush=True)
+    # The bot's own global avatar: cached at boot so the template can show
+    # the bot's real face instead of a letter tile when no per-server picture
+    # has been uploaded.
+    global_avatar = _BOT_AVATAR_URL
 
     identity_data.update({
         # The live name is what the server actually sees; the record above is
