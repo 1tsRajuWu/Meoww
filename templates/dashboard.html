@@ -3761,6 +3761,23 @@
                 const data = await apiPostResult("/api/send-message", payload);
                 renderReceipt(data, payload, carried);
                 dropDraft();   // it went out; there is nothing left to rescue
+                // The text leaves with the send. ``dropDraft`` only stops the
+                // *rescue* copy from coming back on reload; the box itself kept
+                // the message, and the button under it was already re-enabled —
+                // so the next thing a fast user did was send the same words
+                // twice, or type a new announcement into the tail of the old one
+                // (the composer concatenates; it does not start a sentence).
+                // Cleared only when every channel took it: a partial send keeps
+                // the text so the failed channels can be retried or the message
+                // adjusted, and the receipt is the record either way.
+                if (!(data && data.failed && data.failed.length)) {
+                    composerEls.body.value = "";
+                    composerEls.title.value = "";
+                    composerEls.embed.checked = false;
+                    composerEls.titleField.hidden = true;
+                    updateCounter();
+                    renderPreview();
+                }
                 // The send has just been written down as history; without this the
                 // list below would keep showing yesterday's until its next poll,
                 // and a send that left no visible trace reads as one that failed.

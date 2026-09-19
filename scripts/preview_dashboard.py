@@ -181,14 +181,17 @@ PREVIEW_COMMANDS = sorted(
     set(features.MODULE_COMMAND_MAP) | set(features.ALWAYS_ALLOWED_COMMANDS)
 )
 
-MODULES = [
-    {"id": "economy", "name": "Economy", "icon": "🪙", "category": "Economy",
-     "desc": "Wallets, bank, daily rewards and the Meow Fee.", "commands": ["/balance", "/daily"], "enabled": True},
-    {"id": "tickets", "name": "Support Tickets", "icon": "🎟️", "category": "Support",
-     "desc": "Interactive ticket panels with private staff channels.", "commands": ["/ticket setup"], "enabled": True},
-    {"id": "music", "name": "Music", "icon": "🎵", "category": "Voice",
-     "desc": "Retired.", "commands": ["/play"], "enabled": False},
-]
+#: The cards come from the registry, not a hand-written list. The list below
+#: was all three, and it stayed behind: it still offered **Music**, which the
+#: registry retired, so the preview showed a switch that could never work and
+#: answered it with "Could not save that change. Please try again." — a fake
+#: *transient* error for a module that no longer exists, on the one tool whose
+#: job is showing what the page really does. ``dashboard_modules()`` is the same
+#: function the real view renders, so the preview can no longer disagree with
+#: production about which systems exist.
+MODULES = features.dashboard_modules()
+for _module in MODULES:
+    _module["enabled"] = features.default_enabled(_module["id"])
 
 #: Real-sized ids, as strings, on purpose. A snowflake this big (bigger than
 #: 2**53) is the only kind that can show a browser rounding it, and that is what
@@ -329,8 +332,10 @@ def dashboard():
         bot_ping=int(os.environ.get("PREVIEW_PING", "41")),
         bot_ready=True,
         modules=MODULES,
-        active_count=2,
-        total_count=3,
+        # Counted, not seeded: these two were literals from the three-card stub
+        # and said "2 / 3" over an eleven-card page after the registry grew.
+        active_count=sum(1 for m in MODULES if m["enabled"]),
+        total_count=len(MODULES),
         csrf_token="preview-token",
         guilds=[{"id": g["id"], "name": g["name"]} for g in GUILDS],
         can_switch_guild=True,
