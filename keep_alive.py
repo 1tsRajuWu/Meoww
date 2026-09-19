@@ -1722,6 +1722,16 @@ def dashboard():
     identity_data.pop("updated_at", None)
     guild_obj = BOT_INSTANCE.get_guild(guild_id) if (BOT_INSTANCE and guild_id) else None
     me = _identity_member(guild_obj)
+    # The bot's own global avatar: used as a fallback when no per-server
+    # picture has been uploaded, so the panel shows the bot's real face
+    # instead of a letter tile.
+    global_avatar = None
+    if BOT_INSTANCE and getattr(BOT_INSTANCE, "user", None):
+        try:
+            global_avatar = str(BOT_INSTANCE.user.display_avatar.url)
+        except Exception:
+            pass
+
     identity_data.update({
         # The live name is what the server actually sees; the record above is
         # what was asked for, and the pair is what makes a silent failure visible.
@@ -1730,6 +1740,7 @@ def dashboard():
         "can_edit": bool(guild_obj is not None and _may_edit_identity(guild_obj)),
         "max_nick": identity.MAX_NICK,
         "max_bio": identity.MAX_BIO,
+        "global_avatar_url": global_avatar,
     })
 
     return render_template(
@@ -1968,6 +1979,10 @@ def _image_mime(data: bytes) -> str:
 def _may_edit_identity(guild) -> bool:
     if session.get("auth_scope") == "guild":
         return _int_or_none(session.get("guild_id")) == getattr(guild, "id", None)
+    if session.get("auth_scope") == "user":
+        # Discord OAuth users see only the servers they administer; the identity
+        # panel should work for any of them, not just the one they landed on.
+        return getattr(guild, "id", None) in session.get("admin_guild_ids", [])
     return session.get("auth_scope") == "global"
 
 

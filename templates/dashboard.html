@@ -1814,8 +1814,13 @@
             <div class="identity-grid">
                 <div class="identity-preview">
                     <div class="identity-avatar" id="identity-avatar">
-                        {% if server_identity.has_avatar %}<img src="/api/identity/image/avatar?guild_id={{ guild_id }}" alt="The avatar this server gave the bot">
-                        {% else %}<span>{{ (server_identity.live_name or guild_name)[:1] | upper }}</span>{% endif %}
+                        {% if server_identity.has_avatar %}
+                        <img src="/api/identity/image/avatar?guild_id={{ guild_id }}" alt="The avatar this server gave the bot">
+                        {% elif server_identity.global_avatar_url %}
+                        <img src="{{ server_identity.global_avatar_url }}" alt="The bot's default avatar">
+                        {% else %}
+                        <span>{{ (server_identity.live_name or guild_name)[:1] | upper }}</span>
+                        {% endif %}
                     </div>
                     <div class="identity-banner" id="identity-banner">
                         {% if server_identity.has_banner %}<img src="/api/identity/image/banner?guild_id={{ guild_id }}" alt="The banner this server gave the bot">
