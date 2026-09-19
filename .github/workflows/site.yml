@@ -328,4 +328,4 @@ jobs:
             echo "::error title=The site did not take this commit::The newest production deployment reports commit '${landed}', not ${EXPECTED}. The upload was accepted but the live site is not this commit — check the deployment in the Cloudflare dashboard before trusting the URL."
             exit 1
           fi
-          echo "Published ${EXPECTED} to https://meow-bot-site.pages.dev"
+          echo "Published ${EXPECTED} to https://meow-bot.pages.dev"

@@ -144,6 +144,43 @@ class AnUnpublishedCommitIsNotGreen(unittest.TestCase):
         would be interpolated into a step that holds a deploy token."""
         self.assertNotIn("head_commit.message", self.text)
 
+    def test_every_mention_of_the_pages_project_is_the_same_project(self):
+        """A rename has to reach four places, and this workflow has four.
+
+        The project was renamed `meow-bot-site` -> `meow-bot`, and the last line
+        kept announcing the old name: `meow-bot-site.pages.dev` now answers **530
+        — project not found**, so the success line of a *successful* deploy
+        pointed at a host that does not exist, and the one place a person would
+        click to check the result was the one place that was wrong. Nothing else
+        broke, because the API calls and the `--project-name` were all updated in
+        the same commit that renamed it — which is exactly why the leftover
+        mattered: it is only ever read by whoever is deciding whether the deploy
+        worked.
+
+        So the four are compared to each other rather than each written down, in
+        both directions: every `pages/projects/<name>` the workflow asks, the
+        project it names to wrangler, and the URL it prints must be one name, or
+        this fails.
+        """
+        asked = re.search(r"--project-name=([A-Za-z0-9-]+)", self.deploy)
+        self.assertIsNotNone(asked, "the publish step names no --project-name")
+        project = asked.group(1)
+
+        self.assertEqual(
+            set(re.findall(r"pages/projects/([A-Za-z0-9-]+)", self.deploy)),
+            {project},
+            "the workflow talks to a different Pages project than it deploys to",
+        )
+
+        landed = self.deploy.split("Check the deployment actually landed", 1)[1]
+        announced = re.search(r"https://([A-Za-z0-9-]+)\.pages\.dev", landed)
+        self.assertIsNotNone(announced, "the landed check announces no site URL")
+        self.assertEqual(
+            announced.group(1),
+            project,
+            "the URL announced after a successful publish is not the project it published",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
