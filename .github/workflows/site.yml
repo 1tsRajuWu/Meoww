@@ -1,0 +1,100 @@
+name: Site
+
+# Renders the public pages (front door, pricing, privacy, terms) into static
+# files and checks the result, so the site cannot silently break.
+#
+# **This does not publish anywhere, and that is deliberate.** It was written to
+# deploy to GitHub Pages, and Pages is not available here: this repository is
+# private and the owner is on GitHub's free plan, so the API answers
+# `422 Your current plan does not support GitHub Pages for this repository`.
+# The first two runs proved the *build* was fine and failed on that one
+# platform limit — "the repository has Pages enabled and configured to build
+# using GitHub Actions" after the site had already rendered perfectly. There is
+# no workflow setting that fixes a plan restriction, so this job does the half
+# that can be done anywhere and leaves the host to whoever is deploying.
+#
+# The build is worth running on its own: `scripts/build_site.py` is where every
+# root-relative URL is rewritten, and a single one that survives is a 404 on any
+# static host — including the cat cursor, which fails with the system arrow and
+# nothing in any console. The artifact is uploaded, so the site can be published
+# by hand or by any host that takes a directory.
+#
+# When Pages does become available (a public repo, or a paid plan for a private
+# one), publishing it back is two steps from the artifact below:
+#
+#   permissions: { contents: read, pages: write, id-token: write }
+#   - uses: actions/configure-pages@v5
+#   - uses: actions/upload-pages-artifact@v3
+#     with: { path: _site }
+#   - uses: actions/deploy-pages@v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/home.html"
+      - "templates/pricing.html"
+      - "templates/legal.html"
+      - "static/**"
+      - "scripts/build_site.py"
+      - "keep_alive.py"
+      - "utils/webdocs.py"
+      - "PRIVACY.md"
+      - "TERMS.md"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the static site
+        env:
+          # The invite link is built from this at render time. Public value: it
+          # is in every invite URL. Override with a repository *variable* of the
+          # same name if the application id ever changes.
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || '1548380269776605324' }}
+          # A project site is served from /<repo>/, so the sitemap needs the full
+          # public URL rather than the bare file names used inside the pages.
+          SITE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+        # The builder exits non-zero if any root-relative URL survives its
+        # rewrite, so a link that would 404 on a static host fails the job here
+        # rather than in a visitor's browser.
+        run: python scripts/build_site.py --out _site
+
+      - name: Check the build did not lose its call to action
+        # The templates omit the invite button when no client id is known, so a
+        # build without one is not an error anywhere — it is a landing page that
+        # silently cannot add the bot. That is the failure this step catches.
+        run: |
+          grep -q "discord.com/oauth2/authorize" _site/index.html || {
+            echo "::error::the built front page has no invite link (is DISCORD_CLIENT_ID set?)"
+            exit 1
+          }
+
+      - name: Check the cat cursor is still fetchable
+        # A cursor image that 404s is invisible everywhere except to a person
+        # noticing that their pointer is a plain arrow.
+        run: |
+          test -f _site/static/cursor-default.svg
+          test -f _site/static/cursor-pointer.svg
+          grep -q "cursor-default.svg" _site/static/meow.css
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-site
+          path: _site
+          retention-days: 14
