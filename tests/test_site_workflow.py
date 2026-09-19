@@ -1,0 +1,111 @@
+"""The deploy workflow must not let an unpublished commit look published.
+
+`CLOUDFLARE_ACCOUNT_ID` is set on this repository and `CLOUDFLARE_API_TOKEN` is
+not, and that is the state the site spent four commits in: every `Site` run
+reported **success** while `meow-bot-site.pages.dev` served commit `0af327e`,
+from before all four of them. The build guards were not wrong — the build was
+fine. What reached a person was one line, `success`, which was true of the build
+and false of the deploy, and a `::notice` explaining the difference that does not
+appear on the checks list.
+
+So these tests are about the two ways that can come back:
+
+1. the missing-token path going quiet again, and
+2. a step that reports success for "Cloudflare accepted the upload", which is a
+   different claim from "the site serves this commit".
+
+The workflow is read as text rather than parsed: `PyYAML` is not a dependency of
+this project and adding one to assert four lines is a poor trade.
+"""
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / ".github" / "workflows" / "site.yml"
+
+
+class AnUnpublishedCommitIsNotGreen(unittest.TestCase):
+    def setUp(self):
+        self.text = WORKFLOW.read_text(encoding="utf-8")
+        # Everything from the configuration check to the end of the file, i.e.
+        # the steps that decide whether anything is published.
+        self.deploy = self.text.split("Is Cloudflare configured?", 1)[1]
+
+    def test_the_missing_token_path_warns_and_says_so_on_the_run(self):
+        """A notice is invisible on the checks list; a warning is not."""
+        self.assertIn("::warning title=This commit was NOT published", self.deploy)
+        self.assertNotIn("::notice::CLOUDFLARE_API_TOKEN is not set", self.deploy,
+                         "back to a notice, which no checks list shows")
+
+    def test_the_missing_token_path_writes_a_job_summary_naming_the_fix(self):
+        """The run page is where somebody looks after a green build and a stale
+        site, so the answer has to be there — not only in a log nobody opened."""
+        self.assertIn("GITHUB_STEP_SUMMARY", self.deploy)
+        self.assertIn("Published: **no**", self.deploy)
+        self.assertIn("gh secret set CLOUDFLARE_API_TOKEN", self.deploy)
+        self.assertIn("Cloudflare Pages: Edit", self.deploy)
+
+    def test_the_summary_does_not_report_success_while_skipping_the_publish(self):
+        self.assertNotIn("Published: **yes**", self.deploy)
+
+    def test_a_rejected_token_fails_before_wrangler_starts(self):
+        """An expired token otherwise reads as a deploy failure with no reason."""
+        self.assertIn("/user/tokens/verify", self.deploy)
+        self.assertIn("::error title=The Cloudflare token was rejected", self.deploy)
+
+    def test_an_account_owned_token_is_not_refused_by_the_token_endpoint(self):
+        """The token endpoint answers 401 for a token that works.
+
+        Measured against the real API rather than read off the docs: the deployed
+        `CLOUDFLARE_API_TOKEN` returns `401 Invalid API Token` from
+        `/user/tokens/verify` and `200` from the account's Pages project, because
+        Cloudflare rejects account-owned tokens at the token endpoint by design —
+        and a Pages-scoped token is usually account-owned.
+
+        So the first version of this preflight was itself the defect it was added
+        to prevent: it would have red-failed a perfectly good token *before*
+        wrangler ran, turning `PLAN_CHECKOUT`-style silence into a blocked deploy.
+        The project endpoint is asked as well, and only both failing is a refusal.
+        """
+        self.assertIn("accounts/${ACCOUNT_ID}/pages/projects/", self.deploy)
+        self.assertIn("account-owned", self.deploy)
+        self.assertIn("CLOUDFLARE_ACCOUNT_ID is not", self.deploy)
+        # Order, not just presence: the refusal has to come *after* the Pages
+        # project has been asked, or a 401 there is still fatal on its own.
+        self.assertLess(
+            self.deploy.index("pages/projects/"),
+            self.deploy.index("::error title=The Cloudflare token was rejected"),
+            "the token is refused before the Pages project is consulted",
+        )
+
+    def test_the_publish_is_skipped_only_when_the_token_was_accepted(self):
+        self.assertIn("if: steps.cf.outputs.configured == 'true'", self.deploy)
+
+    def test_an_accepted_upload_is_not_taken_as_a_published_site(self):
+        """`wrangler pages deploy` exiting 0 means the upload was accepted.
+
+        The site sat four commits behind a green workflow because that was the
+        only claim anybody made. The last step asks Cloudflare which commit
+        production serves and fails when it is not this one.
+        """
+        self.assertIn("Check the deployment actually landed on this commit", self.text)
+        self.assertIn("EXPECTED: ${{ github.sha }}", self.deploy)
+        self.assertIn("::error title=The site did not take this commit", self.deploy)
+        self.assertRegex(self.deploy.split("Check the deployment actually landed", 1)[1],
+                         r"exit 1")
+
+    def test_the_deployment_is_attributable_to_a_commit(self):
+        """The deploy job downloads an artifact and never checks out the repo, so
+        wrangler finds no git repository and attaches no commit unless it is told
+        one — and then 'did this commit reach the site?' has no answer."""
+        self.assertRegex(self.deploy, r"--commit-hash=\$\{\{ github\.sha \}\}")
+
+    def test_no_untrusted_commit_message_reaches_a_shell(self):
+        """`github.event.head_commit.message` is attacker-influenced text, and it
+        would be interpolated into a step that holds a deploy token."""
+        self.assertNotIn("head_commit.message", self.text)
+
+
+if __name__ == "__main__":
+    unittest.main()

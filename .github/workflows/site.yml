@@ -14,12 +14,26 @@ name: Site
 # repository`. Both original runs proved the *build* was fine and failed on that
 # one plan restriction, with no workflow setting able to fix it.
 #
-# Two repository secrets turn the publish on; with neither set the deploy job
-# skips with a notice rather than failing, so the checks below still guard every
-# push:
+# Two repository secrets turn the publish on:
 #
 #   CLOUDFLARE_API_TOKEN   — "Cloudflare Pages: Edit" permission
 #   CLOUDFLARE_ACCOUNT_ID  — from the Cloudflare dashboard's URL or Overview
+#
+# `CLOUDFLARE_ACCOUNT_ID` is set and `CLOUDFLARE_API_TOKEN` is not, which is the
+# state this workflow spent four commits in. So the rule here is that an
+# unpublished commit must not look like a published one: with no token the deploy
+# job emits a warning and a job summary saying *this commit did not reach the
+# site*, rather than a notice — a notice does not appear on the checks list, and
+# the run still reads "success", which is true of the build and false of the
+# deploy. With a token that the API rejects, the job fails before wrangler starts,
+# naming the secret and where to rotate it: an expired token otherwise surfaces as
+# an opaque 401 from inside a third-party action.
+#
+# And a successful upload is not the same claim as a published site, so the last
+# step asks Cloudflare which commit production is serving and fails if it is not
+# this one. `wrangler pages deploy` exiting 0 means the upload was accepted; the
+# site sat four commits behind a green workflow precisely because nothing checked
+# the difference.
 #
 # The build is worth running even unpublished: `scripts/build_site.py` is where
 # every root-relative URL is rewritten, and a single one that survives is a 404
@@ -162,20 +176,89 @@ jobs:
           name: static-site
           path: _site
 
-      # Secrets cannot be read from a job-level `if`, so the check is a step:
-      # a repository with no Cloudflare credentials gets a notice and a green
-      # run, not a red mark on every push for a host nobody has connected yet.
+      # Secrets cannot be read from a job-level `if`, so the check is a step: a
+      # repository with no Cloudflare credentials gets a green run, not a red mark
+      # on every push for a host nobody has connected yet.
+      #
+      # What it must not be is *quiet*, and the first version was nothing else: a
+      # single `::notice`, which does not appear on the checks list at all. Four
+      # consecutive `Site` runs reported success while `meow-bot-site.pages.dev`
+      # served commit `0af327e` — from before all four of them — and nothing in any
+      # of those runs said so. Every build guard passed, because every build guard
+      # is about the build, which was fine. The one signal reaching a person read
+      # "success": true of the build, false of the deploy, and with nowhere to
+      # notice the difference. It is a warning on the run and a summary on the job
+      # now, and the summary names the token and the command that fixes it.
       - name: Is Cloudflare configured?
         id: cf
         env:
           TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           if [ -z "$TOKEN" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::CLOUDFLARE_API_TOKEN is not set — built the site but did not publish it."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=This commit was NOT published::CLOUDFLARE_API_TOKEN is not set, so the publish step was skipped and the site still serves an older commit. Create a token with 'Cloudflare Pages: Edit' for account ${ACCOUNT_ID} at https://dash.cloudflare.com/profile/api-tokens, then run: gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
+            {
+              echo "## Published: **no**"
+              echo
+              echo "This commit built and passed every check, and it never reached"
+              echo "<https://meow-bot-site.pages.dev>. The \`CLOUDFLARE_API_TOKEN\`"
+              echo "secret is not set, so the publish step was skipped and the live"
+              echo "copy still serves an older commit."
+              echo
+              echo "**One-time setup.** Create a token with **Cloudflare Pages:"
+              echo "Edit** for account \`${ACCOUNT_ID}\` at"
+              echo "<https://dash.cloudflare.com/profile/api-tokens>, then:"
+              echo
+              echo '```sh'
+              echo "gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+
+          # Set but unusable is worse than absent: an expired or revoked token
+          # fails the publish *after* wrangler has started, as a 401 from inside a
+          # third-party action. Asked here, the answer is already a sentence that
+          # says which secret and where to rotate it.
+          #
+          # Two questions, and the second is the one that matters: is the token
+          # alive at all, and can it reach *this* account's Pages project. Only the
+          # first can be asked of the token endpoint, because Cloudflare answers
+          # **401 there for an account-owned token** — which is the kind a
+          # Pages-scoped token usually is — while that same token reads and deploys
+          # through the Pages API without complaint. Measured, not assumed: the
+          # token in this deployment returns `401 Invalid API Token` from
+          # `/user/tokens/verify` and `200` from the project endpoint below. A
+          # check that insisted on the token endpoint would have red-failed a
+          # perfectly good token *before* wrangler ran, which is a worse failure
+          # than the silent one this step exists to catch.
+          token_status=$(curl -sS -o /tmp/cf-verify.json -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            https://api.cloudflare.com/client/v4/user/tokens/verify || echo 000)
+          accepted=false
+          if [ "$token_status" = "200" ]; then
+            accepted=true
+          elif [ -z "$ACCOUNT_ID" ]; then
+            echo "::error title=The Cloudflare account id is missing::CLOUDFLARE_API_TOKEN is set but CLOUDFLARE_ACCOUNT_ID is not, so there is no way to ask whether this token reaches the Pages project. Both are needed: gh secret set CLOUDFLARE_ACCOUNT_ID --repo ${GITHUB_REPOSITORY}"
+            exit 1
+          else
+            project_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot-site" || echo 000)
+            if [ "$project_status" = "200" ]; then
+              accepted=true
+              echo "::notice::CLOUDFLARE_API_TOKEN is account-owned: the token endpoint answers ${token_status} for those by design, and the Pages project answered 200 with it. Publishing."
+            else
+              token_status="${token_status} (token endpoint) / ${project_status} (Pages project)"
+            fi
+          fi
+          if [ "$accepted" != "true" ]; then
+            echo "::error title=The Cloudflare token was rejected::CLOUDFLARE_API_TOKEN is set but the API answered ${token_status}. An expired, revoked or wrongly-scoped token looks exactly like a broken deploy from the outside, so it is caught here instead. Rotate it at https://dash.cloudflare.com/profile/api-tokens."
+            cat /tmp/cf-verify.json 2>/dev/null || true
+            exit 1
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
 
       - name: Publish to Cloudflare Pages
         if: steps.cf.outputs.configured == 'true'
@@ -186,4 +269,49 @@ jobs:
           # `--branch=main` is what makes this a production deployment rather
           # than a preview URL. The project is created on the first run if it
           # does not exist yet.
-          command: pages deploy _site --project-name=meow-bot-site --branch=main
+          #
+          # `--commit-hash` is explicit because this job downloads an artifact and
+          # never checks out the repository — so wrangler finds no git repository,
+          # attaches no commit, and the deployment becomes unattributable. The
+          # manual deploys this project has had *were* from a checkout, which is
+          # why they carry a commit and this one otherwise would not.
+          #
+          # The message is a fixed string rather than the head commit subject:
+          # that value reaches a shell here, and a subject containing a quote or a
+          # newline is a command injection in a workflow that holds a token.
+          command: pages deploy _site --project-name=meow-bot-site --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"
+
+      - name: Check the deployment actually landed on this commit
+        # `wrangler pages deploy` exiting 0 means Cloudflare *accepted* the upload.
+        # That is not the same claim as "the site now serves this commit", and the
+        # gap between the two is precisely how this workflow's publish went
+        # unnoticed for four commits: accepted, green, stale. Asked of the API, the
+        # two are one comparison.
+        if: steps.cf.outputs.configured == 'true'
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EXPECTED: ${{ github.sha }}
+        # The reader below is one line, not a readable multi-line script, and
+        # that is load-bearing: a block scalar ends at the first line less
+        # indented than the block, so an embedded program written across lines
+        # has to be indented to match the block — which `python3 -c` then reads
+        # as an unexpected indent on its first statement. One line cannot get
+        # this wrong, and the alternative is a YAML parse error in a workflow
+        # whose only symptom is that it never runs.
+        run: |
+          landed=""
+          for attempt in 1 2 3 4 5; do
+            landed=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot-site/deployments?per_page=10" \
+              | python3 -c 'import json,sys; rows=(json.load(sys.stdin).get("result") or []); prod=[r for r in rows if r.get("environment")=="production"]; meta=((prod[0].get("deployment_trigger") or {}).get("metadata") or {}) if prod else {}; print(meta.get("commit_hash") or "")' 2>/dev/null || echo "")
+            if [ "$landed" = "$EXPECTED" ]; then
+              break
+            fi
+            sleep 6
+          done
+          if [ "$landed" != "$EXPECTED" ]; then
+            echo "::error title=The site did not take this commit::The newest production deployment reports commit '${landed}', not ${EXPECTED}. The upload was accepted but the live site is not this commit — check the deployment in the Cloudflare dashboard before trusting the URL."
+            exit 1
+          fi
+          echo "Published ${EXPECTED} to https://meow-bot-site.pages.dev"
