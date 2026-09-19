@@ -1041,6 +1041,10 @@ def _home_page():
         enter_url="/login",
         enter_label="Sign in",
         retention_days=_retention_days(),
+        # Whether "Sign in with Discord" is a way in on *this* deployment. It
+        # needs both the client id and the secret, and the page must not list a
+        # method the dashboard does not offer — which it did, for weeks.
+        oauth_enabled=discord_auth.enabled(),
         meta_description=(
             f"{name} — moderation, tickets, leveling, an economy, a live market and "
             "per-server activity tracking, driven from a real-time web dashboard."

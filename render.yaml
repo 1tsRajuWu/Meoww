@@ -17,6 +17,20 @@ services:
       # too; it needs both, and the login page says so.
       - key: DISCORD_CLIENT_ID
         value: "1548380269776605324"
+      # The other half of Discord sign-in, and a real secret — it is what
+      # completes the OAuth code exchange, so it is a prompt and never a value.
+      #
+      # Its absence is why the dashboard's third way in has been switched off in
+      # production: `discord_auth.enabled()` needs **both** halves, and while the
+      # live sign-in page has been saying so in a sentence, nothing told the
+      # deploy to ask for it. This is the same omission that once left
+      # FLASK_SECRET_KEY and ADMIN_PASSKEY undeclared — a feature that is
+      # configured in `.env.example` and documented in the README, silently off
+      # on the host, with the only symptom being a login method that never
+      # appears. Register the callback URL the sign-in page prints:
+      #   {DASHBOARD_BASE_URL}/login/discord/callback
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY

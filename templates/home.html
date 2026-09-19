@@ -168,9 +168,21 @@
             <div class="card">
                 <div class="panel-head">
                     <h3>How signing in works</h3>
-                    <span class="pill">Three ways in</span>
+                    {# The count is the deployment's own answer, not a fixed
+                       number: a sign-in method that is switched off must not be
+                       listed as a way in. #}
+                    <span class="pill">{{ "Three ways in" if oauth_enabled else "Two ways in" }}</span>
                 </div>
                 <div class="features">
+                    {#
+                      Listed only while it is actually offered. This card sat on
+                      the front door while `discord_auth.enabled()` was false —
+                      it needs both the client id and the secret — so the page
+                      advertised a sign-in method the dashboard never showed,
+                      which is the same shape of inaccuracy as a pricing page
+                      for a checkout that does not exist.
+                    #}
+                    {% if oauth_enabled %}
                     <div class="feature">
                         <h3>Sign in with Discord</h3>
                         <p>
@@ -180,6 +192,7 @@
                             request and never stored.
                         </p>
                     </div>
+                    {% endif %}
                     <div class="feature">
                         <h3>One-time link</h3>
                         <p>

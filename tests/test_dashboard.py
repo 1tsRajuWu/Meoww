@@ -361,7 +361,27 @@ class DeploymentConfig(unittest.TestCase):
             self.manifest = handle.read()
 
     def test_the_dashboard_secrets_are_declared(self):
-        for key in ("FLASK_SECRET_KEY", "ADMIN_PASSKEY"):
+        """Every credential a dashboard feature needs must be asked for.
+
+        Two of these were missing once and both cost something real: no
+        FLASK_SECRET_KEY meant a new signing key every boot, so every deploy —
+        and every free-tier wake-up — signed the administrator out and killed
+        any one-time link in flight; no ADMIN_PASSKEY meant passkey sign-in was
+        off outright.
+
+        The list now includes the Discord pair, because the same omission was
+        still live: `DISCORD_CLIENT_SECRET` was undeclared, so Render never
+        prompted for it, `discord_auth.enabled()` needs both halves, and
+        "Sign in with Discord" had never appeared on the deployment — a feature
+        documented in `.env.example` and the README, off in production, with the
+        only symptom being a login method that is simply not offered.
+        """
+        for key in (
+            "FLASK_SECRET_KEY",
+            "ADMIN_PASSKEY",
+            "DISCORD_CLIENT_ID",
+            "DISCORD_CLIENT_SECRET",
+        ):
             self.assertIn(f"- key: {key}", self.manifest, f"{key} is not declared in render.yaml")
 
     #: Keys whose value is **public by design**, and so belongs in the repository
