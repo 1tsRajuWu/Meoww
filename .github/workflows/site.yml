@@ -250,7 +250,7 @@ jobs:
           read_status=$(curl -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot" || echo 000)
-          publish_status=$(curl -sS -o /tmp/cf-upload.json -w '%{http_code}' -X POST \
+          publish_status=$(curl -sS -o /tmp/cf-upload.json -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot/upload-token" || echo 000)
 

@@ -72,7 +72,6 @@ class AnUnpublishedCommitIsNotGreen(unittest.TestCase):
         the permission rather than quoting a stack trace.
         """
         self.assertIn("/upload-token", self.deploy)
-        self.assertIn("-X POST", self.deploy)
         self.assertIn("Cloudflare Pages: Edit", self.deploy)
         self.assertIn("Pages Write", self.deploy)
         self.assertIn("cannot publish", self.deploy)
