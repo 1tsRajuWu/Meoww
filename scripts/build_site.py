@@ -443,6 +443,28 @@ def build(
     import keep_alive  # noqa: PLC0415 — imported late so ``--help`` stays instant
     from utils import discord_auth  # noqa: PLC0415
 
+    #: The output directory must never be the repository itself.
+    #:
+    #: This is the line between a website and a leak, and it is not a
+    #: hypothetical: the Pages project was left with **no build command and no
+    #: output directory**, so Cloudflare published the repository root — and the
+    #: build log said so plainly ("No build command specified. Skipping build
+    #: step.", then "Uploading... (185/185)", and the repository has exactly 185
+    #: tracked files). `bot.py`, `utils/cloud_sync.py`, `cogs/`, `render.yaml`
+    #: and `.env.example` were readable at the site's own address until it was
+    #: caught. The values were safe — every secret lives in the host's
+    #: environment, not in the tree — but the tree was public, and a static host
+    #: is told "everything here is published", so a build that points it at the
+    #: source is refused here rather than warned about. By the time the upload
+    #: runs it is too late to take back.
+    if os.path.realpath(out_dir) == os.path.realpath(ROOT):
+        raise SystemExit(
+            "--out must not be the repository root. The build writes only the "
+            "pages it renders, and a static host handed the repository root "
+            "publishes the source tree along with them. Use the default "
+            "(_site) or any directory that is not the checkout."
+        )
+
     client = keep_alive.app.test_client()
     os.makedirs(out_dir, exist_ok=True)
     report: dict = {"pages": [], "leftovers": [], "invite": bool(discord_auth.client_id())}

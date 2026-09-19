@@ -154,6 +154,9 @@
                 tween(duration, "easeOutExpo", function (p) {
                     inner.style.transform = "translateY(" + (115 * (1 - p)).toFixed(2) + "%)";
                     inner.style.opacity = String(Math.min(1, p * 4));
+                }, function () {
+                    inner.style.removeProperty("transform");
+                    inner.style.removeProperty("opacity");
                 });
             }, i * stagger);
         });
@@ -174,6 +177,9 @@
                 tween(duration, "easeOutExpo", function (p) {
                     inner.style.transform = "translateY(" + (115 * (1 - p)).toFixed(2) + "%)";
                     inner.style.opacity = String(Math.min(1, p * 4));
+                }, function () {
+                    inner.style.removeProperty("transform");
+                    inner.style.removeProperty("opacity");
                 });
             }, base + i * stagger);
         });

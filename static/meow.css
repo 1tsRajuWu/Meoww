@@ -1701,29 +1701,7 @@ body.landing:has([data-menu].is-open) {
     text-transform: uppercase;
 }
 
-@keyframes text-shimmer {
-    0% { background-position: -200% 50%; }
-    100% { background-position: 200% 50%; }
-}
 
-.lp-shimmer {
-    background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 1) 0%,
-        rgba(255, 255, 255, 0.4) 30%,
-        var(--lp-accent-soft) 50%,
-        rgba(255, 255, 255, 0.4) 70%,
-        rgba(255, 255, 255, 1) 100%
-    );
-    background-size: 200% auto;
-    color: transparent;
-    -webkit-background-clip: text;
-    background-clip: text;
-}
-
-.is-ready .lp-shimmer {
-    animation: text-shimmer 3s ease 1 forwards;
-}
 
 .lp-h2 {
     margin: 0;
@@ -2575,7 +2553,6 @@ body.landing:has([data-menu].is-open) {
     .lp-panel-tilt-b { transform: none; }
 
     .lp-plate-layer { animation: none !important; }
-    .lp-shimmer { animation: none !important; color: inherit; -webkit-background-clip: initial; background-clip: initial; }
     .lp-bars i { animation: none !important; transform: scaleY(1); }
     .lp-card:hover { transform: none; }
 }

@@ -97,6 +97,50 @@ class RewriteUrlCase(unittest.TestCase):
         self.assertEqual(build_site.rewrite_url("pricing.html", LIVE), "pricing.html")
 
 
+class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
+    """``--out .`` is how a private repository becomes a public website.
+
+    This is the state the Pages project was actually in: no build command and
+    no output directory, so Cloudflare published the checkout — and its own log
+    said so plainly ("No build command specified. Skipping build step.", then
+    "Uploading... (185/185)", and the repository has exactly 185 tracked files).
+    While that lasted, ``/bot.py``, ``/utils/cloud_sync.py``, ``/cogs/economy.py``,
+    ``/render.yaml`` and ``/.env.example`` all answered 200 at the site's own
+    address. No *values* leaked, because every secret lives in the host's
+    environment rather than in the tree — but the tree was public.
+
+    A static host is handed a directory and told "everything in here is
+    published", so the one thing this builder must never accept is a directory
+    that contains the source. It is refused rather than warned about: by the
+    time the upload runs, it is too late to take back.
+    """
+
+    def test_the_repository_root_is_refused_however_it_is_spelled(self):
+        root = Path(build_site.ROOT).resolve()
+        spellings = [
+            str(root),
+            str(root) + os.sep,
+            os.path.join(str(root), "."),
+            os.path.join(str(root), "sub", ".."),
+        ]
+        for target in spellings:
+            with self.subTest(target=target):
+                with self.assertRaises(SystemExit) as caught:
+                    build_site.build(target, LIVE, SITE)
+                self.assertIn("repository root", str(caught.exception))
+
+    def test_an_ordinary_output_directory_still_builds(self):
+        """The guard has to cost a real build nothing, or it is a trap."""
+        out = tempfile.mkdtemp(prefix="meow-site-")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        with mock.patch.dict(
+            os.environ,
+            {"MEOW_STATIC_SITE": "1", "DISCORD_CLIENT_ID": "1548380269776605324"},
+        ):
+            build_site.build(out, LIVE, SITE)
+        self.assertTrue((Path(out) / "index.html").is_file())
+
+
 class BuiltSiteCase(unittest.TestCase):
     """One real build, inspected the way a visitor's browser would."""
 

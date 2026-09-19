@@ -27,6 +27,52 @@
   - Retention: 5 snapshots, rotated hourly
   - Sync interval: Every 25 seconds
 
+### 4. Cloudflare Pages (the public site)
+- Project: `meow-bot` → https://meow-bot.pages.dev
+- Source: this GitHub repository, connected through Pages' own Git integration,
+  deploying on every push to `main`. `Site` in GitHub Actions builds the same
+  output but **cannot publish** — its token has `Pages Read` and not
+  `Pages Write` — so the Git integration is what actually ships the site, and a
+  failing `Site` run is not a failing deploy.
+- **Build command:** `pip install -r requirements.txt && python scripts/build_site.py --out _site --proxy`
+- **Build output directory:** `_site`
+
+Both of those settings are load-bearing, and the output directory is the one to
+watch. Cloudflare Pages is handed a directory and told *everything in it is
+public*. Leave the build command and output directory empty and Pages publishes
+the **repository root** instead — which is a public copy of `bot.py`, `utils/`,
+`cogs/`, `render.yaml` and `.env.example` at the site's own address. That is not
+a theory: it is what this project was doing, and the Pages build log said so in
+plain words (`No build command specified. Skipping build step.`, then
+`Uploading... (185/185)` — the repository has exactly 185 tracked files). No
+secret value leaked, because every secret lives in the host's environment rather
+than in the tree, but the source was readable by anyone until it was caught.
+
+`scripts/build_site.py` now **refuses** to build into the repository root, so
+the other half of that mistake cannot be made quietly.
+
+The output directory must contain `_worker.js` and `_routes.json` (the builder
+writes both). They are what reverse-proxies `/login`, `/dashboard`, `/servers`,
+`/api`, `/market` and `/health` through to Render, so the dashboard and the
+sign-in page live on the Pages domain rather than 404ing there. A deployment
+missing them answers **404** for every one of those paths — which is how this
+was diagnosed.
+
+#### Checking it from a terminal
+
+```bash
+# Every one of these must be 404: the source is not a web page.
+for p in /bot.py /utils/cloud_sync.py /cogs/economy.py /render.yaml /.env.example; do
+  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://meow-bot.pages.dev$p"
+done
+
+# These must NOT be 404: the proxy is running.
+for p in /login /health; do
+  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://meow-bot.pages.dev$p"
+done
+# /dashboard and /servers answer 302 -> /login when signed out, which is correct.
+```
+
 ## Environment Variables Required
 
 ### Discord Bot
