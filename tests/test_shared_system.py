@@ -158,13 +158,42 @@ class AssetsAreVersionedByTheirOwnContents(unittest.TestCase):
                 seen.add(match.group(1))
         self.assertIn("meow.css", seen)
         self.assertIn("motion.js", seen)
-        self.assertIn("particles.js", seen)
 
     def test_the_named_assets_really_exist(self):
         """A token for a file that is not there is a 404 with a cache-buster."""
-        for name in ("meow.css", "motion.js", "particles.js", "favicon.svg"):
+        for name in ("meow.css", "motion.js", "favicon.svg"):
             self.assertTrue(
                 (ROOT / "static" / name).is_file(), f"static/{name} is missing"
+            )
+
+
+class NoDecorativeCanvas(unittest.TestCase):
+    """`particles.js` drew a full-viewport canvas of drifting dots and paw prints.
+
+    It was the page's only ornament that carried no information, and it was the
+    expensive kind: a `requestAnimationFrame` loop running for the whole life of
+    every page it loaded on, redrawing 45 shapes a frame behind content that
+    never moved, on a control panel somebody leaves open. It was loaded by five
+    templates and by none of the two that were designed after it, which is the
+    tell — a new page never reached for it.
+
+    Removing a decoration is not something a test can notice, so this pins the
+    decision rather than the behaviour: the file and every reference to it are
+    gone, so putting the canvas back has to be deliberate.
+    """
+
+    def test_the_file_is_gone(self):
+        self.assertFalse(
+            (ROOT / "static" / "particles.js").exists(),
+            "static/particles.js is back; the pages were designed without it",
+        )
+
+    def test_no_page_loads_a_particle_canvas(self):
+        for page in TEMPLATES:
+            self.assertNotIn(
+                "particles",
+                page.read_text(encoding="utf-8"),
+                f"{page.name} loads the particle canvas again",
             )
 
 

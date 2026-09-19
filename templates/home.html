@@ -122,7 +122,7 @@
             <div class="lp-hero-title">
                 {# Words are split into clip masks by the script; the sentence here
                    is the sentence a reader — and a test — sees. #}
-                <h1 class="lp-display" data-fit="12.5" data-text-reveal="words"
+                <h1 class="lp-display lp-shimmer" data-fit="12.5" data-text-reveal="words"
                     data-stagger="140" data-duration="1100">
                     Own your server
                 </h1>
@@ -203,6 +203,16 @@
                         <div class="lp-row-body">
                             <h3><span aria-hidden="true">{{ feature.icon }}</span> {{ feature.name }}</h3>
                             <p>{{ feature.desc }}</p>
+                            {% if feature.commands %}
+                            <div class="lp-row-commands">
+                                {% for cmd in feature.commands[:4] %}
+                                <span class="lp-cmd-pill">/{{ cmd }}</span>
+                                {% endfor %}
+                                {% if feature.commands|length > 4 %}
+                                <span class="lp-cmd-more">+{{ feature.commands|length - 4 }} more</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
                         </div>
                         {% if feature.commands %}
                         <span class="lp-row-arrow mono" aria-label="{{ feature.commands|length }} commands">
@@ -226,7 +236,7 @@
             </h2>
 
             <div class="lp-panels">
-                <figure class="lp-panel lp-panel-tilt-a" style="margin:0" data-reveal data-reveal-delay="0">
+                <figure class="lp-panel lp-panel-tilt-a" style="margin:0" data-reveal data-reveal-delay="0" data-tilt="5">
                     <div class="lp-panel-head"><span>Control panel</span><span>per server</span></div>
                     <div class="lp-panel-body">
                         <div class="lp-mock-tiles">
@@ -249,7 +259,7 @@
                     </figcaption>
                 </figure>
 
-                <figure class="lp-panel lp-panel-tilt-b" style="margin:0" data-reveal data-reveal-delay="140">
+                <figure class="lp-panel lp-panel-tilt-b" style="margin:0" data-reveal data-reveal-delay="140" data-tilt="5">
                     <div class="lp-panel-head"><span>Activity</span><span>message &amp; voice</span></div>
                     <div class="lp-panel-body">
                         <div class="lp-mock-tiles" style="grid-template-columns: 1fr">

@@ -45,8 +45,8 @@ class RewriteUrlCase(unittest.TestCase):
         self.assertEqual(build_site.rewrite_url("/static/meow.css", LIVE), "static/meow.css")
         # A cache-busting query has to survive, or the deploy serves a stale asset.
         self.assertEqual(
-            build_site.rewrite_url("/static/particles.js?v=2.2", LIVE),
-            "static/particles.js?v=2.2",
+            build_site.rewrite_url("/static/favicon.svg?v=2.2", LIVE),
+            "static/favicon.svg?v=2.2",
         )
 
     def test_a_page_that_exists_here_becomes_its_file(self):

@@ -357,6 +357,97 @@
     }
 
     /* ---------------------------------------------------------------------
+       Number counter — count from 0 to the displayed value on scroll
+       --------------------------------------------------------------------- */
+    /* Each `.lp-stat dd` that contains a plain number (or a number with a comma
+       separator) is animated once, the first time it enters the viewport.
+       Non-numeric content (like a text label) is left alone. */
+    function counterAnimations() {
+        if (reduced || typeof IntersectionObserver !== "function") return;
+
+        document.querySelectorAll(".lp-stat dd").forEach(function (dd) {
+            var text = dd.textContent.trim();
+            var raw = text.replace(/,/g, "");
+            var target = parseInt(raw, 10);
+            if (isNaN(target) || target <= 0) return;
+
+            var hasComma = text.indexOf(",") !== -1;
+            dd.textContent = "0";
+
+            var seen = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (!entry.isIntersecting) return;
+                    seen.unobserve(entry.target);
+                    tween(1400, "easeOutExpo", function (p) {
+                        var current = Math.round(target * p);
+                        dd.textContent = hasComma
+                            ? current.toLocaleString()
+                            : String(current);
+                    });
+                });
+            }, { rootMargin: "0px 0px -40px 0px" });
+            seen.observe(dd);
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+       3D perspective tilt — pointer-driven tilt on `[data-tilt]`
+       --------------------------------------------------------------------- */
+    /* The dashboard preview panels tilt toward the cursor with a smooth
+       spring: X and Y rotation are derived from the pointer position relative
+       to the element's centre. The tilt resets to neutral on pointer-leave. */
+    function perspectiveTilt() {
+        if (!hoverable) return;
+
+        document.querySelectorAll("[data-tilt]").forEach(function (el) {
+            var maxDeg = parseFloat(el.dataset.tilt) || 6;
+
+            el.style.transition = "transform 0.4s var(--ease, cubic-bezier(0.22, 0.61, 0.36, 1))";
+            el.style.transformStyle = "preserve-3d";
+            el.parentElement.style.perspective = "800px";
+
+            el.addEventListener("pointermove", function (e) {
+                var rect = el.getBoundingClientRect();
+                var cx = rect.left + rect.width / 2;
+                var cy = rect.top + rect.height / 2;
+                var px = (e.clientX - cx) / (rect.width / 2);
+                var py = (e.clientY - cy) / (rect.height / 2);
+                // Rotate Y by horizontal offset, rotate X by *negative* vertical offset
+                var ry = px * maxDeg;
+                var rx = -py * maxDeg;
+                el.style.transform = "rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg)";
+            });
+
+            el.addEventListener("pointerleave", function () {
+                el.style.transform = "rotateX(0deg) rotateY(0deg)";
+            });
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+       Chart bar animation — animate heights when scrolled into view
+       --------------------------------------------------------------------- */
+    function chartBarAnimation() {
+        if (reduced || typeof IntersectionObserver !== "function") {
+            document.querySelectorAll(".lp-bars").forEach(function (bars) {
+                bars.classList.add("is-visible");
+            });
+            return;
+        }
+
+        document.querySelectorAll(".lp-bars").forEach(function (bars) {
+            var seen = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (!entry.isIntersecting) return;
+                    seen.unobserve(entry.target);
+                    bars.classList.add("is-visible");
+                });
+            }, { rootMargin: "0px 0px -40px 0px" });
+            seen.observe(bars);
+        });
+    }
+
+    /* ---------------------------------------------------------------------
        Fit a display line to its container
        --------------------------------------------------------------------- */
     /* A headline that must not wrap cannot be sized from the viewport: how much
@@ -514,6 +605,9 @@
         fitLines();
         parallax();
         hoverSprings();
+        counterAnimations();
+        perspectiveTilt();
+        chartBarAnimation();
 
         // The menu: focus goes into it, escape closes it, and the page behind
         // is not scrollable while it is open.

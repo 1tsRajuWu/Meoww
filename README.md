@@ -95,7 +95,7 @@ meow-discord-bot/
 ├── cogs/                  ← one file per feature (economy.py, market.py, …)
 ├── utils/                 ← shared helpers; features.py = the feature registry
 ├── templates/             ← the pages: dashboard, sign-in, picker, market, landing, policies
-├── static/                ← meow.css (the one design system), logo, favicon, cat cursors, particles
+├── static/                ← meow.css (the one design system), logo, favicon, cat cursors
 ├── assets/                ← fonts + sounds the bot ships with
 ├── scripts/               ← helper tools (avatar/banner, dev runner, preview, build_site.py)
 ├── docs/                  ← deployment, voice-debug + architecture guides
