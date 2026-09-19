@@ -45,11 +45,54 @@ LOGIN_SCOPES = ("identify", "guilds")
 #: documents under "No slash commands at all".
 INVITE_SCOPES = ("bot", "applications.commands")
 
-#: What the invite link asks for. It is Discord's own `ADMINISTRATOR` bit, which
-#: is what this bot's documented setup has always told people to grant — and it
-#: is deliberately a visible, single number in the URL rather than a long
-#: hand-tuned list nobody can check.
-INVITE_PERMISSIONS = ADMINISTRATOR
+#: Every permission the invite asks for, as ``(name, bit)``, so the list can be
+#: read and checked rather than decoded. **Each entry names the call site that
+#: needs it** — a permission with no call site is one this bot does not need, and
+#: that is the whole point of the list.
+#:
+#: This used to be Discord's blanket ``ADMINISTRATOR``, and the argument for it
+#: was that a single digit in the URL is easier to check than a long bitfield.
+#: That was the wrong trade for *this* link: it is published on a public page
+#: whose entire job is to earn enough trust to be added, and "Administrator" is
+#: the first thing a careful owner reads and the most common reason to close the
+#: tab. Administrator also makes every other bit irrelevant, so a fault in one
+#: command is unbounded — it can do anything, anywhere, instead of being limited
+#: to what that command actually does.
+#:
+#: What is *not* here is as deliberate as what is. There is no **Mention
+#: Everyone** (no code path pings ``@everyone``; announcements ping a role, which
+#: needs no permission), no **Connect** (music is gone and nothing joins a voice
+#: channel — the voice tracker reads state changes, which needs only
+#: ``view_channel``), no **Manage Server**, no **Manage Webhooks**, no **Create
+#: Invite**, and none of the member-move/mute/deafen bits. A grant nothing uses
+#: is still a grant: it is what a hijacked token reaches for.
+INVITE_PERMISSION_BITS = (
+    # --- answering at all ---
+    ("view_channel", 1 << 10),
+    ("send_messages", 1 << 11),
+    ("embed_links", 1 << 14),            # every card the bot posts is an embed
+    ("attach_files", 1 << 15),           # level-up cards, ticket transcripts
+    ("read_message_history", 1 << 16),   # starboard, purge, automod lookback
+    ("add_reactions", 1 << 6),           # starboard
+    ("use_external_emojis", 1 << 18),
+    # --- moderation (cogs/moderation.py, cogs/automod.py) ---
+    ("kick_members", 1 << 1),            # /kick
+    ("ban_members", 1 << 2),             # /ban
+    ("moderate_members", 1 << 40),       # /mute, /unmute, automod's 5-minute timeout
+    ("manage_messages", 1 << 13),        # /purge
+    # --- structure ---
+    ("manage_channels", 1 << 4),         # /lock, /unlock, ticket channels
+    ("manage_roles", 1 << 28),           # level rewards, /defaultrole
+    # --- identity, and the operator's own log ---
+    ("change_nickname", 1 << 26),        # the per-server name in utils/identity.py
+    ("view_audit_log", 1 << 7),          # who added the bot (utils/operator_log.py)
+    # --- threads: the ticket panel and the /help panel ---
+    ("create_public_threads", 1 << 35),
+    ("send_messages_in_threads", 1 << 38),
+)
+
+#: The bitfield the invite link carries.
+INVITE_PERMISSIONS = sum(bit for _name, bit in INVITE_PERMISSION_BITS)
 
 #: How long any single call may take. These are two small JSON requests made
 #: while somebody waits for a sign-in, so a hung socket is worse than a clear

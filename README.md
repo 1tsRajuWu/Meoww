@@ -38,8 +38,10 @@ else is linked from the [table of contents](#contents).
    `DISCORD_TOKEN`, shown only once).
 2. **Turn on intents** on the same Bot page: **Server Members Intent** +
    **Message Content Intent**.
-3. **Invite it**: OAuth2 → URL Generator → scopes `bot` +
-   `applications.commands` → permission `Administrator` → open the URL.
+3. **Invite it**: the simplest way is the ⚡ invite button on the dashboard or
+   the front page, which already carries the exact permission set the bot uses.
+   By hand: OAuth2 → URL Generator → scopes `bot` + `applications.commands` →
+   the permissions listed under "What the invite asks for" below.
 4. **Run it**:
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
@@ -124,7 +126,8 @@ Each folder has its own `README.md` explaining what's inside in plain words.
    the bot still runs, but message text is invisible — automod can't filter
    links and XP uses the baseline rate.)
 4. Sidebar **OAuth2 → URL Generator** → scopes `bot` + `applications.commands`
-   → permission `Administrator` → open the generated URL to invite the bot.
+   → the permissions listed under "What the invite asks for" below → open the
+   generated URL to invite the bot.
 
 ### Step 2 — Get the files + configure
 
@@ -281,14 +284,38 @@ skip — a suite that quietly stops collecting tests cannot pass as green.
 | Bot offline but logs say "ready" | Wait 1–2 min — global commands register slowly |
 | No slash commands at all | Re-invite with the `applications.commands` scope |
 | "Missing Permissions" on ban/kick/mute | Drag the bot's role **above** the target roles |
-| Ticket button creates nothing | Bot needs `Manage Channels` (in Administrator) |
+| Ticket button creates nothing | Bot needs `Manage Channels` — see below |
 | Free host sleeps/stops | Expected on free tiers — see `docs/deployment.md` |
 
 Voice rewards misbehaving? → [`docs/voice-debug.md`](docs/voice-debug.md).
 
-> Once everything works, you can drop the bot's `Administrator` permission to
-> exactly what it uses: Ban/Kick Members, Moderate Members, Manage
-> Channels/Roles/Messages/Guild, Send Messages, Read History, Add Reactions.
+### What the invite asks for
+
+The invite link asks for the permissions the bot actually uses, not
+`Administrator`. Each one is there because a call site needs it, and
+`utils/discord_auth.py` names that call site beside each entry:
+
+| Permission | Needed by |
+|---|---|
+| View Channels, Send Messages, Embed Links, Attach Files, Read Message History | every command that answers, including the cards |
+| Add Reactions, Use External Emojis | the starboard |
+| Kick Members, Ban Members, Moderate Members | `/kick`, `/ban`, `/mute`, and automod's timeout |
+| Manage Messages | `/purge` |
+| Manage Channels | `/lock`, `/unlock`, and ticket channels |
+| Manage Roles | level rewards and `/defaultrole` |
+| Change Nickname | a server's own name and picture for the bot |
+| View Audit Log | telling you who added the bot |
+| Create Public Threads, Send Messages in Threads | the ticket panel and the `/help` panel |
+
+Deliberately **not** asked for, because nothing uses them: `Administrator`,
+`Mention Everyone` (announcements ping a role, which needs no permission),
+`Connect` (nothing joins voice — the tracker reads state changes), Manage Server,
+Manage Webhooks, Create Invite, and the member move/mute/deafen bits. A grant
+nothing uses is still a grant, and it is what a leaked token reaches for first.
+
+> If a feature in *your* server reports "Missing Permissions", grant that one
+> permission to the bot's role. Existing servers keep whatever they already
+> approved — changing the invite link never alters a bot that is already in.
 
 ---
 
