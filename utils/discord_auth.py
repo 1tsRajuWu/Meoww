@@ -19,6 +19,7 @@ access, nothing that could be used for anything but showing those names.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import urllib.error
@@ -136,9 +137,27 @@ class AuthError(Exception):
         self.status = status
 
 
+def _client_id_from_token(token: str) -> str:
+    """Extract the application/client ID encoded in the first segment of a Discord bot token."""
+    if not token or "." not in token:
+        return ""
+    part = token.split(".", 1)[0].strip()
+    padded = part + "=" * (-len(part) % 4)
+    try:
+        decoded = base64.b64decode(padded).decode("utf-8")
+        if decoded.isdigit():
+            return decoded
+    except Exception:
+        pass
+    return ""
+
+
 def client_id() -> str:
     """This application's client id, or empty when OAuth is not configured."""
-    return (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
+    explicit = (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
+    if explicit:
+        return explicit
+    return _client_id_from_token((os.environ.get("DISCORD_TOKEN") or "").strip())
 
 
 def client_secret() -> str:
