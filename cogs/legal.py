@@ -24,7 +24,7 @@ MAX_FIELDS = 25
 MAX_TOTAL_TEXT = 6000
 
 #: Where the unedited documents live, for anyone who wants the source text.
-REPOSITORY = "https://github.com/1tsRajOwO/meow-discord-bot"
+REPOSITORY = "https://github.com/1tsRajOwO/Meow"
 
 
 def read_document(filename: str) -> str:

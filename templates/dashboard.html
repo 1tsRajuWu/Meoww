@@ -75,112 +75,151 @@
             margin: 0 auto;
         }
 
+        /* The toolbar. It sticks, because the two things at the top of this page
+           — which server am I looking at, and how do I get out — are the two
+           things somebody scrolls back up for, and a control panel is used by
+           scrolling it.
+
+           Translucent rather than solid: the aurora has to read through it or
+           the bar looks pasted on top of the page. ``color-mix`` keeps that
+           value derived from the token instead of a second hardcoded hex, and
+           the opaque declaration above it is the fallback for a browser without
+           it. */
         header {
+            position: sticky;
+            top: 0;
+            z-index: 40;
             background: var(--surface);
+            background: color-mix(in srgb, var(--surface) 82%, transparent);
+            backdrop-filter: blur(16px) saturate(140%);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 14px 18px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-md);
+            padding: 12px 14px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            gap: 16px;
             flex-wrap: wrap;
-            gap: 14px;
-            margin-bottom: 18px;
+            margin-bottom: 22px;
         }
 
         .brand-section {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 13px;
             min-width: 0;
         }
 
-        /* A mark, not an icon: the paw-in-a-purple-gradient tile was the same
-           tile every generated dashboard ships. A monogram in the accent colour
-           on the same surface as everything else carries the brand without it. */
+        /* The mark sits on a tinted tile with a lit top edge rather than on a
+           flat card, so the bar has one anchored focal point instead of being a
+           row of equally-weighted boxes. */
         .bot-avatar {
-            width: 40px;
-            height: 40px;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 22%, var(--surface-card)), var(--surface-card));
+            border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+            border-radius: 13px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: var(--font-mono);
-            font-size: 16px;
+            font-size: 17px;
             font-weight: 700;
-            color: var(--accent-text);
+            color: #fff;
             letter-spacing: -0.5px;
             flex-shrink: 0;
         }
 
         .brand-text h1 {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 700;
-            letter-spacing: -0.3px;
+            letter-spacing: -0.2px;
             display: flex;
             align-items: center;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 9px;
+            line-height: 1.25;
         }
 
         .brand-text p {
-            color: var(--text-secondary);
-            font-size: 13px;
+            color: var(--text-muted);
+            font-size: 12.5px;
             font-weight: 500;
+            margin-top: 3px;
             word-break: break-word;
         }
 
+        /* A dot and a word. The uppercase, the tracking and the bordered pill
+           were three decorations on a two-word piece of state, and the border
+           around a live indicator is what makes a bar look busy. */
         .status-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 11px;
+            padding: 3px 9px 3px 7px;
+            border-radius: var(--radius-pill);
+            font-size: 10.5px;
             font-weight: 700;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.06em;
             text-transform: uppercase;
         }
 
         .badge-online {
-            background: rgba(35, 165, 90, 0.15);
-            color: var(--green);
-            border: 1px solid rgba(35, 165, 90, 0.3);
+            background: rgba(35, 165, 90, 0.14);
+            color: #57d68d;
         }
 
         .badge-offline {
-            background: rgba(242, 63, 67, 0.15);
-            color: var(--red);
-            border: 1px solid rgba(242, 63, 67, 0.3);
+            background: rgba(242, 63, 67, 0.14);
+            color: #f4777a;
         }
 
         .badge-pulse {
             width: 6px;
             height: 6px;
-            background: var(--green);
+            background: currentColor;
             border-radius: 50%;
+            box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
         }
 
+        /* One row, right-aligned, and it wraps as a group rather than putting a
+           single control on a line of its own: the five controls here used to
+           break 4 + 1, which left Sign out stranded under the rest of them. */
         .header-actions {
             display: flex;
             align-items: center;
+            justify-content: flex-end;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 8px;
+            margin-left: auto;
         }
 
+        /* Native select chrome, replaced: ``appearance: none`` plus a chevron
+           drawn as a background, so the one control in the bar that opens a
+           menu looks like the buttons beside it instead of like a form field. */
         .guild-select {
-            background: var(--surface-card);
+            -webkit-appearance: none;
+            appearance: none;
+            background-color: var(--surface-card);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238b8883' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
             border: 1px solid var(--border);
             color: var(--text-primary);
-            padding: 10px 14px;
+            height: 36px;
+            padding: 0 34px 0 13px;
             border-radius: var(--radius-md);
             font-size: 13px;
             font-weight: 600;
             font-family: inherit;
-            max-width: 240px;
+            max-width: 220px;
+            cursor: pointer;
+            transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease);
         }
+
+        .guild-select:hover { border-color: var(--border-active); }
 
         .signed-in {
             display: inline-flex;
@@ -208,52 +247,85 @@
             outline-offset: 2px;
         }
 
+        /* One height (36px), one radius, one padding step. The buttons used to
+           be three different sizes in the same bar, which is most of what makes
+           a row of them look assembled rather than designed. */
         .btn {
             background: var(--surface-card);
             border: 1px solid var(--border);
             color: var(--text-primary);
-            padding: 10px 18px;
+            min-height: 36px;
+            padding: 0 14px;
             border-radius: var(--radius-md);
             font-size: 13px;
             font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            transition: background 0.2s, border-color 0.2s, transform 0.2s;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+            transition:
+                background-color var(--fast) var(--ease),
+                border-color var(--fast) var(--ease),
+                transform var(--fast) var(--ease),
+                box-shadow var(--fast) var(--ease);
             text-decoration: none;
+            white-space: nowrap;
         }
 
         .btn:hover {
             background: var(--surface-hover);
-            border-color: var(--accent);
+            border-color: var(--border-active);
         }
+
+        .btn:active { transform: translateY(1px); }
 
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
 
+        /* The press is the only place the accent is spent in the toolbar, so the
+           one destructive control reads as quiet until it is over it. */
         .btn-danger {
-            background: rgba(242, 63, 67, 0.15);
-            border: 1px solid rgba(242, 63, 67, 0.3);
-            color: var(--red);
+            background: transparent;
+            border-color: color-mix(in srgb, var(--red) 32%, var(--border));
+            color: #f4777a;
         }
 
         .btn-primary {
             background: var(--accent);
             border-color: var(--accent);
             color: #fff;
+            box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--accent) 90%, transparent);
         }
 
         .btn-primary:hover {
             background: var(--accent-hover);
             border-color: var(--accent-hover);
+            box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--accent) 95%, transparent);
         }
 
         .btn-danger:hover {
-            background: rgba(242, 63, 67, 0.25);
+            background: rgba(242, 63, 67, 0.14);
             border-color: var(--red);
+            color: #ff8f91;
+        }
+
+        /* An icon in a button is a 16px stroked glyph, never an emoji: an emoji
+           is the operating system's own artwork at its own weight and colour,
+           which is the one thing in a designed row that cannot be styled. */
+        .btn svg {
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
+            stroke: currentColor;
+            stroke-width: 1.7;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            opacity: 0.85;
         }
 
         .logout-form {
@@ -261,54 +333,169 @@
             margin: 0;
         }
 
+        /* Four equal tiles, then two, then one — a fixed count rather than
+           ``auto-fit``, which decided 3 + 1 on a 1000px window and left the
+           fourth tile alone on its own row. */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-            margin-bottom: 28px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 30px;
         }
 
-        /* The label above the number already says what the number is; the emoji
-           tile beside it was a second, wordless answer to the same question. */
         .metric-card {
-            background: var(--surface);
+            background: var(--surface-card);
             border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 16px 18px;
+            border-radius: var(--radius-lg);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-sm);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition:
+                transform var(--base) var(--ease),
+                border-color var(--base) var(--ease),
+                box-shadow var(--base) var(--ease);
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-active);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow-lift);
+        }
+
+        /* A tinted glyph tile is what turns four labels into four readings: it
+           carries the meaning at a glance and gives the tile a top-left anchor,
+           which is what the empty upper half of these cards was missing. */
+        .metric-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 11px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .metric-icon svg {
+            width: 17px;
+            height: 17px;
+            stroke: currentColor;
+            stroke-width: 1.7;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+        }
+
+        .metric-icon.is-accent {
+            background: var(--accent-quiet);
+            border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+            color: var(--accent-text);
+        }
+
+        .metric-icon.is-good {
+            background: rgba(35, 165, 90, 0.13);
+            border-color: rgba(35, 165, 90, 0.3);
+            color: #57d68d;
         }
 
         .metric-info h3 {
-            font-size: 11px;
+            font-size: 10.5px;
             font-weight: 700;
             color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.8px;
-            margin-bottom: 2px;
+            letter-spacing: 0.09em;
+            margin-bottom: 4px;
         }
 
         .metric-info p {
-            font-size: 22px;
+            font-size: 27px;
             font-weight: 700;
             font-family: var(--font-mono);
             font-variant-numeric: tabular-nums;
             color: var(--text-primary);
+            letter-spacing: -0.5px;
+            line-height: 1.1;
         }
 
+        .metric-info p .unit {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-muted);
+            letter-spacing: 0;
+        }
+
+        .metric-hint {
+            display: block;
+            margin-top: 5px;
+            font-size: 11.5px;
+            color: var(--text-muted);
+        }
+
+        /* The one tile that is a proportion gets a proportion's shape. */
+        .metric-meter {
+            height: 5px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.07);
+            overflow: hidden;
+            margin-top: 2px;
+        }
+
+        .metric-meter span {
+            display: block;
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff));
+            transition: width var(--base) var(--ease);
+        }
+
+        /* The heading is a block, not a two-column row: the explanatory line
+           belongs under the title it explains, and putting it beside the title
+           put it in the vertical middle of an empty band at the top of every
+           section, which is where the page read as unfinished. */
         .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 18px;
-            flex-wrap: wrap;
-            gap: 12px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: end;
+            gap: 6px 16px;
+            margin: 34px 0 16px;
         }
 
         .section-header h2 {
-            font-size: 18px;
+            grid-column: 1;
+            font-size: 20px;
             font-weight: 700;
+            letter-spacing: -0.3px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 9px;
+        }
+
+        .section-header .eyebrow {
+            grid-column: 1;
+            grid-row: 1;
+            margin-bottom: -2px;
+        }
+
+        /* The description spans both columns under the title, capped at a
+           readable measure instead of running the full width of the page. */
+        .section-header .composer-hint {
+            grid-column: 1 / -1;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            max-width: 82ch;
+        }
+
+        .section-header > h2 + .composer-hint { margin-top: 2px; }
+
+        .section-header .bulk-controls,
+        .section-header > .btn {
+            grid-column: 2;
+            grid-row: 1 / -1;
+            align-self: center;
         }
 
         .bulk-controls {
@@ -320,22 +507,33 @@
 
         .modules-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
-            gap: 18px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+            gap: 16px;
+            align-items: stretch;
+            margin-bottom: 44px;
         }
 
+        /* No ``transform`` on hover here, and that is deliberate: the card carries
+           ``data-hover``, so `motion.js` owns its transform with a spring. A CSS
+           transform on the same element would be overwritten by that inline one —
+           or, worse, fight it — so the lift is spent on the border and the
+           shadow, and the spring moves the card. */
         .module-card {
-            background: var(--surface);
+            background: var(--surface-card);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-sm);
             padding: 18px;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            gap: 14px;
-            transition: border-color 0.15s, background-color 0.15s, opacity 0.2s;
+            gap: 13px;
             position: relative;
+            overflow: hidden;
+            transition:
+                border-color var(--base) var(--ease),
+                background-color var(--base) var(--ease),
+                box-shadow var(--base) var(--ease),
+                opacity 0.2s;
         }
 
         .module-card.busy {
@@ -345,7 +543,25 @@
 
         .module-card:hover {
             border-color: var(--border-active);
-            background: var(--surface-card);
+            background: var(--surface-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow-lift);
+        }
+
+        /* A hairline down the leading edge is how these cards say which systems
+           are on without a second word for it: a grid of eleven identical grey
+           boxes makes "which of these is running" a reading task. */
+        .module-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 2px;
+            background: var(--border-active);
+            opacity: 0.6;
+        }
+
+        .module-card:has(.state-enabled)::before {
+            background: var(--green);
+            opacity: 0.85;
         }
 
         .module-header {
@@ -365,82 +581,114 @@
         /* The module's initial, in the label typeface, instead of an emoji tile:
            six emoji tiles in a grid is the house style of a generated page. */
         .module-icon-box {
-            width: 36px;
-            height: 36px;
-            border-radius: var(--radius-sm);
-            background: var(--surface-card);
+            width: 38px;
+            height: 38px;
+            border-radius: 11px;
+            background: var(--surface);
             border: 1px solid var(--border);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: var(--font-mono);
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 700;
             color: var(--text-secondary);
             flex-shrink: 0;
         }
 
+        .module-card:has(.state-enabled) .module-icon-box {
+            background: var(--accent-quiet);
+            border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+            color: var(--accent-text);
+        }
+
         .module-titles h3 {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
-            letter-spacing: -0.3px;
-            margin-bottom: 2px;
+            letter-spacing: -0.2px;
+            margin-bottom: 3px;
         }
 
-        .module-category {            font-size: 11px; font-weight: 600; color: var(--accent-text); text-transform: uppercase;
-            letter-spacing: 0.6px;
+        .module-category {
+            font-size: 10.5px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
         }
 
+        /* ``flex: 1`` rather than ``margin-top`` on the footer: the cards in a row
+           are the same height because the grid stretches them, so the slack has
+           to land somewhere, and letting the description absorb it is what keeps
+           every footer on one line instead of each card ending where its own
+           text happens to end. */
         .module-desc {
             color: var(--text-secondary);
             font-size: 13px;
-            line-height: 1.5;
+            line-height: 1.55;
             font-weight: 400;
+            flex: 1 1 auto;
         }
 
         .module-commands {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 4px;
+            gap: 5px;
         }
 
         .cmd-pill {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.045);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: var(--radius-sm);
             padding: 3px 8px;
             font-family: var(--font-mono);
             font-size: 11px;
             color: var(--text-secondary);
+            white-space: nowrap;
         }
 
         .module-footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-top: 14px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            margin-top: auto;
+            padding-top: 13px;
+            border-top: 1px solid rgba(255, 255, 255, 0.055);
             gap: 8px;
         }
 
+        /* The dot is drawn, not typed. "●" is a text character whose size and
+           baseline come from the font, so it sat low and changed weight between
+           the two fonts this page falls back to; a pseudo-element is the same dot
+           in both states and in every browser. */
         .state-label {
             font-size: 12px;
             font-weight: 700;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.02em;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 7px;
         }
 
-        .state-enabled { color: var(--green); }
-        .state-disabled { color: var(--red); }
+        .state-label::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+            flex-shrink: 0;
+        }
+
+        .state-enabled { color: #57d68d; }
+        .state-disabled { color: var(--text-muted); }
 
         .toggle-switch {
             position: relative;
             display: inline-block;
-            width: 52px;
-            height: 28px;
+            width: 46px;
+            height: 26px;
             flex-shrink: 0;
         }
 
@@ -450,6 +698,8 @@
             height: 0;
         }
 
+        /* Recessed when off, filled when on, and the knob carries a soft shadow
+           so it reads as sitting *above* the track rather than inside it. */
         .slider {
             position: absolute;
             cursor: pointer;
@@ -457,32 +707,34 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: rgba(255, 255, 255, 0.12);
-            transition: background-color 0.25s, box-shadow 0.25s;
-            border-radius: 34px;
+            background-color: rgba(0, 0, 0, 0.35);
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+            transition: background-color var(--base) var(--ease), border-color var(--base) var(--ease);
+            border-radius: 999px;
             border: 1px solid var(--border);
         }
 
         .slider:before {
             position: absolute;
             content: "";
-            height: 20px;
-            width: 20px;
+            height: 18px;
+            width: 18px;
             left: 3px;
             bottom: 3px;
-            background-color: white;
-            transition: transform 0.25s;
+            background-color: #e9e7e4;
+            transition: transform var(--base) var(--ease), background-color var(--base) var(--ease);
             border-radius: 50%;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
         }
 
         input:checked + .slider {
-            background-color: var(--green);
-            border-color: rgba(35, 165, 90, 0.5);
+            background-color: rgba(35, 165, 90, 0.85);
+            border-color: color-mix(in srgb, var(--green) 60%, transparent);
         }
 
         input:checked + .slider:before {
-            transform: translateX(24px);
+            transform: translateX(20px);
+            background-color: #fff;
         }
 
         #toast-container {
@@ -1403,7 +1655,10 @@
                 </span>
                 {% endif %}
                 {% if pick_server_url %}
-                <a class="btn" href="{{ pick_server_url }}">🗂 Servers</a>
+                <a class="btn" href="{{ pick_server_url }}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+                    Servers
+                </a>
                 {% endif %}
                 {% if can_switch_guild and guilds and guilds|length > 1 %}
                 <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
@@ -1413,49 +1668,85 @@
                     {% endfor %}
                 </select>
                 {% endif %}
-                <a class="btn" href="/pricing">💳 Pricing</a>
-                <a class="btn" href="/market">📈 Market</a>
+                <a class="btn" href="/pricing">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.8h19"/><path d="M6.5 14.5h3"/></svg>
+                    Pricing
+                </a>
+                <a class="btn" href="/market">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5 9 11l4 3.6L21 6"/><path d="M15.2 6H21v5.8"/></svg>
+                    Market
+                </a>
                 {# Adding the bot somewhere else is the one action here that is not
                    about the server currently open, and it is the action a person
                    who manages several servers reaches for most often. #}
                 {% if invite_url %}
-                <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">➕ Add to a server</a>
+                <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                    Add to a server
+                </a>
                 {% endif %}
                 <form method="POST" action="/logout" class="logout-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-danger">Sign out</button>
+                    <button type="submit" class="btn btn-danger">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4.5h3A1.5 1.5 0 0 1 19.5 6v12a1.5 1.5 0 0 1-1.5 1.5h-3"/><path d="M10 8.4 6 12l4 3.6"/><path d="M6 12h8"/></svg>
+                        Sign out
+                    </button>
                 </form>
             </div>
         </header>
 
         <div class="metrics-grid">
             <div class="metric-card" data-reveal data-reveal-y="10">
+                <div class="metric-icon is-accent" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M13 2.5 4.5 13H11l-.5 8.5L19 10.5h-6.5z"/></svg>
+                </div>
                 <div class="metric-info">
                     <h3>Sync</h3>
                     <p>Instant</p>
+                    <span class="metric-hint">A switch applies here and in Discord together</span>
                 </div>
             </div>
             <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="60">
+                <div class="metric-icon is-good" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+                </div>
                 <div class="metric-info">
                     <h3>Active Modules</h3>
                     <p id="metric-active" aria-live="polite">{{ active_count }} / {{ total_count }}</p>
+                    {# The meter is a second reading of the same number, so it is
+                       driven by the same call that writes the number — a bar that
+                       disagreed with the text beside it would be worse than no
+                       bar. #}
+                    <div class="metric-meter" aria-hidden="true">
+                        <span id="metric-meter" style="width: {% if total_count %}{{ (active_count * 100 / total_count) | round(1) }}{% else %}0{% endif %}%"></span>
+                    </div>
+                    <span class="metric-hint">Systems running in this server</span>
                 </div>
             </div>
             <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="120">
+                <div class="metric-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M16 19.5v-1.8a3.7 3.7 0 0 0-3.7-3.7H6.7A3.7 3.7 0 0 0 3 17.7v1.8"/><circle cx="9.5" cy="7.5" r="3.7"/><path d="M21 19.5v-1.8a3.7 3.7 0 0 0-2.8-3.6"/><path d="M15.5 4a3.7 3.7 0 0 1 0 7"/></svg>
+                </div>
                 <div class="metric-info">
                     <h3>Server Members</h3>
                     <p>{{ member_count }}</p>
+                    <span class="metric-hint">Discord counts members this server can see</span>
                 </div>
             </div>
             <div class="metric-card" data-reveal data-reveal-y="10" data-reveal-delay="180">
+                <div class="metric-icon{% if bot_ping is defined and bot_ping is not none %} is-good{% endif %}" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M3 12h3.5l2-5 3 10 2.5-6 1.8 3H21"/></svg>
+                </div>
                 <div class="metric-info">
                     <h3>Discord Ping</h3>
-                    <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} ms{% else %}—{% endif %}</p>
+                    <p>{% if bot_ping is defined and bot_ping is not none %}{{ bot_ping }} <span class="unit">ms</span>{% else %}<span class="unit">Not answering</span>{% endif %}</p>
+                    <span class="metric-hint">Round trip to the Discord gateway</span>
                 </div>
             </div>
         </div>
 
         <div class="section-header" id="identity" data-reveal data-reveal-y="10">
+            <span class="eyebrow">Per-server identity</span>
             <h2>This server's bot</h2>
             <span class="composer-hint">Discord keeps a name, picture and bio <strong>per server</strong>: what you set here is what this server sees, and nothing on this page can change the bot anywhere else.</span>
         </div>
@@ -1508,6 +1799,7 @@
         </div>
 
         <div class="section-header" id="command-scope" data-reveal data-reveal-y="10">
+            <span class="eyebrow">Command scope</span>
             <h2>Commands in this server</h2>
             <span class="composer-hint">Discord cannot hide a globally-registered command in one server, so every server is registered with <strong>its own</strong> list: a command whose system is off here is not in this server's picker at all.</span>
         </div>
@@ -1533,6 +1825,7 @@
         </div>
 
         <div class="section-header" id="composer" data-reveal data-reveal-y="10">
+            <span class="eyebrow">Send as the bot</span>
             <h2>Message composer</h2>
             <span class="composer-hint">The bot posts it as itself, in any channel, tagging anyone.</span>
         </div>
@@ -1651,6 +1944,7 @@
         </div>
 
         <div class="section-header" id="schedule" data-reveal data-reveal-y="10">
+            <span class="eyebrow">Delivery</span>
             <h2>Scheduled messages</h2>
             <span class="badge-count" id="schedule-pending" aria-live="polite">0 of {{ schedule_max_pending|default(25) }}</span>
         </div>
@@ -1670,6 +1964,7 @@
         </div>
 
         <div class="section-header" id="modules" data-reveal data-reveal-y="10">
+            <span class="eyebrow">Modules</span>
             <h2>Bot systems</h2>
             <div class="bulk-controls">
                 <button type="button" class="btn" id="btn-enable-all">Enable all</button>
@@ -1707,7 +2002,7 @@
                 </div>
                 <div class="module-footer">
                     <span class="state-label {{ "state-enabled" if mod.enabled else "state-disabled" }}" id="label-{{ mod.id }}">
-                        {{ "● Enabled" if mod.enabled else "○ Disabled" }}
+                        {{ "Enabled" if mod.enabled else "Disabled" }}
                     </span>
                 </div>
             </div>
@@ -1757,7 +2052,7 @@
             const label = document.getElementById(`label-${moduleId}`);
             const input = document.getElementById(`toggle-${moduleId}`);
             if (label) {
-                label.textContent = enabled ? "● Enabled" : "○ Disabled";
+                label.textContent = enabled ? "Enabled" : "Disabled";
                 label.className = enabled ? "state-label state-enabled" : "state-label state-disabled";
             }
             if (input) input.setAttribute("aria-checked", enabled ? "true" : "false");
@@ -1768,6 +2063,12 @@
             let active = 0;
             checkboxes.forEach(cb => { if (cb.checked) active++; });
             document.getElementById("metric-active").textContent = `${active} / ${checkboxes.length}`;
+            // The meter reads the same count, so it moves in the same call.
+            const meter = document.getElementById("metric-meter");
+            if (meter) {
+                const percent = checkboxes.length ? (active * 100 / checkboxes.length) : 0;
+                meter.style.width = `${percent}%`;
+            }
         }
 
         async function apiPost(url, body) {

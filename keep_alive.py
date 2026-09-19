@@ -1203,7 +1203,7 @@ POLICY_DOCUMENTS = {
 }
 
 #: Shown in the footer, and the same repository the Discord card names.
-SOURCE_REPOSITORY = "https://github.com/1tsRajOwO/meow-discord-bot"
+SOURCE_REPOSITORY = "https://github.com/1tsRajOwO/Meow"
 
 
 def _policy_page(slug: str):
