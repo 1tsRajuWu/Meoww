@@ -4,10 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>🐾 {{ symbol }} · Meow Markets</title>
+<!-- The shared system first, this page's own CSS second: where the two overlap
+     the rules below win, and everything else — the tokens under these same names,
+     the focus ring, the aurora — comes from the one file the whole site uses. The
+     palette is the site's rather than this page's: the market used to be a second
+     opinion on what dark looks like, which is exactly what made it read as a
+     different product. -->
+<link rel="stylesheet" href="/static/meow.css">
 <style>
   :root {
-    --bg: #1a1d23; --panel: #23262d; --panel-2: #2b2d31; --line: #3a3d44;
-    --text: #dbdee1; --muted: #949ba4; --up: #2ecc71; --down: #ed4245;
+    /* This page's own names for the shared palette, so its rules keep working. */
+    --bg: #0b0e13; --panel: #161b25; --panel-2: #1d2431; --line: #232b38;
+    --text: #f0f3f8; --muted: #94a3b8; --up: #2ecc71; --down: #ed4245;
     --accent: #5865f2; --treat: #f1c40f;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -53,6 +61,7 @@
 </style>
 </head>
 <body>
+<div class="aurora" aria-hidden="true"><span class="grid"></span></div>
 <header>
   <div>
     <h1>{{ symbol }} <span class="muted" style="font-weight:400">· {{ name }}</span></h1>

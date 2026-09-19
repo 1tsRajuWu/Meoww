@@ -1,0 +1,74 @@
+{#
+  One of the two policies, as a page.
+
+  `body` is already HTML — rendered from the markdown by `utils/webdocs.render`,
+  which escapes the text before it applies any markup, so a tag in the document
+  cannot become a tag on the page. The source file is read by
+  `cogs/legal.read_document`, the same function the Discord card uses, so the
+  page and the card can never disagree about which file is the policy.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b0e13">
+    <meta name="robots" content="index, follow">
+    <title>{{ title }} — {{ bot_name }}</title>
+    {# The shared design system. A literal path rather than ``url_for``:
+       the dashboard and market templates are also rendered by the test-suite's
+       own Jinja environment, which has no Flask context, and the static path is
+       fixed by the application in any case. #}
+    <link rel="stylesheet" href="/static/meow.css">
+</head>
+<body>
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
+    <a class="skip-link" href="#document">Skip to the document</a>
+
+    <header class="site-header">
+        <div class="page">
+            <a class="brand" href="/">
+                <span class="brand-mark" aria-hidden="true">{{ bot_initial }}</span>
+                <span>{{ bot_name }}</span>
+            </a>
+            <nav class="site-nav" aria-label="Main">
+                <a href="/">Home</a>
+                <a href="/privacy" {% if current == "privacy" %}aria-current="page"{% endif %}>Privacy</a>
+                <a href="/terms" {% if current == "terms" %}aria-current="page"{% endif %}>Terms</a>
+                <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="page">
+        <article class="doc" id="document">
+            <span class="eyebrow">{{ eyebrow }}</span>
+            <h1>{{ title }}</h1>
+            <p class="dim" style="margin-bottom: var(--space-5)">
+                Effective {{ effective }}. The same text is what <code>{{ command }}</code>
+                shows in Discord, read from this file at runtime — so there is one policy, not
+                a short one for chat and a long one for the web.
+            </p>
+            {{ body|safe }}
+        </article>
+    </main>
+
+    <footer class="site-footer">
+        <div class="page">
+            <div class="links">
+                <a href="/">Home</a>
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/health">Status</a>
+                <a href="{{ repository }}">Source</a>
+                {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
+            </div>
+            <p>
+                Questions about either document, or a request to see or delete what
+                {{ bot_name }} holds about you, go in the bot's own support server — the
+                procedure is written down in <code>docs/legal/data-requests.md</code>.
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

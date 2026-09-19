@@ -371,7 +371,11 @@ class TheSignInRoutes(_DashboardFixture):
             session["admin_guild_ids"] = []
         with self._env():
             body = self.client.get("/servers").get_data(as_text=True)
-        self.assertIn("Add Meow to a server", body)
+        # The invitation is what matters here, not the name in it: the page now
+        # prints the live application's name, so a renamed bot says its own name
+        # instead of a hardcoded one and this assertion cannot pin a string that
+        # depends on the deployment.
+        self.assertIn("to a server</a>", body)
         self.assertIn("oauth2/authorize", body)
 
     def test_a_one_time_link_has_nothing_to_pick(self):

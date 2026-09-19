@@ -566,7 +566,13 @@ class PreviewHarness(unittest.TestCase):
 
     def _harness_routes(self) -> set[str]:
         source = open(os.path.join(self.ROOT, "scripts", "preview_dashboard.py"), encoding="utf-8").read()
-        return set(re.findall(r'@app\.route\("([^"]+)"', source))
+        routes = set(re.findall(r'@app\.route\("([^"]+)"', source))
+        # A page the harness serves by *delegating to the real view* is served
+        # just as much as one it declares with a decorator — and delegating is the
+        # better answer, because a harness that restates a route answers
+        # differently from the route.
+        routes.update(re.findall(r'\("(/[^"]*)",\s*"[^"]+",\s*keep_alive\.', source))
+        return routes
 
     @staticmethod
     def _served(path: str, routes: set[str]) -> bool:
@@ -667,13 +673,17 @@ class PreviewHarness(unittest.TestCase):
         """Step one of the documented check is "open the printed port".
 
         That used to be Flask's 404, so the first thing an administrator saw
-        while checking the dashboard was a broken dashboard.
+        while checking the dashboard was a broken dashboard. It is the real view
+        now, which answers a monitor with the liveness line and a browser with the
+        landing page — the landing page being what production serves to somebody
+        who is not signed in, rather than the redirect this harness used to write
+        for itself.
         """
         client = self._load_harness().app.test_client()
 
         browser = client.get("/", headers={"User-Agent": "Mozilla/5.0"})
-        self.assertEqual(browser.status_code, 302)
-        self.assertTrue(browser.headers["Location"].endswith("/dashboard"))
+        self.assertEqual(browser.status_code, 200)
+        self.assertIn("Meow", browser.get_data(as_text=True))
 
         monitor = client.get("/", headers={"User-Agent": "curl/8.4.0"})
         self.assertEqual(monitor.status_code, 200)

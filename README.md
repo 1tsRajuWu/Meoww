@@ -89,7 +89,8 @@ meow-discord-bot/
 ├── .env.example           ← copy to .env and fill in (never commit .env)
 ├── cogs/                  ← one file per feature (economy.py, market.py, …)
 ├── utils/                 ← shared helpers; features.py = the feature registry
-├── templates/             ← dashboard HTML pages
+├── templates/             ← the pages: dashboard, sign-in, picker, market, landing, policies
+├── static/                ← meow.css, the one design system every page links
 ├── assets/                ← fonts + sounds the bot ships with
 ├── scripts/               ← helper tools (avatar/banner, dev runner, preview)
 ├── docs/                  ← deployment, voice-debug + architecture guides
@@ -172,6 +173,20 @@ Open `/help` in your server and tap **⚡ Open Dashboard** → you get a
 **single-use sign-in link** (expires in 15 minutes) to the web admin panel:
 toggle modules in real time, compose announcements as the bot, and open live
 market charts. No separate account — Discord itself is the login.
+
+Three ways in, and each is for a different person:
+
+| Way in | Who it is for | What it reaches |
+|---|---|---|
+| **Sign in with Discord** | anyone who helps run a server | only the servers you have *Manage Server* in, and only while the bot is in them |
+| **One-time link** (⚡ Open Dashboard on `/help`) | an administrator who wants in quickly | the one server the link was made in |
+| **Admin passkey** | the operator | every server the bot is in |
+
+The rest of the site needs no session at all: **`/`** is the landing page (what
+the bot is, what it is doing now, how to add it), and **`/privacy`** and
+**`/terms`** are the same documents the Discord commands show, rendered from the
+same files — and **`/market/BTC`** is the live chart, public like the price
+data it draws.
 
 ---
 

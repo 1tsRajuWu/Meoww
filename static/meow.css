@@ -1,0 +1,1075 @@
+/* ===========================================================================
+   Meow — the whole web surface's design system, in one file
+   ===========================================================================
+   Every page this process serves (the dashboard, the sign-in form, the server
+   picker, the market, the landing page and the two policies) links this sheet
+   and nothing else of its own, so the palette, the spacing, the motion and the
+   controls are decided once instead of per page.
+
+   Two rules shaped it, and both came out of previous passes over this project:
+
+   1. **No third-party anything.** No web fonts, no CDN, no analytics — the
+      dashboard's own CSP allows only `'self'` and the one chart library the
+      market page genuinely needs. The type stack is the system one every
+      control panel ships; the icons are inline SVG or plain text.
+
+   2. **Motion has to mean something.** The aurora behind the page is slow and
+      unfocused because it is *place*, not decoration; the entrance rise is
+      orientation (where the eye should start); the hover lift and the press
+      squash are affordances (this is a control); the status pulse is state (the
+      gateway answered). Nothing moves for its own sake, and everything stops
+      under `prefers-reduced-motion`. A page covered in gradients, blur and glow
+      reads as generated rather than designed — this file is careful about the
+      difference.
+   =========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Tokens
+   -------------------------------------------------------------------------- */
+:root {
+    /* Surfaces. Flat, layered by value rather than by shadow. */
+    --bg: #0b0e13;
+    --surface: #12161e;
+    --surface-card: #161b25;
+    --surface-hover: #1d2431;
+    --border: #232b38;
+    --border-active: #3a4356;
+
+    /* Text. `--text-muted` is #8494ab rather than the more obvious #64748b
+       because the latter reads at 3.7:1 on the card, under the AA floor, and it
+       carries the small print. */
+    --text-primary: #f0f3f8;
+    --text-secondary: #94a3b8;
+    --text-muted: #8494ab;
+
+    /* One accent for controls, one that is legible *as text* on a dark card. */
+    --accent: #5865f2;
+    --accent-hover: #6b76f5;
+    --accent-text: #9aa5ff;
+    --violet: #8b5cf6;
+    --pink: #ec4899;
+
+    --green: #23a55a;
+    --red: #f23f43;
+    --gold: #f0b232;
+
+    --radius-lg: 14px;
+    --radius-md: 10px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
+    --shadow-lift: 0 18px 40px -18px rgba(0, 0, 0, 0.85);
+
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 72px;
+
+    /* Motion. One easing curve and three durations, so a hover, a page
+       entrance and a background drift feel like one system. */
+    --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+    --fast: 120ms;
+    --base: 220ms;
+    --slow: 600ms;
+
+    --page: 1120px;
+}
+
+/* --------------------------------------------------------------------------
+   Reset — small on purpose; this is a UI, not a document model
+   -------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    /* Space for the fixed aurora (`.aurora`) to sit behind everything. */
+    position: relative;
+    isolation: isolate;
+}
+
+h1, h2, h3, h4 {
+    margin: 0;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+p { margin: 0; }
+
+a {
+    color: var(--accent-text);
+    text-decoration: none;
+}
+
+a:hover { text-decoration: underline; }
+
+img, svg { display: block; max-width: 100%; }
+
+code, pre, kbd {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+}
+
+/* One focus treatment for the whole site, and it is not the browser's faint
+   ring: it clears 3:1 against both the page and the accent fill. */
+:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 100;
+    background: var(--accent);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 0 0 var(--radius-md) 0;
+}
+
+.skip-link:focus {
+    left: 0;
+}
+
+/* --------------------------------------------------------------------------
+   The aurora — the page's sense of place
+   --------------------------------------------------------------------------
+   Three wide, very soft radial washes that drift against one another over a
+   minute, over a faint grid. It is `position: fixed` and painted once, so it
+   costs a compositor layer and no layout; `z-index: -1` keeps it under
+   everything without needing a stacking context on each card. */
+.aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--bg);
+}
+
+.aurora::before,
+.aurora::after {
+    content: "";
+    position: absolute;
+    /* Wider than the viewport so the drift never reveals an edge. */
+    width: 160vmax;
+    height: 160vmax;
+    top: -60vmax;
+    left: -30vmax;
+    border-radius: 50%;
+    filter: blur(40px);
+    opacity: 0.5;
+    will-change: transform;
+}
+
+.aurora::before {
+    background: radial-gradient(
+        circle at 30% 30%,
+        rgba(88, 101, 242, 0.34),
+        rgba(88, 101, 242, 0) 62%
+    );
+    animation: drift-a 78s var(--ease) infinite alternate;
+}
+
+.aurora::after {
+    background: radial-gradient(
+        circle at 70% 60%,
+        rgba(139, 92, 246, 0.26),
+        rgba(236, 72, 153, 0.16) 40%,
+        rgba(236, 72, 153, 0) 66%
+    );
+    animation: drift-b 96s var(--ease) infinite alternate;
+}
+
+/* The grid sits above the washes: at 3% opacity it reads as texture and as a
+   horizon line for the layout, and it is the only reason the page does not look
+   like a flat void on a large monitor. */
+.aurora > .grid {
+    position: absolute;
+    inset: 0;
+    opacity: 0.5;
+    background-image:
+        linear-gradient(to right, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(ellipse at 50% 20%, #000 20%, transparent 78%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 20%, #000 20%, transparent 78%);
+}
+
+@keyframes drift-a {
+    from { transform: translate3d(-4%, -3%, 0) scale(1); }
+    to   { transform: translate3d(6%, 5%, 0) scale(1.12); }
+}
+
+@keyframes drift-b {
+    from { transform: translate3d(5%, 4%, 0) scale(1.08); }
+    to   { transform: translate3d(-5%, -4%, 0) scale(1); }
+}
+
+/* --------------------------------------------------------------------------
+   Layout
+   -------------------------------------------------------------------------- */
+.page {
+    width: 100%;
+    max-width: var(--page);
+    margin: 0 auto;
+    padding: 0 var(--space-5);
+}
+
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.spread {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.section {
+    padding: var(--space-7) 0;
+}
+
+.section-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+    max-width: 62ch;
+}
+
+.section-head h2 { font-size: 24px; }
+
+.section-head p { color: var(--text-secondary); }
+
+.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-text);
+}
+
+.muted { color: var(--text-secondary); }
+.dim { color: var(--text-muted); }
+.mono { font-family: var(--font-mono); }
+.center { text-align: center; }
+.visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Header and footer
+   -------------------------------------------------------------------------- */
+.site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    /* Translucent so the aurora reads through it — the one place a blur earns
+       its cost, because it is what keeps the nav legible over moving colour. */
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: rgba(11, 14, 19, 0.72);
+    border-bottom: 1px solid var(--border);
+}
+
+.site-header .page {
+    display: flex;
+    align-items: center;
+    /* The nav wraps to its own row rather than squeezing the wordmark onto two
+       lines, which is what it did at phone widths. */
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    min-height: 62px;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.brand:hover { text-decoration: none; }
+
+.brand-mark {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--accent), var(--violet));
+    color: #fff;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 16px;
+    box-shadow: var(--shadow-sm);
+}
+
+.site-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.site-nav a {
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.site-nav a:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+    text-decoration: none;
+}
+
+/* A button in the nav must keep its own text colour. ``.site-nav a`` outranks
+   ``.btn-primary`` (one class *and* a type beats one class), so the button that
+   says "Add to Discord" rendered its label in the nav's grey on the accent fill
+   — about 2.2:1, on the page's primary call to action. Found by looking at it. */
+.site-nav a.btn {
+    color: var(--btn-text);
+}
+
+.site-footer {
+    border-top: 1px solid var(--border);
+    margin-top: var(--space-8);
+    padding: var(--space-6) 0 var(--space-7);
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.site-footer .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+
+.site-footer a { color: var(--text-secondary); }
+
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+.btn {
+    --btn-bg: var(--surface-hover);
+    --btn-border: var(--border-active);
+    --btn-text: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: 11px 18px;
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    border-radius: var(--radius-md);
+    color: var(--btn-text);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    /* The press feels like a press: a 1px travel and a fast curve, not a
+       transition on every property. */
+    transition:
+        transform var(--fast) var(--ease),
+        background-color var(--fast) var(--ease),
+        border-color var(--fast) var(--ease),
+        box-shadow var(--fast) var(--ease);
+}
+
+.btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--text-muted);
+    text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.btn:active {
+    transform: translateY(0) scale(0.99);
+    box-shadow: none;
+}
+
+.btn[disabled],
+.btn[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-primary {
+    --btn-bg: var(--accent);
+    --btn-border: var(--accent);
+    --btn-text: #fff;
+    box-shadow: 0 8px 24px -12px rgba(88, 101, 242, 0.9);
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.btn-danger {
+    --btn-bg: transparent;
+    --btn-border: rgba(242, 63, 67, 0.5);
+    --btn-text: #ff8a8d;
+}
+
+.btn-danger:hover {
+    background: rgba(242, 63, 67, 0.12);
+    border-color: var(--red);
+}
+
+.btn-block { width: 100%; }
+
+.btn-lg {
+    padding: 14px 24px;
+    font-size: 15px;
+}
+
+.btn-sm {
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
+/* --------------------------------------------------------------------------
+   Surfaces
+   -------------------------------------------------------------------------- */
+.card {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    box-shadow: var(--shadow-sm);
+}
+
+.card-tight { padding: var(--space-4); }
+
+.card-hover {
+    transition:
+        transform var(--base) var(--ease),
+        border-color var(--base) var(--ease),
+        box-shadow var(--base) var(--ease);
+}
+
+.card-hover:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-lift);
+}
+
+.panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-head h3 { font-size: 15px; }
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill);
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.pill-ok {
+    color: #7ee2a8;
+    border-color: rgba(35, 165, 90, 0.45);
+    background: rgba(35, 165, 90, 0.12);
+}
+
+.pill-warn {
+    color: var(--gold);
+    border-color: rgba(240, 178, 50, 0.45);
+    background: rgba(240, 178, 50, 0.12);
+}
+
+.pill-bad {
+    color: #ff8a8d;
+    border-color: rgba(242, 63, 67, 0.45);
+    background: rgba(242, 63, 67, 0.12);
+}
+
+/* The one piece of motion that carries state: this is the gateway answering. */
+.dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex: none;
+}
+
+.dot-live {
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(35, 165, 90, 0.6);
+    animation: pulse 2.4s var(--ease) infinite;
+}
+
+.dot-idle { background: var(--gold); }
+
+@keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(35, 165, 90, 0.55); }
+    70%  { box-shadow: 0 0 0 9px rgba(35, 165, 90, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(35, 165, 90, 0); }
+}
+
+.notice {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+
+.notice-bad {
+    border-left-color: var(--red);
+    background: rgba(242, 63, 67, 0.08);
+    color: #ffb3b5;
+}
+
+.notice-warn {
+    border-left-color: var(--gold);
+    background: rgba(240, 178, 50, 0.08);
+    color: #f7d489;
+}
+
+/* --------------------------------------------------------------------------
+   Forms
+   -------------------------------------------------------------------------- */
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.field-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.input,
+input[type="text"],
+input[type="password"],
+input[type="search"],
+input[type="datetime-local"],
+select,
+textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 11px 13px;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 14px;
+    transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.input:hover,
+input:hover,
+select:hover,
+textarea:hover {
+    border-color: var(--border-active);
+}
+
+.input:focus,
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface-card);
+}
+
+.hint {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Entrance
+   --------------------------------------------------------------------------
+   `.reveal` is staggered by `--i` so a grid arrives as a wave rather than all
+   at once. The IntersectionObserver in each page adds `.is-in`; without it the
+   content is still visible (see the reduced-motion rule below), because a
+   script failure must never hide the page. */
+.reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: rise var(--slow) var(--ease) forwards;
+    animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@keyframes rise {
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Landing page pieces
+   -------------------------------------------------------------------------- */
+.hero {
+    padding: var(--space-8) 0 var(--space-7);
+}
+
+.hero h1 {
+    font-size: clamp(34px, 6vw, 58px);
+    max-width: 20ch;
+}
+
+/* The gradient is on the words only, and only on the display line — a whole
+   gradient-filled page is the thing that reads as generated. */
+.hero h1 .shine {
+    background: linear-gradient(100deg, var(--accent-text), #d8b4fe 45%, #f9a8d4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero .lede {
+    margin-top: var(--space-4);
+    font-size: clamp(15px, 2vw, 18px);
+    color: var(--text-secondary);
+    max-width: 56ch;
+}
+
+.hero-cta {
+    margin-top: var(--space-6);
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.hero-status {
+    margin-top: var(--space-4);
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    /* Top-aligned: the sentence wraps to two lines on a phone, and a dot centred
+       across both of them reads as belonging to neither. */
+    align-items: flex-start;
+    gap: var(--space-2);
+    max-width: 72ch;
+}
+
+.hero-status .dot { margin-top: 7px; }
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-4);
+}
+
+.stat {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5);
+}
+
+.stat b {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat span {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.features {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+    gap: var(--space-4);
+}
+
+.feature h3 {
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.feature p {
+    margin-top: var(--space-2);
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+
+.feature .icon {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    font-size: 15px;
+    flex: none;
+}
+
+.steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: var(--space-4);
+    counter-reset: step;
+}
+
+.step {
+    position: relative;
+    padding-left: var(--space-6);
+}
+
+.step::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--surface-hover);
+    border: 1px solid var(--border-active);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-text);
+}
+
+.step h3 { font-size: 14px; }
+.step p { margin-top: 4px; color: var(--text-secondary); font-size: 13.5px; }
+
+/* --------------------------------------------------------------------------
+   Auth and picker pages
+   -------------------------------------------------------------------------- */
+.auth-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: var(--space-6) var(--space-4);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    box-shadow: var(--shadow-md);
+}
+
+.auth-card .brand-mark {
+    width: 52px;
+    height: 52px;
+    font-size: 24px;
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-4);
+}
+
+.auth-card h1 { font-size: 21px; }
+
+.divider {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-4) 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.divider::before,
+.divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.passkey-wrap { position: relative; }
+
+.passkey-wrap .input { padding-right: 64px; }
+
+.passkey-wrap .toggle-visibility {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.passkey-wrap .toggle-visibility:hover { color: var(--text-primary); }
+
+.server-list {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.server-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    transition: border-color var(--base) var(--ease), transform var(--base) var(--ease);
+}
+
+.server-row:hover {
+    border-color: var(--border-active);
+    transform: translateY(-2px);
+}
+
+.server-icon,
+.avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    font-weight: 700;
+    color: var(--accent-text);
+    flex: none;
+}
+
+.avatar { border-radius: 50%; }
+
+.server-icon img,
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Who is signed in, and which server the dashboard is pointed at. */
+.identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.identity .name {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.identity .sub {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* A list that has nothing in it explains itself and offers the next step. */
+.empty {
+    background: var(--surface-card);
+    border: 1px dashed var(--border-active);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6) var(--space-5);
+    text-align: center;
+}
+
+.empty p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    max-width: 56ch;
+    margin: 0 auto;
+}
+
+.empty .btn { margin-top: var(--space-4); }
+
+@media (max-width: 620px) {
+    /* A submit button squeezed beside a 44px icon is a thumb-sized miss. */
+    .server-row { flex-wrap: wrap; }
+    .server-row form { width: 100%; }
+    .server-row .btn { width: 100%; }
+}
+
+.server-meta { min-width: 0; flex: 1; }
+.server-meta b { display: block; font-size: 15px; }
+.server-meta span { color: var(--text-muted); font-size: 12.5px; }
+
+/* --------------------------------------------------------------------------
+   Documents (the two policies)
+   -------------------------------------------------------------------------- */
+.doc {
+    max-width: 76ch;
+    padding: var(--space-7) 0 var(--space-8);
+}
+
+.doc h1 {
+    font-size: clamp(26px, 4vw, 36px);
+    margin-bottom: var(--space-3);
+}
+
+.doc h2 {
+    font-size: 19px;
+    margin: var(--space-6) 0 var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border);
+}
+
+.doc p,
+.doc ul,
+.doc ol {
+    margin: 0 0 var(--space-3);
+    color: var(--text-secondary);
+}
+
+.doc li { margin-bottom: 6px; }
+
+.doc strong { color: var(--text-primary); }
+
+.doc code {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1px 5px;
+    color: var(--text-primary);
+}
+
+.doc pre {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    overflow-x: auto;
+}
+
+.doc pre code { border: none; background: none; padding: 0; }
+
+/* --------------------------------------------------------------------------
+   The dashboard and the market are their own documents with their own CSS.
+   They link this sheet as well, so they inherit the tokens, the aurora, the
+   buttons and the focus ring; these three rules are the seam where their older
+   custom properties meet the new ones. Everything else they already own.
+   -------------------------------------------------------------------------- */
+body.has-aurora .aurora { z-index: -1; }
+
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+
+    /* The entrance must not leave content invisible when its animation is
+       suppressed to nothing. */
+    .reveal {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .page { padding: 0 var(--space-4); }
+    .hero { padding: var(--space-6) 0 var(--space-5); }
+    .section { padding: var(--space-6) 0; }
+    .auth-card { padding: var(--space-5); }
+    .stat b { font-size: 24px; }
+
+    /* A wrapped nav of six full-size links is taller than the thing it is meant
+       to navigate. Smaller targets, tighter gaps, and the brand mark shrinks to
+       match. */
+    .site-header .page { min-height: 0; gap: 4px var(--space-3); }
+    .site-nav { margin-left: 0; width: 100%; gap: 2px; }
+    .site-nav a { padding: 7px 8px; font-size: 13.5px; }
+    .site-nav .btn { padding: 7px 12px; font-size: 13px; }
+    .brand-mark { width: 30px; height: 30px; font-size: 14px; }
+}

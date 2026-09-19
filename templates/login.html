@@ -1,3 +1,12 @@
+{#
+  Signing in.
+
+  This page's own stylesheet is gone: its palette, its buttons, its inputs and
+  its focus ring are the shared design system's now (``static/meow.css``), which
+  is also what the landing page, the server picker, the dashboard and the two
+  policies use. The one thing it keeps of its own is the Discord button's logo,
+  because that is a trademark doing its job rather than decoration.
+#}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,330 +14,91 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0b0e13">
     <meta name="robots" content="noindex, nofollow">
-    <title>Meow Admin Authentication</title>
-    <style>
-        :root {
-            --bg: #0b0e13;
-            --surface: #12161e;
-            --surface-card: #161b25;
-            --border: #232b38;
-            --accent: #5865F2;
-            --text-primary: #f0f3f8;
-            --text-secondary: #94a3b8;
-            --text-muted: #8494ab;
-            --radius-md: 10px;
-            --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background-color: var(--bg);
-            color: var(--text-primary);
-            font-family: var(--font-sans);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .login-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 40px;
-            max-width: 400px;
-            width: 100%;
-            text-align: center;
-        }
-
-        /* Discord's own blurple, because the button's job is to be recognised as
-           the thing people have pressed on every other bot's dashboard. */
-        .btn-discord {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            width: 100%;
-            margin-top: 24px;
-            padding: 13px 18px;
-            background: var(--accent);
-            color: #fff;
-            border: 1px solid var(--accent);
-            border-radius: var(--radius-md);
-            font-size: 15px;
-            font-weight: 600;
-            text-decoration: none;
-            transition: filter 120ms ease, transform 120ms ease;
-        }
-
-        .btn-discord:hover { filter: brightness(1.08); }
-        .btn-discord:active { transform: translateY(1px); }
-        .btn-discord:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-
-        .divider {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 22px 0 6px;
-            color: var(--text-muted);
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-
-        .divider::before,
-        .divider::after {
-            content: "";
-            flex: 1;
-            height: 1px;
-            background: var(--border);
-        }
-
-        .setup-note {
-            margin-top: 24px;
-            padding: 14px 16px;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            color: var(--text-secondary);
-            font-size: 13px;
-            line-height: 1.55;
-            text-align: left;
-        }
-
-        .setup-note strong { color: var(--text-primary); }
-
-        .setup-value { margin-top: 10px; }
-
-        .setup-value span {
-            display: block;
-            color: var(--text-muted);
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            margin-bottom: 4px;
-        }
-
-        .setup-value code {
-            display: block;
-            word-break: break-all;
-            color: var(--text-primary);
-            font-family: var(--font-mono);
-            font-size: 12px;
-        }
-
-        /* A monogram, not a gradient tile: the same mark the dashboard uses,
-           just larger. */
-        .bot-avatar {
-            width: 56px;
-            height: 56px;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: var(--font-mono);
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--accent);
-            margin: 0 auto 20px;
-        }
-
-        h1 {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 6px;
-        }
-
-        .lead {
-            color: var(--text-secondary);
-            font-size: 13px;
-            margin-bottom: 28px;
-            line-height: 1.5;
-        }
-
-        .lead code {
-            font-family: var(--font-mono);
-            font-size: 12px;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 1px 5px;
-        }
-
-        .input-group {
-            text-align: left;
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-        }
-
-        .password-wrap {
-            position: relative;
-        }
-
-        input[type="password"],
-        input[type="text"] {
-            width: 100%;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 12px 48px 12px 14px;
-            color: var(--text-primary);
-            font-size: 14px;
-            font-family: var(--font-mono);
-            outline: none;
-            transition: border-color 0.15s;
-        }
-
-        input:focus-visible {
-            border-color: var(--accent);
-            outline: 2px solid var(--accent);
-            outline-offset: 2px;
-        }
-
-        .toggle-visibility {
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 700;
-        }
-
-        .toggle-visibility:hover,
-        .toggle-visibility:focus-visible {
-            color: var(--text-primary);
-            outline: 2px solid var(--accent);
-            outline-offset: 2px;
-        }
-
-        .btn-submit {
-            width: 100%;
-            background: var(--accent);
-            border: 1px solid var(--accent);
-            border-radius: var(--radius-md);
-            padding: 12px;
-            color: #fff;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: inherit;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-
-        .btn-submit:hover {
-            background: #6b76f5;
-            border-color: #6b76f5;
-        }
-
-        .btn-submit:focus-visible {
-            outline: 2px solid var(--accent);
-            outline-offset: 3px;
-        }
-
-        .btn-submit:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .error-banner {
-            background: rgba(242, 63, 67, 0.15);
-            border: 1px solid rgba(242, 63, 67, 0.3);
-            color: #ff6b6b;
-            padding: 10px 14px;
-            border-radius: var(--radius-md);
-            font-size: 13px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            text-align: left;
-        }
-
-        .hint {
-            margin-top: 22px;
-            font-size: 12px;
-            color: var(--text-muted);
-            line-height: 1.5;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            * { animation: none !important; transition: none !important; }
-        }
-
-        @media (max-width: 480px) {
-            .login-card { padding: 28px 20px; }
-        }
-    </style>
+    <title>Sign in — {{ bot_name }}</title>
+    {# The shared design system. A literal path rather than ``url_for``:
+       the dashboard and market templates are also rendered by the test-suite's
+       own Jinja environment, which has no Flask context, and the static path is
+       fixed by the application in any case. #}
+    <link rel="stylesheet" href="/static/meow.css">
 </head>
 <body>
-    <main class="login-card">
-        <div class="bot-avatar" aria-hidden="true">M</div>
-        <h1>Meow Admin Portal</h1>
-        <p class="lead">Sign in with Discord to see the servers you manage, use your admin passkey, or tap <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord for a one-time 15-minute link.</p>
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
+    <a class="skip-link" href="#signin">Skip to sign in</a>
 
-        {% if error %}
-        <div class="error-banner" role="alert">{{ error }}</div>
-        {% endif %}
+    <main class="auth-shell">
+        <div class="auth-card">
+            <span class="brand-mark" aria-hidden="true">{{ bot_initial }}</span>
+            <h1>Sign in to the control panel</h1>
+            <p class="hint" style="margin: 8px 0 var(--space-5)">
+                Manage the servers you run, switch systems on and off, and see what
+                {{ bot_name }} is doing — per server, and only for the servers you are
+                allowed to touch.
+            </p>
 
-        {# Signing in as yourself is the way a member gets here: it is the only
-           method that can say which servers they run, because that depends on
-           the person rather than on a server or a shared secret. #}
-        {% if oauth_enabled %}
-        <a class="btn-discord" href="/login/discord">
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 15.437 3c-.21.375-.45.88-.617 1.28a18.27 18.27 0 0 0-5.64 0A12.6 12.6 0 0 0 8.55 3a19.74 19.74 0 0 0-4.886 1.372C.61 9.05-.29 13.62.16 18.13a19.9 19.9 0 0 0 5.993 3.02c.48-.656.907-1.353 1.276-2.086a12.9 12.9 0 0 1-2.01-.965c.169-.123.334-.251.492-.383a14.2 14.2 0 0 0 12.18 0c.16.133.325.26.492.383a12.9 12.9 0 0 1-2.013.966c.37.732.796 1.43 1.276 2.085a19.86 19.86 0 0 0 5.996-3.02c.53-5.226-.9-9.757-3.535-13.761ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.955 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418Z"/></svg>
-            Sign in with Discord
-        </a>
-        <div class="divider"><span>or</span></div>
-        {% else %}
-        <div class="setup-note" role="status">
-            <strong>Discord sign-in is off.</strong>
-            {{ oauth_hint }}
-            <div class="setup-value"><span>Callback URL</span><code>{{ oauth_callback }}</code></div>
-        </div>
-        {% endif %}
+            {% if error %}
+            <div class="notice notice-bad" role="alert" style="margin-bottom: var(--space-4)">{{ error }}</div>
+            {% endif %}
 
-        {% if passkey_enabled %}
-        <form method="POST" action="/login" autocomplete="on">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="input-group">
-                <label for="passkey">Admin Passkey</label>
-                <div class="password-wrap">
-                    <input type="password" id="passkey" name="passkey" placeholder="Enter passkey" required autofocus autocomplete="current-password" {% if error %}aria-invalid="true"{% endif %}>
-                    <button type="button" class="toggle-visibility" id="toggle-pass" aria-controls="passkey" aria-pressed="false">Show</button>
+            {# Signing in as yourself is the way a member gets here: it is the only
+               method that can say which servers they run, because that depends on
+               the person rather than on a server or a shared secret. #}
+            <div id="signin">
+            {% if oauth_enabled %}
+                <a class="btn btn-primary btn-block" href="/login/discord">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 15.437 3c-.21.375-.45.88-.617 1.28a18.27 18.27 0 0 0-5.64 0A12.6 12.6 0 0 0 8.55 3a19.74 19.74 0 0 0-4.886 1.372C.61 9.05-.29 13.62.16 18.13a19.9 19.9 0 0 0 5.993 3.02c.48-.656.907-1.353 1.276-2.086a12.9 12.9 0 0 1-2.01-.965c.169-.123.334-.251.492-.383a14.2 14.2 0 0 0 12.18 0c.16.133.325.26.492.383a12.9 12.9 0 0 1-2.013.966c.37.732.796 1.43 1.276 2.085a19.86 19.86 0 0 0 5.996-3.02c.53-5.226-.9-9.757-3.535-13.761ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.955 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418Z"/></svg>
+                    Sign in with Discord
+                </a>
+                <p class="hint" style="margin-top: 10px">
+                    Asks for your name, your picture and which servers you administer.
+                    No email, no messages, and the access token is discarded after the
+                    two lookups it is used for.
+                </p>
+                <div class="divider"><span>or</span></div>
+            </div>
+            {% else %}
+            <div class="notice" role="status">
+                <strong>Discord sign-in is off.</strong>
+                {{ oauth_hint }}
+                <div style="margin-top: 10px">
+                    <span class="field-label">Callback URL</span>
+                    <code style="word-break: break-all">{{ oauth_callback }}</code>
                 </div>
             </div>
-            <button type="submit" class="btn-submit">Sign in</button>
-        </form>
-        {% else %}
-        <p class="error-banner" role="status">Passkey login is not configured. Tap <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord.</p>
-        {% endif %}
+            {% endif %}
 
-        <p class="hint">
-            Administrators can open <code>/help</code> in a server and tap <code>⚡ Open Dashboard</code> for a single-use sign-in link. Do not share that link.
-        </p>
+            {% if passkey_enabled %}
+            <form method="POST" action="/login" autocomplete="on" class="stack">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="field">
+                    <label class="field-label" for="passkey">Admin Passkey</label>
+                    <div class="passkey-wrap">
+                        <input class="input" type="password" id="passkey" name="passkey" placeholder="Enter passkey" required autofocus autocomplete="current-password" {% if error %}aria-invalid="true"{% endif %}>
+                        <button type="button" class="toggle-visibility" id="toggle-pass" aria-controls="passkey" aria-pressed="false">Show</button>
+                    </div>
+                    <span class="hint">The operator's own credential — it reaches every server, so treat it like a password.</span>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+            </form>
+            {% else %}
+            <div class="notice notice-warn" role="status">
+                Passkey login is not configured on this deployment. Tap
+                <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord instead.
+            </div>
+            {% endif %}
+
+            </div>
+
+            <p class="hint" style="margin-top: var(--space-5)">
+                Administrators can open <code>/help</code> in a server and tap
+                <code>⚡ Open Dashboard</code> for a single-use sign-in link, valid for
+                fifteen minutes and scoped to that one server. Do not share it.
+            </p>
+            <p class="hint" style="margin-top: var(--space-3)">
+                <a href="/">← Back to the front page</a>
+            </p>
+        </div>
     </main>
+
     <script>
         const toggle = document.getElementById("toggle-pass");
         const input = document.getElementById("passkey");

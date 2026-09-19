@@ -78,7 +78,16 @@ os.environ.setdefault(
     "DASHBOARD_BASE_URL", f"http://localhost:{os.environ.get('PORT', '8099')}"
 )
 
-app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"))
+app = Flask(
+    __name__,
+    template_folder=os.path.join(ROOT, "templates"),
+    # The shared stylesheet lives at the project root, and this script runs from
+    # ``scripts/``, so Flask's default ``static`` folder would be
+    # ``scripts/static`` — which does not exist, and every page here came out
+    # unstyled: the harness was the one place the design system could not be
+    # looked at, which is the only thing this file is for.
+    static_folder=os.path.join(ROOT, "static"),
+)
 
 # Templates are edited *while this harness runs* — that is the whole point of it.
 # Flask defaults ``TEMPLATES_AUTO_RELOAD`` to ``app.debug``, which is off here, so a
@@ -86,6 +95,11 @@ app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"))
 # edit: you change the page, reload, and look at the old one. Cheaper to reread the
 # file per request than to trust the cache, and the harness never serves real users.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# A secret key, because the real sign-in view stores a CSRF token in the
+# session and Flask refuses to write one without it. This is a preview only:
+# it never leaves the process, and nothing this harness holds is a credential.
+app.secret_key = "preview-only-not-a-credential"
 
 # The real app's security headers, applied to every response — otherwise this
 # harness would prove nothing about whether the pages survive our own CSP.
@@ -243,20 +257,19 @@ class _PreviewGuild:
 CURRENT_GUILD: dict = {"id": GUILDS[0]["id"]}
 
 
-@app.route("/")
-def home():
-    """The entry point this module's own usage line tells you to open.
-
-    Production answers ``/`` for both a monitor and a person — a liveness line,
-    then a redirect into the dashboard (or the sign-in). Opening the printed
-    port here used to land on Flask's 404, so the documented first step of
-    checking the dashboard was itself the thing that looked broken. There is no
-    sign-in to redirect to in a preview, so a browser goes straight in.
-    """
-    user_agent = request.headers.get("User-Agent", "").lower()
-    if "uptimerobot" in user_agent or "curl" in user_agent:
-        return "Meow Bot is alive and operational!"
-    return redirect("/dashboard")
+#: Where the harness would have written its own answer, it now serves the real
+#: view instead. ``keep_alive.home`` answers a monitor with the liveness line and
+#: a person with the landing page (or the dashboard, signed in) — the same
+#: decisions production makes, made by the same function. A harness that
+#: restates a route answers differently from the route, which is where every
+#: defect found in this file so far came from.
+for _rule, _name, _view in (
+    ("/", "home", keep_alive.home),
+    ("/privacy", "policy_privacy", keep_alive.policy_privacy),
+    ("/terms", "policy_terms", keep_alive.policy_terms),
+    ("/login", "login", keep_alive.login),
+):
+    app.add_url_rule(_rule, _name, _view, methods=["GET", "POST"])
 
 
 @app.route("/dashboard")
@@ -355,26 +368,6 @@ def market_index():
     Flask's 404 made the one link to the charts look broken.
     """
     return redirect("/market/BTC")
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login_page():
-    """The real sign-in page, rendered with its real context.
-
-    The page is here to be *looked at* — its layout, the Discord button, the
-    callback URL an operator has to register. Nothing here can complete a
-    sign-in: the passkey is not configured in a preview and `/login/discord`
-    says so rather than bouncing through Discord.
-    """
-    return render_template(
-        "login.html",
-        error=None,
-        csrf_token="preview-token",
-        passkey_enabled=bool(keep_alive.ADMIN_PASSKEY),
-        oauth_enabled=discord_auth.enabled(),
-        oauth_callback=keep_alive.oauth_redirect_uri(),
-        oauth_hint=keep_alive._oauth_setup_hint(),
-    )
 
 
 @app.route("/login/discord")

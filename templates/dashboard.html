@@ -9,6 +9,16 @@
     <!-- No web fonts: the system stack is what every control panel ships, and it
          was a third-party request on every page load for a typeface nobody
          asked for. -->
+    <!-- The shared system, *before* this page's own CSS so every rule below still
+         wins where the two overlap. What this page gets from it: the palette (the
+         same tokens under the same names), the focus ring, the buttons and pills it
+         does not define itself, and the aurora behind the page. What it keeps is
+         its whole layout — the control panel's density is the point of it. -->
+    {# The shared design system. A literal path rather than ``url_for``:
+       the dashboard and market templates are also rendered by the test-suite's
+       own Jinja environment, which has no Flask context, and the static path is
+       fixed by the application in any case. #}
+    <link rel="stylesheet" href="/static/meow.css">
     <style>
         :root {
             /* Flat surfaces, hairline borders, one accent. The gradient blobs,
@@ -1363,6 +1373,7 @@
     </style>
 </head>
 <body>
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
     <a class="skip-link" href="#modules">Skip to modules</a>
     <div class="container">
         <header>

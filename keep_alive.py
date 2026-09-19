@@ -4,6 +4,7 @@ Enables administrators to toggle modules and features ON/OFF with 0-second (1:1 
 """
 import math
 import os
+import re
 import sys
 import time
 import secrets
@@ -15,6 +16,7 @@ import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
     command_scope, db, digest, discord_auth, features, identity, modules, scheduled,
+    webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -271,6 +273,7 @@ def _safe_next(raw) -> str | None:
 
 def _login_page(error=None, status: int | None = None):
     """The sign-in page, with every method's availability read from the environment."""
+    name = _bot_display_name()
     body = render_template(
         "login.html",
         error=error,
@@ -279,6 +282,8 @@ def _login_page(error=None, status: int | None = None):
         oauth_enabled=discord_auth.enabled(),
         oauth_callback=oauth_redirect_uri(),
         oauth_hint=_oauth_setup_hint(),
+        bot_name=name,
+        bot_initial=(name[:1] or "M").upper(),
     )
     return (body, status) if status else body
 
@@ -866,14 +871,215 @@ def api_voice_debug():
     })
 
 
+# ---------------------------------------------------------------------------
+# The front door
+# ---------------------------------------------------------------------------
+# Until now this was a redirect, so the first thing anybody saw — a server owner
+# following an invite, somebody reading the link in the README — was a password
+# box for a panel they had never heard of. What is served here instead is the
+# page that answers the three questions they actually arrive with: what is this,
+# what is it doing *now*, and how do I add it.
+
+#: How long activity is kept, for the page's own sentence. Read from the module
+#: that enforces it rather than restated, because a policy that quotes a number
+#: the code no longer uses is a claim, not a fact.
+def _retention_days() -> int:
+    try:
+        from cogs import tracker
+        return int(tracker.RETENTION_DAYS)
+    except Exception as exc:
+        print(f"[HOME] could not read the retention window: {exc}", flush=True)
+        return 0
+
+
+def _bot_display_name() -> str:
+    """What the bot calls itself, from the live application when there is one."""
+    if BOT_INSTANCE is not None:
+        user = getattr(BOT_INSTANCE, "user", None)
+        name = getattr(user, "name", None)
+        if name:
+            return str(name)
+    return "Meow Bot"
+
+
+def _home_stats() -> list[dict]:
+    """The figures on the landing page, and only the ones that are true.
+
+    The registry always knows how many systems exist and which commands they
+    declare, so those two are always shown. Servers and members can only come
+    from the gateway — and on a host that sleeps, a cold start would otherwise
+    render a confident **0 servers**, which reads as a bot nobody uses rather
+    than as a process that has not woken up yet. So they are simply absent until
+    there is something to say, and the status line above them says why.
+    """
+    declared = {name for feature in features.FEATURES for name in feature.commands}
+    stats = [{"value": f"{len(AVAILABLE_MODULES)}", "label": "systems"}]
+    started, _connected = _gateway_state()
+    if started and BOT_INSTANCE is not None:
+        try:
+            guilds = list(BOT_INSTANCE.guilds)
+            members = sum(g.member_count or 0 for g in guilds)
+            live_names = _command_tree_names()
+            stats = [
+                {"value": f"{len(guilds):,}", "label": "servers"},
+                {"value": f"{members:,}", "label": "members reached"},
+                {"value": f"{len(live_names) or len(declared):,}", "label": "commands"},
+                *stats,
+            ]
+        except Exception as exc:
+            print(f"[HOME] could not read the live figures: {exc}", flush=True)
+    if len(stats) < 3:
+        stats.append({"value": f"{len(declared):,}", "label": "commands"})
+    return stats
+
+
+def _home_status() -> dict:
+    """The one line that says whether the bot is actually connected.
+
+    Three states rather than two, because "never connected" and "reconnecting"
+    are different things to a visitor and only one of them is worth waiting for.
+    """
+    started, connected = _gateway_state()
+    if connected:
+        return {
+            "class": "pill-ok",
+            "dot": "dot-live",
+            "label": "Online",
+            "detail": "Connected to Discord right now — the figures below are live.",
+        }
+    if started:
+        return {
+            "class": "pill-warn",
+            "dot": "dot-idle",
+            "label": "Reconnecting",
+            "detail": (
+                "The bot is running but its gateway session is rebuilding — it answers "
+                "commands again on its own."
+            ),
+        }
+    return {
+        "class": "",
+        "dot": "dot-idle",
+        "label": "Starting up",
+        "detail": (
+            "This process has not connected yet (a sleeping free-tier host takes a moment "
+            "to wake). Live figures appear as soon as it does."
+        ),
+    }
+
+
+def _home_page():
+    """The public landing page for somebody who is not signed in."""
+    name = _bot_display_name()
+    return render_template(
+        "home.html",
+        bot_name=name,
+        bot_initial=(name[:1] or "M").upper(),
+        status=_home_status(),
+        stats=_home_stats(),
+        features=features.dashboard_modules(),
+        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        enter_url="/login",
+        enter_label="Sign in",
+        retention_days=_retention_days(),
+        meta_description=(
+            f"{name} — moderation, tickets, leveling, an economy, a live market and "
+            "per-server activity tracking, driven from a real-time web dashboard."
+        ),
+    )
+
+
 @app.route("/")
 def home():
     user_agent = request.headers.get("User-Agent", "").lower()
     if "uptimerobot" in user_agent or "curl" in user_agent:
+        # Uptime monitors are pointed at this process and parse this exact line;
+        # the landing page above is for people, and a monitor must not be made to
+        # fetch a whole document to learn one word.
         return "Meow Bot is alive and operational!"
     if is_authenticated():
         return redirect("/dashboard")
-    return redirect("/login")
+    return _home_page()
+
+
+# ---------------------------------------------------------------------------
+# The policies, as pages
+# ---------------------------------------------------------------------------
+# They were readable only inside Discord, where the whole document has to fit on
+# one card inside 6000 characters — which is a budget that *forced* the wording
+# to be tightened last pass, and a member reading on a phone cannot link to it.
+# The same file renders here, by the same reader the Discord card uses.
+
+#: Every policy we serve: file, page copy, and the Discord command that shows it.
+POLICY_DOCUMENTS = {
+    "privacy": {
+        "filename": "PRIVACY.md",
+        "eyebrow": "Privacy",
+        "command": "/privacy",
+    },
+    "terms": {
+        "filename": "TERMS.md",
+        "eyebrow": "Terms",
+        "command": "/tos",
+    },
+}
+
+#: Shown in the footer, and the same repository the Discord card names.
+SOURCE_REPOSITORY = "https://github.com/1tsRajOwO/meow-discord-bot"
+
+
+def _policy_page(slug: str):
+    """One policy document as a page, or a 404 when the file is missing."""
+    from cogs import legal
+
+    document = POLICY_DOCUMENTS[slug]
+    text = legal.read_document(document["filename"])
+    if not text.strip():
+        return (
+            f"<h1>404 — {_html.escape(document['filename'])} is missing from this deploy</h1>",
+            404,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+    return render_template(
+        "legal.html",
+        current=slug,
+        body=webdocs.render(text),
+        title=webdocs.title_from(text, document["filename"]),
+        eyebrow=document["eyebrow"],
+        command=document["command"],
+        effective=_effective_date(text),
+        bot_name=_bot_display_name(),
+        bot_initial=(_bot_display_name()[:1] or "M").upper(),
+        enter_url="/login",
+        enter_label="Sign in",
+        invite_url=discord_auth.invite_url() if discord_auth.client_id() else "",
+        repository=SOURCE_REPOSITORY,
+    )
+
+
+def _effective_date(text: str) -> str:
+    """The document's own effective date, so the page cannot state another one.
+
+    The line reads ``**Effective Date:** September 19, 2026 · **Version 3**``, so
+    the emphasis markers and the version that follows the date are stripped: the
+    page says when the policy took effect and nothing it was not told.
+    """
+    match = re.search(r"(?i)effective\s*date\s*[:\-]\s*([^\n]+)", text or "")
+    if not match:
+        return "see the document"
+    value = match.group(1).replace("*", "").replace("_", "").strip()
+    value = re.split(r"\s*[·|(]", value, maxsplit=1)[0].strip().rstrip(".")
+    return value[:40] or "see the document"
+
+
+@app.route("/privacy")
+def policy_privacy():
+    return _policy_page("privacy")
+
+
+@app.route("/terms")
+def policy_terms():
+    return _policy_page("terms")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1068,11 +1274,14 @@ def _servers_page(error=None, status: int | None = None):
         # is otherwise a guess from a list of names.
         for entry in servers:
             entry["scope"] = _module_summary(entry["id"])
+    name = _bot_display_name()
     body = render_template(
         "servers.html",
         servers=servers,
         error=error,
         operator=operator,
+        bot_name=name,
+        bot_initial=(name[:1] or "M").upper(),
         user=session.get("discord_user") or {},
         # The invite is offered even with nothing to pick: a person whose
         # servers do not have the bot yet is exactly who needs this page.

@@ -221,7 +221,18 @@ class ThePagesStayReadable(unittest.TestCase):
 
     #: Every surface these pages paint text on, lightest last (the worst case).
     SURFACES = ("#090c10", "#131821", "#0e131b")
-    PAGES = ("templates/dashboard.html", "templates/market_live.html", "templates/login.html")
+    #: The pages, and the shared stylesheet they all link.
+    #:
+    #: ``static/meow.css`` is in this list because it is where most of the site's
+    #: colour now lives: the sign-in and picker pages and the landing page hold no
+    #: CSS of their own at all, so a guard that only read the templates would have
+    #: gone on passing while checking almost nothing.
+    PAGES = (
+        "templates/dashboard.html",
+        "templates/market_live.html",
+        "templates/login.html",
+        "static/meow.css",
+    )
     FLOOR = 4.5
 
     @staticmethod
@@ -251,7 +262,10 @@ class ThePagesStayReadable(unittest.TestCase):
         """
         import re
 
-        style = "\n".join(re.findall(r"<style>(.*?)</style>", source, re.S))
+        # A template carries its CSS in ``<style>`` blocks; a stylesheet *is* the
+        # style, and has none.
+        blocks = re.findall(r"<style>(.*?)</style>", source, re.S)
+        style = "\n".join(blocks) if blocks else source
         root = re.search(r":root\s*\{(.*?)\}", style, re.S)
         variables = dict(
             re.findall(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})", root.group(1) if root else "")

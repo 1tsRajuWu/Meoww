@@ -1,0 +1,236 @@
+{#
+  The page somebody who is not signed in actually lands on.
+
+  Until now `/` redirected straight to a bare sign-in card, so the first thing a
+  visitor saw — a server owner following an invite, or anybody reading the link
+  in a README — was a password box for a panel they had never heard of. This is
+  the front door: what the bot is, what it is doing *right now*, what is in it,
+  how to add it, and where the policies live.
+
+  Two rules about the numbers on it. **None of them are invented** — every
+  figure is read from the running process (`BOT_INSTANCE`), the feature registry
+  and the command tree, and the feature cards are the registry's own list, so
+  this page cannot advertise a system the bot does not have (a hand-written copy
+  is exactly what once let a removed module keep showing as a green card on the
+  dashboard). And **a number nobody can vouch for is not shown at all**: on
+  Render's free tier the process sleeps, so a cold start would otherwise render
+  a confident `0 servers` — a page claiming the bot is in nobody's server reads
+  as broken rather than as asleep, so it says what is actually true instead.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b0e13">
+    <meta name="description" content="{{ meta_description }}">
+    <title>{{ bot_name }} — moderation, leveling, tickets, a live market and a real-time dashboard</title>
+    {# The shared design system. A literal path rather than ``url_for``:
+       the dashboard and market templates are also rendered by the test-suite's
+       own Jinja environment, which has no Flask context, and the static path is
+       fixed by the application in any case. #}
+    <link rel="stylesheet" href="/static/meow.css">
+</head>
+<body>
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
+    <a class="skip-link" href="#features">Skip to features</a>
+
+    <header class="site-header">
+        <div class="page">
+            <a class="brand" href="/">
+                <span class="brand-mark" aria-hidden="true">{{ bot_initial }}</span>
+                <span>{{ bot_name }}</span>
+            </a>
+            <nav class="site-nav" aria-label="Main">
+                <a href="#features">Features</a>
+                <a href="#start">Get started</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+                {% if invite_url %}
+                <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>
+                {% endif %}
+                <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero page">
+            <span class="pill {{ status.class }}" style="--i: 0">
+                <span class="dot {{ status.dot }}" aria-hidden="true"></span>{{ status.label }}
+            </span>
+            <h1 style="--i: 1" class="reveal">
+                One bot for your whole server — and a <span class="shine">dashboard that keeps up</span>.
+            </h1>
+            <p class="lede reveal" style="--i: 2">
+                Moderation, tickets with feedback, leveling, an economy, a live market, a
+                starboard and social commands — every system switchable per server, every
+                message and voice minute counted, and all of it driven from a real-time
+                control panel rather than a wall of slash commands.
+            </p>
+            <div class="hero-cta reveal" style="--i: 3">
+                {% if invite_url %}
+                <a class="btn btn-primary btn-lg" href="{{ invite_url }}">Add {{ bot_name }} to a server</a>
+                {% endif %}
+                <a class="btn btn-lg" href="{{ enter_url }}">{{ enter_label }}</a>
+                <a class="btn btn-lg" href="#features">See what's in it</a>
+            </div>
+            <p class="hero-status reveal" style="--i: 4">
+                <span class="dot {{ status.dot }}" aria-hidden="true"></span>
+                {{ status.detail }}
+            </p>
+        </section>
+
+        <section class="page" aria-label="Live figures">
+            <div class="stats">
+                {% for stat in stats %}
+                <div class="stat reveal" style="--i: {{ loop.index0 }}">
+                    <b>{{ stat.value }}</b>
+                    <span>{{ stat.label }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="section page" id="features">
+            <div class="section-head">
+                <span class="eyebrow">What's in it</span>
+                <h2>{{ features|length }} systems, each switched on or off per server</h2>
+                <p>
+                    Discord cannot hide one command in one server, so {{ bot_name }} registers
+                    every server's command list from that server's own settings: switch a system
+                    off here and its commands leave that server's picker, while every other
+                    server keeps them.
+                </p>
+            </div>
+            <div class="features">
+                {% for feature in features %}
+                <article class="card card-hover feature reveal" style="--i: {{ loop.index0 % 6 }}">
+                    <h3>
+                        <span class="icon" aria-hidden="true">{{ feature.icon }}</span>
+                        {{ feature.name }}
+                    </h3>
+                    <p>{{ feature.desc }}</p>
+                    {% if feature.commands %}
+                    <p class="dim mono" style="margin-top: 10px">
+                        {{ feature.commands|length }} command{{ '' if feature.commands|length == 1 else 's' }}
+                    </p>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="section page" id="start">
+            <div class="section-head">
+                <span class="eyebrow">Get started</span>
+                <h2>Three steps, about five minutes</h2>
+            </div>
+            <div class="steps">
+                <div class="step reveal" style="--i: 0">
+                    <h3>Add the bot</h3>
+                    <p>
+                        The invite asks for the two scopes a working bot needs — the bot itself
+                        and its commands. Without the second one you get a bot with nothing in
+                        the picker.
+                    </p>
+                </div>
+                <div class="step reveal" style="--i: 1">
+                    <h3>Run <code>/help</code></h3>
+                    <p>
+                        That panel lists every command you can reach, and its ⚡ Open Dashboard
+                        button mints a single-use sign-in link for an administrator of that
+                        server — valid for fifteen minutes, and only for that server.
+                    </p>
+                </div>
+                <div class="step reveal" style="--i: 2">
+                    <h3>Switch off what you don't want</h3>
+                    <p>
+                        Every system has its own toggle. Turning one off removes its commands
+                        from that server's picker and its jobs stop running there; nothing else
+                        changes anywhere.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section page">
+            <div class="card">
+                <div class="panel-head">
+                    <h3>How signing in works</h3>
+                    <span class="pill">Three ways in</span>
+                </div>
+                <div class="features">
+                    <div class="feature">
+                        <h3>Sign in with Discord</h3>
+                        <p>
+                            Asks for <code>identify</code> and <code>guilds</code> and nothing
+                            else, then shows you the servers you run <em>that the bot is already
+                            in</em>. Your access token is used for two lookups in the same
+                            request and never stored.
+                        </p>
+                    </div>
+                    <div class="feature">
+                        <h3>One-time link</h3>
+                        <p>
+                            Minted by the ⚡ Open Dashboard button on <code>/help</code>, scoped
+                            to the one server it was created in, single-use and good for fifteen
+                            minutes. It is a credential — don't share it.
+                        </p>
+                    </div>
+                    <div class="feature">
+                        <h3>Admin passkey</h3>
+                        <p>
+                            The operator's own way in, and the only one that reaches every
+                            server. Rate-limited, compared in constant time, and never read
+                            from a query string.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="page">
+            <div class="links">
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/market/BTC">Live market</a>
+                <a href="/health">Status</a>
+                {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
+            </div>
+            <p>
+                {{ bot_name }} stores what it needs to run the systems you switch on —
+                {% if retention_days %}activity counts kept for {{ retention_days }} days,{% endif %}
+                queued and sent message history for 90 — and the policy above says exactly what
+                that is, in the same words the Discord command shows.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // The entrance is driven by the observer when it works, and by the CSS
+        // animation alone when it does not: `.reveal` carries its own `rise`, so
+        // a browser without IntersectionObserver (or with the script blocked by
+        // our own CSP) still gets the content. This only re-runs the animation
+        // for the grid as it comes into view.
+        (function () {
+            const items = document.querySelectorAll("#features .reveal");
+            if (!items.length || typeof IntersectionObserver !== "function") return;
+            items.forEach(function (item) { item.style.animationPlayState = "paused"; });
+            const seen = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    if (!entry.isIntersecting) return;
+                    const el = entry.target;
+                    const index = Array.prototype.indexOf.call(items, el);
+                    el.style.setProperty("--i", String(index % 6));
+                    el.style.animationPlayState = "running";
+                    seen.unobserve(el);
+                });
+            }, { rootMargin: "0px 0px -40px 0px" });
+            items.forEach(function (item) { seen.observe(item); });
+        })();
+    </script>
+</body>
+</html>
