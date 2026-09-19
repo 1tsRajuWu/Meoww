@@ -1075,14 +1075,6 @@ body.has-aurora .aurora { z-index: -1; }
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
 
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.001ms !important;
-    }
-
     /* The entrance must not leave content invisible when its animation is
        suppressed to nothing. */
     .reveal {
@@ -1542,18 +1534,16 @@ main {
     .card-tilt:hover { transform: translateY(-3px); }
 }
 
-@property --a1-x { syntax: "<percentage>"; inherits: false; initial-value: 15%; }
-@property --a1-y { syntax: "<percentage>"; inherits: false; initial-value: 20%; }
-@property --a2-x { syntax: "<percentage>"; inherits: false; initial-value: 85%; }
-@property --a2-y { syntax: "<percentage>"; inherits: false; initial-value: 10%; }
-@property --a3-x { syntax: "<percentage>"; inherits: false; initial-value: 60%; }
-@property --a3-y { syntax: "<percentage>"; inherits: false; initial-value: 110%; }
+@keyframes aurora-drift-1 {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(12%, 18%, 0) scale(1.15); }
+    100% { transform: translate3d(-8%, 14%, 0) scale(0.95); }
+}
 
-@keyframes aurora-drift {
-    0%   { --a1-x: 15%; --a1-y: 20%; --a2-x: 85%; --a2-y: 10%; --a3-x: 60%; --a3-y: 110%; }
-    33%  { --a1-x: 25%; --a1-y: 10%; --a2-x: 75%; --a2-y: 30%; --a3-x: 50%; --a3-y: 100%; }
-    66%  { --a1-x: 5%; --a1-y: 30%; --a2-x: 95%; --a2-y: -10%; --a3-x: 70%; --a3-y: 120%; }
-    100% { --a1-x: 15%; --a1-y: 20%; --a2-x: 85%; --a2-y: 10%; --a3-x: 60%; --a3-y: 110%; }
+@keyframes aurora-drift-2 {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(-15%, -12%, 0) scale(1.12); }
+    100% { transform: translate3d(10%, -10%, 0) scale(1.05); }
 }
 
 
@@ -1914,12 +1904,38 @@ body.landing:has([data-menu].is-open) {
     right: 0;
     top: -16%;
     height: 132%;
-    background:
-        radial-gradient(80% 60% at var(--a1-x) var(--a1-y), rgba(91, 94, 240, 0.42), transparent 60%),
-        radial-gradient(70% 55% at var(--a2-x) var(--a2-y), rgba(163, 168, 255, 0.18), transparent 62%),
-        radial-gradient(90% 70% at var(--a3-x) var(--a3-y), rgba(91, 94, 240, 0.22), transparent 60%),
-        linear-gradient(180deg, #0b0c18 0%, #0a0a12 55%, #08080c 100%);
-    animation: aurora-drift 25s ease-in-out infinite;
+    background: linear-gradient(180deg, #0b0c18 0%, #0a0a12 55%, #08080c 100%);
+    overflow: hidden;
+}
+
+.lp-plate-layer::before,
+.lp-plate-layer::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    -webkit-filter: blur(80px);
+    pointer-events: none;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+}
+
+.lp-plate-layer::before {
+    width: 650px;
+    height: 650px;
+    top: -10%;
+    left: 8%;
+    background: radial-gradient(circle, rgba(91, 94, 240, 0.45) 0%, rgba(91, 94, 240, 0) 70%);
+    animation: aurora-drift-1 18s ease-in-out infinite alternate;
+}
+
+.lp-plate-layer::after {
+    width: 600px;
+    height: 600px;
+    top: 15%;
+    right: 8%;
+    background: radial-gradient(circle, rgba(163, 168, 255, 0.25) 0%, rgba(91, 94, 240, 0.18) 50%, transparent 70%);
+    animation: aurora-drift-2 24s ease-in-out infinite alternate;
 }
 
 .lp-plate-grid {
@@ -2272,6 +2288,8 @@ body.landing:has([data-menu].is-open) {
 .lp-bars.is-visible i:nth-child(5) { animation-delay: 0.5s; }
 .lp-bars.is-visible i:nth-child(6) { animation-delay: 0.6s; }
 .lp-bars.is-visible i:nth-child(7) { animation-delay: 0.7s; }
+.lp-bars.is-visible i:nth-child(8) { animation-delay: 0.8s; }
+.lp-bars.is-visible i:nth-child(9) { animation-delay: 0.9s; }
 
 /* In the flow, not overlaid. The reference floats this caption over a
    photograph; here the panel's content is the whole point, and an absolutely
@@ -2542,17 +2560,6 @@ body.landing:has([data-menu].is-open) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .clip-inner,
-    .line-inner,
-    [data-reveal] {
-        transform: none !important;
-        opacity: 1 !important;
-    }
-
     .lp-panel-tilt-a,
     .lp-panel-tilt-b { transform: none; }
-
-    .lp-plate-layer { animation: none !important; }
-    .lp-bars i { animation: none !important; transform: scaleY(1); }
-    .lp-card:hover { transform: none; }
 }

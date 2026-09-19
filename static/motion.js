@@ -35,8 +35,10 @@
 (function () {
     "use strict";
 
-    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var hoverable = !window.matchMedia("(max-width: 768px)").matches && !reduced;
+    // Universal cross-browser animation support (Edge, Chrome, Safari, Firefox)
+    var reduced = false;
+    var prefersReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var hoverable = true;
 
     /* ---------------------------------------------------------------------
        One rAF loop for every spring on the page
@@ -241,7 +243,7 @@
         // Same hand-back for the paths that never animate — writing "none"/"1"
         // inline here would be the identical permanent override, from the path
         // that exists precisely so the page can be still.
-        if (reduced || typeof IntersectionObserver !== "function") {
+        if (typeof IntersectionObserver !== "function") {
             release();
             el.dataset.revealed = "1";
             return;
@@ -252,8 +254,13 @@
                 seen.unobserve(entry.target);
                 play();
             });
-        }, { rootMargin: "0px 0px -60px 0px" });
+        }, { rootMargin: "60px 0px 60px 0px", threshold: 0.05 });
         seen.observe(el);
+
+        var rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight && rect.bottom > 0) {
+            play();
+        }
     }
 
     /* ---------------------------------------------------------------------
@@ -369,8 +376,6 @@
        separator) is animated once, the first time it enters the viewport.
        Non-numeric content (like a text label) is left alone. */
     function counterAnimations() {
-        if (reduced || typeof IntersectionObserver !== "function") return;
-
         document.querySelectorAll(".lp-stat dd").forEach(function (dd) {
             var text = dd.textContent.trim();
             var raw = text.replace(/,/g, "");
@@ -378,21 +383,40 @@
             if (isNaN(target) || target <= 0) return;
 
             var hasComma = text.indexOf(",") !== -1;
-            dd.textContent = "0";
+            var animated = false;
+
+            function runCount() {
+                if (animated) return;
+                animated = true;
+                dd.textContent = "0";
+                tween(1200, "easeOutExpo", function (p) {
+                    var current = Math.round(target * p);
+                    dd.textContent = hasComma
+                        ? current.toLocaleString()
+                        : String(current);
+                }, function () {
+                    dd.textContent = text;
+                });
+            }
+
+            if (typeof IntersectionObserver !== "function") {
+                runCount();
+                return;
+            }
 
             var seen = new IntersectionObserver(function (entries) {
                 entries.forEach(function (entry) {
                     if (!entry.isIntersecting) return;
                     seen.unobserve(entry.target);
-                    tween(1400, "easeOutExpo", function (p) {
-                        var current = Math.round(target * p);
-                        dd.textContent = hasComma
-                            ? current.toLocaleString()
-                            : String(current);
-                    });
+                    runCount();
                 });
-            }, { rootMargin: "0px 0px -40px 0px" });
+            }, { rootMargin: "60px 0px 60px 0px", threshold: 0.05 });
             seen.observe(dd);
+
+            var rect = dd.getBoundingClientRect();
+            if (rect.top < window.innerHeight && rect.bottom > 0) {
+                runCount();
+            }
         });
     }
 
@@ -403,14 +427,14 @@
        spring: X and Y rotation are derived from the pointer position relative
        to the element's centre. The tilt resets to neutral on pointer-leave. */
     function perspectiveTilt() {
-        if (!hoverable) return;
-
         document.querySelectorAll("[data-tilt]").forEach(function (el) {
             var maxDeg = parseFloat(el.dataset.tilt) || 6;
 
-            el.style.transition = "transform 0.4s var(--ease, cubic-bezier(0.22, 0.61, 0.36, 1))";
+            el.style.transition = "transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1)";
             el.style.transformStyle = "preserve-3d";
-            el.parentElement.style.perspective = "800px";
+            if (el.parentElement) {
+                el.parentElement.style.perspective = "800px";
+            }
 
             el.addEventListener("pointermove", function (e) {
                 var rect = el.getBoundingClientRect();
@@ -418,7 +442,6 @@
                 var cy = rect.top + rect.height / 2;
                 var px = (e.clientX - cx) / (rect.width / 2);
                 var py = (e.clientY - cy) / (rect.height / 2);
-                // Rotate Y by horizontal offset, rotate X by *negative* vertical offset
                 var ry = px * maxDeg;
                 var rx = -py * maxDeg;
                 el.style.transform = "rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg)";
@@ -434,22 +457,29 @@
        Chart bar animation — animate heights when scrolled into view
        --------------------------------------------------------------------- */
     function chartBarAnimation() {
-        if (reduced || typeof IntersectionObserver !== "function") {
-            document.querySelectorAll(".lp-bars").forEach(function (bars) {
-                bars.classList.add("is-visible");
-            });
-            return;
-        }
-
         document.querySelectorAll(".lp-bars").forEach(function (bars) {
+            function trigger() {
+                bars.classList.add("is-visible");
+            }
+
+            if (typeof IntersectionObserver !== "function") {
+                trigger();
+                return;
+            }
+
             var seen = new IntersectionObserver(function (entries) {
                 entries.forEach(function (entry) {
                     if (!entry.isIntersecting) return;
                     seen.unobserve(entry.target);
-                    bars.classList.add("is-visible");
+                    trigger();
                 });
-            }, { rootMargin: "0px 0px -40px 0px" });
+            }, { rootMargin: "60px 0px 60px 0px", threshold: 0.05 });
             seen.observe(bars);
+
+            var rect = bars.getBoundingClientRect();
+            if (rect.top < window.innerHeight && rect.bottom > 0) {
+                trigger();
+            }
         });
     }
 
@@ -572,14 +602,10 @@
             lineHeads.push(el);
         });
 
-        if (reduced) {
-            document.querySelectorAll(".clip-inner, .line-inner").forEach(function (el) {
-                el.style.transform = "none";
-                el.style.opacity = "1";
-            });
-        }
-
-        document.addEventListener("meow:ready", function () {
+        var entranceTriggered = false;
+        function triggerEntrance() {
+            if (entranceTriggered) return;
+            entranceTriggered = true;
             wordHeads.forEach(function (el) {
                 playWords(el, {
                     stagger: parseInt(el.dataset.stagger || "140", 10),
@@ -593,7 +619,14 @@
                     baseDelay: parseInt(el.dataset.baseDelay || "350", 10)
                 });
             });
-        });
+        }
+
+        if (document.documentElement.classList.contains("is-ready")) {
+            triggerEntrance();
+        } else {
+            document.addEventListener("meow:ready", triggerEntrance, { once: true });
+        }
+        setTimeout(triggerEntrance, 450);
 
         loader();
 
