@@ -69,13 +69,21 @@
                 message and voice minute counted, and all of it driven from a real-time
                 control panel rather than a wall of slash commands.
             </p>
+            {#
+              Two actions, not four. This row used to carry the invite, the
+              pricing page, **sign in** — which is already the last item in the
+              nav above it — and a "see what's in it" that scrolled to the
+              section immediately below. Four equally-weighted buttons is the
+              same as no recommendation: the eye has nowhere to land, and on a
+              narrow window they wrapped into a ragged second row. The page's
+              job is one thing (add it), with one alternative for somebody who
+              wants to know the price first.
+            #}
             <div class="hero-cta reveal" style="--i: 3">
                 {% if invite_url %}
                 <a class="btn btn-primary btn-lg" href="{{ invite_url }}">Add {{ bot_name }} to a server</a>
                 {% endif %}
-                <a class="btn btn-lg" href="/pricing">View Pricing</a>
-                <a class="btn btn-lg" href="{{ enter_url }}">{{ enter_label }}</a>
-                <a class="btn btn-lg" href="#features">See what's in it</a>
+                <a class="btn btn-lg" href="/pricing">See pricing</a>
             </div>
             <p class="hero-status reveal" style="--i: 4">
                 <span class="dot {{ status.dot }}" aria-hidden="true"></span>

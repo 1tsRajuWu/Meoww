@@ -11,8 +11,9 @@ name: Site
 # disagree about what the product is.
 #
 # Run it by hand from the Actions tab ("Run workflow") to republish without a
-# commit. The first run also needs Pages enabled once, with the source set to
-# "GitHub Actions" in Settings -> Pages.
+# commit. Nothing has to be switched on by hand: the build step enables Pages
+# with "GitHub Actions" as the source (see the `enablement` flag below), because
+# the first run failed on exactly that setting after building the site fine.
 
 on:
   push:
@@ -77,6 +78,16 @@ jobs:
           }
 
       - uses: actions/configure-pages@v5
+        with:
+          # Turn Pages on as part of the deploy, rather than leaving it as a
+          # setting somebody has to find. The first run of this workflow failed
+          # here with "Get Pages site failed … verify that the repository has
+          # Pages enabled and configured to build using GitHub Actions" — after
+          # the site itself had built perfectly, so the only thing wrong was a
+          # toggle in Settings that this parameter can flip. It is idempotent:
+          # once Pages is on, this is a no-op.
+          enablement: true
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

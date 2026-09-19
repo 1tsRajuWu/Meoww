@@ -34,11 +34,16 @@
         window.addEventListener('resize', resize);
         resize();
 
+        // One hue, four opacities. This used to scatter indigo, violet, pink and
+        // cyan at once — a second, *moving* copy of the rainbow the stylesheet
+        // no longer has, so removing the gradient from the CSS alone would have
+        // left pink specks drifting over a monochrome page. Varying opacity
+        // instead of hue gives the depth without the confetti.
         const colors = [
-            'rgba(88, 101, 242, 0.65)',
-            'rgba(139, 92, 246, 0.6)',
-            'rgba(236, 72, 153, 0.55)',
-            'rgba(56, 189, 248, 0.5)'
+            'rgba(91, 94, 240, 0.5)',
+            'rgba(91, 94, 240, 0.34)',
+            'rgba(163, 168, 255, 0.3)',
+            'rgba(163, 168, 255, 0.18)'
         ];
 
         const particles = [];

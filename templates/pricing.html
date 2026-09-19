@@ -100,19 +100,14 @@
             inset: -1px;
             border-radius: inherit;
             padding: 2px;
-            background: linear-gradient(135deg, var(--accent), var(--violet), var(--pink));
+            /* One accent, still. A three-colour border travelling around the
+               card on a six-second loop was the loudest element on the page,
+               competing with the price it was meant to recommend. */
+            background: var(--accent);
             -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
             -webkit-mask-composite: xor;
             mask-composite: exclude;
             pointer-events: none;
-            background-size: 200% 200%;
-            animation: gradient-shift 6s ease infinite;
-        }
-
-        @keyframes gradient-shift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
         }
 
         .tier-badge {
@@ -120,7 +115,7 @@
             top: -12px;
             left: 50%;
             transform: translateX(-50%);
-            background: linear-gradient(135deg, var(--accent), var(--violet));
+            background: var(--accent);
             color: #fff;
             padding: 4px 14px;
             border-radius: var(--radius-pill);

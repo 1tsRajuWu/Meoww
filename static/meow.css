@@ -27,27 +27,42 @@
    Tokens
    -------------------------------------------------------------------------- */
 :root {
-    /* Surfaces. Flat, layered by value rather than by shadow. */
-    --bg: #0b0e13;
-    --surface: #12161e;
-    --surface-card: #161b25;
-    --surface-hover: #1d2431;
-    --border: #232b38;
-    --border-active: #3a4356;
+    /* Surfaces. Flat, layered by value rather than by shadow, and **warm**:
+       a neutral charcoal with a touch of heat in it, not the blue-black this
+       sheet started with. Those are the two dark-page defaults — pure grey and
+       blue-black — and both read as a terminal rather than as a product. */
+    --bg: #0c0c0d;
+    --surface: #131315;
+    --surface-card: #17171a;
+    --surface-hover: #1f1f23;
+    --border: #26262b;
+    --border-active: #3c3c45;
 
-    /* Text. `--text-muted` is #8494ab rather than the more obvious #64748b
-       because the latter reads at 3.7:1 on the card, under the AA floor, and it
-       carries the small print. */
-    --text-primary: #f0f3f8;
-    --text-secondary: #94a3b8;
-    --text-muted: #8494ab;
+    /* Text. Warm off-white instead of #fff, because absolute white on a dark
+       ground is the loudest "generated page" tell there is, and it is the
+       colour that makes the eye distrust the type. `--text-muted` is #8b8883
+       rather than the more obvious #64748b: that one reads at 3.7:1 on the
+       card, under the AA floor, and this is the token carrying the small
+       print. */
+    --text-primary: #f4f2ef;
+    --text-secondary: #a9a6a1;
+    --text-muted: #8b8883;
 
-    /* One accent for controls, one that is legible *as text* on a dark card. */
-    --accent: #5865f2;
-    --accent-hover: #6b76f5;
-    --accent-text: #9aa5ff;
-    --violet: #8b5cf6;
-    --pink: #ec4899;
+    /* **One accent, one hue.** What this sheet used to carry was a three-stop
+       indigo → violet → pink gradient, animated, on the headline, the brand
+       mark, the card borders and the badges at once — a hue change *inside a
+       word* is the most recognisable signature of a generated page, because
+       nothing designed from a palette would slide its hue mid-sentence. There
+       is one hue here now, spent sparingly: a primary action, a focus ring,
+       one highlight per screen. `--violet` and `--pink` survive as **this
+       hue's own family** rather than being deleted, so no page that still
+       names them can resurrect the rainbow. */
+    --accent: #5b5ef0;
+    --accent-hover: #6f72f5;
+    --accent-text: #a3a8ff;
+    --accent-quiet: rgba(91, 94, 240, 0.12);
+    --violet: #5b5ef0;
+    --pink: #5b5ef0;
 
     --green: #23a55a;
     --red: #f23f43;
@@ -111,11 +126,27 @@ body {
     isolation: isolate;
 }
 
+/* Display type is set tight on purpose. A large heading at default tracking
+   looks like a paragraph that got a size bump — the negative tracking is what
+   makes it read as *designed*, and it is the cheapest signal of intent on the
+   whole page. */
 h1, h2, h3, h4 {
     margin: 0;
     line-height: 1.25;
     font-weight: 700;
     letter-spacing: -0.01em;
+}
+
+/* The display line is the one place worth spending contrast: it is the largest
+   type on the page, so it takes the tightest tracking and the shortest
+   leading. `max-width: 18ch` keeps a long sentence from running the full width
+   of a large monitor, where a headline stops being read and starts being
+   skimmed. */
+.hero h1 {
+    font-size: clamp(36px, 6.4vw, 68px);
+    line-height: 1.04;
+    letter-spacing: -0.035em;
+    max-width: 18ch;
 }
 
 p { margin: 0; }
@@ -188,11 +219,16 @@ code, pre, kbd {
     will-change: transform;
 }
 
+/* Two washes of the *one* accent rather than three different hues. The old
+   pair put violet in one corner and pink in the other, so the page's ambient
+   colour changed depending on where you were reading — which is what makes a
+   background read as a gradient wallpaper instead of a lit surface. Same
+   accent, different distance, and dimmer: place, not decoration. */
 .aurora::before {
     background: radial-gradient(
         circle at 30% 30%,
-        rgba(88, 101, 242, 0.34),
-        rgba(88, 101, 242, 0) 62%
+        rgba(91, 94, 240, 0.26),
+        rgba(91, 94, 240, 0) 62%
     );
     animation: drift-a 78s var(--ease) infinite alternate;
 }
@@ -200,9 +236,9 @@ code, pre, kbd {
 .aurora::after {
     background: radial-gradient(
         circle at 70% 60%,
-        rgba(139, 92, 246, 0.26),
-        rgba(236, 72, 153, 0.16) 40%,
-        rgba(236, 72, 153, 0) 66%
+        rgba(91, 94, 240, 0.14),
+        rgba(163, 168, 255, 0.07) 44%,
+        rgba(91, 94, 240, 0) 68%
     );
     animation: drift-b 96s var(--ease) infinite alternate;
 }
@@ -347,7 +383,7 @@ code, pre, kbd {
     display: grid;
     place-items: center;
     border-radius: var(--radius-md);
-    background: linear-gradient(135deg, var(--accent), var(--violet));
+    background: var(--accent);
     color: #fff;
     font-family: var(--font-mono);
     font-weight: 700;
@@ -684,18 +720,11 @@ textarea:focus {
     padding: var(--space-8) 0 var(--space-7);
 }
 
-.hero h1 {
-    font-size: clamp(34px, 6vw, 58px);
-    max-width: 20ch;
-}
-
-/* The gradient is on the words only, and only on the display line — a whole
-   gradient-filled page is the thing that reads as generated. */
+/* One accent colour on the words that matter, not a gradient across them. The
+   emphasis comes from *which* words are coloured, which is a decision a
+   designer makes, where a hue ramp is a decision a default makes. */
 .hero h1 .shine {
-    background: linear-gradient(100deg, var(--accent-text), #d8b4fe 45%, #f9a8d4);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--accent-text);
 }
 
 .hero .lede {
@@ -774,15 +803,20 @@ textarea:focus {
     font-size: 13.5px;
 }
 
+/* The feature glyph is a tinted tile, not a bordered box. A 30px square with a
+   1px border around a 15px emoji reads as a badge that failed to align
+   rather than as an icon — the border draws a frame the eye then tries to line
+   up with the text beside it. No frame, a wash of the one accent, and a
+   slightly larger glyph: quiet at a glance, still findable when scanning. */
 .feature .icon {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     border-radius: var(--radius-sm);
-    background: var(--surface-hover);
-    border: 1px solid var(--border);
-    font-size: 15px;
+    background: var(--accent-quiet);
+    font-size: 16px;
+    line-height: 1;
     flex: none;
 }
 
@@ -1117,28 +1151,19 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 }
 
 /* --------------------------------------------------------------------------
-   Animated Gradient Text
+   Emphasis on the display line
    -------------------------------------------------------------------------- */
-.gradient-text {
-    background: linear-gradient(
-        135deg,
-        var(--accent-text) 0%,
-        #d8b4fe 25%,
-        #f9a8d4 50%,
-        var(--accent-text) 75%,
-        #d8b4fe 100%
-    );
-    background-size: 200% auto;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: gradient-shift 4s ease infinite;
-}
+/* This class used to run a five-stop rainbow through its text on a four-second
+   loop. Animated multi-hue text was the single loudest thing on the page and
+   the one detail that made the whole site read as generated: colour that moves
+   on its own draws the eye to the *effect* rather than to the sentence, and a
+   heading that changes hue while you read it looks like it is selling
+   something. It is one accent colour now, still and deliberate.
 
-@keyframes gradient-shift {
-    0%   { background-position: 0% center; }
-    50%  { background-position: 100% center; }
-    100% { background-position: 0% center; }
+   Kept as a class rather than deleted because four templates name it, and a
+   missing class would silently drop the emphasis rather than the animation. */
+.gradient-text {
+    color: var(--accent-text);
 }
 
 /* --------------------------------------------------------------------------
@@ -1458,16 +1483,20 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
     z-index: 0;
 }
 
+/* The "most popular" card is marked by a still accent hairline, not by a
+   three-colour border travelling around it on a four-second loop. The border
+   that moves is the badge's *only* signal on a page where two other cards look
+   identical, so it was doing the same job as a highlight — while also being the
+   most eye-catching thing in the viewport, which is the opposite of a
+   recommendation. */
 .gradient-border::before {
     content: "";
     position: absolute;
     inset: -1px;
     border-radius: inherit;
-    background: linear-gradient(135deg, var(--accent), var(--violet), var(--pink), var(--accent));
-    background-size: 300% 300%;
-    animation: gradient-rotate 4s ease infinite;
+    background: var(--accent);
     z-index: -1;
-    opacity: 0.7;
+    opacity: 0.85;
 }
 
 @keyframes gradient-rotate {

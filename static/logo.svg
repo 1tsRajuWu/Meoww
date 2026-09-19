@@ -1,32 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
-  <defs>
-    <linearGradient id="catGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#5865F2" />
-      <stop offset="60%" stop-color="#8b5cf6" />
-      <stop offset="100%" stop-color="#ec4899" />
-    </linearGradient>
-    <linearGradient id="innerEar" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#f472b6" stop-opacity="0.8" />
-      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.4" />
-    </linearGradient>
-  </defs>
-  <!-- Cat Head Outline -->
-  <path d="M7 11 L12 4 L17 10 C18 9.7 19 9.5 20 9.5 C21 9.5 22 9.7 23 10 L28 4 L33 11 C36 15 36.5 20 34.5 25 C31.5 32 26 35 20 35 C14 35 8.5 32 5.5 25 C3.5 20 4 15 7 11 Z" fill="url(#catGrad)" />
-  <!-- Inner Ears -->
-  <polygon points="12,6 9,11 14,10" fill="url(#innerEar)" />
-  <polygon points="28,6 26,10 31,11" fill="url(#innerEar)" />
-  <!-- Eyes -->
-  <path d="M12 18 C14 16 16 18 16 19 C14 20 12 19 12 18 Z" fill="#ffffff" />
-  <circle cx="14.5" cy="18" r="1" fill="#0b0e13" />
-  <path d="M28 18 C26 16 24 18 24 19 C26 20 28 19 28 18 Z" fill="#ffffff" />
-  <circle cx="25.5" cy="18" r="1" fill="#0b0e13" />
-  <!-- Cute Nose -->
-  <polygon points="20,22 18.5,20.5 21.5,20.5" fill="#f472b6" />
-  <!-- Mouth -->
-  <path d="M18.5 22.5 C19 24 20 24 20 22.5 C20 24 21 24 21.5 22.5" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.9" />
-  <!-- Whiskers -->
-  <line x1="6" y1="21" x2="13" y2="22" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.6" />
-  <line x1="5" y1="24" x2="13" y2="24" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.6" />
-  <line x1="34" y1="21" x2="27" y2="22" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.6" />
-  <line x1="35" y1="24" x2="27" y2="24" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.6" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="Meow">
+  <!--
+    A cat's head as one silhouette: a round face and two ears that meet in the
+    dip between them. Three primitives, one hue, no outline.
+
+    The mark it replaces was a gradient face carrying inner ears, two eye
+    whites with pupils, a muzzle, a nose, whiskers and a mouth — nine elements
+    at three sizes, which at the 20-22px the header actually renders it is
+    mud: every detail collapses into the gradient and the whole thing reads as
+    a coloured blob. What is left is the *shape* of a cat, which is the part
+    that still says "cat" when it is 20 pixels wide, in one flat colour so it
+    can never argue with whatever surface it sits on.
+  -->
+  <g fill="#5b5ef0">
+    <path d="M12 13 L14.5 4 L20 11 L25.5 4 L28 13 Z" />
+    <circle cx="20" cy="22" r="12" />
+  </g>
+  <!-- Eyes and nose are cut in the page's background colour rather than drawn
+       on top of it: at small sizes a negative-space eye stays a clean dot,
+       where a filled one with a stroke becomes a smudge. -->
+  <g fill="#0c0c0d">
+    <circle cx="15.4" cy="20.4" r="1.75" />
+    <circle cx="24.6" cy="20.4" r="1.75" />
+    <path d="M20 25.4 L18.5 23.7 L21.5 23.7 Z" />
+  </g>
 </svg>

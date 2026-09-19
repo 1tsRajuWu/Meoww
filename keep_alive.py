@@ -727,12 +727,19 @@ def set_security_headers(response):
     # genuinely needs: its chart library, pinned to an exact version and hosted by
     # the two CDNs the page tries in turn. Without them named here our own header
     # blocked both copies, so the chart could never draw on any deployment and the
-    # card blamed the library. styles/fonts are the dashboard's Google Fonts.
+    # card blamed the library.
+    #
+    # `style-src` and `font-src` no longer name Google Fonts. They were allowed
+    # for the dashboard's Google Fonts and **nothing in the tree ever loaded
+    # one** — the stylesheet sets a system font stack on purpose, which is
+    # written down in its own header. A permission kept for a resource that no
+    # page requests is a third-party origin a compromised page could reach, held
+    # open by a comment rather than by a need.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
         "frame-ancestors 'none'; "
@@ -987,9 +994,8 @@ def _home_status() -> dict:
             "dot": "dot-live",
             "label": "Always on",
             "detail": (
-                "This page is a static copy served by GitHub Pages, so it answers "
-                "whether or not the bot is awake. Its live status, figures and "
-                "dashboard are on its own host."
+                "Served by GitHub Pages, so it answers whether the bot is awake or "
+                "not. Live status and figures are on the bot's own host."
             ),
         }
     started, connected = _gateway_state()
