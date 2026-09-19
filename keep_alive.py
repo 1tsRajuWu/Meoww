@@ -1729,8 +1729,10 @@ def dashboard():
     if BOT_INSTANCE and getattr(BOT_INSTANCE, "user", None):
         try:
             global_avatar = str(BOT_INSTANCE.user.display_avatar.url)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[IDENTITY] Could not read bot avatar: {exc}", flush=True)
+    else:
+        print(f"[IDENTITY] BOT_INSTANCE={bool(BOT_INSTANCE)} user={getattr(BOT_INSTANCE, 'user', None) if BOT_INSTANCE else None}", flush=True)
 
     identity_data.update({
         # The live name is what the server actually sees; the record above is
