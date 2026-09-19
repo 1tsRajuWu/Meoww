@@ -364,15 +364,77 @@ class DeploymentConfig(unittest.TestCase):
         for key in ("FLASK_SECRET_KEY", "ADMIN_PASSKEY"):
             self.assertIn(f"- key: {key}", self.manifest, f"{key} is not declared in render.yaml")
 
+    #: Keys whose value is **public by design**, and so belongs in the repository
+    #: rather than in the operator's secret list. An application's client id is in
+    #: every invite link anybody can read; it is not a credential. Leaving it out
+    #: of the manifest is not the safe choice — the templates *drop* the invite
+    #: button when the id is unknown, so omitting it shipped a landing page with no
+    #: way to add the bot and no error anywhere to show for it.
+    PUBLIC_KEYS = frozenset({"DISCORD_CLIENT_ID"})
+
+    def committed_secrets(self, manifest: str) -> list:
+        """Keys carrying a literal value that are not public on purpose.
+
+        The rule, in one place, so it can be exercised against a manifest that
+        *does* commit a credential. Scanning the real file alone proves nothing:
+        it holds no secret, so the check would pass just as happily if the rule
+        had been deleted.
+        """
+        return [
+            key
+            for key, _value in re.findall(r"- key: (\S+)\n\s+value: (\S+)", manifest)
+            if key not in self.PUBLIC_KEYS
+        ]
+
     def test_declared_secrets_are_prompts_not_committed_values(self):
         entries = re.findall(r"- key: (\S+)\n\s+sync: (\S+)", self.manifest)
         self.assertTrue(entries, "render.yaml should declare env vars")
         for key, sync in entries:
             self.assertEqual(sync, "false", f"{key} should be operator-supplied")
-        self.assertNotIn(
-            "value:", self.manifest,
-            "a literal value in render.yaml would commit a credential",
+
+        # A literal value is allowed only for a key that is public on purpose,
+        # which keeps the original rule for everything else rather than relaxing
+        # it: a *secret* still cannot be committed, whatever it is called.
+        self.assertEqual(
+            self.committed_secrets(self.manifest),
+            [],
+            "a literal value in render.yaml is a committed credential",
         )
+
+        # And a name that promises secrecy may never be allow-listed as public.
+        for key in sorted(self.PUBLIC_KEYS):
+            upper = key.upper()
+            self.assertFalse(
+                any(word in upper for word in ("SECRET", "TOKEN", "KEY", "PASSKEY")),
+                f"{key} is allow-listed as a public value but its name says otherwise",
+            )
+
+    def test_a_committed_credential_is_still_refused(self):
+        """The allow-list above is precise, not a blanket relaxation.
+
+        Without this the rule could rot into "any value is fine" and the suite
+        would keep passing, because the real manifest contains no secret for the
+        scan to find.
+        """
+        for key in ("ADMIN_PASSKEY", "FLASK_SECRET_KEY", "SUPABASE_SERVICE_KEY", "DISCORD_TOKEN"):
+            manifest = (
+                "services:\n  - type: web\n    envVars:\n"
+                f"      - key: {key}\n        value: hunter2\n"
+            )
+            self.assertEqual(
+                self.committed_secrets(manifest),
+                [key],
+                f"a committed {key} was not refused",
+            )
+
+        # The one key that is allowed may still be committed, so the rule is not
+        # simply refusing every literal value.
+        allowed = next(iter(self.PUBLIC_KEYS))
+        manifest = (
+            "services:\n  - type: web\n    envVars:\n"
+            f"      - key: {allowed}\n        value: \"123\"\n"
+        )
+        self.assertEqual(self.committed_secrets(manifest), [])
 
 
 class ContentSecurityPolicy(unittest.TestCase):

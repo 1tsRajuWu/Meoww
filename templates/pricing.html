@@ -325,6 +325,31 @@
             </div>
         </section>
 
+        <section class="page" style="padding-top: 0">
+            {#
+              Nothing here can be bought. Every system these tiers describe is
+              switched on and free in every server today, so a page that lists
+              prices and says nothing else is a page that charges for what the
+              visitor can already have — and the two buttons that used to sit on
+              the paid cards went nowhere at all. This says what is true, once,
+              before the prices rather than under them.
+            #}
+            <div class="card glass reveal" style="max-width: 760px; margin: 0 auto;">
+                <div class="panel-head" style="justify-content: center; text-align: center">
+                    <div>
+                        <span class="pill pill-ok">No billing yet</span>
+                        <h3 style="margin: 10px 0 6px">Every plan on this page is free today</h3>
+                        <p class="dim" style="margin: 0">
+                            There is no checkout and nothing to pay: add {{ bot_name }} and every
+                            system below is available in your server right now. These tiers say
+                            where the project is heading, so you know what is coming — not what
+                            is being charged.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="page">
             <div class="pricing-cards">
                 
@@ -373,7 +398,7 @@
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Bot Identity (per server)</li>
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Real-time backups</li>
                     </ul>
-                    <a href="#" class="btn btn-primary btn-block">Upgrade to Pro</a>
+                    <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free today' if invite_url else 'Open the dashboard' }}</a>
                 </div>
 
                 <!-- Enterprise Tier -->
@@ -392,7 +417,7 @@
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Priority Discord Support</li>
                         <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Custom backup schedule</li>
                     </ul>
-                    <a href="#" class="btn btn-block">Contact Us</a>
+                    <a href="/servers" class="btn btn-block">Open the dashboard</a>
                 </div>
             </div>
         </section>

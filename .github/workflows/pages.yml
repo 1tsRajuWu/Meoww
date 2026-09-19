@@ -1,0 +1,92 @@
+name: Site
+
+# Builds the public pages (front door, pricing, privacy, terms) into static
+# files and publishes them to GitHub Pages. The bot itself keeps running on
+# Render — Pages cannot answer a request, and every page that needs a live
+# process (the dashboard, sign-in, the market, /health) deliberately links there
+# instead of existing here.
+#
+# One source of truth: the files here are rendered from the same templates the
+# bot serves, by the same Flask app, so the site and the deployment cannot
+# disagree about what the product is.
+#
+# Run it by hand from the Actions tab ("Run workflow") to republish without a
+# commit. The first run also needs Pages enabled once, with the source set to
+# "GitHub Actions" in Settings -> Pages.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/home.html"
+      - "templates/pricing.html"
+      - "templates/legal.html"
+      - "static/**"
+      - "scripts/build_site.py"
+      - "keep_alive.py"
+      - "utils/webdocs.py"
+      - "PRIVACY.md"
+      - "TERMS.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two publishes race: the later one wins, and an in-flight deploy is
+# allowed to finish rather than being cancelled half-applied.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the static site
+        env:
+          # The invite link is built from this at render time. Public value: it
+          # is in every invite URL. Override with a repository *variable* of the
+          # same name if the application id ever changes.
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || '1548380269776605324' }}
+          # A project site is served from /<repo>/, so the sitemap needs the full
+          # public URL rather than the bare file names used inside the pages.
+          SITE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+        run: python scripts/build_site.py --out _site
+
+      - name: Check the build did not lose its call to action
+        # The templates omit the invite button when no client id is known, so a
+        # build without one is not an error anywhere — it is a landing page that
+        # silently cannot add the bot. That is the failure this step catches.
+        run: |
+          grep -q "discord.com/oauth2/authorize" _site/index.html || {
+            echo "::error::the built front page has no invite link (is DISCORD_CLIENT_ID set?)"
+            exit 1
+          }
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

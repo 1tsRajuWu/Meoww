@@ -963,12 +963,35 @@ def _home_stats() -> list[dict]:
     return stats
 
 
+def _static_site() -> bool:
+    """Is this the GitHub Pages copy rather than a running process?
+
+    The status line below is a claim about *this process*. Pages serves files,
+    so there is no process, nothing will ever connect, and "a sleeping free-tier
+    host takes a moment to wake" becomes a promise that never resolves — a
+    visitor reads a permanently half-started bot. Set only by
+    ``scripts/build_site.py``; the bot never sets it.
+    """
+    return (os.environ.get("MEOW_STATIC_SITE") or "").strip().lower() in {"1", "true", "yes"}
+
+
 def _home_status() -> dict:
     """The one line that says whether the bot is actually connected.
 
     Three states rather than two, because "never connected" and "reconnecting"
     are different things to a visitor and only one of them is worth waiting for.
     """
+    if _static_site():
+        return {
+            "class": "pill-ok",
+            "dot": "dot-live",
+            "label": "Always on",
+            "detail": (
+                "This page is a static copy served by GitHub Pages, so it answers "
+                "whether or not the bot is awake. Its live status, figures and "
+                "dashboard are on its own host."
+            ),
+        }
     started, connected = _gateway_state()
     if connected:
         return {

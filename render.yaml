@@ -8,6 +8,15 @@ services:
     envVars:
       - key: DISCORD_TOKEN
         sync: false
+      # The application's client id, which is **public**: it appears in every
+      # invite link anybody can read, so it lives here rather than in the
+      # dashboard's secret list. Without it the landing page omitted its
+      # "Add to Discord" button entirely — the templates drop the button when the
+      # id is unknown, so the live site had no way to add the bot and nothing
+      # anywhere said so. Discord sign-in stays off until the *secret* is set
+      # too; it needs both, and the login page says so.
+      - key: DISCORD_CLIENT_ID
+        value: "1548380269776605324"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
