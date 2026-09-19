@@ -359,17 +359,27 @@ export default {{
       backendUrl.port = "";
 
       const reqHeaders = new Headers(request.headers);
+      reqHeaders.set("Host", BACKEND_HOST);
       reqHeaders.set("X-Forwarded-Host", url.host);
       reqHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
 
+      const hasBody = !["GET", "HEAD"].includes(request.method);
       const proxyReq = new Request(backendUrl.toString(), {{
         method: request.method,
         headers: reqHeaders,
-        body: request.body,
+        body: hasBody ? request.body : undefined,
         redirect: "manual"
       }});
 
-      const response = await fetch(proxyReq);
+      let response;
+      try {{
+        response = await fetch(proxyReq);
+      }} catch (err) {{
+        return new Response("Backend gateway error: " + (err && err.message ? err.message : String(err)), {{
+          status: 502,
+          headers: {{ "Content-Type": "text/plain; charset=utf-8" }}
+        }});
+      }}
 
       const resHeaders = new Headers(response.headers);
       const location = resHeaders.get("Location");

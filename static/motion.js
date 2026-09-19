@@ -490,21 +490,25 @@
     /* ---------------------------------------------------------------------
        The loader
        --------------------------------------------------------------------- */
-    var MIN_VISIBLE_MS = 1400;
-    var MAX_VISIBLE_MS = 2600;
-    var EXIT_MS = 850;
+    var MIN_VISIBLE_MS = 200;
+    var MAX_VISIBLE_MS = 400;
+    var EXIT_MS = 250;
 
     function loader() {
         var curtain = document.querySelector("[data-loader]");
-        if (!curtain) return;
+        if (!curtain) {
+            document.documentElement.classList.add("is-ready");
+            document.dispatchEvent(new CustomEvent("meow:ready"));
+            return;
+        }
 
-        var minVisible = reduced ? 200 : MIN_VISIBLE_MS;
+        var minVisible = reduced ? 50 : MIN_VISIBLE_MS;
         var exit = reduced ? 0 : EXIT_MS;
         var fill = curtain.querySelector(".loader-fill");
         var done = false;
 
         if (fill) {
-            tween(reduced ? 0 : minVisible - 120, "easeInOutCubic", function (p) {
+            tween(reduced ? 0 : minVisible, "easeInOutCubic", function (p) {
                 fill.style.transform = "scaleX(" + p.toFixed(4) + ")";
             });
         }
@@ -512,11 +516,10 @@
         function reveal() {
             if (done) return;
             done = true;
-            // `is-ready` is the gate: the hero's own reveal, the collection
-            // carousel and anything else that must not start behind a curtain
-            // listens for this rather than for its own timer.
             document.documentElement.classList.add("is-ready");
             document.dispatchEvent(new CustomEvent("meow:ready"));
+            document.body.style.removeProperty("overflow");
+            curtain.style.pointerEvents = "none";
             if (!exit) {
                 curtain.remove();
                 return;
@@ -526,19 +529,15 @@
             }, function () {
                 curtain.remove();
             });
-            document.body.style.removeProperty("overflow");
         }
 
-        document.body.style.overflow = "hidden";
         var timer = setTimeout(reveal, minVisible);
-        setTimeout(reveal, MAX_VISIBLE_MS);   // the load event may never come
+        setTimeout(reveal, MAX_VISIBLE_MS);
         if (document.readyState === "complete") {
-            clearTimeout(timer);
-            timer = setTimeout(reveal, minVisible);
+            reveal();
         } else {
             window.addEventListener("load", function () {
-                clearTimeout(timer);
-                timer = setTimeout(reveal, minVisible);
+                reveal();
             });
         }
     }
