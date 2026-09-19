@@ -147,12 +147,15 @@ def _fetch(site: str, path: str, *, bust: bool = False) -> int | None:
 
     ``None`` is deliberately not ``404``: it means the question was not.
 
-    ``bust`` asks the origin rather than the cache layer. Two mechanisms, because
-    they cover different caches — the unique query string is a different URL to a
-    CDN, and ``Cache-Control: no-cache`` tells anything that still recognises the
-    path to revalidate rather than serve a stored copy. Both are needed for the
-    answer to be about the deployment: the stale entries that fooled the first
-    live run were served for a URL whose origin had refused it for half an hour.
+    ``bust`` asks the origin rather than the cache layer, by putting a unique
+    query string on the URL — and it is the query string that does the work, for
+    the simple reason that it is a *different URL*, so nothing has a stored
+    answer for it. The request also carries ``Cache-Control: no-cache``, which is
+    a second, weaker signal: measured against this host it changed nothing (a
+    client `no-cache` on the cached path returned the same stored copy, same
+    ``age``), so it is not what makes the answer trustworthy. It is sent anyway
+    because it costs nothing and some caches and configurations do honour it —
+    but nothing here should be read as relying on it.
     """
     url = f"{site}/{path.lstrip('/')}"
     if bust:
