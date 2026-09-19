@@ -191,6 +191,93 @@ class BuiltSiteCase(unittest.TestCase):
             self.assertNotIn(path, sitemap)
 
 
+class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):
+    """A CDN has no Flask, so the headers it cannot inherit have to be shipped.
+
+    Every security header this bot serves — CSP, `X-Frame-Options`, the referrer
+    policy, HSTS — is set by `keep_alive.set_security_headers`, which runs on the
+    Render host and nowhere else. So the copy published to a static host, without
+    a `_headers` file, is the *least* protected version of the pages: no CSP, no
+    frame denial, no HSTS. These tests exist because that gap is invisible from
+    both ends — the Flask tests all pass, and a static host serves it happily.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = tempfile.mkdtemp(prefix="meow-site-hdr-")
+        build_site.build(cls.out, "https://bot.example.test")
+        cls.headers = (Path(cls.out) / "_headers").read_text(encoding="utf-8")
+        cls.redirects = (Path(cls.out) / "_redirects").read_text(encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)
+
+    def _value(self, name: str) -> str:
+        for line in self.headers.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith(name.lower() + ":"):
+                return stripped.split(":", 1)[1].strip()
+        self.fail(f"_headers does not set {name}")
+
+    def test_it_covers_every_page(self):
+        self.assertIn("/*", self.headers)
+
+    def test_it_agrees_with_the_live_host_on_the_headers_that_have_one_answer(self):
+        """Two hosts must not disagree about the same protection.
+
+        Read from a real response rather than restated, because a copy of a policy
+        is what drifts — the same failure that made the preview harness answer
+        differently from the bot.
+        """
+        live = keep_alive.app.test_client().get("/health").headers
+        for name in ("X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"):
+            self.assertEqual(
+                self._value(name),
+                live.get(name),
+                f"{name} differs between the static copy and the live host",
+            )
+
+    def test_the_policy_forbids_being_framed(self):
+        csp = self._value("Content-Security-Policy")
+        self.assertIn("frame-ancestors 'none'", csp)
+        self.assertIn("default-src 'self'", csp)
+        self.assertIn("base-uri 'self'", csp)
+        self.assertIn("form-action 'self'", csp)
+
+    def test_the_static_policy_is_not_looser_than_the_live_one(self):
+        """It may be narrower — the market page is not built here — never wider.
+
+        The chart library's two CDNs are needed by the live market page and by
+        nothing in this build, so allowing them here would be a permission for a
+        resource no static page requests.
+        """
+        csp = self._value("Content-Security-Policy")
+        for cdn in ("unpkg.com", "jsdelivr", "googleapis", "gstatic"):
+            self.assertNotIn(cdn, csp, f"{cdn} is allowed but nothing here loads it")
+
+    def test_hsts_is_set(self):
+        self.assertIn("max-age=", self._value("Strict-Transport-Security"))
+
+    def test_the_pages_are_not_cached_as_hard_as_the_assets(self):
+        """A deploy has to be visible; a stranger on a slow link still gets a cache."""
+        self.assertIn("/static/*", self.headers)
+        self.assertIn("immutable", self.headers)
+        self.assertNotIn("no-store", self._value("Cache-Control"))
+
+    def test_the_clean_urls_the_live_host_prints_still_work(self):
+        for route, filename in (
+            ("/pricing", "pricing.html"),
+            ("/privacy", "privacy.html"),
+            ("/terms", "terms.html"),
+        ):
+            self.assertIn(
+                f"{route} /{filename} 200",
+                self.redirects,
+                f"{route} would 404 on a static host",
+            )
+
+
 class TheLiveSiteIsNotAffected(unittest.TestCase):
     """The static flag must not change what a running bot says about itself."""
 

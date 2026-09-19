@@ -205,6 +205,79 @@ def _not_found_page(live_app: str) -> str:
 """
 
 
+#: The policy the static copy runs under.
+#:
+#: Every header below is normally set by `keep_alive.set_security_headers` — and
+#: none of them exist on a static host, because there is no Flask there to set
+#: them. Publishing these pages to a CDN without this file would therefore ship
+#: the *least* protected copy of them: no CSP, no frame denial, no HSTS, no
+#: referrer policy. The pages are the ones asking a stranger to install a bot, so
+#: that trade is backwards.
+#:
+#: It is deliberately **tighter** than the Flask policy in one respect and looser
+#: in none: the market page is not among the pages built here, so none of the
+#: chart library's CDNs need allowing. `'unsafe-inline'` for scripts is required
+#: by the pages themselves (the nav toggle and the reveal observer are inline)
+#: — and it is the reason nonce-based CSP is worth doing for both hosts at once.
+#: `data:` is allowed for images because the favicon may be inlined by a host.
+STATIC_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+def _headers_file() -> str:
+    """Cloudflare Pages' `_headers`, which is this site's only possible CSP.
+
+    Format: a path pattern, then indented `Name: value` lines. `/*` matches every
+    page; the static assets get their own rule because they are the only thing
+    here worth caching hard, and they carry a `?v=` cache-buster in the templates
+    precisely so an immutable cache is safe.
+    """
+    return (
+        "/*\n"
+        f"  Content-Security-Policy: {STATIC_CSP}\n"
+        "  X-Content-Type-Options: nosniff\n"
+        "  X-Frame-Options: DENY\n"
+        "  Referrer-Policy: no-referrer\n"
+        "  Permissions-Policy: camera=(), microphone=(), geolocation=()\n"
+        "  Strict-Transport-Security: max-age=31536000; includeSubDomains\n"
+        # NOT `no-store`: that is right for the dashboard and wrong for a page
+        # whose whole job is to be readable by a stranger on a slow connection.
+        # Short and revalidated, so a deploy is picked up within minutes while a
+        # repeat visit is still instant.
+        "  Cache-Control: public, max-age=300, must-revalidate\n"
+        "\n"
+        "/static/*\n"
+        "  Cache-Control: public, max-age=31536000, immutable\n"
+        "\n"
+    )
+
+
+def _redirects_file() -> str:
+    """The extension-less URLs the bot's own host serves, for the CDN copy.
+
+    The Flask app answers `/pricing`, and the links in the pages point at
+    `pricing.html` so they work on *any* static host. This makes the clean URL
+    work too — for somebody who typed it, or followed one out of a README —
+    which is the URL the bot's own host has been printing. `200` is a rewrite
+    rather than a redirect, so the address bar keeps what the visitor typed.
+    """
+    lines = []
+    for route, filename in PAGES:
+        if filename == "index.html":
+            continue
+        lines.append(f"{route} /{filename} 200")
+    return "\n".join(lines) + "\n"
+
+
 def _sitemap(pages, live_app: str) -> str:
     """Only the pages that exist here — a sitemap naming 404s is worse than none."""
     import datetime
@@ -270,6 +343,14 @@ def build(out_dir: str, live_app: str, site_url: str = "") -> dict:
     # GitHub Pages runs Jekyll unless told not to, and Jekyll silently drops
     # files and folders whose names begin with an underscore.
     open(os.path.join(out_dir, ".nojekyll"), "w").close()
+    # Host-specific config, both harmless where they are not read: `_headers` and
+    # `_redirects` are Cloudflare Pages' own files, and the `.nojekyll` above is
+    # GitHub Pages'. Emitting all three keeps the same directory deployable to
+    # either without a wrapper script per host.
+    with open(os.path.join(out_dir, "_headers"), "w", encoding="utf-8") as handle:
+        handle.write(_headers_file())
+    with open(os.path.join(out_dir, "_redirects"), "w", encoding="utf-8") as handle:
+        handle.write(_redirects_file())
     with open(os.path.join(out_dir, "404.html"), "w", encoding="utf-8") as handle:
         handle.write(_not_found_page(live_app))
     with open(os.path.join(out_dir, "robots.txt"), "w", encoding="utf-8") as handle:

@@ -96,6 +96,18 @@ jobs:
             exit 1
           }
 
+      - name: Check the published copy carries its security headers
+        # A static host has no Flask, so the CSP, frame denial and HSTS the bot
+        # serves come from `_headers` or from nowhere at all. Without this step a
+        # build that dropped the file would deploy the least-protected copy of
+        # the pages that ask a stranger to install a bot — and nothing on either
+        # side would look wrong.
+        run: |
+          test -f _site/_headers
+          grep -q "Content-Security-Policy" _site/_headers
+          grep -q "frame-ancestors 'none'" _site/_headers
+          test -f _site/_redirects
+
       - name: Check the cat cursor is still fetchable
         # A cursor image that 404s is invisible everywhere except to a person
         # noticing that their pointer is a plain arrow.
