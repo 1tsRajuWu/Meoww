@@ -266,15 +266,21 @@ class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):
         self.assertNotIn("no-store", self._value("Cache-Control"))
 
     def test_the_clean_urls_the_live_host_prints_still_work(self):
+        """Clean URLs must not cause circular 308 redirect loops on Cloudflare Pages.
+
+        Cloudflare Pages handles extensionless clean URLs out of the box. Rewriting
+        `/pricing` to `/pricing.html 200` triggers Cloudflare's clean-URL redirect
+        loop. _redirects is present but avoids self-referential .html loops.
+        """
         for route, filename in (
             ("/pricing", "pricing.html"),
             ("/privacy", "privacy.html"),
             ("/terms", "terms.html"),
         ):
-            self.assertIn(
+            self.assertNotIn(
                 f"{route} /{filename} 200",
                 self.redirects,
-                f"{route} would 404 on a static host",
+                f"{route} rewrite to /{filename} causes a 308 redirect loop on Cloudflare Pages",
             )
 
 

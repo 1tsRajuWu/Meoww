@@ -262,20 +262,20 @@ def _headers_file() -> str:
 
 
 def _redirects_file() -> str:
-    """The extension-less URLs the bot's own host serves, for the CDN copy.
+    """The redirects file for the CDN copy.
 
-    The Flask app answers `/pricing`, and the links in the pages point at
-    `pricing.html` so they work on *any* static host. This makes the clean URL
-    work too — for somebody who typed it, or followed one out of a README —
-    which is the URL the bot's own host has been printing. `200` is a rewrite
-    rather than a redirect, so the address bar keeps what the visitor typed.
+    Cloudflare Pages natively handles clean, extension-less URLs (serving
+    `/pricing` from `pricing.html` and 308-redirecting direct requests for
+    `/pricing.html` to `/pricing`).
+
+    Explicit 200 rewrites from `/route` to `/route.html` must NOT be defined
+    here because Cloudflare Pages evaluates the rewritten `.html` path against
+    its Clean URLs rule, resulting in an infinite 308 redirect loop.
     """
-    lines = []
-    for route, filename in PAGES:
-        if filename == "index.html":
-            continue
-        lines.append(f"{route} /{filename} 200")
-    return "\n".join(lines) + "\n"
+    return (
+        "# Cloudflare Pages natively serves clean extensionless URLs (e.g. /pricing -> pricing.html).\n"
+        "# Explicit 200 rewrites to .html files are omitted to avoid circular 308 redirect loops.\n"
+    )
 
 
 def _sitemap(pages, live_app: str) -> str:
