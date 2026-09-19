@@ -50,9 +50,46 @@ class AnUnpublishedCommitIsNotGreen(unittest.TestCase):
         self.assertNotIn("Published: **yes**", self.deploy)
 
     def test_a_rejected_token_fails_before_wrangler_starts(self):
-        """An expired token otherwise reads as a deploy failure with no reason."""
+        """An expired token otherwise reads as a deploy failure with no reason.
+
+        The refusal says *cannot publish* rather than *was rejected*, because
+        valid-but-scoped-wrongly is the case that actually happened here.
+        """
         self.assertIn("/user/tokens/verify", self.deploy)
-        self.assertIn("::error title=The Cloudflare token was rejected", self.deploy)
+        self.assertIn("::error title=The Cloudflare token cannot publish", self.deploy)
+
+    def test_the_preflight_asks_whether_the_token_can_publish(self):
+        """`Pages Read` reads every GET and cannot deploy.
+
+        Measured on the first real run of this workflow, against this very
+        account: the deployed token answers `200` to the project read and `403`
+        to the upload-token call, and the publish died inside wrangler as
+        `Authentication error [code: 10000]`. A preflight that only *read* would
+        have waved it through and let the site look broken.
+
+        So the check is the capability the deploy actually needs — a Pages upload
+        token, which creates nothing and publishes nothing — and the refusal names
+        the permission rather than quoting a stack trace.
+        """
+        self.assertIn("/upload-token", self.deploy)
+        self.assertIn("-X POST", self.deploy)
+        self.assertIn("Cloudflare Pages: Edit", self.deploy)
+        self.assertIn("Pages Write", self.deploy)
+        self.assertIn("cannot publish", self.deploy)
+        # The refusal has to depend on the publish check, not on the project read:
+        # a read-only token passes the read and must still be refused.
+        self.assertNotRegex(
+            self.deploy,
+            r"if \[ \"\$read_status\" != \"200\" \]",
+            "acceptance is decided by the read, which a read-only token passes",
+        )
+
+    def test_a_missing_account_id_is_refused_before_anything_is_asked(self):
+        """It used to pass when the token endpoint said 200, and then fail in
+        wrangler with the project unnamed — the least actionable version."""
+        before_any_call = self.deploy.split("token_status=", 1)[0]
+        self.assertIn("CLOUDFLARE_ACCOUNT_ID is not", before_any_call)
+        self.assertIn("exit 1", before_any_call)
 
     def test_an_account_owned_token_is_not_refused_by_the_token_endpoint(self):
         """The token endpoint answers 401 for a token that works.
@@ -72,10 +109,11 @@ class AnUnpublishedCommitIsNotGreen(unittest.TestCase):
         self.assertIn("account-owned", self.deploy)
         self.assertIn("CLOUDFLARE_ACCOUNT_ID is not", self.deploy)
         # Order, not just presence: the refusal has to come *after* the Pages
-        # project has been asked, or a 401 there is still fatal on its own.
+        # project has been asked, or a 401 from the token endpoint is fatal on its
+        # own and an account-owned token cannot publish even when it should.
         self.assertLess(
             self.deploy.index("pages/projects/"),
-            self.deploy.index("::error title=The Cloudflare token was rejected"),
+            self.deploy.index("::error title=The Cloudflare token cannot publish"),
             "the token is refused before the Pages project is consulted",
         )
 

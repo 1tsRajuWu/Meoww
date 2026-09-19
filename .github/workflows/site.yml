@@ -218,45 +218,59 @@ jobs:
           fi
 
           # Set but unusable is worse than absent: an expired or revoked token
-          # fails the publish *after* wrangler has started, as a 401 from inside a
-          # third-party action. Asked here, the answer is already a sentence that
-          # says which secret and where to rotate it.
+          # fails the publish *after* wrangler has started, as an opaque error
+          # from inside a third-party action. Asked here, the answer is a sentence
+          # that names what is missing — and there are three different ways this
+          # token can be wrong, each one measured against the live API for this
+          # account rather than assumed:
           #
-          # Two questions, and the second is the one that matters: is the token
-          # alive at all, and can it reach *this* account's Pages project. Only the
-          # first can be asked of the token endpoint, because Cloudflare answers
-          # **401 there for an account-owned token** — which is the kind a
-          # Pages-scoped token usually is — while that same token reads and deploys
-          # through the Pages API without complaint. Measured, not assumed: the
-          # token in this deployment returns `401 Invalid API Token` from
-          # `/user/tokens/verify` and `200` from the project endpoint below. A
-          # check that insisted on the token endpoint would have red-failed a
-          # perfectly good token *before* wrangler ran, which is a worse failure
-          # than the silent one this step exists to catch.
+          #   * account-owned    — `/user/tokens/verify` answers **401** for those
+          #                        by design, so a check built on it red-fails a
+          #                        token that works;
+          #   * read-only        — every GET succeeds and the project reads fine
+          #                        (`Pages Read` answers 200), while the publish
+          #                        dies as `Authentication error [code: 10000]`.
+          #                        That is exactly what this repository's token
+          #                        did, on the first real run;
+          #   * no account id    — the Pages project cannot even be named.
+          #
+          # So the question asked is the one the publish actually asks, a step
+          # earlier: a Pages **upload token**. It creates nothing, publishes
+          # nothing and mints only the short-lived credential the upload would
+          # use — so it exercises no authority the next step does not already
+          # have — and a token without `Pages Write` is refused here, by name,
+          # instead of as a wrangler stack trace.
+          if [ -z "$ACCOUNT_ID" ]; then
+            echo "::error title=The Cloudflare account id is missing::CLOUDFLARE_API_TOKEN is set but CLOUDFLARE_ACCOUNT_ID is not, so the Pages project cannot even be named. Both are needed: gh secret set CLOUDFLARE_ACCOUNT_ID --repo ${GITHUB_REPOSITORY}"
+            exit 1
+          fi
           token_status=$(curl -sS -o /tmp/cf-verify.json -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
             https://api.cloudflare.com/client/v4/user/tokens/verify || echo 000)
-          accepted=false
-          if [ "$token_status" = "200" ]; then
-            accepted=true
-          elif [ -z "$ACCOUNT_ID" ]; then
-            echo "::error title=The Cloudflare account id is missing::CLOUDFLARE_API_TOKEN is set but CLOUDFLARE_ACCOUNT_ID is not, so there is no way to ask whether this token reaches the Pages project. Both are needed: gh secret set CLOUDFLARE_ACCOUNT_ID --repo ${GITHUB_REPOSITORY}"
-            exit 1
-          else
-            project_status=$(curl -sS -o /dev/null -w '%{http_code}' \
-              -H "Authorization: Bearer $TOKEN" \
-              "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot-site" || echo 000)
-            if [ "$project_status" = "200" ]; then
-              accepted=true
-              echo "::notice::CLOUDFLARE_API_TOKEN is account-owned: the token endpoint answers ${token_status} for those by design, and the Pages project answered 200 with it. Publishing."
+          read_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot-site" || echo 000)
+          publish_status=$(curl -sS -o /tmp/cf-upload.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot-site/upload-token" || echo 000)
+
+          if [ "$publish_status" != "200" ]; then
+            if [ "$read_status" = "200" ]; then
+              reason="this looks like a missing permission rather than a dead token: it can read the Pages project but not publish to it"
+              remedy="Add **Cloudflare Pages: Edit** (the API calls the group 'Pages Write') to the token for account ${ACCOUNT_ID} at https://dash.cloudflare.com/profile/api-tokens, or mint a token that has it and run"
+            elif [ "$token_status" = "401" ] && [ "$read_status" = "401" ]; then
+              reason="the API refused it, so it is expired, revoked, or scoped to a different account"
+              remedy="Rotate it at https://dash.cloudflare.com/profile/api-tokens, then run"
             else
-              token_status="${token_status} (token endpoint) / ${project_status} (Pages project)"
+              reason="the API answered ${publish_status} to the publish check and ${read_status} to the project read"
+              remedy="Check the token's permissions and account at https://dash.cloudflare.com/profile/api-tokens, then run"
             fi
-          fi
-          if [ "$accepted" != "true" ]; then
-            echo "::error title=The Cloudflare token was rejected::CLOUDFLARE_API_TOKEN is set but the API answered ${token_status}. An expired, revoked or wrongly-scoped token looks exactly like a broken deploy from the outside, so it is caught here instead. Rotate it at https://dash.cloudflare.com/profile/api-tokens."
-            cat /tmp/cf-verify.json 2>/dev/null || true
+            echo "::error title=The Cloudflare token cannot publish::CLOUDFLARE_API_TOKEN is set, but ${reason}. Left alone this fails inside wrangler as 'Authentication error [code: 10000]', which reads as a broken site rather than as a missing permission. ${remedy}: gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY} (token endpoint ${token_status}, project read ${read_status}, publish check ${publish_status})"
+            cat /tmp/cf-upload.json 2>/dev/null || true
             exit 1
+          fi
+          if [ "$token_status" != "200" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN is account-owned — the token endpoint answers ${token_status} for those by design, so the publish check is the one that decides, and it passed."
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
