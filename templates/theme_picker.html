@@ -1,0 +1,43 @@
+{# The theme picker, as a partial so there is one of it.
+ #
+ # Included rather than macro'd because the pages that carry it do not share a
+ # base template — the landing page, the two policies, the pricing page and the
+ # dashboard are five documents with one stylesheet — and an include is the one
+ # Jinja feature that works across all of them without inventing a base. Set
+ # `theme_compact` before including to get the dot-only version.
+ #
+ # The markup is the interface; the behaviour is `static/theme.js`, which applies
+ # a stored choice before the page paints and then wires these buttons. Every
+ # `data-` hook below is read by exactly one function in that file, and a
+ # stylesheet test fails if a class here loses its rule.
+ #}
+<div class="theme-picker{% if theme_compact %} theme-picker-compact{% endif %}" data-theme-picker>
+    <button class="theme-trigger" type="button" data-theme-open
+            aria-haspopup="true" aria-expanded="false" aria-label="Theme">
+        <span class="theme-swatch" aria-hidden="true"></span>
+        <span class="theme-name" data-theme-name>Midnight</span>
+    </button>
+    <div class="theme-menu" data-theme-menu hidden>
+        <p class="theme-menu-title">Theme</p>
+        <button class="theme-option" type="button" data-theme-value="midnight" aria-pressed="true">
+            <span class="theme-swatch" aria-hidden="true"></span>
+            <span>Midnight</span>
+            <span class="theme-tick" aria-hidden="true">✓</span>
+        </button>
+        <button class="theme-option" type="button" data-theme-value="sakura" aria-pressed="false">
+            <span class="theme-swatch" aria-hidden="true"></span>
+            <span>Sakura</span>
+            <span class="theme-tick" aria-hidden="true">✓</span>
+        </button>
+        <button class="theme-option" type="button" data-theme-value="forest" aria-pressed="false">
+            <span class="theme-swatch" aria-hidden="true"></span>
+            <span>Forest</span>
+            <span class="theme-tick" aria-hidden="true">✓</span>
+        </button>
+        <button class="theme-option" type="button" data-theme-value="ember" aria-pressed="false">
+            <span class="theme-swatch" aria-hidden="true"></span>
+            <span>Ember</span>
+            <span class="theme-tick" aria-hidden="true">✓</span>
+        </button>
+    </div>
+</div>

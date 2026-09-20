@@ -10,6 +10,9 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>Pricing — {{ bot_name }}</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    {# Blocking, like every page: the stored theme has to be on `<html>` before
+       the first paint. See `static/theme.js`. #}
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
     <style>
         /* Pricing page specific styles */
         .pricing-cards {
@@ -640,6 +643,10 @@
                 <a href="/market/BTC">Live market</a>
                 <a href="/health">Status</a>
                 {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
+            </div>
+            <div class="footer-theme">
+                {% set theme_compact = true %}
+                {% include "theme_picker.html" %}
             </div>
             <p>
                 {{ bot_name }} stores what it needs to run the systems you switch on —

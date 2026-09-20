@@ -42,10 +42,14 @@ from threading import Lock, Thread
 import socket
 import datetime
 import html as _html
-from flask import Flask, render_template, request, redirect, session, jsonify, Response
+from flask import (
+    Flask, render_template, request, redirect, send_from_directory, session, jsonify,
+    Response,
+)
 from utils import (
     command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    figures, identity, modules, plans, scheduled, site_guard, uptime_status, webdocs,
+    figures, hub, identity, modules, plans, scheduled, site_guard, uptime_status,
+    webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -303,13 +307,26 @@ def oauth_redirect_uri() -> str:
 
 
 def _oauth_setup_hint() -> str:
-    """What an operator has to set before Discord sign-in can work."""
+    """Why Discord sign-in is off — and this text goes on a *public* page.
+
+    It used to name the two settings it is about, one of which is a credential,
+    which is the sentence this project's own rule forbids everywhere else: a
+    count is safe, a name is a reconnaissance hint, and `/health` was rewritten
+    for exactly this reason ("this deployment has no sign-in secret" is not
+    something to hand a stranger). It is also the "/login" page, so it is what a
+    visitor sees when they try to sign in and cannot.
+
+    The operator loses nothing: the reason they are reading this is that sign-in
+    does not work, the Developer Portal is where OAuth credentials live and
+    nothing else is, and the exact list of what this deployment is missing is on
+    the audit — behind the sign-in that works.
+    """
     if discord_auth.enabled():
         return ""
     return (
-        "Signing in with Discord is switched off: DISCORD_CLIENT_ID and "
-        "DISCORD_CLIENT_SECRET are not both set. Take them from the Developer "
-        "Portal's OAuth2 page and register the callback URL it shows below."
+        "Signing in with Discord is switched off on this deployment: its OAuth "
+        "credentials are not set. Whoever runs it adds them from the Developer "
+        "Portal's OAuth2 page, registering the callback URL shown below."
     )
 
 
@@ -861,17 +878,27 @@ def set_security_headers(response):
     # written down in its own header. A permission kept for a resource that no
     # page requests is a third-party origin a compromised page could reach, held
     # open by a comment rather than by a need.
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline'; "
-        "font-src 'self'; "
-        "img-src 'self' data:; "
-        "connect-src 'self'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'"
-    )
+    # The hub is tighter than everything else, and deliberately: its pages carry
+    # no inline script and no `style` attribute at all, so it does not need the
+    # `'unsafe-inline'` the dashboard and the market page do. Overriding it here
+    # means the same strict policy governs the hub on *this* host and on the
+    # static one, instead of the CDN copy being held to a rule the app never
+    # applies — and it means an inline script added to a hub template later fails
+    # in development rather than only in production.
+    if request.path == "/hub" or request.path.startswith("/hub/"):
+        response.headers["Content-Security-Policy"] = hub.CSP
+    else:
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
     # Nothing here is worth a stale copy. The pages and their APIs are per-session
     # and change on every deploy, and a browser holding yesterday's HTML is
     # indistinguishable from a feature that never shipped — which is exactly what
@@ -880,7 +907,7 @@ def set_security_headers(response):
     # public market endpoints say what they want to be cached; anything that has
     # already spoken is left alone.
     # Static assets (css, svg, js) require revalidation so new deploys are instantly picked up
-    if request.path.startswith("/static/"):
+    if request.path.startswith("/static/") or request.path.startswith("/hub/static/"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     elif "Cache-Control" not in response.headers:
         response.headers["Cache-Control"] = "no-store"
@@ -1203,32 +1230,39 @@ def _gateway_counts() -> dict:
     them is worth printing on a landing page.
     """
     counts = {
+        # Servers and members are facts about *this* deployment and can only come
+        # from the gateway. Systems and commands are facts about the code and
+        # come from the registry, in the units every other surface uses — the
+        # tree is not read for them, because the count someone is shown should
+        # not depend on whether a gateway happened to be awake. See
+        # :func:`utils.features.command_count` for what that cost the last time.
         "servers": None,
         "members": None,
-        "systems": len(AVAILABLE_MODULES) or None,
-        "commands": None,
+        "systems": features.system_count(),
+        "commands": features.command_count(),
         "connected": False,
     }
-    declared = {name for feature in features.FEATURES for name in feature.commands}
     started, connected = _gateway_state()
     counts["connected"] = bool(connected)
     if started and BOT_INSTANCE is not None:
         try:
             guilds = list(BOT_INSTANCE.guilds)
-            live_names = _command_tree_names()
             counts["servers"] = len(guilds)
             counts["members"] = sum(g.member_count or 0 for g in guilds)
-            counts["commands"] = len(live_names) or len(declared)
         except Exception as exc:
             print(f"[FIGURES] could not read the gateway's counts: {exc}", flush=True)
-    if counts["commands"] is None and declared:
-        counts["commands"] = len(declared)
     return counts
 
 
-def _public_figures() -> dict:
-    """The payload the landing page draws and `/api/figures` serves."""
-    return figures.snapshot(gateway=_gateway_counts())
+def _public_figures(*, read_tracker: bool = True) -> dict:
+    """The payload the landing page draws and `/api/figures` serves.
+
+    ``read_tracker=False`` is the static build's case: this module reads a local
+    SQLite file, and a build runs on a machine that is not the deployment, so its
+    totals would be somebody else's numbers published as the deployment's. See
+    :func:`utils.figures.deployment`.
+    """
+    return figures.snapshot(gateway=_gateway_counts(), read_tracker=read_tracker)
 
 
 def _home_stats() -> list[dict]:
@@ -1241,24 +1275,20 @@ def _home_stats() -> list[dict]:
     than as a process that has not woken up yet. So they are simply absent until
     there is something to say, and the status line above them says why.
     """
-    declared = {name for feature in features.FEATURES for name in feature.commands}
-    stats = [{"value": f"{len(AVAILABLE_MODULES)}", "label": "systems"}]
+    stats = [{"value": f"{features.system_count():,}", "label": "systems"}]
     started, _connected = _gateway_state()
     if started and BOT_INSTANCE is not None:
         try:
             guilds = list(BOT_INSTANCE.guilds)
             members = sum(g.member_count or 0 for g in guilds)
-            live_names = _command_tree_names()
             stats = [
                 {"value": f"{len(guilds):,}", "label": "servers"},
                 {"value": f"{members:,}", "label": "members reached"},
-                {"value": f"{len(live_names) or len(declared):,}", "label": "commands"},
                 *stats,
             ]
         except Exception as exc:
             print(f"[HOME] could not read the live figures: {exc}", flush=True)
-    if len(stats) < 3:
-        stats.append({"value": f"{len(declared):,}", "label": "commands"})
+    stats.append({"value": f"{features.command_count():,}", "label": "commands"})
     return stats
 
 
@@ -1493,7 +1523,14 @@ def _figures_url() -> str:
 def _home_page():
     """The public landing page for somebody who is not signed in."""
     name = _bot_display_name()
-    live_figures = _public_figures()
+    # ``MEOW_STATIC_SITE`` means the tracker's SQLite file belongs to the machine
+    # running the *build*, not to the deployment — and the landing page draws its
+    # activity tiles from that snapshot server-side, so reading it here published
+    # the operator's own laptop as the live figures: *467 messages this week* on a
+    # public page, about a bot the reader is not running. The same one-line rule
+    # the hub's context has always applied; this page never did.
+    static_copy = os.environ.get("MEOW_STATIC_SITE", "").strip() == "1"
+    live_figures = _public_figures(read_tracker=not static_copy)
     periods = live_figures.get("periods") or []
     # The window the Activity card opens on. Seven days, because it is the one a
     # visitor can read as "lately" without being told how old the deployment is,
@@ -1519,6 +1556,10 @@ def _home_page():
         system_bars=_system_bars(),
         figures_json=_inline_json(live_figures),
         figures_url=_figures_url(),
+        # The registry's own answers, passed as numbers the template prints rather
+        # than left for a template to count a list with. `features` below is the
+        # *switchable* subset; the page shows both, labelled.
+        system_count=features.system_count(),
         features=features.dashboard_modules(),
         # The same registry the cards above are built from, as data — so the
         # interactive panel cannot advertise a system the bot does not have, and
@@ -1585,7 +1626,20 @@ POLICY_DOCUMENTS = {
 }
 
 #: Shown in the footer, and the same repository the Discord card names.
-SOURCE_REPOSITORY = "https://github.com/1tsRajOwO/Meow"
+#: Where this bot's source lives — **empty on purpose**, because it does not live
+#: anywhere a visitor can read.
+#:
+#: The repository is private, and every surface that offered a "Source code" link
+#: was handing a stranger GitHub's *"This is not the web page you are looking
+#: for"* — on the footer of the page that asks them to trust this bot with their
+#: server, next to links that work. A promise that resolves to a 404 is worse than
+#: no promise: it reads as a project that has gone quiet, and it says so in the
+#: one place a cautious visitor looks first.
+#:
+#: So the link is gone and the copy says the source is not published, which is
+#: true. Every template that used to print it now asks whether there is one, so
+#: publishing the repository again is this line and nothing else.
+SOURCE_REPOSITORY = ""
 
 
 def _policy_page(slug: str):
@@ -1667,6 +1721,7 @@ def pricing_page():
         **_invite_context(),
         enter_url="/login",
         enter_label="Sign in",
+        system_count=features.system_count(),
         features=features.dashboard_modules(),
         selling=plans.selling_enabled(),
         price_free=plans.FREE.price,
@@ -1677,6 +1732,466 @@ def pricing_page():
         checkout_ready=bool(checkout_pro or checkout_enterprise),
         plans_enforced=plans.enforcement_enabled(),
     )
+
+
+# ---------------------------------------------------------------------------
+# 5b. THE HUB — the public map, and the one place everything is written down
+#
+# The hub is a second public surface and it is deliberately **read-only**. It has
+# no database, no session and no credential: it renders from the bot's own
+# registry, its own changelog and its own public readings, and every page that
+# would need an action behind it hands off to the console. A static host is a
+# host anybody can read, so putting a write path on one would be the mistake —
+# the whole design falls out of that single decision.
+#
+# It is served from the real app as well as published statically, and that is the
+# same reasoning `scripts/build_site.py` already follows: the page a visitor
+# reads on the CDN and the page this process serves are the same template with
+# the same context, so the two cannot drift into disagreeing about the product.
+# ---------------------------------------------------------------------------
+
+#: The hub's own assets. Separate from `static/` on purpose: the marketing site
+#: copies the whole shared directory to its host, and the hub has no use for an
+#: 80 KB stylesheet belonging to another surface.
+HUB_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hub", "static")
+#: The project's own changelog, read as the hub's "what changed" page.
+HUB_CHANGELOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CHANGELOG.md")
+#: ``route`` -> the file `scripts/build_hub.py` turns it into. The paths are the
+#: live app's own, and the builder rewrites each to a relative file, so a page's
+#: address is written once in ``utils.hub.HUB_PAGES`` and both hosts agree.
+HUB_PAGES_FOR_BUILD = tuple(
+    (path, "index.html" if page == "overview" else f"{page}.html")
+    for page, _label, path, _icon, _group, _blurb in hub.HUB_PAGES
+)
+
+
+@app.route("/hub/static/<path:name>")
+def hub_static(name: str):
+    """The hub's stylesheet and script.
+
+    A second static directory, served rather than copied into ``static/`` so the
+    two surfaces' assets stay legible as belonging to one surface or the other.
+    ``send_from_directory`` refuses a path that escapes the directory, which is
+    the only reason this is safe to expose at all.
+    """
+    return send_from_directory(HUB_STATIC_DIR, name)
+
+
+def _hub_context(page: str) -> dict:
+    """Everything one hub page is rendered from, computed the same way always.
+
+    Every page gets the whole context rather than the part it draws, for the same
+    reason the dashboard's seven pages do: a page that computed only its own slice
+    would be seven chances for the hub to contradict itself. It is all local
+    arithmetic and two cached reads, so the cost is a few milliseconds.
+    """
+    payload = hub.systems_payload()
+    commands = hub.commands_payload()
+    # The same reason the configuration counts are refused below: the tracker
+    # lives in a local SQLite file, and the machine rendering a *static* build is
+    # not the deployment. Reading it here would publish the builder's numbers as
+    # the deployment's, which is worse than a stale figure — it is a wrong one,
+    # and this page has no way to notice.
+    static_copy = os.environ.get("MEOW_STATIC_SITE", "").strip() == "1"
+    reading = _public_figures(read_tracker=not static_copy)
+    started, connected = _gateway_state()
+    guard = site_guard.health_json()
+    uptime = uptime_status.health_json()
+
+    # ``MEOW_STATIC_SITE`` means "this copy has no process behind it", which is
+    # exactly the reason the hub cannot read its own environment: the build runs
+    # on a machine that is not the deployment, so its `os.environ` is not the
+    # deployment's. Reporting `1 of 50 settings present` from a CI runner would
+    # not be a stale reading — it would be a wrong one, printed confidently on a
+    # page with nothing to notice it by. The counts come back absent and the live
+    # read fills them in from the host itself.
+    config = hub.config_payload(readable=not static_copy)
+    entries, changes_total = hub.read_changelog(HUB_CHANGELOG, limit=hub.CHANGES_SHOWN)
+
+    # Computed once and used twice: the list the overview draws, and the count of
+    # how many of those lines actually want action. Calling it twice would be two
+    # chances to disagree about the same page. (It is a pure function of its
+    # arguments, so they could not have — which is exactly the kind of "could
+    # not" that stops being true when somebody adds a read to it.)
+    watch = _hub_watch(payload, config, guard, uptime, connected)
+
+    nav = [
+        {
+            "id": pid, "label": label, "href": path, "icon": icon,
+            "group": group, "count": "" 
+        }
+        for pid, label, path, icon, group, _blurb in hub.HUB_PAGES
+    ]
+    # The rail shows how many of each there are, because a count is the one piece
+    # of context that makes a nav item worth clicking.
+    for item in nav:
+        if item["id"] == "systems":
+            item["count"] = str(payload["counts"]["systems"])
+        elif item["id"] == "commands":
+            # The *same* figure the page's own heading quotes. The rail showing
+            # the gated-root count (83) beside a page headed "90 commands" is the
+            # "two renderers, two numbers" shape this project keeps having to fix.
+            item["count"] = str(payload["counts"]["commands"])
+
+    return {
+        "hub_page": page,
+        # The `?v=` cache-buster on the hub's own assets. Computed from the files
+        # rather than written into the template, because the static host caches
+        # them immutably for a year and a buster that does not change is a
+        # stylesheet that never updates.
+        "hub_assets": hub.asset_version(),
+        "hub_title": hub.HUB_PAGE_TITLES[page],
+        "hub_kicker": HUB_KICKERS[page],
+        "hub_lede": hub.HUB_PAGE_LEDES[page],
+        "hub_nav": nav,
+        "gateway_connected": connected,
+        "gateway_started": started,
+        "site": {
+            "marketing_url": hub.marketing_url(),
+            "live_url": hub.live_url(),
+            **_invite_context(),
+        },
+        "systems": payload["systems"],
+        "system_groups": payload["groups"],
+        "fixed_systems": payload["fixed"],
+        "counts": payload["counts"],
+        "registry_problems": payload["problems"],
+        "core_cogs": payload["core_cogs"],
+        "shared_commands": commands["shared"],
+        "always_allowed": commands["always_allowed"],
+        "dm_allowed": commands["dm_allowed"],
+        "figures": reading,
+        "periods": reading["periods"],
+        "config": config,
+        "claims": _hub_claims(started, connected, guard, uptime, config),
+        "watch": watch,
+        "hosts": hub.HOSTS,
+        "topology": hub.topology(connected),
+        "pipeline": hub.pipeline(),
+        "endpoints": hub.endpoints(),
+        "trust_links": hub.trust_links(),
+        "changes": entries,
+        "changes_total": changes_total,
+        "watch_attention": len([
+            item for item in watch if item["tone"] in ("warn", "bad")
+        ]),
+        "canonical_url": "",
+    }
+
+
+#: The word above each page's title, so the header says what *kind* of page it is
+#: before it says which one.
+HUB_KICKERS = {
+    "overview": "The whole thing at a glance",
+    "systems": "The catalogue",
+    "commands": "The reference",
+    "operations": "Readings, and what each one means",
+    "deployment": "Where it runs and why",
+    "changes": "The project's own history",
+    "about": "What this is, and what it will not do",
+}
+
+
+def _hub_claims(started, connected, guard, uptime, config) -> list[dict]:
+    """The four separate health claims, each with its own sentence.
+
+    Kept apart because they are genuinely four questions — ``/health`` says so at
+    length, and the reason is worth repeating where a reader can see it: folding
+    them into one word means a monitor that pages on "is it healthy" never fires
+    for a process that is running perfectly and completely unconfigured.
+    """
+    if connected:
+        gateway = ("ok", "connected", "The gateway is up and answering commands now.")
+    elif started:
+        gateway = ("warn", "not connected",
+                   "It has logged in at least once in this process, but the gateway is not connected right now.")
+    else:
+        gateway = ("warn", "not yet",
+                   "This process has not logged in yet — normal for a host that sleeps and has just woken up.")
+
+    guard_status = guard.get("status") or "unknown"
+    guard_tone = {"clean": "ok", "exposed": "bad", "unreachable": "warn"}.get(guard_status, "info")
+    guard_detail = {
+        "clean": "The published site answered for none of the paths the repository keeps private.",
+        "exposed": "A repository path answered at the site's own address. It is caught, and the alert names it.",
+        "unreachable": "The check could not reach the site, so it has learned nothing. Not the same as clean.",
+        "unknown": "Not checked yet in this process.",
+    }.get(guard_status, "Not checked yet in this process.")
+
+    uptime_status_word = uptime.get("status") or "unknown"
+    if uptime.get("monitors"):
+        uptime_tone = "ok" if not uptime.get("down") else "warn"
+        uptime_detail = (
+            f"{uptime.get('up', 0)} of {uptime['monitors']} monitors answering. "
+            "An outside process checks this from somewhere that is neither of the hosts."
+        )
+    else:
+        uptime_tone = "info"
+        uptime_detail = (
+            "No monitor reading to show. The watcher is configured in the host's "
+            "environment, not here, so this says nothing about whether the bot is up."
+        )
+
+    return [
+        {
+            "title": "Is the bot up?",
+            "tone": gateway[0], "badge": gateway[1], "detail": gateway[2],
+            "live": "gateway",
+            "answer": f"gateway: {'connected' if connected else 'not connected'}",
+        },
+        {
+            "title": "Is it configured?",
+            "tone": ("ok" if config["attention"] == 0
+                     else "info" if config["attention"] is None else "warn"),
+            "badge": ("complete" if config["attention"] == 0
+                      else "read live" if config["attention"] is None
+                      else f"{config['attention']} to act on"),
+            "detail": (
+                "How many settings would stop something working if left absent. "
+                "This one has to be read from the host itself — the machine that "
+                "built this page has a different environment."
+            ),
+            "live": "config",
+            "answer": ("read from this host" if config["readable"]
+                       else "the live read fills this in"),
+        },
+        {
+            "title": "Is the public site publishing safely?",
+            "tone": guard_tone, "badge": guard_status, "detail": guard_detail,
+            "live": "site",
+            "answer": (f"{guard.get('probes', 0)} paths probed, "
+                       f"{guard.get('exposed', 0)} readable"
+                       if guard.get("probes") is not None else "no check recorded yet"),
+        },
+        {
+            "title": "Has it been reliable?",
+            "tone": uptime_tone,
+            "badge": (f"{uptime.get('uptime_30d'):.1%}" if uptime.get("uptime_30d") is not None
+                      else uptime_status_word),
+            "detail": uptime_detail,
+            "live": "",
+            "answer": (f"last checked {uptime['checked_seconds_ago']}s ago"
+                       if uptime.get("checked_seconds_ago") is not None
+                       else "no reading recorded yet"),
+        },
+    ]
+
+
+def _hub_watch(payload, config, guard, uptime, connected) -> list[dict]:
+    """The lines the overview shows under "needs a look".
+
+    Each line is a question the deployment can answer about itself, and each one
+    is written so that a green reading and an amber one are both statements — a
+    page that only ever lists problems is a page that goes unread the moment
+    nothing is wrong, and then goes unread when something is.
+    """
+    if connected:
+        gateway = ("ok", "Connected", "The gateway is answering commands now.", "", "") 
+    else:
+        gateway = (
+            "warn", "Starting up",
+            "The bot is not connected to Discord as of this page's reading. A free "
+            "host sleeps when nobody knocks, so this is usually the first reading "
+            "after a wake rather than an outage.",
+            "/dashboard/status", "The console",
+        )
+
+    if config["attention"] is None:
+        settings = (
+            "info", "Read live",
+            "This page was built somewhere other than the deployment, so it asks "
+            "the host itself for how many settings are missing.",
+            "", "",
+        )
+    elif config["attention"]:
+        settings = (
+            "warn", f"{config['attention']} to act on",
+            f"{config['missing']} of {config['total']} settings are unset, and "
+            f"{config['attention']} of those would stop something working. The "
+            "named list is behind the console's sign-in.",
+            "/dashboard/status", "See which",
+        )
+    else:
+        settings = (
+            "ok", "Complete",
+            f"Every setting that matters is present, out of {config['total']} the "
+            "code knows about.",
+            "", "",
+        )
+
+    guard_status = guard.get("status") or "unknown"
+    if guard_status == "clean":
+        site = (
+            "ok", "Clean",
+            "The published site answered for none of the paths the repository keeps "
+            "private. This is the check that caught the source tree being served "
+            "from the site's own address.",
+            "", "",
+        )
+    elif guard_status == "exposed":
+        site = (
+            "bad", "Exposed",
+            "A repository path answered at the site's own address. The build has "
+            "been told to publish only the pages it renders, and the alert names "
+            "the path.",
+            "/hub/operations", "What is checked",
+        )
+    else:
+        site = (
+            "info", guard_status,
+            "No verdict recorded in this process. " + (
+                "The site did not answer, so the check learned nothing — which is "
+                "not the same as a clean result."
+                if guard_status == "unreachable" else
+                "A fresh process has not run the check yet."
+            ),
+            "/dashboard/status", "The console",
+        )
+
+    if payload["problems"]:
+        registry = (
+            "bad", f"{len(payload['problems'])} problem"
+            + ("" if len(payload["problems"]) == 1 else "s"),
+            "The registry that describes every system failed its own consistency "
+            "check. The bot refuses to start on this, so seeing it here means "
+            "something changed after boot.",
+            "/hub/systems", "The systems",
+        )
+    else:
+        registry = (
+            "ok", "Consistent",
+            f"All {payload['counts']['systems']} systems validate: no duplicate ids, "
+            "no command claimed twice, no gate naming a system that does not exist.",
+            "/hub/systems", "The systems",
+        )
+
+    reading = uptime.get("checked_seconds_ago")
+    if reading is None:
+        reliable = (
+            "info", "No reading",
+            "Nothing has been read from the watcher in this process yet.",
+            "/hub/operations", "The readings",
+        )
+    elif uptime.get("down"):
+        reliable = (
+            "warn", f"{uptime['down']} down",
+            f"{uptime.get('up', 0)} of {uptime.get('monitors', 0)} monitors are "
+            "answering. An outside process watches this, so a reading here is a "
+            "fact from somewhere else.",
+            "/hub/operations", "The readings",
+        )
+    else:
+        reliable = (
+            "ok", "All answering",
+            f"All {uptime.get('monitors', 0)} monitors are up, read {reading}s ago "
+            "by a process that is neither of the hosts.",
+            "/hub/operations", "The readings",
+        )
+
+    return [
+        {
+            "title": "The gateway",
+            "detail": gateway[2], "tone": gateway[0], "badge": gateway[1],
+            "href": gateway[3], "action": gateway[4], "live": "gateway",
+        },
+        {
+            "title": "Configuration",
+            "detail": settings[2], "tone": settings[0], "badge": settings[1],
+            "href": settings[3], "action": settings[4], "live": "config",
+        },
+        {
+            "title": "The public site's own check",
+            "detail": site[2], "tone": site[0], "badge": site[1],
+            "href": site[3], "action": site[4], "live": "site",
+        },
+        {
+            "title": "The feature registry",
+            "detail": registry[2], "tone": registry[0], "badge": registry[1],
+            "href": registry[3], "action": registry[4], "live": "",
+        },
+        {
+            "title": "Reliability",
+            "detail": reliable[2], "tone": reliable[0], "badge": reliable[1],
+            "href": reliable[3], "action": reliable[4], "live": "",
+        },
+    ]
+
+
+@app.route("/hub")
+@app.route("/hub/<page>")
+def hub_page(page: str = "overview"):
+    """One page of the hub.
+
+    The page table lives in ``utils.hub`` and the builder imports it, so an
+    address is written once: this route, the rail, the command palette and the
+    static build all read the same tuple.
+    """
+    if page not in hub.HUB_PAGE_IDS:
+        return redirect("/hub")
+    return render_template(f"hub/{page}.html", **_hub_context(page))
+
+
+@app.route("/hub/index.json")
+def hub_search_index():
+    """The command palette's index, built from the same data the pages render.
+
+    Served rather than inlined because the hub ships **no inline script**: the
+    policy on this host has no `unsafe-inline`, so a `<script type="application/\njson">` block would be a blocked request and a palette that never opens.
+    """
+    return jsonify({
+        "entries": hub.search_index(hub.systems_payload(), hub.commands_payload())
+    })
+
+
+@app.route("/api/status")
+def api_status():
+    """Every figure the hub draws, merged into one small public payload.
+
+    A merge of readings that are already public, and it adds no exposure of its
+    own: ``/health``'s four blocks and ``/api/figures``' tracker totals, both of
+    which are unauthenticated already and both of which answer in counts rather
+    than names. The reason it exists is the same reason ``/api/figures`` does —
+    the hub is a *static* page, so the numbers baked into it are the numbers of
+    the day it was built, and this is the other half that lets it keep up
+    without a rebuild.
+
+    No CORS header, unlike ``/api/figures``: that one is called by a browser on
+    the marketing site, while this is called either same-origin (when the hub is
+    served by this process) or from the hub's own worker on the CDN, which is a
+    server-side fetch and does not care about origins.
+    """
+    started, connected = _gateway_state()
+    reading = _public_figures()
+    weekly = next((row for row in reading["periods"] if row["id"] == "week"), None)
+    # The configuration block is ``hub.config_payload()``'s own shape with the
+    # *names* left out, and it is shaped here rather than by the caller because
+    # the page reads it by key: a block that named the same numbers differently
+    # would fill nothing and say nothing about why. The per-kind counts are what
+    # the deployment page's table draws, and ``unset``/``attention`` are the two
+    # the overview quotes.
+    config = hub.config_payload()
+    return jsonify({
+        "ok": True,
+        "at": reading["at"],
+        "gateway": {
+            "connected": bool(connected),
+            "started": bool(started),
+            "label": _gateway_label(started, connected),
+        },
+        "figures": reading,
+        "period": weekly or {},
+        "config": {
+            "total": config["total"],
+            "unset": config["missing"],
+            "attention": config["attention"],
+            "rows": [
+                {"label": row["label"], "total": row["total"], "missing": row["missing"]}
+                for row in config["rows"]
+            ],
+        },
+        "site_guard": site_guard.health_json(),
+        "uptime": uptime_status.health_json(),
+    })
 
 
 @app.route("/login", methods=["GET", "POST"])

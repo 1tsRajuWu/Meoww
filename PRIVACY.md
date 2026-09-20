@@ -87,7 +87,7 @@ these services and cannot see what they do with what they receive.
   **unpkg.com**, falling back to **cdn.jsdelivr.net**, so those hosts see the
   visitor's IP and browser.
 * **Backups:** Supabase's API, using the operator's service-role key.
-* **Code and documents:** GitHub serves the source and these documents.
+* **This website:** Cloudflare serves it, so it sees the visitor's IP.
 
 ## 6. Retention, and how to have data removed
 
@@ -100,12 +100,12 @@ Staff delete data with the Bot's own commands (`/clearwarnings`, `/eco-admin
 reset`, and the ticket, quote and case tools); the operator can delete or export
 a whole server's rows on request; removing the Bot stops all further collection.
 A snapshot's records persist until it rotates out, and a retired feature's rows
-are included in any deletion — the procedure, including both traps, is in
-`docs/legal/data-requests.md`.
+are included in any deletion. Ask in the support server and the procedure —
+which has two traps in it — will be run for you.
 
 ## 7. Children, changes and contact
 
 The Bot is not directed at anyone below Discord's minimum age, and asks for no
-personal information. This policy may change; the Effective Date moves
-with it and every version stays in the repository. Contact the operator through
-the server where you use the Bot.
+personal information. This policy may change; the Effective Date above moves
+with it, and an earlier version is available on request. Contact the operator
+through the server where you use the Bot.

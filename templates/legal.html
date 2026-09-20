@@ -17,6 +17,7 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>{{ title }} — {{ bot_name }}</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
 </head>
 <body>
     <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
@@ -59,13 +60,26 @@
                 <a href="/privacy">Privacy Policy</a>
                 <a href="/terms">Terms of Service</a>
                 <a href="/health">Status</a>
-                <a href="{{ repository }}">Source</a>
+                {# There is no "Source" link while the repository is private — see
+                   `SOURCE_REPOSITORY` in keep_alive.py. #}
+                {% if repository %}<a href="{{ repository }}" rel="noopener">Source</a>{% endif %}
                 {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
             </div>
+            {# A policy page is often somebody's first page — it is what a cautious
+               visitor opens before adding a bot — so the theme control is here too
+               rather than only on the front door. #}
+            <div class="footer-theme">
+                {% set theme_compact = true %}
+                {% include "theme_picker.html" %}
+            </div>
+            {# It used to name the file the procedure is written in —
+               `docs/legal/data-requests.md` — which is a path inside a private
+               repository, printed at the one place a reader is looking for
+               somebody to ask. The support server is where the request goes; where
+               the team keeps its notes is the team's business. #}
             <p>
                 Questions about either document, or a request to see or delete what
-                {{ bot_name }} holds about you, go in the bot's own support server — the
-                procedure is written down in <code>docs/legal/data-requests.md</code>.
+                {{ bot_name }} holds about you, go in the bot's own support server.
             </p>
         </div>
     </footer>

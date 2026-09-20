@@ -177,6 +177,65 @@ class TheRegistryIsTheWholeTruth(unittest.TestCase):
                     self.assertIn(implied, config_audit.BY_NAME)
 
 
+class NoPublicPageNamesASetting(unittest.TestCase):
+    """The rule the whole audit follows, applied to what a stranger can read.
+
+    ``/health`` was rewritten for it — counts and never names, because "this
+    deployment has no sign-in secret" is a reconnaissance hint assembled for
+    free — and the hub was built under it. Nothing checked the *other* pages, and
+    `/login` was naming `DISCORD_CLIENT_SECRET` in the sentence it shows when
+    sign-in is switched off: the one page a visitor reaches by trying to sign in,
+    telling them which credential is missing.
+
+    Driven over the real app rather than over the templates, because a name can
+    reach a page from a Python string as easily as from markup — which is
+    exactly how this one reached it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("DISCORD_CLIENT_ID", "1548380269776605324")
+        cls.client = keep_alive.app.test_client()
+
+    def _public_pages(self):
+        """Every GET route that answers a signed-out visitor, rendered.
+
+        Parameterised routes are skipped: what they answer depends on the
+        argument, and the pages that carry a deployment's own state are behind
+        the sign-in anyway. That is a boundary, not a hole — a route added here
+        is a route that now has to keep this rule.
+        """
+        for rule in sorted(keep_alive.app.url_map.iter_rules(), key=lambda r: r.rule):
+            if rule.rule.startswith(("/static", "/hub/static")) or "<" in rule.rule:
+                continue
+            if "GET" not in (rule.methods or ()):
+                continue
+            response = self.client.get(rule.rule, follow_redirects=False)
+            if response.status_code == 200:
+                yield rule.rule, response.get_data(as_text=True)
+
+    def test_no_signed_out_page_names_a_setting(self):
+        pages = list(self._public_pages())
+        self.assertGreater(len(pages), 6, "the public surface is not being walked")
+        for path, body in pages:
+            for setting in config_audit.SETTINGS:
+                self.assertNotIn(
+                    setting.name, body,
+                    f"{path} names {setting.name} to a signed-out visitor",
+                )
+
+    def test_the_audit_itself_still_names_every_one_of_them(self):
+        """The rule is about the *public* surface, not about the code.
+
+        An operator reading the signed-in audit is told exactly which setting is
+        missing — that is the feature. If this test ever starts failing because
+        the list shrank, the reporting has been silenced rather than the leak
+        closed.
+        """
+        self.assertGreater(len(config_audit.SETTINGS), 40)
+        self.assertTrue(any(s.secret for s in config_audit.SETTINGS))
+
+
 class DocumentationAgreesWithTheRegistry(unittest.TestCase):
     """The template and the host manifest are the human half of this surface."""
 

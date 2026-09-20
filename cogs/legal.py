@@ -13,6 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils import hub
 from utils.style import send_card
 
 #: Discord's embed limits, named so the pagination is readable.
@@ -23,8 +24,14 @@ MAX_FIELDS = 25
 #: Discord's ceiling on all of an embed's text together.
 MAX_TOTAL_TEXT = 6000
 
-#: Where the unedited documents live, for anyone who wants the source text.
-REPOSITORY = "https://github.com/1tsRajOwO/Meow"
+#: Where the unedited documents live for anyone who wants the full text.
+#:
+#: The published legal pages, not the repository they are written in. Discord
+#: truncates an embed well before these documents end, and the old answer — *"the
+#: remainder is in the repository: <github url>"* — sent every reader to a 404,
+#: because the repository is private. A member asking what they agreed to is not
+#: the audience for a source link; they are the audience for the page.
+DOCUMENTS = f"{hub.marketing_url()}/{{page}}"
 
 
 def read_document(filename: str) -> str:
@@ -90,12 +97,16 @@ def document_embed(title: str, text: str, filename: str = "") -> discord.Embed:
 
     if truncated or sections and len(embed.fields) < len(sections):
         embed.add_field(
-            name="Full documents",
-            value=f"The remainder is in the repository: {REPOSITORY}",
+            name="The rest of it",
+            value=(
+                "Both documents in full, and always the current version, are on "
+                f"the site: [Privacy]({DOCUMENTS.format(page='privacy')}) · "
+                f"[Terms]({DOCUMENTS.format(page='terms')})"
+            ),
             inline=False,
         )
     if filename:
-        embed.set_footer(text=f"{filename} • {REPOSITORY}")
+        embed.set_footer(text=f"{filename} • {DOCUMENTS.format(page=filename.removesuffix('.md').lower())}")
     return embed
 
 

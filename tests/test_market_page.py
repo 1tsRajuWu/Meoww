@@ -68,12 +68,30 @@ class TestMarketPageRenders(unittest.TestCase):
         self.assertIn("/api/market/candles", script)
 
     def test_external_scripts_are_pinned(self):
-        """An unpinned CDN URL could change the library under a live page."""
+        """An unpinned URL could change the library under a live page.
+
+        Two kinds of pin, because there are two kinds of script and the rule was
+        written when this page had only one of them. A **third-party CDN** is
+        pinned by the version in its own URL — the only lever that URL offers —
+        and a **first-party asset** is pinned by the content token
+        ``asset_version()`` derives from the file, which is the stronger promise:
+        it cannot be forgotten on an edit. The old assertion demanded the semver
+        of both, so the first same-origin script this page gained failed a test
+        about CDN versioning while being *better* pinned than the CDNs it sat
+        beside. Spelled out here rather than loosened, so an unpinned URL of
+        either kind still fails.
+        """
         html = render_page()
         urls = re.findall(r'<script src="([^"]+)"', html)
         self.assertTrue(urls)
-        for url in urls:
+        third_party = [u for u in urls if u.startswith(("http://", "https://", "//"))]
+        self.assertTrue(third_party, "the chart libraries are no longer loaded from a CDN")
+        for url in third_party:
             self.assertRegex(url, r"@\d+\.\d+\.\d+", f"{url} is not version-pinned")
+        local = [u for u in urls if u not in third_party]
+        self.assertTrue(local, "this page loads no first-party script")
+        for url in local:
+            self.assertRegex(url, r"^/static/[\w.-]+\?v=[0-9a-f]+$", f"{url} is not content-pinned")
 
 
 class TestChartFailureIsLoud(unittest.TestCase):

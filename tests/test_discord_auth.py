@@ -246,10 +246,26 @@ class TheSignInRoutes(_DashboardFixture):
         )
 
     def test_without_credentials_the_page_says_what_is_missing(self):
+        """What is missing, yes — *which variable*, no, and that changed here.
+
+        This page is public, and it used to answer the question in the most
+        literal way available: it named the credential that was absent. That is
+        the one sentence this project's audit rule exists to stop — a count is
+        safe, a name is a reconnaissance hint, and `/health` was rewritten for
+        exactly this reason. It was also on the page a visitor reaches by trying
+        to sign in and failing.
+
+        Nothing an operator needs is lost, which is why the substitution is a
+        reword rather than a deletion: the page still says sign-in is off, still
+        shows the **callback URL to register** — the one fact that is actually
+        hard to discover — and still refuses `/login/discord` with a 503 instead
+        of offering a button that could only fail. The exact list of what this
+        deployment lacks is on the audit, behind the sign-in that works.
+        """
         with mock.patch.dict(os.environ, {}, clear=True):
             response = self.client.get("/login")
             page = response.get_data(as_text=True)
-            self.assertIn("DISCORD_CLIENT_ID", page)
+            self.assertIn("switched off", page)
             self.assertIn("/login/discord/callback", page, "the callback URL to register")
             # The prose may still mention it as one of the ways in; what must be
             # absent is the button, because pressing it could only fail.
@@ -257,7 +273,23 @@ class TheSignInRoutes(_DashboardFixture):
 
             refused = self.client.get("/login/discord")
             self.assertEqual(refused.status_code, 503)
-            self.assertIn("DISCORD_CLIENT_ID", refused.get_data(as_text=True))
+            self.assertIn("switched off", refused.get_data(as_text=True))
+
+    def test_the_public_page_names_no_setting_at_all(self):
+        """The rule, at the page that broke it, from either entry point.
+
+        `tests/test_config_audit.py` walks the whole signed-out surface; this is
+        the same claim where the old behaviour lived, so the next person to see
+        an operator-facing hint on a public page finds both the rule and its
+        reason rather than a passing test to delete.
+        """
+        from utils import config_audit
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for path in ("/login", "/login/discord"):
+                body = self.client.get(path).get_data(as_text=True)
+                for setting in config_audit.SETTINGS:
+                    self.assertNotIn(setting.name, body, f"{path} names {setting.name}")
 
     def test_the_button_appears_when_it_can_work(self):
         with self._env():

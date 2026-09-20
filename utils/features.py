@@ -378,6 +378,62 @@ HELP_KEYS: frozenset[str] = frozenset(f.help_key for f in FEATURES if f.help_key
 MODULE_COMMAND_MAP: dict[str, tuple[str, ...]] = command_gates()
 
 
+# ---------------------------------------------------------------------------
+# How many of a thing there are
+#
+# Two numbers that describe this bot to somebody who has not used it: how many
+# systems it has, and how many commands. They are facts about *the code*, they
+# appear on the landing page, in the console's cards, in the hub's rail and in
+# the reference's own headline — and every one of those places used to work them
+# out separately, which is how the same bot came to advertise **11 systems and
+# 100 commands** on its front page and **12 and 90** one click away.
+#
+# Not one of those differences was a bug in a count. `systems` was the dashboard
+# module list on one surface and the registry on the next; `commands` was every
+# declared string including `/market buy` on one and the distinct names Discord
+# actually publishes on the other. Each was defensible alone and together they
+# were a page arguing with itself, which is the failure this whole module exists
+# to prevent. So the definitions live here, once, and a caller that wants a
+# number reads it rather than deciding what it means.
+# ---------------------------------------------------------------------------
+
+
+def system_count() -> int:
+    """How many systems this bot declares.
+
+    The *declared* set, not the switchable one: this is the answer to "what does
+    it do", and a server that cannot switch something off still gets it. The
+    switchable subset is ``len(TOGGLEABLE_IDS)`` and the hub's systems page draws
+    both, labelled — which is the only honest way to show two numbers about one
+    word.
+    """
+    return len(FEATURES)
+
+
+#: Every name Discord's picker would offer, reduced to its root: `/market buy`
+#: is one command called `market`. Derived from the registry rather than typed,
+#: so retiring a feature retires its commands from the count.
+ROOT_COMMANDS: frozenset[str] = frozenset(
+    {command.lstrip("/").split()[0] for feature in FEATURES for command in feature.commands}
+    | set(MODULE_COMMAND_MAP)
+    | set(ALWAYS_ALLOWED_COMMANDS)
+)
+
+
+def command_count() -> int:
+    """How many commands this bot publishes, counted the way a picker counts.
+
+    The live command tree is deliberately *not* consulted, and the reason is the
+    same one that made the old front page wrong: a tree measured inside a running
+    process is a fact about that process — which servers it has synced, what a
+    server switched off — while a marketing figure is a claim about the product.
+    Reading the tree here would also make the published site's number depend on
+    whether a gateway happened to be awake, which is exactly how the front page
+    came to print two different totals from one visit to the next.
+    """
+    return len(ROOT_COMMANDS)
+
+
 def get(feature_id: str) -> Feature | None:
     for feature in FEATURES:
         if feature.id == feature_id:

@@ -63,12 +63,35 @@ class TestLegalDocuments(unittest.TestCase):
                 total += len(field.value)
             self.assertLessEqual(total, legal.MAX_TOTAL_TEXT, f"{name} would be rejected")
 
-    def test_an_oversized_document_points_at_the_repository(self):
-        """Nothing is dropped silently: a cut tail says where the rest is."""
+    def test_an_oversized_document_points_at_the_rest_of_itself(self):
+        """Nothing is dropped silently: a cut tail says where the rest is.
+
+        Where it points is the half that was wrong. The old answer sent every
+        reader to the repository, which is private — so the one line that exists
+        to stop a document vanishing told a member to go and read something they
+        cannot open. It points at the published page now, and the address is
+        asserted rather than the wording.
+        """
         huge = "# Doc\n\n## Section\n\n" + ("word " * 3000)
         embed = legal.document_embed("Doc", huge, "HUGE.md")
         rendered = "\n".join(f.value for f in embed.fields)
-        self.assertIn("repository", rendered)
+        self.assertIn(legal.hub.marketing_url(), rendered)
+        self.assertNotIn("github.com", rendered)
+
+    def test_a_document_that_fits_says_nothing_about_going_elsewhere(self):
+        """The pointer is for a cut document, not for every document.
+
+        A reader who is being shown the whole policy does not need a link to the
+        whole policy; the field is noise, and it is the kind that makes a member
+        wonder what was left out.
+        """
+        for name in ("PRIVACY.md", "TERMS.md"):
+            text = legal.read_document(name)
+            embed = legal.document_embed("Doc", text, name)
+            _, sections = legal.split_document(text)
+            if len(embed.fields) >= len(sections):
+                rendered = "\n".join(f.name for f in embed.fields)
+                self.assertNotIn("The rest of it", rendered, f"{name} is complete")
 
     def test_the_policies_cover_what_the_bot_actually_does(self):
         for needle in ("market", "virtual", "backup", "role"):
@@ -77,9 +100,19 @@ class TestLegalDocuments(unittest.TestCase):
             self.assertIn(needle, self.privacy.lower(), f"PRIVACY.md never mentions {needle}")
 
     def test_the_third_parties_named_are_the_ones_the_code_uses(self):
-        """A policy that lists the wrong companies is worse than none."""
-        for host in ("binance", "tradingview", "github", "spotify", "tenor", "reddit"):
+        """A policy that lists the wrong companies is worse than none.
+
+        This list is *who receives data*, and it changed with the repository's
+        visibility in both directions at once. GitHub left it: the source is
+        private, so the hosting it provides is to the project rather than to a
+        visitor, and no member's data ever reaches it. Cloudflare joined it: the
+        public site is served by Cloudflare Pages, so a visitor's IP reaches
+        Cloudflare every time — which the policy did not say, because the line
+        that should have said it was busy naming a company nothing talks to.
+        """
+        for host in ("binance", "tradingview", "cloudflare", "spotify", "tenor", "reddit"):
             self.assertIn(host, self.privacy.lower(), f"{host} is not disclosed")
+        self.assertNotIn("github", self.privacy.lower(), "the source is not served to anyone")
 
     def test_the_commands_are_registered_and_still_gated_as_everyone(self):
         """One `/legal` command now shows both documents — they must stay open to

@@ -437,6 +437,21 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "HUB_URL", TUNING,
+        "the hub's own canonical URL, for its sitemap and robots file",
+        "the compiled default is used.",
+        scope=BUILD,
+    ),
+    Setting(
+        "MEOW_MARKETING_URL", TUNING,
+        "where the marketing pages are — the front door and the legal documents. "
+        "Read by the hub when it builds a link to them, and by the bot when it "
+        "renders `/legal`, so one address serves both rather than each guessing",
+        "the site guard's own answer is used, which is the address the watcher is "
+        "already checking. Set it only when the site moves and the readers should "
+        "follow before the guard does.",
+    ),
+    Setting(
         "MEOW_LIVE_APP_URL", TUNING,
         "where the published copy reaches the live app, for the figures it cannot "
         "read out of a file: the landing page asks this host for `/api/figures` "

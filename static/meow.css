@@ -60,7 +60,17 @@
     --accent: #5b5ef0;
     --accent-hover: #6f72f5;
     --accent-text: #a3a8ff;
-    --accent-quiet: rgba(91, 94, 240, 0.12);
+    /* The accent as bare channels, for the places CSS needs it *inside* a
+       colour function: a glow, a ring, a gradient stop. This used to be spelled
+       `rgba(91, 94, 240, …)` in fourteen rules, which is why the page could only
+       ever be indigo — a theme that changed `--accent` left every glow, ring and
+       aurora stop behind, and the result reads as two hues fighting rather than
+       as a theme. The channels are the token that makes the rest of the file
+       themeable, and `--accent-quiet` below derives from it rather than
+       repeating it. */
+    --accent-rgb: 91, 94, 240;
+    --accent-text-rgb: 163, 168, 255;
+    --accent-quiet: rgba(var(--accent-rgb), 0.12);
     --violet: #5b5ef0;
     --pink: #5b5ef0;
 
@@ -97,6 +107,191 @@
     --slow: 600ms;
 
     --page: 1120px;
+}
+
+/* --------------------------------------------------------------------------
+   Themes
+   --------------------------------------------------------------------------
+   Four, and the whole of each one is the accent family plus the two channel
+   tokens above. That is a deliberate limit rather than an unfinished job:
+
+   A *light* theme is not a theme here, it is a second design. This page is built
+   out of glow on dark — an aurora that drifts behind the hero, a plate of grid
+   and light, frosted cards at `rgba(255, 255, 255, 0.06)`, a loader that draws
+   white on near-black — and every one of those is a white veil whose job is to
+   lift a dark ground. Inverted, each one needs its own substitute rather than a
+   token swap, and the honest versions of those substitutes are a different
+   drawing. The tokens are ready for it (the veils and the page grounds are the
+   next two to channel-ise); nothing about the design resists it. It is simply a
+   day's work and not a corner of a colour pass, and shipping a washed-out one
+   would be worse than shipping none.
+
+   What these do change is the hue the whole page is spent on: the buttons, the
+   focus ring, the card glows, the aurora behind the hero, the scroll progress
+   bar and the two status dots. So the ground stays the carefully-tuned warm
+   charcoal — the token audit above it, contrast floors included, was done for
+   that value and stays true — and the light coming through it is yours.
+   -------------------------------------------------------------------------- */
+
+/* Sakura — the same room, lit rose. */
+[data-theme="sakura"] {
+    --accent: #e0628f;
+    --accent-hover: #ea7ba3;
+    --accent-text: #f7a8c4;
+    --accent-rgb: 224, 98, 143;
+    --accent-text-rgb: 247, 168, 196;
+}
+
+/* Forest — green, and the quietest of the four. */
+[data-theme="forest"] {
+    --accent: #2fa06b;
+    --accent-hover: #3ab87d;
+    --accent-text: #7ed3a8;
+    --accent-rgb: 47, 160, 107;
+    --accent-text-rgb: 126, 211, 168;
+}
+
+/* Ember — amber, the warmest, and the one that reads as a lit fire behind the
+   cards rather than a colour on them. */
+[data-theme="ember"] {
+    --accent: #e07a3f;
+    --accent-hover: #ef8d52;
+    --accent-text: #f7b98c;
+    --accent-rgb: 224, 122, 63;
+    --accent-text-rgb: 247, 185, 140;
+}
+
+/* Midnight is `:root`, so it needs no block: a visitor who has chosen nothing
+   gets it, and so does one whose stored choice no longer exists. */
+
+/* --------------------------------------------------------------------------
+   The theme picker
+   -------------------------------------------------------------------------- */
+
+/* A swatch is the whole interface. Four named buttons would ask a visitor to
+   know what "Ember" is; a dot of the colour it means answers that in one look,
+   and the name is there for the reader who wants to be told. */
+
+.theme-picker {
+    position: relative;
+    display: inline-block;
+}
+
+.theme-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.theme-trigger:hover,
+.theme-trigger[aria-expanded="true"] {
+    border-color: var(--border-active);
+    color: var(--text-primary);
+}
+
+.theme-trigger:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+}
+
+.theme-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 10px rgba(var(--accent-rgb), 0.75);
+}
+
+/* Where the picker sits in the header, on a phone it is the one control that
+   must not wrap under the burger. */
+.theme-picker-compact .theme-name {
+    display: none;
+}
+
+.theme-menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 186px;
+    padding: var(--space-2);
+    border: 1px solid var(--border-active);
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    box-shadow: var(--shadow-lift);
+}
+
+.theme-menu[hidden] {
+    display: none;
+}
+
+.theme-menu-title {
+    margin: 2px 8px var(--space-2);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.theme-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 9px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-secondary);
+    font-size: 14px;
+    text-align: left;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.theme-option:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.theme-option[aria-pressed="true"] {
+    background: var(--accent-quiet);
+    color: var(--text-primary);
+}
+
+/* Each option carries its own colour, so the menu is a palette rather than a
+   list of words. Set here rather than inline, because the pages ship under a
+   policy with no `unsafe-*` allowance to spare and an inline `style` is a
+   console error plus a broken dot. */
+.theme-option[data-theme-value="midnight"] .theme-swatch { background: #5b5ef0; }
+.theme-option[data-theme-value="sakura"] .theme-swatch { background: #e0628f; }
+.theme-option[data-theme-value="forest"] .theme-swatch { background: #2fa06b; }
+.theme-option[data-theme-value="ember"] .theme-swatch { background: #e07a3f; }
+
+.theme-option .theme-tick {
+    margin-left: auto;
+    color: var(--accent-text);
+    opacity: 0;
+}
+
+.theme-option[aria-pressed="true"] .theme-tick {
+    opacity: 1;
+}
+
+/* Where it sits in a page footer, under the link row rather than inside it:
+   the row lays its children out as links and a control among them would take
+   their spacing and their colour. */
+.footer-theme {
+    margin-top: var(--space-4);
 }
 
 /* --------------------------------------------------------------------------
@@ -227,8 +422,8 @@ code, pre, kbd {
 .aurora::before {
     background: radial-gradient(
         circle at 30% 30%,
-        rgba(91, 94, 240, 0.26),
-        rgba(91, 94, 240, 0) 62%
+        rgba(var(--accent-rgb), 0.26),
+        rgba(var(--accent-rgb), 0) 62%
     );
     animation: drift-a 78s var(--ease) infinite alternate;
 }
@@ -236,9 +431,9 @@ code, pre, kbd {
 .aurora::after {
     background: radial-gradient(
         circle at 70% 60%,
-        rgba(91, 94, 240, 0.14),
-        rgba(163, 168, 255, 0.07) 44%,
-        rgba(91, 94, 240, 0) 68%
+        rgba(var(--accent-rgb), 0.14),
+        rgba(var(--accent-text-rgb), 0.07) 44%,
+        rgba(var(--accent-rgb), 0) 68%
     );
     animation: drift-b 96s var(--ease) infinite alternate;
 }
@@ -494,7 +689,7 @@ code, pre, kbd {
     --btn-bg: var(--accent);
     --btn-border: var(--accent);
     --btn-text: #fff;
-    box-shadow: 0 8px 24px -12px rgba(91, 94, 240, 0.9);
+    box-shadow: 0 8px 24px -12px rgba(var(--accent-rgb), 0.9);
 }
 
 .btn-primary:hover {
@@ -1186,8 +1381,8 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 /* Glow effect on primary buttons */
 .btn-primary:hover {
     box-shadow:
-        0 0 20px rgba(91, 94, 240, 0.5),
-        0 8px 24px -12px rgba(91, 94, 240, 0.9);
+        0 0 20px rgba(var(--accent-rgb), 0.5),
+        0 8px 24px -12px rgba(var(--accent-rgb), 0.9);
 }
 
 /* Ripple click effect */
@@ -1222,7 +1417,7 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 .card-tilt:hover {
     transform: translateY(-4px) rotateX(2deg) rotateY(-1deg);
     border-color: var(--border-active);
-    box-shadow: var(--shadow-lift), 0 0 40px -15px rgba(91, 94, 240, 0.15);
+    box-shadow: var(--shadow-lift), 0 0 40px -15px rgba(var(--accent-rgb), 0.15);
 }
 
 /* --------------------------------------------------------------------------
@@ -1483,7 +1678,7 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
 .pricing-toggle button.active {
     background: var(--accent);
     color: #fff;
-    box-shadow: 0 2px 8px rgba(91, 94, 240, 0.4);
+    box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.4);
 }
 
 .gradient-border {
@@ -1941,7 +2136,7 @@ body.landing:has([data-menu].is-open) {
     height: 650px;
     top: -10%;
     left: 8%;
-    background: radial-gradient(circle, rgba(91, 94, 240, 0.45) 0%, rgba(91, 94, 240, 0) 70%);
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.45) 0%, rgba(var(--accent-rgb), 0) 70%);
     animation: aurora-drift-1 18s ease-in-out infinite alternate;
 }
 
@@ -1950,7 +2145,7 @@ body.landing:has([data-menu].is-open) {
     height: 600px;
     top: 15%;
     right: 8%;
-    background: radial-gradient(circle, rgba(163, 168, 255, 0.25) 0%, rgba(91, 94, 240, 0.18) 50%, transparent 70%);
+    background: radial-gradient(circle, rgba(var(--accent-text-rgb), 0.25) 0%, rgba(var(--accent-rgb), 0.18) 50%, transparent 70%);
     animation: aurora-drift-2 24s ease-in-out infinite alternate;
 }
 
@@ -2004,14 +2199,14 @@ body.landing:has([data-menu].is-open) {
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(91, 94, 240, 0.1);
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(var(--accent-rgb), 0.1);
     padding: 0.875rem 1rem;
     transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 .lp-glass:hover {
     background: rgba(255, 255, 255, 0.14);
-    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(91, 94, 240, 0.2);
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(var(--accent-rgb), 0.2);
 }
 
 .lp-status-card {
@@ -2317,7 +2512,7 @@ body.landing:has([data-menu].is-open) {
     width: 100%;
     height: var(--bar-height, 20%);
     border-radius: 0.25rem 0.25rem 0 0;
-    background: linear-gradient(180deg, var(--lp-accent), rgba(91, 94, 240, 0.25));
+    background: linear-gradient(180deg, var(--lp-accent), rgba(var(--accent-rgb), 0.25));
     transform-origin: bottom;
     /* The final state, so a visitor with no script and no animation still sees a
        chart. Motion moves it *into* place rather than into existence. */
@@ -2388,7 +2583,7 @@ body.landing:has([data-menu].is-open) {
 .lp-tab:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.05); }
 
 .lp-tab[aria-pressed="true"] {
-    background: rgba(91, 94, 240, 0.18);
+    background: rgba(var(--accent-rgb), 0.18);
     color: var(--text-primary);
 }
 
@@ -2501,7 +2696,7 @@ body.landing:has([data-menu].is-open) {
 }
 
 .lp-card:hover {
-    box-shadow: 0 0 30px rgba(91, 94, 240, 0.15);
+    box-shadow: 0 0 30px rgba(var(--accent-rgb), 0.15);
     transform: scale(1.02);
 }
 
@@ -2525,7 +2720,7 @@ body.landing:has([data-menu].is-open) {
     height: 2rem;
     border-radius: 50%;
     border: 1px solid var(--lp-accent);
-    background: rgba(91, 94, 240, 0.1);
+    background: rgba(var(--accent-rgb), 0.1);
     font-size: 0.8125rem;
     color: #fff;
 }
@@ -2562,7 +2757,7 @@ body.landing:has([data-menu].is-open) {
     color: var(--text-muted);
 }
 
-.lp-price-chip.is-current { border-color: var(--lp-accent); background: rgba(91, 94, 240, 0.14); }
+.lp-price-chip.is-current { border-color: var(--lp-accent); background: rgba(var(--accent-rgb), 0.14); }
 
 .lp-footer { background: #06060a; }
 
@@ -2747,7 +2942,7 @@ body.landing:has([data-menu].is-open) {
     width: 6px;
     height: 6px;
     background: var(--accent-text);
-    box-shadow: 0 0 10px rgba(163, 168, 255, 0.7);
+    box-shadow: 0 0 10px rgba(var(--accent-text-rgb), 0.7);
     opacity: 0;
     transition: opacity 0.25s var(--ease);
 }
@@ -2757,7 +2952,7 @@ body.landing:has([data-menu].is-open) {
     top: -16px;
     width: 32px;
     height: 32px;
-    border: 1px solid rgba(163, 168, 255, 0.55);
+    border: 1px solid rgba(var(--accent-text-rgb), 0.55);
     opacity: 0;
     transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
                 background-color 0.25s var(--ease);
@@ -2807,7 +3002,7 @@ body.landing:has([data-menu].is-open) {
     height: 620px;
     margin: -310px 0 0 -310px;
     border-radius: var(--radius-pill);
-    background: radial-gradient(circle, rgba(91, 94, 240, 0.14), rgba(91, 94, 240, 0) 62%);
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.14), rgba(var(--accent-rgb), 0) 62%);
     opacity: 0;
     transition: opacity 0.6s var(--ease);
     will-change: transform;
@@ -2902,8 +3097,8 @@ html.has-meow-cursor .disabled {
    the state a switched-off system is actually in. */
 .lp-try-system.is-on,
 .lp-try-system[aria-pressed="true"] {
-    background: rgba(91, 94, 240, 0.16);
-    border-color: rgba(163, 168, 255, 0.55);
+    background: rgba(var(--accent-rgb), 0.16);
+    border-color: rgba(var(--accent-text-rgb), 0.55);
     color: #fff;
 }
 
@@ -2960,7 +3155,7 @@ html.has-meow-cursor .disabled {
     flex: none;
     border-radius: 999px;
     background: var(--lp-accent-soft);
-    box-shadow: 0 0 0 3px rgba(163, 168, 255, 0.18);
+    box-shadow: 0 0 0 3px rgba(var(--accent-text-rgb), 0.18);
 }
 
 .lp-try-num {

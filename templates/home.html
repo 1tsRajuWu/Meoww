@@ -33,6 +33,13 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
     <title>{{ bot_name }} — moderation, leveling, tickets, a live market and a real-time dashboard</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    {# Deliberately *not* deferred, and the only blocking script on any page of
+       this site. It reads the visitor's stored theme and sets `data-theme` on
+       `<html>`; a deferred script would run after the first paint, so a visitor
+       who chose Sakura would watch the page arrive indigo and turn rose. It
+       touches nothing the page's content depends on, so a browser that blocks
+       it still renders every page — in the default theme. #}
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
 </head>
 <body class="landing">
     <a class="skip-link" href="#features">Skip to what's in it</a>
@@ -79,6 +86,11 @@
                 <a href="/privacy">Privacy</a>
             </nav>
             <div class="lp-menu-foot">
+                {# Full rather than compact: this menu is the phone's only
+                   navigation, so the theme lives here as a labelled row rather
+                   than as a dot with nothing beside it. #}
+                {% set theme_compact = false %}
+                {% include "theme_picker.html" %}
                 {% if invite_url %}
                 <a class="btn btn-primary" href="{{ invite_url }}">Add to Discord</a>
                 {% endif %}
@@ -109,6 +121,8 @@
                     <span>{{ bot_name }}</span>
                 </a>
                 <div class="lp-header-right">
+                    {% set theme_compact = true %}
+                    {% include "theme_picker.html" %}
                     {% if invite_url %}
                     <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>
                     {% endif %}
@@ -130,7 +144,10 @@
 
             <div class="lp-hero-bottom">
                 <p class="lp-tagline" data-lines data-base-delay="350" data-stagger="110" data-duration="900">
-                    <span class="line"><span class="line-inner">{{ features|length }} systems,</span></span>
+                    {# The product's own count, from the registry — not the length of
+                       the card list below, which is the *switchable* subset and was
+                       how this page came to advertise eleven of twelve systems. #}
+                    <span class="line"><span class="line-inner">{{ system_count }} systems,</span></span>
                     <span class="line"><span class="line-inner">one dashboard</span></span>
                 </p>
 
@@ -143,7 +160,7 @@
                     </div>
                     <div class="lp-glass lp-figure-card" data-reveal data-reveal-delay="780">
                         <div>
-                            <b>{{ features|length }}</b>
+                            <b>{{ system_count }}</b>
                             <span>systems</span>
                             <p class="lp-figure-dots" aria-hidden="true">
                                 <i style="background:#5b5ef0"></i>
@@ -182,16 +199,18 @@
         <section class="lp-band lp-paper lp-section lp-inner" id="features">
             <div class="lp-paper-head">
                 <span class="lp-eyebrow">What's in it</span>
+                {# Two numbers about one word, both labelled, because the alternative is
+                   what this page used to do: print the switchable count as if it were
+                   the total, and disagree with the hub a click away. The always-on
+                   system is the difference, and the hub's own systems page names it. #}
                 <h2 class="lp-h2" data-lines data-base-delay="0" data-stagger="120" data-duration="950">
-                    <span class="line"><span class="line-inner">{{ features|length }} systems,</span></span>
-                    <span class="line"><span class="line-inner">each yours to switch</span></span>
+                    <span class="line"><span class="line-inner">{{ system_count }} systems,</span></span>
+                    <span class="line"><span class="line-inner">{{ features|length }} of them switchable</span></span>
                 </h2>
                 <p>
-                    Discord cannot hide one command in one server, so {{ bot_name }} registers
-                    every server's command list from that server's own settings: switch a system
-                    off and its commands leave that server's picker, while every other server
-                    keeps them. The list below is the registry the bot actually runs on — not a
-                    hand-written copy of it.
+                    Switch a system off and its commands leave that server's picker — every
+                    other server keeps them. The list below comes from the bot's own registry,
+                    so it cannot go stale.
                 </p>
             </div>
 
@@ -257,9 +276,8 @@
                 <span class="line"><span class="line-inner">Watch its commands go.</span></span>
             </h2>
             <p class="lp-try-lede">
-                Press any system below. The list under it is the command picker Discord would
-                show in that one server — this is the thing a settings page usually cannot do,
-                because Discord has no per-server command list of its own.
+                Press a system. The list is the command picker Discord would show in that
+                server — something a settings page usually cannot show you.
             </p>
 
             <div class="lp-try-layout">
@@ -458,9 +476,9 @@
                     <div>
                         <h3>Sign in with Discord</h3>
                         <p>
-                            Asks for <code>identify</code> and <code>guilds</code> and nothing else,
-                            then shows the servers you run <em>that the bot is already in</em>. The
-                            token is used for two lookups in the same request and never stored.
+                            Asks for your name and your server list, nothing else, and never
+                            stores the token. You see the servers you run <em>that the bot is
+                            already in</em>.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
@@ -470,9 +488,8 @@
                     <div>
                         <h3>One-time link</h3>
                         <p>
-                            Minted by the ⚡ Open Dashboard button on <code>/help</code>, scoped to
-                            the one server it was created in, single use and good for fifteen
-                            minutes. It is a credential — don't share it.
+                            Made by the ⚡ Open Dashboard button on <code>/help</code>. One
+                            server, one use, fifteen minutes. It is a credential — don't share it.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
@@ -481,9 +498,8 @@
                     <div>
                         <h3>Admin passkey</h3>
                         <p>
-                            The operator's own way in, and the only one that reaches every server.
-                            Rate-limited, compared in constant time, and never read from a query
-                            string.
+                            The operator's own way in, and the only one that reaches every
+                            server.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="/health">Status</a>
@@ -506,13 +522,9 @@
                     <div>
                         <h3>Add the bot</h3>
                         <p>
-                            The invite asks for <b>Administrator</b> — one permission, so no
-                            feature can fail later with "Missing Permissions" while you work out
-                            which bit it wanted. Prefer not to hand over that much? The second
-                            link asks only for the permissions {{ bot_name }} actually uses, and
-                            a system that needs one more will say which. Either way the link
-                            carries <code>applications.commands</code>: without it you get a bot
-                            with nothing in the picker.
+                            The invite asks for <b>Administrator</b> — one permission, so
+                            nothing breaks later. Prefer less? The second link asks only for
+                            what {{ bot_name }} uses, and says so if a system needs more.
                         </p>
                     </div>
                     {% if invite_url %}
@@ -576,11 +588,9 @@
                         <span class="line"><span class="line-inner">Everything above</span></span>
                         <span class="line"><span class="line-inner">arrives with the bot</span></span>
                     </h2>
-                    <p class="lp-lede" style="margin-top: 1.25rem">
-                        There is no separate download, no second setup step and nothing to
-                        enable before it works: adding {{ bot_name }} puts every system on
-                        this page into your server, and the dashboard above is where you
-                        switch off the ones you do not want.
+                    <p class="lp-lede" style="margin-top: 1.25rem">                Nothing to download, nothing to install. Adding {{ bot_name }} puts every
+                system on this page into your server — and the dashboard is where you switch
+                off the ones you do not want.
                     </p>
                 </div>
                 <div style="display:grid; gap:0.75rem">
@@ -637,19 +647,23 @@
                 <ul>
                     <li><a href="/privacy">Privacy Policy</a></li>
                     <li><a href="/terms">Terms of Service</a></li>
+                    {# Only when there is somewhere to go. The repository is private,
+                       so this used to be a 404 on the page a stranger reads first;
+                       see `SOURCE_REPOSITORY` in keep_alive.py. #}
+                    {% if source_repository %}
                     <li><a href="{{ source_repository }}" rel="noopener">Source code</a></li>
+                    {% endif %}
                 </ul>
             </nav>
         </div>
         <div class="lp-footer-bottom lp-inner">
             <p style="margin:0">
                 © 2026 {{ bot_name }}. Not affiliated with Discord Inc.
-                {% if retention_days %}Activity counts are kept {{ retention_days }} days;{% endif %}
-                queued and sent message history is kept 90 — the policy above says exactly what
-                that is, in the same words the Discord command shows.
+                {% if retention_days %}Activity counts last {{ retention_days }} days,{% endif %}
+                message history 90 — the Privacy Policy has the detail.
             </p>
             <nav aria-label="Elsewhere">
-                <a href="{{ source_repository }}" rel="noopener">GitHub</a>
+                {% if source_repository %}<a href="{{ source_repository }}" rel="noopener">GitHub</a>{% endif %}
                 <a href="/health">Status</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/terms">Terms</a>

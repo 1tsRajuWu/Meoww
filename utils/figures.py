@@ -189,7 +189,13 @@ def tracker_totals(*, period: str = "all", connect=None) -> dict:
     }
 
 
-def deployment(*, gateway: dict | None = None, connect=None, now: float | None = None) -> dict:
+def deployment(
+    *,
+    gateway: dict | None = None,
+    connect=None,
+    now: float | None = None,
+    read_tracker: bool = True,
+) -> dict:
     """The public payload: gateway counts, tracker totals, and the gateway state.
 
     ``gateway`` is handed in rather than read here, because the only process that
@@ -197,6 +203,15 @@ def deployment(*, gateway: dict | None = None, connect=None, now: float | None =
     testable — without a Discord connection. It carries ``servers``, ``members``,
     ``systems``, ``commands`` and ``connected``; anything it cannot answer is
     absent, and this reports that as ``None`` rather than as a zero.
+
+    ``read_tracker=False`` is for a *build*, and it is the same rule the schema
+    check below follows rather than a new one. A static page is rendered by a
+    machine that is not the deployment, and this module reads a local SQLite file
+    — so a build on an operator's laptop publishes **that laptop's** numbers as
+    the deployment's. They are not stale figures; they are somebody else's, and
+    the page has no way to notice. In CI there is no `bot.db` to read and the
+    totals come back absent anyway, which is precisely why the failure only shows
+    up on the machine where a person is looking at the result.
     """
     figures = {}
     spelled = {}
@@ -214,7 +229,14 @@ def deployment(*, gateway: dict | None = None, connect=None, now: float | None =
     figures["connected"] = bool((gateway or {}).get("connected"))
     figures["periods"] = []
     for pid, label, days in PERIODS:
-        totals = tracker_totals(period=pid, connect=connect)
+        if read_tracker:
+            totals = tracker_totals(period=pid, connect=connect)
+        else:
+            totals = {
+                "period": pid,
+                "started": period_start(pid),
+                **_ABSENT_TOTALS,
+            }
         figures["periods"].append({
             "id": pid,
             "label": label,
@@ -232,14 +254,27 @@ def deployment(*, gateway: dict | None = None, connect=None, now: float | None =
     return figures
 
 
-def snapshot(*, gateway: dict | None = None, connect=None, now: float | None = None) -> dict:
+def snapshot(
+    *,
+    gateway: dict | None = None,
+    connect=None,
+    now: float | None = None,
+    read_tracker: bool = True,
+) -> dict:
     """The payload, reused for :data:`CACHE_SECONDS`.
 
     A cached reading and a live one are the same dict, so no caller can end up
     reading a differently-shaped thing depending on whether the cache hit — the
     class of defect a hand-written stub keeps producing in this repository.
+
+    An unread payload neither comes from the cache nor goes into it. The cache is
+    a reading of *this* deployment for the next minute, and storing an absent one
+    would serve it to a real visitor who asked a second later — a page with no
+    figures on a host that had them all along.
     """
     moment = time.time() if now is None else now
+    if not read_tracker:
+        return deployment(gateway=gateway, connect=connect, now=moment, read_tracker=False)
     with _lock:
         cached = _cache["payload"]
         if cached is not None and moment - _cache["at"] < CACHE_SECONDS:

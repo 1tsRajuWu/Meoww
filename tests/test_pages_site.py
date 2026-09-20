@@ -31,7 +31,7 @@ from unittest import mock
 
 import keep_alive
 from scripts import build_site
-from utils import discord_auth
+from utils import discord_auth, features
 
 ROOT = Path(__file__).resolve().parent.parent
 LIVE = "https://bot.example.test"
@@ -245,6 +245,60 @@ class BuiltSiteCase(unittest.TestCase):
     def test_no_page_is_a_dead_end(self):
         for name, text in self.pages.items():
             self.assertNotIn('href="#"', text, f"{name} has a link that goes nowhere")
+
+    def test_a_static_copy_does_not_publish_the_builder_s_own_database(self):
+        """The tracker is a file on the machine running the build.
+
+        Every activity tile on the front page is drawn server-side from that
+        snapshot, so a build printed the operator's own laptop as the deployment:
+        *467 messages this week* on a public page, about a bot the reader is not
+        running. The hub's pages applied this rule from the day they were written
+        and the landing page never did — which is why the guard is on the built
+        artifact rather than on the function that produces it.
+
+        An em dash, not a zero: *nobody has read this* and *this is empty* are
+        different claims, and only one of them is true here.
+        """
+        index = self.pages["index.html"]
+        tiles = re.findall(r'data-figure="activity:[a-z_]+">([^<]*)<', index)
+        self.assertTrue(tiles, "the activity tiles left the landing page")
+        for value in tiles:
+            self.assertEqual(value, "—", f"a built page carries a local reading: {value}")
+        # ...and the control tiles are the two that are facts about the code, so
+        # they are present and counted from the registry rather than blanked.
+        self.assertIn(f'data-figure="control:systems">{features.system_count()}<', index)
+        self.assertIn(f'data-figure="control:commands">{features.command_count()}<', index)
+
+    def test_the_front_page_and_the_reference_agree_on_how_many_of_each(self):
+        """One bot, one answer — the defect this page had in production.
+
+        The front page advertised **11 systems and 100 commands** while the hub a
+        click away said **12 and 90**. Neither count was broken: *systems* was the
+        dashboard's module list on one surface and the registry on the other, and
+        *commands* was every declared string — including `/market buy` — against
+        the distinct names Discord publishes. A visitor had no way to tell which
+        page was lying, which is the whole cost of two renderers and two numbers.
+        """
+        index = self.pages["index.html"]
+        systems, commands = features.system_count(), features.command_count()
+        switchable = len(features.dashboard_modules())
+        self.assertLess(switchable, systems, "the split this page explains has gone")
+        self.assertIn(f"{systems} systems,", index)
+        self.assertIn(f"{switchable} of them switchable", index)
+        # The two numbers the page used to print as if they were the total.
+        self.assertNotIn(f">{switchable}</b>\n                            <span>systems", index)
+        self.assertNotIn(f'data-figure="control:commands">{commands + 10}<', index)
+
+    def test_no_page_links_to_the_private_repository(self):
+        """A footer link that 404s is how a project reads as abandoned.
+
+        The repository is private, so "Source code" and "GitHub" handed every
+        visitor GitHub's *"This is not the web page you are looking for"* — on the
+        footer of the page that asks them to trust this bot with their server. The
+        link is gone while there is nowhere to go, and this is the guard on it.
+        """
+        for name, body in self.pages.items():
+            self.assertNotIn("github.com/", body, f"{name} links to a repository")
 
     def test_a_static_copy_does_not_claim_a_process_is_starting(self):
         """There is no process behind a file, so 'starting up' never resolves."""

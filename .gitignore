@@ -33,6 +33,12 @@ _site/
 # templates/ and static/, and a committed copy is one that goes stale quietly.
 _site/
 
+# The hub built for its own host (scripts/build_hub.py). Generated the same way
+# and for the same reason as _site/ above — the pages come from templates/hub/
+# and hub/static/, so a committed copy is a copy that goes stale quietly, this
+# time on the host that answers *what is the bot doing*.
+_hub/
+
 # macOS / editors
 .DS_Store
 .idea/

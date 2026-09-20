@@ -20,6 +20,9 @@
        own Jinja environment, which has no Flask context, and the static path is
        fixed by the application in any case. #}
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    {# The console wears the same theme as the site, chosen on the same control:
+       the tokens are the shared sheet's, so this is one line and no design work. #}
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
     <style>
         /* Two rules that belong to the *document* rather than to the sheet, and
            both are here for the same reason: they are about this page's own
