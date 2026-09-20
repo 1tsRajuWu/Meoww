@@ -15,8 +15,8 @@ live market; a starboard; social roleplay; fun commands and mini-games; a
 per-channel activity tracker keeping a 365-day window; and a web dashboard for
 staff — module toggles, a message composer that can post **now or on a schedule**
 in up to five channels, live market charts, and a bug-report command. It is
-provided **"as is" and "as available"**, with no warranty of any kind, and it may
-change, break or be discontinued at any time.
+provided **"as is" and "as available"**, with no warranty of any kind; it may
+change, break or end at any time.
 
 ## 2. Your responsibilities as staff
 
@@ -92,9 +92,8 @@ Privacy Policy for what is stored and how to have it deleted.
 To the maximum extent permitted by law, the operator is not liable for any
 direct, indirect, incidental or consequential damage arising from the Bot,
 including lost data, lost virtual progress, server disruption or moderation
-outcomes. Where liability cannot be excluded, it is limited to nothing, because
-the Bot is free. Nothing here limits a right that the law does not allow to be
-limited.
+outcomes. Where liability cannot be excluded, it is zero, because the Bot is
+free. Nothing here limits a right that the law does not allow to be limited.
 
 ## 7. Age
 
@@ -104,7 +103,8 @@ are below it, and do not ask the Bot to store anything about someone who is.
 ## 8. AI assistance
 
 **No part of the running Bot is AI** — no model is called, and nothing you send
-reaches one. Written **with the help of AI coding assistants**.
+reaches one. Created and maintained **with the help of AI coding assistants and
+autonomous AI agents**.
 
 ## 9. Changes and termination
 

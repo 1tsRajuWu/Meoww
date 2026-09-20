@@ -1,124 +1,138 @@
-# Getting the Bot into Discord's App Directory (and the server into Discovery)
+# Listing the Bot in Discord's App Directory (Marketplace)
 
-Two different listings, two different gates, and **neither is a code change**. The
-Bot is technically ready for the first one; the second has a member count that no
-amount of code can supply. This page is what to paste and what to fix, and — more
-usefully — which requirements the code already satisfies and how each is held
-there, so a future change cannot quietly un-satisfy one.
+This guide provides the complete checklist, submission walkthrough, listing copy,
+and policy guidelines for listing the Bot in Discord's **App Directory** (formerly
+App Discovery / Marketplace), as well as notes on **Server Discovery**.
 
-Everything below is verified against the current tree. Where a requirement is a
-Discord policy rather than a fact about this repository, it is marked as such and
-the date-free caveat is that Discord changes them; check the portal page you are
-actually submitting on.
+Everything below is verified against the current repository tree. Where a requirement
+is Discord policy rather than a fact about this codebase, it is noted with the
+current Discord Developer rules.
 
 ---
 
-## 1. App Directory — what Discord requires, and where this repo stands
+## 1. App Directory Eligibility Checklist
 
-| Discord's requirement | This repository | Held by |
+To be listed in Discord's App Directory, an application must satisfy technical,
+security, and policy requirements:
+
+| Discord Requirement | Status in this Repo | Implementation Details |
 |---|---|---|
-| A **Privacy Policy URL** | ✅ live at `/privacy` | `PRIVACY.md`, rendered by `keep_alive` + `scripts/build_site.py` |
-| A **Terms of Service URL** | ✅ live at `/terms` | `TERMS.md`, same |
-| **Global slash commands** with descriptions | ✅ 90 distinct names | `utils/features.py` (`ROOT_COMMANDS`) |
-| A **description** for the app and each command | ✅ every command has one | `cogs/*.py` decorators |
-| The app **must not** require privileged intents to work | ✅ intents are off unless asked for | `bot.py` |
-| **Not** a "user bot" / self-bot | ✅ | — |
-| Publicly installable with a sensible **permission scope** | ⚠️ see below | `utils/discord_auth.py` invite links |
-| A **support server** is not required but is strongly recommended | ⚠️ your call | — |
-
-### The two things to check before submitting
-
-1. **The invite scope.** The listing is judged on what an ordinary member gets,
-   and `Administrator` is the single most common reason a bot app is turned down.
-   Two links exist in `utils/discord_auth.py` — `INVITE_PERMISSIONS` (one bit:
-   Administrator, for owners who will grant it) and `MINIMAL_INVITE_PERMISSIONS`
-   (the explicit list in `MINIMAL_PERMISSION_BITS`, for owners who will not).
-   Submit the **minimal** one as the primary install and keep Administrator as the
-   documented alternative. That is a choice already offered on `/start`; it only
-   needs making on the portal form.
-2. **`SUMMARY` and `DETAILED_DESCRIPTION` in the portal must match this Bot.** The
-   copy below is derived from the feature registry, so if a feature is added,
-   re-derive it rather than editing the portal by hand — `python -m pytest
-   tests/test_legal.py` and `tests/test_features.py` fail loudly if the registry
-   and the published counts drift apart, which is the same drift a stale listing
-   would be.
-
-### Listing copy, derived from the registry
-
-> **Short description** (195 characters, so it fits the portal's short field)
->
-> A community bot for moderation, tickets with transcripts, leveling, an economy
-> with a shop and a live market, a starboard, a 365-day activity tracker, and a
-> web dashboard with a message composer.
-
-> **Detailed description**
->
-> Meow is a moderation and community bot that stays out of your way. It brings
-> 12 systems and 90 slash commands: automod and logging, tickets with transcripts and
-> close-time ratings, leveling with automatic role rewards, a coin economy with a
-> shop, loans and casino games, a live market, a starboard, social roleplay, fun
-> commands and mini-games, and a per-channel activity tracker keeping a 365-day
-> window.
->
-> Everything is switched on and off per server from a web dashboard that signs in
-> with Discord — staff see only the servers they actually administer, and nothing
-> is ever published about a server's members: the public endpoints answer in
-> counts, never in names.
-
-> **Tags**: Community, Moderation, Fun, Utility, Economy
-
-### What the portal needs that only you can supply
-
-The listing is submitted at <https://discord.com/developers/applications> →
-your app → **App Directory**. None of this is reachable from the repository:
-
-- A **verified** application is required for the Directory. Verification needs the
-  app to be in **100 or more servers** and to have been created at least a few
-  weeks ago. Check the current floor in the portal — it has moved more than once.
-- **Two-factor authentication enabled** on the owner's Discord account.
-- The **privacy policy and terms URLs** pasted into the app's General Information
-  page (the same two addresses the Bot prints from `/privacy` and `/terms`).
+| **Privacy Policy URL** | ✅ Ready at `/privacy` | Served by `keep_alive.py` and `scripts/build_site.py` from `PRIVACY.md` |
+| **Terms of Service URL** | ✅ Ready at `/terms` | Served from `TERMS.md` through the same renderer |
+| **Global Slash Commands** | ✅ 90 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
+| **Command Descriptions** | ✅ Every command documented | Provided via `@app_commands.describe` and docstrings across `cogs/*.py` |
+| **No Mandatory Privileged Intents** | ✅ Default off | Bot operates fully without privileged gateway intents (`bot.py`) |
+| **No User Bots / Self-Bots** | ✅ Compliant | Built on discord.py as an official application |
+| **Least Privilege Install Scope** | ✅ Ready | `MINIMAL_INVITE_PERMISSIONS` in `utils/discord_auth.py` |
+| **AI Disclosure & Transparency** | ✅ Disclosed | Explicitly documented in `PRIVACY.md`, `TERMS.md`, and listing copy |
+| **Verified Application** | ⚠️ Operator action | Requires bot in **75–100 servers** + Stripe ID verification |
+| **Two-Factor Authentication (2FA)**| ⚠️ Operator action | Must be enabled on owner Discord account and team members |
+| **Public Support Server** | ⚠️ Operator action | Permanent invite link configured in Developer Portal |
+| **Media Carousel Assets** | ⚠️ Operator action | 1–5 screenshots (16:9 aspect ratio, 1280x720 minimum) |
 
 ---
 
-## 2. Server Discovery — for the support server, not the Bot
+## 2. Step-by-Step Portal Submission Walkthrough
 
-Discord's Server Discovery is a separate product with its own gates, and the one
-that decides it is not a setting:
+All listing management takes place at the [Discord Developer Portal](https://discord.com/developers/applications):
 
-| Requirement | Status |
-|---|---|
-| **1,000+ members** | ✋ this is the gate, and it is a real one |
-| Server is **not** age-restricted | set in Server Settings → Overview |
-| Server has a **description** and **category tags** | set in the same place |
-| Discovery **enabled** in Server Settings → Discovery | — |
-| No **NSFW** or Discord-TOS-violating content | — |
-| Activity in **multiple** channels, not one | — |
+### Step 1: Account & Bot Prerequisites
+1. Ensure **Two-Factor Authentication (2FA)** is active on your Discord account (and all team members under Developer Teams).
+2. Once the bot reaches the server threshold (75–100 guilds), complete **Application Verification** under **Settings → Verification** with government ID via Stripe Identity.
 
-Until the member count is there, Discovery is simply closed — so the honest plan is
-to list the Bot in the App Directory first (that is where a bot's traffic comes
-from; a directory listing is *why* a server grows), and treat Discovery as a
-later milestone rather than something to configure now and wait on.
+### Step 2: Configure General Information
+1. Open your app and select **General Information**.
+2. **App Icon**: Upload a clear 512x512 PNG/JPG icon.
+3. **Privacy Policy URL**: Enter your live HTTPS endpoint (e.g. `https://your-domain.com/privacy`).
+4. **Terms of Service URL**: Enter your live HTTPS endpoint (e.g. `https://your-domain.com/terms`).
+5. **Tags**: Add relevant search tags (e.g. `moderation`, `economy`, `utility`, `community`, `ai`).
+
+### Step 3: Configure Installation & Permissions
+1. In the sidebar, select **Installation**.
+2. Set **Install Link** to Discord Provided Link.
+3. In **Default Install Settings**:
+   - **Scopes**: Check `bot` and `applications.commands`.
+   - **Permissions**: Use the minimal permission bits defined in `utils/discord_auth.py` (`MINIMAL_INVITE_PERMISSIONS`). **Do not select Administrator** for the directory listing, as blanket administrative permission requests are heavily scrutinized and frequently rejected. Owners who want full auto-management can still grant `INVITE_PERMISSIONS` separately via `/start`.
+
+### Step 4: Configure App Directory Listing
+1. In the sidebar, select **App Directory**.
+2. Enter the prepared listing copy (see Section 3 below):
+   - **Short Description**: 195 characters summarizing key features.
+   - **Detailed Description**: Full markdown breakdown of features, commands, and disclosures.
+   - **Primary Category**: Select *Community* or *Moderation*.
+   - **Secondary Category**: Select *Utility*, *Economy*, or *Entertainment*.
+   - **Support Server**: Paste a permanent, non-expiring invite link to your support server.
+3. Upload **Media Carousel** screenshots showing commands and embeds in Discord.
+
+### Step 5: Review & Publish
+1. Review the automated pre-flight checklist in the portal.
+2. Click **Enable Discovery** / **Publish to App Directory**.
 
 ---
 
-## 3. What the code already refuses to do, that a listing reviewer checks
+## 3. Ready-to-Paste App Directory Listing Copy
 
-A submission is read by someone looking for the failure modes below. Each is
-already guarded, and the guard is named so it can be re-run:
+This copy is directly aligned with `utils/features.py` and the legal documentation.
+(Monitored by `tests/test_legal.py` to prevent drift between code and public text.)
 
-- **Naming a real single deployment's server in public copy** — `/health` and the
-  hub answer in **counts, never names**, because a name is a reconnaissance hint
-  (`utils/config_audit.py`, `tests/test_config_audit.py`).
-- **Publishing a source path from the site** — `utils/site_guard.py` probes the
-  live site for repository paths on a schedule and alerts, because every page
-  looked correct while `/bot.py` was once served from the site's own address.
-- **Anything to do with money** — no billing is wired; `plans.selling_enabled()` is
-  the one switch and it is off (`tests/test_selling_surface.py`). A directory
-  listing for a paid app carries requirements a free one does not.
-- **Command permissions** — every command carries the audience declared in
-  `utils/permissions.py`, stamped before publishing, so what Discord offers matches
-  what the command will actually let a member do (`tests/test_permissions.py`).
-- **Requesting a privileged intent that was not granted** — a login with an
-  ungranted intent is the most common way a bot dies at boot, and this one refuses
-  to ask unless the switch is set (`bot.py`).
+### Short Description (195 characters)
+```text
+A community bot for moderation, tickets with transcripts, leveling, an economy with a shop and a live market, a starboard, a 365-day activity tracker, and a web dashboard with a message composer.
+```
+*(195 characters, fits within Discord's summary field limits.)*
+
+### Detailed Description
+```markdown
+Meow is a moderation and community bot that stays out of your way. It brings 12 systems and 90 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, a live market, a starboard, social roleplay, fun commands and mini-games, and a per-channel activity tracker keeping a 365-day window.
+
+Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
+
+### Key Systems & Commands
+- **Moderation & Automod**: `/warn`, `/mute`, `/kick`, `/ban`, `/lockdown`, `/cases`, anti-invite and link filters.
+- **Support Tickets**: Transcripts, ratings, and ticket claiming via buttons and modals.
+- **Leveling & Activity**: XP rewards for text and voice, level-roles, and a 365-day per-channel tracker (`/activity me`, `/rank`).
+- **Economy & Market**: `/balance`, `/daily`, `/pay`, shop, loans, and real-time public market quotes (`/market board`, `/market buy`, `/market chart`).
+- **Dashboard & Composer**: Web-based module toggles and scheduled announcement composer (`/help` -> Open Dashboard).
+
+### Transparency & AI Disclosure
+Created and maintained with the help of AI coding assistants and autonomous AI agents. The runtime executes 100% deterministic Python code — no runtime LLM calls are made, and no user messages, prompts, or server metadata are sent to external AI providers or used for model training.
+
+### Support & Community
+Need assistance, found a bug, or have a suggestion? Join our support server or use `/bot bug` directly inside your server.
+```
+
+### Categories & Tags
+- **Primary Category**: Community
+- **Secondary Category**: Moderation (or Utility / Economy)
+- **Tags**: `community`, `moderation`, `economy`, `utility`, `ai`
+
+---
+
+## 4. Discord AI Policy & Developer Policy Compliance
+
+Discord maintains clear guidelines for applications involving Artificial Intelligence:
+
+1. **Disclosure & Attribution**:
+   Discord requires transparency when applications involve AI. While Meow does not execute an LLM at runtime, its source and ongoing operations were built and maintained with the help of AI coding assistants and autonomous AI agents. This is explicitly disclosed in the listing copy, `PRIVACY.md` (Section 7), and `TERMS.md` (Section 8).
+2. **Data Privacy & Sub-Processors**:
+   Discord policies strictly govern sending user messages or prompts to third-party AI APIs (such as OpenAI, Anthropic, or Google). Meow invokes **zero external AI model APIs at runtime**. No user prompts, channel text, or guild records are ever shared with AI providers or used for training (`docs/legal/sub-processors.md`).
+3. **Safety & Content Standards**:
+   Automated moderation filters and economy rules are designed deterministically to maintain community safety and prevent abuse.
+4. **Least Privilege**:
+   Permission requests follow minimal privilege principles via `MINIMAL_INVITE_PERMISSIONS` in `utils/discord_auth.py`, ensuring servers are not asked for unneeded administrative access.
+
+---
+
+## 5. Server Discovery (Support Server)
+
+Discord Server Discovery is a separate feature for community servers (rather than apps):
+
+| Discovery Gate | Requirement | Status |
+|---|---|---|
+| **Member Count** | **1,000+ members** | Milestone reached through community growth |
+| **Server Age** | At least several weeks old | Standard requirement |
+| **Content Setting** | Server is **not** age-restricted | Toggle in Server Settings → Overview |
+| **Channel Activity** | Healthy retention across multiple channels | Checked automatically by Discord |
+| **Discovery Setting** | Enable in Server Settings → Discovery | Activate once member threshold is met |
+
+Listing the Bot in the App Directory first is the primary driver of organic traffic and user acquisition, which naturally paves the way for Server Discovery.

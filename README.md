@@ -253,6 +253,7 @@ fallback, the id is stable.
 | [`docs/voice-debug.md`](docs/voice-debug.md) | Voice-XP not paying? Diagnose it here |
 | [`docs/handoff.md`](docs/handoff.md) | Maintainer handoff notes (moved from root) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Every shipped change, newest first |
+| [`docs/discord-directory.md`](docs/discord-directory.md) | App Directory (Marketplace) listing guide, checklist, copy & AI disclosure |
 | [`PRIVACY.md`](PRIVACY.md) / [`TERMS.md`](TERMS.md) | Privacy policy & terms (also served by `/legal privacy`, `/legal tos`) |
 | [`docs/legal/`](docs/legal/README.md) | Retention schedules, the deletion procedure, and every third party the bot talks to |
 | [`deleted_features/README.md`](deleted_features/README.md) | Retired features + how to restore one |

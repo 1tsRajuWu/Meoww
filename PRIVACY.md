@@ -30,9 +30,9 @@ answers for it, and using a server that runs the Bot is agreement to it.
 
 ## 2. What we do NOT store
 
-* **Message text is not stored** to award XP or filter spam. With the Message
-  Content intent on, the Bot reads a message in the moment for invites, links,
-  length and attachments, then discards it; only counters and timestamps persist.
+* **Message text is not stored** to award XP or filter spam. With Message
+  Content on, the Bot inspects invites, links, length and attachments in the
+  moment, then discards the text; only counters and timestamps persist.
 * **A copy exists only where a server asked for one:** a starboard pin, a
   mod-log entry, a ticket transcript, or submitted text.
 * **No voice audio is recorded or transmitted.** Voice activity is judged only
@@ -43,7 +43,7 @@ answers for it, and using a server that runs the Bot is agreement to it.
   exception below is optional and exists only so a server's administrators can
   reach the dashboard.
 * **Signing in to the dashboard with Discord** shares your user id, name, avatar
-  and the servers you are in with your permissions there, used only to list  them and decide which you may administer (Manage Server or above). The access
+  and the servers you are in with your permissions there, used only to list them and decide which you may administer (Manage Server or above). The access
   token is discarded in that same request and never stored, and nothing about you
   reaches the database — what stays is your own session cookie, for up to 8
   hours. Scopes: `identify` and `guilds`. Off unless the operator configures it.
@@ -67,11 +67,10 @@ answers for it, and using a server that runs the Bot is agreement to it.
 
 ## 4. A bug report can leave your server
 
-A bug report is posted in **your** server's bug channel when it has one, with a
-thread on it. When it does not, the Bot posts it to **the bot's own server**
-rather than dropping it — so the report text, the reporter's mention and the
-server's name become visible to the operator. Nothing else crosses between
-servers.
+A bug report is posted in **your** server's bug channel when configured. When
+not, the Bot posts it to **the bot's own server** rather than dropping it — so
+the report text, the reporter's mention and the server's name become visible to
+the operator. Nothing else crosses between servers.
 
 ## 5. Third parties the Bot talks to
 
@@ -104,8 +103,8 @@ you.
 
 ## 7. AI
 
-**No part of the running Bot is AI** — no model is called. Written **with the help
-of AI coding assistants**.
+**No part of the running Bot is AI** — no model is called. Created and maintained
+**with the help of AI coding assistants and autonomous AI agents**.
 
 ## 8. Children, changes and contact
 

@@ -62,6 +62,15 @@ Images the Bot links (Imgur, Reddit's image hosts, Tenor media) are fetched by
 
 There is no analytics, no error-reporting service, no advertising SDK, no
 customer-data platform, and no font or JavaScript CDN loaded by the dashboard
-(the market chart page is the one CDN in the project). If a future change adds
-one, it belongs in this file and in section 5 of the Privacy Policy in the same
-commit — `tests/test_legal.py` fails if a host the code calls stops being named.
+(the market chart page is the one CDN in the project).
+
+**There are no AI runtime sub-processors:** no external LLM or AI APIs (such as
+OpenAI, Anthropic, Google Vertex, or AWS Bedrock) receive Discord messages,
+user prompts, guild metadata, or logs. While the Bot was built and is maintained
+with the help of AI coding assistants and autonomous AI agents, the running
+process executes purely deterministic Python code. No user data is ever sent to
+an AI provider or used for model training.
+
+If a future change adds any sub-processor, it belongs in this file and in
+section 5 of the Privacy Policy in the same commit — `tests/test_legal.py` fails
+if a host the code calls stops being named.

@@ -33,6 +33,9 @@ through the real renderer and fails when:
 * a third party stops being named, or one is named that no code calls;
 * the session cookie or sign-in link the policy describes stops matching what
   `keep_alive.py` configures;
+* the AI disclosure stops acknowledging creation with AI coding assistants and
+  autonomous AI agents, or a runtime AI provider is introduced without updating
+  the disclosure;
 * `.env.example` documents a variable no code reads (which is how a backup
   encryption key and a Gist backup were documented for a code path that had been
   deleted).

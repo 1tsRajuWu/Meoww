@@ -263,6 +263,7 @@ class TestTheAIDisclosure(unittest.TestCase):
         for name in ("TERMS.md", "PRIVACY.md"):
             text = self._read(name)
             self.assertIn("AI coding assistants", text, f"{name} does not disclose it")
+            self.assertIn("AI agents", text, f"{name} does not disclose AI agents")
             self.assertIn("Version 4", text, f"{name} was not re-versioned")
 
     def test_the_claim_that_no_ai_runs_is_still_true(self):
