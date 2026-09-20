@@ -505,7 +505,10 @@
             dot.addEventListener("click", () => {
                 const themeName = dot.dataset.set;
                 document.documentElement.setAttribute("data-theme", themeName);
-                try { localStorage.setItem("meow_theme", themeName); } catch {}
+                try {
+                    localStorage.setItem("meow-theme", themeName);
+                    localStorage.setItem("meow_theme", themeName);
+                } catch {}
                 document.querySelectorAll(".theme-dot").forEach(d => d.classList.remove("is-active"));
                 dot.classList.add("is-active");
                 if (window.updateThemedAssets) window.updateThemedAssets(themeName);
