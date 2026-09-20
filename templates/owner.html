@@ -90,11 +90,7 @@
                 <div class="topbar-title">
                     <h1>
                         Fleet
-                        {% if bot_ready %}
-                        <span class="status-badge badge-online"><span class="badge-pulse" aria-hidden="true"></span> Live</span>
-                        {% else %}
-                        <span class="status-badge badge-offline">Bot offline</span>
-                        {% endif %}
+                        {% include "gateway_badge.html" %}
                     </h1>
                     <p>
                         {{ totals.servers|default(0) }} server{{ '' if (totals.servers|default(0)) == 1 else 's' }}
@@ -639,13 +635,13 @@
                             ? "Connected and answering"
                             : "Not connected yet";
                     }
-                    const badge = document.querySelector(".topbar-title .status-badge");
-                    if (badge && data) {
-                        const live = Boolean(data.bot_ready);
-                        badge.classList.toggle("badge-online", live);
-                        badge.classList.toggle("badge-offline", !live);
-                        badge.lastChild.textContent = live ? " Live" : " Bot offline";
-                    }
+                    // The badge belongs to `static/gateway.js`, and it paints from
+                    // `data.gateway` — the live answer — where this block read
+                    // `bot_ready`, the latch that stays true through a reconnect
+                    // and is why the badge used to read "Live" while the gateway
+                    // was down. Fed from this poll rather than given one of its
+                    // own, since this page already asks `/health`.
+                    if (window.MeowGateway) window.MeowGateway.paint(data);
                     paintDeployment(data);
                 } catch (error) {
                     /* A failed poll is not worth a banner: the panel already shows
@@ -819,6 +815,11 @@
             apply();
         })();
     </script>
+    {#- This page already polls `/health` for the deployment panel below, so the
+        badge rides that poll instead of opening a second one to the same
+        address. That is what the flag tells `gateway.js`. -#}
+    <script>window.MEOW_GATEWAY_FED = true;</script>
+    <script src="/static/gateway.js?v={{ asset_version('gateway.js') }}"></script>
     <script src="/static/figures.js?v={{ asset_version('figures.js') }}"></script>
     <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>

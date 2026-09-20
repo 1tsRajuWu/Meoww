@@ -244,5 +244,105 @@ class TestDocumentedConfigurationIsReal(unittest.TestCase):
         self.assertEqual(unread, [], f".env.example documents variables nothing reads: {unread}")
 
 
+class TestTheAIDisclosure(unittest.TestCase):
+    """The policies now say two things about AI, and both must stay true.
+
+    The disclosure is worth having only because it is *specific*: AI assistants
+    helped write the source, and **no AI runs in the Bot**. The second half is a
+    factual claim about this tree, so it is checked against the tree — the day
+    somebody adds a model call, the policies become false and this fails rather
+    than leaving a document that reassures people about a flow that now exists.
+    """
+
+    @staticmethod
+    def _read(name: str) -> str:
+        with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_both_documents_disclose_the_assistance(self):
+        for name in ("TERMS.md", "PRIVACY.md"):
+            text = self._read(name)
+            self.assertIn("AI coding assistants", text, f"{name} does not disclose it")
+            self.assertIn("Version 4", text, f"{name} was not re-versioned")
+
+    def test_the_claim_that_no_ai_runs_is_still_true(self):
+        # Grepped rather than asserted from memory, and case-insensitively: a
+        # provider named in an import, a URL, or a client constructor is the way
+        # this claim would actually stop being true.
+        import re
+        from pathlib import Path
+
+        root = Path(ROOT)
+        patterns = ("*.py", "utils/*.py", "cogs/*.py", "scripts/*.py")
+        found = []
+        for pattern in patterns:
+            for path in root.glob(pattern):
+                if path.name.startswith("test_"):
+                    continue
+                body = path.read_text(encoding="utf-8", errors="ignore")
+                for match in re.finditer(
+                    r"openai|anthropic|google\.generativeai|huggingface|"
+                    r"api\.cohere|api\.mistralai|generativelanguage",
+                    body,
+                    flags=re.IGNORECASE,
+                ):
+                    found.append(f"{path.name}: {match.group(0)}")
+        self.assertEqual(
+            found, [],
+            "PRIVACY.md states that no AI runs in the Bot, and this says otherwise: "
+            f"{found}. Update the disclosure in the same commit.",
+        )
+
+    def test_the_directory_listing_copy_matches_the_registry(self):
+        """The listing is derived from the registry, so it cannot go stale alone.
+
+        Both numbers in `docs/discord-directory.md` were written by hand and one
+        of them was wrong within the hour it was written. This is the guard: the
+        copy is part of the repository now, so a feature added without touching it
+        fails here rather than in a reviewer's reading of a stale listing.
+        """
+        with open(os.path.join(ROOT, "docs", "discord-directory.md"), encoding="utf-8") as handle:
+            doc = handle.read()
+
+        # Unwrapped first. The document is prose, so a sentence is allowed to
+        # cross a line — and it does: the copy is quoted at 80 columns, which is
+        # why the first version of this test failed on text that was present and
+        # merely folded. What must not happen is a *different* number.
+        def unwrapped(text: str) -> str:
+            lines = [line.lstrip("> ").rstrip() for line in text.splitlines()]
+            return " ".join(part for part in lines if part)
+
+        flat = unwrapped(doc)
+        self.assertIn(
+            f"{features.system_count()} systems and {features.command_count()} slash commands",
+            flat,
+        )
+        short = (
+            "A community bot for moderation, tickets with transcripts, leveling, an economy "
+            "with a shop and a live market, a starboard, a 365-day activity tracker, and a "
+            "web dashboard with a message composer."
+        )
+        self.assertIn(short, flat)
+        self.assertIn(f"({len(short)} characters", flat)
+
+    def test_the_invite_links_the_document_names_are_the_ones_that_exist(self):
+        # The document told a submitter to look in `cogs/help.py`, where the links
+        # have never been. Pinned so the next reader is sent to the right file.
+        from utils import discord_auth
+
+        with open(os.path.join(ROOT, "docs", "discord-directory.md"), encoding="utf-8") as handle:
+            doc = handle.read()
+
+        self.assertIn("utils/discord_auth.py", doc)
+        self.assertIn("INVITE_PERMISSIONS", doc)
+        self.assertIn("MINIMAL_INVITE_PERMISSIONS", doc)
+        self.assertNotEqual(
+            discord_auth.INVITE_PERMISSIONS,
+            discord_auth.MINIMAL_INVITE_PERMISSIONS,
+            "the two invite links are no longer two different scopes",
+        )
+        self.assertNotIn("cogs/help.py", doc)
+
+
 if __name__ == "__main__":
     unittest.main()

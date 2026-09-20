@@ -28,7 +28,7 @@ load_dotenv()
 from keep_alive import keep_alive  # noqa: E402
 from utils import (  # noqa: E402
     command_publish, command_scope, commands_sync, config_audit, db, features,
-    modules, operator_log, permissions,
+    guild_directory, modules, operator_log, permissions,
 )
 
 # Force real-time unbuffered log streaming to Render / cloud console
@@ -962,6 +962,21 @@ async def on_ready():
         except Exception as e:
             print(f"Could not load module states for {guild.name}: {e}")
 
+    # Write down which servers these are, and drop any the bot has since left.
+    # The console drew its server names and its server picker from the gateway
+    # cache alone, which is empty in a fresh process — so until this ran, every
+    # console page said "Unknown server". This loop is the moment it is complete.
+    # See ``utils/guild_directory.py``.
+    try:
+        written, forgotten = guild_directory.reconcile(bot.guilds)
+        print(
+            f"[DIRECTORY] {len(bot.guilds)} server(s) known: "
+            f"{written} written, {forgotten} forgotten.",
+            flush=True,
+        )
+    except Exception as exc:
+        print(f"[DIRECTORY] ⚠️ Could not reconcile the server directory: {exc}", flush=True)
+
     
     # Stamp every command with the audience declared in utils/permissions.py
     # *before* publishing, so what Discord offers in a member's picker matches
@@ -1209,6 +1224,13 @@ async def on_guild_join(guild: discord.Guild):
     """
     from utils import bot_channels
 
+    # Written down before the slow work below, so a console opened while this
+    # server is still being set up can already name it.
+    # ``guild.member_count`` is ``None`` without the members intent, which this
+    # bot keeps off — and ``None`` means "Discord did not say", which the
+    # directory records as "keep what you have" rather than as a zero.
+    guild_directory.remember(guild.id, guild.name, guild.member_count)
+
     try:
         bound = await bot_channels.ensure_bound(guild)
         if bound:
@@ -1244,6 +1266,9 @@ async def on_guild_join(guild: discord.Guild):
 @bot.event
 async def on_guild_remove(guild: discord.Guild):
     """A server removed the bot, was deleted, or banned it — all read the same."""
+    # Forgotten as well as logged: the console offers operators the servers in
+    # the directory, so a row left behind would offer one the bot is not in.
+    guild_directory.forget(guild.id)
     await operator_log.guild_left(bot, guild)
 
 # ``/dashboard`` used to live here as a top-level command. It was one of the

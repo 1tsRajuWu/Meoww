@@ -10,7 +10,7 @@ import os
 import shutil
 import tempfile
 
-from utils import cloud_sync, db
+from utils import cloud_sync, db, guild_directory
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,6 +42,13 @@ class TempDatabaseMixin:
                 "cloud_sync does not share utils.db's database path "
                 f"({resolved!r} != {os.path.abspath(path)!r})"
             )
+
+        # The server directory is cached per process while the database is per
+        # test, so a row remembered by the previous test is a row about a file
+        # that no longer exists — and it would answer `_known_guilds()`, which is
+        # what the consoles are allowed to offer an operator. Left in place, one
+        # test's server list decides another test's page.
+        guild_directory.reset()
 
         # Per-database sync state must never leak from the previous test.
         cloud_sync._remote_checked = False

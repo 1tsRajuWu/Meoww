@@ -1,7 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** September 19, 2026 · **Version 3** (adds Discord sign-in for
-the dashboard).
+**Effective Date:** September 20, 2026 · **Version 4** (AI-assisted source).
 
 This policy explains what this Discord bot ("the Bot") stores, why, where it goes
 and how to have it removed. It describes one deployment; the operator running it
@@ -72,7 +71,7 @@ A bug report is posted in **your** server's bug channel when it has one, with a
 thread on it. When it does not, the Bot posts it to **the bot's own server**
 rather than dropping it — so the report text, the reporter's mention and the
 server's name become visible to the operator. Nothing else crosses between
-servers, and no feature reads another server's data.
+servers.
 
 ## 5. Third parties the Bot talks to
 
@@ -100,10 +99,15 @@ Staff delete data with the Bot's own commands (`/clearwarnings`, `/eco-admin
 reset`, and the ticket, quote and case tools); the operator can delete or export
 a whole server's rows on request; removing the Bot stops all further collection.
 A snapshot's records persist until it rotates out, and a retired feature's rows
-are included in any deletion. Ask in the support server and the procedure —
-which has two traps in it — will be run for you.
+are included in any deletion. Ask in the support server and it will be done for
+you.
 
-## 7. Children, changes and contact
+## 7. AI
+
+**No part of the running Bot is AI** — no model is called. Written **with the help
+of AI coding assistants**.
+
+## 8. Children, changes and contact
 
 The Bot is not directed at anyone below Discord's minimum age, and asks for no
 personal information. This policy may change; the Effective Date above moves

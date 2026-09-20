@@ -48,8 +48,8 @@ from flask import (
 )
 from utils import (
     command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    figures, hub, identity, modules, plans, scheduled, site_guard, uptime_status,
-    webdocs,
+    figures, guild_directory, hub, identity, modules, plans, scheduled, site_guard,
+    uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -527,9 +527,30 @@ def _schedule_cloud_backup():
 
 
 def _known_guilds():
-    if not BOT_INSTANCE:
-        return []
-    return [{"id": g.id, "name": g.name} for g in BOT_INSTANCE.guilds]
+    """Every server the bot is in — live where the gateway has answered, and
+    remembered where it has not yet.
+
+    ``BOT_INSTANCE.guilds`` is Discord's cache, and it is **empty in a fresh
+    process** until the handshake finishes. That window is tens of seconds on
+    every restart, and on a host that stops the process when idle it is the
+    window a visitor is most likely to arrive in — the consoles read "Unknown
+    server" and an operator signing in with Discord was offered no servers at
+    all. ``utils/guild_directory.py`` writes the names down at boot for exactly
+    this moment.
+
+    Live rows win, and keep their place at the front, so a server renamed in
+    Discord shows its new name immediately and the picker keeps the bot's own
+    order while the cache is warm.
+    """
+    known: dict[int, dict] = {}
+    if BOT_INSTANCE:
+        for guild in BOT_INSTANCE.guilds:
+            known[guild.id] = {"id": guild.id, "name": guild.name}
+    for row in guild_directory.read_all():
+        # ``setdefault``, not assignment: a live row must not be replaced by the
+        # remembered name it might have had before somebody renamed the server.
+        known.setdefault(row["id"], {"id": row["id"], "name": row["name"]})
+    return list(known.values())
 
 
 def _visible_guilds():
@@ -940,6 +961,34 @@ def _gateway_label(started: bool, connected: bool) -> str:
     if connected:
         return "connected"
     return "reconnecting" if started else "never_connected"
+
+
+#: The badge's three states: label, class, and whether it pulses.
+#:
+#: Three rather than two because the flag both consoles compared — ``bot_ready``,
+#: i.e. "this process has logged in at least once" — is a latch. It is set on the
+#: first successful login and never cleared, so a badge built on it reads "Live"
+#: while the gateway is reconnecting, which is the one case somebody looks at a
+#: badge for. A bot that is reconnecting is not the same claim as one that has
+#: never been up, and neither is "Live".
+_BADGE_STATES: dict[str, tuple[str, str, bool]] = {
+    "connected": ("Live", "badge-online", True),
+    "reconnecting": ("Reconnecting", "badge-warn", False),
+    "never_connected": ("Bot offline", "badge-offline", False),
+}
+
+
+def _badge_state() -> dict:
+    """The topbar badge for the gateway right now — the live answer.
+
+    Read by both consoles through ``templates/gateway_badge.html``, and kept
+    current after the page loads by ``static/gateway.js``. One definition for the
+    two of them, because the two copies this replaces were the same mistake
+    written twice and only one of them had gone stale.
+    """
+    started, connected = _gateway_state()
+    label, css, pulse = _BADGE_STATES[_gateway_label(started, connected)]
+    return {"label": label, "css": css, "pulse": pulse, "connected": connected}
 
 
 @app.route("/health")
@@ -2687,8 +2736,12 @@ def dashboard():
         # session look unscoped on its next request.
         guild_id = 0
 
-    guild_name = "Unknown server"
-    member_count = 0
+    # The remembered name first, so the page is never headed "Unknown server"
+    # for a server the bot is actually in. Discord's cache then overwrites it
+    # when it has an answer, and that answer is written back down below.
+    remembered = guild_directory.read(guild_id)
+    guild_name = remembered["name"] if remembered else "Unknown server"
+    member_count = remembered["member_count"] if remembered else 0
     bot_ping = _bot_ping_ms()
     bot_ready = bool(BOT_INSTANCE and getattr(BOT_INSTANCE, "_has_started", False))
 
@@ -2697,6 +2750,20 @@ def dashboard():
         if guild:
             guild_name = guild.name
             member_count = guild.member_count or len(guild.members)
+            # Write-through and idempotent: ``remember`` skips the row when
+            # nothing changed, so a page load is a write only the first time a
+            # server is seen or after a rename — which is what keeps the
+            # directory current without a page becoming a write path.
+            guild_directory.remember(
+                guild_id,
+                guild.name,
+                # The displayed count and the stored one are asked separately:
+                # ``len(guild.members)`` is 0 rather than unknown when members
+                # are not chunked, and ``remember`` reads ``None`` as "Discord
+                # did not say" and keeps what it already has.
+                guild.member_count if guild.member_count is not None
+                else (len(guild.members) or None),
+            )
 
     try:
         # The same cache the bot reads — not a second, independently-loaded copy.
@@ -2785,6 +2852,7 @@ def dashboard():
         "dashboard.html",
         guild_id=guild_id,
         guild_name=guild_name,
+        gateway=_badge_state(),
         page=page,
         page_anchor=_page_anchor(DASHBOARD_PAGES, page),
         # The open page with the server still to be appended — what the topbar's
@@ -3014,6 +3082,7 @@ def owner_console():
             "commands": len(_command_tree_names()),
         },
         bot_ready=_bot_ready(),
+        gateway=_badge_state(),
         bot_ping=_bot_ping_ms(),
         bot_name=_bot_display_name(),
         selling=plans.selling_enabled(),

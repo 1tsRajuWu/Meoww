@@ -309,8 +309,15 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
         self.assertIn('data-try-empty hidden', self.markup)
 
     def test_it_promises_that_nothing_is_sent(self):
-        """A visitor who has not added the bot must not be made to wonder."""
-        self.assertIn("Nothing is sent anywhere", self.markup)
+        """A visitor who has not added the bot must not be made to wonder.
+
+        Both halves of the promise, not the sentence that used to carry them: the
+        panel's copy was shortened in the same pass as the rest of the page, and a
+        test pinned to the old wording asserts a phrase rather than the claim a
+        reader has to be able to rely on.
+        """
+        self.assertIn("Nothing is sent", self.markup)
+        self.assertIn("No server is changed", self.markup)
 
     @staticmethod
     def _minimal_home():

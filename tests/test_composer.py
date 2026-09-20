@@ -669,6 +669,10 @@ def render_dashboard(**overrides) -> str:
         member_count=3,
         bot_ping=12,
         bot_ready=True,
+        # Read from the view rather than written out, like the limits above: the
+        # badge is a partial both consoles include, so a fixture with its own copy
+        # of the three states would pin a shape production does not use.
+        gateway=keep_alive._badge_state(),
         modules=[],
         active_count=0,
         total_count=0,

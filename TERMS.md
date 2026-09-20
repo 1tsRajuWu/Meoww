@@ -1,7 +1,6 @@
 # Terms of Service
 
-**Effective Date:** September 19, 2026 · **Version 3** (adds the dashboard's
-Discord sign-in).
+**Effective Date:** September 20, 2026 · **Version 4** (AI-assisted source).
 
 By inviting, configuring or using this Discord bot ("the Bot") you agree to these
 Terms. If you do not agree, remove the Bot from your server. They are between you
@@ -102,7 +101,12 @@ limited.
 The Bot follows Discord's minimum age for its service. Do not use the Bot if you
 are below it, and do not ask the Bot to store anything about someone who is.
 
-## 8. Changes and termination
+## 8. AI assistance
+
+**No part of the running Bot is AI** — no model is called, and nothing you send
+reaches one. Written **with the help of AI coding assistants**.
+
+## 9. Changes and termination
 
 These Terms may be updated at any time; the Effective Date above changes with it
 and continued use is acceptance. The operator may suspend or end the Bot's

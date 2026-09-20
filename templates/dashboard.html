@@ -135,11 +135,7 @@
                 <div class="topbar-title">
                     <h1>
                         {{ guild_name }}
-                        {% if bot_ready %}
-                        <span class="status-badge badge-online"><span class="badge-pulse" aria-hidden="true"></span> Live</span>
-                        {% else %}
-                        <span class="status-badge badge-offline">Bot offline</span>
-                        {% endif %}
+                        {% include "gateway_badge.html" %}
                     </h1>
                     <p>Connected to <strong>{{ guild_name }}</strong> — changes here apply in Discord immediately.</p>
                 </div>
@@ -3281,5 +3277,9 @@
         if (disableAll) disableAll.addEventListener("click", () => toggleAll(false));
     </script>
     <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
+    {#- The badge above is server-rendered, so it is only true as of the response.
+        This keeps it true while the console sits open, which is what a console is
+        for. It polls `/health` itself — see the script's own note. -#}
+    <script src="/static/gateway.js?v={{ asset_version('gateway.js') }}"></script>
 </body>
 </html>

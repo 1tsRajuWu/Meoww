@@ -302,6 +302,12 @@
     border: 1px solid transparent;
 }
 .badge-online { background: rgba(35, 165, 90, 0.14); color: #7ddca6; border-color: rgba(35, 165, 90, 0.4); }
+/* Reconnecting: the state between the other two, and the one a two-state badge
+   had no way to say. A Discord bot drops and reattaches routinely, so painting
+   that red would report an outage that is not happening — which is what made the
+   old badge wrong in both directions at once. Amber, and no pulse: it is neither
+   the settled good state nor a failure. */
+.badge-warn { background: rgba(215, 148, 32, 0.16); color: #f0c274; border-color: rgba(215, 148, 32, 0.42); }
 .badge-offline { background: rgba(242, 63, 67, 0.14); color: #ff9ea0; border-color: rgba(242, 63, 67, 0.38); }
 .badge-pulse {
     width: 7px;

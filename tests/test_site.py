@@ -243,8 +243,23 @@ class ThePolicyPages(unittest.TestCase):
             self.assertIn("Effective", body)
 
     def test_the_effective_date_comes_from_the_document(self):
+        """Read out of the file, not written down twice.
+
+        This pinned the literal date, which is the one thing it is named for not
+        doing: the document's date advanced a version and the page was already
+        printing the new one correctly, while the assertion still asked for the
+        old. It is read from the document now, so the two cannot drift — which is
+        the property the page has and the test is here to hold.
+        """
+        import re
+
+        from cogs import legal
+
         body = self.client.get("/privacy").get_data(as_text=True)
-        self.assertIn("September 19, 2026", body)
+        text = legal.read_document("PRIVACY.md")
+        found = re.search(r"\*\*Effective Date:\*\* ([A-Z][a-z]+ \d{1,2}, \d{4})", text)
+        self.assertIsNotNone(found, "the document states no effective date")
+        self.assertIn(found.group(1), body)
         self.assertNotIn("**", body, "markdown emphasis leaked into the page")
 
     def test_a_missing_document_is_a_404_and_not_an_empty_page(self):

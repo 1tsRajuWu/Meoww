@@ -375,6 +375,22 @@ for _rule, _name, _view in (
     app.add_url_rule(_rule, _name, _view, methods=["GET", "POST"])
 
 
+def _preview_badge() -> dict:
+    """Which of the three gateway states this preview should draw.
+
+    `PREVIEW_GATEWAY` names one — ``connected`` (the default, since the rest of
+    this harness already renders as if the bot were up), ``reconnecting`` or
+    ``never_connected`` — and anything unrecognised falls back to the default
+    rather than raising, because a preview that will not start is a worse answer
+    than one showing the wrong dot.
+    """
+    key = os.environ.get("PREVIEW_GATEWAY", "connected").strip().lower()
+    if key not in keep_alive._BADGE_STATES:
+        key = "connected"
+    label, css, pulse = keep_alive._BADGE_STATES[key]
+    return {"label": label, "css": css, "pulse": pulse, "connected": key == "connected"}
+
+
 @app.route("/dashboard")
 def dashboard():
     try:
@@ -395,8 +411,21 @@ def dashboard():
         guild_id=guild["id"],
         guild_name=guild["name"],
         member_count=guild["members"],
+        # …and the page renders for whichever server was asked for.
         bot_ping=int(os.environ.get("PREVIEW_PING", "41")),
         bot_ready=True,
+        # The same reading production passes, so this harness cannot render a page
+        # the route would not: `gateway` draws the badge both consoles share, and
+        # leaving it out is how a template that needs it fails only here.
+        #
+        # Read from `_BADGE_STATES` rather than `_badge_state()` because this
+        # harness has no gateway at all — asking the real one would answer "Bot
+        # offline" and the preview would show an offline console, which is not
+        # what it is for. `PREVIEW_GATEWAY` picks which of the three to draw, the
+        # way `PREVIEW_PING` above picks the latency, so the middle state is
+        # reachable here too — it is the one that used to be unreachable, in both
+        # directions, and the one worth being able to look at.
+        gateway=_preview_badge(),
         # Whether the topbar offers the Pricing link, from the same switch the
         # route reads. Left out, it would read as "off" and the preview would
         # silently show a topbar production may not have — the harness drift
