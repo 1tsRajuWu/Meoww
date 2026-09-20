@@ -16,17 +16,22 @@ export const THEMES = [
 
 export type ThemeId = (typeof THEMES)[number]["id"];
 
-const KEY = "meow-console-theme";
+/* Named in full rather than `KEY`, which is what a secret scanner is looking
+ * for: a variable called `KEY` assigned a string reads, to a scanner and to
+ * somebody skimming, exactly like a credential. This is the name of a
+ * `localStorage` entry — the theme this browser chose — and saying so in the
+ * name is both more honest and one fewer false alarm drowning the real ones. */
+const STORAGE_KEY = "meow-console-theme";
 
 export function currentTheme(): ThemeId {
-  const saved = window.localStorage.getItem(KEY);
+  const saved = window.localStorage.getItem(STORAGE_KEY);
   const found = THEMES.find((theme) => theme.id === saved);
   return found ? found.id : "midnight";
 }
 
 export function applyTheme(id: ThemeId): void {
   document.documentElement.dataset.theme = id;
-  window.localStorage.setItem(KEY, id);
+  window.localStorage.setItem(STORAGE_KEY, id);
   const meta = document.querySelector('meta[name="theme-color"]');
   const hex = THEMES.find((theme) => theme.id === id)?.hex;
   if (meta && hex) meta.setAttribute("content", hex);

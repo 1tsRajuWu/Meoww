@@ -27,7 +27,11 @@
      * for one whose stored choice has since been retired. */
     var THEMES = ["midnight", "sakura", "forest", "ember"];
     var DEFAULT = "midnight";
-    var KEY = "meow-theme";
+    /* `STORAGE_KEY`, not `KEY`: a short name holding a string is what a secret
+     * scanner reports as a hardcoded credential, and a false alarm in a scan is
+     * one more thing to read past before the real one. It names the
+     * `localStorage` entry holding the reader's theme choice. */
+    var STORAGE_KEY = "meow-theme";
 
     /* Enough to label the trigger. The swatch colours themselves are in the
      * stylesheet, next to the tokens they belong to — a colour written down
@@ -43,7 +47,7 @@
 
     function stored() {
         try {
-            var value = window.localStorage.getItem(KEY);
+            var value = window.localStorage.getItem(STORAGE_KEY);
             return THEMES.indexOf(value) === -1 ? DEFAULT : value;
         } catch (error) {
             /* A browser that refuses storage is not an error worth surfacing:
@@ -54,7 +58,7 @@
 
     function save(name) {
         try {
-            window.localStorage.setItem(KEY, name);
+            window.localStorage.setItem(STORAGE_KEY, name);
         } catch (error) {
             /* Chosen for this page, then. It still applies until the next load. */
         }

@@ -758,7 +758,13 @@ def market_page(symbol):
         # Production's own refusal, in production's own words: a misspelt symbol
         # is a thing people do, and "404 nope" tells them nothing. Same sentence,
         # same way out, so the preview cannot flatter the real page.
-        safe = str(symbol).replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;").replace('"', "&quot;")
+        #
+        # ``html.escape`` rather than a chain of ``.replace()``s. The chain that
+        # was here escaped ``&`` *after* ``<`` and ``>``, so ``a<b`` came back as
+        # ``a&amp;lt;b`` and the page showed the entity instead of the character —
+        # a misspelt symbol is exactly the input that reports this, and getting it
+        # wrong made the harness lie about a page it exists to render faithfully.
+        safe = html.escape(str(symbol), quote=True)
         return (
             f"<h1>404 — {safe} is not on the market</h1>"
             "<p><a href='/market/BTC'>Open BTC instead</a></p>",

@@ -73,8 +73,17 @@ def _local_table_counts(db_path: str) -> tuple[dict[str, int], float, float, str
             integrity = str(e)
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         for (name,) in cur.fetchall():
+            # A table name is an *identifier*, and an identifier cannot be a bound
+            # parameter — ``?`` stands for a value, never for a name — so it is
+            # quoted by hand. Doubling an inner quote is how SQLite escapes one;
+            # without it a table called ``a"b`` would end the quoting early and
+            # the rest of the name would be read as SQL. These names come from
+            # this file's own catalogue rather than from anybody's input, so this
+            # is a belt over a belt — but a row count that could be made to read
+            # a table it was never asked about is not a row count.
+            quoted = str(name).replace('"', '""')
             try:
-                counts[name] = cur.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+                counts[name] = cur.execute(f'SELECT COUNT(*) FROM "{quoted}"').fetchone()[0]
             except sqlite3.Error:
                 counts[name] = -1  # unreadable
     except sqlite3.Error as e:

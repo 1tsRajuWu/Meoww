@@ -9,6 +9,8 @@
  *    answers refusals as `{error: "..."}` in words written for a person
  *    ("Could not save that change. Please try again."), and a UI that replaced
  *    that with "Request failed" would be throwing away the only useful part.
+ * 3. **A picture is our own path or it is nothing.** See `drawableImage` — this
+ *    is applied here, once, rather than in the pages that happen to draw one.
  */
 
 import type {
@@ -29,6 +31,28 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** A picture this app is willing to put in an `<img src>`, or `""`.
+ *
+ * Every icon the console draws is built by the *server*, which returns our own
+ * `/api/image?...` — its address rather than Discord's, because `img-src 'self'`
+ * is what stops a page whose template was tampered with from dialling out. So
+ * today every value is same-origin by construction, and this function changes
+ * nothing about what is on screen.
+ *
+ * It exists because `src` is not decoration: it is an attribute the browser
+ * *acts on*, and `javascript:` in it is a script. A CSP does not save a page from
+ * the URL its own API handed it, which is exactly how a value that only ever
+ * *looked* like a path becomes one. `//host/x` is somebody else's host despite
+ * the leading slash, so only a path that is genuinely ours — or an inline image —
+ * is let through.
+ */
+function drawableImage(value: unknown): string {
+  const path = typeof value === "string" ? value.trim() : "";
+  if (path.startsWith("/") && !path.startsWith("//")) return path;
+  if (path.startsWith("data:image/")) return path;
+  return "";
 }
 
 let csrfToken = "";
@@ -76,8 +100,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   overview: () => request<Overview>("/api/console/overview"),
-  fleet: () => request<Fleet>("/api/console/fleet"),
-  server: (id: number) => request<ServerDetail>(`/api/console/server/${id}`),
+
+  /** The fleet, with every server's picture passed through the one rule above. */
+  fleet: async () => {
+    const data = await request<Fleet>("/api/console/fleet");
+    return {
+      ...data,
+      servers: data.servers.map((server) => ({ ...server, icon: drawableImage(server.icon) })),
+    };
+  },
+
+  server: async (id: number) => {
+    const data = await request<ServerDetail>(`/api/console/server/${id}`);
+    return { ...data, server: { ...data.server, icon: drawableImage(data.server.icon) } };
+  },
   systems: () => request<SystemsMatrix>("/api/console/systems"),
   ops: () => request<Ops>("/api/console/ops"),
   changes: () => request<Changes>("/api/console/changes"),

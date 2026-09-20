@@ -410,6 +410,19 @@ class TheHarnessServesTheRealPages(unittest.TestCase):
         for name in ("home", "policy_privacy", "policy_terms", "login"):
             self.assertIn(f"keep_alive.{name}", source, f"the harness restates /{name}")
 
+    def test_the_previews_own_refusal_escapes_the_way_production_does(self):
+        """A hand-rolled escape chain here double-escaped, one line from the bug.
+
+        The harness's 404 restated production's sentence, and where production
+        calls ``_html.escape`` the copy chained ``.replace()``s with ``&`` last,
+        so ``a<b`` was served as ``a&amp;lt;b``. A misspelt symbol is the only
+        input that route ever reports, which means the harness was wrong on
+        every use it had. Production's own route was already correct.
+        """
+        source = (ROOT / "scripts" / "preview_dashboard.py").read_text(encoding="utf-8")
+        self.assertIn("html.escape(str(symbol), quote=True)", source)
+        self.assertNotIn('.replace("&", "&amp;")', source)
+
     def test_the_preview_can_serve_the_shared_stylesheet(self):
         """It could not: the script runs from ``scripts/``, so Flask's default
         static folder was ``scripts/static`` and every page in the preview came

@@ -332,6 +332,27 @@ class TheConsoleApi(_DashboardFixture):
                 for block in ("site", "config"):
                     self.assertIn(f"health.{block}.status", source)
 
+    def test_a_server_picture_is_our_own_path_or_nothing(self):
+        """`src` is an attribute the browser *acts on*, so the rule sits at the edge.
+
+        Nothing on screen changes today: every icon here is built by the server
+        as `/api/image?...`, our own origin. What this pins is that the two
+        payloads carrying one put it through the app's own rule in `api.ts`
+        rather than each page trusting whatever it was handed — because
+        `javascript:` in `src` is a script, and `img-src 'self'` does not save a
+        page from the URL its own API gave it. Same shape as the status-key test
+        above: a contract Python cannot execute, checked where it is written.
+        """
+        source = (CONSOLE / "src" / "api.ts").read_text(encoding="utf-8")
+        self.assertIn("function drawableImage", source)
+        # Both icon-carrying endpoints, not only the one that looks riskier.
+        for call in ("fleet: async () => {", "server: async (id: number) => {"):
+            with self.subTest(endpoint=call):
+                self.assertIn(call, source)
+        self.assertEqual(source.count("icon: drawableImage("), 2)
+        # A leading slash is ours; two of them are somebody else's host.
+        self.assertIn('!path.startsWith("//")', source)
+
     def test_the_overview_carries_every_figure_window_at_once(self):
         """Switching period is a redraw, so a slow host cannot stall the control."""
         figures = self.get("/api/console/overview")["figures"]

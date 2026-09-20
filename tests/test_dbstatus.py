@@ -62,6 +62,31 @@ class TestDbstatusMath(unittest.TestCase):
         cur.close()
         self.assertEqual(count, 0)
 
+    def test_a_table_whose_name_holds_a_quote_is_still_counted(self):
+        """The identifier is quoted by hand, so the quoting has to be escaped.
+
+        A table name cannot be a bound parameter — ``?`` stands for a value, not
+        for a name — so the query is built by string interpolation. ``a"b`` is a
+        legal table name, and interpolated straight in it closes the quoting
+        early: SQLite reads the rest as junk, raises a syntax error, and the
+        count comes back ``-1``. That ``-1`` means "unreadable", which is a lie
+        about a table that is perfectly readable. Doubling the inner quote is the
+        whole difference, and this is the test that notices when it is missing.
+        """
+        from cogs.server_control import _local_table_counts
+
+        weird = os.path.join(self.tmpdir, "weird.db")
+        conn = sqlite3.connect(weird)
+        conn.execute('CREATE TABLE "a""b" (x INTEGER)')
+        conn.execute('INSERT INTO "a""b" VALUES (1), (2), (3)')
+        conn.commit()
+        conn.close()
+
+        counts, _size_kb, _wal_kb, integrity = _local_table_counts(weird)
+        self.assertEqual(counts.get('a"b'), 3)
+        self.assertNotIn(-1, counts.values(), f"a table was reported unreadable: {counts}")
+        self.assertEqual(integrity, "ok")
+
 
 class TestCloudSyncStatus(unittest.TestCase):
     """Verify the cloud sync status fields are well-formed."""
