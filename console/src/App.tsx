@@ -23,6 +23,7 @@ import { ServerDetail } from "./pages/ServerDetail";
 import { Systems } from "./pages/Systems";
 import { OpsPage } from "./pages/Ops";
 import { Changes } from "./pages/Changes";
+import { Missing } from "./pages/Missing";
 
 export function App({ boot }: { boot: BootData }) {
   // Read by `main.tsx` before the first render, and passed in: it is a fact about
@@ -65,7 +66,12 @@ function Router({
     if (path === "/systems") return { kind: "systems" as const };
     if (path === "/ops") return { kind: "ops" as const };
     if (path === "/changes") return { kind: "changes" as const };
-    return { kind: "overview" as const };
+    // `/owner` itself is the Overview; **anything else that matched nothing is
+    // not**. This line used to fall through to the Overview for both, so
+    // `/owner/nonsense` drew a page that looked correct at an address that was
+    // not, with no `aria-current` anywhere to admit it — found by typing one.
+    if (path === "" || path === "/") return { kind: "overview" as const };
+    return { kind: "missing" as const };
   }, [path]);
 
   // Only the two destinations that genuinely leave this app are here.
@@ -114,6 +120,7 @@ function Router({
     }
     if (page.kind === "ops") return <OpsPage />;
     if (page.kind === "changes") return <Changes />;
+    if (page.kind === "missing") return <Missing path={path} />;
     return <Overview boot={boot} servers={servers} />;
   };
 

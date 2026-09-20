@@ -353,6 +353,29 @@ class TheConsoleApi(_DashboardFixture):
         # A leading slash is ours; two of them are somebody else's host.
         self.assertIn('!path.startsWith("//")', source)
 
+    def test_an_address_that_is_not_a_page_says_so(self):
+        """The router answered every unmatched path with the **Overview** page.
+
+        Found by typing one: `/owner/nonsense` rendered a screen that looked
+        correct at an address that was not, and the rail's `aria-current`
+        correctly highlighted nothing — so the only evidence that this was not a
+        page was a highlight nobody reads. It also disagreed with the rest of the
+        console, where an unknown *server* already answered "No such server".
+
+        The rule is that `/owner` is the Overview and nothing else falls through
+        to it, which Python can only check by reading the router.
+        """
+        source = (CONSOLE / "src" / "App.tsx").read_text(encoding="utf-8")
+        self.assertIn('return { kind: "missing" as const }', source)
+        self.assertIn(
+            'if (path === "" || path === "/") return { kind: "overview" as const }',
+            source,
+            "the Overview is no longer the one address it belongs to",
+        )
+        page = (CONSOLE / "src" / "pages" / "Missing.tsx").read_text(encoding="utf-8")
+        self.assertIn("Not a page here", page)
+        self.assertIn('to="/"', page, "the page offers no way back to the console")
+
     def test_the_overview_carries_every_figure_window_at_once(self):
         """Switching period is a redraw, so a slow host cannot stall the control."""
         figures = self.get("/api/console/overview")["figures"]

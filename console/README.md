@@ -11,6 +11,13 @@ public read-only mirror that used to sit on `meowdev.pages.dev`. That mirror
 could never have been a management tool: it was a static host with no session,
 so nothing it drew could change anything.
 
+**`meowdev.pages.dev` now forwards here** (301, path preserved) rather than
+serving a copy of anything. It was published once by hand and never wired to the
+repository, so every push updated `meow-bot.pages.dev` and left that address
+showing a frozen build — which is the whole reason it looked unchanged after an
+update. One address, one site, and it cannot go stale. Its hub pages are still
+buildable with `scripts/build_hub.py` if it is ever wanted back.
+
 ## Where things are
 
 | | |
