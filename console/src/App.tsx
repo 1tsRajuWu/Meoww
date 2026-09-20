@@ -7,9 +7,9 @@
  */
 
 import { AnimatePresence, motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { api, readBoot, setCsrfToken } from "./api";
+import { api, setCsrfToken } from "./api";
 import type { BootData, ServerRow } from "./types";
 import { usePath } from "./lib/router";
 import { useLive } from "./lib/useLive";
@@ -24,10 +24,10 @@ import { Systems } from "./pages/Systems";
 import { OpsPage } from "./pages/Ops";
 import { Changes } from "./pages/Changes";
 
-export function App() {
-  // The boot payload is read once, synchronously, from the shell. It cannot
-  // change without a reload, because it is what the reload re-renders.
-  const [boot] = useState<BootData>(() => readBoot());
+export function App({ boot }: { boot: BootData }) {
+  // Read by `main.tsx` before the first render, and passed in: it is a fact about
+  // the document, so it cannot change without a reload — and reading it in the
+  // entry point is what lets a missing payload be answered rather than thrown.
   setCsrfToken(boot.csrfToken);
 
   const fleet = useLive<ServerRow[]>(

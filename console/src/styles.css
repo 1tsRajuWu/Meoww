@@ -1180,6 +1180,28 @@ a {
   grid-column: 1 / -1;
 }
 
+/* The bundle loaded on its own, without the shell that gives it a session.
+   Told plainly rather than rendered as an empty page — see `main.tsx`. */
+.console-orphan {
+  max-width: 34rem;
+  margin: 12vh auto;
+  padding: 0 24px;
+}
+
+.console-orphan h1 {
+  font-size: 22px;
+  margin-bottom: 10px;
+}
+
+.console-orphan p {
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+.console-orphan a {
+  color: var(--accent);
+}
+
 /* ------------------------------------------------------------- responsive */
 
 @media (max-width: 1180px) {

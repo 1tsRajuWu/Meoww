@@ -117,6 +117,28 @@ class TheBundleMatchesItsSources(unittest.TestCase):
                 block = css.split(f'[data-theme="{theme_id}"]', 1)[1].split("}", 1)[0]
                 self.assertIn(f"--bg: {hex_value}", block)
 
+    def test_the_bundle_carries_no_stray_entry_point(self):
+        """Nothing in `static/console/` may be a second way into the app.
+
+        `console/index.html` is the entry `vite dev` uses, and with it as the
+        build's *input* Vite copied it into the bundle — where `static/` served it
+        to anyone. Opening it loaded `app.js` without the `console-boot` payload
+        Flask renders, so the app had no CSRF token and no operator and painted an
+        empty page with an error in the console. The build starts from
+        `src/main.tsx` now, and this is what says so: only the two assets and the
+        stamp belong in here.
+        """
+        found = sorted(p.name for p in BUNDLE.iterdir() if p.is_file())
+        self.assertEqual(found, ["app.css", "app.js", "build.json"])
+        # …and the reason it does not: the build starts from the module. Asserted
+        # as the input it declares rather than as the absence of a word — an
+        # earlier version of this rule forbade the string `index.html`, which the
+        # comment explaining the fix contains, so it failed on its own
+        # documentation. A test that forbids a word forbids the paragraph about
+        # why the word is gone.
+        config = (CONSOLE / "vite.config.ts").read_text(encoding="utf-8")
+        self.assertIn('input: "src/main.tsx"', config)
+
     def test_nothing_is_loaded_from_another_origin(self):
         """The page runs under `script-src 'self'`, so a CDN import would not load.
 

@@ -23,6 +23,16 @@ export default defineConfig({
     modulePreload: { polyfill: false },
     sourcemap: false,
     rollupOptions: {
+      // The build starts from the **module**, not from `index.html`.
+      //
+      // With the HTML as the entry, Vite emits a copy of it into the bundle — and
+      // a file in `static/` is served, so `console/index.html`, whose own comment
+      // says it exists only so `vite dev` has an entry point, was publicly
+      // reachable. Opening it loaded `app.js` with no `console-boot` payload
+      // beside it, so the app threw and painted an empty page. `vite dev` still
+      // serves the root `index.html` (that is what dev does), so the file keeps
+      // its job and loses its public one.
+      input: "src/main.tsx",
       output: {
         entryFileNames: "app.js",
         chunkFileNames: "chunk-[name].js",
