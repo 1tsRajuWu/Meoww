@@ -135,6 +135,43 @@ Tune it with `SITE_GUARD_INTERVAL_SECONDS` (default six hours) and
 `SITE_GUARD_FIRST_CHECK_SECONDS` (default ninety, so a deploy is re-checked
 shortly after boot).
 
+### 5. Cloudflare Pages (the owner console)
+
+- Project: `meow-owner` → https://meow-owner.pages.dev
+- Source: **no Git integration.** `wrangler pages project list` reports a Git
+  provider for `meow-bot` and none for this project, and every deployment it has
+  carries a commit stamped by hand — so a push to `main` updates the public site
+  and leaves this one untouched. That is the whole mechanism behind "the changes
+  are not showing": the console bundle here was built from `ed5dee8` while the
+  repository was three commits further on.
+
+Deploy it deliberately, after `npm run build` inside `console/`:
+
+```bash
+cd console && npm run build          # writes static/console/
+python scripts/build_owner.py        # writes _owner/ with that bundle inside
+npx wrangler pages deploy _owner --project-name=meow-owner --branch=main
+```
+
+Two ways to stop doing that by hand, in order of preference:
+
+1. **Connect the project to the repository** in the Cloudflare dashboard with
+   build command `pip install -r requirements.txt && python scripts/build_owner.py --out _owner`
+   and build output directory `_owner`. A Pages build image has no Node, which
+   is exactly why `static/console/` is committed: the build copies the bundle
+   rather than compiling it.
+2. **Add a publish step to `.github/workflows/site.yml`** for
+   `wrangler pages deploy _owner --project-name=meow-owner`. It needs
+   `CLOUDFLARE_API_TOKEN` with **Pages: Edit**; the token this repository has
+   been using cannot publish at all (`Pages Read` only), which is why the
+   `Site` job builds and does not deploy.
+
+The same console is *also* served by the bot itself at
+`https://meow-bot.pages.dev/owner` (the site's worker proxies `/owner` to
+Render, and Render redeploys on every push), so a hand-deployed `meow-owner` is a
+second, cacheable copy of one app — worth knowing when the two disagree, and the
+reason the answer is "deploy it" rather than "the console is wrong".
+
 ## Environment Variables Required
 
 ### Discord Bot
