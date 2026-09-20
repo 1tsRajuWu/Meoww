@@ -1,0 +1,196 @@
+{#
+  How to add it, and how to get in afterwards.
+
+  The front door carries these as three one-line steps and a link; this is the
+  page they were a link to, and it holds what the front door no longer has room
+  for: the two invite grants side by side, the three ways into the dashboard, and
+  the closing call to action.
+
+  **The count of ways in is the deployment's own answer.** "Sign in with Discord"
+  needs both a client id and a client secret, and a page that lists a method the
+  dashboard does not offer is a promise that ends in a 404 — which this page did
+  for weeks. `oauth_enabled` is read from `discord_auth.enabled()`, so the heading
+  and the cards cannot disagree, and the card itself is not rendered at all when
+  the method is off.
+#}
+{% extends "site_base.html" %}
+
+{% block title %}Get started — {{ bot_name }}{% endblock %}
+{% block description %}Add {{ bot_name }} to a Discord server in three steps, and the three ways to sign in to its dashboard.{% endblock %}
+
+{% block skip_target %}start{% endblock %}
+{% block skip_label %}Skip to the steps{% endblock %}
+
+{% block main %}
+    <main class="lp">
+        {# ------------------------------------------------------------------ #}
+        {# Hero, in its short form                                            #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-hero lp-hero-compact">
+            <div class="lp-plate" aria-hidden="true">
+                <div class="lp-plate-layer" data-parallax="0,8">
+                    <span class="lp-plate-grid"></span>
+                    <img class="lp-plate-mark" src="/static/logo.svg" alt="">
+                </div>
+            </div>
+
+            {% include "site_header.html" %}
+
+            <div class="lp-hero-title">
+                <h1 class="lp-display" data-fit="9" data-text-reveal="words"
+                    data-stagger="120" data-duration="950">
+                    Get started
+                </h1>
+            </div>
+
+            <div class="lp-hero-bottom">
+                <p class="lp-lede">
+                    Three steps, about five minutes, and nothing to install. Everything the
+                    bot does is listed on <a href="/systems">the systems page</a> — you can
+                    switch any of it off afterwards, per server.
+                </p>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# Get started                                                        #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-section lp-inner" id="start">
+            <span class="lp-eyebrow on-dark">The steps</span>
+            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">Three steps,</span></span>
+                <span class="line"><span class="line-inner">about five minutes</span></span>
+            </h2>
+            <div class="lp-cards">
+                <article class="lp-card" data-reveal data-reveal-delay="0">
+                    <span class="lp-step-num">1</span>
+                    <div>
+                        <h3>Add the bot</h3>
+                        <p>
+                            The invite asks for <b>Administrator</b> — one permission, so
+                            nothing breaks later. Prefer less? The second link asks only for
+                            what {{ bot_name }} uses, and says so if a system needs more.
+                        </p>
+                    </div>
+                    {% if invite_url %}
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
+                        <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add with Administrator</a>
+                        {% if invite_limited_url %}
+                        <a class="btn btn-sm" href="{{ invite_limited_url }}">Add with limited permissions</a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </article>
+                <article class="lp-card" data-reveal data-reveal-delay="120">
+                    <span class="lp-step-num">2</span>
+                    <div>
+                        <h3>Run <code>/help</code></h3>
+                        <p>
+                            That panel lists every command you can reach, and its ⚡ Open Dashboard
+                            button mints a single-use sign-in link for an administrator of that
+                            server.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="#ways-in">How signing in works</a>
+                </article>
+                <article class="lp-card" data-reveal data-reveal-delay="240">
+                    <span class="lp-step-num">3</span>
+                    <div>
+                        <h3>Switch off what you don't want</h3>
+                        <p>
+                            Every system has its own toggle. Turning one off removes its commands
+                            from that server's picker and stops its jobs there; nothing else changes
+                            anywhere.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="/systems">See the systems</a>
+                </article>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# Ways in                                                            #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-section lp-inner" id="ways-in">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap">
+                <span class="lp-eyebrow on-dark">Signing in</span>
+                {# The count is the deployment's own answer: a method that is
+                   switched off must not be listed as a way in. #}
+                <span class="pill">{{ "Three ways in" if oauth_enabled else "Two ways in" }}</span>
+            </div>
+            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
+                <span class="line"><span class="line-inner">Only the people</span></span>
+                <span class="line"><span class="line-inner">you let in</span></span>
+            </h2>
+
+            <div class="lp-cards">
+                {% if oauth_enabled %}
+                <article class="lp-card" data-reveal data-reveal-delay="0" data-hover="y:-8">
+                    <div>
+                        <h3>Sign in with Discord</h3>
+                        <p>
+                            Asks for your name and your server list, nothing else, and never
+                            stores the token. You see the servers you run <em>that the bot is
+                            already in</em>.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+                </article>
+                {% endif %}
+                <article class="lp-card" data-reveal data-reveal-delay="120" data-hover="y:-8">
+                    <div>
+                        <h3>One-time link</h3>
+                        <p>
+                            Made by the ⚡ Open Dashboard button on <code>/help</code>. One
+                            server, one use, fifteen minutes. It is a credential — don't share it.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
+                </article>
+                <article class="lp-card" data-reveal data-reveal-delay="240" data-hover="y:-8">
+                    <div>
+                        <h3>Admin passkey</h3>
+                        <p>
+                            The operator's own way in, and the only one that reaches every
+                            server.
+                        </p>
+                    </div>
+                    <a class="btn btn-sm" href="/health">Status</a>
+                </article>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# Where to add it                                                     #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-deep lp-section lp-inner" id="add" data-cta>
+            <div class="lp-cta">
+                <div>
+                    <span class="lp-eyebrow on-dark">Where to add it</span>
+                    <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="110">
+                        <span class="line"><span class="line-inner">Everything above</span></span>
+                        <span class="line"><span class="line-inner">arrives with the bot</span></span>
+                    </h2>
+                    <p class="lp-lede" style="margin-top: 1.25rem">                Nothing to download, nothing to install. Adding {{ bot_name }} puts every
+                system on this page into your server — and the dashboard is where you switch
+                off the ones you do not want.
+                    </p>
+                </div>
+                <div style="display:grid; gap:0.75rem">
+                    {% if invite_url %}
+                    <a class="btn btn-primary" href="{{ invite_url }}">Add {{ bot_name }} to your server</a>
+                    {% endif %}
+                    {% if invite_limited_url %}
+                    <a class="btn" href="{{ invite_limited_url }}">
+                        Add it with limited permissions
+                    </a>
+                    <p class="dim" style="margin:0; font-size:0.875rem">
+                        The same bot, asking for only the permissions its systems use —
+                        each one degrades instead of breaking when it is missing one.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+    </main>
+{% endblock %}

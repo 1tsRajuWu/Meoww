@@ -52,8 +52,16 @@ sys.path.insert(0, ROOT)
 DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
 
 #: ``route`` -> the file it becomes. Order is the order they are built.
+#:
+#: The first three are the site proper — one question each — and the sitemap is
+#: built from this tuple, so a page that is not listed here is a page search
+#: engines are not told about. They are also the reason `_routes_file()` does not
+#: need to change when one is added: the worker's `include` list is the *dynamic*
+#: paths, and everything else is served from the upload.
 PAGES = (
     ("/", "index.html"),
+    ("/systems", "systems.html"),
+    ("/start", "start.html"),
     ("/pricing", "pricing.html"),
     ("/privacy", "privacy.html"),
     ("/terms", "terms.html"),

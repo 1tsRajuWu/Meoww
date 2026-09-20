@@ -214,6 +214,26 @@ class EveryRouteHandsItsTemplateTheFlag(unittest.TestCase):
         for name in SURFACES:
             self.assertIn(name, found, f"no render_template call found for {name}")
 
+    #: The three site routes spread this in rather than spelling the flag out.
+    #: Following the indirection is the point — a guard that only accepted the
+    #: literal `selling=` would have been satisfied by three pages that reach a
+    #: helper which had quietly stopped carrying it.
+    PROVIDER = "**_site_context()"
+
+    def test_the_shared_context_really_does_carry_the_gate(self):
+        """Guards the indirection below, at its source.
+
+        Without this, emptying `_site_context()` would satisfy every route of the
+        site at once while removing the flag from all of them — the same shape of
+        vacuous pass the walker's own test exists to prevent.
+        """
+        import keep_alive
+
+        context = keep_alive._site_context()
+        for name in ("selling", "invite_url", "source_repository", "enter_url", "features"):
+            with self.subTest(name=name):
+                self.assertIn(name, context, f"`_site_context()` no longer supplies {name}")
+
     def test_each_template_that_can_show_the_link_is_given_the_flag(self):
         for call in self.calls:
             match = re.search(r'"([a-z_]+\.html)"', call)
@@ -221,13 +241,12 @@ class EveryRouteHandsItsTemplateTheFlag(unittest.TestCase):
                 continue
             name = match.group(1)
             # Not every rendering of a page can show the topbar: a template
-            # rendered for a fragment would legitimately omit it. The two that
+            # rendered for a fragment would legitimately omit it. The ones that
             # must carry the flag are the ones whose chrome links to Pricing,
             # and the flag is harmless everywhere else — so the rule is simply
             # that these templates are never rendered without it.
-            self.assertIn(
-                "selling=",
-                call,
+            self.assertTrue(
+                "selling=" in call or self.PROVIDER in call,
                 f"the route rendering {name} does not pass `selling`, so its "
                 f"gated links can never come back: {call[:120]}...",
             )

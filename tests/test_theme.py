@@ -32,11 +32,13 @@ SHEET = ROOT / "static" / "meow.css"
 SCRIPT = ROOT / "static" / "theme.js"
 PARTIAL = ROOT / "templates" / "theme_picker.html"
 
-#: Every template that renders a page a visitor can land on. Each one carries
-#: the theme script, because the theme has to be on `<html>` before the paint
-#: whichever page is the first one opened.
+#: Every template that renders a page a visitor can land on. The theme has to be
+#: on `<html>` before the paint whichever page is the first one opened, so each of
+#: these reaches the script through the shared base below.
 PAGES = (
     "home.html",
+    "systems.html",
+    "start.html",
     "pricing.html",
     "legal.html",
     "login.html",
@@ -45,6 +47,14 @@ PAGES = (
     "owner.html",
     "market_live.html",
 )
+
+#: The layout the three site pages share. The head lives here now, which is what
+#: makes "before the paint" a property of one file rather than of eight.
+BASE = ROOT / "templates" / "site_base.html"
+
+#: The three that reach it. The consoles and the policies carry their own head,
+#: so they are covered by the assertions on `BASE` and not by this one.
+SHARED = ("home.html", "systems.html", "start.html")
 
 #: The themes, and the one that is the stylesheet's default rather than a block.
 THEMES = ("sakura", "forest", "ember")
@@ -132,24 +142,58 @@ class TheThreeCopiesAgree(unittest.TestCase):
 
 
 class ItHasToBeThereBeforeThePaint(unittest.TestCase):
-    """`defer` would flash. That is a property of the markup, not the script."""
+    """`defer` would flash. That is a property of the markup, not the script.
 
-    def test_every_page_loads_the_script_and_not_lazily(self):
-        for name in PAGES:
+    Asserted on the shared base rather than page by page, because the head moved
+    there when the one long landing page became three. A per-page loop over the
+    pages would now find three files with **no head at all** — `re.findall` on a
+    missing `<script>` returns an empty list — so the two halves are pinned apart:
+    the base carries it, and every page reaches the base.
+    """
+
+    def test_the_shared_base_loads_it_and_not_lazily(self):
+        head = BASE.read_text(encoding="utf-8").split("</head>", 1)[0]
+        tags = re.findall(r"<script[^>]*theme\.js[^>]*>", head)
+        self.assertTrue(tags, "the shared base does not load theme.js in its head")
+        for tag in tags:
+            self.assertNotIn("defer", tag, "the base defers the theme script")
+            self.assertNotIn("async", tag, "the base loads the theme script async")
+
+    def test_every_shared_page_extends_that_base(self):
+        """A page that does not extend it gets no theme, and no error either."""
+        for name in SHARED:
             markup = (ROOT / "templates" / name).read_text(encoding="utf-8")
-            head = markup.split("</head>", 1)[0]
-            tags = re.findall(r"<script[^>]*theme\.js[^>]*>", head)
-            self.assertTrue(tags, f"{name} does not load theme.js in its head")
-            for tag in tags:
-                self.assertNotIn("defer", tag, f"{name} defers the theme script")
-                self.assertNotIn("async", tag, f"{name} loads the theme script async")
+            self.assertRegex(
+                markup,
+                r'\{%\s*extends "site_base\.html"\s*%\}',
+                f"{name} does not extend the shared base",
+            )
+
+    def test_the_pages_of_the_site_are_the_three_the_layout_knows(self):
+        """So a fourth page cannot be added without a head that carries the theme.
+
+        The list above is hand-kept, and a hand-kept list is how this whole
+        project keeps finding a surface nobody updated. The check that closes it:
+        any template that renders a `body class="landing"` is one of the three.
+        """
+        landing = set()
+        for path in (ROOT / "templates").glob("*.html"):
+            if 'class="landing"' in path.read_text(encoding="utf-8"):
+                landing.add(path.name)
+        # `site_base.html` *is* the layout, so it is the one file expected to
+        # declare the body class; anything else with one is a page that has taken
+        # the look without the head that carries the theme.
+        self.assertEqual(
+            landing - set(SHARED) - {BASE.name}, set(),
+            "a page wears the site's body class without the site's layout",
+        )
+        self.assertIn(BASE.name, landing, "the layout stopped declaring the body class")
 
     def test_the_script_is_versioned_like_every_other_asset(self):
         """A year-long cache on a token that never changes is a stale script."""
-        for name in PAGES:
-            markup = (ROOT / "templates" / name).read_text(encoding="utf-8")
-            for src in re.findall(r'src="(/static/theme\.js[^"]*)"', markup):
-                self.assertRegex(src, r"\?v=\{\{ asset_version\('theme\.js'\) \}\}$")
+        markup = BASE.read_text(encoding="utf-8")
+        for src in re.findall(r'src="(/static/theme\.js[^"]*)"', markup):
+            self.assertRegex(src, r"\?v=\{\{ asset_version\('theme\.js'\) \}\}$")
 
     def test_nothing_waits_for_the_dom_to_apply_a_theme(self):
         """The apply happens at the top level; only the wiring waits.
@@ -201,10 +245,13 @@ class TheScriptIsSafe(unittest.TestCase):
         """
         self.assertNotIn('meta[name="theme-color"]', SCRIPT.read_text(encoding="utf-8"))
         self.assertNotIn('setAttribute("content"', SCRIPT.read_text(encoding="utf-8"))
+        # The base carries the default inside a block and the document pages
+        # override it, so the value is matched *inside* whatever the `content`
+        # attribute holds rather than as the whole attribute.
         declared = set()
-        for name in PAGES:
-            markup = (ROOT / "templates" / name).read_text(encoding="utf-8")
-            declared.update(re.findall(r'name="theme-color" content="(#[0-9a-f]+)"', markup))
+        for path in [*(ROOT / "templates" / name for name in PAGES), BASE]:
+            markup = path.read_text(encoding="utf-8")
+            declared.update(re.findall(r'name="theme-color" content="[^"]*?(#[0-9a-f]{6})', markup))
         self.assertGreaterEqual(len(declared), 2, "the pages no longer declare their own chrome")
 
     def test_a_refused_storage_does_not_throw(self):

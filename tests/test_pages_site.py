@@ -53,6 +53,13 @@ class RewriteUrlCase(unittest.TestCase):
         self.assertEqual(build_site.rewrite_url("/pricing", LIVE), "pricing.html")
         self.assertEqual(build_site.rewrite_url("/privacy", LIVE), "privacy.html")
         self.assertEqual(build_site.rewrite_url("/terms", LIVE), "terms.html")
+        # The three site pages: every link between them is rewritten by this one
+        # function, so a route missing from `PAGES` is a link left pointing at the
+        # live app — which answers 404 for a page that is a file here.
+        self.assertEqual(build_site.rewrite_url("/systems", LIVE), "systems.html")
+        self.assertEqual(build_site.rewrite_url("/start", LIVE), "start.html")
+        # ...and a fragment into either of them survives.
+        self.assertEqual(build_site.rewrite_url("/start#ways-in", LIVE), "start.html#ways-in")
         # The front page is the directory index, so the URL stays short.
         self.assertEqual(build_site.rewrite_url("/", LIVE), "./")
         # An anchor into another page keeps its fragment.
@@ -160,7 +167,14 @@ class BuiltSiteCase(unittest.TestCase):
         cls.report = build_site.build(cls.out, LIVE, SITE)
         cls.pages = {
             name: (Path(cls.out) / name).read_text(encoding="utf-8")
-            for name in ("index.html", "pricing.html", "privacy.html", "terms.html")
+            for name in (
+                "index.html",
+                "systems.html",
+                "start.html",
+                "pricing.html",
+                "privacy.html",
+                "terms.html",
+            )
         }
 
     @classmethod
@@ -169,7 +183,14 @@ class BuiltSiteCase(unittest.TestCase):
         shutil.rmtree(cls.out, ignore_errors=True)
 
     def test_every_page_is_written(self):
-        for name in ("index.html", "pricing.html", "privacy.html", "terms.html"):
+        for name in (
+            "index.html",
+            "systems.html",
+            "start.html",
+            "pricing.html",
+            "privacy.html",
+            "terms.html",
+        ):
             self.assertTrue((Path(self.out) / name).is_file(), f"{name} was not built")
 
     def test_the_thing_github_pages_needs_is_present(self):
@@ -222,7 +243,10 @@ class BuiltSiteCase(unittest.TestCase):
         one link while describing two would be worse than the blanket grant alone,
         because it would read as a choice that does not exist.
         """
-        for name in ("index.html", "pricing.html"):
+        # `/start` is where the two grants are offered side by side now — the copy
+        # that compares them moved there with the rest of the get-started content,
+        # and the front door keeps only the default link.
+        for name in ("index.html", "start.html", "pricing.html"):
             with self.subTest(page=name):
                 urls = re.findall(
                     r"https://discord\.com/oauth2/authorize\?[^\"'\s]+", self.pages[name]
@@ -259,15 +283,20 @@ class BuiltSiteCase(unittest.TestCase):
         An em dash, not a zero: *nobody has read this* and *this is empty* are
         different claims, and only one of them is true here.
         """
-        index = self.pages["index.html"]
-        tiles = re.findall(r'data-figure="activity:[a-z_]+">([^<]*)<', index)
-        self.assertTrue(tiles, "the activity tiles left the landing page")
+        # On `/systems`, which is where the two preview cards live: the front door
+        # kept the live *counts* (`_home_stats`, four numbers in a band) and the
+        # cards went with the rest of the detail.
+        systems = self.pages["systems.html"]
+        tiles = re.findall(r'data-figure="activity:[a-z_]+">([^<]*)<', systems)
+        self.assertTrue(tiles, "the activity tiles left the site")
         for value in tiles:
             self.assertEqual(value, "—", f"a built page carries a local reading: {value}")
         # ...and the control tiles are the two that are facts about the code, so
         # they are present and counted from the registry rather than blanked.
-        self.assertIn(f'data-figure="control:systems">{features.system_count()}<', index)
-        self.assertIn(f'data-figure="control:commands">{features.command_count()}<', index)
+        self.assertIn(f'data-figure="control:systems">{features.system_count()}<', systems)
+        self.assertIn(f'data-figure="control:commands">{features.command_count()}<', systems)
+        # The front door must not have grown a second, unfiltered copy of them.
+        self.assertNotIn("data-figure=\"activity:", self.pages["index.html"])
 
     def test_the_front_page_and_the_reference_agree_on_how_many_of_each(self):
         """One bot, one answer — the defect this page had in production.
@@ -285,8 +314,12 @@ class BuiltSiteCase(unittest.TestCase):
         self.assertLess(switchable, systems, "the split this page explains has gone")
         self.assertIn(f"{systems} systems,", index)
         self.assertIn(f"{switchable} of them switchable", index)
-        # The two numbers the page used to print as if they were the total.
-        self.assertNotIn(f">{switchable}</b>\n                            <span>systems", index)
+        # The hero's figure card is the *total*, not the switchable subset — which
+        # is how this page came to advertise eleven of twelve systems.
+        self.assertIn(f"<b>{systems}</b>", index)
+        # ...and the reference page agrees with it, from the same registry.
+        self.assertIn(f"{systems} systems,", self.pages["systems.html"])
+        self.assertIn(f"{commands} commands", self.pages["systems.html"])
         self.assertNotIn(f'data-figure="control:commands">{commands + 10}<', index)
 
     def test_no_page_links_to_the_private_repository(self):
@@ -325,7 +358,7 @@ class BuiltSiteCase(unittest.TestCase):
             build_site.build(out, LIVE, SITE)
         return {
             name: (Path(out) / name).read_text(encoding="utf-8")
-            for name in ("index.html", "pricing.html")
+            for name in ("index.html", "systems.html", "start.html", "pricing.html")
         }
 
     def test_the_price_on_the_page_is_the_one_the_bot_will_hold_servers_to(self):
@@ -426,7 +459,7 @@ class BuiltSiteCase(unittest.TestCase):
     def test_the_sitemap_names_only_pages_that_exist(self):
         sitemap = (Path(self.out) / "sitemap.xml").read_text(encoding="utf-8")
         self.assertIn(SITE, sitemap)
-        for name in ("pricing.html", "privacy.html", "terms.html"):
+        for name in ("systems.html", "start.html", "pricing.html", "privacy.html", "terms.html"):
             self.assertIn(name, sitemap)
         # Nothing dynamic may be advertised to a crawler: those URLs are on the
         # live app and a sitemap entry for one would 404 for the crawler.

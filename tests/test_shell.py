@@ -330,7 +330,23 @@ class BothSurfacesWearIt(unittest.TestCase):
     """One system, three pages — the complaint that started this."""
 
     def test_each_page_links_the_shared_system(self):
-        for rel in ("templates/home.html", "templates/dashboard.html", "templates/owner.html"):
+        """The link moved into the shared layout, so the guard follows it there.
+
+        Three of these pages extend `site_base.html` now and no longer carry a
+        `<link>` of their own — and a loop over the *old* three would have gone on
+        passing by covering only the consoles, which is the failure this test
+        exists to catch one level up.
+        """
+        base = _read("templates/site_base.html")
+        self.assertIn("/static/meow.css", base)
+        self.assertIn("/static/motion.js", base)
+        for rel in ("templates/home.html", "templates/systems.html", "templates/start.html"):
+            with self.subTest(page=rel):
+                self.assertIn(
+                    '{% extends "site_base.html" %}', _read(rel),
+                    f"{rel} does not reach the shared system",
+                )
+        for rel in ("templates/dashboard.html", "templates/owner.html"):
             page = _read(rel)
             with self.subTest(page=rel):
                 self.assertIn("/static/meow.css", page)

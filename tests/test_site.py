@@ -18,7 +18,12 @@ from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
 from utils import figures, webdocs
 
 ROOT = Path(__file__).resolve().parent.parent
-PAGES = ("home.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market_live.html", "pricing.html")
+PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market_live.html", "pricing.html")
+
+#: The three that share a layout. They reach the stylesheet and the reveal script
+#: through `site_base.html`, so what is asserted of them is that they reach it.
+SITE_PAGES = ("home.html", "systems.html", "start.html")
+BASE_TEMPLATE = "site_base.html"
 
 
 class TheRenderer(unittest.TestCase):
@@ -174,8 +179,12 @@ class TheLandingPage(unittest.TestCase):
         asleep.is_ready.return_value = False
         asleep.guilds = []
         with mock.patch.object(keep_alive, "BOT_INSTANCE", asleep):
-            body = self.client.get("/").get_data(as_text=True)
-        self.assertIn("Starting up", body)
+            front = self.client.get("/").get_data(as_text=True)
+            # The two preview cards, which are on `/systems`: this is the page that
+            # asks a database and a gateway for figures, and the one where an
+            # absent reading could be printed as a measurement.
+            body = self.client.get("/systems").get_data(as_text=True)
+        self.assertIn("Starting up", front)
         for key in ("servers", "members"):
             with self.subTest(key=key):
                 self.assertIn(
@@ -186,9 +195,13 @@ class TheLandingPage(unittest.TestCase):
                     body, rf'data-figure="control:{key}">\d',
                     f"a sleeping host counted {key}s nobody told it about",
                 )
-        # What it does know without the gateway is still on the page.
-        self.assertIn("systems</span>", body)
+        # What it does know without the gateway is still on the page. The front
+        # door's own band omits what it cannot read rather than printing a zero,
+        # which is the same rule one page earlier — so the registry's two counts
+        # are what is left of it there.
+        self.assertIn("systems</span>", front)
         self.assertRegex(body, r'data-figure="control:commands">\d+</b>')
+        self.assertNotIn("servers</span>", front)
 
     def test_the_status_line_tells_the_three_states_apart(self):
         connected = mock.Mock()
@@ -294,16 +307,29 @@ class TheSiteIsOneDesign(unittest.TestCase):
         stable URL is a year of invisibility on the CDN. Asserting the bare
         `"` here was what made the version token impossible to add.
         """
+        # The three site pages reach it through the layout they share, so what is
+        # asked of them is that they reach it; the link itself is asserted on the
+        # layout, once, where it now lives.
         for page in PAGES:
             markup = (ROOT / "templates" / page).read_text(encoding="utf-8")
-            self.assertIn(
-                'href="/static/meow.css', markup,
-                f"{page} does not use the shared design system",
-            )
-            self.assertIn(
-                "asset_version('meow.css')", markup,
-                f"{page} links the shared sheet without a version token",
-            )
+            if page in SITE_PAGES:
+                self.assertIn(
+                    '{% extends "site_base.html" %}', markup,
+                    f"{page} does not reach the shared design system",
+                )
+                continue
+            with self.subTest(page=page):
+                self.assertIn(
+                    'href="/static/meow.css', markup,
+                    f"{page} does not use the shared design system",
+                )
+                self.assertIn(
+                    "asset_version('meow.css')", markup,
+                    f"{page} links the shared sheet without a version token",
+                )
+        base = (ROOT / "templates" / BASE_TEMPLATE).read_text(encoding="utf-8")
+        self.assertIn('href="/static/meow.css', base)
+        self.assertIn("asset_version('meow.css')", base)
 
     def test_no_page_loads_a_third_party_except_the_chart_library(self):
         """The CSP allows unpkg/jsdelivr for the market's chart and nothing else.

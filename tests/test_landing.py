@@ -1,11 +1,20 @@
-"""The landing page — the front door, and the four things it must keep.
+"""The landing site — three pages now, and the four things each must keep.
 
 The composition (see `body.landing` in `static/meow.css`) is a hero with a
-clip-masked headline, a paper band listing every system, and a band of live
-figures, with `static/motion.js` doing the reveals. Motion is the part that can
-quietly become essential, so these tests are about what has to be true when the
-script does *not* run, when the fonts arrive late, and when the page is served
-from a CDN with a one-year cache.
+clip-masked headline, a paper band, and a band of live figures, with
+`static/motion.js` doing the reveals. Motion is the part that can quietly become
+essential, so these tests are about what has to be true when the script does *not*
+run, when the fonts arrive late, and when a page is served from a CDN with a
+year-long cache.
+
+**Three pages, so the assertions had to be split as well.** Two of them are about
+a *page* — its headline is real text, its figures are a term and a definition, its
+links go somewhere — and are checked per file. The rest are about the *site* and
+are checked over all three at once, because "the content does not need the script"
+is a claim about every page, and a claim checked on one of them is how the other
+two drift. The page a given piece of content lives on is asserted where it
+matters: the systems list and its demo are on `/systems`, the steps and the ways
+in are on `/start`, and neither is on the front door.
 """
 import os
 import re
@@ -15,11 +24,32 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: The pages this landing system owns. `/pricing` and the policies share the
-#: sheet but not this layout, so they are not listed here.
-LANDING = ROOT / "templates" / "home.html"
+#: The three pages of the site, and the layout and header they share.
+FRONT = ROOT / "templates" / "home.html"
+SYSTEMS = ROOT / "templates" / "systems.html"
+START = ROOT / "templates" / "start.html"
+SITE_PAGES = (FRONT, SYSTEMS, START)
+BASE = ROOT / "templates" / "site_base.html"
+HEADER = ROOT / "templates" / "site_header.html"
+
+#: The front door, under its old name, for the assertions that are about it
+#: specifically rather than about the site.
+LANDING = FRONT
 MOTION = ROOT / "static" / "motion.js"
 SHEET = ROOT / "static" / "meow.css"
+
+
+def _all_markup() -> str:
+    """Every page and every partial, as one string.
+
+    For the assertions that are about the *site* — a double slash in a command
+    name, a third-party URL, a hidden label — 'somewhere' is the right question,
+    and asking it per file makes the failure message name the file instead of the
+    defect. Assertions that are about one page read that page.
+    """
+    return "".join(
+        path.read_text(encoding="utf-8") for path in (*SITE_PAGES, BASE, HEADER)
+    )
 
 
 class TheContentDoesNotNeedTheScript(unittest.TestCase):
@@ -32,7 +62,7 @@ class TheContentDoesNotNeedTheScript(unittest.TestCase):
     """
 
     def setUp(self):
-        self.markup = LANDING.read_text(encoding="utf-8")
+        self.markup = _all_markup()
         self.script = MOTION.read_text(encoding="utf-8")
         self.sheet = SHEET.read_text(encoding="utf-8")
 
@@ -68,15 +98,18 @@ class TheContentDoesNotNeedTheScript(unittest.TestCase):
     def test_nothing_here_loads_a_third_party(self):
         """The CSP allows `'self'` for scripts; the market page is the exception.
 
-        Asserted on the template rather than on a response because this is about
-        what the page *asks for*, and a page that asks is broken everywhere it is
-        served, not only where the header is set.
+        Asserted on the templates rather than on a response because this is about
+        what a page *asks for*, and a page that asks is broken everywhere it is
+        served, not only where the header is set. Per file, so the failure names
+        the page — and so a fourth page cannot be added outside the loop.
         """
-        for match in re.findall(r'(?:src|href)="([^"]+)"', self.markup):
-            self.assertFalse(
-                match.startswith(("http://", "https://", "//")),
-                f"the landing page loads {match} from somewhere else",
-            )
+        for path in (*SITE_PAGES, BASE, HEADER):
+            with self.subTest(page=path.name):
+                for match in re.findall(r'(?:src|href)="([^"]+)"', path.read_text(encoding="utf-8")):
+                    self.assertFalse(
+                        match.startswith(("http://", "https://", "//")),
+                        f"{path.name} loads {match} from somewhere else",
+                    )
 
 
 class TheFiguresAreShownOnce(unittest.TestCase):
@@ -90,7 +123,7 @@ class TheFiguresAreShownOnce(unittest.TestCase):
     """
 
     def setUp(self):
-        self.markup = LANDING.read_text(encoding="utf-8")
+        self.markup = _all_markup()
         self.sheet = SHEET.read_text(encoding="utf-8")
 
     def test_each_figure_is_a_term_and_a_definition_with_no_repetition(self):
@@ -186,7 +219,9 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
     """
 
     def setUp(self):
-        self.markup = LANDING.read_text(encoding="utf-8")
+        # The systems list and its demo, which is the only place a command name
+        # is printed at all — the front door lists system *names* now.
+        self.markup = SYSTEMS.read_text(encoding="utf-8")
 
     def test_a_command_is_printed_with_the_one_slash_it_already_has(self):
         """`/{{ cmd }}` rendered `//rank`, `//balance` and `//daily` on this page.
@@ -220,6 +255,17 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
         self.assertIn('data-system="{{ feature.id }}"', self.markup)
         self.assertIn("try_payload", self.markup)
 
+    def test_it_is_the_systems_page_that_carries_it(self):
+        """The split's whole point: the demo is one click from the front door.
+
+        A front door that still rendered the panel would have been moved rather
+        than shortened, and the claim it makes is the reason `/systems` exists.
+        """
+        front = FRONT.read_text(encoding="utf-8")
+        self.assertNotIn("data-try", front)
+        self.assertNotIn("try_payload", front)
+        self.assertIn("/systems", front, "the front door cannot reach it")
+
     def test_the_payload_cannot_close_its_own_script_element(self):
         """A `</script` inside the data would end the tag and spill into the page."""
         import keep_alive
@@ -238,8 +284,8 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
         import keep_alive
         from flask import render_template
 
-        with keep_alive.app.test_request_context("/"):
-            rendered = render_template("home.html", **{**self._minimal_home(), "try_payload": keep_alive._try_payload()})
+        with keep_alive.app.test_request_context("/systems"):
+            rendered = render_template("systems.html", **{**self._minimal_home(), "try_payload": keep_alive._try_payload()})
         found = re.search(
             r'<script type="application/json" data-try-data>(.*?)</script>', rendered, re.S
         )
@@ -268,10 +314,14 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
 
     @staticmethod
     def _minimal_home():
-        """The names `home.html` reaches for that this test does not care about."""
+        """The names `systems.html` reaches for that this test does not care about."""
         return {
             "bot_name": "Meow Bot",
             "bot_initial": "M",
+            # The three pages share a layout and differ by which nav link is theirs.
+            "current": "systems",
+            "system_count": 12,
+            "command_count": 90,
             "status": {"state": "up", "label": "Up"},
             "stats": [],
             # The two preview cards. Empty here because this test is about the
@@ -299,6 +349,132 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
             "meta_description": "a bot",
             "asset_version": lambda name: "0",
         }
+
+
+class TheSiteIsThreePagesAndTheyAllWork(unittest.TestCase):
+    """The split itself — and the way it breaks is not a broken page.
+
+    Splitting one document into three does not produce a 404 or a stack trace when
+    it goes wrong. It produces a page that *works*, whose navigation points at a
+    section that is no longer on it: a fragment cannot be redirected by a server,
+    so `#features` on a page without one scrolls nowhere, with no error in any
+    console and nothing an automated crawl would notice. Every assertion below is
+    one of those quiet failures.
+    """
+
+    def setUp(self):
+        self.pages = {path.name: path.read_text(encoding="utf-8") for path in SITE_PAGES}
+        self.base = BASE.read_text(encoding="utf-8")
+
+    def test_every_page_extends_the_base_and_fills_its_own_title(self):
+        for name, markup in self.pages.items():
+            with self.subTest(page=name):
+                self.assertIn('{% extends "site_base.html" %}', markup)
+                self.assertIn("{% block main %}", markup)
+                self.assertIn("{% block title %}", markup)
+
+    def test_the_navigation_is_absolute_and_names_the_three_pages(self):
+        """Absolute, because a bare `#features` means a different section per page."""
+        nav = self.base.split('<nav class="lp-menu-nav"', 1)[1].split("</nav>", 1)[0]
+        for href in ("/systems", "/start", "/start#ways-in", "/privacy"):
+            self.assertIn(f'href="{href}"', nav, f"the menu has lost {href}")
+        for href in re.findall(r'href="([^"]+)"', nav):
+            self.assertFalse(href.startswith("#"), f"the shared menu links to {href}")
+
+    def test_the_footer_is_absolute_too(self):
+        footer = self.base.split('<footer class="lp-footer', 1)[1]
+        for href in ("/systems", "/start"):
+            self.assertIn(f'href="{href}"', footer, f"the footer has lost {href}")
+
+    def test_the_front_door_keeps_the_anchors_that_were_already_linked(self):
+        """`/#features` and `/#start` are in links that were pasted months ago.
+
+        A fragment is not sent to the server, so no redirect can rescue one — the
+        only way an old link still lands somewhere is for that section to still be
+        at that address. The full version moved to `/systems` and `/start`; the id
+        stayed put, pointing at the teaser that says where it went.
+        """
+        front = self.pages["home.html"]
+        for anchor in ("features", "start", "ways-in", "add"):
+            self.assertIn(f'id="{anchor}"', front, f"/#{anchor} now lands nowhere")
+
+    def test_each_page_that_gets_a_fragment_actually_has_it(self):
+        """Every cross-page fragment must exist on the page it points at."""
+        for name, markup in self.pages.items():
+            for target in set(re.findall(r'href="(/[^"]*)#([a-z-]+)"', markup)):
+                base, fragment = target
+                other = "home.html" if base == "/" else base.strip("/") + ".html"
+                with self.subTest(page=name, to=f"{base}#{fragment}"):
+                    self.assertIn(other, self.pages, f"{base} is not a page of this site")
+                    self.assertIn(f'id="{fragment}"', self.pages[other])
+
+    def test_no_page_declares_the_same_id_twice(self):
+        """The defect the dashboard's composer died of, one site over.
+
+        Two elements with one id means `getElementById` hands back whichever came
+        first, and every anchor to the second one scrolls to the first. Nothing
+        about the markup looks wrong.
+        """
+        for name, markup in self.pages.items():
+            ids = re.findall(r'\bid="([^"]+)"', markup)
+            duplicates = {value for value in ids if ids.count(value) > 1}
+            self.assertEqual(duplicates, set(), f"{name} declares {sorted(duplicates)} twice")
+
+    def test_the_front_door_is_the_short_of_it(self):
+        """What is *not* on it is the point: the detail lives on the other two."""
+        front = self.pages["home.html"]
+        for detail in ("lp-rows", "lp-cmd-pill", "data-try", "lp-panels", "lp-cards"):
+            self.assertNotIn(detail, front, f"the front door still carries {detail}")
+        # ...and it says where each of them went.
+        self.assertIn("/systems", front)
+        self.assertIn("/start", front)
+
+    def test_the_two_counts_about_systems_add_up_and_name_the_difference(self):
+        """A total, a shorter list, and the name of what is missing.
+
+        Both pages print *12 systems, 11 of them switchable* and then show eleven
+        things — a heading and a list that disagree to anybody who counts, with no
+        way to find out what the twelfth is. The difference is the system with no
+        toggle, and it is named from the registry rather than typed into a
+        template, so the two pages cannot name two different ones.
+        """
+        import keep_alive
+        from utils import features
+
+        always_on = features.always_on_names()
+        self.assertTrue(always_on, "the always-on system vanished from the registry")
+        self.assertEqual(
+            len(features.dashboard_modules()) + len(always_on),
+            features.system_count(),
+            "the switchable list and the always-on list no longer make the total",
+        )
+        # Read from the registry rather than typed into a template: a name written
+        # down twice is how two pages come to name two different systems.
+        for page in ("home.html", "systems.html"):
+            self.assertIn("always_on", self.pages[page], f"{page} does not read the registry")
+        # ...and rendered, because the name *is* the registry's, so a template in
+        # which it appears verbatim would be the defect this is testing for. Only
+        # the escaping can be wrong, and only rendering shows that.
+        browser = {"User-Agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
+        with keep_alive.app.test_client() as client:
+            for path in ("/", "/systems"):
+                body = client.get(path, headers=browser).get_data(as_text=True)
+                with self.subTest(path=path):
+                    for name in always_on:
+                        self.assertTrue(
+                            name in body or name.replace("&", "&amp;") in body,
+                            f"{path} prints a total and a shorter list without naming {name}",
+                        )
+
+    def test_the_systems_page_carries_the_list_the_demo_and_the_dashboard(self):
+        systems = self.pages["systems.html"]
+        for markup in ("lp-rows", "data-try", "data-figures-url", "data-bars"):
+            self.assertIn(markup, systems, f"/systems has lost {markup}")
+
+    def test_the_start_page_carries_the_steps_the_ways_in_and_the_invite(self):
+        start = self.pages["start.html"]
+        for markup in ("lp-step-num", 'id="ways-in"', "invite_url", "oauth_enabled"):
+            self.assertIn(markup, start, f"/start has lost {markup}")
 
 
 class TheMenuIsUsableFromTheKeyboard(unittest.TestCase):

@@ -434,6 +434,21 @@ def command_count() -> int:
     return len(ROOT_COMMANDS)
 
 
+def always_on_names() -> tuple[str, ...]:
+    """The systems a server cannot switch off, by name.
+
+    These are the *difference* between the two numbers every surface now prints —
+    ``system_count()`` against ``len(dashboard_modules())`` — and printing two
+    numbers about one word without ever naming the gap is the failure this module
+    was written to stop. A reader who counts the switchable list under a total
+    heading should not be left to work out which one is missing.
+
+    Returned as names rather than as cards because that is the whole claim: a
+    page says *these are always on*, and it says it in the registry's words.
+    """
+    return tuple(f.name for f in FEATURES if not f.toggleable)
+
+
 def get(feature_id: str) -> Feature | None:
     for feature in FEATURES:
         if feature.id == feature_id:

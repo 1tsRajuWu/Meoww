@@ -1796,8 +1796,15 @@ body.landing {
     --lp-hair-soft: rgba(255, 255, 255, 0.06);
     --lp-hair-paper: rgba(12, 12, 15, 0.14);
     --lp-ghost: rgba(255, 255, 255, 0.07);
-    --lp-accent: #5b5ef0;
-    --lp-accent-soft: #a3a8ff;
+    /* The same two hues as `:root`, **by reference rather than by value**.
+
+       Written out literally here they were a second copy of the accent — and a
+       copy a theme could not reach, so picking Sakura recoloured every button
+       and left all nineteen of this block's own accents indigo. Two palettes on
+       one page is the defect `--accent-rgb` was introduced to end one level up;
+       this is the same mistake in a different file section. */
+    --lp-accent: var(--accent);
+    --lp-accent-soft: var(--accent-text);
     --lp-radius: 1.25rem;
     --lp-radius-lg: 2rem;
     background: var(--lp-ink);
@@ -2028,6 +2035,23 @@ body.landing:has([data-menu].is-open) {
 
 .lp-nav a:hover { color: #fff; }
 
+/* The page you are on, said by the server rather than worked out by a script.
+   `aria-current` is set in the template, so the underline and the accessible
+   name can never disagree about which page this is. */
+.lp-nav a.is-here {
+    color: #fff;
+    font-weight: 600;
+}
+
+.lp-nav a.is-here::after {
+    content: "";
+    display: block;
+    height: 2px;
+    margin-top: 0.35rem;
+    border-radius: 2px;
+    background: var(--accent-text);
+}
+
 .lp-brand {
     display: inline-flex;
     align-items: center;
@@ -2085,6 +2109,27 @@ body.landing:has([data-menu].is-open) {
     min-height: min(34rem, calc(74svh - 1rem));
     isolation: isolate;
     background: var(--lp-ink-2);
+}
+
+/* The hero's short form, for the two pages that are not the front door.
+
+   Those pages open with a heading and a sentence and then get to the point, so
+   the full-height hero would be a band of empty field above one line of type —
+   and `.lp-hero`'s own comment below already records that shape reading as a
+   broken layout rather than as room to breathe. The plate, the header and the
+   reveal are all the same; only the room underneath is different. */
+.lp-hero-compact {
+    min-height: 0;
+}
+
+.lp-hero-compact .lp-hero-bottom {
+    gap: 0;
+    padding-top: clamp(1.25rem, 3vw, 2.5rem);
+    padding-bottom: clamp(2rem, 4vw, 3.5rem);
+}
+
+.lp-hero-compact .lp-display {
+    margin: 0;
 }
 
 /* One oversized mark bleeding off the plate. It is what gives the hero a
@@ -2306,6 +2351,103 @@ body.landing:has([data-menu].is-open) {
     line-height: 1.7;
     color: var(--lp-on-paper-soft);
     max-width: 38rem;
+}
+
+/* --------------------------------------------------------------------------
+   The front door's teasers
+   --------------------------------------------------------------------------
+   The front door shows the *shape* of what is in the bot — a count, the names,
+   three numbered lines — and sends the reader to the page that holds the detail.
+   Both of these are therefore grids of short things rather than the full rows
+   and cards they stand in for, and the page stays scannable because of it.
+   `--lp-accent` is the *theme's* accent, so both follow the visitor's colour. */
+
+.lp-teaser {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: 0.5rem 0.75rem;
+    margin: clamp(2rem, 4vw, 3rem) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.lp-teaser li {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--lp-hair-paper);
+    border-radius: 0.625rem;
+    font-size: 0.9375rem;
+    color: var(--lp-on-paper);
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.lp-teaser li:hover {
+    border-color: var(--lp-accent);
+    background: rgba(var(--accent-rgb), 0.06);
+}
+
+.lp-teaser-icon {
+    font-size: 1.125rem;
+    line-height: 1;
+}
+
+/* Names the system the heading counts and the grid cannot list — the one with no
+   toggle. Smaller and quieter than the paragraph above it, because it is a
+   correction to a count rather than a claim of its own. */
+.lp-teaser-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--lp-on-paper-soft);
+}
+
+.lp-teaser-note b {
+    color: var(--lp-on-paper);
+}
+
+.lp-teaser-name {
+    font-weight: 550;
+}
+
+/* A teaser's way onward: the button and the sentence that says where it goes.
+   On `#features` it sits on paper and on `#start` on the dark field, so it owns
+   layout only and lets `.btn` and `.dim` carry their own colour. */
+.lp-more {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: clamp(2rem, 4vw, 3rem);
+}
+
+.lp-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1.25rem;
+    margin: clamp(2rem, 4vw, 3rem) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.lp-steps li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.875rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--lp-hair);
+}
+
+.lp-steps h3 {
+    margin: 0 0 0.25rem;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.lp-steps p {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
 }
 
 .lp-rows {

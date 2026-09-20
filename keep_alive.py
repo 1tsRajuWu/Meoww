@@ -1520,15 +1520,93 @@ def _figures_url() -> str:
     return "/api/figures"
 
 
-def _home_page():
-    """The public landing page for somebody who is not signed in."""
+def _site_context() -> dict:
+    """What every page of this site needs, built once instead of three times.
+
+    There are three pages now — the front door, `/systems` and `/start` — and they
+    share a navigation, a footer, a theme picker and an invite button. Every one of
+    those reads names from here.
+
+    The reason it is one function rather than three dictionaries is the failure the
+    shared base template exists to prevent: **two places that answer the same
+    question drift**. A nav link added to two pages and not the third, a Pricing
+    link left standing on a page where selling is off, an invite button that knows
+    a client id on one page and not the next — all three are the same defect, and
+    all three are what `tests/test_selling_surface.py` and
+    `tests/test_pages_site.py` walk the render calls looking for.
+    """
     name = _bot_display_name()
+    return {
+        "bot_name": name,
+        "bot_initial": (name[:1] or "M").upper(),
+        "enter_url": "/login",
+        "enter_label": "Sign in",
+        "retention_days": _retention_days(),
+        # Whether "Sign in with Discord" is a way in on *this* deployment. It
+        # needs both the client id and the secret, and a page must not list a
+        # method the dashboard does not offer — which `/start` did, for weeks.
+        "oauth_enabled": discord_auth.enabled(),
+        # Whether anything can be bought, which decides whether a Pricing link
+        # exists at all. The tier prices themselves live on `/pricing`, from the
+        # same model: this page used to carry its own hard-coded dollars
+        # ($4.99/$14.99) and they had already drifted from the rupees the store
+        # actually charges, which is the whole failure a single model prevents.
+        "selling": plans.selling_enabled(),
+        "source_repository": SOURCE_REPOSITORY,
+        # The registry's own answers, passed as numbers the template prints rather
+        # than left for a template to count a list with. `features` is the
+        # *switchable* subset; a page that shows both labels both.
+        "system_count": features.system_count(),
+        "command_count": features.command_count(),
+        "features": features.dashboard_modules(),
+        # The difference between the two counts above, by name. A page that prints
+        # a total and then a shorter list has to say what the difference is; the
+        # alternative is a reader counting cards and finding one missing.
+        "always_on": features.always_on_names(),
+        **_invite_context(),
+    }
+
+
+def _home_page():
+    """The front door: what this is, and what it is doing right now.
+
+    Deliberately the shortest of the three. The systems list and its demo are on
+    `/systems`, the steps and the ways in are on `/start`, and this page's copies
+    of those are a count, a list of names and three numbered lines — each with the
+    link that says where the detail went.
+    """
+    return render_template(
+        "home.html",
+        **_site_context(),
+        # Which nav link is this page. The server knows, so the rail says so with
+        # `aria-current` and no script can disagree with it.
+        current="home",
+        status=_home_status(),
+        stats=_home_stats(),
+        meta_description=(
+            f"{_bot_display_name()} — moderation, tickets, leveling, an economy, "
+            "a live market and per-server activity tracking, driven from a "
+            "real-time web dashboard."
+        ),
+    )
+
+
+def _systems_page():
+    """What is in the bot: every system, its commands, and the dashboard.
+
+    This is where the live figures live, rather than on the front door, and that
+    is a decision about conflict rather than about importance. The front door's
+    band is counted up by `motion.js`, which captures each value, animates it and
+    then **restores what it captured** — so a live refresh writing into the same
+    `<dd>`s would be overwritten by the count-up's last frame with the figure the
+    page was built with. Two writers, one node, and the loser is the live one.
+    """
     # ``MEOW_STATIC_SITE`` means the tracker's SQLite file belongs to the machine
-    # running the *build*, not to the deployment — and the landing page draws its
-    # activity tiles from that snapshot server-side, so reading it here published
-    # the operator's own laptop as the live figures: *467 messages this week* on a
-    # public page, about a bot the reader is not running. The same one-line rule
-    # the hub's context has always applied; this page never did.
+    # running the *build*, not to the deployment — and the preview panels below
+    # draw their activity tiles from that snapshot server-side, so reading it here
+    # published the operator's own laptop as the live figures: *467 messages this
+    # week* on a public page, about a bot the reader is not running. The same
+    # one-line rule the hub's context has always applied; this page never did.
     static_copy = os.environ.get("MEOW_STATIC_SITE", "").strip() == "1"
     live_figures = _public_figures(read_tracker=not static_copy)
     periods = live_figures.get("periods") or []
@@ -1538,11 +1616,9 @@ def _home_page():
     opened = next((p for p in periods if p["id"] == "week"), periods[0] if periods else {})
     opened_id = opened.get("id") or "week"
     return render_template(
-        "home.html",
-        bot_name=name,
-        bot_initial=(name[:1] or "M").upper(),
-        status=_home_status(),
-        stats=_home_stats(),
+        "systems.html",
+        **_site_context(),
+        current="systems",
         # What the deployment is actually doing, as counts — the figures the two
         # preview cards draw. Read once here and again by `/api/figures` for the
         # published copy, from the same cached snapshot, so the page and the
@@ -1556,36 +1632,27 @@ def _home_page():
         system_bars=_system_bars(),
         figures_json=_inline_json(live_figures),
         figures_url=_figures_url(),
-        # The registry's own answers, passed as numbers the template prints rather
-        # than left for a template to count a list with. `features` below is the
-        # *switchable* subset; the page shows both, labelled.
-        system_count=features.system_count(),
-        features=features.dashboard_modules(),
-        # The same registry the cards above are built from, as data — so the
+        # The same registry the list above is built from, as data — so the
         # interactive panel cannot advertise a system the bot does not have, and
         # cannot disagree with the static list beside it.
         try_payload=_try_payload(),
-        **_invite_context(),
-        enter_url="/login",
-        enter_label="Sign in",
-        retention_days=_retention_days(),
-        # Whether "Sign in with Discord" is a way in on *this* deployment. It
-        # needs both the client id and the secret, and the page must not list a
-        # method the dashboard does not offer — which it did, for weeks.
-        oauth_enabled=discord_auth.enabled(),
-        # The tier prices and whether anything can be bought, from the same model
-        # `/pricing` renders: the landing page used to carry its own hard-coded
-        # dollars ($4.99/$14.99) and they had already drifted from the rupees the
-        # store actually charges, which is the whole failure a single model
-        # exists to prevent.
-        price_free=plans.FREE.price,
-        price_pro=plans.PRO.price,
-        price_enterprise=plans.ENTERPRISE.price,
-        selling=plans.selling_enabled(),
-        source_repository=SOURCE_REPOSITORY,
         meta_description=(
-            f"{name} — moderation, tickets, leveling, an economy, a live market and "
-            "per-server activity tracking, driven from a real-time web dashboard."
+            f"Every system in {_bot_display_name()}: the commands each one declares, "
+            "what switching one off does to a single server's picker, and the "
+            "dashboard that comes with it."
+        ),
+    )
+
+
+def _start_page():
+    """How to add it, and how to get in afterwards."""
+    return render_template(
+        "start.html",
+        **_site_context(),
+        current="start",
+        meta_description=(
+            f"Add {_bot_display_name()} to a Discord server in three steps, and the "
+            "ways to sign in to its dashboard."
         ),
     )
 
@@ -1601,6 +1668,26 @@ def home():
     if is_authenticated():
         return redirect("/dashboard")
     return _home_page()
+
+
+# ---------------------------------------------------------------------------
+# The other two pages of the site
+# ---------------------------------------------------------------------------
+# No signed-in redirect on these two, deliberately: `/` sends an authenticated
+# visitor to their dashboard because that is what they came back for, while a
+# reader who opened `/systems` or `/start` is asking a question about the product
+# and should be answered wherever they are signed in or not — the same way
+# `/pricing` and the policies already behave.
+
+
+@app.route("/systems")
+def systems_page():
+    return _systems_page()
+
+
+@app.route("/start")
+def start_page():
+    return _start_page()
 
 
 # ---------------------------------------------------------------------------

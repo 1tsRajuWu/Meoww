@@ -258,14 +258,19 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
         for period in payload["periods"]:
             self.assertIsNone(period["messages"])
 
-    def test_the_front_door_renders_and_says_it_has_not_read_them(self):
+    def test_the_panel_renders_and_says_it_has_not_read_them(self):
         """The build's own question, asked of the build's own client.
 
         A shell has no Chromium to check what the tile *looks* like, so the two
         things that are checkable are checked: the page answers, and the figure
         it prints for a reading it never took is not a zero.
+
+        `/systems` rather than `/`, because that is where the two preview cards
+        live — the front door kept the four headline counts, which are rendered
+        into a `<dl>` and counted up by `motion.js`, and the cards went with the
+        rest of the detail when the landing page became three pages.
         """
-        response = keep_alive.app.test_client().get("/")
+        response = keep_alive.app.test_client().get("/systems")
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         for key in ("messages_text", "voice_text", "people_text", "channels_text"):

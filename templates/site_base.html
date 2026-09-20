@@ -1,0 +1,173 @@
+{#
+  The layout every page of this site is one of.
+
+  There are three pages now instead of one: `/` is the front door, `/systems` is
+  what is in the bot, `/start` is how to add it. They were a single 800-line
+  document whose every question was answered whether or not the reader asked it —
+  *what is this*, *what does it do*, *how do I get it* and *how do I sign in* all
+  in one scroll, which is a page that reads as noise to somebody who arrived with
+  one of those four questions.
+
+  What is shared lives here rather than in each page, because the failure this
+  layout exists to prevent is the one this project keeps finding: **two places
+  that answer the same question drift**. The head, the navigation, the phone menu,
+  the footer and the asset tokens are written down once, so adding a nav link
+  cannot add it to two pages and not the third.
+
+  Blocks, and why each is one:
+
+  * ``title`` / ``description`` / ``theme_color`` — per page, and the theme colour
+    is per page *on purpose*: it is the colour the browser paints its own chrome,
+    which is a property of the page's background rather than of its accent.
+  * ``loader`` — empty by default. The curtain is a first-impression device; a
+    400 ms fade over every internal navigation is a toll, not a flourish.
+  * ``main`` — the page itself.
+  * ``scripts`` — page-specific behaviour, after ``motion.js`` so a page's script
+    can rely on the reveal classes having been applied.
+
+  Two names are always in the context and are read here rather than passed down:
+  ``current`` (which nav item is *this* page, so the rail can say so without a
+  script guessing — the server knows) and ``selling`` (whether anything is for
+  sale, which decides whether a Pricing link exists at all; a link to a shop that
+  is switched off is the defect a whole test file exists to prevent).
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="{% block theme_color %}#08080a{% endblock %}">
+    <meta name="description" content="{% block description %}{{ meta_description }}{% endblock %}">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
+    <title>{% block title %}{{ bot_name }}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    {# Deliberately *not* deferred, and the only blocking script on any page of
+       this site. It reads the visitor's stored theme and sets `data-theme` on
+       `<html>`; a deferred script would run after the first paint, so a visitor
+       who chose Sakura would watch the page arrive indigo and turn rose. It
+       touches nothing the page's content depends on, so a browser that blocks
+       it still renders every page — in the default theme. #}
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
+</head>
+<body class="landing">
+    <a class="skip-link" href="#{% block skip_target %}features{% endblock %}">{% block skip_label %}Skip to what's in it{% endblock %}</a>
+
+    {% block loader %}{% endblock %}
+
+    {#
+      The menu. One overlay rather than a second navigation system: the header
+      keeps the links a desktop visitor needs, and everything else lives here so
+      a phone gets a real menu instead of a wrapped row of links.
+
+      Every link is absolute, because this markup is now served from three
+      addresses and a bare `#features` would mean the section on *whichever* page
+      the visitor happens to be on.
+    #}
+    <div class="lp-menu" data-menu aria-hidden="true">
+        <div class="lp-menu-panel">
+            <div class="lp-header" style="padding-left: 0; padding-right: 0">
+                <a class="lp-brand" href="/">
+                    <img src="/static/logo.svg" alt="">
+                    <span>{{ bot_name }}</span>
+                </a>
+                <div class="lp-header-right">
+                    <button class="lp-burger" data-menu-close aria-label="Close menu" aria-expanded="false">
+                        <span></span><span></span>
+                    </button>
+                </div>
+            </div>
+            <nav class="lp-menu-nav" aria-label="Menu">
+                <a href="/systems"{% if current == "systems" %} aria-current="page"{% endif %}>Systems</a>
+                <a href="/start"{% if current == "start" %} aria-current="page"{% endif %}>Get started</a>
+                <a href="/start#ways-in">Signing in</a>
+                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
+                <a href="/privacy">Privacy</a>
+            </nav>
+            <div class="lp-menu-foot">
+                {# Full rather than compact: this menu is the phone's only
+                   navigation, so the theme lives here as a labelled row rather
+                   than as a dot with nothing beside it. #}
+                {% set theme_compact = false %}
+                {% include "theme_picker.html" %}
+                {% if invite_url %}
+                <a class="btn btn-primary" href="{{ invite_url }}">Add to Discord</a>
+                {% endif %}
+                <a class="lp-nav" style="display:block" href="{{ enter_url }}">{{ enter_label }}</a>
+            </div>
+        </div>
+    </div>
+
+{% block main %}{% endblock %}
+
+    <footer class="lp-footer lp">
+        <div class="lp-footer-grid lp-inner">
+            <div>
+                <a class="lp-brand" href="/">
+                    <img src="/static/logo.svg" alt="">
+                    <span>{{ bot_name }}</span>
+                </a>
+                <p class="lp-footer-blurb">
+                    One bot for the whole server: moderation, tickets with feedback, leveling, an
+                    economy, a live market and per-channel activity — every system switchable, and
+                    a real-time panel to drive it from.
+                </p>
+            </div>
+            <nav aria-label="Product">
+                <h4>Product</h4>
+                <ul>
+                    {# Absolute, so the footer means the same thing on all three
+                       pages. `#features` and `#start` were fine while there was
+                       one page to be on. #}
+                    <li><a href="/systems">Systems</a></li>
+                    <li><a href="/start">Get started</a></li>
+                    {% if selling %}<li><a href="/pricing">Pricing</a></li>{% endif %}
+                    <li><a href="{{ enter_url }}">{{ enter_label }}</a></li>
+                </ul>
+            </nav>
+            <nav aria-label="Live">
+                <h4>Live</h4>
+                <ul>
+                    <li><a href="/market/BTC">Live market</a></li>
+                    <li><a href="/health">Status</a></li>
+                    <li><a href="/dashboard">Dashboard</a></li>
+                    {% if invite_url %}<li><a href="{{ invite_url }}">Add to Discord</a></li>{% endif %}
+                </ul>
+            </nav>
+            <nav aria-label="Legal">
+                <h4>Legal</h4>
+                <ul>
+                    <li><a href="/privacy">Privacy Policy</a></li>
+                    <li><a href="/terms">Terms of Service</a></li>
+                    {# Only when there is somewhere to go. The repository is private,
+                       so this used to be a 404 on the page a stranger reads first;
+                       see `SOURCE_REPOSITORY` in keep_alive.py. #}
+                    {% if source_repository %}
+                    <li><a href="{{ source_repository }}" rel="noopener">Source code</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        <div class="lp-footer-bottom lp-inner">
+            <p style="margin:0">
+                © 2026 {{ bot_name }}. Not affiliated with Discord Inc.
+                {% if retention_days %}Activity counts last {{ retention_days }} days,{% endif %}
+                message history 90 — the Privacy Policy has the detail.
+            </p>
+            <nav aria-label="Elsewhere">
+                {% if source_repository %}<a href="{{ source_repository }}" rel="noopener">GitHub</a>{% endif %}
+                <a href="/health">Status</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+            </nav>
+        </div>
+    </footer>
+
+    {# The figures cards' behaviour, in one file rather than in one page: the
+       fleet console renders a card of the same shape from the same payload.
+       `static/figures.js` wires every `[data-figures-url]` section it finds, and
+       the markup is what a reader sees when it never runs. #}
+    <script src="/static/figures.js?v={{ asset_version('figures.js') }}"></script>
+    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
