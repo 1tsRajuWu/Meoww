@@ -6,7 +6,7 @@ Bot reads them at runtime and `/legal` renders them inside Discord:
 | Document | Served by | What it covers |
 |---|---|---|
 | [`PRIVACY.md`](../../PRIVACY.md) | `/legal privacy` | what is stored, what is not, where it lives, who else sees it, how long it is kept, how to have it removed |
-| [`TERMS.md`](../../TERMS.md) | `/legal tos` | what the Bot is, staff responsibilities, the virtual economy and market, acceptable use, availability, liability, changes |
+| [`TERMS.md`](../../TERMS.md) | `/legal tos` | what the Bot is, staff responsibilities, the virtual economy and market, acceptable use, availability, liability, subscriptions, changes |
 
 These are the operator-facing documents behind them:
 

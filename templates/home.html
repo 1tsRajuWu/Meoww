@@ -220,7 +220,7 @@
             </ul>
 
             <div class="lp-more">
-                <a class="btn btn-primary" href="/systems">See all {{ system_count }} systems</a>
+                <a class="btn btn-primary" href="/systems" data-hover="y:-2">See all {{ system_count }} systems</a>
                 <span class="dim">Commands, toggles, and a live demo.</span>
             </div>
         </section>
@@ -263,7 +263,7 @@
                pasted while this page was the only one, and `#start` is the section
                about getting in. `/start#ways-in` has the long version. #}
             <div class="lp-more" id="ways-in">
-                <a class="btn btn-primary" href="/start">How to set it up</a>
+                <a class="btn btn-primary" href="/start" data-hover="y:-2">How to set it up</a>
                 <span class="dim">
                     Invites, sign-in, permissions — on <a href="/start#ways-in">one page</a>.
                 </span>
@@ -292,14 +292,26 @@
                 </div>
                 <div style="display:grid; gap:0.75rem">
                     {% if invite_url %}
-                    <a class="btn btn-primary" href="{{ invite_url }}">Add {{ bot_name }} to your server</a>
+                    <a class="btn btn-primary" href="{{ invite_url }}" data-hover="y:-2">Add {{ bot_name }} to your server</a>
                     {% endif %}
                     {% if invite_limited_url %}
-                    <a class="btn" href="{{ invite_limited_url }}">
+                    <a class="btn" href="{{ invite_limited_url }}" data-hover="y:-2">
                         Add it with limited permissions
                     </a>
                     <p class="dim" style="margin:0; font-size:0.875rem">
                         Same bot, fewer permissions asked.
+                    </p>
+                    {% endif %}
+                    {# The support link, on the front door as well as in the menu and
+                       the footer (``site_base.html`` has it in both). Guarded, so a
+                       deployment with no support address renders no link rather
+                       than a dead one — the same rule every other optional link on
+                       this page follows. #}
+                    {% if kofi_url %}
+                    <a class="btn" href="{{ kofi_url }}" target="_blank" rel="noopener"
+                       data-hover="y:-2">☕ Buy me a coffee</a>
+                    <p class="dim" style="margin:0; font-size:0.875rem">
+                        Voluntary, and never required: nothing here is locked behind it.
                     </p>
                     {% endif %}
                 </div>

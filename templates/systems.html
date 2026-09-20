@@ -79,7 +79,7 @@
             <ul class="lp-rows">
                 {% for feature in features %}
                 <li data-reveal data-reveal-delay="{{ (loop.index0 % 6) * 70 }}">
-                    <div class="lp-row">
+                    <div class="lp-row" data-hover="x:6">
                         <span class="lp-row-index">{{ "%02d"|format(loop.index) }}</span>
                         <div class="lp-row-body">
                             <h3><span aria-hidden="true">{{ feature.icon }}</span> {{ feature.name }}</h3>

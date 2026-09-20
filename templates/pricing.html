@@ -453,6 +453,7 @@
                     </ul>
 
                     <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free' if invite_url else 'Open the dashboard' }}</a>
+                    <a href="{{ kofi_url or 'https://ko-fi.com/1tsraj' }}" target="_blank" rel="noopener" class="btn btn-block" style="margin-top: 0.5rem">Support on Ko-fi</a>
                     {% if invite_limited_url %}
                     <a href="{{ invite_limited_url }}" class="btn btn-block" style="margin-top: 0.5rem">Add with limited permissions</a>
                     {% endif %}
@@ -638,6 +639,7 @@
     <footer class="site-footer">
         <div class="page">
             <div class="links">
+                <a href="{{ kofi_url or 'https://ko-fi.com/1tsraj' }}" target="_blank" rel="noopener">Support (Ko-fi)</a>
                 <a href="/privacy">Privacy Policy</a>
                 <a href="/terms">Terms of Service</a>
                 <a href="/market/BTC">Live market</a>

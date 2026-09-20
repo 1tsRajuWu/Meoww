@@ -91,8 +91,8 @@
   </div>
 </header>
 
-<main>
-  <section class="card">
+<main data-stagger="90">
+  <section class="card" data-reveal>
     <h2>Price <span id="axisNote" class="muted"></span></h2>
     <!-- Named for assistive tech, with the numbers below carrying the same data:
          a canvas is a picture, and a picture of a chart says nothing on its own. -->
@@ -100,7 +100,7 @@
          aria-label="Price history for {{ symbol }} — the price, the period move and the what-if numbers below carry the same data"></div>
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap" id="periods" role="group" aria-label="Chart period">
       {% for key, p in periods %}
-      <button type="button" data-period="{{ key }}" aria-pressed="{% if key == default_period %}true{% else %}false{% endif %}" class="{% if key == default_period %}on{% endif %}">{{ p.label }}</button>
+      <button type="button" data-period="{{ key }}" data-hover="y:-2" aria-pressed="{% if key == default_period %}true{% else %}false{% endif %}" class="{% if key == default_period %}on{% endif %}">{{ p.label }}</button>
       {% endfor %}
       <div class="grow"></div>
       <span class="pill" id="candleSource">—</span>
@@ -108,8 +108,8 @@
     <div class="note" id="historyNote" role="status" aria-live="polite"></div>
   </section>
 
-  <aside>
-    <section class="card">
+  <aside data-stagger="90">
+    <section class="card" data-reveal>
       <h2>What-if</h2>
       <label class="muted" for="spend">Coins to spend</label>
       <input id="spend" type="number" min="100" step="100" value="10000" style="width:100%; margin:6px 0 10px">
@@ -119,11 +119,23 @@
         <tr><td class="treat">🐾 Meow Treat fee</td><td class="treat" id="treat">—</td></tr>
         <tr><td>Buying power left</td><td id="notional">—</td></tr>
       </table>
-      <div class="note">Fills happen at the observed price — no spread. The treat is
-        banked into Meow Bank (the server's house account).</div>
+      {# The consequence stays visible; the explanation is a drawer. This card had
+         four rows and two paragraphs of prose under them, which is the shape of
+         page this project has been told is too much to read — and the half that
+         matters is not the half that is long. `data-drawer` is the shared
+         open/close: it animates by height, keeps `aria-expanded` honest, and
+         Escape closes it. #}
+      <p class="note" style="margin-bottom:6px">Fills happen at the observed price — no spread.</p>
+      <button type="button" class="note-more" data-drawer="how-fill-works"
+              aria-expanded="false" data-hover="y:-1">How the fill works</button>
+      <div id="how-fill-works">
+        <div class="note" style="margin-top:6px">The treat is banked into Meow Bank
+          (the server's house account), and trading pauses when a price is older
+          than the freshness window — a fill is refused rather than guessed.</div>
+      </div>
     </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card" style="margin-top:16px" data-reveal>
       <h2>Market</h2>
       <div class="row"><span>1 USD</span><b id="rate">—</b></div>
       <div class="row"><span>Instruments</span><b id="count">—</b></div>
@@ -133,7 +145,7 @@
         window, and a fill is refused rather than guessed.</div>
     </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card" style="margin-top:16px" data-reveal>
       <h2>Watchlist</h2>
       <table id="watchlist" aria-label="Watched instruments"></table>
       <div class="note">Live from the same snapshot the bot trades on.</div>
@@ -141,6 +153,12 @@
   </aside>
 </main>
 
+{# The same declarative motion layer the landing page and the dashboard use, so
+   the three of them arrive the same way: this page had none of it, which is why
+   it felt like a page of numbers rather than the same product. It is 'self'.
+   The chart library below is the one third-party script this project allows,
+   and the CSP names it. #}
+<script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const SYMBOL = {{ symbol | tojson }};

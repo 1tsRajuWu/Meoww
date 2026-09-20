@@ -476,11 +476,17 @@ class ScheduleEndpointCase(SchedulerCase):
         self.assertEqual(resp.get_json()["ignored_mentions"], ["1549177590328205393"])
 
     def test_a_queue_request_cannot_be_pointed_at_another_server(self):
-        """A pinned session stays pinned: the body names another server, and the
-        channel it names is not in *this* one, so the request is refused."""
+        """A pinned session stays pinned: the body names another server, so it is
+        refused for *scope* rather than for the channel.
+
+        The refusal used to be a 400 about the channel no longer existing, which
+        was the wrong sentence about the wrong thing — the channel was fine, the
+        server was not the session's — and it landed after the request had been
+        re-aimed at the session's own server.
+        """
         resp = self.queue(guild_id=OTHER_GUILD_ID, channel_ids=[OTHER_CHANNEL_ID + 50])
-        self.assertEqual(resp.status_code, 400, resp.get_json())
-        self.assertIn("no longer exists", resp.get_json()["error"])
+        self.assertEqual(resp.status_code, 403, resp.get_json())
+        self.assertIn("do not administer", resp.get_json()["error"])
         self.assertEqual(self.stored()["upcoming"], [])
         self.assertEqual(scheduled.list_for_guild(OTHER_GUILD_ID)["upcoming"], [])
 

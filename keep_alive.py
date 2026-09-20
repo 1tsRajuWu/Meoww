@@ -715,6 +715,46 @@ def _json_number(value):
     return round(number, 3)
 
 
+def _foreign_guild_refusal(requested):
+    """A refusal when a *write* names a server this session does not run, else ``None``.
+
+    ``_resolve_guild_id`` deliberately falls back to a server the session does
+    run, and that is right for a page: a stale bookmark should land somewhere
+    real rather than on nothing, and it can never land on a server the person
+    does not administer. It is wrong for a **change**, because it silently
+    retargets it — asking to disable moderation in one server disabled it in
+    another and answered ``success``, so the caller was told the server it named
+    had changed when a different one had. Measured, not theorised: a session that
+    administers only server *Mine* asked ``/api/toggle`` for server *Hmm* and the
+    reply was ``{success: true, guild_id: <Mine>, ...}``.
+
+    Reads keep the fallback. Writes get a refusal that says which server was
+    refused and why, and the two scopes that name a server at all — a Discord
+    sign-in and a one-time link — are both covered.
+    """
+    if requested in (None, "", 0):
+        # No server named: the fallback is the whole point of the call.
+        return None
+    if session.get("auth_scope") not in ("user", "guild"):
+        # The operator's scopes see every server the bot is in, by design.
+        return None
+    gid = _int_or_none(requested)
+    if gid is None:
+        # Not a number at all; resolution answers that case in its own words.
+        return None
+    if gid in {g["id"] for g in _visible_guilds()}:
+        return None
+    print(
+        f"[DASHBOARD] Refused a write naming server {gid}: this session may act "
+        "only on the servers it was signed in for.",
+        flush=True,
+    )
+    return jsonify({
+        "success": False,
+        "error": "You do not administer that server.",
+    }), 403
+
+
 def _resolve_guild_id(requested=None):
     """The one guild this request is allowed to act on, or ``None``.
 
@@ -1603,6 +1643,7 @@ def _site_context() -> dict:
         # actually charges, which is the whole failure a single model prevents.
         "selling": plans.selling_enabled(),
         "source_repository": SOURCE_REPOSITORY,
+        "kofi_url": KOFI_URL,
         # The registry's own answers, passed as numbers the template prints rather
         # than left for a template to count a list with. `features` is the
         # *switchable* subset; a page that shows both labels both.
@@ -1777,6 +1818,13 @@ POLICY_DOCUMENTS = {
 #: true. Every template that used to print it now asks whether there is one, so
 #: publishing the repository again is this line and nothing else.
 SOURCE_REPOSITORY = ""
+KOFI_URL = "https://ko-fi.com/1tsraj"
+
+
+@app.route("/support")
+@app.route("/donate")
+def route_support_redirect():
+    return redirect(KOFI_URL)
 
 
 def _policy_page(slug: str):
@@ -1861,6 +1909,7 @@ def pricing_page():
         system_count=features.system_count(),
         features=features.dashboard_modules(),
         selling=plans.selling_enabled(),
+        kofi_url=KOFI_URL,
         price_free=plans.FREE.price,
         price_pro=plans.PRO.price,
         price_enterprise=plans.ENTERPRISE.price,
@@ -3375,6 +3424,9 @@ def api_toggle():
         return denied
 
     data = request.get_json(silent=True) or {}
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
     guild_id = _resolve_guild_id(data.get("guild_id"))
     module_id = data.get("module")
     enabled = bool(data.get("enabled"))
@@ -3495,6 +3547,9 @@ def api_toggle_all():
         return denied
 
     data = request.get_json(silent=True) or {}
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
     guild_id = _resolve_guild_id(data.get("guild_id"))
     enabled = bool(data.get("enabled"))
 
@@ -3685,6 +3740,9 @@ def api_identity():
     # Multipart, because of the two images; the text rides along in the same form
     # so one save is one request and one apply.
     form = request.form if request.form else (request.get_json(silent=True) or {})
+    refused = _foreign_guild_refusal(form.get("guild_id"))
+    if refused:
+        return refused
     guild_id = _resolve_guild_id(form.get("guild_id"))
     if guild_id is None:
         return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
@@ -4271,6 +4329,9 @@ def api_send_message():
         return denied
 
     data = request.get_json(silent=True) or {}
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
     guild_id, guild = _composer_guild(data.get("guild_id"))
     if guild_id is None:
         return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
@@ -4502,6 +4563,9 @@ def api_schedule_message():
         return denied
 
     data = request.get_json(silent=True) or {}
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
     guild_id, guild = _composer_guild(data.get("guild_id"))
     if guild_id is None:
         return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400
@@ -4610,6 +4674,9 @@ def api_cancel_scheduled(msg_id: int):
         return denied
 
     data = request.get_json(silent=True) or {}
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
     guild_id = _resolve_guild_id(data.get("guild_id"))
     if guild_id is None:
         return jsonify({"success": False, "error": "No guild available"}), 400
@@ -4643,6 +4710,9 @@ def api_fire_scheduled(msg_id: int):
         return denied
 
     data = request.get_json(silent=True) or {}
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
     guild_id, guild = _composer_guild(data.get("guild_id"))
     if guild_id is None:
         return jsonify({"success": False, "error": "No server available — is the bot online?"}), 400

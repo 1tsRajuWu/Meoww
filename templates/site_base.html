@@ -81,6 +81,7 @@
                 <a href="/start"{% if current == "start" %} aria-current="page"{% endif %}>Get started</a>
                 <a href="/start#ways-in">Signing in</a>
                 {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
+                {% if kofi_url %}<a href="{{ kofi_url }}" target="_blank" rel="noopener">Support (Ko-fi)</a>{% endif %}
                 <a href="/privacy">Privacy</a>
             </nav>
             <div class="lp-menu-foot">
@@ -119,6 +120,7 @@
                     <li><a href="/systems">Systems</a></li>
                     <li><a href="/start">Get started</a></li>
                     {% if selling %}<li><a href="/pricing">Pricing</a></li>{% endif %}
+                    {% if kofi_url %}<li><a href="{{ kofi_url }}" target="_blank" rel="noopener">Support on Ko-fi</a></li>{% endif %}
                     <li><a href="{{ enter_url }}">{{ enter_label }}</a></li>
                 </ul>
             </nav>
@@ -152,6 +154,7 @@
                 Messages: 90. <a href="/privacy">Privacy Policy</a>.
             </p>
             <nav aria-label="Elsewhere">
+                {% if kofi_url %}<a href="{{ kofi_url }}" target="_blank" rel="noopener">Support (Ko-fi)</a>{% endif %}
                 {% if source_repository %}<a href="{{ source_repository }}" rel="noopener">GitHub</a>{% endif %}
                 <a href="/health">Status</a>
                 <a href="/privacy">Privacy</a>

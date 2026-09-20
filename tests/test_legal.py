@@ -188,6 +188,54 @@ class TestThePoliciesMatchTheCode(unittest.TestCase):
         self.assertIn(f"{hours} hours", self.privacy)
         self.assertIn(f"{keep_alive.MAGIC_TTL_SECONDS // 60} minutes", self.privacy)
 
+    def test_the_permission_the_policies_name_is_the_one_the_code_requires(self):
+        """Both documents promised *Manage Server* while the code demanded Admin.
+
+        The bar was raised to Administrator-or-owner deliberately — Manage Server
+        is the bit Discord hands to a whole moderator role — but the sentence was
+        left behind in three places, so a person granted exactly what the policy
+        described was never listed. The bar is one bit in `utils.discord_auth`,
+        so the text is checked against the code rather than against a sentence
+        somebody remembers writing.
+        """
+        from utils import discord_auth
+
+        self.assertEqual(
+            discord_auth.ADMIN_BITS,
+            discord_auth.ADMINISTRATOR,
+            "the documented bar moved; PRIVACY.md, TERMS.md and templates/servers.html "
+            "name it and must move in the same commit",
+        )
+        for text, label in ((self.privacy, "PRIVACY.md"), (self.terms, "TERMS.md")):
+            self.assertIn("administrator", text, f"{label} never names the permission it needs")
+            self.assertNotIn(
+                "manage server",
+                text,
+                f"{label} promises Manage Server, which this code does not accept",
+            )
+
+        with open(os.path.join(ROOT, "templates", "servers.html"), encoding="utf-8") as handle:
+            page = " ".join(handle.read().split()).lower()
+        self.assertNotIn(
+            "manage server", page, "/servers offers a permission the dashboard refuses"
+        )
+        self.assertIn("administrator", page)
+
+        # And the sentence is *true*, driven rather than read: one guild, asked
+        # for as a Manage-Server moderator and as an administrator.
+        def listed(permissions: int, owner: bool = False) -> bool:
+            guild = {
+                "id": "1",
+                "name": "Hmm",
+                "permissions": str(permissions),
+                "owner": owner,
+            }
+            return bool(discord_auth.servers_for([guild], "9", ["1"]))
+
+        self.assertTrue(listed(discord_auth.ADMINISTRATOR), "an administrator is not listed")
+        self.assertFalse(listed(discord_auth.MANAGE_GUILD), "Manage Server is still enough")
+        self.assertTrue(listed(0, owner=True), "a server's owner is not listed")
+
     def test_the_chart_library_cdn_is_disclosed(self):
         """The one external asset a member's browser loads has to be named."""
         for host in ("unpkg.com", "cdn.jsdelivr.net"):

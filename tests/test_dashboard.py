@@ -189,18 +189,26 @@ class DashboardCase(_DashboardFixture):
             "a failed lookup must not rewrite the session",
         )
 
+        # 403 rather than 400: the write is refused for *scope* now, in a
+        # sentence that names the reason, instead of falling back to "no server
+        # available" — the same refusal either way, and this one is readable.
         toggled = self.api("POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": False})
-        self.assertEqual(toggled.status_code, 400)
+        self.assertEqual(toggled.status_code, 403)
+        self.assertIn("do not administer", toggled.get_json()["error"])
 
         channels = self.api("GET", f"/api/channels?guild_id={GUILD_ID}")
         self.assertEqual(channels.status_code, 400)
 
+        # The composer's write is refused for scope too, and for the same reason:
+        # a message must never be posted by a session that named a server it
+        # does not run, however the refusal is worded.
         sent = self.api(
             "POST",
             "/api/send-message",
             {"guild_id": GUILD_ID, "channel_ids": [CHANNEL_ID], "content": "hi"},
         )
-        self.assertEqual(sent.status_code, 400)
+        self.assertEqual(sent.status_code, 403)
+        self.assertIn("do not administer", sent.get_json()["error"])
         self.assertEqual(self.guild.text_channels[0].sent, [], "nothing may be posted")
 
     def test_loading_the_page_does_not_unpin_a_scoped_session(self):
@@ -263,10 +271,13 @@ class DashboardCase(_DashboardFixture):
     def test_a_scoped_session_with_no_server_at_all_is_refused(self):
         self.sign_in(guild_id=None)
         self.assertEqual(self.client.get("/dashboard").status_code, 200)
-        self.assertEqual(
-            self.api("POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": True}).status_code,
-            400,
+        # A session that may act on nothing names a server: refused for scope,
+        # which is the same answer as before with a reason attached.
+        refused = self.api(
+            "POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": True}
         )
+        self.assertEqual(refused.status_code, 403)
+        self.assertIn("do not administer", refused.get_json()["error"])
 
     def test_an_unscoped_session_may_choose_a_server(self):
         self.sign_in(scope="global")

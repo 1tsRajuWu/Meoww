@@ -518,6 +518,48 @@ code, pre, kbd {
     color: var(--accent-text);
 }
 
+/* ------------------------------------------------------------- drawers */
+/* The height animation `data-drawer` drives. `0fr → 1fr` on a grid row is the
+   one way to animate an *unknown* height in CSS: `max-height` needs a number
+   somebody has to keep in step with the content, and it is wrong the moment a
+   card grows. `visibility` is what keeps a closed panel's controls out of the
+   tab order — the height is zero, but a focusable thing behind a lid is still
+   focusable. It flips with `aria-hidden` from `motion.js`. */
+.drawer-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.drawer-wrap.is-open {
+  grid-template-rows: 1fr;
+}
+
+.drawer {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0.001;
+  transform: translateY(-6px);
+  transition: opacity 0.26s ease, transform 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s linear 0.42s;
+}
+
+.drawer.is-open {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.26s ease, transform 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-wrap,
+  .drawer {
+    transition: none;
+  }
+}
+
 .muted { color: var(--text-secondary); }
 .dim { color: var(--text-muted); }
 .mono { font-family: var(--font-mono); }

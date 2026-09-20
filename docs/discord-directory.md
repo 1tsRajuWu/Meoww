@@ -97,6 +97,9 @@ Everything is switched on and off per server from a web dashboard that signs in 
 ### Transparency & AI Disclosure
 Created and maintained with the help of AI coding assistants and autonomous AI agents. The runtime executes 100% deterministic Python code — no runtime LLM calls are made, and no user messages, prompts, or server metadata are sent to external AI providers or used for model training.
 
+### Subscriptions & Future Monetization
+Core features remain completely free for all communities. To offset infrastructure, database hosting, and operational scaling costs, optional paid subscriptions, premium perks, or enhanced quotas may be introduced in future updates. Any future paid offerings will be completely optional and clearly disclosed.
+
 ### Support & Community
 Need assistance, found a bug, or have a suggestion? Join our support server or use `/bot bug` directly inside your server.
 ```

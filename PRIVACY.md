@@ -43,7 +43,7 @@ answers for it, and using a server that runs the Bot is agreement to it.
   exception below is optional and exists only so a server's administrators can
   reach the dashboard.
 * **Signing in to the dashboard with Discord** shares your user id, name, avatar
-  and the servers you are in with your permissions there, used only to list them and decide which you may administer (Manage Server or above). The access
+  and the servers you are in with your permissions there, used only to list them and decide which you may administer (Administrator, or owner). The access
   token is discarded in that same request and never stored, and nothing about you
   reaches the database — what stays is your own session cookie, for up to 8
   hours. Scopes: `identify` and `guilds`. Off unless the operator configures it.

@@ -191,13 +191,20 @@ class TheEndpoint(_DashboardFixture):
         self.assertEqual(identity.read(GUILD_ID)["nick"], "Server Bot")
 
     def test_a_link_for_one_server_cannot_reach_another(self):
-        """The scoped session is the audience for this; it stops at its own server."""
+        """A scoped session stops at its own server — and *nothing* is written.
+
+        This used to answer 200 after quietly re-aiming the save at the session's
+        own server, so a form that named another server renamed the bot in a
+        different one and reported success. ``guild_id`` in the body is now
+        checked against the session's own scope: a name that is not the session's
+        is refused, in words that say which server was refused and why.
+        """
         self.sign_in(scope="guild", guild_id=GUILD_ID)
         response = self.save(guild_id=OTHER_GUILD, nick="Not Yours")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["guild_id"], GUILD_ID)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("do not administer", response.get_json()["error"])
         self.assertEqual(identity.read(OTHER_GUILD)["nick"], None)
-        self.assertEqual(identity.read(GUILD_ID)["nick"], "Not Yours")
+        self.assertEqual(identity.read(GUILD_ID)["nick"], None, "the save was re-aimed")
 
     def test_an_empty_nickname_asks_discord_to_remove_it(self):
         self.sign_in(scope="guild", guild_id=GUILD_ID)

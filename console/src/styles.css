@@ -1210,10 +1210,29 @@ a {
   color: var(--dim);
   font-size: 12px;
   line-height: 1;
+  /* The marker turns as the row opens. `content` swapping between "+" and "−"
+     cannot be transitioned — a different glyph is not a different value — so the
+     sign stays and the rotation carries the motion instead. */
+  transition: transform 0.22s ease;
 }
 
 .config-missing__item[open] > summary::before {
-  content: "−";
+  transform: rotate(135deg);
+}
+
+/* The body fades in as the row opens. A `<details>` that snaps is the
+   browser's own chrome rather than this product's, and the paragraph is
+   re-rendered when the element opens — which restarts the animation, so the
+   whole effect is CSS. */
+.config-missing__item[open] > p {
+  animation: config-open 0.26s ease both;
+}
+
+@keyframes config-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .config-missing__item > summary:hover {

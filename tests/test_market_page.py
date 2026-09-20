@@ -67,6 +67,31 @@ class TestMarketPageRenders(unittest.TestCase):
         self.assertIn("/api/market/quotes", script)
         self.assertIn("/api/market/candles", script)
 
+    def test_it_uses_the_shared_motion_layer(self):
+        """This page had none of it, which is why it read as a wall of numbers.
+
+        The same declarative layer the landing page and the dashboard drive —
+        `data-reveal`, `data-stagger`, `data-hover` — plus the drawer pair. The
+        pairings are what is checked, not the attributes: a `data-drawer` whose
+        id names an element that does not exist is a panel that never opens, and
+        it looks like a styling choice rather than a broken control.
+        """
+        html = render_page()
+        self.assertIn("/static/motion.js", html)
+        for hook in ("data-reveal", "data-stagger", "data-hover"):
+            with self.subTest(hook=hook):
+                self.assertIn(hook, html)
+
+        targets = re.findall(r'data-drawer="([^"]+)"', html)
+        self.assertTrue(targets, "the page declares no drawer")
+        for target in targets:
+            with self.subTest(drawer=target):
+                self.assertRegex(html, 'id="%s"' % re.escape(target))
+                self.assertRegex(
+                    html,
+                    r'data-drawer="%s"[^>]*aria-expanded="false"' % re.escape(target),
+                )
+
     def test_external_scripts_are_pinned(self):
         """An unpinned URL could change the library under a live page.
 

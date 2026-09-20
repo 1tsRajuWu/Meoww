@@ -274,6 +274,62 @@
     }
 
     /* ---------------------------------------------------------------------
+       Drawers — a panel that opens and closes, with motion
+       --------------------------------------------------------------------- */
+    /* `data-drawer="<id>"` on the trigger, and that id on the panel it opens.
+       The panel is animated by *height* (the `grid-template-rows: 0fr → 1fr`
+       trick rather than a `max-height` guess), so a panel of any size opens at
+       the same speed and nothing has to be measured or kept in step.
+
+       Three things this does that a class toggle would not: `aria-expanded` on
+       the trigger and `aria-hidden` on the closed panel stay in step with what
+       is on screen; the panel is `visibility: hidden` when closed, so its
+       controls are not tabbable behind a lid; and Escape closes it and puts
+       focus back on the button that opened it. Under `prefers-reduced-motion`
+       the stylesheet's global override makes all of that instant — the code here
+       does not need a second branch for it. */
+    function drawers() {
+        document.querySelectorAll("[data-drawer]").forEach(function (trigger) {
+            var panel = document.getElementById(trigger.dataset.drawer || "");
+            if (!panel) return;
+
+            // The wrapper is created rather than required in the markup: assuming
+            // it exists means either a layout the author did not ask for (a
+            // `display: grid` on somebody's card) or a silent half-working panel.
+            var wrap = panel.parentElement;
+            if (!wrap || !wrap.hasAttribute("data-drawer-wrap")) {
+                wrap = document.createElement("div");
+                wrap.setAttribute("data-drawer-wrap", "");
+                panel.parentNode.insertBefore(wrap, panel);
+                wrap.appendChild(panel);
+            }
+            wrap.classList.add("drawer-wrap");
+            panel.classList.add("drawer");
+
+            var open = false;
+            function set(next) {
+                open = next;
+                wrap.classList.toggle("is-open", open);
+                panel.classList.toggle("is-open", open);
+                trigger.setAttribute("aria-expanded", open ? "true" : "false");
+                panel.setAttribute("aria-hidden", open ? "false" : "true");
+            }
+
+            set(panel.dataset.drawerOpen === "1");
+
+            trigger.addEventListener("click", function (event) {
+                event.preventDefault();
+                set(!open);
+            });
+            document.addEventListener("keydown", function (event) {
+                if (event.key !== "Escape" || !open) return;
+                set(false);
+                trigger.focus();
+            });
+        });
+    }
+
+    /* ---------------------------------------------------------------------
        Scroll progress → a value
        --------------------------------------------------------------------- */
     /* 0 when the element's top is at the bottom of the viewport, 1 when its
@@ -776,6 +832,16 @@
 
         loader();
 
+        /* `data-stagger="70"` stamps a delay on each revealing child, so a grid
+           arrives in order without a number written into every card. Stamped
+           before the loop below reads it, and never over an explicit delay. */
+        document.querySelectorAll("[data-stagger]").forEach(function (group) {
+            var step = parseInt(group.dataset.stagger || "60", 10);
+            group.querySelectorAll("[data-reveal]").forEach(function (kid, i) {
+                if (!kid.dataset.revealDelay) kid.dataset.revealDelay = String(i * step);
+            });
+        });
+
         document.querySelectorAll("[data-reveal]").forEach(function (el) {
             var from = { y: parseFloat(el.dataset.revealY || "28") };
             if (el.dataset.revealScale) from.scale = parseFloat(el.dataset.revealScale);
@@ -789,6 +855,7 @@
         fitLines();
         parallax();
         hoverSprings();
+        drawers();
         pointerLayer();
         counterAnimations();
         perspectiveTilt();

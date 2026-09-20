@@ -389,6 +389,47 @@ class TheSignInRoutes(_DashboardFixture):
         self.assertIn("Meow Server", body)
         self.assertNotIn("Other Server", body, "another server's page was served")
 
+    def test_a_write_naming_another_server_is_refused_rather_than_retargeted(self):
+        """A change must land on the server it names, or not at all.
+
+        The read gate deliberately falls back to a server the session *does* run,
+        which is right for a page and wrong for a write: asking to disable
+        moderation in a server this person does not administer disabled it in a
+        different one and answered ``success``, so the caller was told the server
+        it named had changed when another had. Found by driving the real app with
+        a session that administers one server and asking for another — the reply
+        was ``{success: true, guild_id: <the other one>}``.
+        """
+        self.sign_in(guild_id=GUILD_ID, scope="user")
+        with self.client.session_transaction() as session:
+            session["admin_guild_ids"] = [GUILD_ID]
+
+        for endpoint, body in (
+            ("/api/toggle", {"guild_id": OTHER_GUILD_ID, "module": "leveling", "enabled": False}),
+            ("/api/toggle-all", {"guild_id": OTHER_GUILD_ID, "enabled": False}),
+        ):
+            with self.subTest(endpoint=endpoint):
+                response = self.api("POST", endpoint, body)
+                self.assertEqual(response.status_code, 403, response.get_data(as_text=True))
+                self.assertIn("do not administer", response.get_json()["error"])
+
+        # And nothing moved on either server: the point is that the request was
+        # refused, not that it was quietly re-aimed.
+        from utils import modules
+
+        for gid in (GUILD_ID, OTHER_GUILD_ID):
+            with self.subTest(guild=gid):
+                self.assertTrue(modules.get_states(gid)["leveling"], "a module was toggled")
+
+    def test_a_write_with_no_server_named_still_lands_on_the_session_s_own(self):
+        """The fallback stays where it belongs: a caller that names nothing."""
+        self.sign_in(guild_id=GUILD_ID, scope="user")
+        with self.client.session_transaction() as session:
+            session["admin_guild_ids"] = [GUILD_ID]
+        response = self.api("POST", "/api/toggle", {"module": "leveling", "enabled": False})
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(response.get_json()["guild_id"], GUILD_ID)
+
     def test_the_picker_refuses_a_form_naming_somebody_elses_server(self):
         self.sign_in(guild_id=GUILD_ID, scope="user")
         with self.client.session_transaction() as session:
