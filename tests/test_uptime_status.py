@@ -25,6 +25,7 @@ Everything network-facing is injected, so the whole file runs offline.
 """
 import os
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import keep_alive
@@ -159,6 +160,21 @@ class WithoutAKey(unittest.TestCase):
         self.assertEqual(block["monitors"], 0)
         self.assertNotIn("uptime_30d", block)
 
+    def test_nothing_was_read_so_no_time_of_reading_is_published(self):
+        """`at` is set by every attempt, including the one that never asked.
+
+        So an age computed from it unconditionally said a check had happened
+        seconds ago on a deployment where nothing had been asked at all — and
+        the panel put that sentence directly beside "Not connected: set
+        UPTIMEROBOT_API_KEY", which is the one line that makes a reader conclude
+        the integration is working when it is not.
+        """
+        block = uptime_status.health_json()
+        self.assertNotIn("checked_seconds_ago", block)
+        snapshot = uptime_status.snapshot()
+        self.assertIsNone(snapshot["age_seconds"])
+        self.assertEqual(snapshot["age_text"], "not connected")
+
 
 class WithAKey(unittest.TestCase):
     def setUp(self):
@@ -217,6 +233,33 @@ class WithAKey(unittest.TestCase):
         self.assertEqual(kept["total"], 2)
         self.assertEqual(len(kept["monitors"]), 2)
         self.assertIn("last reading", kept["detail"])
+
+    def test_a_kept_reading_is_aged_from_when_it_was_read(self):
+        """The rows and their timestamp travel together.
+
+        Keeping the rows but stamping them with the time of the *attempt* that
+        failed aged somebody else's data: the panel called a twenty-minute-old
+        reading "read just now" in one line and "the last reading" in the next.
+        """
+        import time
+
+        old = int(time.time()) - 1200
+        uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER, now=old))
+        uptime_status.record(
+            uptime_status.check(
+                fetch=lambda payload: (_ for _ in ()).throw(OSError("down")),
+                now=int(time.time()),
+            )
+        )
+        kept = uptime_status.snapshot()
+        self.assertEqual(kept["at"], old, "the rows kept a timestamp they were not read at")
+        self.assertEqual(kept["age_text"], "read 20 minutes ago")
+        # The same worder, not raw seconds: these two lines sit next to each
+        # other, and "taken 1200 seconds ago" beside "read 20 minutes ago" is one
+        # fact spelled twice — the defect the age line itself was fixed for.
+        self.assertIn("taken 20 minutes ago", kept["detail"])
+        self.assertNotIn("1200 seconds", kept["detail"])
+        self.assertEqual(uptime_status.health_json()["checked_seconds_ago"], 1200)
 
     def test_health_publishes_counts_and_one_ratio_but_never_a_name(self):
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
@@ -404,6 +447,24 @@ class ThePanel(_DashboardFixture):
         self.assertIn("UPTIMEROBOT_API_KEY", page)
         self.assertIn("Not connected", page)
 
+    def test_the_panel_does_not_claim_a_reading_it_never_made(self):
+        """The panel contradicted itself in the one line a reader trusts.
+
+        With no key, the age written beside the heading was "read 0 seconds
+        ago" — computed from an attempt that was answered by *this process*
+        rather than by UptimeRobot — while the box underneath said "Not
+        connected". Both sentences were on screen at once, and the second one a
+        reader believes is the one that looks like a measurement.
+        """
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("UPTIMEROBOT_API_KEY", None)
+            uptime_status.reset()
+            self._sign_in()
+            page = self.client.get("/dashboard").get_data(as_text=True)
+        self.assertNotIn("read 0 seconds ago", page)
+        self.assertNotIn("read 1 second ago", page)
+        self.assertIn("not connected", page)
+
     def test_the_age_of_the_reading_is_words_not_epoch_seconds(self):
         """The panel's first version rendered `at` as an age: "read 1789848173
         seconds ago". Age is a fact about *now*, so it is computed when it is
@@ -421,6 +482,33 @@ class ThePanel(_DashboardFixture):
         at = uptime_status.snapshot()["at"]
         self.assertNotIn(f"read {at} seconds ago", page)
         self.assertNotIn(f"read {at} minutes ago", page)
+
+    def test_the_panel_and_the_modules_sentence_do_not_both_name_the_setting(self):
+        """One box, two renderers, and they disagreed after a Refresh.
+
+        The script's empty state appended a chip naming the variable to paste,
+        and the server's ``detail`` already names it in a sentence — so the page
+        printed it once on load and twice the moment somebody pressed Refresh,
+        the second copy stranded after a full stop. The name belongs to the
+        module that composes the sentence, so the template must not spell it: a
+        page that knows the variable name is a page that can fall out of step
+        with the one that explains it.
+        """
+        template = Path(__file__).resolve().parents[1] / "templates" / "dashboard.html"
+        source = template.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "UPTIMEROBOT_API_KEY",
+            source,
+            "the dashboard hard-codes the uptime setting instead of rendering "
+            "the sentence the module composes",
+        )
+        # …and the setting is still named where a reader needs it, because "do
+        # not spell it here" must not become "do not say it at all". Asked with
+        # no key, which is the one path that answers without a request.
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("UPTIMEROBOT_API_KEY", None)
+            detail = uptime_status.check()["detail"]
+        self.assertIn(uptime_status.ENV_KEY, detail)
 
     def test_the_panel_is_built_from_the_pages_own_snapshot(self):
         """The view hands the template the same block `/api/uptime` serves."""

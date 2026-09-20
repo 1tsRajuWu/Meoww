@@ -170,7 +170,7 @@ import keep_alive  # noqa: E402
 app.jinja_env.globals["asset_version"] = keep_alive.asset_version
 
 from utils import (  # noqa: E402
-    command_scope, digest, discord_auth, features, identity,
+    command_publish, command_scope, digest, discord_auth, features, identity,
     market as market_module, uptime_status,
 )
 
@@ -211,6 +211,32 @@ LAST_TOGGLE: dict = {}
 PREVIEW_COMMANDS = sorted(
     set(features.MODULE_COMMAND_MAP) | set(features.ALWAYS_ALLOWED_COMMANDS)
 )
+
+
+def record_healthy_publish(guild_id):
+    """What the publisher would have written down on a healthy deployment.
+
+    Written through the real ledger rather than into the template, so the line
+    is composed by the module that owns the words — which is the point: the
+    panel is painted twice, by the view and by the page's own refresh, and a
+    harness that seeded its own sentence would hide exactly the drift this file
+    exists to catch. The figure comes from the same rule the real view uses, so
+    it cannot disagree with the counts beside it.
+
+    A preview of a *working* deployment is a stub, deliberately, the way
+    ``bot_ready=True`` is: what it must not do is invent wording.
+    """
+    states = {module["id"]: module["enabled"] for module in MODULES}
+    summary = command_scope.summarise(PREVIEW_COMMANDS, states)
+    command_publish.record(
+        guild_id,
+        verified=True,
+        pending=0,
+        held=summary["available"],
+        detail="",
+        retry_after=None,
+    )
+    return command_publish.describe(guild_id, expected=summary["available"])
 
 #: The cards come from the registry, not a hand-written list. The list below
 #: was all three, and it stayed behind: it still offered **Music**, which the
@@ -442,6 +468,9 @@ def dashboard():
             PREVIEW_COMMANDS,
             {module["id"]: module["enabled"] for module in MODULES},
         ),
+        # The other half of that panel: what Discord holds. Recorded for real, so
+        # the preview shows the line a deployment shows rather than nothing.
+        command_scope_publish=record_healthy_publish(guild["id"]),
         # The Status panel. Stubbed rather than read from a live UptimeRobot,
         # because this harness has no key and no network on purpose — and both
         # *are* stubs the page has to tolerate: one row up with a measured
@@ -921,10 +950,18 @@ def api_command_scope():
     if request.args.get("guild_id") is None:
         return jsonify({"success": False, "error": "No guild available"}), 400
     states = {module["id"]: module["enabled"] for module in MODULES}
+    summary = command_scope.summarise(PREVIEW_COMMANDS, states)
+    try:
+        guild_id = int(request.args.get("guild_id"))
+    except (TypeError, ValueError):
+        guild_id = CURRENT_GUILD["id"]
     return jsonify({
         "success": True,
         "guild_id": request.args.get("guild_id"),
-        **command_scope.summarise(PREVIEW_COMMANDS, states),
+        # Served the same way the real route serves it, and recorded through the
+        # real ledger: the refresh has to paint the same sentence the view did.
+        "publish": record_healthy_publish(guild_id),
+        **summary,
     })
 
 

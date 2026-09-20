@@ -126,6 +126,39 @@ class NothingIsOfferedWhileNothingIsForSale(unittest.TestCase):
         on = _render("dashboard.html", selling=True)
         self.assertIn('window.location.href = "/pricing"', on)
 
+    def test_gating_a_js_array_entry_cannot_leave_a_dangling_comma(self):
+        """The risk this gate introduced, in the one place it could have killed the page.
+
+        The palette's entries are a JavaScript array literal, so gating one with
+        `{% if selling %}` puts a conditional comma in the middle of the page's
+        own script. Get it wrong in the *off* direction and the array ends
+        `}, ];` — a syntax error that takes the whole script with it, which on
+        this page means no composer, no switches, no palette and no error
+        anywhere a server-side test looks. The rendered array is therefore
+        checked both ways, and this assertion was written before the browser
+        check that duplicated it: `node --check` on every inline block of the
+        rendered page, which passes in both states.
+        """
+        for selling in (False, True):
+            with self.subTest(selling=selling):
+                html = _render("dashboard.html", selling=selling)
+                array = re.search(
+                    r"const actions = \[(.*?)\n\s*\];", html, re.S
+                )
+                self.assertIsNotNone(array, "the palette's action array moved")
+                body = array.group(1)
+                self.assertNotRegex(
+                    body,
+                    r",\s*$",
+                    "the action array ends with a comma, which is a syntax error "
+                    "in every browser",
+                )
+                self.assertIn("Choose another server", body)
+                if selling:
+                    self.assertIn("Plans and pricing", body)
+                else:
+                    self.assertNotIn("Plans and pricing", body)
+
     def test_no_rupee_price_survives_anywhere_while_it_is_off(self):
         """`₹0` beside a `/mo` on the free card is a price tag on nothing.
 

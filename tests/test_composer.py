@@ -650,6 +650,7 @@ def render_dashboard(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     import keep_alive
+    from utils import command_publish
 
     env = Environment(
         loader=FileSystemLoader("templates"),
@@ -689,6 +690,12 @@ def render_dashboard(**overrides) -> str:
             "total": 90, "available": 90, "hidden": 0,
             "hidden_names": [], "modules": {},
         },
+        # The other half of that panel: what Discord holds, which the *view*
+        # supplies and the page only prints. Built by the module that owns the
+        # wording rather than written out here, for the same reason the limits
+        # above are read from ``keep_alive`` — a fixture with its own copy pins
+        # a sentence production does not use.
+        command_scope_publish=command_publish.describe(GUILD_ID),
         # The composer's rulebook, which the view hands over from the constants
         # the endpoint validates with. Read from ``keep_alive`` here rather than
         # restated, so this fixture cannot pin numbers the bot does not use.
@@ -1152,10 +1159,18 @@ class DashboardTemplateCase(unittest.TestCase):
         # A number the template still states for itself would survive this render.
         # Everything after the stylesheet is the page: the CSS ``z-index: 2000``
         # is not a message limit, so it is excluded by looking past ``</style>``.
-        self.assertNotIn(
-            "2000", html.split("</style>", 1)[1],
-            "a limit the template states for itself is back",
-        )
+        # Looked for where a limit can actually act, rather than anywhere on the
+        # page: the old form forbade the string anywhere after the stylesheet,
+        # which reads as "the template states no limit" but is really "no 2000
+        # appears at all" — so it tripped over a poll interval measured in
+        # milliseconds the first time one was added, and a test that fails on
+        # something unrelated to its subject is one people learn to edit.
+        page = html.split("</style>", 1)[1]
+        declared = page.split("const COMPOSER_LIMITS", 1)[1].split(";", 1)[0] \
+            if "const COMPOSER_LIMITS" in page else ""
+        self.assertNotIn("2000", declared, "a limit the template states for itself is back")
+        for stated in ('maxlength="2000"', ">0 / 2000<", "up to 5"):
+            self.assertNotIn(stated, page, f"the template still states {stated!r}")
 
     #: The dashboard's own rules, which used to be a `<style>` block in the
     #: template and are now a linked sheet. The hidden-element guards below read

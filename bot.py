@@ -27,8 +27,8 @@ load_dotenv()
 
 from keep_alive import keep_alive  # noqa: E402
 from utils import (  # noqa: E402
-    command_scope, commands_sync, config_audit, db, features, modules, operator_log,
-    permissions,
+    command_publish, command_scope, commands_sync, config_audit, db, features,
+    modules, operator_log, permissions,
 )
 
 # Force real-time unbuffered log streaming to Render / cloud console
@@ -552,6 +552,9 @@ async def _sync_scope(
     local = [payload for payload in local if payload.get("name") in wanted]
     registered = await _registered_command_payloads(bot, guild)
     scope = "global" if guild is None else guild.name
+    #: What Discord held *before* this pass, minus everything this pass deleted.
+    #: ``None`` while Discord's copy is unread — a count nobody read is not zero.
+    held_before = None
 
     if registered is None:
         # Could not read the current state, so send everything. Upserts are
@@ -563,14 +566,15 @@ async def _sync_scope(
     else:
         # Before the early return below: a retired command has no local
         # counterpart, so it is neither missing nor stale, and this is the only
-        # place that can take it out of the picker.
-        await _retire_scope(bot, registered, guild)
+        # place that can take it out of the picker. Counted, because the count
+        # Discord ends up holding is what the dashboard's scope panel reports.
+        removed = await _retire_scope(bot, registered, guild)
         if allow_removals:
             # A command this scope must not have is neither missing nor stale, so
             # nothing else would ever take it out. Every name here is one the
             # feature registry declares whose modules this server switched off —
             # so this can only undo something an administrator chose.
-            await _delete_scope_commands(
+            removed += await _delete_scope_commands(
                 bot,
                 commands_sync.removable(
                     registered, wanted, set(features.MODULE_COMMAND_MAP)
@@ -582,19 +586,52 @@ async def _sync_scope(
         names = missing + stale
         summary = commands_sync.summary(local, registered)
         total = len(registered) + len(names)
+        # Names are never in two of these buckets: a *stale* command is already
+        # registered (it is replaced, not added), a *missing* one is not, and a
+        # removed one is neither. So this is the scope's size once every write
+        # in ``names`` has landed — the figure the panel shows as "Discord holds"
+        # and the reason the old ``total - pending`` could not be used for it: a
+        # stale command was counted once in ``registered`` and again in ``names``.
+        held_before = len(registered) - removed + len(missing)
         if not names and not force:
+            command_publish.record(
+                guild, verified=True, pending=0, held=held_before,
+                detail=summary, retry_after=None,
+            )
             return {
-                "registered": len(registered), "pending": 0, "published": 0,
+                "registered": held_before, "pending": 0, "published": 0,
                 "retry_after": None, "summary": summary, "detail": "",
             }
 
     ok, detail, error, published = await _publish_scope(bot, payloads, names, guild)
     pending = len(names) - published
+    retry_after = _retry_delay(error) if error is not None else None
+    # The count is exact in two of three cases and reported in neither of the
+    # rest. A pass that finished left ``held_before``; one that wrote nothing
+    # left exactly what it read; a pass refused part-way through its writes
+    # leaves the figure genuinely ambiguous, and a figure that is ambiguous is
+    # worse than no figure, because a reader has no way to tell it is one.
+    if registered is None:
+        held = None
+    elif pending == 0:
+        held = held_before
+    elif published == 0:
+        held = held_before - len(missing)
+    else:
+        held = None
+    command_publish.record(
+        guild,
+        verified=registered is not None,
+        pending=pending,
+        held=held,
+        detail=detail,
+        retry_after=retry_after,
+    )
     return {
-        "registered": total - pending,
+        "registered": held if held is not None else total - pending,
         "pending": pending,
         "published": published,
-        "retry_after": _retry_delay(error) if error is not None else None,
+        "retry_after": retry_after,
         "summary": summary,
         "detail": detail,
         "ok": ok,
@@ -690,6 +727,10 @@ async def sync_commands(
             # Never into on_ready: a failed publish must not stop the bot coming
             # online, and the next boot tries the same thing again.
             print(f"[SYNC] ⚠️ {guild.name}: publish failed — {exc}", flush=True)
+            command_publish.record(
+                guild, verified=False, pending=0, held=None,
+                detail=f"the boot publish failed: {exc}",
+            )
             every_server_complete = False
             results[guild.name] = 0
             continue
@@ -835,6 +876,15 @@ async def _resync_server(bot: commands.Bot, guild) -> None:
             status = await _sync_guild(bot, guild)
         except Exception as exc:
             print(f"[SYNC] ⚠️ {guild.name}: republish failed — {exc}", flush=True)
+            # Written down rather than only logged: a raise here is the one
+            # outcome a publisher never returns a status for, and an
+            # administrator watching a command refuse to disappear is owed the
+            # reason on the page they are looking at rather than in a log ring
+            # behind a button on another one.
+            command_publish.record(
+                guild, verified=False, pending=0, held=None,
+                detail=f"the last republish failed: {exc}",
+            )
             break
         print(f"[SYNC] {guild.name}: {status['summary']}.", flush=True)
         if status["retry_after"] is not None:

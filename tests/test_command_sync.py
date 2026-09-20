@@ -25,7 +25,7 @@ import discord
 from discord.ext import commands
 
 import bot as bot_module
-from utils import commands_sync, features
+from utils import command_publish, commands_sync, features
 
 
 class _SyncError(RuntimeError):
@@ -1035,3 +1035,125 @@ class ThePublishDoesNotHoldTheBootUp(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatThePublisherWroteDown(unittest.IsolatedAsyncioTestCase):
+    """The publish pass records what Discord ended up holding.
+
+    The dashboard's scope panel is named for Discord's picker and computes its
+    figures from the local module cache — what the server *asked for*. This file
+    owns the other half: the outcome the publisher writes down, which is what
+    lets that panel say whether the two agree instead of presenting one as the
+    other. Every case here fails differently in the panel, so each is pinned
+    separately: a clean pass, a stale replacement, an unreadable scope, and the
+    two shapes of refusal.
+    """
+
+    def setUp(self):
+        command_publish.forget()
+
+    def tearDown(self):
+        command_publish.forget()
+        bot_module._resync_dirty.clear()
+        bot_module._resync_tasks.clear()
+
+    def _tree(self, *names, registered=()):
+        tree = _FakeTree(local_count=len(names), registered=list(registered) or None)
+        tree.local = [_FakeCommand(name) for name in names]
+        return tree
+
+    def test_a_finished_pass_is_recorded_as_a_verified_match(self):
+        tree = self._tree("alpha", "beta")
+
+        status = asyncio.run(bot_module._sync_scope(_FakeBot([], tree, _FakeHTTP())))
+
+        record = command_publish.read(None)
+        self.assertTrue(record["verified"])
+        self.assertEqual(record["pending"], 0)
+        self.assertEqual(record["held"], 2)
+        self.assertEqual(record["held"], status["registered"])
+
+    def test_a_replaced_command_is_counted_once(self):
+        """The count that was wrong before: ``total - pending`` added a *stale*
+        command twice, because it is already registered and also in ``names``."""
+        tree = self._tree("alpha", registered=[_FakeCommand("alpha", "old wording")])
+        http = _FakeHTTP()
+
+        status = asyncio.run(bot_module._sync_scope(_FakeBot([], tree, http)))
+
+        self.assertEqual(http.global_sent, ["alpha"], "the replacement went out")
+        self.assertEqual(
+            status["registered"], 1,
+            "Discord holds one command: the stale one was replaced, not added",
+        )
+        self.assertEqual(command_publish.read(None)["held"], 1)
+
+    def test_the_boot_report_carries_the_corrected_count(self):
+        tree = self._tree("alpha", registered=[_FakeCommand("alpha", "old wording")])
+
+        results = asyncio.run(
+            bot_module.sync_commands(_FakeBot([_guild("Hmm")], tree, _FakeHTTP()))
+        )
+
+        self.assertEqual(results["Hmm"], 1)
+
+    def test_a_scope_discord_would_not_describe_is_not_recorded_as_agreement(self):
+        tree = _FakeTree(fetch_error=True, local_count=2)
+
+        asyncio.run(bot_module._sync_scope(_FakeBot([], tree, _FakeHTTP())))
+
+        record = command_publish.read(None)
+        self.assertFalse(record["verified"], "the whole tree went out on a guess")
+        self.assertIsNone(record["held"], "and nothing was read, so nothing is counted")
+        self.assertIsNone(command_publish.describe(None)["matches"])
+
+    def test_a_partial_refusal_does_not_claim_a_count(self):
+        http = _FakeHTTP(fail_on="bot")
+        tree = self._tree("bot", "alpha", "beta")
+
+        asyncio.run(bot_module._sync_scope(_FakeBot([], tree, http)))
+
+        record = command_publish.read(None)
+        self.assertTrue(record["verified"])
+        self.assertEqual(record["pending"], 1)
+        self.assertIn("bot", record["detail"], "the refusal is named, not counted")
+        self.assertIsNone(
+            record["held"],
+            "half the writes landed, so how many Discord holds is genuinely "
+            "ambiguous — and an ambiguous figure under a heading is read as a "
+            "measurement",
+        )
+
+    def test_a_refusal_that_wrote_nothing_keeps_the_count_it_read(self):
+        http = _FakeHTTP(fail_on="bot", fail_code=30034, retry_after=900.0)
+        tree = self._tree("bot", "alpha", "beta")
+
+        asyncio.run(bot_module._sync_scope(_FakeBot([], tree, http)))
+
+        record = command_publish.read(None)
+        self.assertEqual(record["pending"], 3)
+        self.assertEqual(
+            record["held"], 0,
+            "nothing was written and nothing was held, and that is knowable",
+        )
+        self.assertEqual(record["retry_after"], 900.0, "and when to come back")
+
+    async def test_a_republish_that_raised_is_written_down_too(self):
+        """The one outcome no status is ever returned for."""
+        guild = _guild("Hmm")
+        fake = _FakeBot([guild], _FakeTree())
+        bot_module._resync_dirty.add(guild.id)
+
+        with mock.patch.object(
+            bot_module, "_sync_guild", side_effect=RuntimeError("socket closed")
+        ), mock.patch.object(bot_module, "RESYNC_SETTLE_SECONDS", 0.0):
+            await bot_module._resync_server(fake, guild)
+
+        record = command_publish.read(guild.id)
+        self.assertFalse(record["verified"])
+        self.assertIn("socket closed", record["detail"])
+        self.assertIn(
+            "socket closed", command_publish.describe(guild.id)["text"],
+            "an administrator watching a command refuse to disappear is owed the "
+            "reason on the page they are looking at",
+        )

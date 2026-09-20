@@ -44,8 +44,8 @@ import datetime
 import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
-    command_scope, config_audit, db, digest, discord_auth, features, identity,
-    modules, plans, scheduled, site_guard, uptime_status, webdocs,
+    command_publish, command_scope, config_audit, db, digest, discord_auth, features,
+    identity, modules, plans, scheduled, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1895,6 +1895,23 @@ def dashboard():
         print(f"[DASHBOARD] ⚠️ Could not summarise the command scope: {exc}", flush=True)
         commands_data = {"total": 0, "available": 0, "hidden": 0, "hidden_names": [], "modules": {}}
 
+    # The other half of that panel, and a different claim: not what this server
+    # asked for, but what Discord came back with the last time the bot published
+    # it. Server-rendered rather than fetched, so the page tells the truth about
+    # Discord before any script of its own has run — and so the line does not
+    # change meaning depending on which of the two renderers painted it.
+    #
+    # ``guild_id`` is handed over as it is, including the ``0`` this route uses
+    # for "no server": ``None`` means Discord's **global** lane, and mapping the
+    # sentinel onto it handed an unscoped page the shared lane's reading — two
+    # DM-safe commands — and printed it as a disagreement about a server the page
+    # is not even showing ("Discord holds 2 — 2 more than this server's switches
+    # say it should", under a heading whose own figures were the defaults). A
+    # scope nobody has published has no reading, which is what ``0`` answers.
+    publish_data = command_publish.describe(
+        guild_id, expected=commands_data.get("available")
+    )
+
     identity_data = _identity_state(guild_id) if guild_id else {
         "nick": "", "bio": "", "has_avatar": False, "has_banner": False,
         "updated_at": None,
@@ -1928,6 +1945,7 @@ def dashboard():
         member_count=member_count,
         server_identity=identity_data,
         command_scope=commands_data,
+        command_scope_publish=publish_data,
         bot_ping=bot_ping,
         bot_ready=bot_ready,
         modules=modules_data,
@@ -2124,6 +2142,13 @@ def api_toggle():
     if not modules.set_enabled(guild_id, module_id, enabled):
         return jsonify({"success": False, "error": "Could not save that change. Please try again."}), 500
 
+    # Read *before* the republish is asked for, and into a local rather than
+    # inside the response below: this is the stamp the page has to beat, so it
+    # must be the publish from before this switch. The queueing call returns at
+    # once today — the publish happens three seconds later on the bot's loop —
+    # but a page whose stamp came from the publish it just asked for would wait
+    # out its whole timeout and then report that Discord had never been reread.
+    publish_before = _last_publish_at(guild_id)
     _resync_commands(guild_id)
     _schedule_cloud_backup()
 
@@ -2132,8 +2157,25 @@ def api_toggle():
         "guild_id": guild_id,
         "module": module_id,
         "enabled": enabled,
-        "sync_latency_ms": 0
+        "sync_latency_ms": 0,
+        # The publish this switch supersedes. The page uses it to tell when
+        # Discord has been read again: a later stamp on the scope panel means the
+        # republish this click asked for has finished. Read here rather than in
+        # the page so the comparison is between two readings of one clock.
+        "publish_at": publish_before,
     })
+
+
+def _last_publish_at(guild_id) -> float | None:
+    """When Discord's copy of this server's list was last read, or ``None``.
+
+    Handed to the page so it can wait for the *event* rather than for a guessed
+    number of seconds: the scope panel asks again until this figure advances,
+    which is true the moment the republish has finished and false forever if it
+    was refused. Two stamps from this one clock, compared.
+    """
+    record = command_publish.read(guild_id)
+    return record.get("at") if record else None
 
 
 def _command_tree_names() -> list[str]:
@@ -2169,7 +2211,17 @@ def api_command_scope():
         print(f"[DASHBOARD] ⚠️ Could not read module states: {exc}", flush=True)
         states = modules.defaults()
     summary = command_scope.summarise(_command_tree_names(), states)
-    return jsonify({"success": True, "guild_id": guild_id, **summary})
+    return jsonify({
+        "success": True,
+        "guild_id": guild_id,
+        # What Discord actually holds, beside what this server's switches say it
+        # should. The two are not the same claim, and until this was here the
+        # page had no way to tell them apart: the counts above are computed from
+        # the local module cache, so they read the same whether the republish had
+        # landed, was still behind its settle, or had been refused outright.
+        "publish": command_publish.describe(guild_id, expected=summary["available"]),
+        **summary,
+    })
 
 
 @app.route("/api/toggle-all", methods=["POST"])
@@ -2205,6 +2257,7 @@ def api_toggle_all():
             "enabled": enabled,
         }), 500
 
+    publish_before = _last_publish_at(guild_id)
     _resync_commands(guild_id)
     _schedule_cloud_backup()
 
@@ -2212,7 +2265,8 @@ def api_toggle_all():
         "success": True,
         "guild_id": guild_id,
         "enabled": enabled,
-        "sync_latency_ms": 0
+        "sync_latency_ms": 0,
+        "publish_at": publish_before,
     })
 
 

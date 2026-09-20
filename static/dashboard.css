@@ -1245,6 +1245,32 @@ svg.search-icon {
 }
 .scope-stat span { display: block; font-size: 11.5px; color: var(--text-muted); }
 
+/* The line under the counts, set apart by a rule because it makes a *different*
+   claim: the three figures above are what this server's switches say, and this is
+   what Discord came back with. Presenting the first as if it were the second is
+   what the panel used to do, so the separation is the point rather than the
+   decoration. The dot is the same one the Status panel uses, so a reader who has
+   learned it there reads this line correctly at a glance. */
+.scope-publish {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 2px;
+    padding-top: 13px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+.scope-publish .status-dot { margin-top: 5px; flex: none; }
+.scope-publish[data-tone="ok"] { color: var(--text-secondary); }
+.scope-publish[data-tone="ok"] .status-dot {
+    background: var(--green);
+    box-shadow: 0 0 0 3px rgba(35, 165, 90, 0.16);
+}
+.scope-publish[data-tone="pending"] { color: var(--text-secondary); }
+.scope-publish[data-tone="unverified"] { color: var(--text-secondary); }
+
 /* --------------------------------------------------------------------------
    System status
    -------------------------------------------------------------------------- */

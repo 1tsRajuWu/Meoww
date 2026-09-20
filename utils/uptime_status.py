@@ -65,6 +65,23 @@ STATUS_LABELS = {
 }
 DOWN_CODES = (8, 9)
 
+#: The statuses that mean UptimeRobot *answered*. Everything else is an attempt
+#: that produced no reading, whatever the snapshot's ``at`` says — and ``at`` is
+#: set by every attempt, including the one that never left the process, which is
+#: why it cannot be aged on its own.
+READ_STATUSES = ("ok", "attention", "down", "empty")
+
+#: What the age line says when there is nothing to put an age on, by status. The
+#: panel showed **"read 0 seconds ago"** directly beside "Not connected: set
+#: UPTIMEROBOT_API_KEY", which is the one line that makes a reader conclude the
+#: integration is working when it is not — and it was on screen the first time a
+#: real deployment pasted the key.
+NO_READING_TEXT = {
+    "unconfigured": "not connected",
+    "unreachable": "no reading",
+    "refused": "no reading",
+}
+
 #: The windows asked for, in the order UptimeRobot returns them in
 #: ``custom_uptime_ratio`` (a ``-`` joined string, so the order is the contract).
 RATIO_WINDOWS = (1, 7, 30)
@@ -330,12 +347,30 @@ def record(snapshot: dict) -> dict | None:
         and previous.get("monitors")
     ):
         current = dict(snapshot)
-        for key in ("monitors", "total", "up", "down", "paused", "waiting", "ratio_30d"):
+        # ``at`` travels with the rows. Keeping the readings and stamping them
+        # with the time of the *attempt* that failed aged somebody else's data:
+        # the panel said "read just now" about a reading it was, in the same
+        # breath, calling "the last reading, taken 20 minutes ago".
+        for key in (
+            "at",
+            "monitors",
+            "total",
+            "up",
+            "down",
+            "paused",
+            "waiting",
+            "ratio_30d",
+        ):
             current[key] = previous[key]
         current["stale"] = True
+        # The same worder the age line uses, not raw seconds: this sentence sits
+        # directly under that line, and "taken 1200 seconds ago" beside "read 20
+        # minutes ago" is two spellings of one fact — which is how the panel
+        # said "read 1789848173 seconds ago" before this was fixed there.
         current["detail"] = (
             f"{snapshot['detail']} Showing the last reading, taken "
-            f"{max(0, int(time.time()) - int(previous['at'] or 0))} seconds ago."
+            + age_text(max(0, int(time.time()) - int(previous["at"] or 0))).removeprefix("read ")
+            + "."
         )
     _state["previous"] = previous
     _state["last"] = current
@@ -370,12 +405,29 @@ def age_text(seconds: int | None) -> str:
     return f"read {hours} hour{'' if hours == 1 else 's'} ago"
 
 
+def _has_reading(current: dict) -> bool:
+    """Is there a reading whose age can be told?
+
+    Two ways to have one, and the difference matters. Rows exist when a reading
+    answered *or* when one is being kept through a failed refresh — in both cases
+    ``at`` is when those rows were read, because :func:`record` moves it with
+    them. A status in :data:`READ_STATUSES` with no rows is also a reading, of an
+    account with no monitors in it. What is left is an attempt that produced
+    nothing, and its ``at`` is the time of the attempt, not of any reading.
+    """
+    return bool(current.get("monitors")) or current.get("status") in READ_STATUSES
+
+
 def snapshot() -> dict:
     """The last snapshot, or an honest stand-in before the first refresh.
 
     A copy, with the age of the reading worked out at call time. The caller gets
     the same rows every surface reads, plus two facts that belong to the moment
     of asking rather than to the answer: ``age_seconds`` and its wording.
+
+    The wording is about **the reading on screen**, not about the last attempt.
+    With nothing to age — no key, a refusal, a timeout on the very first pass —
+    it says so instead of counting up from a clock the API never touched.
     """
     current = _state["last"]
     if current is None:
@@ -388,8 +440,14 @@ def snapshot() -> dict:
     age = None
     if current.get("at"):
         age = max(0, int(time.time()) - int(current["at"]))
-    out["age_seconds"] = age
-    out["age_text"] = age_text(age)
+    if _has_reading(current):
+        out["age_seconds"] = age
+        out["age_text"] = age_text(age)
+    else:
+        out["age_seconds"] = None
+        out["age_text"] = NO_READING_TEXT.get(
+            str(current.get("status") or ""), age_text(None)
+        )
     return out
 
 
@@ -435,7 +493,10 @@ def health_json() -> dict:
     }
     if current["ratio_30d"] is not None:
         out["uptime_30d"] = round(current["ratio_30d"], 3)
-    if current["at"]:
+    # Only when there is a reading to age. On an unconfigured deployment this
+    # used to publish `checked_seconds_ago: 0` — an unauthenticated endpoint
+    # saying a check happened seconds ago when nothing had been asked at all.
+    if current["at"] and _has_reading(current):
         out["checked_seconds_ago"] = max(0, int(time.time()) - int(current["at"]))
     if current["page"]:
         out["page"] = current["page"]

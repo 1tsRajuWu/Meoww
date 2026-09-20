@@ -17,6 +17,8 @@ can call it directly without mocking Discord.
 | `meowfee.py` | The 2% transfer-fee math (rate, floor, cap). |
 | `market.py` | Live-price providers, instruments catalog, trade settlement, candles. |
 | `commands_sync.py` | Compare-then-upsert command sync (never bulk-overwrite) + retired-command list. |
+| `command_scope.py` | Which commands one server's switches leave on (pure rule). Hidden = declared by the registry **and** off here. |
+| `command_publish.py` | What Discord came back with the last time each scope published: was it read, what is still to write, when, and any refusal in Discord's words — plus the one sentence the dashboard's scope panel prints (in memory; a publish belongs to this process's conversation with Discord). |
 | `cloud_sync.py` | Supabase backup: restore on boot, upload loop, leases, shrink guards. |
 | `style.py` | Card design system (`send_card`, `card`) — replies that never ping by accident. |
 | `chart.py` | Candlestick/line chart image rendering (Pillow). |

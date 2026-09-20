@@ -587,6 +587,32 @@
                             <div class="scope-stat"><b id="scope-hidden">{{ command_scope.hidden }}</b><span>hidden here</span></div>
                             <div class="scope-stat"><b>{{ command_scope.total }}</b><span>in the bot</span></div>
                         </div>
+                        {# The counts above are this server's switches. This line is
+                           what Discord came back with, and it is a different claim:
+                           publishing is asynchronous, Discord paces its writes, and
+                           a refusal used to be visible only in the process log. It
+                           is rendered by the server as well as by the page's own
+                           refresh, so it says something true before any script runs.
+                           `tone` picks the dot; the words come from
+                           `utils/command_publish`, which is the one place that
+                           spells them, because this box has two renderers. #}
+                        {% set command_scope_publish = command_scope_publish if command_scope_publish is defined else {} %}
+                        {# One expression, and no fallback sentence: a second copy of
+                           the words in the template is a second author, and this box
+                           is painted by two renderers. A caller that supplies no
+                           reading gets no line, which is honest — `describe()` is
+                           what decides what it should say, including when the
+                           answer is that Discord has not been read. #}
+                        <div class="scope-publish" id="scope-publish"
+                             data-tone="{{ command_scope_publish.tone|default('never') }}"
+                             role="status">
+                            <span class="status-dot {{ {'ok': 'up', 'pending': 'paused', 'unverified': 'down'}.get(command_scope_publish.tone|default('never'), '') }}" aria-hidden="true"></span>
+                            {# The sentence is handed over whole. A renderer that supplies
+                               no reading gets an empty line rather than one this template
+                               wrote — and it is the *route* that has to supply it, which a
+                               test on the real page pins. #}
+                            <span id="scope-publish-text">{{ command_scope_publish.text }}</span>
+                        </div>
                         <div id="scope-hidden-wrap"{% if not command_scope.hidden %} hidden{% endif %}>
                             <div class="field-head">
                                 <span class="field-label">Not offered here</span>
@@ -932,11 +958,16 @@
                     const monitors = data.monitors || [];
                     if (!monitors.length) {
                         const note = make("div", "status-empty");
+                        // The server's sentence, verbatim, and nothing appended to
+                        // it. This used to add a chip naming the setting to paste
+                        // when the status was "unconfigured" — but that sentence
+                        // already names it, so pressing Refresh printed it twice,
+                        // the second time as a stray token after a full stop, and
+                        // the box read differently depending on which of the two
+                        // renderers had painted it. The name lives in
+                        // `utils/uptime_status.detail` and nowhere else; this file
+                        // must not spell it, which is what the test asserts.
                         note.appendChild(document.createTextNode(data.detail || "No monitors to show."));
-                        if (data.status === "unconfigured") {
-                            note.appendChild(document.createTextNode(" "));
-                            note.appendChild(make("code", null, "UPTIMEROBOT_API_KEY"));
-                        }
                         list.appendChild(note);
                     }
                     monitors.forEach(function (mon) {
@@ -1377,6 +1408,8 @@
             }
         }
 
+        const SCOPE_TONE_DOTS = { ok: "up", pending: "paused", unverified: "down" };
+
         async function refreshCommandScope() {
             try {
                 // The server is named rather than left to the session: this panel
@@ -1401,18 +1434,88 @@
                 }
                 if (wrap) wrap.hidden = !data.hidden;
                 if (note) note.hidden = !!data.hidden;
+                paintPublish(data.publish);
+                return data.publish || null;
             } catch (_) {
                 // The panel keeps its last numbers rather than emptying itself:
                 // a failed refresh is not a reason to show nothing.
+                return null;
             }
         }
 
-        function scheduleScopeRefresh() {
-            // The server's commands are republished a few seconds after the
-            // switch is saved (see bot.py), so asking immediately would read the
-            // state from before the change.
+        // The sentence is the server's, copied verbatim; all this chooses is the
+        // dot. The moment it starts composing its own wording is the moment the
+        // box says one thing on load and another after a refresh, which is
+        // exactly how the Status panel ended up naming its environment variable
+        // twice in a sentence that already named it. A response that carries no
+        // reading at all is left alone rather than blanked, so the panel keeps
+        // the last line it had — with its own age in it — instead of going
+        // empty under a dot that says something.
+        function paintPublish(publish) {
+            if (!publish) return;
+            const box = document.getElementById("scope-publish");
+            const text = document.getElementById("scope-publish-text");
+            if (!box || !text) return;
+            box.dataset.tone = publish.tone || "never";
+            text.textContent = publish.text || "";
+            const dot = box.querySelector(".status-dot");
+            if (dot) dot.className = "status-dot " + (SCOPE_TONE_DOTS[publish.tone] || "");
+        }
+
+        // A module switch is a command-set change, and the server republishes the
+        // list a few seconds later (see bot.py). This used to be a flat four-second
+        // timer that re-read the panel's numbers — which were computed from the
+        // local module cache the toggle had already written, so the wait changed
+        // nothing and the panel could not say whether the publish had landed.
+        //
+        // It now follows the publish instead, and the thing it waits for is a
+        // **fact**: Discord has been read again since this click. ``/api/toggle``
+        // answers with the timestamp of the last publish it knows about, and the
+        // panel asks until that timestamp is newer. Two readings of the server's
+        // own clock are compared, never the browser's against the server's, so a
+        // host in another region cannot make this wait forever or give up early.
+        //
+        // Nothing here waits for anything that is not going to happen either: a
+        // publish that was refused is a recorded outcome with a reason, and the
+        // box prints it. Only the timestamp is watched.
+        const SCOPE_FOLLOW_MS = 45000;
+        let scopeFollowToken = 0;
+
+        async function followScopePublish(since) {
+            // The token is how a newer click cancels this one: a second switch
+            // flips it, and the older loop leaves at its next check instead of
+            // two loops polling the same panel and fighting over the sentence.
+            const token = ++scopeFollowToken;
+            const started = Date.now();
+            const deadline = started + SCOPE_FOLLOW_MS;
+            while (Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                if (token !== scopeFollowToken) return;    // a newer click took over
+                const publish = await refreshCommandScope();
+                if (token !== scopeFollowToken) return;
+                if (!publish) return;                      // the panel kept its last numbers
+                if (publish.at && (!since || publish.at > since)) return;
+            }
+            // Out of patience. The panel keeps the last reading and its age line
+            // says how old that is, so the only thing worth adding is that the
+            // wait happened — otherwise a box that still reads "checked 4 minutes
+            // ago" after a click looks like the click did nothing.
+            if (token === scopeFollowToken && Date.now() - started >= SCOPE_FOLLOW_MS) {
+                showToast(
+                    "Discord has not been reread yet — the line under the counts still shows the last time it was.",
+                    "error"
+                );
+            }
+        }
+
+        function scheduleScopeRefresh(publishAt) {
             if (scopeRefreshTimer) clearTimeout(scopeRefreshTimer);
-            scopeRefreshTimer = setTimeout(refreshCommandScope, 4000);
+            scopeRefreshTimer = setTimeout(() => {
+                // The numbers first, because they are already saved and the panel
+                // should not lag a click; then the line that depends on Discord.
+                refreshCommandScope();
+                followScopePublish(publishAt || null);
+            }, 2000);
         }
 
         {
@@ -1458,7 +1561,7 @@
             setLabel(moduleId, isEnabled);
 
             try {
-                await apiPost("/api/toggle", {
+                const data = await apiPost("/api/toggle", {
                     guild_id: GUILD_ID,
                     module: moduleId,
                     enabled: isEnabled
@@ -1466,9 +1569,12 @@
                 showToast(`${moduleName(moduleId)} ${isEnabled ? "enabled" : "disabled"}.`);
                 updateActiveCount();
                 // That switch is also a command-set change: the server's own
-                // command list is republished a few seconds from now, so the
-                // panel is asked again once it has settled.
-                scheduleScopeRefresh();
+                // command list is republished a few seconds from now. The save
+                // answers with the publish it knew about *before* queueing this
+                // one, which is what tells the panel below when Discord has been
+                // read again.
+                refreshCommandScope();
+                scheduleScopeRefresh(data.publish_at);
             } catch (err) {
                 if (input) input.checked = !isEnabled;
                 setLabel(moduleId, !isEnabled);
@@ -1489,14 +1595,18 @@
             buttons.forEach(b => { if (b) b.disabled = true; });
 
             try {
-                await apiPost("/api/toggle-all", { guild_id: GUILD_ID, enabled: enable });
+                const data = await apiPost("/api/toggle-all", { guild_id: GUILD_ID, enabled: enable });
                 document.querySelectorAll(".module-toggle").forEach(cb => {
                     cb.checked = enable;
                     setLabel(cb.dataset.module, enable);
                 });
                 updateActiveCount();
+                // The counts move the moment the switches do — they are this
+                // server's own, and the save has already returned. What is not
+                // instant is Discord, and the line under them says so.
+                refreshCommandScope();
                 showToast(`All modules ${enable ? "enabled" : "disabled"}.`);
-                scheduleScopeRefresh();
+                scheduleScopeRefresh(data.publish_at);
             } catch (err) {
                 if (err.message !== "Session expired") {
                     showToast(`Bulk update failed: ${err.message}`, "error");
