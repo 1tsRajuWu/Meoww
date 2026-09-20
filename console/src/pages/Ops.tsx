@@ -13,7 +13,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { ago, duration, scalarish, uptimeLine } from "../lib/format";
 import { useLive } from "../lib/useLive";
-import { Card, ConfigAttention, Empty, Failure, Pill, Skeleton } from "../ui";
+import { Card, ConfigAttention, Empty, Failure, LivePulseVisual, Pill, Skeleton } from "../ui";
 
 const LEVELS = [
   { id: "all", label: "Everything", match: null },
@@ -61,6 +61,7 @@ export function OpsPage() {
         title="Process"
         action={<Pill tone={gatewayTone} pulse={data.gateway.pulse}>{data.gateway.label}</Pill>}
       >
+        <LivePulseVisual pingMs={data.ping_ms} />
         <dl className="rows">
           <Row label="Up" value={duration(data.uptime_seconds)} />
           <Row label="Latency" value={data.ping_ms === null ? "—" : `${data.ping_ms} ms`} />

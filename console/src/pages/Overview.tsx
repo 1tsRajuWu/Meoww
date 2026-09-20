@@ -13,7 +13,7 @@ import type { BootData, FigureTile, ServerRow } from "../types";
 import { ago, compact, duration, scalarish, uptimeLine } from "../lib/format";
 import { Link } from "../lib/router";
 import { useLive } from "../lib/useLive";
-import { Card, ConfigAttention, Empty, Failure, Pill, Skeleton, Stat } from "../ui";
+import { Card, ConfigAttention, Empty, Failure, LivePulseVisual, Pill, RadialGauge, Skeleton, Stat } from "../ui";
 
 export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow[] }) {
   const live = useLive(() => api.overview(), 15_000);
@@ -63,6 +63,21 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
           />
           <Stat value={compact(data.totals.commands)} label="commands" index={3} />
         </div>
+        <div className="telemetry-row" style={{ marginTop: "18px", display: "flex", gap: "24px", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: "14px" }}>
+          <RadialGauge
+            value={data.totals.on}
+            max={data.totals.slots || 1}
+            label="Active Modules"
+            sublabel={`${data.totals.on} of ${data.totals.slots} online`}
+          />
+          <RadialGauge
+            value={data.totals.servers}
+            max={Math.max(data.totals.servers, 5)}
+            label="Fleet Reach"
+            sublabel={`${data.totals.servers} connected`}
+            color="var(--pill-good-text)"
+          />
+        </div>
       </Card>
 
       <Card
@@ -71,6 +86,7 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
         title="Gateway"
         action={<Pill tone={gatewayTone} pulse={data.gateway.pulse}>{data.gateway.label}</Pill>}
       >
+        <LivePulseVisual pingMs={data.bot.ping_ms} />
         <dl className="rows">
           <Row label="Process up" value={duration(data.uptime_seconds)} />
           <Row
@@ -86,7 +102,7 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
         span={3}
         index={2}
         title="What it has done"
-        hint="Counted by the bot itself."
+        hint="Live telemetry counter"
         action={
           <div className="segmented">
             {data.figures.periods.map((option) => (
@@ -117,7 +133,7 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
         )}
       </Card>
 
-      <Card span={3} index={3} title="Needs a look" hint="Read from this deployment, now.">
+      <Card span={3} index={3} title="Needs a look" hint="System diagnostics">
         <dl className="rows">
           <Row
             label="Public site"

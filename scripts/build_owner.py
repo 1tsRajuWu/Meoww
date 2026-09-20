@@ -40,6 +40,8 @@ STATIC_ASSETS = [
     "favicon-sakura.svg",
     "favicon-forest.svg",
     "favicon-ember.svg",
+    "cursor-default.svg",
+    "cursor-pointer.svg",
 ]
 
 

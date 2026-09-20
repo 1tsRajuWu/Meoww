@@ -399,12 +399,21 @@ a {
 .card {
   position: relative;
   grid-column: span 6;
-  padding: 18px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, color-mix(in oklab, var(--panel) 92%, transparent), var(--panel));
-  box-shadow: var(--shadow);
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: color-mix(in oklab, var(--panel) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 35%, rgba(255, 255, 255, 0.15));
+  box-shadow: 0 20px 45px -12px rgba(0, 0, 0, 0.75), 0 0 30px -10px color-mix(in oklab, var(--accent) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .card::after {
@@ -1016,16 +1025,22 @@ a {
   justify-content: center;
   align-items: flex-start;
   padding-top: 14vh;
-  background: color-mix(in oklab, var(--bg) 72%, transparent);
-  backdrop-filter: blur(8px);
+  background: rgba(4, 5, 8, 0.75);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
 .palette__panel {
   width: min(620px, 92vw);
-  border-radius: 16px;
-  border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--line));
-  background: var(--panel);
-  box-shadow: 0 40px 90px -50px rgb(0 0 0 / 1);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: color-mix(in oklab, var(--panel) 84%, transparent);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  box-shadow: 
+    0 40px 90px -20px rgb(0 0 0 / 0.85),
+    0 0 35px -10px color-mix(in oklab, var(--accent) 35%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
   overflow: hidden;
 }
 
@@ -1330,6 +1345,151 @@ a {
 
 .console-orphan a {
   color: var(--accent);
+}
+
+/* ------------------------------------------------------------- HUD & Telemetry */
+
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.gauge__visual {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gauge__svg {
+  transform: rotate(-90deg);
+}
+
+.gauge__bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+}
+
+.gauge__val {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.gauge__pct {
+  position: absolute;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.gauge__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gauge__label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gauge__sub {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.live-pulse {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.live-pulse__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.live-pulse__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.live-pulse__val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--good);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-pulse__track {
+  width: 100%;
+  height: 36px;
+  overflow: hidden;
+}
+
+.live-pulse__svg {
+  width: 100%;
+  height: 100%;
+}
+
+.live-pulse__grid {
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-dasharray: 4 4;
+}
+
+.telemetry-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.telemetry-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.telemetry-row__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.telemetry-row__label {
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.telemetry-row__val {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry-row__bar-bg {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.telemetry-row__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 70%, #fff));
+  box-shadow: 0 0 10px var(--accent);
 }
 
 /* ------------------------------------------------------------- responsive */

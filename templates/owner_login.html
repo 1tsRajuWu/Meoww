@@ -1,78 +1,516 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="midnight">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b0e13">
+    <meta name="theme-color" content="#08080a">
     <meta name="robots" content="noindex, nofollow">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
-    <title>Operator Sign In — {{ bot_name }}</title>
+    <title>Operator Cockpit — {{ bot_name }}</title>
     <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
     <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
+    <style>
+        :root {
+            --holo-glow: rgba(124, 140, 255, 0.35);
+        }
+        [data-theme="sakura"] {
+            --holo-glow: rgba(255, 116, 193, 0.35);
+        }
+        [data-theme="forest"] {
+            --holo-glow: rgba(66, 194, 134, 0.35);
+        }
+        [data-theme="ember"] {
+            --holo-glow: rgba(250, 149, 92, 0.35);
+        }
+
+        body {
+            overflow: hidden;
+            background: #060709;
+            perspective: 1000px;
+        }
+
+        /* Ambient Dynamic Mesh & Spotlight */
+        .ambient-mesh {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: 
+                radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), var(--holo-glow) 0%, transparent 45%),
+                radial-gradient(circle at 20% 20%, rgba(91, 94, 240, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(163, 168, 255, 0.1) 0%, transparent 50%);
+            transition: background 0.15s ease-out;
+            z-index: 0;
+        }
+
+        .cyber-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+            -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Top Bar Floating HUD */
+        .hud-header {
+            position: fixed;
+            top: 20px;
+            left: 24px;
+            right: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .hud-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: rgba(16, 20, 30, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #d1d5db;
+        }
+
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 10px #10b981;
+            animation: pulse-beacon 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse-beacon {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.25); }
+        }
+
+        /* Theme Picker Glass Pill */
+        .theme-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 6px;
+            background: rgba(16, 20, 30, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 9999px;
+        }
+
+        .theme-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 0;
+            background-clip: padding-box;
+        }
+
+        .theme-dot:hover {
+            transform: scale(1.15);
+        }
+
+        .theme-dot.is-active {
+            border-color: #fff;
+            transform: scale(1.1);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+        }
+
+        .theme-dot[data-set="midnight"] { background-color: #5b5ef0; }
+        .theme-dot[data-set="sakura"] { background-color: #f27ba6; }
+        .theme-dot[data-set="forest"] { background-color: #42c286; }
+        .theme-dot[data-set="ember"] { background-color: #fa955c; }
+
+        /* Main Holo-Card Container */
+        .auth-container {
+            position: relative;
+            z-index: 2;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px 16px;
+        }
+
+        .holo-card {
+            width: 100%;
+            max-width: 440px;
+            background: rgba(16, 18, 26, 0.65);
+            backdrop-filter: blur(28px) saturate(190%);
+            -webkit-backdrop-filter: blur(28px) saturate(190%);
+            border-radius: 24px;
+            padding: 40px 36px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 
+                0 30px 60px -15px rgba(0, 0, 0, 0.75),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                inset 0 0 20px rgba(255, 255, 255, 0.02),
+                0 0 40px -15px var(--holo-glow);
+            transform-style: preserve-3d;
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+            animation: card-spring 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes card-spring {
+            0% {
+                opacity: 0;
+                transform: translateY(24px) scale(0.95);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Mascot Header */
+        .brand-avatar-wrap {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .brand-avatar-halo {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: var(--holo-glow);
+            filter: blur(20px);
+            z-index: -1;
+            animation: breathe-glow 4s ease-in-out infinite alternate;
+        }
+
+        @keyframes breathe-glow {
+            0% { transform: scale(0.9); opacity: 0.5; }
+            100% { transform: scale(1.2); opacity: 0.9; }
+        }
+
+        .brand-avatar {
+            width: 68px;
+            height: 68px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 10px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .holo-card:hover .brand-avatar {
+            transform: scale(1.06) rotate(3deg);
+        }
+
+        .cockpit-title {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            text-align: center;
+            margin: 0 0 6px;
+            color: #fff;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+        }
+
+        .cockpit-subtitle {
+            font-size: 13px;
+            color: var(--dim, #9b9ba8);
+            text-align: center;
+            margin: 0 0 28px;
+            font-weight: 500;
+        }
+
+        /* Modern Tactile Input */
+        .holo-field {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .holo-input-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .holo-input {
+            width: 100%;
+            height: 52px;
+            padding: 0 54px 0 16px;
+            background: rgba(10, 12, 18, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 14px;
+            color: #fff;
+            font-size: 15px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .holo-input:focus {
+            border-color: var(--accent, #7c8cff);
+            background: rgba(14, 16, 24, 0.9);
+            box-shadow: 
+                0 0 0 3px var(--holo-glow),
+                inset 0 2px 4px rgba(0, 0, 0, 0.4);
+        }
+
+        .toggle-eye-btn {
+            position: absolute;
+            right: 14px;
+            background: transparent;
+            border: none;
+            color: var(--dim, #9b9ba8);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-eye-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        /* Action Buttons */
+        .holo-btn {
+            position: relative;
+            width: 100%;
+            height: 50px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: linear-gradient(135deg, var(--accent, #7c8cff), #4a54df);
+            color: #fff;
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 8px 24px -6px var(--holo-glow);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow: hidden;
+        }
+
+        .holo-btn::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+            transition: left 0.6s ease;
+        }
+
+        .holo-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px -4px var(--holo-glow);
+        }
+
+        .holo-btn:hover::before {
+            left: 100%;
+        }
+
+        .holo-btn:active {
+            transform: translateY(1px);
+        }
+
+        .key-badge {
+            font-size: 11px;
+            padding: 3px 7px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-family: ui-monospace, monospace;
+        }
+
+        /* Secondary Discord Trigger */
+        .discord-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            height: 46px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #e5e7eb;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            margin-top: 14px;
+        }
+
+        .discord-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.16);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+
+        .cockpit-foot {
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .cockpit-foot a {
+            font-size: 13px;
+            color: var(--dim, #9b9ba8);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .cockpit-foot a:hover {
+            color: #fff;
+        }
+    </style>
 </head>
 <body>
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <a class="skip-link" href="#signin">Skip to sign in</a>
+    <div class="ambient-mesh" id="ambient-mesh"></div>
+    <div class="cyber-grid"></div>
 
-    <main class="auth-shell">
-        <div class="auth-card glass">
-            <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
-            <h1>Owner Console</h1>
-            <p class="hint" style="margin: 8px 0 var(--space-5)">
-                Operator sign-in for {{ bot_name }}. Manage the entire fleet, every server,
-                live system toggles, and operations.
-            </p>
+    <header class="hud-header">
+        <div class="hud-badge">
+            <span class="pulse-dot"></span>
+            <span>Console Ready</span>
+        </div>
+
+        <div class="theme-pill" role="toolbar" aria-label="Theme selector">
+            <button class="theme-dot" data-set="midnight" title="Midnight" aria-label="Midnight theme"></button>
+            <button class="theme-dot" data-set="sakura" title="Sakura" aria-label="Sakura theme"></button>
+            <button class="theme-dot" data-set="forest" title="Forest" aria-label="Forest theme"></button>
+            <button class="theme-dot" data-set="ember" title="Ember" aria-label="Ember theme"></button>
+        </div>
+    </header>
+
+    <main class="auth-container">
+        <div class="holo-card" id="holo-card">
+            <div class="brand-avatar-wrap">
+                <div class="brand-avatar-halo"></div>
+                <img class="brand-avatar" src="/static/logo.svg" alt="{{ bot_name }} logo">
+            </div>
+
+            <h1 class="cockpit-title">Operator Cockpit</h1>
+            <p class="cockpit-subtitle">Authenticate to manage fleet systems, telemetry, and operations</p>
 
             {% if error %}
-            <div class="notice notice-bad" role="alert" style="margin-bottom: var(--space-4)">{{ error }}</div>
+            <div class="notice notice-bad" role="alert" style="margin-bottom: 20px; animation: shake 0.3s ease;">
+                {{ error }}
+            </div>
             {% endif %}
 
-            <div id="signin">
             {% if passkey_enabled %}
-            <form method="POST" action="/owner/login" autocomplete="on" class="stack">
+            <form method="POST" action="/owner/login" autocomplete="on">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="field">
-                    <label class="field-label" for="passkey">Admin Passkey</label>
-                    <div class="passkey-wrap">
-                        <input class="input" type="password" id="passkey" name="passkey" placeholder="Enter passkey" required autofocus autocomplete="current-password" {% if error %}aria-invalid="true"{% endif %}>
-                        <button type="button" class="toggle-visibility" id="toggle-pass" aria-controls="passkey" aria-pressed="false">Show</button>
+                
+                <div class="holo-field">
+                    <div class="holo-input-wrap">
+                        <input class="holo-input" type="password" id="passkey" name="passkey" placeholder="Enter Admin Passkey" required autofocus autocomplete="current-password">
+                        <button type="button" class="toggle-eye-btn" id="toggle-pass" aria-label="Toggle password visibility">
+                            <svg id="eye-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
                     </div>
-                    <span class="hint">The operator credential reaches every server. Keep it secure.</span>
                 </div>
-                <button type="submit" class="btn btn-primary btn-block">Sign in to Console</button>
+
+                <button type="submit" class="holo-btn">
+                    <span>Unlock Console</span>
+                    <span class="key-badge">↵</span>
+                </button>
             </form>
             {% else %}
             <div class="notice notice-warn" role="status">
-                Admin passkey is not set in this deployment's environment. Set <code>ADMIN_PASSKEY</code> to sign in.
+                Admin passkey is not configured in this deployment environment.
             </div>
             {% endif %}
 
             {% if oauth_enabled %}
-            <div class="divider" style="margin: var(--space-4) 0"><span>or</span></div>
-            <a class="btn btn-ghost btn-block" href="/login/discord?next=/owner">
-                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false" style="margin-right: 8px"><path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 15.437 3c-.21.375-.45.88-.617 1.28a18.27 18.27 0 0 0-5.64 0A12.6 12.6 0 0 0 8.55 3a19.74 19.74 0 0 0-4.886 1.372C.61 9.05-.29 13.62.16 18.13a19.9 19.9 0 0 0 5.993 3.02c.48-.656.907-1.353 1.276-2.086a12.9 12.9 0 0 1-2.01-.965c.169-.123.334-.251.492-.383a14.2 14.2 0 0 0 12.18 0c.16.133.325.26.492.383a12.9 12.9 0 0 1-2.013.966c.37.732.796 1.43 1.276 2.085a19.86 19.86 0 0 0 5.996-3.02c.53-5.226-.9-9.757-3.535-13.761ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.955 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418Z"/></svg>
-                Sign in with Discord (Owner)
+            <a class="discord-btn" href="/login/discord?next=/owner">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 15.437 3c-.21.375-.45.88-.617 1.28a18.27 18.27 0 0 0-5.64 0A12.6 12.6 0 0 0 8.55 3a19.74 19.74 0 0 0-4.886 1.372C.61 9.05-.29 13.62.16 18.13a19.9 19.9 0 0 0 5.993 3.02c.48-.656.907-1.353 1.276-2.086a12.9 12.9 0 0 1-2.01-.965c.169-.123.334-.251.492-.383a14.2 14.2 0 0 0 12.18 0c.16.133.325.26.492.383a12.9 12.9 0 0 1-2.013.966c.37.732.796 1.43 1.276 2.085a19.86 19.86 0 0 0 5.996-3.02c.53-5.226-.9-9.757-3.535-13.761ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.955 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418Z"/></svg>
+                <span>Owner Discord Sign In</span>
             </a>
             {% endif %}
-            </div>
 
-            <p class="hint" style="margin-top: var(--space-4)">
-                <a href="/">← Back to the front page</a>
-            </p>
+            <div class="cockpit-foot">
+                <a href="/">← Return to Public Site</a>
+            </div>
         </div>
     </main>
 
     <script>
-        const toggle = document.getElementById("toggle-pass");
-        const input = document.getElementById("passkey");
-        if (toggle && input) {
-            toggle.addEventListener("click", () => {
-                const show = input.type === "password";
-                input.type = show ? "text" : "password";
-                toggle.textContent = show ? "Hide" : "Show";
-                toggle.setAttribute("aria-pressed", show ? "true" : "false");
+        // Password toggle with SVG icon morphing
+        const toggleBtn = document.getElementById("toggle-pass");
+        const passInput = document.getElementById("passkey");
+        const eyeIcon = document.getElementById("eye-icon");
+        if (toggleBtn && passInput && eyeIcon) {
+            toggleBtn.addEventListener("click", () => {
+                const isPass = passInput.type === "password";
+                passInput.type = isPass ? "text" : "password";
+                eyeIcon.innerHTML = isPass
+                    ? '<path d="m3 3 18 18"/><path d="M10.584 10.587a2 2 0 0 0 2.828 2.83"/><path d="M9.363 5.365A9.466 9.466 0 0 1 12 5c7 0 10 7 10 7a19.537 19.537 0 0 1-4.343 5.368"/><path d="M6.53 6.532C3.968 8.163 2 12 2 12s3 7 10 7c2.185 0 4.108-.66 5.67-1.745"/>'
+                    : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
             });
         }
+
+        // Pointer Spotlight & Subtle 3D Card Tilt
+        const card = document.getElementById("holo-card");
+        const mesh = document.getElementById("ambient-mesh");
+        window.addEventListener("pointermove", (e) => {
+            const x = (e.clientX / window.innerWidth) * 100;
+            const y = (e.clientY / window.innerHeight) * 100;
+            if (mesh) {
+                mesh.style.setProperty("--mouse-x", `${x}%`);
+                mesh.style.setProperty("--mouse-y", `${y}%`);
+            }
+            if (card && window.innerWidth > 768) {
+                const rect = card.getBoundingClientRect();
+                const cardX = (e.clientX - rect.left) / rect.width - 0.5;
+                const cardY = (e.clientY - rect.top) / rect.height - 0.5;
+                card.style.transform = `perspective(1000px) rotateY(${cardX * 8}deg) rotateX(${-cardY * 8}deg)`;
+            }
+        });
+
+        if (card) {
+            window.addEventListener("pointerleave", () => {
+                card.style.transform = "perspective(1000px) rotateY(0deg) rotateX(0deg)";
+            });
+        }
+
+        // Floating Theme Selector
+        const currentTheme = document.documentElement.getAttribute("data-theme") || "midnight";
+        document.querySelectorAll(".theme-dot").forEach((dot) => {
+            if (dot.dataset.set === currentTheme) dot.classList.add("is-active");
+            dot.addEventListener("click", () => {
+                const themeName = dot.dataset.set;
+                document.documentElement.setAttribute("data-theme", themeName);
+                try { localStorage.setItem("meow_theme", themeName); } catch {}
+                document.querySelectorAll(".theme-dot").forEach(d => d.classList.remove("is-active"));
+                dot.classList.add("is-active");
+                if (window.updateThemedAssets) window.updateThemedAssets(themeName);
+            });
+        });
     </script>
 </body>
 </html>

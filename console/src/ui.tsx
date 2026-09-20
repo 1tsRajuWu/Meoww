@@ -302,3 +302,76 @@ export function ToastHost({ children }: { children: ReactNode }) {
     </Toasts.Provider>
   );
 }
+
+export function RadialGauge({
+  value,
+  max,
+  label,
+  sublabel,
+  color,
+}: {
+  value: number;
+  max: number;
+  label: string;
+  sublabel?: string;
+  color?: string;
+}) {
+  const pct = Math.min(100, Math.max(0, max > 0 ? (value / max) * 100 : 0));
+  const r = 26;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (pct / 100) * circ;
+  const strokeColor = color ?? "var(--accent)";
+
+  return (
+    <div className="gauge">
+      <div className="gauge__visual">
+        <svg className="gauge__svg" width="68" height="68" viewBox="0 0 68 68">
+          <circle cx="34" cy="34" r={r} className="gauge__bg" strokeWidth="5" />
+          <motion.circle
+            cx="34"
+            cy="34"
+            r={r}
+            className="gauge__val"
+            strokeWidth="5"
+            stroke={strokeColor}
+            strokeDasharray={circ}
+            initial={{ strokeDashoffset: circ }}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
+          />
+        </svg>
+        <span className="gauge__pct">{Math.round(pct)}%</span>
+      </div>
+      <div className="gauge__meta">
+        <span className="gauge__label">{label}</span>
+        {sublabel && <span className="gauge__sub">{sublabel}</span>}
+      </div>
+    </div>
+  );
+}
+
+export function LivePulseVisual({ pingMs }: { pingMs: number | null }) {
+  return (
+    <div className="live-pulse">
+      <div className="live-pulse__head">
+        <span className="live-pulse__label">Telemetry Link</span>
+        <span className="live-pulse__val">{pingMs !== null ? `${pingMs} ms` : "Standby"}</span>
+      </div>
+      <div className="live-pulse__track">
+        <svg className="live-pulse__svg" viewBox="0 0 300 36" preserveAspectRatio="none">
+          <line x1="0" y1="18" x2="300" y2="18" className="live-pulse__grid" />
+          <motion.path
+            d="M0,18 L60,18 L75,6 L90,30 L105,12 L120,24 L135,18 L300,18"
+            fill="none"
+            className="live-pulse__line"
+            stroke="var(--accent)"
+            strokeWidth="2"
+            initial={{ pathLength: 0, opacity: 0.3 }}
+            animate={{ pathLength: 1, opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+          />
+        </svg>
+      </div>
+    </div>
+  );
+}
