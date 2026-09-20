@@ -629,7 +629,27 @@ def servers_page():
     return (body, 403) if error else body
 
 
+def preview_figures() -> dict:
+    """The payload `/api/figures` serves, over the harness's own servers.
+
+    Built by the real :func:`utils.figures.deployment` with a gateway made from
+    the harness's guild list — the one thing this process cannot have is Discord,
+    and a card that renders four em dashes would show nothing about the card.
+    Called rather than cached, because the harness answers every request with the
+    state it has *now*. """
+    return keep_alive.figures.deployment(gateway={
+        "servers": len(GUILDS),
+        "members": sum(guild["members"] for guild in GUILDS),
+        "systems": len(MODULES),
+        "commands": len(PREVIEW_COMMANDS),
+        "connected": True,
+    })
+
+
 @app.route("/owner")
+@app.route("/owner/servers")
+@app.route("/owner/infrastructure")
+@app.route("/owner/output")
 def owner_console():
     """The fleet console, over the harness's own servers.
 
@@ -656,8 +676,35 @@ def owner_console():
             "off": summary["off"],
         })
     fleet.sort(key=lambda row: (-row["members"], row["name"].lower()))
+    # The page the URL asks for, resolved by the same list the console's routes
+    # are registered from — so a preview of `/owner/output` is the page production
+    # would serve at that address rather than the first one.
+    page = keep_alive.OWNER_PAGE_BY_PATH.get(request.path, "numbers")
+    live_figures = preview_figures()
     return render_template(
         "owner.html",
+        page=page,
+        page_anchor=next(
+            anchor for candidate, _label, _path, anchor in keep_alive.OWNER_PAGES
+            if candidate == page
+        ),
+        owner_pages=[
+            {
+                "id": candidate,
+                "label": label,
+                "href": path,
+                "anchor": anchor,
+                "current": candidate == page,
+            }
+            for candidate, label, path, anchor in keep_alive.OWNER_PAGES
+        ],
+        figures_json=keep_alive._inline_json(live_figures),
+        figures_url="/api/figures",
+        figure_tiles=keep_alive._activity_tiles(live_figures, "week"),
+        figure_periods=[
+            {"id": window["id"], "label": window["label"]}
+            for window in (live_figures.get("periods") or [])
+        ],
         fleet=fleet,
         totals={
             "servers": len(fleet),
@@ -942,6 +989,18 @@ def api_uptime():
             "UPTIMEROBOT_API_KEY and these two rows are stand-ins."
         ),
     })
+
+
+@app.route("/api/figures")
+def api_figures():
+    """The deployment's own counts, for the cards' Read again button.
+
+    Uncached here, unlike production's minute: the harness is asked by one
+    person at a time and its whole job is to show what a click does.
+    """
+    payload = preview_figures()
+    payload["at"] = int(time.time())
+    return jsonify(payload)
 
 
 @app.route("/api/command-scope")

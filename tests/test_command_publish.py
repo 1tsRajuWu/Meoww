@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_composer import GUILD_ID
-from tests.test_dashboard import _DashboardFixture
+from tests.test_dashboard import _DashboardFixture, page_href
 from utils import command_publish
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -287,7 +287,7 @@ class ScopeApiAnswer(_DashboardFixture):
         command_publish.record(GUILD_ID, verified=True, pending=0, held=90)
         self.sign_in()
 
-        body = self.client.get("/dashboard").data.decode()
+        body = self.client.get(page_href("commands")).data.decode()
 
         self.assertIn("Discord holds 90 commands", body)
         self.assertIn('data-tone="ok"', body)
@@ -307,7 +307,7 @@ class ScopeApiAnswer(_DashboardFixture):
         command_publish.record(None, verified=True, pending=0, held=2)
         self.sign_in(guild_id=None)
 
-        body = self.client.get("/dashboard").data.decode()
+        body = self.client.get(page_href("commands")).data.decode()
         line = re.search(
             r'id="scope-publish-text">([^<]*)<', body,
         ).group(1)
@@ -319,7 +319,7 @@ class ScopeApiAnswer(_DashboardFixture):
     def test_the_page_says_so_when_discord_has_not_been_read(self):
         """A page opened before the bot has published must not imply it has."""
         self.sign_in()
-        body = self.client.get("/dashboard").data.decode()
+        body = self.client.get(page_href("commands")).data.decode()
         self.assertIn('data-tone="never"', body)
         self.assertIn("not been read since this process started", body)
         self.assertNotIn(

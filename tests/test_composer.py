@@ -675,6 +675,19 @@ def render_dashboard(**overrides) -> str:
         csrf_token=CSRF,
         guilds=[],
         can_switch_guild=False,
+        # No `page`: the dashboard is seven pages in production and one document
+        # in this environment, which is what `page is not defined` means in the
+        # template — everything renders, and every test written against this
+        # fixture goes on reading the whole thing. The rail is still carried,
+        # from the same list the routes are registered from, so the page's
+        # navigation is not the one thing a renderer has to guess.
+        dashboard_pages=keep_alive._page_nav(keep_alive.DASHBOARD_PAGES, ""),
+        pages_json=keep_alive._inline_json({
+            page_id: {"url": path, "label": label}
+            for page_id, label, path, _anchor in keep_alive.DASHBOARD_PAGES
+        }),
+        guild_query="",
+        page_href="/dashboard?guild_id=",
         # The two panels the dashboard adds for one server: the bot's profile
         # there (Discord's per-guild member fields) and the command list that
         # server is registered with. Carried here because the page needs them

@@ -64,7 +64,7 @@
     {% set fleet_url = fleet_url if fleet_url is defined else '' %}
     <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
     <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
-    <a class="skip-link" href="#modules">Skip to systems</a>
+    <a class="skip-link" href="#{{ page_anchor|default('overview') }}">Skip to this page</a>
 
     {# The shell. A rail that says where you are, and one column that holds the
        sections in the order the work happens: what is running, what to post,
@@ -86,36 +86,22 @@
                     <span>Control Center</span>
                 </div>
             </div>
-            <nav class="rail-nav" id="rail-nav" aria-label="Sections">
-                <a href="#overview" data-spy="overview">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/></svg>
-                    Overview
-                </a>
-                <a href="#modules" data-spy="modules">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 21 8l-9 4.5L3 8z"/><path d="m3 12 9 4.5L21 12"/><path d="m3 16 9 4.5L21 16"/></svg>
-                    Systems
+            {# Seven pages, seven real links. `aria-current` rather than a scroll
+               spy: the rail used to answer "where in this document am I", and the
+               question now is "which page is this" — and every link carries the
+               open server, so moving between pages cannot move you between
+               servers. The list comes from `DASHBOARD_PAGES`, so a page cannot be
+               routed without appearing here, or here without being routed. #}
+            <nav class="rail-nav" id="rail-nav" aria-label="Pages">
+                {% for item in dashboard_pages|default([]) %}
+                <a href="{{ item.url }}"{% if item.current %} class="is-current" aria-current="page"{% endif %}>
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true">{% if item.id == 'overview' %}<path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/>{% elif item.id == 'systems' %}<path d="M12 3.5 21 8l-9 4.5L3 8z"/><path d="m3 12 9 4.5L21 12"/><path d="m3 16 9 4.5L21 16"/>{% elif item.id == 'composer' %}<path d="M20.5 12.5c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 21l1.2-3.6C4.1 16.2 3.5 14.4 3.5 12.5c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z"/>{% elif item.id == 'schedule' %}<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>{% elif item.id == 'identity' %}<circle cx="12" cy="9" r="3.6"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/>{% elif item.id == 'commands' %}<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/>{% else %}<path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/>{% endif %}</svg>
+                    {{ item.label }}
+                    {% if item.id == 'systems' %}
                     <span class="rail-count" id="rail-modules-count">{{ active_count }} / {{ total_count }}</span>
+                    {% endif %}
                 </a>
-                <a href="#composer" data-spy="composer">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12.5c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 21l1.2-3.6C4.1 16.2 3.5 14.4 3.5 12.5c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z"/></svg>
-                    Composer
-                </a>
-                <a href="#schedule" data-spy="schedule">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
-                    Scheduled
-                </a>
-                <a href="#identity" data-spy="identity">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.6"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/></svg>
-                    Identity
-                </a>
-                <a href="#command-scope" data-spy="command-scope">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/></svg>
-                    Commands
-                </a>
-                <a href="#status" data-spy="status">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/></svg>
-                    Status
-                </a>
+                {% endfor %}
             </nav>
             {% if fleet_url %}
             {# Kept out of the section nav above, because it is not a section of
@@ -176,7 +162,9 @@
                     {% endif %}
                     {% if can_switch_guild and guilds and guilds|length > 1 %}
                     <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
-                    <select id="guild-select" class="guild-select" aria-label="Select server" onchange="window.location.href='/dashboard?guild_id=' + encodeURIComponent(this.value)">
+                    {# The switcher keeps the page you are on: choosing a server is not
+                       a request to be sent back to the overview. #}
+                    <select id="guild-select" class="guild-select" aria-label="Select server" onchange="window.location.href='{{ page_href|default('/dashboard?guild_id=') }}' + encodeURIComponent(this.value)">
                         {% for g in guilds %}
                         <option value="{{ g.id }}" {{ "selected" if g.id == guild_id else "" }}>{{ g.name }}</option>
                         {% endfor %}
@@ -212,6 +200,16 @@
             </header>
 
             <div class="container">
+                {# Seven pages, one section each.
+
+                   `page is not defined` is the whole page: the template is rendered
+                   by four different environments in this repository — this app, the
+                   test suite's own Jinja environment, the preview harness and the
+                   static-site build — and only one of them is a request that has a
+                   page. A renderer that passes nothing gets everything, which is
+                   what every one of them did before this split and what each of the
+                   tests written against them still expects. #}
+                {% if page is not defined or page == 'overview' %}
                 <!-- ── Overview ───────────────────────────────────────────── -->
                 <section id="overview" aria-labelledby="overview-title">
                     <div class="section-header">
@@ -270,7 +268,9 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
+                {% if page is not defined or page == 'systems' %}
                 <!-- ── Systems ────────────────────────────────────────────── -->
                 <section id="modules" aria-labelledby="modules-title">
                     <div class="section-header">
@@ -344,6 +344,10 @@
                    forever and the reason under the box frozen on a sentence that was
                    no longer true. It is the only section whose heading is not
                    `<section>-title`, and that is deliberate. #}
+                </section>
+                {% endif %}
+
+                {% if page is not defined or page == 'composer' %}
                 <section id="composer" aria-labelledby="composer-heading">
                     <div class="section-header">
                         <div>
@@ -466,6 +470,10 @@
                     </div>
                 </section>
 
+                </section>
+                {% endif %}
+
+                {% if page is not defined or page == 'schedule' %}
                 <!-- ── Scheduled ──────────────────────────────────────────── -->
                 <section id="schedule" aria-labelledby="schedule-title">
                     <div class="section-header">
@@ -490,6 +498,10 @@
                     </div>
                 </section>
 
+                </section>
+                {% endif %}
+
+                {% if page is not defined or page == 'identity' %}
                 <!-- ── Identity ───────────────────────────────────────────── -->
                 <section id="identity" aria-labelledby="identity-title">
                     <div class="section-header">
@@ -572,6 +584,10 @@
                     </div>
                 </section>
 
+                </section>
+                {% endif %}
+
+                {% if page is not defined or page == 'commands' %}
                 <!-- ── Command scope ──────────────────────────────────────── -->
                 <section id="command-scope" aria-labelledby="command-scope-title">
                     <div class="section-header">
@@ -637,6 +653,10 @@
                    from the last snapshot the background loop took, so opening
                    this page never waits on a third party, and the refresh button
                    asks `/api/uptime`, which reads the same snapshot. #}
+                </section>
+                {% endif %}
+
+                {% if page is not defined or page == 'status' %}
                 <section id="status" aria-labelledby="status-title">
                     <div class="section-header">
                         <div>
@@ -716,6 +736,7 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -804,57 +825,21 @@
                 apply();
             })();
 
-            /* ── The rail says where you are ──────────────────────────────
-               Read with an observer rather than from the scroll position: the
-               sections are different heights, so "which one is on screen" is a
-               question about the viewport, and answering it by comparing
-               offsets needs every height and a rule for the ties. */
-            (function railSpy() {
-                const links = Array.prototype.slice.call(document.querySelectorAll("#rail-nav a[data-spy]"));
-                if (!links.length || typeof IntersectionObserver !== "function") return;
-                const byId = {};
-                const targets = [];
-                links.forEach(function (link) {
-                    const section = document.getElementById(link.dataset.spy);
-                    if (!section) return;
-                    byId[link.dataset.spy] = link;
-                    targets.push(section);
-                });
-                if (!targets.length) return;
-
-                function mark(id) {
-                    links.forEach(function (link) {
-                        link.classList.toggle("is-current", link.dataset.spy === id);
-                    });
-                }
-
-                /* The one that owns the *top* of the viewport wins, which is
-                   what a reader means by "where am I": with several sections on
-                   screen at once, the highest one is where they started. */
-                function bestVisible(entries) {
-                    const visible = entries
-                        .filter(function (entry) { return entry.isIntersecting; })
-                        .sort(function (a, b) {
-                            return a.boundingClientRect.top - b.boundingClientRect.top;
-                        });
-                    if (visible.length) {
-                        mark(visible[0].target.id);
-                        return;
-                    }
-                }
-
-                const seen = new IntersectionObserver(bestVisible, {
-                    rootMargin: "-72px 0px -55% 0px",
-                    threshold: [0, 0.05, 0.3]
-                });
-                targets.forEach(function (section) { seen.observe(section); });
-
-                // A click marks immediately: the observer only fires on a
-                // crossing, so a jump to a section already fully on screen
-                // would otherwise leave the previous one highlighted.
-                links.forEach(function (link) {
-                    link.addEventListener("click", function () { mark(link.dataset.spy); });
-                });
+            /* ── Where you are, and what the address asked for ───────────────
+               The rail used a scroll spy, and it does not any more: it is seven
+               real links to seven pages, so "which one is highlighted" is
+               `aria-current`, which the server sets and no script can disagree
+               with. What is left for the browser to do is arrive: the palette's
+               cross-page actions append the control they were after as a hash, so
+               that a jump to "Enable every system" from the Status page lands on
+               the button rather than at the top of a page containing it. */
+            (function honourJump() {
+                const id = (window.location.hash || "").replace(/^#/, "");
+                if (!id) return;
+                const node = document.getElementById(id);
+                if (!node) return;
+                if (typeof node.focus === "function") node.focus({ preventScroll: true });
+                node.scrollIntoView({ block: "center" });
             })();
 
             /* ── Finding a system ─────────────────────────────────────────
@@ -1001,25 +986,30 @@
                     });
                 }
 
+                async function refresh() {
+                    // The page's own GET helper, not a bare `fetch`: it adds the
+                    // CSRF header every API route here requires and it turns an
+                    // expired session into the same saved-draft redirect every
+                    // other call on the page gives.
+                    const data = await apiGet("/api/uptime");
+                    render(data);
+                    if (seen) {
+                        // The server's own wording, because the server is the one
+                        // that knows when it asked: a browser clock that is minutes
+                        // out would otherwise report a reading from the future, or
+                        // one that never happened.
+                        seen.textContent = data.age_text
+                            || "not read yet in this process";
+                    }
+                    return data;
+                }
+
                 button.addEventListener("click", async function () {
                     button.disabled = true;
                     const was = button.textContent;
                     button.textContent = "Reading…";
                     try {
-                        // The page's own GET helper, not a bare `fetch`: it adds
-                        // the CSRF header every API route here requires and it
-                        // turns an expired session into the same saved-draft
-                        // redirect every other call on the page gives.
-                        const data = await apiGet("/api/uptime");
-                        render(data);
-                        if (seen) {
-                            // The server's own wording, because the server is the
-                            // one that knows when it asked: a browser clock that is
-                            // minutes out would otherwise report a reading from the
-                            // future, or one that never happened.
-                            seen.textContent = data.age_text
-                                || "not read yet in this process";
-                        }
+                        const data = await refresh();
                         showToast(data.total ? "Status refreshed" : "No monitors to show");
                     } catch (error) {
                         showToast(error.message, "error");
@@ -1028,6 +1018,39 @@
                         button.textContent = was;
                     }
                 });
+
+                // …and the panel re-reads itself, because its age is a fact about
+                // *now*. An operator who left this tab open was reading "read 2
+                // minutes ago" from the moment they opened it — the difference
+                // between a panel that is quiet and a panel that has stopped. It
+                // asks `/api/uptime`, which answers from the last snapshot, so a
+                // page open all day still costs UptimeRobot nothing.
+                const STATUS_EVERY_MS = 30000;
+                let statusTimer = null;
+                function startStatusRefresh() {
+                    if (statusTimer) return;
+                    statusTimer = setInterval(function () {
+                        if (document.visibilityState === "visible") {
+                            // Swallowed on purpose: this is a background poll, and a
+                            // toast about it would land in front of whatever the
+                            // operator is actually doing. The manual Refresh button
+                            // is the one that reports.
+                            refresh().catch(function () {});
+                        }
+                    }, STATUS_EVERY_MS);
+                }
+                function stopStatusRefresh() {
+                    if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+                }
+                document.addEventListener("visibilitychange", function () {
+                    if (document.visibilityState === "visible") {
+                        refresh().catch(function () {});
+                        startStatusRefresh();
+                    } else {
+                        stopStatusRefresh();
+                    }
+                });
+                startStatusRefresh();
             })();
 
             /* ── The palette ─────────────────────────────────────────────── */
@@ -1041,17 +1064,25 @@
                 const items = [];
 
                 // Where you can go: the rail's own list, so there is one idea of
-                // "where things are" rather than two that drift.
-                document.querySelectorAll("#rail-nav a[data-spy]").forEach(function (link) {
+                // "where things are" rather than two that drift. Every entry is a
+                // page now and every entry navigates — except the page you are
+                // already on, which is marked as such rather than offered, because
+                // a palette that jumps you to where you are is a palette that
+                // wastes the one thing it is for.
+                document.querySelectorAll("#rail-nav a").forEach(function (link) {
+                    const here = link.getAttribute("aria-current") === "page";
                     items.push({
                         label: (link.textContent || "").trim(),
-                        kind: "Section",
+                        kind: here ? "You are here" : "Page",
                         // The rail's own icon, cloned: one drawing per idea, so a
-                        // section cannot end up with two different pictures.
+                        // page cannot end up with two different pictures.
                         icon: cloneIcon(link),
                         run: function () {
-                            const target = document.getElementById(link.dataset.spy);
-                            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+                            if (here) {
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                                return;
+                            }
+                            window.location.assign(link.href);
                         }
                     });
                 });
@@ -1074,27 +1105,61 @@
                             );
                         }
                     });
-                });
-
-                // The actions the page exists for.
+                });                // The actions the product is opened for — and each one names the
+                // page it lives on, because the control it drives may not be on
+                // this page at all. `here` is decided once, when the list is
+                // built: the row either says "Action" (it will happen now) or the
+                // name of the page it will take you to, and pressing it does
+                // exactly that. An action that silently changed the page you were
+                // reading is the thing a palette is supposed to prevent.
                 const actions = [
-                    { label: "Write a message", kind: "Action", run: function () { focus("#composer-body"); } },
-                    { label: "Enable every system", kind: "Action", run: function () { click("#btn-enable-all"); } },
-                    { label: "Disable every system", kind: "Action", run: function () { click("#btn-disable-all"); } },
-                    { label: "Refresh the status panel", kind: "Action", run: function () { click("#status-refresh"); } },
-                    { label: "Open the live market", kind: "Link", run: function () { window.location.href = "/market"; } },
-                    { label: "Choose another server", kind: "Link", run: function () { window.location.href = "/servers"; } }{% if selling %},
-                    { label: "Plans and pricing", kind: "Link", run: function () { window.location.href = "/pricing"; } }{% endif %}
+                    ["Write a message", "composer", "#composer-body", "focus"],
+                    ["Enable every system", "systems", "#btn-enable-all", "click"],
+                    ["Disable every system", "systems", "#btn-disable-all", "click"],
+                    ["Refresh the status panel", "status", "#status-refresh", "click"]
                 ];
                 const actionIcon = document.getElementById("palette-action-icon");
                 actions.forEach(function (action) {
+                    const label = action[0];
+                    const page = action[1];
+                    const selector = action[2];
+                    const verb = action[3];
+                    const here = Boolean(document.querySelector(selector));
+                    const where = PAGES[page] || null;
                     items.push({
-                        label: action.label,
-                        kind: action.kind,
+                        label: label,
+                        kind: here ? "Action" : (where ? where.label : "Action"),
                         icon: actionIcon ? actionIcon.content.firstElementChild.cloneNode(true) : null,
-                        run: action.run
+                        run: function () {
+                            if (here) {
+                                if (verb === "focus") focus(selector);
+                                else click(selector);
+                                return;
+                            }
+                            // The hash is how the other page knows what was wanted:
+                            // its own shell focuses the element it names on load.
+                            if (where) window.location.assign(where.url + selector);
+                        }
                     });
                 });
+                items.push({
+                    label: "Open the live market",
+                    kind: "Link",
+                    icon: actionIcon ? actionIcon.content.firstElementChild.cloneNode(true) : null,
+                    run: function () { window.location.assign("/market"); }
+                });
+                items.push({
+                    label: "Choose another server",
+                    kind: "Link",
+                    icon: actionIcon ? actionIcon.content.firstElementChild.cloneNode(true) : null,
+                    run: function () { window.location.assign("/servers"); }
+                });{% if selling %}
+                items.push({
+                    label: "Plans and pricing",
+                    kind: "Link",
+                    icon: actionIcon ? actionIcon.content.firstElementChild.cloneNode(true) : null,
+                    run: function () { window.location.assign("/pricing"); }
+                });{% endif %}
 
                 function cloneIcon(from) {
                     const svg = from.querySelector("svg");
@@ -1218,6 +1283,11 @@
         const GUILD_ID = {{ (guild_id|string)|tojson }};
         const CSRF_TOKEN = {{ csrf_token|tojson }};
         const BOT_READY = {{ "true" if bot_ready else "false" }};
+        // Every page of this server's dashboard, with the open server already in
+        // each address. The palette crosses pages with it, and the address is the
+        // server's as well as the page's — a jump that dropped the server would
+        // move an administrator to the right page of the wrong guild.
+        const PAGES = {{ pages_json|default('{}')|safe }};
         const MODULE_NAMES = {
             {% for mod in modules %}{{ mod.id|tojson }}: {{ mod.name|tojson }}{% if not loop.last %},{% endif %}
             {% endfor %}
@@ -1269,9 +1339,13 @@
 
         function updateActiveCount() {
             const checkboxes = document.querySelectorAll(".module-toggle");
-            let active = 0;
-            checkboxes.forEach(cb => { if (cb.checked) active++; });
-            document.getElementById("metric-active").textContent = `${active} / ${checkboxes.length}`;
+            let active = 0;                checkboxes.forEach(cb => { if (cb.checked) active++; });
+            // The figure lives on the overview, and a switch can be flipped from
+            // the Systems page, which does not draw it: the count still moves
+            // (the rail's own counter is updated by the shell), and this one is
+            // written where it exists.
+            const figure = document.getElementById("metric-active");
+            if (figure) figure.textContent = `${active} / ${checkboxes.length}`;
             // The meter reads the same count, so it moves in the same call.
             const meter = document.getElementById("metric-meter");
             if (meter) {
@@ -2606,7 +2680,9 @@
         }
 
         function scheduleStatus(message) {
-            scheduleEls.status.textContent = message || "";
+            // Guarded for the same reason as `renderSchedule`: the composer page
+            // reports the result of a send, and the queue is not drawn there.
+            if (scheduleEls.status) scheduleEls.status.textContent = message || "";
         }
 
         function chosenContent() {
@@ -2793,6 +2869,11 @@
         }
 
         function renderSchedule(data, now) {
+            // The queue has its own page now, and this function is still called
+            // from the composer — a send refreshes the same data so the receipt it
+            // just showed stays true. With no queue on the page there is nothing
+            // to draw it into, which is not an error.
+            if (!scheduleEls.upcoming || !scheduleEls.recent) return;
             const upcoming = data.upcoming || [];
             const recent = data.recent || [];
             scheduleEls.upcoming.innerHTML = "";
@@ -3101,6 +3182,19 @@
             );
         }
 
+        // ── the composer, if this page has one ─────────────────────────────
+        // The composer and the queue are one page each now, and everything below
+        // used to run on the one page that held both. Guarded rather than moved:
+        // a listener registered on a null element throws, which would take the
+        // *rest of this script* with it — including the parts of it that belong
+        // to whatever page is actually being read.
+        //
+        // The guarded lines keep the indentation they had on the one-page
+        // dashboard. Re-indenting sixty unchanged lines would bury the split —
+        // two conditions and three guards — inside a whitespace diff.
+        const composerHere = Boolean(composerEls.body);
+        const scheduleHere = Boolean(scheduleEls.upcoming);
+        if (composerHere) {
         composerEls.body.addEventListener("input", () => { updateCounter(); renderPreview(); });
         composerEls.title.addEventListener("input", renderPreview);
         composerEls.embed.addEventListener("change", () => {
@@ -3162,6 +3256,9 @@
         updateCounter();
         loadChannels();
         setScheduleMode("now");
+        }
+
+        if (scheduleHere) {
         loadScheduled(true);
         // "in 2 hours" is wrong a minute later: re-render the same data on a timer,
         // and re-read the queue while the page is visible so a message the delivery
@@ -3172,8 +3269,13 @@
         setInterval(() => {
             if (document.visibilityState !== "hidden") loadScheduled(false);
         }, 60000);
-        document.getElementById("btn-enable-all").addEventListener("click", () => toggleAll(true));
-        document.getElementById("btn-disable-all").addEventListener("click", () => toggleAll(false));
+        }
+
+        // ── the bulk switches, if this page has them ───────────────────────
+        const enableAll = document.getElementById("btn-enable-all");
+        const disableAll = document.getElementById("btn-disable-all");
+        if (enableAll) enableAll.addEventListener("click", () => toggleAll(true));
+        if (disableAll) disableAll.addEventListener("click", () => toggleAll(false));
     </script>
     <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>

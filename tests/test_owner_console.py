@@ -27,9 +27,23 @@ from tests.test_dashboard import _DashboardFixture
 
 ROOT = None
 
+#: The console's pages, by the id the rail calls them, read from the routes' own
+#: list rather than typed here: a page added to `OWNER_PAGES` is a page these
+#: tests start covering, and a path that moves cannot leave the suite asserting
+#: against a URL nothing serves.
+OWNER_PATHS = {
+    page: path for page, _label, path, _anchor in keep_alive.OWNER_PAGES
+}
 
-def _render(client):
-    return client.get("/owner")
+
+def _render(client, page="numbers"):
+    """One page of the console — the console is four pages now, not one scroll.
+
+    Every test below asks for the page that owns the thing it is about, which is
+    what makes "the console says X" a claim about a place rather than about
+    wherever X happened to land in a document.
+    """
+    return client.get(OWNER_PATHS[page])
 
 
 class WhoMayOpenIt(_DashboardFixture):
@@ -84,7 +98,27 @@ class WhoMayOpenIt(_DashboardFixture):
         response = _render(self.client)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Fleet", response.data)
-        self.assertIn("fleet-row", response.get_data(as_text=True))
+
+    def test_every_page_the_rail_offers_is_a_page_that_exists(self):
+        """The invariant the split introduced: four links, four routes, four 200s.
+
+        The rail is written by hand (the icons are markup) and the routes come
+        from `OWNER_PAGES`, so the two can drift — and the drift is a link that
+        404s on a page nobody visits until they need it.
+        """
+        self.sign_in(scope="global")
+        self.assertEqual(len(OWNER_PATHS), 4)
+        for page, path in OWNER_PATHS.items():
+            with self.subTest(page=page):
+                response = _render(self.client, page)
+                self.assertEqual(response.status_code, 200, f"{path} is linked and not served")
+                # …and the rail on that page links to all four, with exactly one
+                # of them marked as where you are.
+                body = response.get_data(as_text=True)
+                for other, other_path in OWNER_PATHS.items():
+                    self.assertIn(f'href="{other_path}"', body, f"{page} does not link to {other}")
+                self.assertEqual(body.count('aria-current="page"'), 1)
+                self.assertIn(f'href="{path}" class="is-current" aria-current="page"', body)
 
 
 class WhatTheOperatorSees(_DashboardFixture):
@@ -93,7 +127,27 @@ class WhatTheOperatorSees(_DashboardFixture):
     def setUp(self):
         super().setUp()
         self.sign_in(scope="global")
-        self.page = _render(self.client).get_data(as_text=True)
+        self.by_page = {
+            page: _render(self.client, page).get_data(as_text=True) for page in OWNER_PATHS
+        }
+        self.page = self.by_page["servers"]
+
+    def test_each_page_renders_the_section_it_is_named_for_and_no_other(self):
+        """One section per page — the whole of what "four pages" means.
+
+        A page that rendered two sections would be the old scroll with a new
+        address, and a page that rendered none would be a 200 with nothing in it.
+        """
+        for page, anchor in (
+            ("numbers", "fleet"),
+            ("servers", "servers"),
+            ("infrastructure", "infrastructure"),
+            ("output", "output"),
+        ):
+            with self.subTest(page=page):
+                body = self.by_page[page]
+                self.assertEqual(body.count("<section "), 1, f"{page} renders more than one section")
+                self.assertIn(f'<section id="{anchor}"', body)
 
     def test_every_server_the_bot_is_in_is_listed(self):
         for guild in (self.guild, self.other):
@@ -118,7 +172,7 @@ class WhatTheOperatorSees(_DashboardFixture):
             keep_alive._module_summary(guild.id)
             for guild in (self.guild, self.other)
         ]
-        self.assertIn(f">{sum(s['on'] for s in summaries)}<", self.page)
+        self.assertIn(f">{sum(s['on'] for s in summaries)}<", self.by_page["numbers"])
 
     def test_the_servers_are_ordered_by_how_many_people_are_in_them(self):
         self.assertLess(
@@ -126,6 +180,18 @@ class WhatTheOperatorSees(_DashboardFixture):
             self.page.index(self.other.name),
             "the server with more members must be listed first",
         )
+
+    def test_a_page_that_is_not_the_list_does_not_carry_the_list(self):
+        """The other half of the split: eleven servers are one page's worth of work.
+
+        Read as the row *markup* rather than as the word: the console's script is
+        one script on every page of it and it names `.fleet-row` in a query, so
+        the bare token is on all four pages and proves nothing.
+        """
+        for page in ("numbers", "infrastructure", "output"):
+            with self.subTest(page=page):
+                self.assertNotIn('class="fleet-row"', self.by_page[page])
+                self.assertNotIn(f'class="fleet-name">{self.other.name}', self.by_page[page])
 
     def test_the_systems_that_are_off_are_named_rather_than_counted(self):
         """\"3 of 11\" says something is wrong; the *names* say what to fix."""
@@ -145,14 +211,63 @@ class WhatTheOperatorSees(_DashboardFixture):
     def test_the_process_uptime_is_shown_and_cannot_be_negative(self):
         self.assertGreaterEqual(keep_alive.PROCESS_STARTED_AT, 0)
         self.assertLess(keep_alive.PROCESS_STARTED_AT, time.time() + 1)
-        self.assertRegex(self.page, r"been up \d+h \d+m")
+        self.assertRegex(self.by_page["numbers"], r"been up \d+h \d+m")
 
-    def test_the_log_tail_is_on_the_page_and_collapsed(self):
+    def test_the_log_tail_is_on_its_own_page_and_collapsed(self):
         with mock.patch.object(keep_alive, "LOG_RING", type(keep_alive.LOG_RING)(["[X] a line"], maxlen=10)):
-            page = _render(self.client).get_data(as_text=True)
+            page = _render(self.client, "output").get_data(as_text=True)
         self.assertIn("[X] a line", page)
         # Collapsed by default: sixty lines of log is a wall in front of the page.
         self.assertIn('id="output-log" hidden', page)
+
+    def test_the_deployments_own_counts_lead_the_infrastructure_page(self):
+        """The panel that says whether anybody is *using* the thing.
+
+        UptimeRobot's monitors say whether a host answers, which is a different
+        question from whether the bot does anything — and this is drawn from the
+        live payload (`utils.figures`), server-rendered, so it reads correctly
+        before the card's own script has run.
+        """
+        body = self.by_page["infrastructure"]
+        self.assertIn("What the bot is doing", body)
+        for key in ("people_text", "messages_text", "voice_text", "channels_text"):
+            with self.subTest(key=key):
+                self.assertIn(f'data-figure="activity:{key}"', body)
+        for window in ("today", "week", "month", "all"):
+            with self.subTest(window=window):
+                self.assertIn(f'data-period="{window}"', body)
+        self.assertIn("/api/figures", body)
+        # …and it is not carried on the pages it has nothing to do with, because
+        # it costs a read of the tracker's tables.
+        for page in ("numbers", "servers", "output"):
+            with self.subTest(page=page):
+                self.assertNotIn("What the bot is doing", self.by_page[page])
+
+    def test_the_deployment_card_is_re_read_rather_than_frozen_at_render_time(self):
+        """It said "Read when this page was rendered" over three rows, one live.
+
+        The page polls `/health` for the gateway badge, so the other two rows —
+        the public site's verdict and what this deployment is missing — sat
+        beside a live one while being as old as the page load. A stale count that
+        looks live is worse than one that admits its age, and the fix is the
+        payload the poll already receives: every row the script repaints needs an
+        id to repaint *into*, which is what this pins.
+        """
+        body = self.by_page["infrastructure"]
+        self.assertNotIn("Read when this page was rendered.", body)
+        for element_id in ("deployment-panel", "deployment-seen", "site-status", "config-status",
+                           "site-dot", "config-dot"):
+            with self.subTest(id=element_id):
+                self.assertEqual(
+                    body.count(f'id="{element_id}"'), 1,
+                    f"the deployment card cannot repaint {element_id}",
+                )
+        # The rows the script paints are still the server's, so the card reads
+        # correctly before any script of its own has run — and the stamp is the
+        # poll's, not a timestamp invented from the reader's clock.
+        self.assertIn("Public site publishing", body)
+        self.assertIn("Configuration", body)
+        self.assertIn("re-read just now", body)
 
 
 class TheInteractiveParts(_DashboardFixture):
@@ -161,16 +276,37 @@ class TheInteractiveParts(_DashboardFixture):
     def setUp(self):
         super().setUp()
         self.sign_in(scope="global")
-        self.page = _render(self.client).get_data(as_text=True)
+        self.by_page = {
+            page: _render(self.client, page).get_data(as_text=True) for page in OWNER_PATHS
+        }
+        self.page = self.by_page["servers"]
 
-    def test_the_script_and_its_controls_agree(self):
+    def test_the_script_only_looks_up_ids_the_console_has(self):
+        """A typo in `getElementById` is a control that silently does nothing.
+
+        The console's script ships on every page of it (one `<script>`, guarded
+        at each element), so the question is no longer "does *this* page have
+        it" — the four pages render different sections by design — but "does the
+        console have it at all". That is what catches the typo, and the union is
+        also asserted to be seen on more than one page, so a lookup that fell out
+        of the template entirely cannot pass by being absent everywhere.
+        """
+        everything = "\n".join(self.by_page.values())
         scripts = "\n".join(
-            re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", self.page, flags=re.S)
+            re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", everything, flags=re.S)
         )
         looked_up = sorted(set(re.findall(r'getElementById\(\s*"([^"]+)"\s*\)', scripts)))
         self.assertGreater(len(looked_up), 4, "the page's script was not found")
-        missing = [i for i in looked_up if self.page.count(f'id="{i}"') == 0]
-        self.assertEqual(missing, [], f"the script looks up ids the page does not have: {missing}")
+        missing = [i for i in looked_up if everything.count(f'id="{i}"') == 0]
+        self.assertEqual(missing, [], f"the script looks up ids no page of the console has: {missing}")
+        # Control elements live on the page that owns them, so a lookup found on
+        # two pages means the same id was rendered twice — which is how two
+        # sections start fighting over one node.
+        duplicated = [
+            i for i in looked_up
+            if sum(self.by_page[page].count(f'id="{i}"') for page in self.by_page) > 1
+        ]
+        self.assertEqual(duplicated, [], f"these ids are rendered on more than one page: {duplicated}")
 
     def test_the_filter_and_the_order_control_are_both_present(self):
         for element_id in ("fleet-filter", "fleet-sort", "fleet-filter-count", "fleet-no-match"):

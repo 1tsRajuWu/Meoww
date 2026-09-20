@@ -26,6 +26,7 @@ from unittest import mock
 
 import keep_alive
 from tests.support import TempDatabaseMixin
+from utils import figures
 from tests.test_composer import (
     CHANNEL_ID,
     GUILD_ID,
@@ -63,6 +64,20 @@ def make_bot(*, guilds=None, started=True):
     return bot, guild, other
 
 
+def page_href(page_id: str) -> str:
+    """One page of the dashboard, by its id, as the route that renders it.
+
+    The dashboard is seven pages now. A test that wants the composer, the queue or
+    the status panel has to ask for the page that owns it — and has to read the
+    path out of `DASHBOARD_PAGES` rather than type it, so a page that moves does
+    not leave the suite quietly asserting against a URL nothing serves.
+    """
+    return next(
+        path for candidate, _label, path, _anchor in keep_alive.DASHBOARD_PAGES
+        if candidate == page_id
+    )
+
+
 class _DashboardFixture(TempDatabaseMixin, unittest.TestCase):
     """A signed-in session against a fake gateway, with a throwaway database.
 
@@ -82,6 +97,12 @@ class _DashboardFixture(TempDatabaseMixin, unittest.TestCase):
         keep_alive._passkey_attempts.clear()
         self._patched = mock.patch.object(keep_alive, "BOT_INSTANCE", self.bot)
         self._patched.start()
+        # The landing page's figures are cached for a minute in `utils.figures`,
+        # and the cache is process-wide while this fixture's gateway and database
+        # are both per-test. A reading left behind by the previous test is a
+        # reading about a database that no longer exists, so it goes here, beside
+        # the other caches this fixture already invalidates.
+        figures.reset()
         self.client = keep_alive.app.test_client()
 
     async def _setup_db(self):
@@ -95,6 +116,7 @@ class _DashboardFixture(TempDatabaseMixin, unittest.TestCase):
 
         self._patched.stop()
         modules.invalidate()
+        figures.reset()
         self.release_temp_database()
 
     def sign_in(self, *, guild_id=GUILD_ID, scope="guild"):

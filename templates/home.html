@@ -311,8 +311,26 @@
         {# ------------------------------------------------------------------ #}
         {# Two previews of the thing that is actually shipped                 #}
         {# ------------------------------------------------------------------ #}
-        <section class="lp-section lp-inner" aria-label="The dashboard">
-            <span class="lp-eyebrow on-dark">What you get</span>
+        {# `data-figures-url` and the payload beside it are the whole live story of
+           the two cards below: they are drawn from this deployment's own counts,
+           and the script at the foot of the page re-reads `/api/figures` so the
+           copy on the CDN — rendered once, at build time — does not stay frozen
+           on the figures of the day it was built. The baked payload is what a
+           visitor sees with no script at all, which is why it is in the markup
+           rather than fetched first. #}
+        <section class="lp-section lp-inner" aria-label="The dashboard"
+                 data-figures-url="{{ figures_url }}">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap">
+                <span class="lp-eyebrow on-dark">What you get</span>
+                {# The read and its age, in one control — the same shape as the
+                   owner console's status panel, for the same reason: a figure
+                   with no statement of when it was taken is a figure a reader
+                   has to guess about. #}
+                <button type="button" class="lp-read-again" data-figures-refresh>
+                    <span data-figures-stamp>this deployment</span>
+                    <span class="lp-read-again-do">read again</span>
+                </button>
+            </div>
             <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
                 <span class="line"><span class="line-inner">A dashboard,</span></span>
                 <span class="line"><span class="line-inner">not a wall of commands</span></span>
@@ -320,21 +338,37 @@
 
             <div class="lp-panels">
                 <figure class="lp-panel lp-panel-tilt-a" style="margin:0" data-reveal data-reveal-delay="0" data-tilt="5">
-                    <div class="lp-panel-head"><span>Control panel</span><span>per server</span></div>
+                    <div class="lp-panel-head"><span>Control panel</span><span>this deployment</span></div>
                     <div class="lp-panel-body">
                         <div class="lp-mock-tiles">
-                            {% for stat in stats[:3] %}
+                            {% for tile in control_tiles %}
                             <div class="lp-mock-tile">
-                                <b>{{ stat.value }}</b>
-                                <span>{{ stat.label }}</span>
+                                <b data-figure="control:{{ tile.key }}">{{ tile.value }}</b>
+                                <span>{{ tile.label }}</span>
                             </div>
                             {% endfor %}
                         </div>
-                        <div class="lp-bars" aria-hidden="true">
-                            <i style="height: 38%"></i><i style="height: 62%"></i><i style="height: 48%"></i>
-                            <i style="height: 84%"></i><i style="height: 55%"></i><i style="height: 71%"></i>
-                            <i style="height: 92%"></i><i style="height: 44%"></i><i style="height: 66%"></i>
+                        {# Not a decorative chart. One bar per system, its height the
+                           number of commands that system declares in the registry, and
+                           each one operable — the section below lists the commands, this
+                           says how the load is distributed across the eleven systems.
+                           Drawn from `system_bars`, so it cannot disagree with the
+                           registry the rest of the page is built from. #}
+                        <div class="lp-bars" role="group" aria-label="Commands per system" data-bars>
+                            {% for bar in system_bars %}
+                            <button type="button" class="lp-bar"
+                                    data-bar="{{ bar.id }}"
+                                    data-bar-name="{{ bar.name }}"
+                                    data-bar-commands="{{ bar.commands }}"
+                                    style="--bar-height: {{ bar.pct }}%; --bar-delay: {{ '%.2f'|format(loop.index0 * 0.06) }}s"
+                                    aria-pressed="false"
+                                    aria-label="{{ bar.name }} — {{ bar.commands }} commands"
+                                    title="{{ bar.name }} — {{ bar.commands }} commands">
+                                <span class="lp-bar-fill" aria-hidden="true"></span>
+                            </button>
+                            {% endfor %}
                         </div>
+                        <p class="lp-panel-read" data-bar-readout>Pick a bar to see which system it is.</p>
                     </div>
                     <figcaption class="lp-panel-caption">
                         <strong>Every system, its own toggle</strong>
@@ -345,15 +379,24 @@
                 <figure class="lp-panel lp-panel-tilt-b" style="margin:0" data-reveal data-reveal-delay="140" data-tilt="5">
                     <div class="lp-panel-head"><span>Activity</span><span>message &amp; voice</span></div>
                     <div class="lp-panel-body">
-                        <div class="lp-mock-tiles" style="grid-template-columns: 1fr">
+                        {# Buttons with `aria-pressed`, not a `tablist`: a real tablist
+                           owes the reader arrow-key navigation and a panel per tab, and
+                           a group of up to four windows over the same four numbers is
+                           neither. This is the same shape as the systems panel above. #}
+                        <div class="lp-tabs" role="group" aria-label="Counting window" data-periods>
+                            {% for period in activity_periods %}
+                            <button type="button" class="lp-tab"
+                                    data-period="{{ period.id }}"
+                                    aria-pressed="{{ 'true' if period.selected else 'false' }}">{{ period.label }}</button>
+                            {% endfor %}
+                        </div>
+                        <div class="lp-mock-tiles" aria-live="polite">
+                            {% for tile in activity_tiles %}
                             <div class="lp-mock-tile">
-                                <b>#general · #help · #memes</b>
-                                <span>messages counted per channel</span>
+                                <b data-figure="activity:{{ tile.key }}">{{ tile.value }}</b>
+                                <span>{{ tile.label }}</span>
                             </div>
-                            <div class="lp-mock-tile">
-                                <b>Voice channels · hours tracked</b>
-                                <span>joined, left and totalled per member</span>
-                            </div>
+                            {% endfor %}
                         </div>
                     </div>
                     <figcaption class="lp-panel-caption">
@@ -366,6 +409,8 @@
                     </figcaption>
                 </figure>
             </div>
+
+            <script type="application/json" data-figures-data>{{ figures_json|safe }}</script>
         </section>
 
         {# ------------------------------------------------------------------ #}
@@ -507,61 +552,49 @@
         </section>
 
         {# ------------------------------------------------------------------ #}
-        {# Plans                                                              #}
+        {# Where to add it                                                     #}
         {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-deep lp-section lp-inner" id="plans">
+        {#
+          This band was a **plans** band, and a whole one — an eyebrow reading
+          *Plans*, a headline about price, and a chip naming a tier — on a page
+          where nothing is for sale. A reader who reached it learned that the
+          product costs nothing, which is not a feature and is the one thing
+          about a bot nobody opens a landing page to find out.
+
+          It is the closing call to action now, and it says the thing the page is
+          actually for: everything above arrives with the bot, and every system in
+          it can be switched off afterwards. The tier chips and the price numbers
+          are gone with the band; what is left of the commercial question lives on
+          `/pricing`, which is where somebody asking about cost goes looking, and
+          which already says the truth about it in as many words as that deserves.
+        #}
+        <section class="lp-band lp-deep lp-section lp-inner" id="add" data-cta>
             <div class="lp-cta">
                 <div>
-                    <span class="lp-eyebrow on-dark">Plans</span>
+                    <span class="lp-eyebrow on-dark">Where to add it</span>
                     <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="110">
-                        <span class="line"><span class="line-inner">Everything is free</span></span>
-                        <span class="line"><span class="line-inner">today</span></span>
+                        <span class="line"><span class="line-inner">Everything above</span></span>
+                        <span class="line"><span class="line-inner">arrives with the bot</span></span>
                     </h2>
                     <p class="lp-lede" style="margin-top: 1.25rem">
-                        {% if selling %}
-                            The paid tiers are on sale, and every system above is still free to
-                            use without one.
-                        {% else %}
-                            Nothing is on sale and there is nothing to buy: every system above
-                            is free in your server today, with no card, no trial and no licence
-                            key. We may introduce paid plans later — for a network that wants
-                            more servers, its own branding, or priority support — and this page
-                            will say so in advance if we do.
-                        {% endif %}
+                        There is no separate download, no second setup step and nothing to
+                        enable before it works: adding {{ bot_name }} puts every system on
+                        this page into your server, and the dashboard above is where you
+                        switch off the ones you do not want.
                     </p>
-                    <div class="lp-cta-price">
-                        {% if selling %}
-                        <div class="lp-price-chip is-current">
-                            <b>{{ price_free }}</b><span>Free</span>
-                        </div>
-                        <div class="lp-price-chip">
-                            <b>{{ price_pro }}</b><span>Pro / mo</span>
-                        </div>
-                        <div class="lp-price-chip">
-                            <b>{{ price_enterprise }}</b><span>Enterprise / mo</span>
-                        </div>
-                        {% else %}
-                        {# Nothing is for sale, so there is no number to show: a chip
-                           reading "₹0" is a price tag on a product nobody can buy,
-                           and the tier chips beside it advertise plans that do not
-                           exist yet. #}
-                        <div class="lp-price-chip is-current">
-                            <b>Free</b><span>Everything included</span>
-                        </div>
-                        {% endif %}
-                    </div>
                 </div>
                 <div style="display:grid; gap:0.75rem">
-                    {% if selling %}
-                    <a class="btn btn-primary" href="/pricing">See what you get</a>
-                    {% endif %}
                     {% if invite_url %}
-                    <a class="btn" href="{{ invite_url }}">Add {{ bot_name }} — free</a>
+                    <a class="btn btn-primary" href="{{ invite_url }}">Add {{ bot_name }} to your server</a>
                     {% endif %}
                     {% if invite_limited_url %}
-                    <a class="dim" href="{{ invite_limited_url }}" style="font-size:0.875rem">
-                        …or add it with limited permissions
+                    <a class="btn" href="{{ invite_limited_url }}">
+                        Add it with limited permissions
                     </a>
+                    <p class="dim" style="margin:0; font-size:0.875rem">
+                        The same bot, asking for only the permissions its systems use —
+                        each one degrades instead of breaking when it is missing one.
+                    </p>
                     {% endif %}
                 </div>
             </div>
@@ -747,6 +780,11 @@
             render();
         })();
     </script>
+    {# The figures cards' behaviour, in one file rather than in one page: the
+       fleet console renders a card of the same shape from the same payload.
+       `static/figures.js` wires every `[data-figures-url]` section it finds, and
+       the markup above is what a reader sees when it never runs. #}
+    <script src="/static/figures.js?v={{ asset_version('figures.js') }}"></script>
     <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>
 </html>

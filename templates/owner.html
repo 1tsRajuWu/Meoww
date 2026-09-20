@@ -39,7 +39,10 @@
     {% set recent_log = recent_log if recent_log is defined else [] %}
     <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
     <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
-    <a class="skip-link" href="#servers">Skip to servers</a>
+    {# The one section this page renders, which is the only thing a skip link can
+       usefully target now: the console's four sections are four pages, so "skip to
+       servers" is a link to another page rather than past anything. #}
+    <a class="skip-link" href="#{{ page_anchor|default('fleet') }}">Skip to this page</a>
 
     <div class="app">
         <aside class="rail">
@@ -50,24 +53,21 @@
                     <span>Fleet</span>
                 </div>
             </div>
-            <nav class="rail-nav" id="rail-nav" aria-label="Sections">
-                <a href="#fleet" data-spy="fleet">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/></svg>
-                    Numbers
-                </a>
-                <a href="#servers" data-spy="servers">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
-                    Servers
+            {# Real links, and `aria-current` rather than a scroll spy: the rail
+               used to say where you were on one page, and it now says which page
+               you are on. The list itself comes from `OWNER_PAGES`, so a page
+               cannot be routed without a way to reach it — the four icons are the
+               only thing that stays here, because they are markup. #}
+            <nav class="rail-nav" id="rail-nav" aria-label="Pages">
+                {% for item in owner_pages|default([]) %}
+                <a href="{{ item.href }}"{% if item.current %} class="is-current" aria-current="page"{% endif %}>
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true">{% if item.id == 'numbers' %}<path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/>{% elif item.id == 'servers' %}<rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/>{% elif item.id == 'infrastructure' %}<path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/>{% else %}<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/>{% endif %}</svg>
+                    {{ item.label }}
+                    {% if item.id == 'servers' %}
                     <span class="rail-count" id="rail-servers-count">{{ fleet|length }}</span>
+                    {% endif %}
                 </a>
-                <a href="#infrastructure" data-spy="infrastructure">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/></svg>
-                    Infrastructure
-                </a>
-                <a href="#output" data-spy="output">
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/></svg>
-                    Output
-                </a>
+                {% endfor %}
             </nav>
             <div class="rail-foot">
                 {% if signed_in_as and signed_in_as.name %}
@@ -80,7 +80,7 @@
                     <span class="rail-account-name">Operator</span>
                 </div>
                 {% endif %}
-                <span class="rail-hint">Every server the bot is in, from one page</span>
+                <span class="rail-hint">The whole fleet, each reading on its own page</span>
             </div>
         </aside>
 
@@ -125,6 +125,7 @@
                    Counted up on first sight rather than printed. The gesture is the
                    point: it says these are live readings about a running system,
                    not the page's own furniture. #}
+                {% if page|default('numbers') == 'numbers' %}
                 <section id="fleet" aria-labelledby="fleet-title">
                     <div class="section-header">
                         <div>
@@ -180,13 +181,15 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
+                {% if page|default('numbers') == 'servers' %}
                 {# ── every server ───────────────────────────────────────────────
-                   The one section the dock links to. Filtering is local and
-                   instant because the list is already here — a search box that
-                   made a request per keystroke would be slower than the thing it
-                   searches, and would say nothing new. #}
-                <section id="servers" aria-labelledby="servers-title" style="margin-top:40px;">
+                   Every server the bot is in, and the number that makes a bad one
+                   obvious. Filtering is local and instant because the list is
+                   already here — a search box that made a request per keystroke
+                   would be slower than the thing it searches. #}
+                <section id="servers" aria-labelledby="servers-title">
                     <div class="section-header">
                         <div>
                             <span class="eyebrow">Every server</span>
@@ -280,55 +283,129 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
+                {% if page|default('numbers') == 'infrastructure' %}
                 {# ── infrastructure ─────────────────────────────────────────────
-                   The same three readings the dashboard's Status panel uses, and
-                   the same rule about cost: all of them are state this process
-                   already holds, so opening this page asks nothing of UptimeRobot
-                   or the public site. #}
-                <section id="infrastructure" aria-labelledby="infra-title" style="margin-top:40px;">
+                   What the bot is *doing* and what it is standing on. Every reading
+                   here is state this process already holds: opening this page asks
+                   nothing of UptimeRobot or the public site. #}
+                <section id="infrastructure" aria-labelledby="infra-title">
                     <div class="section-header">
                         <div>
                             <span class="eyebrow">Infrastructure</span>
                             <h2 id="infra-title">What the bot is standing on</h2>
                         </div>
                         <div class="status-actions">
+                            {% if system_status.page|default('') %}
+                            <a class="btn" href="{{ system_status.page }}" target="_blank" rel="noopener">Public status page</a>
+                            {% endif %}
+                            {# The panel reads a snapshot, so the reading has an age and
+                               the age moves on. Refreshing re-reads the *snapshot*
+                               through `/api/uptime`; it never asks UptimeRobot, and
+                               the timer below does this on its own besides. #}
+                            <button type="button" class="btn" id="infra-refresh">Refresh</button>
                             <a class="btn" href="/health" target="_blank" rel="noopener">Machine-readable <span class="mono">/health</span></a>
                         </div>
                     </div>
                     <div class="status-grid" data-reveal data-reveal-y="10" style="margin-top:16px;">
-                        <div class="panel-card">
+                        {# ── what the bot is doing ───────────────────────────────────
+                           The panel this page opened with is the one thing on it a
+                           third party owns: UptimeRobot's monitors say whether a
+                           host answers, and nothing about whether anybody uses what
+                           it hosts. This card is the other half — the deployment's
+                           own counts, from the same payload the landing page draws
+                           and `/api/figures` serves — and it is drawn server-side as
+                           well as live, so it says something true before any script
+                           of its own has run. #}
+                        <div class="panel-card" data-figures-url="{{ figures_url|default('/api/figures') }}">
                             <div class="field-head">
-                                <span class="field-label">UptimeRobot monitors</span>
-                                <span class="composer-hint">{{ system_status.age_text|default('not read yet in this process') }}</span>
+                                <span class="field-label">What the bot is doing</span>
+                                {# One control, like the status panel's: a reading and
+                                   its age, and a way to ask again. The age is the
+                                   page's own clock rather than a claim about the
+                                   service, so it is worded when the reading is. #}
+                                <button type="button" class="lp-read-again" data-figures-refresh>
+                                    <span data-figures-stamp>as read for this page</span>
+                                    <span class="lp-read-again-do">read again</span>
+                                </button>
                             </div>
-                            {% if system_status.monitors|default([]) %}
-                                {% for mon in system_status.monitors %}
-                                <div class="status-row">
-                                    <span class="status-dot {{ 'up' if mon.up else ('down' if mon.down else 'paused') }}" aria-hidden="true"></span>
-                                    <div class="status-main">
-                                        <div class="status-name">{{ mon.name }}</div>
-                                        <div class="status-url">{{ mon.url or 'no address recorded' }}</div>
-                                    </div>
-                                    <div class="status-figures">
-                                        {% if mon.ratios.get('30d') is not none %}
-                                        <span><b>{{ '%.2f'|format(mon.ratios['30d']) }}%</b> 30d</span>
-                                        {% endif %}
-                                        {% if mon.response_ms is not none %}
-                                        <span><b>{{ mon.response_ms|round|int }}</b> ms</span>
-                                        {% endif %}
-                                        <span class="pill {{ 'ok' if mon.up else ('fail' if mon.down else 'warn') }}">{{ mon.label }}</span>
-                                    </div>
+                            <div class="lp-tabs" role="group" aria-label="Counting window" data-periods>
+                                {% for window in figure_periods|default([]) %}
+                                <button type="button" class="lp-tab"
+                                        data-period="{{ window.id }}"
+                                        aria-pressed="{{ 'true' if window.id == 'week' else 'false' }}">{{ window.label }}</button>
+                                {% endfor %}
+                            </div>
+                            <div class="figure-grid" aria-live="polite">
+                                {% for tile in figure_tiles|default([]) %}
+                                <div class="figure-tile">
+                                    <b data-figure="activity:{{ tile.key }}">{{ tile.value }}</b>
+                                    <span>{{ tile.label }}</span>
                                 </div>
                                 {% endfor %}
-                            {% else %}
-                                <div class="status-empty">{{ system_status.detail|default('No monitor history is being read yet.') }}</div>
-                            {% endif %}
+                            </div>
+                            <p class="composer-hint" style="margin-top:10px;">
+                                Counted by the bot itself, across every server it is in. Windows
+                                are the tracker's own — the same seven days <span class="mono">/activity</span>
+                                and the weekly digest report.
+                            </p>
+                            <script type="application/json" data-figures-data>{{ figures_json|default('{}')|safe }}</script>
                         </div>
                         <div class="panel-card">
                             <div class="field-head">
+                                <span class="field-label">UptimeRobot monitors</span>
+                                {# Age is a fact about *now*, not about the answer, so the
+                                   server words it when the snapshot is read. The span is
+                                   re-worded by the page's timer; it is not the clock that
+                                   failed here, it was that nothing ever asked again. #}
+                                <span class="composer-hint" id="infra-seen">{{ system_status.age_text|default('not read yet in this process') }}</span>
+                            </div>
+                            <div id="infra-monitors">
+                                {% if system_status.monitors|default([]) %}
+                                    {% for mon in system_status.monitors %}
+                                    <div class="status-row">
+                                        <span class="status-dot {{ 'up' if mon.up else ('down' if mon.down else 'paused') }}" aria-hidden="true"></span>
+                                        <div class="status-main">
+                                            <div class="status-name">{{ mon.name }}</div>
+                                            <div class="status-url">{{ mon.url or 'no address recorded' }}</div>
+                                        </div>
+                                        <div class="status-figures">
+                                            {% if mon.ratios.get('30d') is not none %}
+                                            <span><b>{{ '%.2f'|format(mon.ratios['30d']) }}%</b> 30d</span>
+                                            {% endif %}
+                                            {% if mon.response_ms is not none %}
+                                            <span><b>{{ mon.response_ms|round|int }}</b> ms</span>
+                                            {% endif %}
+                                            <span class="pill {{ 'ok' if mon.up else ('fail' if mon.down else 'warn') }}">{{ mon.label }}</span>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="status-empty">{{ system_status.detail|default('No monitor history is being read yet.') }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {# ── the readings that are about the deployment itself ──────
+                           Three answers that belong to this process rather than to
+                           UptimeRobot or the tracker: is the gateway in, is the
+                           public site publishing the right directory, and what is
+                           this deployment missing. All three are on `/health`,
+                           which this page *already* polls for the gateway figure
+                           above — so the card is the same one payload, re-read
+                           every fifteen seconds, and the two rows beside the
+                           gateway move with it.
+
+                           It used to say "Read when this page was rendered" over
+                           three rows of which exactly one was ever re-read: a
+                           stale configuration count that looks like a live one is
+                           the kind of quietly wrong figure this page has been
+                           wrong about before. The stamp is now the poll's own and
+                           names no time it did not read at. #}
+                        <div class="panel-card" id="deployment-panel">
+                            <div class="field-head">
                                 <span class="field-label">This deployment</span>
-                                <span class="composer-hint">Read when this page was rendered.</span>
+                                <span class="composer-hint" id="deployment-seen">read with this page</span>
                             </div>
                             <div class="status-row">
                                 <span class="status-dot {{ 'up' if bot_ready else 'down' }}" aria-hidden="true"></span>
@@ -338,29 +415,31 @@
                                 </div>
                             </div>
                             <div class="status-row">
-                                <span class="status-dot {{ 'up' if (site_guard_status.status|default('unknown')) == 'clean' else 'paused' }}" aria-hidden="true"></span>
+                                <span class="status-dot {{ 'up' if (site_guard_status.status|default('unknown')) == 'clean' else 'paused' }}" id="site-dot" aria-hidden="true"></span>
                                 <div class="status-main">
                                     <div class="status-name">Public site publishing</div>
-                                    <div class="status-url">{{ site_guard_status.status|default('unknown') }}{% if site_guard_status.exposed|default(0) %} — {{ site_guard_status.exposed }} repository paths are public{% endif %}</div>
+                                    <div class="status-url" id="site-status">{{ site_guard_status.status|default('unknown') }}{% if site_guard_status.exposed|default(0) %} — {{ site_guard_status.exposed }} repository paths are public{% endif %}</div>
                                 </div>
                             </div>
                             <div class="status-row">
-                                <span class="status-dot {{ 'up' if (config_status.attention|default(0)) == 0 else 'paused' }}" aria-hidden="true"></span>
+                                <span class="status-dot {{ 'up' if (config_status.attention|default(0)) == 0 else 'paused' }}" id="config-dot" aria-hidden="true"></span>
                                 <div class="status-main">
                                     <div class="status-name">Configuration</div>
-                                    <div class="status-url">{{ config_status.unset|default(0) }} unset, {{ config_status.attention|default(0) }} needing attention</div>
+                                    <div class="status-url" id="config-status">{{ config_status.unset|default(0) }} unset, {{ config_status.attention|default(0) }} needing attention</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
+                {% if page|default('numbers') == 'output' %}
                 {# ── this process's own output ──────────────────────────────────
                    The only place a failure that never reached Discord can be read
                    without a shell on the host. It is a ring buffer, so it holds the
                    tail rather than the whole run — said in the copy rather than left
                    for someone to discover while looking for a crash from yesterday. #}
-                <section id="output" aria-labelledby="output-title" style="margin-top:40px;">
+                <section id="output" aria-labelledby="output-title">
                     <div class="section-header">
                         <div>
                             <span class="eyebrow">Output</span>
@@ -377,6 +456,7 @@
                     <pre class="owner-log" id="output-log" hidden>{% for line in recent_log|reverse %}{{ line }}
 {% endfor %}</pre>
                 </section>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -386,6 +466,12 @@
     <script>
         (() => {
             "use strict";
+
+            // The CSRF token the API below requires, handed to the script rather
+            // than read out of the logout form: that form is markup a redesign may
+            // move, and a token that vanishes with it is a poll that silently
+            // 403s while the panel looks like it is not updating.
+            const CSRF_TOKEN = {{ csrf_token|tojson }};
 
             // ── the numbers count up, once ───────────────────────────────────
             // Once each, because a number that re-animates every time it scrolls
@@ -493,6 +579,48 @@
             const READ_EVERY_MS = 15000;
             let timer = null;
 
+            // Every row of the deployment card, painted from one `site_guard` /
+            // `config` pair, so the words and the dot cannot come from different
+            // readings. The server's sentence is rebuilt here from the same
+            // fields the template builds it from — a count, never a name.
+            function paintDeployment(data) {
+                if (!document.getElementById("deployment-panel")) return;
+                const site = (data && data.site_guard) || null;
+                const config = (data && data.config) || null;
+                const setDot = (id, bad) => {
+                    const node = document.getElementById(id);
+                    if (node) node.className = "status-dot " + (bad ? "paused" : "up");
+                };
+                const setText = (id, text) => {
+                    const node = document.getElementById(id);
+                    if (node) node.textContent = text;
+                };
+                if (site) {
+                    const status = site.status || "unknown";
+                    setText(
+                        "site-status",
+                        status + (site.exposed ? ` — ${site.exposed} repository paths are public` : "")
+                    );
+                    setDot("site-dot", status !== "clean");
+                }
+                if (config) {
+                    setText(
+                        "config-status",
+                        `${config.unset || 0} unset, ${config.attention || 0} needing attention`
+                    );
+                    setDot("config-dot", Boolean(config.attention));
+                }
+                // The stamp is the poll's own, and says the one thing a poll can
+                // say. No timestamp is invented from the browser's clock, which
+                // can be minutes away from the host's.
+                //
+                // Only when a row was actually painted: an answer that carried
+                // neither block would otherwise re-stamp rows it did not read,
+                // which is the same defect one layer down — a time that is true
+                // of the request and false of the readings under it.
+                if (site || config) setText("deployment-seen", "re-read just now");
+            }
+
             async function readHealth() {
                 try {
                     const response = await fetch("/health", { headers: { "Accept": "application/json" } });
@@ -517,6 +645,7 @@
                         badge.classList.toggle("badge-offline", !live);
                         badge.lastChild.textContent = live ? " Live" : " Bot offline";
                     }
+                    paintDeployment(data);
                 } catch (error) {
                     /* A failed poll is not worth a banner: the panel already shows
                        the last reading, and the next one may succeed. */
@@ -533,10 +662,143 @@
                 if (timer) { clearInterval(timer); timer = null; }
             }
             document.addEventListener("visibilitychange", () => {
-                if (document.visibilityState === "visible") { readHealth(); startPolling(); }
-                else stopPolling();
+                if (document.visibilityState === "visible") {
+                    readHealth();
+                    startPolling();
+                    readUptime();
+                    startUptimePolling();
+                } else {
+                    stopPolling();
+                    stopUptimePolling();
+                }
             });
+            // Once now, then on the timer: the three rows below the monitors are
+            // readings about *this* process, so the page opening is the first
+            // moment any of them can be wrong about it.
+            readHealth();
             startPolling();
+
+            // ── the monitors, re-read on a timer ────────────────────────────
+            // The panel is rendered from the snapshot the bot's own loop took,
+            // which is what keeps this page off UptimeRobot's API — and it is
+            // also why every reading has an *age*. That age is a fact about now,
+            // so it goes wrong on a page nobody reloads: the panel said "read 2
+            // minutes ago" for as long as the tab stayed open, which reads as a
+            // panel that has stopped rather than one that was never asked again.
+            //
+            // So it asks again — `/api/uptime`, this host, the same snapshot the
+            // server rendered from. Nothing here reaches UptimeRobot, and a poll
+            // that fails changes nothing: the reading on screen is still the
+            // truth about the last time anybody looked.
+            const UPTIME_EVERY_MS = 30000;
+            let uptimeTimer = null;
+            const monitorList = document.getElementById("infra-monitors");
+            const monitorSeen = document.getElementById("infra-seen");
+            const monitorButton = document.getElementById("infra-refresh");
+
+            function make(tag, className, text) {
+                const el = document.createElement(tag);
+                if (className) el.className = className;
+                if (text !== undefined && text !== null) el.textContent = text;
+                return el;
+            }
+
+            // Built element by element rather than assigned as HTML: a monitor's
+            // name is somebody else's string, and this is a panel that renders it.
+            function renderMonitors(data) {
+                if (!monitorList) return;
+                monitorList.replaceChildren();
+                const monitors = (data && data.monitors) || [];
+                if (!monitors.length) {
+                    // The server's own sentence, verbatim. It is the only place
+                    // that knows *why* there are no rows — an absent key, a
+                    // refused request and an account with no monitors are three
+                    // different claims, and this file must not invent a fourth.
+                    monitorList.appendChild(make(
+                        "div",
+                        "status-empty",
+                        (data && data.detail) || "No monitor history is being read yet."
+                    ));
+                    return;
+                }
+                monitors.forEach((mon) => {
+                    const row = make("div", "status-row");
+                    const dot = make("span", "status-dot " + (mon.up ? "up" : (mon.down ? "down" : "paused")));
+                    dot.setAttribute("aria-hidden", "true");
+                    const main = make("div", "status-main");
+                    main.appendChild(make("div", "status-name", mon.name));
+                    main.appendChild(make("div", "status-url", mon.url || "no address recorded"));
+                    const figures = make("div", "status-figures");
+                    const ratio = mon.ratios && mon.ratios["30d"];
+                    if (typeof ratio === "number") {
+                        const span = make("span", null);
+                        span.appendChild(make("b", null, ratio.toFixed(2) + "%"));
+                        span.appendChild(document.createTextNode(" 30d"));
+                        figures.appendChild(span);
+                    }
+                    if (mon.response_ms !== undefined && mon.response_ms !== null) {
+                        const span = make("span", null);
+                        span.appendChild(make("b", null, String(Math.round(mon.response_ms))));
+                        span.appendChild(document.createTextNode(" ms"));
+                        figures.appendChild(span);
+                    }
+                    figures.appendChild(make(
+                        "span",
+                        "pill " + (mon.up ? "ok" : (mon.down ? "fail" : "warn")),
+                        mon.label || "unknown"
+                    ));
+                    row.append(dot, main, figures);
+                    monitorList.appendChild(row);
+                });
+            }
+
+            async function readUptime() {
+                if (!monitorList) return;
+                try {
+                    const response = await fetch("/api/uptime", {
+                        headers: { "Accept": "application/json", "X-CSRF-Token": CSRF_TOKEN },
+                    });
+                    if (!response.ok) return;
+                    const data = await response.json();
+                    if (!data) return;
+                    renderMonitors(data);
+                    if (monitorSeen) {
+                        // The server's wording, because the server is the one that
+                        // knows when it asked: a browser clock minutes out would
+                        // otherwise report a reading from the future.
+                        monitorSeen.textContent = data.age_text
+                            || "not read yet in this process";
+                    }
+                } catch (error) {
+                    /* A failed poll is not worth a banner: the panel keeps the
+                       reading it has, and the next pass may succeed. */
+                }
+            }
+
+            if (monitorButton) {
+                monitorButton.addEventListener("click", async () => {
+                    monitorButton.disabled = true;
+                    const was = monitorButton.textContent;
+                    monitorButton.textContent = "Reading…";
+                    try {
+                        await readUptime();
+                    } finally {
+                        monitorButton.disabled = false;
+                        monitorButton.textContent = was;
+                    }
+                });
+            }
+
+            function startUptimePolling() {
+                if (uptimeTimer || !monitorList) return;
+                uptimeTimer = setInterval(() => {
+                    if (document.visibilityState === "visible") readUptime();
+                }, UPTIME_EVERY_MS);
+            }
+            function stopUptimePolling() {
+                if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = null; }
+            }
+            startUptimePolling();
 
             // ── the output, on request ───────────────────────────────────────
             // Collapsed by default: 60 lines of process log is a wall in front of
@@ -556,6 +818,7 @@
             apply();
         })();
     </script>
+    <script src="/static/figures.js?v={{ asset_version('figures.js') }}"></script>
     <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
 </body>
 </html>

@@ -2274,6 +2274,16 @@ body.landing:has([data-menu].is-open) {
     color: var(--text-muted);
 }
 
+/* One button per system, its height the command count that system declares.
+
+   It *was* nine hand-written heights — a chart that looked like a measurement
+   and measured nothing, and which went stale the moment the registry changed.
+   The height is now the registry's own number, and the bar is operable, so the
+   chart answers the question a chart is asked: which of these is the big one?
+
+   The stagger is a custom property set on the element rather than nine
+   `nth-child` rules, because there are eleven systems now and the twelfth would
+   have arrived without a delay. */
 .lp-bars {
     display: flex;
     align-items: flex-end;
@@ -2281,31 +2291,141 @@ body.landing:has([data-menu].is-open) {
     height: 4.5rem;
 }
 
-.lp-bars i {
+.lp-bar {
+    appearance: none;
+    -webkit-appearance: none;
     flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    border-radius: 0.5rem 0.5rem 0.25rem 0.25rem;
+    transition: background 0.2s ease;
+}
+
+.lp-bar:hover { background: rgba(255, 255, 255, 0.05); }
+
+.lp-bar:focus-visible {
+    outline: 2px solid var(--lp-accent-soft);
+    outline-offset: 2px;
+}
+
+.lp-bar-fill {
+    width: 100%;
+    height: var(--bar-height, 20%);
     border-radius: 0.25rem 0.25rem 0 0;
     background: linear-gradient(180deg, var(--lp-accent), rgba(91, 94, 240, 0.25));
     transform-origin: bottom;
-    transform: scaleY(0);
+    /* The final state, so a visitor with no script and no animation still sees a
+       chart. Motion moves it *into* place rather than into existence. */
+    transform: scaleY(1);
+    transition: filter 0.2s ease, background 0.2s ease;
+}
+
+.lp-bar:hover .lp-bar-fill { filter: brightness(1.25); }
+
+.lp-bar[aria-pressed="true"] .lp-bar-fill {
+    background: linear-gradient(180deg, var(--lp-accent-soft), var(--lp-accent));
 }
 
 @keyframes chart-grow {
+    from { transform: scaleY(0); }
     to { transform: scaleY(1); }
 }
 
-.lp-bars.is-visible i {
-    animation: chart-grow 1s ease-out forwards;
+.lp-bars.is-visible .lp-bar-fill {
+    animation: chart-grow 1s ease-out backwards;
+    animation-delay: var(--bar-delay, 0s);
 }
 
-.lp-bars.is-visible i:nth-child(1) { animation-delay: 0.1s; }
-.lp-bars.is-visible i:nth-child(2) { animation-delay: 0.2s; }
-.lp-bars.is-visible i:nth-child(3) { animation-delay: 0.3s; }
-.lp-bars.is-visible i:nth-child(4) { animation-delay: 0.4s; }
-.lp-bars.is-visible i:nth-child(5) { animation-delay: 0.5s; }
-.lp-bars.is-visible i:nth-child(6) { animation-delay: 0.6s; }
-.lp-bars.is-visible i:nth-child(7) { animation-delay: 0.7s; }
-.lp-bars.is-visible i:nth-child(8) { animation-delay: 0.8s; }
-.lp-bars.is-visible i:nth-child(9) { animation-delay: 0.9s; }
+@media (prefers-reduced-motion: reduce) {
+    .lp-bars.is-visible .lp-bar-fill { animation: none; }
+}
+
+/* What a press on a bar says. In the flow, under the chart, because it is a
+   sentence about the chart rather than a tooltip a keyboard user cannot read. */
+.lp-panel-read {
+    margin: 0;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    min-height: 1.6em;
+}
+
+/* The counting windows on the Activity card. Buttons, not a tablist: a tablist
+   owes the reader arrow keys and a panel per tab, and these are four windows
+   over the same four numbers. */
+.lp-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--lp-hair-soft);
+    border-radius: 0.75rem;
+    background: var(--lp-ink-3);
+}
+
+.lp-tab {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: 1 1 auto;
+    padding: 0.375rem 0.5rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.lp-tab:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.05); }
+
+.lp-tab[aria-pressed="true"] {
+    background: rgba(91, 94, 240, 0.18);
+    color: var(--text-primary);
+}
+
+.lp-tab:focus-visible {
+    outline: 2px solid var(--lp-accent-soft);
+    outline-offset: 2px;
+}
+
+/* The read, and its age, as one control — the same shape the owner console's
+   status panel uses. `:disabled` is what a re-read in flight looks like. */
+.lp-read-again {
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.4375rem 0.75rem;
+    border: 1px solid var(--lp-hair-soft);
+    border-radius: 999px;
+    background: var(--lp-ink-2);
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.lp-read-again:hover { border-color: var(--lp-accent); color: var(--text-primary); }
+.lp-read-again:disabled { opacity: 0.6; cursor: progress; }
+.lp-read-again:focus-visible { outline: 2px solid var(--lp-accent-soft); outline-offset: 2px; }
+
+.lp-read-again-do {
+    color: var(--lp-accent-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.625rem;
+}
 
 /* In the flow, not overlaid. The reference floats this caption over a
    photograph; here the panel's content is the whole point, and an absolutely

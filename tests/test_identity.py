@@ -15,7 +15,7 @@ from unittest import mock
 
 import keep_alive
 from tests.support import TempDatabaseMixin
-from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
+from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot, page_href
 from utils import db, identity
 
 #: The second server ``make_bot()`` builds, which the bot is also in.
@@ -319,7 +319,8 @@ class TheEndpoint(_DashboardFixture):
         self.sign_in(scope="guild", guild_id=GUILD_ID)
         identity.write(GUILD_ID, nick="Here", bio=None)
         identity.write(OTHER_GUILD, nick="There", bio=None)
-        page = self.client.get(f"/dashboard?guild_id={GUILD_ID}")
+        # The profile form is its own page now; the assertion follows the form.
+        page = self.client.get(f'{page_href("identity")}?guild_id={GUILD_ID}')
         self.assertEqual(page.status_code, 200)
         body = page.get_data(as_text=True)
         self.assertIn('value="Here"', body)
@@ -335,7 +336,7 @@ class TheEndpoint(_DashboardFixture):
     def test_an_unreadable_member_does_not_break_the_page(self):
         self.sign_in(scope="guild", guild_id=GUILD_ID)
         with mock.patch.object(keep_alive, "_identity_member", return_value=None):
-            page = self.client.get(f"/dashboard?guild_id={GUILD_ID}")
+            page = self.client.get(f'{page_href("identity")}?guild_id={GUILD_ID}')
         self.assertEqual(page.status_code, 200)
         self.assertIn("This server's bot", page.get_data(as_text=True))
 
@@ -355,7 +356,14 @@ class ThePanelIsRendered(unittest.TestCase):
             session["csrf_token"] = CSRF
             session["auth_scope"] = "guild"
             session["guild_id"] = GUILD_ID
-        self.page = client.get(f"/dashboard?guild_id={GUILD_ID}").get_data(as_text=True)
+        # Two pages, because the two panels are two pages: the profile form is the
+        # Identity page and the command list is the Commands page, and a test that
+        # asked one address for both would be reading a page that no longer exists.
+        get = lambda page: client.get(  # noqa: E731 - one line, used twice
+            f'{page_href(page)}?guild_id={GUILD_ID}'
+        ).get_data(as_text=True)
+        self.page = get("identity")
+        self.commands_page = get("commands")
 
     def test_the_controls_are_on_the_page(self):
         for element in (
@@ -369,8 +377,8 @@ class ThePanelIsRendered(unittest.TestCase):
         self.assertIn('fetch("/api/identity"', self.page)
 
     def test_the_command_panel_explains_why_the_list_is_per_server(self):
-        self.assertIn("Commands in this server", self.page)
-        self.assertIn("not in this server's picker at all", self.page)
+        self.assertIn("Commands in this server", self.commands_page)
+        self.assertIn("not in this server's picker at all", self.commands_page)
 
 
 if __name__ == "__main__":

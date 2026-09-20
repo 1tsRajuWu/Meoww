@@ -437,6 +437,16 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "MEOW_LIVE_APP_URL", TUNING,
+        "where the published copy reaches the live app, for the figures it cannot "
+        "read out of a file: the landing page asks this host for `/api/figures` "
+        "when the pages are served from a CDN with no proxy in front of them",
+        "unset means the page is served by the process that has the figures, so "
+        "it asks itself and needs no address. Set it only for a build that is "
+        "not reverse-proxied back to this host.",
+        scope=BUILD,
+    ),
+    Setting(
         "PREVIEW_PING", TUNING,
         "the fake gateway latency the dashboard preview harness reports",
         "the harness's compiled default is used.",

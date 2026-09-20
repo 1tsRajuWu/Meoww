@@ -19,6 +19,7 @@ can call it directly without mocking Discord.
 | `commands_sync.py` | Compare-then-upsert command sync (never bulk-overwrite) + retired-command list. |
 | `command_scope.py` | Which commands one server's switches leave on (pure rule). Hidden = declared by the registry **and** off here. |
 | `command_publish.py` | What Discord came back with the last time each scope published: was it read, what is still to write, when, and any refusal in Discord's words — plus the one sentence the dashboard's scope panel prints (in memory; a publish belongs to this process's conversation with Discord). |
+| `figures.py` | What this deployment is doing, as counts a **stranger** may read (servers, members, and the tracker's messages/voice/people/channels per window). Counts and never names; a reading that was never taken is absent rather than zero; cached a minute. Feeds the landing page's cards and the console's *What the bot is doing* panel through `/api/figures`. |
 | `cloud_sync.py` | Supabase backup: restore on boot, upload loop, leases, shrink guards. |
 | `style.py` | Card design system (`send_card`, `card`) — replies that never ping by accident. |
 | `chart.py` | Candlestick/line chart image rendering (Pillow). |

@@ -24,12 +24,13 @@ The tests here are about the three ways this can lie:
 Everything network-facing is injected, so the whole file runs offline.
 """
 import os
+import re
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import keep_alive
-from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
+from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot, page_href
 from utils import uptime_status
 
 
@@ -430,7 +431,7 @@ class ThePanel(_DashboardFixture):
     def test_the_panel_renders_the_monitors_the_snapshot_holds(self):
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
         self._sign_in()
-        page = self.client.get("/dashboard").get_data(as_text=True)
+        page = self.client.get(page_href("status")).get_data(as_text=True)
         self.assertIn("System status", page)
         self.assertIn("Meow Bot", page)
         self.assertIn("Public site", page)
@@ -443,7 +444,7 @@ class ThePanel(_DashboardFixture):
             os.environ.pop("UPTIMEROBOT_API_KEY", None)
             uptime_status.reset()
             self._sign_in()
-            page = self.client.get("/dashboard").get_data(as_text=True)
+            page = self.client.get(page_href("status")).get_data(as_text=True)
         self.assertIn("UPTIMEROBOT_API_KEY", page)
         self.assertIn("Not connected", page)
 
@@ -460,7 +461,7 @@ class ThePanel(_DashboardFixture):
             os.environ.pop("UPTIMEROBOT_API_KEY", None)
             uptime_status.reset()
             self._sign_in()
-            page = self.client.get("/dashboard").get_data(as_text=True)
+            page = self.client.get(page_href("status")).get_data(as_text=True)
         self.assertNotIn("read 0 seconds ago", page)
         self.assertNotIn("read 1 second ago", page)
         self.assertIn("not connected", page)
@@ -477,7 +478,7 @@ class ThePanel(_DashboardFixture):
         """
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
         self._sign_in()
-        page = self.client.get("/dashboard").get_data(as_text=True)
+        page = self.client.get(page_href("status")).get_data(as_text=True)
         self.assertIn("read 0 seconds ago", page)
         at = uptime_status.snapshot()["at"]
         self.assertNotIn(f"read {at} seconds ago", page)
@@ -514,9 +515,98 @@ class ThePanel(_DashboardFixture):
         """The view hands the template the same block `/api/uptime` serves."""
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
         self._sign_in()
-        page = self.client.get("/dashboard").get_data(as_text=True)
+        page = self.client.get(page_href("status")).get_data(as_text=True)
         self.assertIn("Status", page)
         self.assertIn("/api/uptime", page, "the refresh button's endpoint is not on the page")
+
+    def test_the_panel_keeps_up_without_being_asked(self):
+        """The reading has an age, so the age has to move on by itself.
+
+        This panel is rendered from a snapshot rather than fetched live, which
+        is what keeps it off UptimeRobot's API — and it is also why the line
+        beside the heading is *"read 2 minutes ago"*: a sentence about now,
+        computed once when the page was rendered. Nothing asked again, so it
+        said that for as long as the tab stayed open, and a panel whose age has
+        stopped moving is indistinguishable from one that has stopped working.
+        The refresh has to be a timer, and it has to read a route that answers
+        from the snapshot rather than one that spends somebody's rate limit.
+        """
+        uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
+        self._sign_in()
+        page = self.client.get(page_href("status")).get_data(as_text=True)
+        self.assertIn("setInterval", page, "nothing re-reads the reading, so its age freezes")
+        self.assertIn("/api/uptime", page)
+
+
+class TheConsoleKeepsUpToo(_DashboardFixture):
+    """The operator console's copy of the panel, and the same complaint.
+
+    Both control rooms draw these rows, and only one of them was ever asked
+    again: the dashboard had a Refresh button while the console had a snapshot
+    rendered at request time and nothing afterwards.
+    """
+
+    def setUp(self):
+        super().setUp()
+        uptime_status.reset()
+        self._env = mock.patch.dict(os.environ, {"UPTIMEROBOT_API_KEY": "k"}, clear=False)
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        self.addCleanup(uptime_status.reset)
+        with self.client.session_transaction() as session:
+            session["authenticated"] = True
+            session["auth_scope"] = "global"
+            session["guild_id"] = GUILD_ID
+            session["csrf_token"] = CSRF
+        uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
+        # The console's monitors are on its Infrastructure page, which is the page
+        # that owns every reading this process holds.
+        self.page = self.client.get("/owner/infrastructure").get_data(as_text=True)
+
+    def test_the_console_shows_the_same_rows(self):
+        self.assertIn("UptimeRobot monitors", self.page)
+        self.assertIn("Meow Bot", self.page)
+        self.assertIn("99.97%", self.page)
+
+    def test_the_reading_is_re_read_rather_than_frozen_at_render_time(self):
+        self.assertIn("/api/uptime", self.page, "the console never asks for a newer snapshot")
+        self.assertIn("setInterval", self.page, "nothing re-reads the reading, so its age freezes")
+
+    def test_the_polls_are_made_with_the_token_the_endpoint_demands(self):
+        """A poll that is refused looks exactly like a panel that is not updating.
+
+        ``/api/uptime`` is behind the sign-in *and* behind the CSRF check, so a
+        timer that forgot the header would be answered 403 every thirty seconds
+        while the panel sat there saying "read 2 minutes ago" — the same symptom
+        this change is here to remove.
+        """
+        self.assertIn("X-CSRF-Token", self.page)
+        self.assertIn("infra-refresh", self.page, "the manual refresh is gone")
+        match = re.search(r"const CSRF_TOKEN = (\"[^\"]*\")", self.page)
+        self.assertIsNotNone(match, "the console's script has no token to send")
+        self.assertEqual(
+            match.group(1).strip('"'),
+            CSRF,
+            "the token rendered into the script is not the session's, so the "
+            "poll would be refused and the panel would look stuck",
+        )
+
+    def test_every_id_the_scripts_poll_reaches_for_is_on_the_page(self):
+        for element_id in ("infra-monitors", "infra-seen", "infra-refresh"):
+            with self.subTest(element_id=element_id):
+                self.assertEqual(
+                    self.page.count(f'id="{element_id}"'), 1,
+                    f"`{element_id}` is missing or ambiguous, so the poll writes nowhere",
+                )
+
+    def test_the_console_does_not_spell_the_setting_beside_the_sentence(self):
+        template = Path(__file__).resolve().parents[1] / "templates" / "owner.html"
+        self.assertNotIn(
+            "UPTIMEROBOT_API_KEY",
+            template.read_text(encoding="utf-8"),
+            "the console hard-codes the uptime setting instead of rendering the "
+            "sentence the module composes",
+        )
 
 
 if __name__ == "__main__":

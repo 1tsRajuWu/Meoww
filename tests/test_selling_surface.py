@@ -117,47 +117,61 @@ class NothingIsOfferedWhileNothingIsForSale(unittest.TestCase):
     def test_the_command_palette_does_not_offer_a_page_that_has_nothing_on_it(self):
         """The palette is a script literal, so it is in the gated template too.
 
-        It is the one money link that is not an `<a>` — a route name pushed into
-        a JS array — so the `href` assertion above cannot see it and it needs its
-        own. It was the last one left after the topbar's button was gated.
+        It is the one money link that is not an `<a>` — a route name reached
+        from a JS entry — so the `href` assertion above cannot see it and it
+        needs its own. It was the last one left after the topbar's button was
+        gated.
         """
         off = _render("dashboard.html", selling=False)
-        self.assertNotIn('window.location.href = "/pricing"', off)
+        self.assertNotIn('window.location.assign("/pricing")', off)
         on = _render("dashboard.html", selling=True)
-        self.assertIn('window.location.href = "/pricing"', on)
+        self.assertIn('window.location.assign("/pricing")', on)
 
-    def test_gating_a_js_array_entry_cannot_leave_a_dangling_comma(self):
-        """The risk this gate introduced, in the one place it could have killed the page.
+    def test_the_gate_wraps_whole_statements_and_never_a_comma(self):
+        """The one place this gate can kill the page rather than hide a link.
 
-        The palette's entries are a JavaScript array literal, so gating one with
-        `{% if selling %}` puts a conditional comma in the middle of the page's
-        own script. Get it wrong in the *off* direction and the array ends
-        `}, ];` — a syntax error that takes the whole script with it, which on
-        this page means no composer, no switches, no palette and no error
-        anywhere a server-side test looks. The rendered array is therefore
-        checked both ways, and this assertion was written before the browser
-        check that duplicated it: `node --check` on every inline block of the
-        rendered page, which passes in both states.
+        The palette is built in the dashboard's own script, so a `{% if selling %}`
+        placed between the elements of a JavaScript array literal leaves `}, ];`
+        behind in the *off* direction — a syntax error that takes the entire
+        script with it, which on that page means no composer, no switches, no
+        palette, and no error anywhere a server-side assertion looks.
+
+        The rule that keeps it safe is a rule about shape, so that is what is
+        asserted: inside a script block a selling gate opens where a statement
+        opened and hands nothing to a shared list. A test that instead matched
+        the entries it happened to contain is what drifted out of date the last
+        time this script was restructured.
         """
-        for selling in (False, True):
-            with self.subTest(selling=selling):
-                html = _render("dashboard.html", selling=selling)
-                array = re.search(
-                    r"const actions = \[(.*?)\n\s*\];", html, re.S
-                )
-                self.assertIsNotNone(array, "the palette's action array moved")
-                body = array.group(1)
-                self.assertNotRegex(
-                    body,
-                    r",\s*$",
-                    "the action array ends with a comma, which is a syntax error "
-                    "in every browser",
-                )
-                self.assertIn("Choose another server", body)
-                if selling:
-                    self.assertIn("Plans and pricing", body)
-                else:
-                    self.assertNotIn("Plans and pricing", body)
+        source = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        scripts = [m.span() for m in re.finditer(r"<script>(.*?)</script>", source, re.S)]
+        gated = [
+            m
+            for m in re.finditer(r"\{%-?\s*if\s+selling\s*-?%\}", source)
+            if any(start <= m.start() < stop for start, stop in scripts)
+        ]
+        self.assertTrue(gated, "the script's selling gate is gone; re-point this test")
+        for gate in gated:
+            closes = re.search(r"\{%-?\s*endif\s*-?%\}", source[gate.end():])
+            self.assertIsNotNone(closes, "a selling gate in the script is never closed")
+            end = gate.end() + closes.end()
+            self.assertTrue(
+                source[: gate.start()].rstrip().endswith(";"),
+                "a selling gate inside the script must open at a statement "
+                "boundary: one that opens inside a comma-separated list leaves a "
+                "dangling comma when it renders off, which is a syntax error in "
+                "the whole page script",
+            )
+            self.assertFalse(
+                source[end:].lstrip().startswith(","),
+                "a selling gate inside the script must own its whole statement: "
+                "one that leaves the separator outside ends the list `}, ];` when "
+                "it renders off",
+            )
+        # And the array it sits beside carries no conditional of its own, because
+        # an array literal is data: the gate belongs in the pushes below it.
+        array = re.search(r"const actions = \[(.*?)\n\s*\];", source, re.S)
+        self.assertIsNotNone(array, "the palette's action array moved")
+        self.assertNotIn("{%", array.group(1), "a conditional moved into the array")
 
     def test_no_rupee_price_survives_anywhere_while_it_is_off(self):
         """`₹0` beside a `/mo` on the free card is a price tag on nothing.

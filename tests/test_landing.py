@@ -274,6 +274,15 @@ class TheTryPanelIsRealAndSaysSo(unittest.TestCase):
             "bot_initial": "M",
             "status": {"state": "up", "label": "Up"},
             "stats": [],
+            # The two preview cards. Empty here because this test is about the
+            # systems panel's payload; the cards have their own test in
+            # `tests/test_figures.py`, which renders them with real ones.
+            "control_tiles": [],
+            "activity_tiles": [],
+            "activity_periods": [],
+            "system_bars": [],
+            "figures_json": "{}",
+            "figures_url": "/api/figures",
             "features": [],
             "invite_url": "",
             "invite_limited_url": "",

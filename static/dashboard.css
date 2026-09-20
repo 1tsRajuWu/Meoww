@@ -570,7 +570,20 @@ section { scroll-margin-top: 76px; }
 .composer-textarea::placeholder { color: var(--text-muted); }
 .composer-input:disabled,
 .composer-textarea:disabled { opacity: 0.55; }
-.composer-search { padding-left: 34px; }
+/* `input[type="search"]` is (0,1,1) — *more* specific than the class this rule
+   lives on, and it is declared in `meow.css` with `padding: 11px 13px`. So the
+   refinement silently lost and the field kept 13px of left padding while
+   `.search-icon` sits at 11px: the magnifier was drawn **on top of the
+   placeholder**, which is the "misaligned filter box" a screenshot of the
+   console showed. Naming the element and its attribute alongside the class
+   (0,2,1) beats the base rule and does not depend on which sheet loads last —
+   a refinement that survives only because of file order is a refinement that
+   disappears the day somebody reorders two `<link>` tags. Both spellings are
+   here because the class is used on a `search` field (the console's filter)
+   and on a `text` field (the dashboard's mention/search box), and both were
+   drawn with the icon across their first character. */
+input[type="text"].composer-search,
+input[type="search"].composer-search { padding-left: 34px; }
 .composer-search-wrap { position: relative; }
 .search-icon {
     position: absolute;
@@ -1337,8 +1350,75 @@ svg.search-icon {
     padding: 1px 5px;
     border-radius: var(--radius-sm);
 }
-.status-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* `justify-content: flex-end` is not decoration. These groups hold a search
+   field and a picker, and when the pair does not fit the group's width the
+   second one wraps under the first — left-aligned, that left the filter box's
+   right edge 35px inside the picker's and *both* of them short of the section's,
+   which is the "misaligned box" a screenshot of the console showed. Right-
+   aligned, every line of the group meets the section's own right edge however
+   many lines there are. */
+.status-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* …and the group keeps that edge when the *header* wraps instead of the group.
+   `space-between` places a lone item on its own line at the start, which is how
+   one section's controls ended up hanging on the left of the page while every
+   other section's sat on the right. */
+.section-header > .status-actions { margin-left: auto; }
+
+/* One width for both halves of a filter-and-order pair, so a stacked pair
+   agrees on its *left* edge as well as its right one. Without it the search
+   field sized itself to its placeholder and sat 35px narrower than the picker
+   under it — the two boxes of one control group, visibly unrelated. Scoped to
+   the group on purpose: `.composer-search` is also the dashboard's mention
+   field, which wants the width its composer gives it. */
+.status-actions > .composer-search-wrap,
+.status-actions > .guild-select { flex: 0 1 220px; min-width: 0; }
+.status-actions > .composer-search-wrap { min-width: 168px; }
 .status-meta { font-size: 11.5px; color: var(--text-muted); }
+
+/* The deployment's own counts, as four tiles under the window buttons.
+
+   Two columns rather than four: the panel shares a grid row with the monitors
+   and "this deployment", so it is read at half a page's width, and four figures
+   across half a page is four narrow columns with their labels wrapped. The
+   figures themselves are the largest thing in the tile because they are the
+   claim; the label is the caption. */
+.figure-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.figure-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+    border-radius: var(--radius-sm, 10px);
+    background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+
+.figure-tile b {
+    font-size: 18px;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+.figure-tile span {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
 
 /* --------------------------------------------------------------------------
    Command palette

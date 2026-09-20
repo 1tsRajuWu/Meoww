@@ -8,9 +8,10 @@ found by driving the rebuilt page in a real browser rather than by reading it:
   the repository and a change to one card was a change to a page. It now carries
   two rules that genuinely belong to the *document* (its own palette-open state
   and its own paper) and nothing else.
-* **The rail is a map of the page.** Every anchor it offers has to land on a
-  section that exists; a link to a section somebody deleted scrolls nowhere and
-  looks like a broken button.
+* **The rail is seven links to seven pages.** Each one has to name a section the
+  template renders, and each section has to belong to a page — a page whose
+  section was left behind is a section nobody can reach, and a link to a page
+  that renders nothing is a button that goes nowhere.
 * **The command palette is markup the page carries and script drives.** It is
   the page's only way to reach a system without scrolling three thousand pixels,
   and it is invisible to a reader of the Python: a template edit that drops it
@@ -26,6 +27,8 @@ found by driving the rebuilt page in a real browser rather than by reading it:
 import re
 import unittest
 from pathlib import Path
+
+import keep_alive
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -201,15 +204,43 @@ class NoTwoElementsShareAnId(unittest.TestCase):
             )
 
 
-class TheRailIsAMapOfThePage(unittest.TestCase):
-    """Every anchor offered has to land somewhere."""
+class TheRailIsAPlaceNotAPointer(unittest.TestCase):
+    """Every page the rail offers has to be a page the template can render.
 
-    def test_every_rail_anchor_lands_on_a_section(self):
+    This used to check that each `data-spy` anchor landed on a section — the rail
+    was a scroll spy over one document. It is seven links to seven pages now, so
+    what has to hold is the same idea one level up: one section per page, named
+    by the page's own entry in `DASHBOARD_PAGES`, and no section that no page
+    claims. That last one is the real guard — a section left in the template
+    after a page is renamed is markup nobody can reach.
+    """
+
+    def test_each_page_names_a_section_and_each_section_has_a_page(self):
         page = _read("templates/dashboard.html")
-        anchors = set(re.findall(r'data-spy="([a-z-]+)"', page))
         sections = set(re.findall(r'<section id="([a-z-]+)"', page))
-        self.assertGreater(len(anchors), 3, "the rail's anchors were not found")
-        self.assertEqual(anchors, sections, "the rail offers a section the page does not have")
+        anchors = {
+            anchor for _page_id, _label, _path, anchor in keep_alive.DASHBOARD_PAGES
+        }
+        self.assertGreater(len(anchors), 3, "the dashboard's pages were not found")
+        self.assertEqual(
+            anchors, sections,
+            "a page renders a section that is not there, or a section has no page",
+        )
+
+    def test_the_template_switches_on_every_page(self):
+        """A page with no `{% if %}` of its own renders nothing at all."""
+        page = _read("templates/dashboard.html")
+        for page_id, _label, _path, _anchor in keep_alive.DASHBOARD_PAGES:
+            with self.subTest(page=page_id):
+                self.assertIn(f"page == '{page_id}'", page)
+
+    def test_the_rail_is_built_from_the_routes_own_list(self):
+        """Hand-written links would drift from the routes the first time one moved."""
+        page = _read("templates/dashboard.html")
+        self.assertNotIn('data-spy=', page, "an anchor from the one-page dashboard survived")
+        self.assertIn('{% for item in dashboard_pages', page)
+        self.assertIn('href="{{ item.url }}"', page)
+        self.assertIn('aria-current="page"', page)
 
 
 class ThePaletteIsServed(unittest.TestCase):
@@ -365,6 +396,101 @@ class NoInlineSvgIsLeftToGuessItsSize(unittest.TestCase):
         for pattern in self.SIZED:
             with self.subTest(pattern=pattern):
                 self.assertRegex(sheet, pattern)
+
+
+class TheControlGroupsMeetTheSectionEdge(unittest.TestCase):
+    """A filter box and the picker under it are one group, and they lined up as two.
+
+    This was reported from a screenshot of the console, and it is a layout
+    default rather than anybody's decision: `.status-actions` is a wrapping flex
+    row, so as soon as the pair did not fit it stacked — line two under line
+    one, both at the *start* of the group. The filter box ended 35px inside the
+    picker's right edge and neither of them reached the section's, and in the
+    sections whose header wrapped, the whole group sat on the left of the page
+    while every other section's controls sat on the right.
+
+    Three properties are the whole fix, and they are asserted here rather than
+    as pixels because a pixel assertion at one width passes again the moment
+    somebody moves the window.
+    """
+
+    def setUp(self):
+        self.rules = {}
+        for chain, body in _rules(_read("static/dashboard.css")):
+            self.rules.setdefault(" ".join(chain).strip(), []).append(body)
+
+    def _declarations(self, selector):
+        bodies = self.rules.get(selector)
+        self.assertTrue(bodies, f"`{selector}` is gone from the sheet")
+        return " ".join(bodies)
+
+    def test_the_group_right_aligns_its_own_lines(self):
+        """Line two has to share line one's *right* edge, not its left one."""
+        self.assertIn(
+            "justify-content: flex-end",
+            self._declarations(".status-actions"),
+            "the group's lines are left-aligned again, so a stacked pair reads "
+            "as two unrelated boxes",
+        )
+
+    def test_the_group_keeps_the_sections_edge_when_the_header_wraps(self):
+        """`space-between` puts a lone item on its own line at the start."""
+        self.assertIn(
+            "margin-left: auto",
+            self._declarations(".section-header > .status-actions"),
+            "a wrapped header drops the controls on the left of the page",
+        )
+
+    def test_the_filter_field_keeps_room_for_its_magnifier(self):
+        """A class alone loses to `input[type=...]`, and that is the whole defect.
+
+        `meow.css` declares `input[type="search"], … { padding: 11px 13px }` —
+        specificity (0,1,1), one class plus one attribute — and the rule that
+        makes room for the icon was `.composer-search { padding-left: 34px }` at
+        (0,1,0). The base rule won, the field kept 13px of left padding, and the
+        magnifier at `left: 11px` was drawn *across the placeholder's first
+        letter*: the filter box on the console, and the mention field on the
+        dashboard, both. So the selector is asserted to name an element as well
+        as the class — a rule that wins on specificity rather than on which
+        stylesheet the template happens to link last.
+        """
+        winners = [
+            selector
+            for selector, bodies in self.rules.items()
+            if "composer-search" in selector
+            and any("padding-left: 34px" in body for body in bodies)
+        ]
+        self.assertTrue(winners, "nothing gives the filter field room for its icon")
+        for selector in winners:
+            with self.subTest(selector=selector):
+                self.assertRegex(
+                    selector,
+                    r"input\[[^\]]+\]\.composer-search",
+                    "a class on its own loses to `input[type=…]`, so the icon lands "
+                    "on top of the placeholder again",
+                )
+
+    def test_the_two_halves_of_a_filter_pair_share_one_width(self):
+        """Otherwise the pair is ragged on its left edge instead of its right.
+
+        One rule naming both, not two rules that happen to agree: the share is
+        the point, so it has to survive the next person editing one of them.
+        """
+        widths = [
+            body
+            for selector, bodies in self.rules.items()
+            if ".composer-search-wrap" in selector and ".guild-select" in selector
+            for body in bodies
+        ]
+        self.assertTrue(
+            widths,
+            "no rule gives the filter box and the picker a shared width",
+        )
+        self.assertIn(
+            "flex: 0 1 220px",
+            " ".join(widths),
+            "the pair is sizing itself to its own placeholder text again",
+        )
 
 
 if __name__ == "__main__":

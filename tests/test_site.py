@@ -15,7 +15,7 @@ from unittest import mock
 
 import keep_alive
 from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
-from utils import webdocs
+from utils import figures, webdocs
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGES = ("home.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market_live.html", "pricing.html")
@@ -95,10 +95,18 @@ class TheLandingPage(unittest.TestCase):
         self.bot, _guild, _other = make_bot()
         self._patched = mock.patch.object(keep_alive, "BOT_INSTANCE", self.bot)
         self._patched.start()
+        # `/` is now drawn from `utils.figures`, whose snapshot is cached for a
+        # minute *process-wide* — so the reading one test takes is the reading the
+        # next one is served. The cache cannot tell that the gateway it just
+        # asked was a different mock, or that the database underneath it was
+        # swapped. Every fixture that renders this page resets it, which is what
+        # `figures.reset()` exists for.
+        figures.reset()
         self.client = keep_alive.app.test_client()
 
     def tearDown(self):
         self._patched.stop()
+        figures.reset()
 
     def test_a_monitor_still_gets_the_one_line_it_parses(self):
         for agent in ("UptimeRobot/2.0", "curl/8.4.0"):
@@ -151,7 +159,16 @@ class TheLandingPage(unittest.TestCase):
             self.assertIn(module["name"].replace("&", "&amp;"), body, module["id"])
 
     def test_no_figure_is_invented_while_the_bot_is_asleep(self):
-        """A cold host must not render a confident "0 servers"."""
+        """A cold host must not render a confident "0 servers".
+
+        Read as *values*, not as words. The first version of this asked whether
+        the string "servers</span>" appeared anywhere on the page, which is true
+        of the label beside the number as well as of the number — so it passed
+        for the wrong reason and would have gone on passing if the tile had
+        started reading `0` above it. What it means to check is that the two
+        figures only the gateway can answer are *absent* rather than zero, and
+        that the two the registry always knows are still there.
+        """
         asleep = mock.Mock()
         asleep._has_started = False
         asleep.is_ready.return_value = False
@@ -159,10 +176,19 @@ class TheLandingPage(unittest.TestCase):
         with mock.patch.object(keep_alive, "BOT_INSTANCE", asleep):
             body = self.client.get("/").get_data(as_text=True)
         self.assertIn("Starting up", body)
-        self.assertNotIn("servers</span>", body, "a sleeping host counted nobody's servers")
-        self.assertNotIn("members reached", body)
+        for key in ("servers", "members"):
+            with self.subTest(key=key):
+                self.assertIn(
+                    f'data-figure="control:{key}">{keep_alive.NOT_READ}</b>', body,
+                    f"a sleeping host did not say it had no reading for {key}",
+                )
+                self.assertNotRegex(
+                    body, rf'data-figure="control:{key}">\d',
+                    f"a sleeping host counted {key}s nobody told it about",
+                )
         # What it does know without the gateway is still on the page.
         self.assertIn("systems</span>", body)
+        self.assertRegex(body, r'data-figure="control:commands">\d+</b>')
 
     def test_the_status_line_tells_the_three_states_apart(self):
         connected = mock.Mock()

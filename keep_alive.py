@@ -45,7 +45,7 @@ import html as _html
 from flask import Flask, render_template, request, redirect, session, jsonify, Response
 from utils import (
     command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    identity, modules, plans, scheduled, site_guard, uptime_status, webdocs,
+    figures, identity, modules, plans, scheduled, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -965,6 +965,39 @@ def health():
     })
 
 
+@app.route("/api/figures")
+def api_figures():
+    """The landing page's numbers, for the copy that was built without them.
+
+    The published site is static: CI renders it once and a CDN serves it, so the
+    figures baked into it are the figures of the day it was built. This is the
+    other half of that — the same payload, live — so the page can keep up
+    without a rebuild, which is the whole reason it exists.
+
+    It carries a cross-origin allowance for the site's own address, and that is
+    not decoration: the caller is a *browser* on the Pages host, and without the
+    header the call is refused, the failure is invisible (a refused `fetch`
+    reaches no banner), and the page silently keeps its build-time numbers
+    forever — the exact defect this endpoint was added to remove.
+
+    Counts and no names, like the `uptime` and `config` blocks beside it in
+    `/health`: this endpoint is unauthenticated. The per-channel and per-member
+    breakdowns are behind the dashboard's sign-in and stay there.
+    """
+    payload = _public_figures()
+    response = jsonify(payload)
+    origin = (request.headers.get("Origin") or "").strip().rstrip("/")
+    allowed = site_guard.site_url().strip().rstrip("/")
+    if origin and allowed and origin == allowed:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+    # A minute, the same minute the snapshot is cached for. A landing page open
+    # in twenty tabs is a page being read, not a reason to read the database
+    # twenty times.
+    response.headers["Cache-Control"] = f"public, max-age={figures.CACHE_SECONDS}"
+    return response
+
+
 @app.route("/api/uptime")
 def api_uptime():
     """UptimeRobot's monitors, as rows, for the dashboard's status panel.
@@ -1160,6 +1193,44 @@ def _bot_display_name() -> str:
     return "Meow Bot"
 
 
+def _gateway_counts() -> dict:
+    """What the live gateway knows, as counts and nothing else.
+
+    Handed to :mod:`utils.figures`, which owns the tracker's totals and the
+    cache; this is the half that needs a Discord connection. A cold or sleeping
+    process answers ``None`` for each figure rather than a zero, because "nobody
+    has told me yet" and "there is nobody" are different claims and only one of
+    them is worth printing on a landing page.
+    """
+    counts = {
+        "servers": None,
+        "members": None,
+        "systems": len(AVAILABLE_MODULES) or None,
+        "commands": None,
+        "connected": False,
+    }
+    declared = {name for feature in features.FEATURES for name in feature.commands}
+    started, connected = _gateway_state()
+    counts["connected"] = bool(connected)
+    if started and BOT_INSTANCE is not None:
+        try:
+            guilds = list(BOT_INSTANCE.guilds)
+            live_names = _command_tree_names()
+            counts["servers"] = len(guilds)
+            counts["members"] = sum(g.member_count or 0 for g in guilds)
+            counts["commands"] = len(live_names) or len(declared)
+        except Exception as exc:
+            print(f"[FIGURES] could not read the gateway's counts: {exc}", flush=True)
+    if counts["commands"] is None and declared:
+        counts["commands"] = len(declared)
+    return counts
+
+
+def _public_figures() -> dict:
+    """The payload the landing page draws and `/api/figures` serves."""
+    return figures.snapshot(gateway=_gateway_counts())
+
+
 def _home_stats() -> list[dict]:
     """The figures on the landing page, and only the ones that are true.
 
@@ -1283,8 +1354,8 @@ def _invite_context(*, guild_id: int | str | None = None) -> dict:
     }
 
 
-def _try_payload() -> str:
-    """The systems as data, for the landing page's interactive panel.
+def _inline_json(value) -> str:
+    """Serialise a payload for a ``<script type="application/json">`` element.
 
     Serialised **here** rather than with Jinja's ``tojson``, because four
     environments render these templates in this repository — this app, the
@@ -1293,10 +1364,15 @@ def _try_payload() -> str:
     exists on one of the four is a landing page that renders in production and
     raises in the tooling written to check it.
 
-    ``<`` is escaped because this string is injected into a ``<script>`` element:
+    ``<`` is escaped because the result is injected into a ``<script>`` element:
     an unescaped ``</script`` anywhere in the data would close the tag and put the
     rest of the payload into the document as markup.
     """
+    return json.dumps(value, separators=(",", ":")).replace("<", "\\u003c")
+
+
+def _try_payload() -> str:
+    """The systems as data, for the landing page's interactive panel."""
     payload = json.dumps(
         [
             {
@@ -1313,15 +1389,131 @@ def _try_payload() -> str:
     return payload.replace("<", "\\u003c")
 
 
+def _system_bars() -> list[dict]:
+    """The system list as a chart: one bar per system, sized by its commands.
+
+    The card's chart used to be nine hand-written heights — decoration that
+    looked like a measurement, which is the one thing this project keeps
+    removing. These are real: the registry knows exactly how many commands each
+    system declares, so the chart is that count, and a bar can be clicked to say
+    which system it is.
+
+    Height is relative to the largest system rather than to the total, so the
+    shape stays readable on a deployment with one system enabled and on one with
+    eleven: the question the chart answers is "which of these is the big one?"
+    """
+    bars = [
+        {
+            "id": feature.id,
+            "name": feature.name,
+            "icon": feature.icon,
+            "commands": len(feature.commands),
+        }
+        for feature in features.FEATURES
+    ]
+    top = max((bar["commands"] for bar in bars), default=0) or 1
+    for bar in bars:
+        # A floor, so a system with one command is still a bar rather than a
+        # line at zero height that reads as "off".
+        bar["pct"] = max(8, round(bar["commands"] * 100 / top))
+    return bars
+
+
+#: A figure that was never read. An em dash, not a zero: the modules above go to
+#: some trouble to report "I do not know" separately from "none", and a card that
+#: printed `0 servers` for a sleeping host would undo that in the last step.
+NOT_READ = "—"
+
+
+def _control_tiles(live: dict) -> list[dict]:
+    """The four figures the Control panel card leads with.
+
+    These replaced `_home_stats()[:3]`, which was the same idea with the wrong
+    three: *systems* and *commands* are true of every copy of this bot ever
+    started, so a visitor learned nothing about whether anybody uses it. Servers
+    and the people in them are the numbers that answer that, and they are the
+    ones a cold host can only say "not yet" about.
+    """
+    text = live.get("text") or {}
+    return [
+        {"key": key, "label": label, "value": text.get(key) or NOT_READ}
+        for key, label in (
+            ("servers", "servers"),
+            ("members", "members reached"),
+            ("systems", "systems"),
+            ("commands", "commands"),
+        )
+    ]
+
+
+def _activity_tiles(live: dict, period_id: str) -> list[dict]:
+    """The Activity card's totals for one window.
+
+    Every window is already in the payload the card is drawn from, so switching
+    between them is a redraw rather than a request — four windows of two indexed
+    reads is a minute's cache and a page that can be read offline, and a tab that
+    had to fetch would be a tab that stalls on a sleeping host.
+    """
+    window = next(
+        (p for p in (live.get("periods") or []) if p.get("id") == period_id),
+        (live.get("periods") or [{}])[0],
+    )
+    return [
+        {"key": key, "label": label, "value": window.get(key) or "0"}
+        for key, label in (
+            ("messages_text", "messages"),
+            ("voice_text", "voice hours"),
+            ("people_text", "people seen"),
+            ("channels_text", "channels used"),
+        )
+    ]
+
+
+def _figures_url() -> str:
+    """Where the page should ask for a fresh reading.
+
+    Relative where the page is served by the process that *has* the figures, and
+    where the published copy is reverse-proxied back to it (Cloudflare Pages, see
+    ``scripts/build_site.py``). Absolute only in the one case left: the built
+    copy talking to the live host directly, which is why `/api/figures` carries a
+    cross-origin allowance for the site's own address.
+    """
+    live = (os.environ.get("MEOW_LIVE_APP_URL") or "").strip().rstrip("/")
+    proxied = (os.environ.get("CLOUDFLARE_PROXY") or "").strip().lower() in {"1", "true", "yes"}
+    if _static_site() and live and not proxied:
+        return f"{live}/api/figures"
+    return "/api/figures"
+
+
 def _home_page():
     """The public landing page for somebody who is not signed in."""
     name = _bot_display_name()
+    live_figures = _public_figures()
+    periods = live_figures.get("periods") or []
+    # The window the Activity card opens on. Seven days, because it is the one a
+    # visitor can read as "lately" without being told how old the deployment is,
+    # and because it is the window the weekly digest uses.
+    opened = next((p for p in periods if p["id"] == "week"), periods[0] if periods else {})
+    opened_id = opened.get("id") or "week"
     return render_template(
         "home.html",
         bot_name=name,
         bot_initial=(name[:1] or "M").upper(),
         status=_home_status(),
         stats=_home_stats(),
+        # What the deployment is actually doing, as counts — the figures the two
+        # preview cards draw. Read once here and again by `/api/figures` for the
+        # published copy, from the same cached snapshot, so the page and the
+        # endpoint cannot disagree about the same minute.
+        control_tiles=_control_tiles(live_figures),
+        activity_tiles=_activity_tiles(live_figures, opened_id),
+        activity_periods=[
+            {"id": p["id"], "label": p["label"], "selected": p["id"] == opened_id}
+            for p in periods
+        ],
+        system_bars=_system_bars(),
+        figures_json=_inline_json(live_figures),
+        figures_url=_figures_url(),
         features=features.dashboard_modules(),
         # The same registry the cards above are built from, as data — so the
         # interactive panel cannot advertise a system the bot does not have, and
@@ -1835,8 +2027,47 @@ def api_market_candles():
     return response
 
 
+#: The dashboard's pages: ``(id, label, path, anchor)``, in the order the rail
+#: offers them. The dashboard was one page with a scroll spy, which is a shape
+#: that can only ever *add*: the composer, the queue, the identity form and the
+#: command list are four jobs, and the browser can only hold one of them at a
+#: time as a scroll position. They are four addresses now — which is also what
+#: makes the rail a place rather than a pointer, and what lets the palette jump
+#: to a control that is on another page.
+#:
+#: The ids are what the template switches on and what the palette's cross-page
+#: actions are built from; ``anchor`` is the one section that page renders.
+DASHBOARD_PAGES = (
+    ("overview", "Overview", "/dashboard", "overview"),
+    ("systems", "Systems", "/dashboard/systems", "modules"),
+    ("composer", "Composer", "/dashboard/composer", "composer"),
+    ("schedule", "Scheduled", "/dashboard/schedule", "schedule"),
+    ("identity", "Identity", "/dashboard/identity", "identity"),
+    ("commands", "Commands", "/dashboard/commands", "command-scope"),
+    ("status", "Status", "/dashboard/status", "status"),
+)
+
+#: ``/dashboard`` and its six siblings, keyed by path.
+DASHBOARD_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in DASHBOARD_PAGES}
+
+
 @app.route("/dashboard")
+@app.route("/dashboard/systems")
+@app.route("/dashboard/composer")
+@app.route("/dashboard/schedule")
+@app.route("/dashboard/identity")
+@app.route("/dashboard/commands")
+@app.route("/dashboard/status")
 def dashboard():
+    """One page of one server's dashboard.
+
+    Everything below is unchanged from when this was a single scroll; what
+    changed is which of the seven sections the renderer is handed. The scope
+    rules, the two readings of Discord's command list, the identity state and
+    the composer's rulebook are all computed on every page, because a page that
+    computed only what it draws would be seven chances to disagree with the
+    others about the same server.
+    """
     if not is_authenticated():
         return redirect("/login")
 
@@ -1938,10 +2169,34 @@ def dashboard():
         "global_avatar_url": global_avatar,
     })
 
+    page = DASHBOARD_PAGE_BY_PATH.get(request.path, "overview")
+    # Every page of one server, with this session's server carried across: a rail
+    # that dropped `guild_id` would move an administrator from one page of their
+    # server to another server's page.
+    guild_query = f"?guild_id={guild_id}" if guild_id else ""
     return render_template(
         "dashboard.html",
         guild_id=guild_id,
         guild_name=guild_name,
+        page=page,
+        page_anchor=_page_anchor(DASHBOARD_PAGES, page),
+        # The open page with the server still to be appended — what the topbar's
+        # server picker needs to move between servers *without* moving between
+        # pages.
+        page_href=next(
+            f"{path}?guild_id="
+            for candidate, _label, path, _anchor in DASHBOARD_PAGES
+            if candidate == page
+        ),
+        dashboard_pages=_page_nav(DASHBOARD_PAGES, page, guild_query),
+        guild_query=guild_query,
+        # …and the same list as data, for the page's own script: the palette crosses
+        # pages by address, so it needs the address of every page with this
+        # session's server already in it. One list, rendered twice.
+        pages_json=_inline_json({
+            candidate: {"url": f"{path}{guild_query}", "label": label}
+            for candidate, label, path, _anchor in DASHBOARD_PAGES
+        }),
         member_count=member_count,
         server_identity=identity_data,
         command_scope=commands_data,
@@ -2063,9 +2318,70 @@ def _fleet_rows() -> list[dict]:
     return rows
 
 
+def _page_nav(pages, current: str, query: str = "") -> list[dict]:
+    """One surface's pages, as its rail renders them.
+
+    A function rather than a comprehension inside each view because *three*
+    renderers need this list and they must not drift: the view itself, the
+    preview harness, and the test suite's own Jinja environment. A rail built
+    slightly differently in one of them is a page whose navigation is only
+    correct in production — the least useful direction for a difference to
+    exist in.
+
+    ``query`` is a suffix every link carries, which is how the dashboard's rail
+    keeps the open server: moving from one page of a server to another page of
+    the same server should not require re-choosing it.
+    """
+    return [
+        {
+            "id": spec_id,
+            "label": label,
+            "href": path,
+            "anchor": anchor,
+            "url": f"{path}{query}",
+            "current": spec_id == current,
+        }
+        for spec_id, label, path, anchor in pages
+    ]
+
+
+def _page_anchor(pages, current: str) -> str:
+    """The one section the named page renders — what its skip link targets."""
+    return next(anchor for spec_id, _label, _path, anchor in pages if spec_id == current)
+
+
+#: The fleet console's pages: ``(id, label, path, anchor)``, in the order the rail
+#: offers them. One list, because the rail, the routes and the skip link have to
+#: agree — a console whose pages are linked in one place and routed in another is
+#: how a section ends up reachable only by typing its address. The ids are the
+#: ``page`` the template switches on, the label is what the rail calls it, and the
+#: anchor is the one section that page renders, which is what the skip link targets.
+OWNER_PAGES = (
+    ("numbers", "Numbers", "/owner", "fleet"),
+    ("servers", "Servers", "/owner/servers", "servers"),
+    ("infrastructure", "Infrastructure", "/owner/infrastructure", "infrastructure"),
+    ("output", "Output", "/owner/output", "output"),
+)
+
+#: ``/owner`` and its three siblings, keyed by path, so the view can read the
+#: page out of the request rather than being written once per route.
+OWNER_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in OWNER_PAGES}
+
+
 @app.route("/owner")
+@app.route("/owner/servers")
+@app.route("/owner/infrastructure")
+@app.route("/owner/output")
 def owner_console():
-    """The fleet view. Operator only — see the note above."""
+    """One page of the fleet console. Operator only — see the note above.
+
+    The console was a single scroll with a scroll spy: four sections, one URL,
+    and a rail that said where you were. It is four pages now, and the reason is
+    the one thing a scroll spy cannot do — *put something else on the screen*.
+    The output tail and the eleven-server list are not neighbours in anybody's
+    work; the browser's Back button, a bookmark, and "look at this: /owner/output"
+    all need them to be places.
+    """
     if not is_authenticated():
         return redirect("/login")
     if session.get("auth_scope") != "global":
@@ -2073,9 +2389,14 @@ def owner_console():
         # nobody is dropped onto a server they did not choose.
         return redirect("/servers" if _visible_guilds() else "/dashboard")
 
+    page = OWNER_PAGE_BY_PATH.get(request.path, "numbers")
     fleet = _fleet_rows()
+    live_figures = _public_figures()
     return render_template(
         "owner.html",
+        page=page,
+        page_anchor=_page_anchor(OWNER_PAGES, page),
+        owner_pages=_page_nav(OWNER_PAGES, page),
         fleet=fleet,
         totals={
             "servers": len(fleet),
@@ -2098,6 +2419,21 @@ def owner_console():
         system_status=uptime_status.snapshot(),
         site_guard_status=site_guard.health_json(),
         config_status=config_audit.health_json(),
+        # What the bot is *doing*, as opposed to what it is standing on: the
+        # tracker's own counts, from the same cached payload the landing page
+        # draws and `/api/figures` serves. Server-rendered as well as live, so the
+        # card says something true before any script of its own has run.
+        figures_json=_inline_json(live_figures),
+        figures_url="/api/figures",
+        # The card opens on the same window the landing page opens on, and every
+        # window is already in the payload: switching between them is a redraw
+        # rather than a request, so the card cannot stall on a slow host by being
+        # read.
+        figure_tiles=_activity_tiles(live_figures, "week"),
+        figure_periods=[
+            {"id": window["id"], "label": window["label"]}
+            for window in (live_figures.get("periods") or [])
+        ],
         # The tail of this process's own output. It is the only place a failure
         # that never reached Discord can be seen without SSH.
         recent_log=[line.rstrip("\n") for line in list(LOG_RING)[-60:]],
