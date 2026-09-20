@@ -63,14 +63,18 @@
 
         function paint() {
             const text = payload.text || {};
-            // An em dash where the gateway has not answered yet: absent is not
-            // zero, and `/api/figures` goes to the trouble of saying so.
+            // An em dash where there is no reading to show: absent is not zero,
+            // and `/api/figures` goes to the trouble of saying so. Both halves of
+            // the card follow it — the activity windows used to fall back to
+            // `"0"`, which printed **0 messages** under a card whose own payload
+            // was saying it had not read anything, and that is the exact claim
+            // the module's docstring says it exists to avoid making.
             ["servers", "members", "systems", "commands"].forEach((key) => {
                 setFigure("control:" + key, text[key] || "\u2014");
             });
             if (!window_) return;
             ["messages_text", "voice_text", "people_text", "channels_text"].forEach((key) => {
-                setFigure("activity:" + key, window_[key] || "0");
+                setFigure("activity:" + key, window_[key] || "\u2014");
             });
         }
 

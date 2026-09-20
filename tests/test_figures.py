@@ -22,13 +22,17 @@ copy on the CDN:
 import asyncio
 import datetime
 import json
+import re
 import sqlite3
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import keep_alive
 from tests.support import TempDatabaseMixin
 from utils import db, digest, figures
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _fake_gateway(*, servers=3, members=42, systems=11, commands=90, connected=True):
@@ -208,6 +212,86 @@ class TheCountsAreCounts(TempDatabaseMixin, unittest.TestCase):
                     type(value), (int, bool, type(None)),
                     f"{key} is a {type(value).__name__}, and only counts belong here",
                 )
+
+
+class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
+    """What the front door says when there is no database to count in.
+
+    This is not a hypothetical shape: ``bot.db`` is git-ignored, so the Pages
+    build clones a checkout with no database in it and renders the **real app's**
+    pages to make the published copy. The first real publish answered
+    ``500`` for ``/`` — *"no such table: activity_messages"* — because a
+    reporting read raised, and the site build refuses to ship a page that
+    answered 500, so the deploy failed and the site kept serving the commit
+    before it. A marketing page must not be brought down by a table it only
+    wanted a count from.
+
+    The rule the module already states for a sleeping host applies at its
+    extreme: a reading that was never taken is **absent**, not zero. The tiles
+    say so with an em dash, and ``/api/figures`` fills the same card in from a
+    host that does have a database.
+    """
+
+    def setUp(self):
+        # The path exists as a name and nothing else: no `db.setup()`, so no
+        # schema — which is exactly what a fresh clone of this repository has.
+        self.use_temp_database("never-set-up.db")
+        figures.reset()
+
+    def tearDown(self):
+        figures.reset()
+        self.release_temp_database()
+
+    def test_a_window_with_no_table_to_read_reports_absent_rather_than_raising(self):
+        totals = figures.tracker_totals(period="week")
+        for key in ("messages", "voice_seconds", "message_channels", "voice_channels", "people"):
+            with self.subTest(key=key):
+                self.assertIsNone(totals[key], f"{key} was reported as a measurement")
+        for key in ("messages_text", "voice_text", "channels_text", "people_text"):
+            with self.subTest(key=key):
+                self.assertEqual(totals[key], "", f"{key} was spelled as a figure")
+
+    def test_the_payload_still_has_every_window_the_page_offers(self):
+        """A card with no windows is a card whose buttons do nothing."""
+        payload = figures.snapshot(gateway=None)
+        self.assertEqual([p["id"] for p in payload["periods"]], [p[0] for p in figures.PERIODS])
+        for period in payload["periods"]:
+            self.assertIsNone(period["messages"])
+
+    def test_the_front_door_renders_and_says_it_has_not_read_them(self):
+        """The build's own question, asked of the build's own client.
+
+        A shell has no Chromium to check what the tile *looks* like, so the two
+        things that are checkable are checked: the page answers, and the figure
+        it prints for a reading it never took is not a zero.
+        """
+        response = keep_alive.app.test_client().get("/")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        for key in ("messages_text", "voice_text", "people_text", "channels_text"):
+            with self.subTest(key=key):
+                self.assertIn(
+                    f'data-figure="activity:{key}">{keep_alive.NOT_READ}<',
+                    body,
+                    f"the {key} tile claims a reading the database could not give",
+                )
+
+    def test_the_script_does_not_turn_an_absent_window_into_a_zero(self):
+        """The other renderer, read as the rule rather than as an instance.
+
+        The card is painted twice — by the server above and by the page's own
+        script — and the script's fallback was `"0"`, so an unread window was
+        spelled as a measurement by whichever renderer ran last. Both fall back
+        to the same em dash the control figures already used.
+        """
+        source = (ROOT / "static" / "figures.js").read_text(encoding="utf-8")
+        activity = re.search(r'\["messages_text".*?\]\.forEach\(.*?\n\s*\}\);', source, re.S)
+        self.assertIsNotNone(activity, "the activity tiles moved; re-point this test")
+        self.assertNotIn(
+            '"0"', activity.group(0),
+            "an absent window is spelled as a zero by the page's own script",
+        )
+        self.assertIn("\\u2014", activity.group(0))
 
 
 class TheReadingIsCachedForAMinute(unittest.TestCase):

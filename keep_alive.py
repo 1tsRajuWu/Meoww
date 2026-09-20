@@ -1459,7 +1459,12 @@ def _activity_tiles(live: dict, period_id: str) -> list[dict]:
         (live.get("periods") or [{}])[0],
     )
     return [
-        {"key": key, "label": label, "value": window.get(key) or "0"}
+        # `NOT_READ`, not `"0"`, on the same rule `_control_tiles` above follows
+        # and for a case that is not hypothetical: with no tracker tables — every
+        # build of the published site — this used to print **0 messages** under a
+        # card whose own module goes out of its way to report "I have no reading"
+        # separately from "none". Zero is a measurement, and this was not one.
+        {"key": key, "label": label, "value": window.get(key) or NOT_READ}
         for key, label in (
             ("messages_text", "messages"),
             ("voice_text", "voice hours"),

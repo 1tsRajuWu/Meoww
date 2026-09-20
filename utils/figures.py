@@ -32,6 +32,7 @@ same reason — this surface is unauthenticated:
 from __future__ import annotations
 
 import datetime
+import sqlite3
 import threading
 import time
 
@@ -88,6 +89,30 @@ def _scalar(conn, sql: str, params: tuple = ()) -> int:
     return int(row[0] or 0) if row else 0
 
 
+#: What a window reads as when the tracker's tables are not there to read. A
+#: reading that was never taken is absent, not zero — the same rule the gateway
+#: figures below follow, at its extreme, and the page draws an em dash for one.
+#:
+#: This is not a hypothetical. `bot.db` is git-ignored, so the Pages build clones
+#: a checkout with no database in it and renders the real app's pages to make the
+#: published copy; the front door answered **500** on the first real publish
+#: because a *reporting* read found no schema. A marketing page must not be
+#: brought down by a table it only wanted a count from — and the built copy is the
+#: fallback anyway, since `/api/figures` fills the same card in from a host that
+#: does have one.
+_ABSENT_TOTALS: dict = {
+    "messages": None,
+    "messages_text": "",
+    "voice_seconds": None,
+    "voice_text": "",
+    "message_channels": None,
+    "voice_channels": None,
+    "channels_text": "",
+    "people": None,
+    "people_text": "",
+}
+
+
 def tracker_totals(*, period: str = "all", connect=None) -> dict:
     """What the tracker has counted in this window, across every server.
 
@@ -106,39 +131,47 @@ def tracker_totals(*, period: str = "all", connect=None) -> dict:
     start = period_start(period)
     conn = (connect or db.connect)()
     try:
-        messages = _scalar(
-            conn,
-            "SELECT COALESCE(SUM(count), 0) FROM activity_messages WHERE date >= ?",
-            (start,),
-        )
-        voice_seconds = _scalar(
-            conn,
-            "SELECT COALESCE(SUM(seconds), 0) FROM activity_voice WHERE date >= ?",
-            (start,),
-        )
-        message_channels = _scalar(
-            conn,
-            "SELECT COUNT(DISTINCT channel_id) FROM activity_messages WHERE date >= ?",
-            (start,),
-        )
-        voice_channels = _scalar(
-            conn,
-            "SELECT COUNT(DISTINCT channel_id) FROM activity_voice WHERE date >= ?",
-            (start,),
-        )
-        # People *seen*, not people reachable: the union of everyone who said
-        # something or spent a minute in voice in the window. The gateway's own
-        # member count is a different number (everyone in the servers, whether or
-        # not they have ever used the bot) and both are shown, labelled.
-        people = _scalar(
-            conn,
-            "SELECT COUNT(*) FROM ("
-            "  SELECT user_id FROM activity_messages WHERE date >= ?"
-            "  UNION"
-            "  SELECT user_id FROM activity_voice WHERE date >= ?"
-            ")",
-            (start, start),
-        )
+        try:
+            messages = _scalar(
+                conn,
+                "SELECT COALESCE(SUM(count), 0) FROM activity_messages WHERE date >= ?",
+                (start,),
+            )
+            voice_seconds = _scalar(
+                conn,
+                "SELECT COALESCE(SUM(seconds), 0) FROM activity_voice WHERE date >= ?",
+                (start,),
+            )
+            message_channels = _scalar(
+                conn,
+                "SELECT COUNT(DISTINCT channel_id) FROM activity_messages WHERE date >= ?",
+                (start,),
+            )
+            voice_channels = _scalar(
+                conn,
+                "SELECT COUNT(DISTINCT channel_id) FROM activity_voice WHERE date >= ?",
+                (start,),
+            )
+            # People *seen*, not people reachable: the union of everyone who said
+            # something or spent a minute in voice in the window. The gateway's own
+            # member count is a different number (everyone in the servers, whether or
+            # not they have ever used the bot) and both are shown, labelled.
+            people = _scalar(
+                conn,
+                "SELECT COUNT(*) FROM ("
+                "  SELECT user_id FROM activity_messages WHERE date >= ?"
+                "  UNION"
+                "  SELECT user_id FROM activity_voice WHERE date >= ?"
+                ")",
+                (start, start),
+            )
+        except sqlite3.OperationalError:
+            # No schema to count in — see `_ABSENT_TOTALS`. Narrow on purpose:
+            # an `OperationalError` is the table (or the file) not being there,
+            # which is the one case where "I have no reading" is the true answer.
+            # Anything else is a real fault in a real database and belongs to the
+            # caller.
+            return {"period": period, "started": start, **_ABSENT_TOTALS}
     finally:
         conn.close()
     return {
