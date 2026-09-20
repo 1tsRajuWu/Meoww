@@ -1,0 +1,172 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+
+{% block content %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">About</p>
+            <h2>One place to see everything, and no place to change it</h2>
+            <p>
+                Meow is a Discord bot with {{ counts.systems }} systems and
+                {{ counts.commands }} commands. This hub is the map: what it does, what
+                governs each command, what the deployment is doing right now, and the
+                decisions behind where it runs. It exists because the alternative was
+                archaeology — reading six files to answer "is the market module on for
+                this server".
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-3">
+        <article class="card">
+            <div class="card-head">
+                <h3>What this page is built from</h3>
+                <span class="pill is-ok">real data</span>
+            </div>
+            <ul class="prose">
+                <li>The same feature registry the bot validates at boot.</li>
+                <li>The same command-gate map it publishes to Discord.</li>
+                <li>The same counted windows <code>/activity</code> reads.</li>
+                <li>The same configuration audit the console shows.</li>
+            </ul>
+            <p class="card-note">
+                Nothing here is a fixture or a screenshot. If a number on this hub is
+                wrong, the bot is wrong about the same number.
+            </p>
+        </article>
+
+        <article class="card">
+            <div class="card-head">
+                <h3>What it cannot reach</h3>
+                <span class="pill is-bad">nothing that writes</span>
+            </div>
+            <ul class="prose">
+                <li>No database. The hub has no connection string at all.</li>
+                <li>No session, so no server's settings and no member list.</li>
+                <li>No message sending, no scheduled post, no switch.</li>
+                <li>No credential that could be used to obtain any of those.</li>
+            </ul>
+            <p class="card-note">
+                Its only network call is a GET that merges two endpoints which are
+                already public and already answer in counts rather than names.
+            </p>
+        </article>
+
+        <article class="card">
+            <div class="card-head">
+                <h3>What it is not</h3>
+                <span class="pill is-info">honest limits</span>
+            </div>
+            <ul class="prose">
+                <li>Not a replacement for the console, which is where work happens.</li>
+                <li>Not a status page with an uptime guarantee behind it.</li>
+                <li>Not a mirror of any particular server's configuration.</li>
+                <li>Not for sale, and carrying nothing that is.</li>
+            </ul>
+            <p class="card-note">
+                Where a question needs a signed-in answer, the page says so and links
+                there rather than guessing.
+            </p>
+        </article>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Trust</p>
+            <h2>The pages worth reading before you install anything</h2>
+            <p>
+                These are the bot's own legal pages, written for the same deployment and
+                served from its public site. If something here disagrees with them, they
+                are the ones that govern.
+            </p>
+        </div>
+    </div>
+
+    <div class="rows">
+        {%- for link in trust_links %}
+        <a class="row is-link" href="{{ link.href }}" data-reveal>
+            <span class="row-icon" aria-hidden="true">{{ link.icon }}</span>
+            <div class="row-body">
+                <b>{{ link.title }}</b>
+                <span>{{ link.detail }}</span>
+            </div>
+            <span class="row-meta">
+                <span class="arrow-link">Read {{ icons.icon("arrow", "rail-icon") }}</span>
+            </span>
+        </a>
+        {%- endfor %}
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Reaching it</p>
+            <h2>Add the bot, or open the console</h2>
+            <p>
+                Adding it to a server is a plain Discord invite with the permissions it
+                needs and nothing more — including the ones that are easy to omit and
+                then expensive to explain, like <code>Manage Roles</code> for the
+                default-role and level-role features. The console is where you configure
+                what it does once it is there.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <article class="card">
+            <div class="card-head">
+                <h3>Add it to a server</h3>
+                {%- if site.invite_url %}
+                <span class="pill is-ok">invite ready</span>
+                {%- else %}
+                <span class="pill is-warn">no invite configured</span>
+                {%- endif %}
+            </div>
+            <p class="card-note">
+                {%- if site.invite_url %}
+                The link asks for the permissions the features actually use, and for
+                <b>Administrator</b> alongside them, because a bot that was added without
+                it cannot post a moderation log, cannot assign a level role, and cannot
+                run the lockdown commands — failures that only show up later, in a
+                server, as "the command does nothing".
+                {%- else %}
+                This build has no Discord application id, so there is no invite link
+                here — the button is omitted rather than shipped pointing nowhere.
+                {%- endif %}
+            </p>
+            {%- if site.invite_url %}
+            <div class="card-foot">
+                <a class="btn btn-primary" href="{{ site.invite_url }}">
+                    Add to Discord {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+            </div>
+            {%- endif %}
+        </article>
+
+        <article class="card">
+            <div class="card-head">
+                <h3>Open the console</h3>
+                <span class="pill is-info">sign-in required</span>
+            </div>
+            <p class="card-note">
+                Signing in with Discord shows only the servers you actually administer,
+                and the console's own view of a server is scoped to it. If you run more
+                than one, the console's server switcher is where you choose which one
+                the switches, the composer and the scheduler act on.
+            </p>
+            <div class="card-foot">
+                <a class="btn" href="/dashboard">
+                    The console {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+                <a class="btn btn-quiet" href="/servers">Servers you administer</a>
+            </div>
+        </article>
+    </div>
+</section>
+
+{% endblock %}

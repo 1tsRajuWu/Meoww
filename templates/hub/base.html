@@ -1,0 +1,159 @@
+{% import "hub/_icons.html" as icons %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ hub_title }} · Meow Hub</title>
+    <meta name="description" content="{{ hub_lede }}">
+    <meta name="color-scheme" content="dark light">
+    {# Every one of these carries `?v=`, and it is not decoration: the static host
+       caches `/static/*` immutably for a year, so an asset URL that never changes
+       is an asset that never updates. The version is a hash of the hub's own two
+       files, computed at render time — a hand-maintained `?v=4` stops busting the
+       first time somebody forgets it. #}
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ hub_assets }}">
+    <link rel="stylesheet" href="/hub/static/hub.css?v={{ hub_assets }}">
+    {# `defer` and same-origin: the hub runs under `script-src 'self'` with no
+       `unsafe-inline`, so there is no inline script anywhere on these pages and
+       this is the only script the browser loads. #}
+    <script src="/hub/static/hub.js?v={{ hub_assets }}" defer></script>
+    {%- if canonical_url %}
+    <link rel="canonical" href="{{ canonical_url }}">
+    {%- endif %}
+    {% block head %}{% endblock %}
+</head>
+<body data-status-url="/api/status" data-hub-page="{{ hub_page }}">
+
+<div class="aurora" aria-hidden="true"><span class="mesh"></span></div>
+<div class="scroll-progress" aria-hidden="true"></div>
+<a class="skip-link" href="#content">Skip to content</a>
+
+<div class="app">
+    <nav class="rail" id="rail" aria-label="Hub sections">
+        <a class="rail-brand" href="/hub">
+            <img class="rail-mark" src="/static/logo.svg?v={{ hub_assets }}" alt=""
+                 width="38" height="38">
+            <span class="rail-brand-text">
+                <strong>Meow Hub</strong>
+                <span>one place for everything</span>
+            </span>
+        </a>
+
+        <div class="rail-group">
+            <p class="rail-label">The bot</p>
+            {%- for item in hub_nav if item.group == "bot" %}
+            <a class="rail-link" href="{{ item.href }}"
+               {% if item.id == hub_page %}aria-current="page"{% endif %}>
+                {{ icons.icon(item.icon) }}
+                <span>{{ item.label }}</span>
+                {%- if item.count %}
+                <span class="rail-count">{{ item.count }}</span>
+                {%- endif %}
+            </a>
+            {%- endfor %}
+        </div>
+
+        <div class="rail-group">
+            <p class="rail-label">This deployment</p>
+            {%- for item in hub_nav if item.group == "ops" %}
+            <a class="rail-link" href="{{ item.href }}"
+               {% if item.id == hub_page %}aria-current="page"{% endif %}>
+                {{ icons.icon(item.icon) }}
+                <span>{{ item.label }}</span>
+            </a>
+            {%- endfor %}
+        </div>
+
+        <div class="rail-foot">
+            <div class="rail-live" data-rail-live>
+                <span class="dot is-idle" aria-hidden="true"></span>
+                <span>Bot is <b data-rail-state>{{ "connected" if gateway_connected else "not confirmed yet" }}</b></span>
+            </div>
+            <button class="rail-link" type="button" data-theme-toggle aria-label="Switch theme">
+                {{ icons.icon("sun") }}
+                <span data-theme-label>Light mode</span>
+            </button>
+            <p class="rail-hint">Read-only. Controls live in the console.</p>
+        </div>
+    </nav>
+
+    <div class="main">
+        <header class="topbar">
+            <div class="topbar-title">
+                <button class="rail-toggle" type="button" data-rail-toggle
+                        aria-controls="rail" aria-expanded="false">
+                    {{ icons.icon("menu", "rail-icon") }} Menu
+                </button>
+                <p class="eyebrow">{{ hub_kicker }}</p>
+                <h1>{{ hub_title }}</h1>
+                <p>{{ hub_lede }}</p>
+            </div>
+            <div class="topbar-actions">
+                <button class="palette-trigger" type="button" data-palette-open>
+                    {{ icons.icon("search", "rail-icon") }}
+                    Search
+                    <kbd>/</kbd>
+                </button>
+                {% block actions %}{% endblock %}
+            </div>
+        </header>
+
+        <main class="container" id="content">
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="container">
+            <div class="card">
+                <div class="card-head">
+                    <h3>This hub reads; the console writes</h3>
+                    <span class="pill is-info">Read-only by design</span>
+                </div>
+                <p class="card-note">
+                    Every page here is built from the bot's own registry and its own
+                    live readings, and nothing on this host can change a setting,
+                    send a message or reach a database. The moment a number needs
+                    an action behind it, the page hands off to the console on the
+                    bot's own host — which asks who you are first.
+                </p>
+                <div class="card-foot">
+                    <a class="btn btn-primary" href="/dashboard">
+                        Open the console {{ icons.icon("arrow", "rail-icon") }}
+                    </a>
+                    <a class="btn" href="{{ site.marketing_url }}">The public site</a>
+                    <a class="btn" href="{{ site.marketing_url }}/privacy">Privacy</a>
+                    <a class="btn" href="{{ site.marketing_url }}/terms">Terms</a>
+                </div>
+            </div>
+            <p class="stamp">
+                {{ counts.systems }} systems and {{ counts.commands }} commands, read
+                from the registry the bot boots from — so this page moves when the bot
+                does. Source is not public; every claim here is checkable from
+                <a class="arrow-link" href="/health">the bot's own health line</a>.
+            </p>
+        </footer>
+    </div>
+</div>
+
+{# The index is fetched, never inlined: a `<script type="application/json">`
+   block is subject to `script-src`, and the hub's policy has no
+   `'unsafe-inline'` — so an inlined index would be a blocked request and a
+   palette that never opens. The builder rewrites this path to the file it
+   writes beside the pages. #}
+<div class="palette" id="palette" role="dialog" aria-modal="true"
+     aria-label="Search the hub" data-index="/hub/index.json">
+    <div class="palette-backdrop" data-palette-close></div>
+    <div class="palette-panel">
+        <input class="palette-input" type="search" autocomplete="off"
+               spellcheck="false" placeholder="Jump to a page, a system or a command…"
+               aria-label="Search the hub">
+        <div class="palette-list" role="listbox" aria-label="Results"></div>
+        <div class="palette-foot">
+            <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
+            <span><kbd>↵</kbd> to open</span>
+            <span><kbd>esc</kbd> to close</span>
+        </div>
+    </div>
+</div>
+</body>
+</html>

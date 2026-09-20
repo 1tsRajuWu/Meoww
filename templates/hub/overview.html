@@ -1,0 +1,213 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+
+{% block content %}
+
+<section class="hero" data-reveal>
+    <div class="hero-grid">
+        <div>
+            <p class="eyebrow is-bare">
+                <span class="dot {{ 'is-ok is-live' if gateway_connected else 'is-warn' }}"
+                      data-live-state="gateway" aria-hidden="true"></span>
+                {{ "Connected" if gateway_connected else "Not confirmed at build time" }}
+            </p>
+            <h2>Everything this bot does, <em>in one place</em>.</h2>
+            <p class="lede">
+                One page for what is running, one for every system it gates, one for
+                every command it publishes, and one for the host it runs on. Nothing
+                here is a mock-up: the systems and commands below are read out of the
+                registry the bot itself boots from, so a feature that is added or
+                retired moves this hub with it.
+            </p>
+            <div class="hero-facts">
+                <span class="hero-fact">
+                    <b data-live="servers">{{ figures.text.servers or "—" }}</b>
+                    <span>servers</span>
+                </span>
+                <span class="hero-fact">
+                    <b data-live="members">{{ figures.text.members or "—" }}</b>
+                    <span>members reached</span>
+                </span>
+                <span class="hero-fact">
+                    <b>{{ counts.systems }}</b>
+                    <span>systems</span>
+                </span>
+                <span class="hero-fact">
+                    <b>{{ counts.commands }}</b>
+                    <span>commands</span>
+                </span>
+            </div>
+            <div class="hero-facts">
+                <a class="btn btn-primary" href="/dashboard">
+                    Open the console {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+                <a class="btn" href="/hub/systems">Browse the systems</a>
+                {% if site.invite_url %}
+                <a class="btn" href="{{ site.invite_url }}">Add it to a server</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-head">
+                    <h3>The live read</h3>
+                    <span class="pill is-info" data-live-state="gateway">gateway</span>
+                </div>
+                <p class="card-note">
+                    This page asks the bot's own host for one small public reading —
+                    counts, no names — and keeps asking every thirty seconds while the
+                    tab is open. If the host is asleep, the figures stay as built and
+                    the page says so instead of showing you a zero.
+                </p>
+                <p class="stamp" data-live-stamp data-live-at data-at="{{ figures.at or 0 }}">
+                    read just now
+                </p>
+            </div>
+            <div class="card">
+                <div class="card-head">
+                    <h3>What it has counted</h3>
+                    <span class="pill" data-live-at data-at="{{ figures.at or 0 }}">live</span>
+                </div>
+                {% set week = periods | selectattr("id", "equalto", "week") | first %}
+                {% if week %}
+                <div class="grid grid-2">
+                    <span class="stat">
+                        <b data-live="messages">{{ week.messages_text or "—" }}</b>
+                        <span>messages, last 7 days</span>
+                    </span>
+                    <span class="stat">
+                        <b data-live="people">{{ week.people_text or "—" }}</b>
+                        <span>people seen, last 7 days</span>
+                    </span>
+                </div>
+                {% endif %}
+                <a class="arrow-link" href="/hub/operations">
+                    Every window {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Where it stands</p>
+            {# Counted from the tones rather than from the number of lines: five
+               green readings is not "five things worth checking", and heading it
+               that way is how a page trains its reader to ignore it. #}
+            <h2>
+                {%- if watch_attention %}
+                {{ watch_attention }} reading{{ "" if watch_attention == 1 else "s" }}
+                {{ "wants" if watch_attention == 1 else "want" }} attention
+                {%- else %}
+                {{ watch | length }} readings, all clear
+                {%- endif %}
+            </h2>
+            <p>
+                Each line is a question the deployment can already answer about itself.
+                Nothing here is a guess and nothing here is a to-do list: a green line
+                means the reading came back clean, and an amber one names what would
+                turn it green. A line that cannot be read from here says so, and the
+                live read fills it in.
+            </p>
+        </div>
+    </div>
+
+    <div class="watch">
+        {%- for item in watch %}
+        <div class="watch-item is-{{ item.tone }}">
+            <span class="dot is-{{ item.tone }}" data-live-state="{{ item.live or '' }}"
+                  aria-hidden="true"></span>
+            <div>
+                <b>{{ item.title }}</b>
+                <span>{{ item.detail }}</span>
+            </div>
+            {%- if item.href %}
+            <a class="arrow-link" href="{{ item.href }}">
+                {{ item.action }} {{ icons.icon("arrow", "rail-icon") }}
+            </a>
+            {%- else %}
+            <span class="pill is-{{ item.tone }}">{{ item.badge }}</span>
+            {%- endif %}
+        </div>
+        {%- endfor %}
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">At a glance</p>
+            <h2>{{ counts.systems }} systems, {{ counts.toggleable }} of them switchable</h2>
+            <p>
+                A system is a feature an administrator can turn on or off per server.
+                The {{ counts.fixed }} that are not switchable are the core
+                utilities — they stay reachable everywhere, by design.
+            </p>
+        </div>
+        <div class="section-actions">
+            <a class="btn" href="/hub/systems">
+                All of them, in detail {{ icons.icon("arrow", "rail-icon") }}
+            </a>
+        </div>
+    </div>
+
+    <div class="catalogue">
+        {%- for category, group in system_groups %}
+        <article class="system" data-reveal>
+            <header class="system-head">
+                <span class="system-glyph" aria-hidden="true">{{ group[0].icon }}</span>
+                <b>{{ category }}</b>
+                <span class="pill">{{ group | length }} system{{ "" if group | length == 1 else "s" }}</span>
+            </header>
+            <div class="cmds">
+                {%- for system in group %}
+                <span class="cmd">{{ system.name }}</span>
+                {%- endfor %}
+            </div>
+        </article>
+        {%- endfor %}
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">What changed</p>
+            <h2>The last few things that moved</h2>
+            <p>
+                Read straight out of the project's own changelog, newest first — the
+                same file the team writes for itself, not a summary written for a
+                page.
+            </p>
+        </div>
+        <div class="section-actions">
+            <a class="btn" href="/hub/changes">
+                The whole history {{ icons.icon("arrow", "rail-icon") }}
+            </a>
+        </div>
+    </div>
+
+    {# Headlines only, exactly as the history page publishes them. An entry's
+       body is written for whoever is holding the code — it names files, the
+       shape of a past incident, and the settings involved — and this page is
+       unauthenticated. See `templates/hub/changes.html` for the long version of
+       why, and `tests/test_hub.py` for the guard that proves no page slipped. #}
+    <div class="rows">
+        {%- for entry in changes[:4] %}
+        <article class="row" data-reveal>
+            <span class="row-icon" aria-hidden="true">{{ entry.icon }}</span>
+            <div class="row-body">
+                <b>{{ entry.lead }}</b>
+            </div>
+            <span class="row-meta">
+                <span class="pill">{{ entry.version }}</span>
+            </span>
+        </article>
+        {%- endfor %}
+    </div>
+</section>
+
+{% endblock %}

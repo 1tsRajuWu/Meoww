@@ -1,0 +1,197 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+{% import "hub/_macros.html" as macros %}
+
+{% block content %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Four questions, four answers</p>
+            <h2>Being up is not the same as being configured</h2>
+            <p>
+                The bot's health line deliberately keeps these apart. A process can be
+                running with nobody able to sign in; the bot can be connected while the
+                public site publishes the wrong directory; the service can be up today
+                and have been down for two hours last Tuesday. Folding them into one
+                word is how a monitor that pages on "is it healthy" never fires for any
+                of the three.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        {%- for claim in claims %}
+        <article class="card" data-reveal>
+            <div class="card-head">
+                <h3>{{ claim.title }}</h3>
+                <span class="pill is-{{ claim.tone }}" data-live-state="{{ claim.live or '' }}">
+                    {{ claim.badge }}
+                </span>
+            </div>
+            <p class="card-note">{{ claim.detail }}</p>
+            <div class="card-foot">
+                <span class="stamp">{{ claim.answer }}</span>
+            </div>
+        </article>
+        {%- endfor %}
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Configuration</p>
+            <h2>{{ macros.config_headline(config) }}</h2>
+            <p>
+                Counts only, and no names. This page is public, and "this deployment
+                has no sign-in secret" is not a sentence to hand a stranger — so the
+                names live behind the console's sign-in, and what is published here is
+                how many are missing and how much each one would cost you. A missing
+                essential is a feature that cannot work; a missing tuning value is a
+                default you may be perfectly happy with.
+            </p>
+        </div>
+        <div class="section-actions">
+            <a class="btn" href="/dashboard/status">
+                The named list {{ icons.icon("arrow", "rail-icon") }}
+            </a>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">What it costs you</th>
+                    <th scope="col">Missing</th>
+                    <th scope="col">Present</th>
+                    <th scope="col">Of</th>
+                </tr>
+            </thead>
+            <tbody>
+                {%- for row in config.rows %}
+                <tr>
+                    <td>
+                        <b>{{ row.label }}</b>
+                        <span class="card-note">{{ row.what }}</span>
+                    </td>
+                    <td class="num">{{ macros.config_pill(row) }}</td>
+                    <td class="num">{{ macros.config_present(row) }}</td>
+                    <td class="num was">{{ row.total }}</td>
+                </tr>
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">What has been counted</p>
+            <h2>Four windows, and the same counting code behind all four</h2>
+            <p>
+                "Last 7 days" means today and the six days before it — the same seven
+                days <code>/activity</code> and the weekly digest mean, because it is
+                the same arithmetic. A figure that was never read is shown as a dash
+                rather than as a zero: a sleeping host has no gateway to ask, and a
+                confident <b>0 servers</b> reads as a bot nobody uses instead of as a
+                process that has not woken up.
+            </p>
+        </div>
+        <div class="section-actions">
+            <span class="stamp" data-live-stamp data-live-at data-at="{{ figures.at or 0 }}">read just now</span>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Window</th>
+                    <th scope="col" class="num">Messages</th>
+                    <th scope="col" class="num">Voice time</th>
+                    <th scope="col" class="num">Channels</th>
+                    <th scope="col" class="num">People seen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {%- for period in periods %}
+                <tr>
+                    <td>
+                        <b>{{ period.label }}</b>
+                        <span class="card-note">
+                            {%- if period.days %}{{ period.days }} days{% else %}everything kept{% endif %}
+                        </span>
+                    </td>
+                    <td class="num" data-live="period-{{ period.id }}-messages">{{ period.messages_text or "—" }}</td>
+                    <td class="num" data-live="period-{{ period.id }}-voice">{{ period.voice_text or "—" }}</td>
+                    <td class="num" data-live="period-{{ period.id }}-channels">{{ period.channels_text or "—" }}</td>
+                    <td class="num" data-live="period-{{ period.id }}-people">{{ period.people_text or "—" }}</td>
+                </tr>
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="bars" role="img"
+         aria-label="Messages counted in each window, drawn to scale">
+        {%- for period in periods %}
+        <div class="bar{{ ' is-now' if period.id == 'today' }}">
+            <b data-live="period-{{ period.id }}-messages">{{ period.messages_text or "—" }}</b>
+            <i data-bar-period="{{ period.id }}" data-bar-value="{{ period.messages or 0 }}"></i>
+            <span>{{ period.label }}</span>
+        </div>
+        {%- endfor %}
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Ask it yourself</p>
+            <h2>Every reading on this page has a URL</h2>
+            <p>
+                Nothing here is computed for the page alone. These are the endpoints
+                the hub itself reads, they are all GETs, and each one is safe to hand
+                to a monitor or open in a tab.
+            </p>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Endpoint</th>
+                    <th scope="col">What it answers</th>
+                    <th scope="col">Sign-in</th>
+                    <th scope="col"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {%- for endpoint in endpoints %}
+                <tr>
+                    <td><code>{{ endpoint.path }}</code></td>
+                    <td class="was">{{ endpoint.answers }}</td>
+                    <td>
+                        {%- if endpoint.public %}
+                        <span class="pill is-ok">public</span>
+                        {%- else %}
+                        <span class="pill is-warn">signed in</span>
+                        {%- endif %}
+                    </td>
+                    <td>
+                        <button class="btn btn-quiet" type="button" data-copy="{{ endpoint.absolute }}">
+                            {{ icons.icon("copy", "rail-icon") }} Copy
+                        </button>
+                    </td>
+                </tr>
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% endblock %}

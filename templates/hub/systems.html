@@ -1,0 +1,177 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+
+{% block content %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">The catalogue</p>
+            <h2>{{ counts.systems }} systems, drawn from one registry</h2>
+            <p>
+                Before this registry existed, one feature was described in six places
+                — the command gate, the dashboard's cards, the allow-list, the default
+                state, the help menu, and every cog's own literal check. Retiring a
+                feature meant editing all six, and a missed edit produced exactly the
+                symptoms people reported: a card that reads green while the command
+                says it is off, a switch that is flipped and changes nothing. There is
+                one list now, and this page is rendered from it.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-4">
+        <article class="card">
+            <span class="stat"><b>{{ counts.systems }}</b><span>systems declared</span></span>
+            <p class="card-note">Including the ones that cannot be switched off.</p>
+        </article>
+        <article class="card">
+            <span class="stat"><b>{{ counts.toggleable }}</b><span>switchable per server</span></span>
+            <p class="card-note">Each one turns its own commands on or off.</p>
+        </article>
+        <article class="card">
+            <span class="stat"><b>{{ counts.fixed }}</b><span>always available</span></span>
+            <p class="card-note">Core utilities. No switch, and no way to disable them.</p>
+        </article>
+        <article class="card">
+            <span class="stat"><b>{{ counts.root_commands }}</b><span>gated commands</span></span>
+            <p class="card-note">Root names one switch can silence.</p>
+        </article>
+    </div>
+
+    {%- if registry_problems %}
+    <div class="watch">
+        {%- for problem in registry_problems %}
+        <div class="watch-item is-bad">
+            <span class="dot is-bad" aria-hidden="true"></span>
+            <div><b>Registry problem</b><span>{{ problem }}</span></div>
+            <span class="pill is-bad">at boot</span>
+        </div>
+        {%- endfor %}
+    </div>
+    {%- else %}
+    <div class="watch">
+        <div class="watch-item is-ok">
+            <span class="dot is-ok" aria-hidden="true"></span>
+            <div>
+                <b>The registry validates clean</b>
+                <span>
+                    No duplicate ids, no duplicate help keys, no command claimed by
+                    two systems, and no gate naming a system that does not exist. The
+                    bot refuses to start on any of those, and this page reads the same
+                    check.
+                </span>
+            </div>
+            <span class="pill is-ok">consistent</span>
+        </div>
+    </div>
+    {%- endif %}
+</section>
+
+{%- for category, group in system_groups %}
+<section class="section" data-reveal id="cat-{{ category | lower | replace(' ', '-') }}">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">{{ category }}</p>
+            <h2>{{ group | length }} system{{ "" if group | length == 1 else "s" }}</h2>
+        </div>
+    </div>
+
+    <div class="grid grid-auto">
+        {%- for system in group %}
+        <article class="card" data-reveal>
+            <div class="card-head">
+                <h3><span aria-hidden="true">{{ system.icon }}</span> {{ system.name }}</h3>
+                {%- if not system.toggleable %}
+                <span class="pill is-info">always on</span>
+                {%- elif system.default_on %}
+                <span class="pill is-ok">on by default</span>
+                {%- else %}
+                <span class="pill is-warn">off until enabled</span>
+                {%- endif %}
+            </div>
+            <p class="card-note">{{ system.desc }}</p>
+
+            {%- if system.gates %}
+            <div>
+                <p class="eyebrow">Switched by</p>
+                <div class="cmds">
+                    {%- for gate in system.gates %}
+                    <span class="cmd">{{ gate }}</span>
+                    {%- endfor %}
+                </div>
+            </div>
+            {%- endif %}
+
+            {%- if system.commands %}
+            <div>
+                <p class="eyebrow">What it gives you</p>
+                <div class="cmds">
+                    {%- for command in system.commands %}
+                    <span class="cmd">{{ command }}</span>
+                    {%- endfor %}
+                </div>
+            </div>
+            {%- endif %}
+
+            <div class="card-foot">
+                {%- if system.cog %}
+                <span class="pill">{{ system.cog }}</span>
+                {%- endif %}
+                {%- if system.help_key %}
+                <a class="arrow-link" href="/hub/commands#{{ system.help_key }}">
+                    Its commands {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+                {%- endif %}
+            </div>
+        </article>
+        {%- endfor %}
+    </div>
+</section>
+{%- endfor %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Turning them on</p>
+            <h2>A switch is per server, and it is real</h2>
+            <p>
+                Flipping one does not just hide a card: the bot republishes that
+                server's command list, so the command disappears from Discord's own
+                picker rather than answering with a refusal. That is why the console
+                shows two readings side by side — what this server's switches say, and
+                what Discord actually came back with.
+            </p>
+        </div>
+        <div class="section-actions">
+            <a class="btn btn-primary" href="/dashboard/systems">
+                Switch them in the console {{ icons.icon("arrow", "rail-icon") }}
+            </a>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <caption class="card-note">Systems that cannot be switched off, and why</caption>
+            <thead>
+                <tr><th scope="col">System</th><th scope="col">What it owns</th></tr>
+            </thead>
+            <tbody>
+                {%- for system in fixed_systems %}
+                <tr>
+                    <td><b>{{ system.icon }} {{ system.name }}</b></td>
+                    <td class="was">{{ system.desc }}</td>
+                </tr>
+                {%- endfor %}
+                {%- for cog in core_cogs %}
+                <tr>
+                    <td><code>{{ cog }}</code></td>
+                    <td class="was">Core cog, loaded on every start.</td>
+                </tr>
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% endblock %}

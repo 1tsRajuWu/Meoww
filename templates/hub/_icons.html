@@ -1,0 +1,39 @@
+{#
+   The hub's icon set: a handful of 24×24 stroke paths, drawn from one macro so
+   a page never carries a one-off glyph. `currentColor` throughout, so an icon
+   takes the colour of whatever it sits in and there is no second palette.
+#}
+{% macro icon(name, cls="rail-icon") -%}
+<svg class="{{ cls }}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    {%- if name == "home" -%}
+        <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>
+    {%- elif name == "grid" -%}
+        <rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/>
+        <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/>
+    {%- elif name == "terminal" -%}
+        <rect x="2.5" y="4" width="19" height="16" rx="2.4"/><path d="m7 9.5 3 2.5-3 2.5"/><path d="M12.5 15.5H17"/>
+    {%- elif name == "pulse" -%}
+        <path d="M2.5 12h4l2.5-6 4 12 2.7-6h5.8"/>
+    {%- elif name == "stack" -%}
+        <path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z"/><path d="m3 12.5 9 4.5 9-4.5"/><path d="m3 17 9 4.5 9-4.5"/>
+    {%- elif name == "spark" -%}
+        <path d="M12 3v4.5M12 16.5V21M3 12h4.5M16.5 12H21"/><circle cx="12" cy="12" r="3.4"/>
+    {%- elif name == "info" -%}
+        <circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.8h.01"/>
+    {%- elif name == "search" -%}
+        <circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>
+    {%- elif name == "sun" -%}
+        <circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/>
+    {%- elif name == "arrow" -%}
+        <path d="M5 12h13"/><path d="m12.5 6.5 6 5.5-6 5.5"/>
+    {%- elif name == "menu" -%}
+        <path d="M4 7h16M4 12h16M4 17h16"/>
+    {%- elif name == "copy" -%}
+        <rect x="9" y="9" width="12" height="12" rx="2.2"/><path d="M15 9V5.2A2.2 2.2 0 0 0 12.8 3H5.2A2.2 2.2 0 0 0 3 5.2v7.6A2.2 2.2 0 0 0 5.2 15H9"/>
+    {%- elif name == "shield" -%}
+        <path d="M12 3 4.5 6v5.5c0 4.4 3 8 7.5 9.5 4.5-1.5 7.5-5.1 7.5-9.5V6L12 3Z"/><path d="m9 12 2.2 2.2L15.5 10"/>
+    {%- elif name == "clock" -%}
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5.4l3.4 2"/>
+    {%- endif -%}
+</svg>
+{%- endmacro %}

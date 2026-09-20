@@ -1,0 +1,257 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+{% import "hub/_macros.html" as macros %}
+
+{% block content %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Where it actually runs</p>
+            <h2>Three hosts, and a fourth that only watches</h2>
+            <p>
+                This is the shape of the whole project, and it is worth knowing because
+                it explains most of the failures this deployment has had. Every one of
+                them was a piece of this diagram answering a different question than the
+                one being asked — a build that succeeded while the site served an older
+                commit, a checkout where the database is deliberately absent, a project
+                left pointing at the source directory instead of the built one.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        {%- for node in topology %}
+        <article class="card" data-reveal>
+            <div class="card-head">
+                <h3>{{ node.name }}</h3>
+                <span class="pill is-{{ node.tone }}">{{ node.role }}</span>
+            </div>
+            <p class="card-note">{{ node.what }}</p>
+            <div class="cmds">
+                {%- for fact in node.facts %}
+                <span class="cmd">{{ fact }}</span>
+                {%- endfor %}
+            </div>
+            <div class="card-foot">
+                <a class="arrow-link" href="{{ node.link }}">
+                    {{ node.link_label }} {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+            </div>
+        </article>
+        {%- endfor %}
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Two decisions, written down</p>
+            <h2>Why the pages live where they live</h2>
+            <p>
+                These were not defaults. Both are the kind of choice that is cheap now
+                and expensive to reverse, so they are recorded here rather than left in
+                a commit message.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <article class="card" data-reveal>
+            <div class="card-head">
+                <h3>Static pages belong on a CDN with no bandwidth cap</h3>
+                <span class="pill is-ok">unlimited egress</span>
+            </div>
+            <p class="card-note">
+                The front door was served by the same process that runs the bot, and
+                that process is on a free tier that sleeps — so the page a stranger
+                reads before deciding to trust this thing was shut whenever nobody had
+                knocked recently. <b>Free</b> and <b>always reachable</b> are the whole
+                requirement, and the field is narrower than it looks:
+            </p>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th scope="col">Host</th><th scope="col">Free bandwidth</th><th scope="col">Verdict</th></tr>
+                    </thead>
+                    <tbody>
+                        {%- for host in hosts %}
+                        <tr>
+                            <td><b>{{ host.name }}</b></td>
+                            <td class="num">{{ host.bandwidth }}</td>
+                            <td class="was">{{ host.verdict }}</td>
+                        </tr>
+                        {%- endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="card-note">
+                Only one of those has no ceiling at all, in either direction. The other
+                two are free until a link does well, and then they are a bill — which is
+                the one thing "free forever" cannot survive.
+            </p>
+        </article>
+
+        <article class="card" data-reveal>
+            <div class="card-head">
+                <h3>The hub reads; the console writes</h3>
+                <span class="pill is-info">read-only</span>
+            </div>
+            <p class="card-note">
+                A public host must not hold a credential that can change a server's
+                configuration, so this site cannot. It is built from the bot's own
+                registry, its own changelog and its own public readings, and its one
+                network call is a merge of two endpoints that are already public and
+                already answer with counts instead of names.
+            </p>
+            <p class="card-note">
+                Everything that writes — switches, the composer, scheduled messages, the
+                per-server identity — hands off to the console on the bot's own process,
+                which asks who you are first and scopes every answer to the servers you
+                actually administer.
+            </p>
+            <div class="card-foot">
+                <a class="arrow-link" href="/dashboard">
+                    The console {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+                <a class="arrow-link" href="/hub/about">
+                    What this host can reach {{ icons.icon("arrow", "rail-icon") }}
+                </a>
+            </div>
+        </article>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Settings</p>
+            <h2>{{ config.total }} settings, and what a missing one costs</h2>
+            <p>
+                Two kinds, and the difference matters: <b>runtime</b> settings are read
+                by the running bot, and <b>build</b> settings are read by whichever
+                process renders these pages. A build setting that is absent produces a
+                page missing something — and no error anywhere, because the page has no
+                process behind it to raise. That is exactly how the front door shipped
+                without its invite button.
+            </p>
+            <p class="stamp" data-live-stamp data-live-at data-at="{{ figures.at or 0 }}">
+                {%- if not config.readable %}
+                not read from here — this page was built on a machine that is not the
+                deployment, so it asks the bot's own host instead
+                {%- else %}
+                read just now, on the host itself
+                {%- endif %}
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <article class="card">
+            <span class="stat">
+                <b data-live="config-unset">{{ config.missing if config.missing is not none else "—" }}</b>
+                <span>settings this deployment has not been given</span>
+            </span>
+            <p class="card-note">
+                Of {{ config.total }} the code knows about. A default is used for each
+                one, and most defaults are perfectly fine.
+            </p>
+        </article>
+        <article class="card">
+            <span class="stat">
+                <b data-live="config-attention">{{ config.attention if config.attention is not none else "—" }}</b>
+                <span>of those would stop something working</span>
+            </span>
+            <p class="card-note">
+                Essential, security or capability settings — the absences an operator
+                can act on. The rest are tuning, and leaving them alone is a decision.
+            </p>
+        </article>
+    </div>
+
+    <div class="grid grid-2">
+        {%- for scope in config.scopes %}
+        <article class="card">
+            <div class="card-head">
+                <h3>{{ scope.label }}</h3>
+                <span class="pill is-{{ scope.tone }}">
+                    {{ scope.missing ~ " missing" if scope.missing is not none else "not read here" }}
+                </span>
+            </div>
+            <p class="card-note">{{ scope.what }}</p>
+            <span class="stat">
+                <b>{{ macros.scope_fraction(scope) }}</b>
+                <span>present</span>
+            </span>
+        </article>
+        {%- endfor %}
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <caption class="card-note">
+                What each kind of absence costs, and how many this deployment has.
+            </caption>
+            <thead>
+                <tr>
+                    <th scope="col">Kind</th>
+                    <th scope="col">What it means</th>
+                    <th scope="col" class="num">Missing</th>
+                    <th scope="col" class="num">Of</th>
+                </tr>
+            </thead>
+            <tbody>
+                {%- for row in config.rows %}
+                <tr>
+                    <td><b>{{ row.label }}</b></td>
+                    <td class="was">{{ row.what }}</td>
+                    <td class="num">{{ macros.config_pill(row) }}</td>
+                    <td class="num was">{{ row.total }}</td>
+                </tr>
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="watch">
+        <div class="watch-item is-info">
+            <span class="dot is-info" aria-hidden="true"></span>
+            <div>
+                <b>No value on this page, and no name either</b>
+                <span>
+                    The hub reports how many settings are missing and never which ones.
+                    The names are part of a deployment's private surface — a missing
+                    sign-in secret is a fact about where it is weak — so they are
+                    answered, in full, to a signed-in administrator on the console.
+                </span>
+            </div>
+            <span class="pill is-info">by design</span>
+        </div>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">The pipeline</p>
+            <h2>How a change reaches production</h2>
+        </div>
+    </div>
+
+    <div class="rows">
+        {%- for step in pipeline %}
+        <div class="row">
+            <span class="row-icon" aria-hidden="true">{{ step.icon }}</span>
+            <div class="row-body">
+                <b>{{ step.title }}</b>
+                <span>{{ step.detail }}</span>
+            </div>
+            <span class="row-meta">
+                <span class="pill is-{{ step.tone }}">{{ step.badge }}</span>
+            </span>
+        </div>
+        {%- endfor %}
+    </div>
+</section>
+
+{% endblock %}

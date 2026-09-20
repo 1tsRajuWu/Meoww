@@ -1,0 +1,45 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+
+{% block content %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">What changed</p>
+            <h2>{{ changes_total }} entries, newest first</h2>
+            <p>
+                The headlines are read straight out of the project's own changelog —
+                the file written for the people working on it, not a summary written
+                for a page. Each entry's body is deliberately not published here: it
+                is written for whoever is holding the code, and it names files and
+                settings that a public page has no business listing. What shipped is
+                the headline; how it was found is the repository's business.
+            </p>
+        </div>
+        <div class="section-actions">
+            <span class="pill">showing the newest {{ changes | length }} of {{ changes_total }}</span>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="rows">
+        {%- for entry in changes %}
+        <article class="row" data-reveal>
+            <span class="row-icon" aria-hidden="true">{{ entry.icon }}</span>
+            <div class="row-body">
+                <b>{{ entry.lead }}</b>
+                {%- if entry.date %}
+                <span>{{ entry.date }}</span>
+                {%- endif %}
+            </div>
+            <span class="row-meta">
+                <span class="pill">{{ entry.version }}</span>
+            </span>
+        </article>
+        {%- endfor %}
+    </div>
+</section>
+
+{% endblock %}

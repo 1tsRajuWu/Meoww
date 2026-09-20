@@ -1,0 +1,174 @@
+{% extends "hub/base.html" %}
+{% import "hub/_icons.html" as icons %}
+
+{% block content %}
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">The reference</p>
+            <h2>{{ counts.commands }} commands, and what governs each one</h2>
+            <p>
+                This is the catalogue: every command the bot can publish, and the
+                switch that decides whether a given server has it. Press <kbd>/</kbd>
+                and type to search it. What this page cannot tell you is whether a
+                <em>particular</em> server has a command right now — that answer lives
+                behind the console's sign-in, per server, and it is read back from
+                Discord rather than assumed.
+            </p>
+        </div>
+        <div class="section-actions">
+            <a class="btn btn-primary" href="/dashboard/commands">
+                One server's real list {{ icons.icon("arrow", "rail-icon") }}
+            </a>
+        </div>
+    </div>
+
+    <div class="grid grid-3">
+        <article class="card">
+            <span class="stat"><b>{{ counts.root_commands }}</b><span>root names gated by a switch</span></span>
+            <p class="card-note">
+                Discord reports the root name for a subcommand, so
+                <code>/market buy</code> is gated as <code>market</code>.
+            </p>
+        </article>
+        <article class="card">
+            <span class="stat"><b>{{ shared_commands | length }}</b><span>need two systems at once</span></span>
+            <p class="card-note">
+                The casino pair, and reading a wallet from a fun command. They are
+                listed separately below because a single switch does not decide them.
+            </p>
+        </article>
+        <article class="card">
+            <span class="stat"><b>{{ always_allowed | length }}</b><span>never gated</span></span>
+            <p class="card-note">
+                Reachable on every server regardless of any switch — the way out of a
+                configuration mistake.
+            </p>
+        </article>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Gated by one system</p>
+            <h2>The commands each switch controls</h2>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Command</th>
+                    <th scope="col">Governed by</th>
+                    <th scope="col">What a member types</th>
+                </tr>
+            </thead>
+            <tbody>
+                {%- for system in systems if system.gates %}
+                {%- for gate in system.gates %}
+                <tr id="{{ gate }}">
+                    <td><code>/{{ gate }}</code></td>
+                    <td>
+                        <a class="arrow-link" href="#system-{{ system.id }}">
+                            {{ system.icon }} {{ system.name }}
+                        </a>
+                        {%- if not system.toggleable %}
+                        <span class="pill is-info">always on</span>
+                        {%- endif %}
+                    </td>
+                    <td class="was">
+                        {%- for command in system.commands %}{{ command }}{% if not loop.last %} · {% endif %}{% endfor -%}
+                    </td>
+                </tr>
+                {%- endfor %}
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Gated by more than one</p>
+            <h2>{{ shared_commands | length }} commands that need both</h2>
+            <p>
+                These answer only when every system they name is enabled. They are
+                declared in one place beside the registry rather than being spread
+                across the cogs that implement them, so a switch cannot be flipped
+                without the gate noticing.
+            </p>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr><th scope="col">Command</th><th scope="col">Needs all of</th></tr>
+            </thead>
+            <tbody>
+                {%- for command in shared_commands %}
+                <tr>
+                    <td><code>/{{ command.name }}</code></td>
+                    <td>
+                        {%- for system in command.systems %}
+                        <span class="pill">{{ system.icon }} {{ system.name }}</span>
+                        {%- endfor %}
+                    </td>
+                </tr>
+                {%- endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section" data-reveal>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Never gated</p>
+            <h2>{{ always_allowed | length }} commands that are always there</h2>
+            <p>
+                Without this list, switching off the wrong system could leave an
+                administrator with no way to switch it back on. These are the way out,
+                and they are deliberately few.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-3">
+        <article class="card">
+            <div class="card-head"><h3>Available everywhere</h3><span class="pill is-ok">{{ always_allowed | length }}</span></div>
+            <div class="cmds">
+                {%- for command in always_allowed %}
+                <span class="cmd">/{{ command }}</span>
+                {%- endfor %}
+            </div>
+        </article>
+        <article class="card">
+            <div class="card-head"><h3>Safe in a direct message</h3><span class="pill is-info">{{ dm_allowed | length }}</span></div>
+            <p class="card-note">
+                Everything else needs a server: these commands read a guild id for the
+                wallet, the level row or the switch, and answering without one used to
+                raise rather than reply.
+            </p>
+            <div class="cmds">
+                {%- for command in dm_allowed %}
+                <span class="cmd">/{{ command }}</span>
+                {%- endfor %}
+            </div>
+        </article>
+        <article class="card">
+            <div class="card-head"><h3>Root name, not the path</h3><span class="pill">how gating works</span></div>
+            <p class="card-note">
+                A gate names the <b>root</b> command, because that is what Discord
+                reports when a subcommand runs. <code>/activity top</code> is gated as
+                <code>activity</code>, and there is exactly one gate for all of it.
+            </p>
+        </article>
+    </div>
+</section>
+
+{% endblock %}

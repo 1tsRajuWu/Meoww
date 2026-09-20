@@ -1,0 +1,50 @@
+{#
+   Macros the hub's pages share.
+
+   These exist for one reason, and it is a defect that actually happened: the
+   configuration table is drawn on two pages, and each was written by hand. One
+   of them spelled an *unread* count as `0` and the other spelled it as a dash,
+   so the same deployment read as "nothing missing" on one page and "cannot be
+   read from here" on the next — with both pages rendered from the same payload.
+   Any figure that appears on more than one page belongs in here.
+
+   The rule every macro follows: **an unread value is a dash, never a zero.** A
+   zero is a measurement. `utils/figures.py` says the same thing at length about
+   a sleeping host, and it is the reason `None` travels all the way to the
+   template instead of being defaulted away somewhere convenient.
+#}
+
+{# The "missing" cell: a count, a green zero, or an em dash for "not read". #}
+{% macro config_pill(row) -%}
+    {%- if row.missing is none -%}
+    <span class="pill" data-live="config-{{ row.label | lower }}">—</span>
+    {%- elif row.missing -%}
+    <span class="pill is-{{ row.tone }}">{{ row.missing }}</span>
+    {%- else -%}
+    <span class="pill is-ok">0</span>
+    {%- endif -%}
+{%- endmacro %}
+
+{# The "present" cell. `0` and `None` are different claims, and Python would
+   print the second as the word "None" — which is what one page did. #}
+{% macro config_present(row) -%}
+    {%- if row.present is none -%}
+    <span data-live="config-present-{{ row.label | lower }}">—</span>
+    {%- else -%}
+    {{ row.present }}
+    {%- endif -%}
+{%- endmacro %}
+
+{# The scope card's "present of total", guarded the same way. #}
+{% macro scope_fraction(scope) -%}
+    {%- if scope.present is none -%}—{%- else -%}{{ scope.present }}/{{ scope.total }}{%- endif -%}
+{%- endmacro %}
+
+{# A heading that is true whether or not this copy could read the environment. #}
+{% macro config_headline(config) -%}
+    {%- if config.set is none -%}
+    {{ config.total }} settings, read from the host itself
+    {%- else -%}
+    {{ config.set }} of {{ config.total }} settings present
+    {%- endif -%}
+{%- endmacro %}
