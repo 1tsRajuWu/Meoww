@@ -45,9 +45,7 @@
 
             <div class="lp-hero-bottom">
                 <p class="lp-lede">
-                    Three steps, about five minutes, and nothing to install. Everything the
-                    bot does is listed on <a href="/systems">the systems page</a> — you can
-                    switch any of it off afterwards, per server.
+                    Three steps, five minutes, nothing to install.
                 </p>
             </div>
         </section>
@@ -67,9 +65,7 @@
                     <div>
                         <h3>Add the bot</h3>
                         <p>
-                            The invite asks for <b>Administrator</b> — one permission, so
-                            nothing breaks later. Prefer less? The second link asks only for
-                            what {{ bot_name }} uses, and says so if a system needs more.
+                            Asks for <b>Administrator</b> so nothing breaks. Or use limited permissions.
                         </p>
                     </div>
                     {% if invite_url %}
@@ -86,9 +82,7 @@
                     <div>
                         <h3>Run <code>/help</code></h3>
                         <p>
-                            That panel lists every command you can reach, and its ⚡ Open Dashboard
-                            button mints a single-use sign-in link for an administrator of that
-                            server.
+                            Lists every command. ⚡ Open Dashboard signs you in.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="#ways-in">How signing in works</a>
@@ -98,9 +92,7 @@
                     <div>
                         <h3>Switch off what you don't want</h3>
                         <p>
-                            Every system has its own toggle. Turning one off removes its commands
-                            from that server's picker and stops its jobs there; nothing else changes
-                            anywhere.
+                            Each system toggles per server. Nothing else changes.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="/systems">See the systems</a>
@@ -129,9 +121,7 @@
                     <div>
                         <h3>Sign in with Discord</h3>
                         <p>
-                            Asks for your name and your server list, nothing else, and never
-                            stores the token. You see the servers you run <em>that the bot is
-                            already in</em>.
+                            Your name and server list. Token never stored.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
@@ -141,8 +131,7 @@
                     <div>
                         <h3>One-time link</h3>
                         <p>
-                            Made by the ⚡ Open Dashboard button on <code>/help</code>. One
-                            server, one use, fifteen minutes. It is a credential — don't share it.
+                            From ⚡ Open Dashboard on <code>/help</code>. One server, one use, 15 min.
                         </p>
                     </div>
                     <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
@@ -171,9 +160,7 @@
                         <span class="line"><span class="line-inner">Everything above</span></span>
                         <span class="line"><span class="line-inner">arrives with the bot</span></span>
                     </h2>
-                    <p class="lp-lede" style="margin-top: 1.25rem">                Nothing to download, nothing to install. Adding {{ bot_name }} puts every
-                system on this page into your server — and the dashboard is where you switch
-                off the ones you do not want.
+                    <p class="lp-lede" style="margin-top: 1.25rem">                No downloads. Add the bot and everything's in your server.
                     </p>
                 </div>
                 <div style="display:grid; gap:0.75rem">
@@ -185,8 +172,7 @@
                         Add it with limited permissions
                     </a>
                     <p class="dim" style="margin:0; font-size:0.875rem">
-                        The same bot, asking for only the permissions its systems use —
-                        each one degrades instead of breaking when it is missing one.
+                        Same bot, fewer permissions asked.
                     </p>
                     {% endif %}
                 </div>

@@ -468,6 +468,14 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "PREVIEW_GATEWAY", TUNING,
+        "which of the three gateway states the dashboard preview harness draws",
+        "the preview draws a connected gateway, which is what the harness is "
+        "for; the badge reads Live. Only the middle state has no way to be seen "
+        "without it, and that state is the one worth looking at.",
+        scope=BUILD,
+    ),
+    Setting(
         "AVATAR_PATH", TUNING,
         "which image file the avatar upload script sends",
         "the script uses the image in the repository's assets folder.",

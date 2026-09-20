@@ -107,9 +107,7 @@
                     <span>{{ bot_name }}</span>
                 </a>
                 <p class="lp-footer-blurb">
-                    One bot for the whole server: moderation, tickets with feedback, leveling, an
-                    economy, a live market and per-channel activity — every system switchable, and
-                    a real-time panel to drive it from.
+                    Moderation, leveling, tickets, economy, market — all switchable. One dashboard.
                 </p>
             </div>
             <nav aria-label="Product">
@@ -150,8 +148,8 @@
         <div class="lp-footer-bottom lp-inner">
             <p style="margin:0">
                 © 2026 {{ bot_name }}. Not affiliated with Discord Inc.
-                {% if retention_days %}Activity counts last {{ retention_days }} days,{% endif %}
-                message history 90 — the Privacy Policy has the detail.
+                {% if retention_days %}Activity: {{ retention_days }} days.{% endif %}
+                Messages: 90. <a href="/privacy">Privacy Policy</a>.
             </p>
             <nav aria-label="Elsewhere">
                 {% if source_repository %}<a href="{{ source_repository }}" rel="noopener">GitHub</a>{% endif %}

@@ -159,8 +159,7 @@
         <section class="lp-band lp-deep lp-section lp-inner" aria-label="Live figures">
             <span class="lp-eyebrow on-dark">Right now</span>
             <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
-                <span class="line"><span class="line-inner">The numbers,</span></span>
-                <span class="line"><span class="line-inner">as they stand</span></span>
+                <span class="line"><span class="line-inner">The numbers</span></span>
             </h2>
             <dl class="lp-stats">
                 {% for stat in stats %}
@@ -176,8 +175,7 @@
                 {% endfor %}
             </dl>
             <p class="lp-lede" style="margin-top: 1.5rem">
-                Counted by the deployment itself. What each system does, and how many
-                commands it brings, is on <a href="/systems">the systems page</a>.
+                Live from the running bot. Details on <a href="/systems">the systems page</a>.
             </p>
         </section>
 
@@ -198,17 +196,14 @@
                     <span class="line"><span class="line-inner">{{ features|length }} of them switchable</span></span>
                 </h2>
                 <p>
-                    Switch a system off and its commands leave that server's picker — every
-                    other server keeps them. The list below comes from the bot's own registry,
-                    so it cannot go stale.
+                    Switch any system off per server. The list is the bot's own registry.
                 </p>
                 {# The heading is the total and the grid is the switchable subset, so the
                    difference is named rather than left to be counted. The name comes
                    from the registry (`always_on`, read by `/systems` too), which is what
                    keeps the two pages saying the same thing about the same system. #}
                 <p class="lp-teaser-note">
-                    Plus <b>{{ always_on|join(", ") }}</b>, which every server keeps — there is
-                    nothing to switch off.
+                    Plus <b>{{ always_on|join(", ") }}</b> — always on.
                 </p>
             </div>
 
@@ -226,7 +221,7 @@
 
             <div class="lp-more">
                 <a class="btn btn-primary" href="/systems">See all {{ system_count }} systems</a>
-                <span class="dim">Every command, and a panel that shows you what switching one off does.</span>
+                <span class="dim">Commands, toggles, and a live demo.</span>
             </div>
         </section>
 
@@ -245,21 +240,21 @@
                     <span class="lp-step-num">1</span>
                     <div>
                         <h3>Add the bot</h3>
-                        <p>One permission, or a smaller set if you would rather.</p>
+                        <p>One click. One permission.</p>
                     </div>
                 </li>
                 <li data-reveal data-reveal-delay="120">
                     <span class="lp-step-num">2</span>
                     <div>
                         <h3>Run <code>/help</code></h3>
-                        <p>Everything you can reach, and the button that signs you in.</p>
+                        <p>See your commands and sign in.</p>
                     </div>
                 </li>
                 <li data-reveal data-reveal-delay="240">
                     <span class="lp-step-num">3</span>
                     <div>
                         <h3>Switch off what you don't want</h3>
-                        <p>Each system has its own toggle, per server.</p>
+                        <p>Toggle per server.</p>
                     </div>
                 </li>
             </ol>
@@ -270,8 +265,7 @@
             <div class="lp-more" id="ways-in">
                 <a class="btn btn-primary" href="/start">How to set it up</a>
                 <span class="dim">
-                    Two ways to sign in, the invite links, and what each one asks for —
-                    on <a href="/start#ways-in">one page</a>.
+                    Invites, sign-in, permissions — on <a href="/start#ways-in">one page</a>.
                 </span>
             </div>
         </section>
@@ -293,9 +287,7 @@
                         <span class="line"><span class="line-inner">Everything above</span></span>
                         <span class="line"><span class="line-inner">arrives with the bot</span></span>
                     </h2>
-                    <p class="lp-lede" style="margin-top: 1.25rem">                Nothing to download, nothing to install. Adding {{ bot_name }} puts every
-                system on this page into your server — and the dashboard is where you switch
-                off the ones you do not want.
+                    <p class="lp-lede" style="margin-top: 1.25rem">                No downloads. Add the bot and everything's in your server.
                     </p>
                 </div>
                 <div style="display:grid; gap:0.75rem">
@@ -307,8 +299,7 @@
                         Add it with limited permissions
                     </a>
                     <p class="dim" style="margin:0; font-size:0.875rem">
-                        The same bot, asking for only the permissions its systems use —
-                        each one degrades instead of breaking when it is missing one.
+                        Same bot, fewer permissions asked.
                     </p>
                     {% endif %}
                 </div>

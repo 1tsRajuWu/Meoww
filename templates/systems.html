@@ -54,9 +54,8 @@
 
             <div class="lp-hero-bottom">
                 <p class="lp-lede">
-                    {{ system_count }} systems, {{ features|length }} of them switchable, and
-                    {{ command_count }} commands between them. Everything below is the bot's own
-                    registry — it cannot list something the bot does not have.
+                    {{ system_count }} systems. {{ command_count }} commands.
+                    Everything listed is what the bot actually has.
                 </p>
             </div>
         </section>
@@ -72,10 +71,8 @@
                     <span class="line"><span class="line-inner">{{ features|length }} of them switchable</span></span>
                 </h2>
                 <p>
-                    Switch a system off and its commands leave that server's picker — every
-                    other server keeps them. The {{ features|length }} rows below are the
-                    switchable ones; <b>{{ always_on|join(", ") }}</b> is always on and has
-                    no toggle.
+                    Switch a system off and its commands leave that server only.
+                    <b>{{ always_on|join(", ") }}</b> is always on.
                 </p>
             </div>
 
@@ -129,8 +126,7 @@
             </h2>
 
             <p class="lp-try-lede">
-                Press a system. The list is the command picker Discord would show in that
-                server — something a settings page usually cannot show you.
+                Press a system. See the commands Discord would show.
             </p>
 
             <div class="lp-try-layout">
@@ -164,7 +160,7 @@
                         </div>
                     </div>
                     <div class="lp-try-foot">
-                        <span>Nothing is sent anywhere and no server is changed — this is the same rule the dashboard applies, shown rather than described.</span>
+                        <span>Nothing is sent. No server is changed.</span>
                         <button type="button" class="lp-try-reset" data-try-reset>Reset to all on</button>
                     </div>
                 </div>
