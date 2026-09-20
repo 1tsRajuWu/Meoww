@@ -140,6 +140,15 @@
                     <p>Connected to <strong>{{ guild_name }}</strong> — changes here apply in Discord immediately.</p>
                 </div>
                 <div class="topbar-actions">
+                    {# The theme control the landing page and the console both offer.
+                       This page loaded `theme.js` — so it *wore* the visitor's
+                       theme — and had no way to choose one, which made the panel
+                       the one surface where the choice could only be made
+                       somewhere else. It sits in the topbar rather than the rail
+                       because the rail's foot is hidden below 860px, and a
+                       control that disappears on a phone is a control that half
+                       the visitors do not have. #}
+                    {% set theme_compact = true %}{% include "theme_picker.html" %}
                     {# The label is an attribute, not only the hidden text: below 860px
                        the stylesheet hides both the wording and the key hint, which
                        left a 39px magnifier with no accessible name at all. The
@@ -153,12 +162,6 @@
                         <span>Jump to anything…</span>
                         <kbd>Ctrl/⌘ K</kbd>
                     </button>
-                    {% if pick_server_url %}
-                    <a class="btn" href="{{ pick_server_url }}">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
-                        Servers
-                    </a>
-                    {% endif %}
                     {% if can_switch_guild and guilds and guilds|length > 1 %}
                     <label class="visually-hidden" for="guild-select" style="position:absolute;left:-9999px;">Server</label>
                     {# The switcher keeps the page you are on: choosing a server is not
@@ -169,24 +172,37 @@
                         {% endfor %}
                     </select>
                     {% endif %}
-                    {% if selling %}
-                    <a class="btn" href="/pricing">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.8h19"/><path d="M6.5 14.5h3"/></svg>
-                        Pricing
-                    </a>
-                    {% endif %}
                     <a class="btn" href="/market">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5 9 11l4 3.6L21 6"/><path d="M15.2 6H21v5.8"/></svg>
                         Market
                     </a>
-                    {# Adding the bot somewhere else is the one action here that is
-                       not about the server currently open, and it is the action a
-                       person who manages several servers reaches for most. #}
-                    {% if invite_url %}
-                    <a class="btn" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
-                        Add to a server
-                    </a>
+                    {% if pick_server_url or selling or invite_url %}
+                    <details class="menu" id="more-menu">
+                        <summary class="btn">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                            <span>More</span>
+                        </summary>
+                        <div class="menu-panel" role="menu">
+                            {% if pick_server_url %}
+                            <a class="menu-item" role="menuitem" href="{{ pick_server_url }}">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+                                Servers
+                            </a>
+                            {% endif %}
+                            {% if selling %}
+                            <a class="menu-item" role="menuitem" href="/pricing">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.8h19"/><path d="M6.5 14.5h3"/></svg>
+                                Pricing
+                            </a>
+                            {% endif %}
+                            {% if invite_url %}
+                            <a class="menu-item" role="menuitem" href="{{ invite_url }}" target="_blank" rel="noopener" title="Add Meow to another server you manage">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                                Add to a server
+                            </a>
+                            {% endif %}
+                        </div>
+                    </details>
                     {% endif %}
                     <form method="POST" action="/logout" class="logout-form">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

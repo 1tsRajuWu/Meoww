@@ -25,6 +25,13 @@
 
     <main class="auth-shell">
         <div class="auth-card glass">
+            {# A sign-in card is a page a visitor can land on first, and the theme
+               is chosen once and kept for every page after it — so this one offers
+               the control too, in the corner the console's own sign-in uses for
+               its swatches. #}
+            <div class="auth-theme">
+                {% set theme_compact = true %}{% include "theme_picker.html" %}
+            </div>
             <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
             <h1>Sign in to the control panel</h1>
             <p class="hint" style="margin: 8px 0 var(--space-5)">

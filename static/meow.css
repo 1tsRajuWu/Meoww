@@ -1119,6 +1119,15 @@ textarea:focus {
     margin-bottom: var(--space-4);
 }
 
+/* The theme control in the sign-in card's corner. A row rather than an absolutely
+   positioned element: the card is the centred thing on this page, and a control
+   pinned to its edge would overlap the logo at the narrow end of its own width. */
+.auth-theme {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-3);
+}
+
 .auth-card h1 { font-size: 21px; }
 
 .divider {

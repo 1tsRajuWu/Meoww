@@ -45,6 +45,10 @@
                         <span class="sub">{{ "via Discord" if user.name else "passkey · every server" }}</span>
                     </span>
                 </span>
+                {# The same control the landing page, the panel and the console
+                   carry: this page loads `theme.js`, so it has always *worn* the
+                   visitor's theme and never let them change it. #}
+                {% set theme_compact = true %}{% include "theme_picker.html" %}
                 {% if invite_url %}
                 <a class="btn btn-sm" href="{{ invite_url }}" target="_blank" rel="noopener">➕ Add to a server</a>
                 {% endif %}
@@ -107,9 +111,7 @@
                     </span>
                     {% endif %}
                 </span>
-                {% if current_guild_id == server.id|int %}
-                <span class="pill pill-ok">Open now</span>
-                {% endif %}
+
                 <form method="POST" action="/servers">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="guild_id" value="{{ server.id }}">

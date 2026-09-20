@@ -89,6 +89,11 @@
     <label class="muted" for="picker" style="display:none">Instrument</label>
     <select id="picker" aria-label="Jump to another instrument"></select>
   </div>
+  {# The control every other page carries. This one loaded `theme.js` and had no
+     way in to it — so the market was the only surface a visitor could not
+     recolour, and the only one where a theme they had already chosen left the
+     chart itself behind (see the palette read in the script below). #}
+  {% set theme_compact = true %}{% include "theme_picker.html" %}
 </header>
 
 <main data-stagger="90">
@@ -225,55 +230,108 @@ function loadScript(src, timeoutMs = 10000) {
   });
 }
 
+// ---------------------------------------------------------------- The chart's palette -----
+// A canvas cannot read CSS. Every colour the chart library draws has to be handed
+// to it as a value, and the values here used to be nineteen literals of Discord's
+// dark palette — `#2b2d31` for the plot, blurple `#5865f2` for the crosshair and
+// the volume bars — inside a page that is otherwise themed. Choosing Sakura
+// recoloured the header, the cards and the numbers, and then the largest thing on
+// the screen stayed grey-and-blurple. Worse, two of them were the *old* accent, so
+// the page disagreed with itself about what colour this product is.
+//
+// So the palette is read from the stylesheet at the moment the chart is built and
+// again whenever the theme changes: **one source of truth, consulted twice.** The
+// theme can only ever be in one place (`data-theme` on `<html>`, set by
+// `static/theme.js`), and a `MutationObserver` on that attribute is the same
+// mechanism the script itself uses to swap the logo, so there is no second event
+// to invent and nothing to keep in sync.
+function palette() {
+  const style = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => {
+    const value = (style.getPropertyValue(name) || "").trim();
+    return value || fallback;
+  };
+  return {
+    plot: read("--surface-card", "#17171a"),
+    grid: read("--border", "#26262b"),
+    axis: read("--text-muted", "#8b8883"),
+    text: read("--text-secondary", "#a9a6a1"),
+    accent: read("--accent", "#5b5ef0"),
+    up: read("--green", "#23a55a"),
+    down: read("--red", "#f23f43"),
+  };
+}
+
+// The options a theme change has to move. `layout` and both scales are here
+// because a price axis drawn for a dark card is unreadable on a light one.
+function themedChartOptions() {
+  const c = palette();
+  return {
+    layout: { background: { type: "solid", color: c.plot }, textColor: c.text },
+    grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+    crosshair: {
+      vertLine: { color: c.axis, labelBackgroundColor: c.accent },
+      horzLine: { color: c.axis, labelBackgroundColor: c.accent },
+    },
+    rightPriceScale: { borderColor: c.grid },
+    timeScale: { borderColor: c.grid },
+  };
+}
+
+function themedSeriesOptions() {
+  const c = palette();
+  return {
+    candles: {
+      upColor: c.up,
+      downColor: c.down,
+      borderUpColor: c.up,
+      borderDownColor: c.down,
+      wickUpColor: c.up,
+      wickDownColor: c.down,
+    },
+    volume: { color: c.accent },
+  };
+}
+
+function repaintChart() {
+  if (!chartObj) return;
+  chartObj.applyOptions(themedChartOptions());
+  if (candleSeries) candleSeries.applyOptions(themedSeriesOptions().candles);
+  if (volumeSeries) volumeSeries.applyOptions(themedSeriesOptions().volume);
+}
+
 // ---------------------------------------------------------------- Lightweight Charts setup -----
 function initChart() {
   if (typeof LightweightCharts === "undefined") return false;
   const wrap = el("chartWrap");
   wrap.innerHTML = "";
+  const themed = themedChartOptions();
   chartObj = LightweightCharts.createChart(wrap, {
-    layout: {
-      background: { type: "solid", color: "#2b2d31" },
-      textColor: "#dbdee1",
-      fontSize: 12,
-    },
-    grid: {
-      vertLines: { color: "#3a3d44" },
-      horzLines: { color: "#3a3d44" },
-    },
-    crosshair: {
-      mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { width: 1, color: "#949ba4", style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: "#5865f2" },
-      horzLine: { width: 1, color: "#949ba4", style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: "#5865f2" },
-    },
-    rightPriceScale: {
-      borderColor: "#3a3d44",
-      scaleMargins: { top: 0.08, bottom: 0.2 },
-    },
-    timeScale: {
-      borderColor: "#3a3d44",
-      timeVisible: true,
-      secondsVisible: false,
-    },
+    ...themed,
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal, ...themed.crosshair },
+    rightPriceScale: { ...themed.rightPriceScale, scaleMargins: { top: 0.08, bottom: 0.2 } },
+    timeScale: { ...themed.timeScale, timeVisible: true, secondsVisible: false },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
     handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
   });
 
-  candleSeries = chartObj.addCandlestickSeries({
-    upColor: "#2ecc71",
-    downColor: "#ed4245",
-    borderDownColor: "#ed4245",
-    borderUpColor: "#2ecc71",
-    wickDownColor: "#ed4245",
-    wickUpColor: "#2ecc71",
-  });
+  candleSeries = chartObj.addCandlestickSeries(themedSeriesOptions().candles);
 
   volumeSeries = chartObj.addHistogramSeries({
-    color: "#5865f2",
+    ...themedSeriesOptions().volume,
     priceFormat: { type: "volume" },
     priceScaleId: "vol",
   });
   chartObj.priceScale("vol").applyOptions({
     scaleMargins: { top: 0.85, bottom: 0 },
+  });
+
+  // One observer for the life of the chart: `data-theme` on `<html>` is the only
+  // place the choice lives, whoever moved it (the picker above, the console's own
+  // swatches on another page, or a second tab).
+  new MutationObserver(repaintChart).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
   });
 
   // Resize observer for responsive charts
