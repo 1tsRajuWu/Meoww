@@ -1,6 +1,6 @@
 {
-  "hash": "ff2f9f6b7b303107f533f78654f88fb2946a956e88e73fb4f0fb080578a075a3",
+  "hash": "4d9dd5b6818a20b0b14f1f9205bb86948e7b77096581f6d38f30f62c0c50a202",
   "sources": 24,
-  "builtAt": "2026-09-20T10:56:42.076Z",
+  "builtAt": "2026-09-20T11:28:19.894Z",
   "note": "Written by console/scripts/stamp.mjs. tests/test_console.py checks this against console/src."
 }

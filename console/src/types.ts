@@ -41,6 +41,35 @@ export type FigurePeriod = { id: string; label: string };
  * `{status, at, stale, total, up, down, ...}` — and reading a name one of them
  * does not have is how a row prints an em dash on a page that looks fine.
  */
+/**
+ * One unset setting, as `config_audit.attention_json()` describes it.
+ *
+ * Presence only: the module never reads a value, secret or not, so nothing here
+ * can carry one.
+ */
+export type NamedSetting = {
+  name: string;
+  kind: string;
+  what?: string;
+  cost?: string;
+  secret?: boolean;
+};
+
+/**
+ * The configuration reading.
+ *
+ * `health_json` answers with a count and no names, because `/health` is public.
+ * The two payloads behind the operator's sign-in add `named`, which is what
+ * turns the word "attention" into something the reader can act on.
+ */
+export type ConfigHealth = {
+  status?: string;
+  detail?: string;
+  unset?: number;
+  attention?: number;
+  named?: NamedSetting[];
+};
+
 export type HealthBlock = {
   uptime: {
     status?: string;
@@ -53,13 +82,7 @@ export type HealthBlock = {
     [key: string]: unknown;
   };
   site: { status?: string; detail?: string; [key: string]: unknown };
-  config: {
-    status?: string;
-    detail?: string;
-    unset?: number;
-    attention?: number;
-    [key: string]: unknown;
-  };
+  config: ConfigHealth;
 };
 
 export type Operator = {

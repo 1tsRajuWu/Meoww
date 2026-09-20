@@ -13,7 +13,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { ago, duration, scalarish, uptimeLine } from "../lib/format";
 import { useLive } from "../lib/useLive";
-import { Card, Empty, Failure, Pill, Skeleton } from "../ui";
+import { Card, ConfigAttention, Empty, Failure, Pill, Skeleton } from "../ui";
 
 const LEVELS = [
   { id: "all", label: "Everything", match: null },
@@ -87,6 +87,8 @@ export function OpsPage() {
             }
           />
         </dl>
+        {/* "attention" with no list is a dead end: this is the list. */}
+        <ConfigAttention config={data.health.config} />
       </Card>
 
       <Card

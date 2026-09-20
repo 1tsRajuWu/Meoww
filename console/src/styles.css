@@ -1119,22 +1119,133 @@ a {
   position: fixed;
   top: 0;
   left: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid color-mix(in oklab, var(--accent) 65%, transparent);
-  background: color-mix(in oklab, var(--accent) 12%, transparent);
-  pointer-events: none;
   z-index: 70;
+  pointer-events: none;
+  /* Hidden until the pointer moves, and the move handler is the only thing that
+     reveals it — so a page nobody has touched has no decoration parked on it. */
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.18s ease;
+}
+
+.cursor__ring,
+.cursor__paw {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: grid;
   place-items: center;
 }
 
+/* Centred on the point with negative margins, so the transform is a plain
+   translate + scale about the element's own centre and the two parts stay
+   concentric through their springs. */
+.cursor__ring {
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
 .cursor__paw {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  color: var(--accent);
+}
+
+.cursor__paw svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.cursor--link .cursor__ring {
+  border-color: color-mix(in oklab, var(--accent) 95%, transparent);
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+/* ------------------------------------------- what the deployment was not given */
+
+.config-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.config-missing__head {
+  margin-bottom: 4px;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* One line per setting, collapsed. Five names are scannable; five sentences of
+   consequence are a wall, and a wall is what nobody reads. */
+.config-missing__item {
+  border-radius: 10px;
+}
+
+.config-missing__item > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.config-missing__item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-missing__item > summary::before {
+  content: "+";
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.config-missing__item[open] > summary::before {
+  content: "−";
+}
+
+.config-missing__item > summary:hover {
+  background: var(--panel-2);
+}
+
+.config-missing__item code {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+.config-missing__kind {
+  margin-left: auto;
+  color: var(--dim);
   font-size: 11px;
-  opacity: 0.75;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.config-missing__item > p {
+  margin: 2px 0 8px;
+  padding: 0 8px 0 24px;
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.config-missing__foot {
+  margin-top: 4px;
+  color: var(--dim);
+  font-size: 11px;
 }
 
 /* --------------------------------------------------- skeleton / empty / fail */

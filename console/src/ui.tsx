@@ -16,6 +16,8 @@ import {
   type ReactNode,
 } from "react";
 
+import type { ConfigHealth } from "./types";
+
 /* ------------------------------------------------------------------ layout */
 
 export function Card({
@@ -209,6 +211,46 @@ export function Failure({ message, onRetry }: { message: string; onRetry?: () =>
           Try again
         </button>
       )}
+    </div>
+  );
+}
+
+/** The names behind the word "attention", one collapsed line each.
+ *
+ * `config_audit` counts and deliberately does not name, because `/health` is
+ * public; the two console payloads carry `named` because they sit behind the
+ * operator's sign-in. This is the piece that spends it: a card reporting
+ * "attention" and stopping there sends its reader off to look somewhere else,
+ * and the settings that are actually costing them features go unnamed in the
+ * place they were already reading.
+ *
+ * Each row opens to the *cost* rather than the description, because the cost is
+ * the symptom an operator would otherwise be left to guess at. Five names are
+ * scannable; five sentences of consequence are a wall, so they stay shut until
+ * asked for. Renders nothing at all when there is nothing to name.
+ */
+export function ConfigAttention({ config }: { config?: ConfigHealth }) {
+  const named = config?.named ?? [];
+  if (named.length === 0) return null;
+
+  return (
+    <div className="config-missing">
+      <span className="config-missing__head">
+        {named.length} setting{named.length === 1 ? "" : "s"} this deployment was never given — a
+        feature that is off without saying so, which is why the word above is not "ok".
+      </span>
+      {named.map((item) => (
+        <details className="config-missing__item" key={item.name}>
+          <summary>
+            <code>{item.name}</code>
+            <span className="config-missing__kind">{item.kind}</span>
+          </summary>
+          <p>{item.cost || item.what}</p>
+        </details>
+      ))}
+      <span className="config-missing__foot">
+        Names only — no value is read, logged or sent to this page.
+      </span>
     </div>
   );
 }

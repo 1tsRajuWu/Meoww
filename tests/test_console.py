@@ -313,7 +313,14 @@ class TheConsoleApi(_DashboardFixture):
         """
         health = self.get("/api/console/overview")["health"]
         self.assertEqual(health["site"], keep_alive.site_guard.health_json())
-        self.assertEqual(health["config"], keep_alive.config_audit.health_json())
+        # The config block is the public half *plus* `named`, which is the one
+        # thing `/health` refuses to say. Compared key by key rather than whole,
+        # so a field the module stops reporting fails here instead of passing as
+        # an extra key nobody notices.
+        for key, value in keep_alive.config_audit.health_json().items():
+            with self.subTest(config_key=key):
+                self.assertEqual(health["config"].get(key), value)
+        self.assertEqual(health["config"]["named"], keep_alive.config_audit.attention_json())
         self.assertEqual(health["uptime"], keep_alive.uptime_status.snapshot())
         for name, block in health.items():
             with self.subTest(block=name):
@@ -331,6 +338,65 @@ class TheConsoleApi(_DashboardFixture):
             with self.subTest(page=name):
                 for block in ("site", "config"):
                     self.assertIn(f"health.{block}.status", source)
+
+    def test_the_config_card_can_name_what_is_missing(self):
+        """The word "attention" must arrive with the list it is about.
+
+        `config_audit.health_json()` counts and deliberately does not name: it is
+        what `/health` serves, and "this deployment has no sign-in secret" is not
+        a sentence to hand a stranger. Both console payloads sit behind the
+        operator's sign-in, so both carry the names as well — without which the
+        card reports a number, sends its reader somewhere else, and leaves the
+        settings that are costing them features unnamed in the place they were
+        already looking. The page's side of that is checked where it is written.
+        """
+        for path in ("/api/console/overview", "/api/console/ops"):
+            payload = self.get(path)
+            with self.subTest(path=path):
+                named = payload["health"]["config"]["named"]
+                self.assertEqual(named, keep_alive.config_audit.attention_json())
+                for item in named:
+                    with self.subTest(setting=item.get("name")):
+                        self.assertIn("cost", item)
+                        # Presence only. The module never reads a value, secret
+                        # or not, and a page that carried one would be the worse
+                        # defect by a distance.
+                        self.assertNotIn("value", item)
+
+        for name in ("Overview.tsx", "Ops.tsx"):
+            source = (CONSOLE / "src" / "pages" / name).read_text(encoding="utf-8")
+            with self.subTest(page=name):
+                self.assertIn("ConfigAttention", source)
+
+    def test_the_cursor_cannot_paint_before_the_pointer_moves(self):
+        """A cursor at rest is a decoration parked on the page.
+
+        Two halves that have to agree: the stylesheet hides it, and the move
+        handler is the only thing that reveals it — so a page that has just
+        loaded, or one reached with the keyboard, is clean. The element carries
+        an inline transform from its first frame either way, which is exactly why
+        the hiding has to be the stylesheet's job rather than a `useState(false)`
+        somebody can invert.
+
+        Also pinned here: `cursor: none` appears nowhere. The ring is a
+        *companion* to the pointer, not a replacement for it, and a page that
+        hides the real cursor loses text selection and resize handles.
+        """
+        css = (CONSOLE / "src" / "styles.css").read_text(encoding="utf-8")
+        self.assertRegex(css, r"\.cursor \{[^}]*opacity: 0")
+        self.assertNotIn("cursor: none", css)
+
+        source = (CONSOLE / "src" / "app" / "Cursor.tsx").read_text(encoding="utf-8")
+        move = source.split("const onMove", 1)[1].split("const onDown", 1)[0]
+        self.assertIn('opacity = "1"', move)
+        # Two bounds the live page taught, both asserted where they are written:
+        # a pointer coordinate outside the window is a leave rather than a
+        # position (an automation harness parks the mouse at x=-9933, and the
+        # first draft chased it across the viewport), and `event.target` is only
+        # sometimes an Element — on the document it has no `.closest`, and the
+        # unguarded call threw a TypeError out of the handler on every such move.
+        self.assertIn("window.innerWidth", move)
+        self.assertIn("instanceof Element", source)
 
     def test_a_server_picture_is_our_own_path_or_nothing(self):
         """`src` is an attribute the browser *acts on*, so the rule sits at the edge.

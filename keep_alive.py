@@ -1010,7 +1010,8 @@ def health():
         #
         # Counts only, and no names: this endpoint is unauthenticated, and "this
         # deployment has no sign-in secret" is not a sentence to hand a stranger.
-        # /api/config has the names, behind the administrator's sign-in.
+        # /api/config has the names, behind the administrator's sign-in, and so do
+        # the two console payloads — never this one.
         "config": config_audit.health_json(),
         # Whether the public site is publishing this checkout. A separate
         # question again, and one with no symptom in the product: every page
@@ -3220,7 +3221,13 @@ def api_console_overview():
         "health": {
             "uptime": uptime_status.snapshot(),
             "site": site_guard.health_json(),
-            "config": config_audit.health_json(),
+            # `health_json` counts and does not name, because `/health` is
+            # public. These payloads are behind `_require_operator_api`, so the
+            # names come with it: a card that says "attention" and stops is a
+            # card that sends its reader somewhere else to find out what about,
+            # and the operator reading it is the one person who can set them.
+            # Presence only — `attention_json` never reads a value.
+            "config": {**config_audit.health_json(), "named": config_audit.attention_json()},
         },
         "operator": session.get("discord_user") or {},
     })
@@ -3340,7 +3347,13 @@ def api_console_ops():
         "health": {
             "uptime": uptime_status.snapshot(),
             "site": site_guard.health_json(),
-            "config": config_audit.health_json(),
+            # `health_json` counts and does not name, because `/health` is
+            # public. These payloads are behind `_require_operator_api`, so the
+            # names come with it: a card that says "attention" and stops is a
+            # card that sends its reader somewhere else to find out what about,
+            # and the operator reading it is the one person who can set them.
+            # Presence only — `attention_json` never reads a value.
+            "config": {**config_audit.health_json(), "named": config_audit.attention_json()},
         },
     })
 

@@ -13,7 +13,7 @@ import type { BootData, FigureTile, ServerRow } from "../types";
 import { ago, compact, duration, scalarish, uptimeLine } from "../lib/format";
 import { Link } from "../lib/router";
 import { useLive } from "../lib/useLive";
-import { Card, Empty, Failure, Pill, Skeleton, Stat } from "../ui";
+import { Card, ConfigAttention, Empty, Failure, Pill, Skeleton, Stat } from "../ui";
 
 export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow[] }) {
   const live = useLive(() => api.overview(), 15_000);
@@ -159,6 +159,8 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
             }
           />
         </dl>
+        {/* The config row above is one word; this is what the word is about. */}
+        <ConfigAttention config={data.health.config} />
       </Card>
 
       <motion.div className="quick" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>

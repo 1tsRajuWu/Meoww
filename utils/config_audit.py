@@ -606,8 +606,41 @@ def _by_kind(settings) -> dict[str, list[str]]:
 
 
 # --------------------------------------------------------------------------- #
-# The three renderings
+# The renderings
 # --------------------------------------------------------------------------- #
+def _describe(setting: Setting) -> dict:
+    """One setting, described — and, deliberately, not read.
+
+    Presence only, for a secret and for a plain value alike: the report exists to
+    say *what is missing*, and a page that showed a bot token to answer that
+    would have found a worse problem than the one it was looking for.
+    """
+    return {
+        "name": setting.name,
+        "kind": setting.kind,
+        "what": setting.what,
+        "cost": setting.cost,
+        "secret": setting.secret,
+    }
+
+
+def attention_json(environ=None) -> list[dict]:
+    """The middle rendering: the names behind the word `attention`.
+
+    ``health_json`` counts and does not name — it is public, and "this deployment
+    has no sign-in secret" is not a sentence to hand a stranger. ``full_json``
+    names everything, which is right for a page about the whole set and wrong for
+    a card that says one word.
+
+    This is for the surface in between: one behind the operator's sign-in, where
+    the reader is the person who can act. It exists because *"attention" alone is
+    a dead end* — a card that reports a number and nothing else sends its reader
+    to look somewhere else, and the setting that is actually costing them a
+    feature goes unnamed in the place they were already looking.
+    """
+    return [_describe(setting) for setting in audit(environ)["attention"]]
+
+
 def health_json(environ=None) -> dict:
     """The public half of the report: how much is unset, and how much matters.
 
@@ -638,23 +671,10 @@ def full_json(environ=None) -> dict:
         "status": picture["status"],
         "counts": picture["counts"],
         "summary": summary_line(env),
-        "attention": [
-            {
-                "name": setting.name,
-                "kind": setting.kind,
-                "what": setting.what,
-                "cost": setting.cost,
-                "secret": setting.secret,
-            }
-            for setting in picture["attention"]
-        ],
+        "attention": [_describe(setting) for setting in picture["attention"]],
         "settings": [
             {
-                "name": setting.name,
-                "kind": setting.kind,
-                "what": setting.what,
-                "cost": setting.cost,
-                "secret": setting.secret,
+                **_describe(setting),
                 "scope": setting.scope,
                 "set": is_set(setting.name, env),
             }
