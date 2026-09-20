@@ -39,6 +39,16 @@ _site/
 # time on the host that answers *what is the bot doing*.
 _hub/
 
+# The console's build inputs. `static/console/` — the bundle itself — **is**
+# committed, and it is the one deliberate exception to the rule recorded twice
+# above. The host that serves the console is a Python runtime with no guaranteed
+# Node, so a deploy that had to build it could fail to build it. The staleness
+# that committing generated output normally risks is closed by
+# `static/console/build.json`, a hash of these sources: `tests/test_console.py`
+# recomputes it, so an edited-and-unrebuilt console fails the suite instead of
+# shipping a bundle one commit behind.
+console/node_modules/
+
 # macOS / editors
 .DS_Store
 .idea/

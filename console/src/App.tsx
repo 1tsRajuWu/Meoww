@@ -1,0 +1,136 @@
+/** The app: reads the shell's boot data, keeps the fleet list, routes the pages.
+ *
+ * The fleet is fetched **once here** rather than by each page, because three
+ * pages need it (the rail's palette, the server list, the systems matrix) and the
+ * one thing worse than an extra request is two screens disagreeing about how many
+ * servers there are.
+ */
+
+import { AnimatePresence, motion } from "motion/react";
+import { useMemo, useState } from "react";
+
+import { api, readBoot, setCsrfToken } from "./api";
+import type { BootData, ServerRow } from "./types";
+import { usePath } from "./lib/router";
+import { useLive } from "./lib/useLive";
+import { Cursor } from "./app/Cursor";
+import { Shell } from "./app/Shell";
+import type { PaletteAction } from "./app/CommandPalette";
+import { Failure, Skeleton, ToastHost, useToast } from "./ui";
+import { Overview } from "./pages/Overview";
+import { Servers } from "./pages/Servers";
+import { ServerDetail } from "./pages/ServerDetail";
+import { Systems } from "./pages/Systems";
+import { OpsPage } from "./pages/Ops";
+import { Changes } from "./pages/Changes";
+
+export function App() {
+  // The boot payload is read once, synchronously, from the shell. It cannot
+  // change without a reload, because it is what the reload re-renders.
+  const [boot] = useState<BootData>(() => readBoot());
+  setCsrfToken(boot.csrfToken);
+
+  const fleet = useLive<ServerRow[]>(
+    async () => (await api.fleet()).servers,
+    60_000,
+  );
+  const servers = useMemo(() => fleet.data ?? [], [fleet.data]);
+
+  return (
+    <ToastHost>
+      <Cursor />
+      <Router boot={boot} servers={servers} fleetError={fleet.error} fleetLoading={fleet.loading} />
+    </ToastHost>
+  );
+}
+
+function Router({
+  boot,
+  servers,
+  fleetError,
+  fleetLoading,
+}: {
+  boot: BootData;
+  servers: ServerRow[];
+  fleetError: string | null;
+  fleetLoading: boolean;
+}) {
+  const path = usePath();
+  const toast = useToast();
+
+  const page = useMemo(() => {
+    const detail = /^\/servers\/(\d+)$/.exec(path);
+    if (detail) return { kind: "server" as const, id: Number(detail[1]) };
+    if (path === "/servers") return { kind: "servers" as const };
+    if (path === "/systems") return { kind: "systems" as const };
+    if (path === "/ops") return { kind: "ops" as const };
+    if (path === "/changes") return { kind: "changes" as const };
+    return { kind: "overview" as const };
+  }, [path]);
+
+  // Only the two destinations that genuinely leave this app are here.
+  //
+  // There was a "Refresh every reading" action too, and it ran
+  // `window.location.reload()` — which is how driving the palette found it: it
+  // sat **first**, so opening ⌘K and pressing Return threw the whole app away and
+  // reloaded the document. Nothing here needs that. Every page polls, and the
+  // two that have a manual control own it themselves.
+  const actions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: "action:docs",
+        label: "Open the per-server dashboard",
+        hint: "another surface",
+        run: () => {
+          // A genuinely different page on the same origin, so a real navigation.
+          window.location.assign("/dashboard");
+        },
+      },
+      {
+        id: "action:site",
+        label: "Open the public site",
+        hint: "another surface",
+        run: () => {
+          window.open("https://meow-bot.pages.dev", "_blank", "noopener");
+        },
+      },
+    ],
+    [],
+  );
+
+  const body = () => {
+    if (page.kind === "servers") {
+      if (fleetLoading && !servers.length) return <Skeleton rows={6} />;
+      if (fleetError && !servers.length) {
+        return <Failure message={fleetError} onRetry={() => window.location.reload()} />;
+      }
+      return <Servers servers={servers} />;
+    }
+    if (page.kind === "server") {
+      return <ServerDetail guildId={page.id} servers={servers} onGone={toast} />;
+    }
+    if (page.kind === "systems") {
+      return <Systems servers={servers} onGone={toast} />;
+    }
+    if (page.kind === "ops") return <OpsPage />;
+    if (page.kind === "changes") return <Changes />;
+    return <Overview boot={boot} servers={servers} />;
+  };
+
+  return (
+    <Shell boot={boot} servers={servers} actions={actions}>
+      <AnimatePresence mode="wait">
+        <motion.main
+          className="page"
+          key={path}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ type: "spring", stiffness: 260, damping: 28 }}
+        >
+          {body()}
+        </motion.main>
+      </AnimatePresence>
+    </Shell>
+  );
+}

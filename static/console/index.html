@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-console-dev>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meow Console</title>
+    <script type="module" crossorigin src="/static/console/app.js"></script>
+    <link rel="stylesheet" crossorigin href="/static/console/app.css">
+  </head>
+  <body>
+    <!--
+      This file exists only so `vite dev` has an entry point. In production Flask
+      renders the shell from `templates/console.html`, because the shell is what
+      carries the CSRF token and the signed-in operator's name.
+    -->
+    <div id="console-root"></div>
+  </body>
+</html>

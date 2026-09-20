@@ -23,6 +23,7 @@ The tests here are about the three ways this can lie:
 
 Everything network-facing is injected, so the whole file runs offline.
 """
+import json
 import os
 import re
 import unittest
@@ -541,9 +542,12 @@ class ThePanel(_DashboardFixture):
 class TheConsoleKeepsUpToo(_DashboardFixture):
     """The operator console's copy of the panel, and the same complaint.
 
-    Both control rooms draw these rows, and only one of them was ever asked
-    again: the dashboard had a Refresh button while the console had a snapshot
-    rendered at request time and nothing afterwards.
+    The console is a bundled app now, so its rows are no longer in the HTML a
+    request returns — they arrive from ``/api/console/ops``, which quotes the very
+    same ``uptime_status.snapshot()`` the server-rendered page used to put into a
+    template. These tests follow the guarantee to where the data and the timer
+    actually live rather than pinning markup that no longer exists: the payload
+    the app draws, and the two source files (`api.ts`, `Ops.tsx`) that fetch it.
     """
 
     def setUp(self):
@@ -559,54 +563,64 @@ class TheConsoleKeepsUpToo(_DashboardFixture):
             session["guild_id"] = GUILD_ID
             session["csrf_token"] = CSRF
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
-        # The console's monitors are on its Infrastructure page, which is the page
-        # that owns every reading this process holds.
-        self.page = self.client.get("/owner/infrastructure").get_data(as_text=True)
+        response = self.client.get("/api/console/ops", headers={"X-CSRF-Token": CSRF})
+        self.assertEqual(response.status_code, 200)
+        self.payload = response.get_json()
 
     def test_the_console_shows_the_same_rows(self):
-        self.assertIn("UptimeRobot monitors", self.page)
-        self.assertIn("Meow Bot", self.page)
-        self.assertIn("99.97%", self.page)
+        block = json.dumps(self.payload["health"]["uptime"])
+        self.assertIn("Meow Bot", block)
+        self.assertIn("99.97", block)
+
+    def test_the_payload_quotes_the_module_s_own_snapshot(self):
+        """Not a re-derivation: the same object, so the two cannot disagree."""
+        self.assertEqual(self.payload["health"]["uptime"], uptime_status.snapshot())
 
     def test_the_reading_is_re_read_rather_than_frozen_at_render_time(self):
-        self.assertIn("/api/uptime", self.page, "the console never asks for a newer snapshot")
-        self.assertIn("setInterval", self.page, "nothing re-reads the reading, so its age freezes")
+        """The complaint this class exists for: an age that stopped moving.
+
+        A snapshot drawn once is indistinguishable from a poller that died, so
+        the page has to ask again on a timer — and the assertion is on a *positive*
+        interval, because `useLive(load, 0)` is how a page opts out of polling and
+        would pass a looser test.
+        """
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "console" / "src" / "pages" / "Ops.tsx").read_text(encoding="utf-8")
+        self.assertIn(
+            "/api/console/ops",
+            (root / "console" / "src" / "api.ts").read_text(encoding="utf-8"),
+        )
+        match = re.search(r"useLive\(\s*\(\) => api\.ops\(\),\s*([\d_]+)", page)
+        self.assertIsNotNone(match, "the Ops page does not poll for a newer reading")
+        self.assertGreater(int(match.group(1).replace("_", "")), 0)
 
     def test_the_polls_are_made_with_the_token_the_endpoint_demands(self):
         """A poll that is refused looks exactly like a panel that is not updating.
 
-        ``/api/uptime`` is behind the sign-in *and* behind the CSRF check, so a
-        timer that forgot the header would be answered 403 every thirty seconds
-        while the panel sat there saying "read 2 minutes ago" — the same symptom
-        this change is here to remove.
+        The console's API is behind the sign-in *and* (for writes) behind the CSRF
+        check, so a client that forgot the header would be refused while the panel
+        sat there saying "read 2 minutes ago" — the same symptom this class is
+        about. With one client for the whole app, this is enforced in one file.
         """
-        self.assertIn("X-CSRF-Token", self.page)
-        self.assertIn("infra-refresh", self.page, "the manual refresh is gone")
-        match = re.search(r"const CSRF_TOKEN = (\"[^\"]*\")", self.page)
-        self.assertIsNotNone(match, "the console's script has no token to send")
-        self.assertEqual(
-            match.group(1).strip('"'),
-            CSRF,
-            "the token rendered into the script is not the session's, so the "
-            "poll would be refused and the panel would look stuck",
-        )
+        root = Path(__file__).resolve().parents[1]
+        client = (root / "console" / "src" / "api.ts").read_text(encoding="utf-8")
+        self.assertIn('headers.set("X-CSRF-Token"', client)
+        # …and the token really is on the page for it to send.
+        self.assertIn('id="console-boot"', self.client.get("/owner").get_data(as_text=True))
 
-    def test_every_id_the_scripts_poll_reaches_for_is_on_the_page(self):
-        for element_id in ("infra-monitors", "infra-seen", "infra-refresh"):
-            with self.subTest(element_id=element_id):
-                self.assertEqual(
-                    self.page.count(f'id="{element_id}"'), 1,
-                    f"`{element_id}` is missing or ambiguous, so the poll writes nowhere",
-                )
+    def test_neither_the_shell_nor_the_bundle_spells_the_setting(self):
+        """The sentence is the module's to compose — checked in the shipped code.
 
-    def test_the_console_does_not_spell_the_setting_beside_the_sentence(self):
-        template = Path(__file__).resolve().parents[1] / "templates" / "owner.html"
-        self.assertNotIn(
-            "UPTIMEROBOT_API_KEY",
-            template.read_text(encoding="utf-8"),
-            "the console hard-codes the uptime setting instead of rendering the "
-            "sentence the module composes",
-        )
+        The built bundle is included on purpose: a source file could be clean while
+        the artifact a browser loads was built from something else.
+        """
+        root = Path(__file__).resolve().parents[1]
+        shipped = [root / "templates" / "console.html", root / "static" / "console" / "app.js"]
+        shipped += sorted((root / "console" / "src").rglob("*.ts"))
+        shipped += sorted((root / "console" / "src").rglob("*.tsx"))
+        for path in shipped:
+            with self.subTest(path=path.name):
+                self.assertNotIn("UPTIMEROBOT_API_KEY", path.read_text(errors="replace"))
 
 
 if __name__ == "__main__":

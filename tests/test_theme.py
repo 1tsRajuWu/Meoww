@@ -44,7 +44,7 @@ PAGES = (
     "login.html",
     "servers.html",
     "dashboard.html",
-    "owner.html",
+    "console.html",
     "market_live.html",
 )
 

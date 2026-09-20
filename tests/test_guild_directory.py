@@ -267,18 +267,29 @@ class TheBadge(_DirectoryFixture):
         self.assertIn("Reconnecting", body)
         self.assertNotIn("> Live<", body.replace("\n", ""))
 
-    def test_both_consoles_draw_the_badge_from_one_partial(self):
+    def test_each_console_draws_the_badge_from_one_rule(self):
         # Two copies is how this drifted: the dashboard and the fleet console had
         # the same rule spelled twice, and the second spelling was the stale one.
+        #
+        # The dashboard still spells nothing: it includes the partial. The
+        # console cannot — it is a bundled app, so its shell renders the server's
+        # own `_badge_state()` into the boot payload and React draws it, which is
+        # the same "one rule, server-owned" arrangement by the only route open to
+        # a page whose chrome is scripted. `tests/test_console.py` pins that the
+        # value it receives is `_badge_state()` itself.
         import os
 
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for name in ("dashboard.html", "owner.html"):
-            with open(os.path.join(root, "templates", name), encoding="utf-8") as handle:
-                source = handle.read()
-            self.assertIn('{% include "gateway_badge.html" %}', source)
-            # …and neither keeps its own copy of the rule.
-            self.assertNotIn('class="status-badge badge-online"', source)
+        with open(os.path.join(root, "templates", "dashboard.html"), encoding="utf-8") as handle:
+            dashboard = handle.read()
+        self.assertIn('{% include "gateway_badge.html" %}', dashboard)
+        self.assertNotIn('class="status-badge badge-online"', dashboard)
+
+        with open(os.path.join(root, "templates", "console.html"), encoding="utf-8") as handle:
+            console = handle.read()
+        self.assertIn('id="console-boot"', console)
+        self.assertIn('"gateway": gateway', console)
+        self.assertNotIn('class="status-badge badge-online"', console)
 
 
 if __name__ == "__main__":

@@ -3032,30 +3032,51 @@ def _page_anchor(pages, current: str) -> str:
 #: ``page`` the template switches on, the label is what the rail calls it, and the
 #: anchor is the one section that page renders, which is what the skip link targets.
 OWNER_PAGES = (
-    ("numbers", "Numbers", "/owner", "fleet"),
+    ("overview", "Overview", "/owner", "overview"),
     ("servers", "Servers", "/owner/servers", "servers"),
-    ("infrastructure", "Infrastructure", "/owner/infrastructure", "infrastructure"),
-    ("output", "Output", "/owner/output", "output"),
+    ("systems", "Systems", "/owner/systems", "systems"),
+    ("ops", "Ops", "/owner/ops", "ops"),
+    ("changes", "Changes", "/owner/changes", "changes"),
 )
 
-#: ``/owner`` and its three siblings, keyed by path, so the view can read the
-#: page out of the request rather than being written once per route.
-OWNER_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in OWNER_PAGES}
+#: Where the bundled console app is built to (``console/`` builds into it).
+CONSOLE_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "console")
 
+
+def _console_asset_stamp() -> str:
+    """A cache-buster for the console's two files, read from disk.
+
+    The bundle is written to stable filenames on purpose (see ``console/vite.config.ts``),
+    so the only thing that can tell a browser a new build exists is the file's
+    own modification time. A missing file yields ``"0"``, which is the honest
+    answer and keeps the shell renderable on a checkout that has never built.
+    """
+    try:
+        return str(int(os.path.getmtime(os.path.join(CONSOLE_DIST, "app.js"))))
+    except OSError:
+        return "0"
+
+
+def _console_built() -> bool:
+    """Whether the app has been built. If not, the shell says so."""
+    return os.path.exists(os.path.join(CONSOLE_DIST, "app.js"))
 
 @app.route("/owner")
-@app.route("/owner/servers")
-@app.route("/owner/infrastructure")
-@app.route("/owner/output")
-def owner_console():
-    """One page of the fleet console. Operator only — see the note above.
+@app.route("/owner/<path:sub>")
+def owner_console(sub: str = ""):
+    """The operator console's shell. Operator only — see the note above.
 
-    The console was a single scroll with a scroll spy: four sections, one URL,
-    and a rail that said where you were. It is four pages now, and the reason is
-    the one thing a scroll spy cannot do — *put something else on the screen*.
-    The output tail and the eleven-server list are not neighbours in anybody's
-    work; the browser's Back button, a bookmark, and "look at this: /owner/output"
-    all need them to be places.
+    This served four server-rendered pages. It now serves one HTML file: the
+    shell for the bundled app in ``console/``, which owns every ``/owner`` path
+    and draws its content from the ``/api/console/*`` endpoints below.
+
+    Two things stay here rather than moving into the bundle, and both are the
+    same reason: the server is the only party that knows them. The **CSRF token**
+    is minted against this session, and Flask's session cookie is ``HttpOnly``,
+    so a script could never read either — it has to be handed the token. And the
+    **scope test** is the page's first line, unchanged: a one-time link is a real
+    sign-in that belongs to one server, so it is sent to a place it can act
+    instead of being given a fleet it may not touch.
     """
     if not is_authenticated():
         return redirect("/login")
@@ -3064,56 +3085,274 @@ def owner_console():
         # nobody is dropped onto a server they did not choose.
         return redirect("/servers" if _visible_guilds() else "/dashboard")
 
-    page = OWNER_PAGE_BY_PATH.get(request.path, "numbers")
-    fleet = _fleet_rows()
-    live_figures = _public_figures()
     return render_template(
-        "owner.html",
-        page=page,
-        page_anchor=_page_anchor(OWNER_PAGES, page),
-        owner_pages=_page_nav(OWNER_PAGES, page),
-        fleet=fleet,
-        totals={
-            "servers": len(fleet),
-            "members": sum(row["members"] for row in fleet),
-            "on": sum(row["on"] for row in fleet),
-            "slots": sum(row["total"] for row in fleet),
-            "modules": len(AVAILABLE_MODULES),
-            "commands": len(_command_tree_names()),
-        },
-        bot_ready=_bot_ready(),
-        gateway=_badge_state(),
-        bot_ping=_bot_ping_ms(),
-        bot_name=_bot_display_name(),
-        selling=plans.selling_enabled(),
-        process_uptime_seconds=max(0, int(time.time() - PROCESS_STARTED_AT)),
+        "console.html",
         csrf_token=get_csrf_token(),
-        signed_in_as=session.get("discord_user") or {},
-        # The same three readings the dashboard's Status panel uses, and the same
-        # rule about cost: all of them are state this process already holds, so
-        # opening this page asks nothing of UptimeRobot or the public site.
-        system_status=uptime_status.snapshot(),
-        site_guard_status=site_guard.health_json(),
-        config_status=config_audit.health_json(),
-        # What the bot is *doing*, as opposed to what it is standing on: the
-        # tracker's own counts, from the same cached payload the landing page
-        # draws and `/api/figures` serves. Server-rendered as well as live, so the
-        # card says something true before any script of its own has run.
-        figures_json=_inline_json(live_figures),
-        figures_url="/api/figures",
-        # The card opens on the same window the landing page opens on, and every
-        # window is already in the payload: switching between them is a redraw
-        # rather than a request, so the card cannot stall on a slow host by being
-        # read.
-        figure_tiles=_activity_tiles(live_figures, "week"),
-        figure_periods=[
-            {"id": window["id"], "label": window["label"]}
-            for window in (live_figures.get("periods") or [])
-        ],
-        # The tail of this process's own output. It is the only place a failure
-        # that never reached Discord can be seen without SSH.
-        recent_log=[line.rstrip("\n") for line in list(LOG_RING)[-60:]],
+        operator=session.get("discord_user") or {},
+        bot_name=_bot_display_name(),
+        asset_stamp=_console_asset_stamp(),
+        built=_console_built(),
+        gateway=_badge_state(),
+        pages=_page_nav(OWNER_PAGES, "overview"),
     )
+
+
+# ---------------------------------------------------------------------------
+# The console's own API.
+#
+# Every route below opens with the same gate, and it is deliberately *not*
+# ``_require_auth_api``. That one answers "is somebody signed in", which is the
+# right question for a single server's dashboard and the wrong one here: this
+# surface is the whole fleet, so a one-time link — a genuine sign-in that belongs
+# to one server — must be refused. It is refused by scope, which is the same line
+# ``/owner`` has always drawn on its first line, applied to the data behind it.
+# ---------------------------------------------------------------------------
+
+
+def _require_operator_api():
+    if not is_authenticated():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if session.get("auth_scope") != "global":
+        return jsonify({"success": False, "error": "Operator sign-in required"}), 403
+    if request.method != "GET" and not validate_csrf():
+        return jsonify({"success": False, "error": "Invalid or missing CSRF token"}), 403
+    return None
+
+
+def _console_totals(fleet: list[dict]) -> dict:
+    """The fleet's own sums, beside the two counts the registry owns.
+
+    ``systems`` and ``commands`` come from ``features`` rather than from any
+    running process, for the reason that module documents: a tree measured inside
+    a live bot is a fact about that process, and this is a claim about the
+    deployment. The *published* count is read live and reported separately,
+    because a server with systems off genuinely publishes fewer.
+    """
+    return {
+        "servers": len(fleet),
+        "members": sum(row["members"] for row in fleet),
+        "on": sum(row["on"] for row in fleet),
+        "slots": sum(row["total"] for row in fleet),
+        "systems": features.system_count(),
+        "switchable": len(AVAILABLE_MODULES),
+        "commands": features.command_count(),
+        "published": len(_command_tree_names()),
+    }
+
+
+def _console_systems_for(guild_id: int) -> tuple[list[dict], bool]:
+    """One server's systems with their switches, and whether the read worked.
+
+    ``known`` is reported rather than swallowed: a page that showed every switch
+    as *off* because the state could not be read would be telling the operator to
+    fix eleven systems that are running.
+    """
+    try:
+        states = modules.get_states(int(guild_id))
+    except Exception as exc:
+        print(f"[CONSOLE] could not read module state for {guild_id}: {exc}", flush=True)
+        states, known = {}, False
+    else:
+        known = True
+    return (
+        [
+            {
+                "id": module["id"],
+                "name": module["name"],
+                "icon": module["icon"],
+                "category": module["category"],
+                "description": module["desc"],
+                "commands": module["commands"],
+                "enabled": bool(
+                    states.get(module["id"], features.default_enabled(module["id"]))
+                ),
+                "allowed": bool(plans.feature_allowed(int(guild_id), module["id"])),
+            }
+            for module in AVAILABLE_MODULES
+        ],
+        known,
+    )
+
+
+@app.route("/api/console/overview")
+def api_console_overview():
+    """Everything the console's front page draws, in one request.
+
+    One call rather than five because this page is the *first* thing an operator
+    opens, usually on a host that has been asleep: five round trips to a waking
+    free-tier instance is five chances to sit in front of a spinner.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    fleet = _fleet_rows()
+    figures = _public_figures()
+    started, connected = _gateway_state()
+    periods = [
+        {"id": window["id"], "label": window["label"]}
+        for window in (figures.get("periods") or [])
+    ]
+    return jsonify({
+        "success": True,
+        "totals": _console_totals(fleet),
+        "gateway": {
+            **_badge_state(),
+            "started": started,
+            "key": _gateway_label(started, connected),
+        },
+        "bot": {
+            "name": _bot_display_name(),
+            "ready": _bot_ready(),
+            "ping_ms": _bot_ping_ms(),
+        },
+        "uptime_seconds": max(0, int(time.time() - PROCESS_STARTED_AT)),
+        "selling": plans.selling_enabled(),
+        # Every window ships at once: switching between them is then a redraw
+        # rather than a request, so a period control cannot stall on the host.
+        "figures": {
+            "periods": periods,
+            "tiles": {
+                window["id"]: _activity_tiles(figures, window["id"])
+                for window in periods
+            },
+        },
+        "health": {
+            "uptime": uptime_status.snapshot(),
+            "site": site_guard.health_json(),
+            "config": config_audit.health_json(),
+        },
+        "operator": session.get("discord_user") or {},
+    })
+
+
+@app.route("/api/console/fleet")
+def api_console_fleet():
+    """Every server the bot is in, ordered by how many people are in it."""
+    denied = _require_operator_api()
+    if denied:
+        return denied
+    fleet = _fleet_rows()
+    return jsonify({"success": True, "servers": fleet, "totals": _console_totals(fleet)})
+
+
+@app.route("/api/console/server/<int:guild_id>")
+def api_console_server(guild_id: int):
+    """One server: its row from the fleet list, plus every switch it owns.
+
+    The name, icon and member count are taken from the *same* rows the list is
+    drawn from, so the page an operator opens cannot disagree with the row they
+    clicked to open it.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    row = next((entry for entry in _fleet_rows() if entry["id"] == int(guild_id)), None)
+    if row is None:
+        return jsonify({"success": False, "error": "No such server"}), 404
+
+    systems, known = _console_systems_for(guild_id)
+    return jsonify({
+        "success": True,
+        "server": {**row, "known": known},
+        "systems": systems,
+        # The difference between the registry's total and its switchable count, by
+        # name — printing two numbers about one word without naming the gap is the
+        # defect ``features.always_on_names`` exists to stop.
+        "always_on": list(features.always_on_names()),
+        "publish_at": _last_publish_at(guild_id),
+    })
+
+
+@app.route("/api/console/systems")
+def api_console_systems():
+    """The whole fleet as a matrix: every system, and where it stands."""
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    fleet = _fleet_rows()
+    matrix: dict[str, dict[str, bool]] = {}
+    unreadable: list[int] = []
+    for row in fleet:
+        try:
+            states = modules.get_states(row["id"])
+        except Exception as exc:
+            print(f"[CONSOLE] could not read module state for {row['id']}: {exc}", flush=True)
+            unreadable.append(row["id"])
+            continue
+        matrix[str(row["id"])] = {
+            module["id"]: bool(
+                states.get(module["id"], features.default_enabled(module["id"]))
+            )
+            for module in AVAILABLE_MODULES
+        }
+
+    return jsonify({
+        "success": True,
+        "systems": [
+            {
+                "id": module["id"],
+                "name": module["name"],
+                "icon": module["icon"],
+                "category": module["category"],
+                "description": module["desc"],
+                "commands": module["commands"],
+            }
+            for module in AVAILABLE_MODULES
+        ],
+        "servers": [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "icon": row["icon"],
+                "members": row["members"],
+            }
+            for row in fleet
+        ],
+        "matrix": matrix,
+        "unreadable": unreadable,
+        "always_on": list(features.always_on_names()),
+    })
+
+
+@app.route("/api/console/ops")
+def api_console_ops():
+    """What the process is doing: its own output tail, and its own readings."""
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    # The same redaction pass `/api/live-logs` applies, for the same reason: this
+    # ring is written by every part of the bot, and a token that reached a log
+    # line must not reach a page.
+    lines = [
+        _SECRETISH.sub(r"\1=[redacted]", str(line)).rstrip("\n")
+        for line in list(LOG_RING)[-200:]
+    ]
+    return jsonify({
+        "success": True,
+        "logs": lines,
+        "uptime_seconds": max(0, int(time.time() - PROCESS_STARTED_AT)),
+        "gateway": _badge_state(),
+        "ping_ms": _bot_ping_ms(),
+        "health": {
+            "uptime": uptime_status.snapshot(),
+            "site": site_guard.health_json(),
+            "config": config_audit.health_json(),
+        },
+    })
+
+
+@app.route("/api/console/changes")
+def api_console_changes():
+    """The project's own changelog, newest first — the same reader the hub uses."""
+    denied = _require_operator_api()
+    if denied:
+        return denied
+    entries, total = hub.read_changelog(HUB_CHANGELOG, limit=hub.CHANGES_SHOWN)
+    return jsonify({"success": True, "entries": entries, "total": total})
 
 
 @app.route("/api/toggle", methods=["POST"])

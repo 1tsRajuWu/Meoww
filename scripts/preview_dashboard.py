@@ -32,7 +32,7 @@ import threading
 import time
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, session
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -675,97 +675,57 @@ def preview_figures() -> dict:
     })
 
 
-@app.route("/owner")
-@app.route("/owner/servers")
-@app.route("/owner/infrastructure")
-@app.route("/owner/output")
-def owner_console():
-    """The fleet console, over the harness's own servers.
+#: The console's API, mounted from the real app rather than described again.
+#:
+#: This route used to hand-build the console's page context, so every number the
+#: preview showed was a second implementation of the number production shows — and
+#: a preview that re-implements its page can be wrong in exactly the way the page
+#: cannot. The console is a bundled app that fetches `/api/console/*`, and those are
+#: `keep_alive`'s own views, so the harness borrows them by rule. The database they
+#: read is the harness's copy, which is the whole point of previewing it here.
+for _rule in keep_alive.app.url_map.iter_rules():
+    if str(_rule).startswith("/api/console/"):
+        app.add_url_rule(
+            str(_rule),
+            endpoint=f"preview{_rule.endpoint}",
+            view_func=keep_alive.app.view_functions[_rule.endpoint],
+            methods=sorted(_rule.methods - {"HEAD", "OPTIONS"}),
+        )
 
-    Every number here comes from the real functions — ``_module_summary`` reading
-    the harness's copy of the database, and ``PROCESS_STARTED_AT`` read from
-    ``keep_alive`` rather than restated — so the counts a preview shows are the
-    counts production would show for the same state. What is stubbed is what a
-    harness cannot honestly have: Discord's gateway, and UptimeRobot's key.
+
+@app.route("/owner")
+@app.route("/owner/<path:sub>")
+def owner_console(sub: str = ""):
+    """The console's shell, plus the session the console's own API requires.
+
+    Production gates `/owner` and every `/api/console/*` route on the operator's
+    session. This harness has no sign-in at all, so the preview signs itself in —
+    which is honest rather than a hole: the process binds to loopback, it is the
+    operator's own machine, and without it the app would load, fetch its first
+    reading, be answered 401, and show a sign-in error instead of the page this
+    harness exists to make lookable-at.
     """
-    fleet = []
-    for guild in GUILDS:
-        summary = keep_alive._module_summary(guild["id"])
-        fleet.append({
-            "id": guild["id"],
-            "name": guild["name"],
-            # No gateway, so no icon — which is exactly the state the letter
-            # fallback exists for, and the reason it is worth seeing here.
-            "icon": "",
-            "nick": guild["name"] + " Bot",
-            "members": guild["members"],
-            "on": summary["on"],
-            "total": summary["total"],
-            "known": summary["known"],
-            "off": summary["off"],
-        })
-    fleet.sort(key=lambda row: (-row["members"], row["name"].lower()))
-    # The page the URL asks for, resolved by the same list the console's routes
-    # are registered from — so a preview of `/owner/output` is the page production
-    # would serve at that address rather than the first one.
-    page = keep_alive.OWNER_PAGE_BY_PATH.get(request.path, "numbers")
-    live_figures = preview_figures()
+    session["authenticated"] = True
+    session["auth_scope"] = "global"
+    session["csrf_token"] = "preview-token"
     return render_template(
-        "owner.html",
-        page=page,
-        page_anchor=next(
-            anchor for candidate, _label, _path, anchor in keep_alive.OWNER_PAGES
-            if candidate == page
-        ),
-        owner_pages=[
+        "console.html",
+        csrf_token="preview-token",
+        operator={},
+        bot_name=keep_alive._bot_display_name(),
+        asset_stamp=keep_alive._console_asset_stamp(),
+        built=keep_alive._console_built(),
+        gateway=keep_alive._badge_state(),
+        pages=[
             {
                 "id": candidate,
                 "label": label,
-                "href": path,
+                "href": href,
                 "anchor": anchor,
-                "current": candidate == page,
+                "current": candidate == "overview",
             }
-            for candidate, label, path, anchor in keep_alive.OWNER_PAGES
+            for candidate, label, href, anchor in keep_alive.OWNER_PAGES
         ],
-        figures_json=keep_alive._inline_json(live_figures),
-        figures_url="/api/figures",
-        figure_tiles=keep_alive._activity_tiles(live_figures, "week"),
-        figure_periods=[
-            {"id": window["id"], "label": window["label"]}
-            for window in (live_figures.get("periods") or [])
-        ],
-        fleet=fleet,
-        totals={
-            "servers": len(fleet),
-            "members": sum(row["members"] for row in fleet),
-            "on": sum(row["on"] for row in fleet),
-            "slots": sum(row["total"] for row in fleet),
-            "modules": len(MODULES),
-            "commands": len(PREVIEW_COMMANDS),
-        },
-        bot_ready=True,
-        bot_ping=int(os.environ.get("PREVIEW_PING", "41")),
-        bot_name=keep_alive._bot_display_name(),
-        selling=keep_alive.plans.selling_enabled(),
-        process_uptime_seconds=max(
-            0, int(time.time() - keep_alive.PROCESS_STARTED_AT)
-        ),
-        csrf_token="preview-token",
-        signed_in_as={},
-        system_status=preview_uptime_snapshot(),
-        site_guard_status={"status": "clean", "exposed": 0, "probes": 9},
-        config_status={"unset": 22, "attention": 5, "status": "attention"},
-        # A few real-looking lines so the collapsed section is not empty when it
-        # is opened — the one thing that cannot be demonstrated with none.
-        recent_log=[
-            "[DASHBOARD] preview harness serving templates/owner.html",
-            "[MODULES] module state read from the harness database",
-            "[SITE-GUARD] watching https://meow-bot.pages.dev",
-            "[UPTIME] no API key in this process; the panel shows its stand-in",
-        ],
-        invite_url=discord_auth.invite_url(),
-        invite_limited_url=discord_auth.invite_url(minimal=True),
-        invite_here_url=discord_auth.invite_url(guild_id=CURRENT_GUILD["id"]),
     )
 
 

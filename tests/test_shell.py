@@ -134,7 +134,7 @@ class NoTwoElementsShareAnId(unittest.TestCase):
     #: Every page this project renders from a template.
     PAGES = (
         "templates/dashboard.html",
-        "templates/owner.html",
+        "templates/console.html",
         "templates/home.html",
         "templates/login.html",
         "templates/servers.html",
@@ -346,21 +346,35 @@ class BothSurfacesWearIt(unittest.TestCase):
                     '{% extends "site_base.html" %}', _read(rel),
                     f"{rel} does not reach the shared system",
                 )
-        for rel in ("templates/dashboard.html", "templates/owner.html"):
-            page = _read(rel)
-            with self.subTest(page=rel):
-                self.assertIn("/static/meow.css", page)
-                self.assertIn("/static/motion.js", page)
+        # The operator console is deliberately absent, and it is the one page
+        # here that is not a template in the old sense: it is the shell of a
+        # bundled app, so what it loads is its own build rather than the site's
+        # sheet and motion script. Its equivalent guarantee — that it loads what
+        # it needs, from this origin only — is asserted in `tests/test_console.py`,
+        # where the built bundle is available to check.
+        dashboard = _read("templates/dashboard.html")
+        self.assertIn("/static/meow.css", dashboard)
+        self.assertIn("/static/motion.js", dashboard)
 
-    def test_the_two_control_pages_share_one_shell_sheet(self):
-        """The console reuses the dashboard's layout rather than inventing one.
+    def test_the_two_control_pages_do_not_load_each_others_assets(self):
+        """They shared a stylesheet, and that is exactly what was replaced.
 
-        A second control room with its own rail, cards and palette is two
-        products, and the whole point of the rebuild was that there is one.
+        The old assertion was that both control rooms rendered
+        `dashboard.css` — one rule for the pair, which is why the operator
+        console could only ever look like a second dashboard. It is a bundled
+        app now (``console/``), so the claim that survives is the boundary:
+        each loads its own assets and **neither loads the other's**. A console
+        that reached back into the dashboard's sheet would be the old coupling
+        growing back, and it would undo the rebuild one class at a time.
         """
-        for rel in ("templates/dashboard.html", "templates/owner.html"):
-            with self.subTest(page=rel):
-                self.assertIn("/static/dashboard.css", _read(rel))
+        dashboard = _read("templates/dashboard.html")
+        self.assertIn("/static/dashboard.css", dashboard)
+        self.assertNotIn("/static/console/", dashboard)
+
+        console = _read("templates/console.html")
+        self.assertIn("/static/console/app.js", console)
+        self.assertIn("/static/console/app.css", console)
+        self.assertNotIn("/static/dashboard.css", console)
 
 
 class NoInlineSvgIsLeftToGuessItsSize(unittest.TestCase):

@@ -37,10 +37,18 @@ KEEP_ALIVE = ROOT / "keep_alive.py"
 SURFACES = {
     "home.html": "the landing page",
     "dashboard.html": "a server's dashboard",
-    "owner.html": "the owner console",
     "legal.html": "a policy page",
     "pricing.html": "the pricing page",
 }
+
+#: The operator console is deliberately **not** in the map above, and this is the
+#: second time its gating has had to be re-expressed. It used to be a
+#: server-rendered page whose topbar linked to `/pricing`, so it belonged here.
+#: It is now a bundled app whose chrome lives in `console/`, and it links to no
+#: shop page in either state — it is a private operations tool, not a surface that
+#: sells anything. That absence is a decision rather than an oversight, so it is
+#: asserted directly, in both directions, by
+#: `test_the_console_never_links_to_a_shop_page` below.
 
 
 def _render(name, *, selling, extra=None):
@@ -92,6 +100,22 @@ def _render_template_calls(source):
 
 class NothingIsOfferedWhileNothingIsForSale(unittest.TestCase):
     """While the switch is off, no surface may link to the shop pages."""
+
+    def test_the_console_never_links_to_a_shop_page(self):
+        """The private console sells nothing, in either state, in either file.
+
+        Both the rendered shell and the built bundle are checked, because either
+        could introduce the link — and both switch positions are checked, so
+        "there is no link" cannot be satisfied by a page that simply stopped
+        rendering its chrome.
+        """
+        root = Path(__file__).resolve().parents[1]
+        for state in (False, True):
+            with self.subTest(selling=state):
+                self.assertNotIn('href="/pricing"', _render("console.html", selling=state))
+        bundle = (root / "static" / "console" / "app.js").read_text(errors="replace")
+        self.assertNotIn('\"/pricing\"', bundle)
+        self.assertNotIn("'/pricing'", bundle)
 
     def test_no_template_links_to_pricing_while_it_is_off(self):
         for name, label in SURFACES.items():
