@@ -25,7 +25,9 @@ Three things are checked here and they are deliberately different kinds of claim
 """
 
 import hashlib
+import io
 import json
+import os
 import re
 import unittest
 from unittest import mock
@@ -33,7 +35,7 @@ from pathlib import Path
 
 import keep_alive
 from tests.test_composer import GUILD_ID
-from tests.test_dashboard import _DashboardFixture
+from tests.test_dashboard import CSRF, _DashboardFixture
 
 ROOT = Path(__file__).resolve().parents[1]
 CONSOLE = ROOT / "console"
@@ -44,9 +46,14 @@ CONSOLE_ROUTES = (
     "/api/console/fleet",
     "/api/console/systems",
     "/api/console/commands",
+    "/api/console/economy",
     "/api/console/ops",
     "/api/console/changes",
 )
+
+#: The one console route that *moves money*, so it is a POST and the access
+#: tests below cannot reach it with a GET.
+CONSOLE_WRITE_ROUTES = ("/api/console/economy/adjust",)
 
 
 def _source_hash() -> tuple[str, int]:
@@ -245,11 +252,19 @@ class WhoMayOpenIt(_DashboardFixture):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 403, path)
                 self.assertNothingLeaked(response, extra=("server", "fleet"))
+        for path in CONSOLE_WRITE_ROUTES:
+            with self.subTest(path=path):
+                response = self.client.post(path, json={"guild_id": str(GUILD_ID)})
+                self.assertEqual(response.status_code, 403, path)
+                self.assertNothingLeaked(response, extra=("server", "fleet"))
 
     def test_every_console_api_route_refuses_a_signed_out_request(self):
         for path in CONSOLE_ROUTES + (f"/api/console/server/{GUILD_ID}",):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 401, path)
+        for path in CONSOLE_WRITE_ROUTES:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.post(path, json={}).status_code, 401, path)
 
 
 class TheShellItServes(_DashboardFixture):
@@ -628,6 +643,221 @@ class TheConsoleApi(_DashboardFixture):
         self.assertTrue(entries[0]["body"] or entries[0]["lead"])
 
 
+class TheEconomyPage(_DashboardFixture):
+    """The one console control that moves money, and the readings behind it.
+
+    Its assertions are about the *table* as much as about the response: a page
+    that reported "+500" while writing nothing, or that wrote while reporting a
+    clamped zero, would pass a test that only read the JSON. So each write is
+    checked twice — once in the answer, once in the database the bot's own
+    commands read — and every refusal is checked for the number that caused it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in(scope="global")
+
+    # -- the database, read the way the page's own module reads it ---------- #
+
+    def seed(self, user_id, wallet=0, bank=0, guild_id=GUILD_ID):
+        conn = keep_alive.db.connect()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO economy (user_id, guild_id, wallet, bank) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, guild_id, wallet, bank),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def held(self, user_id, guild_id=GUILD_ID):
+        conn = keep_alive.db.connect()
+        try:
+            row = conn.execute(
+                "SELECT wallet, bank FROM economy WHERE user_id = ? AND guild_id = ?",
+                (user_id, guild_id),
+            ).fetchone()
+            return (int(row[0]), int(row[1])) if row else (0, 0)
+        finally:
+            conn.close()
+
+    def get(self, path):
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200, path)
+        return response.get_json()
+
+    def post(self, body, path="/api/console/economy/adjust"):
+        return self.client.post(path, json=body, headers={"X-CSRF-Token": CSRF})
+
+    # -- readings ----------------------------------------------------------- #
+
+    def test_the_totals_are_the_tables_own_including_the_bank_it_forgot_before(self):
+        """Three figures, because a banked fee is not a burned one.
+
+        `utils/meowfee.py` banks the fee rather than destroying it, so coins that
+        have left every member's balance are still in the server. A page that
+        summed wallets and called it "in circulation" would print a total that
+        does not add up — which is why `meow_bank` is a column of its own and is
+        checked against the real table here.
+        """
+        self.seed(5001, wallet=250, bank=750)
+        self.seed(5002, wallet=1000, bank=0)
+        conn = keep_alive.db.connect()
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS meow_bank (guild_id INTEGER PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0)")
+            conn.execute(
+                "INSERT OR REPLACE INTO meow_bank (guild_id, coins) VALUES (?, ?)",
+                (GUILD_ID, 44),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        payload = self.get("/api/console/economy")
+        totals = payload["totals"]
+        self.assertEqual(totals["wallet"], 1250)
+        self.assertEqual(totals["bank"], 750)
+        self.assertEqual(totals["circulation"], 2000)
+        self.assertEqual(totals["meow_bank"], 44)
+        self.assertEqual(totals["accounts"], 2)
+        self.assertEqual(payload["server"]["id"], str(GUILD_ID))
+
+    def test_the_richest_list_is_net_worth_order_with_ids_as_text(self):
+        self.seed(6001, wallet=10, bank=1000)
+        self.seed(6002, wallet=500, bank=0)
+        self.seed(6003, wallet=1, bank=1)
+        top = self.get("/api/console/economy")["top"]
+        self.assertEqual([row["user_id"] for row in top], ["6001", "6002", "6003"])
+        for row in top:
+            with self.subTest(member=row["user_id"]):
+                self.assertIsInstance(row["user_id"], str, "a member id crossed as a number")
+                self.assertEqual(row["net"], row["wallet"] + row["bank"])
+
+    def test_the_fee_column_follows_the_servers_own_switch(self):
+        """Absent means on — `meowfee.is_enabled`'s rule, read without an event loop."""
+        self.assertTrue(self.get("/api/console/economy")["fee"]["enabled"])
+
+        conn = keep_alive.db.connect()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+                (GUILD_ID, keep_alive.meowfee.SETTING_KEY, json.dumps(False)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertFalse(self.get("/api/console/economy")["fee"]["enabled"])
+
+    def test_an_unknown_server_is_a_404_rather_than_the_biggest_one(self):
+        response = self.client.get("/api/console/economy?guild_id=999999999")
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.get_json()["success"])
+
+    # -- writes ------------------------------------------------------------- #
+
+    def test_a_credit_lands_in_the_table_the_bot_reads(self):
+        self.seed(7001, wallet=100, bank=0)
+        response = self.post(
+            {"guild_id": str(GUILD_ID), "user_id": "7001", "action": "wallet_add", "amount": 500}
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual((payload["wallet"], payload["bank"]), (600, 0))
+        self.assertEqual(self.held(7001), (600, 0))
+        # And the reading the page draws from agrees with the write it just made.
+        reading = keep_alive.db.read_guild_economy_sync(GUILD_ID)
+        self.assertEqual(reading["wallet"], 600)
+
+    def test_a_credit_creates_the_row_for_a_member_who_had_none(self):
+        response = self.post(
+            {"guild_id": str(GUILD_ID), "user_id": "7002", "action": "bank_add", "amount": 25}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.held(7002), (0, 25))
+
+    def test_removing_more_than_holds_is_refused_and_names_the_balance(self):
+        """The defect this project has paid for twice, in the console's words.
+
+        `MAX(0, wallet + amount)` confirmed a removal that never happened, and a
+        second simultaneous removal could "succeed" too; a conditional debit is
+        the fix everywhere else, and a refusal has to say *what refused it* —
+        "could not save" on a page holding the number is the worse answer.
+        """
+        self.seed(7003, wallet=250, bank=0)
+        response = self.post(
+            {"guild_id": str(GUILD_ID), "user_id": "7003", "action": "wallet_remove", "amount": 10_000}
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("250", response.get_json()["error"])
+        self.assertEqual(self.held(7003), (250, 0))
+
+    def test_a_removal_that_fits_takes_exactly_what_was_asked(self):
+        self.seed(7004, wallet=250, bank=900)
+        response = self.post(
+            {"guild_id": str(GUILD_ID), "user_id": "7004", "action": "bank_remove", "amount": 900}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.held(7004), (250, 0))
+
+    def test_set_writes_exact_balances_and_leaves_the_one_it_was_not_given(self):
+        self.seed(7005, wallet=5, bank=5)
+        response = self.post(
+            {"guild_id": str(GUILD_ID), "user_id": "7005", "action": "set", "wallet": 42}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.held(7005), (42, 5))
+        response = self.post(
+            {"guild_id": str(GUILD_ID), "user_id": "7005", "action": "set", "bank": 7}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.held(7005), (42, 7))
+
+    def test_the_member_id_must_be_an_id_and_the_amount_a_whole_number(self):
+        cases = (
+            ({"user_id": "<@7006>", "action": "wallet_add", "amount": 5}, 400),
+            ({"user_id": "", "action": "wallet_add", "amount": 5}, 400),
+            ({"user_id": "7006", "action": "wallet_add", "amount": 0}, 400),
+            ({"user_id": "7006", "action": "wallet_add", "amount": -5}, 400),
+            ({"user_id": "7006", "action": "nonsense", "amount": 5}, 400),
+            ({"user_id": "7006", "action": "set"}, 400),
+            ({"user_id": "7006", "action": "wallet_add", "amount": 10 ** 15}, 400),
+        )
+        for body, status in cases:
+            with self.subTest(body=body):
+                response = self.post({"guild_id": str(GUILD_ID), **body})
+                self.assertEqual(response.status_code, status)
+                self.assertFalse(response.get_json()["success"])
+                self.assertNotIn("7006", [row["user_id"] for row in self.get("/api/console/economy")["top"]])
+
+    def test_a_write_without_the_csrf_token_is_refused(self):
+        self.seed(7007, wallet=100, bank=0)
+        response = self.client.post(
+            "/api/console/economy/adjust",
+            json={"guild_id": str(GUILD_ID), "user_id": "7007", "action": "wallet_add", "amount": 500},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.held(7007), (100, 0), "a refused write still moved coins")
+
+    def test_the_change_is_written_to_the_output_tail(self):
+        """An out-of-band balance change has to be accountable afterwards.
+
+        The ring `/owner/ops` shows is the one place a person can see that it
+        happened and who did it, so the line is asserted for the actor and the
+        numbers rather than merely for existing.
+        """
+        self.seed(7008, wallet=0, bank=0)
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as captured:
+            response = self.post(
+                {"guild_id": str(GUILD_ID), "user_id": "7008", "action": "wallet_add", "amount": 7}
+            )
+        self.assertEqual(response.status_code, 200)
+        line = captured.getvalue()
+        self.assertIn("[ECONOMY]", line)
+        self.assertIn("wallet_add", line)
+        self.assertIn("7008", line)
+
+
 class TogglingFromTheConsole(_DashboardFixture):
     """The switch is the point of the whole surface, so it is driven here."""
 
@@ -667,6 +897,60 @@ class TogglingFromTheConsole(_DashboardFixture):
         for module in keep_alive.AVAILABLE_MODULES:
             with self.subTest(module=module["id"]):
                 self.assertTrue(states.get(module["id"], False))
+
+
+class ThePreviewHarnessShowsAConsole(_DashboardFixture):
+    """The harness the README points at must be able to show this console.
+
+    Found by running it to look at this pass's own work. Every `/api/console/*`
+    route is `keep_alive`'s real view and every one of them lists servers through
+    `BOT_INSTANCE` — which the harness never had, so the Fleet page listed
+    nothing, the Systems matrix had no columns, and the Commands and Economy
+    pages had no server to be about. A preview of an empty console is worse than
+    no preview: it looks like the page is broken.
+    """
+
+    def load(self):
+        """Load the harness as its own module, restoring the database path.
+
+        The file repoints `utils.db` at its own copy on import, which the
+        dashboard's tests already live with — this fixture's database is set in
+        `setUp`, so it is put back here rather than left to the next test.
+        """
+        import importlib.util
+
+        saved = keep_alive.db.DB_PATH
+        spec = importlib.util.spec_from_file_location(
+            "preview_dashboard_for_console_test",
+            os.path.join(ROOT, "scripts", "preview_dashboard.py"),
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        keep_alive.db.DB_PATH = saved
+        return module
+
+    def test_the_stub_gateway_carries_the_servers_the_harness_lists(self):
+        module = self.load()
+        bot = module._PreviewBot()
+        self.assertEqual([guild.id for guild in bot.guilds], [entry["id"] for entry in module.GUILDS])
+        self.assertTrue(bot.is_ready())
+        self.assertEqual(len(bot.tree.get_commands()), len(module.PREVIEW_COMMANDS))
+        guild = bot.get_guild(module.GUILDS[0]["id"])
+        self.assertEqual(guild.member_count, module.GUILDS[0]["members"])
+        # _fleet_rows reads a nickname and the economy page reads the richest
+        # list's names, so a lookup that answers nothing would empty both.
+        self.assertIsNotNone(guild.get_member(module.MEMBERS[0]["id"]))
+
+    def test_importing_it_does_not_install_the_gateway(self):
+        """The suite imports this file; a gateway must not arrive with it."""
+        module = self.load()
+        self.assertIs(module.keep_alive.BOT_INSTANCE, self.bot)
+
+    def test_the_seeded_economy_is_written_once(self):
+        module = self.load()
+        first = module.seed_economy()
+        self.assertEqual(first, len(module.GUILDS) * len(module.MEMBERS))
+        self.assertEqual(module.seed_economy(), 0, "a second run re-wrote balances")
 
 
 class _no_bundle:

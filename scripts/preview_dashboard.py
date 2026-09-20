@@ -342,6 +342,134 @@ class _PreviewGuild:
         return None
 
 
+class _PreviewCommand:
+    """One entry of ``tree.get_commands()``, as ``_command_tree_names`` reads it."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _PreviewTree:
+    """The bot's command tree, seeded from the registry.
+
+    The console's Commands page compares the registry against what Discord was
+    *told*, and without a tree it cannot tell those apart — every declared
+    command would read as "not published". The names come from
+    ``PREVIEW_COMMANDS``, which is already derived from the registry, so the two
+    sides of that comparison are the real ones for this module state.
+    """
+
+    def get_commands(self):
+        return [_PreviewCommand(name) for name in PREVIEW_COMMANDS]
+
+
+class _PreviewServer:
+    """One server as the console's own views read one.
+
+    ``_fleet_rows`` wants an id, a name, a member count, the bot's own member in
+    it (for the nickname column), and a member lookup (for the richest list), and
+    nothing else — so that is exactly what this carries rather than a hand-built
+    JSON row, which would drift from what the real code reads.
+    """
+
+    def __init__(self, entry: dict):
+        self.id = int(entry["id"])
+        self.name = str(entry["name"])
+        self.member_count = int(entry["members"])
+        self.members = []
+        self.icon = None
+        # No dedicated bot member: `_identity_member` falls back to the bot's own
+        # user, which this harness also does not have, and both paths answer ""
+        # rather than raising. A fabricated "Meow" here would be a nickname the
+        # preview invented about a gateway it does not have.
+        self.me = None
+        self._members = {int(m["id"]): _PreviewMentionable(m, "@") for m in MEMBERS}
+
+    def get_member(self, user_id):
+        try:
+            return self._members.get(int(user_id))
+        except (TypeError, ValueError):
+            return None
+
+
+class _PreviewBot:
+    """The gateway the console's real views read.
+
+    ``/api/console/*`` are ``keep_alive``'s own views, and every one of them
+    lists servers through ``BOT_INSTANCE``. This process has no gateway, so with
+    nothing assigned they all answered an **empty fleet**: the Fleet page listed
+    no servers, the Systems matrix had no columns, and the Commands and Economy
+    pages — which are each *about* a server — had nothing to be about. A preview
+    of an empty console teaches nothing about the console, which is the whole job
+    of this file.
+
+    Assigned under ``__main__`` and not at import, deliberately: the test-suite
+    imports this module, and a gateway installed by an import is a gateway every
+    test that never asked for one.
+    """
+
+    def __init__(self):
+        badge = _preview_badge()
+        requested = os.environ.get("PREVIEW_GATEWAY", "connected").strip().lower()
+        self._has_started = requested != "never_connected"
+        self._connected = badge["connected"]
+        self.guilds = [_PreviewServer(entry) for entry in GUILDS]
+        self.tree = _PreviewTree()
+        # `USER_ID`-less on purpose; see `_PreviewServer.me`. `latency` is seconds,
+        # which is what `discord.Client` reports and what `_bot_ping_ms` scales.
+        self.user = None
+        self.latency = int(os.environ.get("PREVIEW_PING", "41")) / 1000
+
+    def get_guild(self, guild_id):
+        try:
+            wanted = int(guild_id)
+        except (TypeError, ValueError):
+            return None
+        return next((guild for guild in self.guilds if guild.id == wanted), None)
+
+    def is_ready(self) -> bool:
+        return bool(self._connected)
+
+
+def seed_economy() -> int:
+    """Give the previewed servers an economy to draw. Returns rows written.
+
+    Only for a guild with no rows at all, so re-running the harness does not
+    overwrite balances somebody moved through the console a minute earlier — and
+    only for the harness's own stand-in servers, which exist in no real database.
+    Written with the real table's own columns, so the page's reader is the thing
+    being previewed rather than a second copy of it.
+    """
+    conn = _db.connect()
+    written = 0
+    try:
+        for guild in GUILDS:
+            existing = conn.execute(
+                "SELECT COUNT(*) FROM economy WHERE guild_id = ?", (guild["id"],)
+            ).fetchone()[0]
+            if existing:
+                continue
+            for index, member in enumerate(MEMBERS):
+                conn.execute(
+                    "INSERT OR REPLACE INTO economy (user_id, guild_id, wallet, bank) "
+                    "VALUES (?, ?, ?, ?)",
+                    (int(member["id"]), guild["id"], 12_500 * (index + 1), 3_400 * index),
+                )
+                written += 1
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS meow_bank (guild_id INTEGER PRIMARY KEY, "
+                "coins INTEGER NOT NULL DEFAULT 0)"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO meow_bank (guild_id, coins) VALUES (?, ?)",
+                (guild["id"], 1_260),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return written
+
+
 #: Which server this harness is "in". Production keeps that in the session and a
 #: passkey session can move between servers; here it is one process-wide value,
 #: which is the only sense in which this harness has a session at all. It exists
@@ -1400,4 +1528,10 @@ def queue_state():
 
 
 if __name__ == "__main__":
+    # The gateway the console's own views read, and a small economy to look at.
+    # Both only when *serving*: this file is imported by the test-suite, and
+    # neither belongs to a test that never asked for one.
+    keep_alive.BOT_INSTANCE = _PreviewBot()
+    seeded = seed_economy()
+    print(f"[PREVIEW] gateway: {len(GUILDS)} servers; economy: {seeded} seeded row(s)", flush=True)
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8099")))

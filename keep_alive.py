@@ -48,8 +48,8 @@ from flask import (
 )
 from utils import (
     command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    figures, guild_directory, hub, identity, modules, plans, scheduled, site_guard,
-    uptime_status, webdocs,
+    figures, guild_directory, hub, identity, meowfee, modules, plans, scheduled,
+    site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -3128,6 +3128,7 @@ OWNER_PAGES = (
     ("servers", "Servers", "/owner/servers", "servers"),
     ("systems", "Systems", "/owner/systems", "systems"),
     ("commands", "Commands", "/owner/commands", "commands"),
+    ("economy", "Economy", "/owner/economy", "economy"),
     ("ops", "Ops", "/owner/ops", "ops"),
     ("changes", "Changes", "/owner/changes", "changes"),
 )
@@ -3456,6 +3457,255 @@ def api_console_systems():
         "matrix": matrix,
         "unreadable": unreadable,
         "always_on": list(features.always_on_names()),
+    })
+
+
+#: The actions the console's adjustment form may post, and the field and sign
+#: each one means. A table rather than six branches, because the *page* offers
+#: these names and the server has to accept exactly the ones it printed.
+ECONOMY_ACTIONS = {
+    "wallet_add": ("wallet", 1),
+    "wallet_remove": ("wallet", -1),
+    "bank_add": ("bank", 1),
+    "bank_remove": ("bank", -1),
+}
+
+
+def _console_member_name(guild, user_id: int) -> str:
+    """A member's display name where the gateway knows it, else ``""``.
+
+    The same rule the fleet's nickname column follows: Discord's cache is the
+    authority while it is warm, and "User 1234…" invented from an id would be
+    worse than a blank the page can render as a number.
+    """
+    if guild is None:
+        return ""
+    try:
+        member = guild.get_member(int(user_id))
+    except Exception:
+        return ""
+    if member is None:
+        return ""
+    return _live_name(member)
+
+
+def _console_economy_server(requested):
+    """The server an economy request is about, or ``None``.
+
+    ``requested`` is text, always — a Discord id that travelled as a JSON number
+    is a different number on return (see ``_console_id``). The default is the
+    biggest server, which is the one an operator is most likely to have meant.
+    """
+    fleet = _fleet_rows()
+    if not fleet:
+        return None
+    wanted = str(requested or "").strip()
+    if wanted:
+        for row in fleet:
+            if _console_id(row["id"]) == wanted:
+                return row
+        return None
+    return fleet[0]
+
+
+def _fee_enabled_for(guild_id) -> bool:
+    """Whether this server charges the Meow Fee, without an event loop.
+
+    ``meowfee.is_enabled`` is async and the Flask thread cannot await it, so the
+    rule is restated over the sync read — and restated *exactly*: absent means
+    on, a stored word is read by ``parse_enabled``, and a word it does not
+    recognise is on rather than off, which is what ``is_enabled`` does with a
+    stored string it cannot parse.
+    """
+    stored = db.read_setting_sync(guild_id, meowfee.SETTING_KEY)
+    if stored is None:
+        return True
+    parsed = meowfee.parse_enabled(stored)
+    return True if parsed is None else parsed
+
+
+@app.route("/api/console/economy")
+def api_console_economy():
+    """One server's economy: circulation, the richest members, and the fee.
+
+    Read-only. Writes are ``/api/console/economy/adjust`` below, because a page
+    that both reads and moves coins on a GET is one refresh away from a
+    mistake.
+
+    The columns are the fleet's own rows, so the picker here cannot offer a
+    server the Fleet page does not have, and the ids are strings for the reason
+    ``_console_id`` documents.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    row = _console_economy_server(request.args.get("guild_id"))
+    if row is None:
+        return jsonify({"success": False, "error": "No such server"}), 404
+
+    try:
+        limit = max(1, min(100, int(request.args.get("limit", 25))))
+    except (TypeError, ValueError):
+        limit = 25
+
+    try:
+        reading = db.read_guild_economy_sync(row["id"], limit=limit)
+    except Exception as exc:
+        print(f"[CONSOLE] could not read the economy for {row['id']}: {exc}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Could not read this server's economy. Try again in a moment.",
+        }), 500
+
+    guild = BOT_INSTANCE.get_guild(row["id"]) if BOT_INSTANCE else None
+    top = [
+        {
+            **entry,
+            # Text, for the same reason a server id is: a member id is a
+            # snowflake too, and the app must never do arithmetic on one.
+            "user_id": _console_id(entry["user_id"]),
+            "name": _console_member_name(guild, entry["user_id"]),
+        }
+        for entry in reading["top"]
+    ]
+    return jsonify({
+        "success": True,
+        "server": {**row, "id": _console_id(row["id"])},
+        "servers": [
+            {
+                "id": _console_id(entry["id"]),
+                "name": entry["name"],
+                "icon": entry["icon"],
+                "members": entry["members"],
+            }
+            for entry in _fleet_rows()
+        ],
+        "totals": {
+            "accounts": reading["accounts"],
+            "wallet": reading["wallet"],
+            "bank": reading["bank"],
+            "circulation": reading["circulation"],
+            "meow_bank": reading["meow_bank"],
+        },
+        "top": top,
+        "show_limit": limit,
+        "fee": {
+            # Unset means on, which is ``meowfee.is_enabled``'s own rule read
+            # here without an event loop: the page must not describe a fee this
+            # server does not charge, and a server that has never touched the
+            # switch does charge it.
+            "enabled": _fee_enabled_for(row["id"]),
+            "rate": meowfee.fee_label(),
+            "min": meowfee.MIN_FEE,
+            "max": meowfee.MAX_FEE,
+        },
+        "actions": sorted(ECONOMY_ACTIONS) + ["set"],
+        "ceiling": db.MAX_ECONOMY_ADJUSTMENT,
+    })
+
+
+@app.route("/api/console/economy/adjust", methods=["POST"])
+def api_console_economy_adjust():
+    """Move coins, or refuse in words that name the number that refused them.
+
+    Reached only by the operator's own sign-in — `_require_operator_api` insists
+    on the passkey scope, so this is not a server administrator's control and
+    there is no approval flow to skip: `/eco-admin set` in Discord is owner-only
+    for the same reason, and both surfaces refuse the same people.
+
+    The refusals are the feature. A debit larger than the balance is answered
+    with *"that wallet holds 240 — there is not 10,000 to remove"* rather than
+    with a silently clamped balance, which is the defect this project has
+    already fixed twice in the bot's own commands (see `move_economy_sync`).
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    row = _console_economy_server(data.get("guild_id"))
+    if row is None:
+        return jsonify({"success": False, "error": "No such server"}), 404
+
+    user_id = _int_or_none(data.get("user_id"))
+    if user_id is None or user_id <= 0:
+        return jsonify({
+            "success": False,
+            "error": "That is not a member id. Paste the id itself — 17 or 18 digits — not a mention.",
+        }), 400
+
+    action = str(data.get("action") or "")
+    if action not in ECONOMY_ACTIONS and action != "set":
+        return jsonify({"success": False, "error": "Unknown action"}), 400
+
+    guild_id = int(row["id"])
+    actor = (session.get("discord_user") or {}).get("username") or "the operator"
+
+    try:
+        if action == "set":
+            wanted = {}
+            for field in ("wallet", "bank"):
+                raw = data.get(field)
+                if raw in (None, ""):
+                    continue
+                value = _int_or_none(raw)
+                if value is None:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Enter a whole number of coins for the {field}.",
+                    }), 400
+                wanted[field] = value
+            if not wanted:
+                return jsonify({
+                    "success": False,
+                    "error": "Give a wallet, a bank, or both to set.",
+                }), 400
+            result = db.set_economy_sync(guild_id, user_id, **wanted)
+        else:
+            field, sign = ECONOMY_ACTIONS[action]
+            amount = _int_or_none(data.get("amount"))
+            if amount is None or amount <= 0:
+                return jsonify({"success": False, "error": "Enter a whole number of coins."}), 400
+            result = db.move_economy_sync(guild_id, user_id, field, sign * amount)
+    except ValueError as exc:
+        # A bound or a bad field name, in the module's own words.
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        print(f"[ECONOMY] ⚠️ could not apply {action} for {user_id}: {exc}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": "Could not save that change. Nothing was moved.",
+        }), 500
+
+    if not result["ok"]:
+        # The debit was refused by the balance itself. Answer with the number
+        # that refused it rather than a clamped zero the page would have to
+        # interpret (only a *move* can get here; ``set`` always reports ok).
+        field = ECONOMY_ACTIONS[action][0]
+        asked = _int_or_none(data.get("amount")) or 0
+        return jsonify({
+            "success": False,
+            "error": f"That {field} holds {result[field]:,} 🪙 — there is not {asked:,} to remove.",
+            "wallet": result["wallet"],
+            "bank": result["bank"],
+        }), 409
+
+    # The one line that makes an out-of-band balance change accountable after
+    # the fact: this ring is what `/owner/ops` shows, and it is the same redaction
+    # pass as everything else there.
+    print(
+        f"[ECONOMY] {actor} ran {action} on {user_id} in {row['name']} "
+        f"({guild_id}) — now wallet={result['wallet']:,} bank={result['bank']:,}",
+        flush=True,
+    )
+    return jsonify({
+        "success": True,
+        "guild_id": _console_id(guild_id),
+        "user_id": _console_id(user_id),
+        "action": action,
+        "wallet": result["wallet"],
+        "bank": result["bank"],
     })
 
 

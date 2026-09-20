@@ -28,7 +28,7 @@ buildable with `scripts/build_hub.py` if it is ever wanted back.
 | `src/lib/useLive.ts` | the polling hook — the one place an interval is set |
 | `src/lib/theme.ts` | the four themes' names; the colours are in `styles.css` |
 | `src/ui.tsx` | the building blocks: card, switch, toast, skeleton, empty |
-| `src/pages/*` | one file per page, each fetching what it draws — Overview, Servers and a per-server drill-down, the Systems matrix, Commands, Ops, Changes |
+| `src/pages/*` | one file per page, each fetching what it draws — Overview, Servers and a per-server drill-down, the Systems matrix, Commands, Economy, Ops, Changes |
 | `src/styles.css` | tokens, then layout, then components, in that order |
 
 The server side is `keep_alive.py`: the shell route (`owner_console`) and six
@@ -68,6 +68,13 @@ For a visual pass with real data, `scripts/preview_dashboard.py` serves this
 shell at `/owner` and mounts the real `/api/console/*` views against its own
 database — the preview signs itself in, because the harness has no sign-in and
 the API behind it is operator-only.
+
+It also stands up a **stub gateway** while it serves (`_PreviewBot`, installed
+under `__main__` only), because every one of those views lists servers through
+`BOT_INSTANCE` and with none of them the whole console rendered as an empty
+fleet: no rows, no matrix columns, and nothing for the Commands or Economy page
+to be about. It seeds a small economy for its own stand-in servers at the same
+time, so the two pages that read one have numbers to draw.
 
 ## Two rules worth keeping
 

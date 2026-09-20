@@ -161,6 +161,56 @@ export type SystemsMatrix = {
 };
 
 /**
+ * One member's holding in one server, as the economy page reads it.
+ *
+ * `user_id` is text for the same reason `ServerRow.id` is: a member id is a
+ * snowflake too, and the app must never do arithmetic on one.
+ */
+export type BalanceRow = {
+  user_id: string;
+  /** Their display name where the gateway knows it, else `""`. */
+  name: string;
+  wallet: number;
+  bank: number;
+  net: number;
+};
+
+/** The actions the adjustment form may post. `set` is not a move — it writes
+ * exact balances, which is the owner-only `/eco-admin set` in Discord. */
+export type EconomyAction = "wallet_add" | "wallet_remove" | "bank_add" | "bank_remove" | "set";
+
+export type EconomyPayload = {
+  success: true;
+  server: ServerRow;
+  servers: { id: string; name: string; icon: string; members: number }[];
+  totals: {
+    accounts: number;
+    wallet: number;
+    bank: number;
+    /** Wallet + bank. What members hold, which is not the same as what is in
+     * the server — see `meow_bank`. */
+    circulation: number;
+    /** Coins the Meow Fee has banked. Still in the server, no longer in a
+     * member's balance, so a total that omitted it would not add up. */
+    meow_bank: number;
+  };
+  top: BalanceRow[];
+  show_limit: number;
+  fee: { enabled: boolean; rate: string; min: number; max: number };
+  actions: EconomyAction[];
+  ceiling: number;
+};
+
+export type Adjustment = {
+  success: true;
+  guild_id: string;
+  user_id: string;
+  action: EconomyAction;
+  wallet: number;
+  bank: number;
+};
+
+/**
  * One root command, as the registry and the live tree together describe it.
  *
  * The registry says what this deployment *does*; the tree says what Discord was

@@ -14,9 +14,12 @@
  */
 
 import type {
+  Adjustment,
   BootData,
   Changes,
   CommandsPayload,
+  EconomyAction,
+  EconomyPayload,
   Fleet,
   Ops,
   Overview,
@@ -118,6 +121,40 @@ export const api = {
   },
   systems: () => request<SystemsMatrix>("/api/console/systems"),
   commands: () => request<CommandsPayload>("/api/console/commands"),
+
+  /** One server's economy. `guildId` is omitted for "the biggest one". */
+  economy: (guildId?: string, limit = 25) =>
+    request<EconomyPayload>(
+      `/api/console/economy?limit=${limit}${guildId ? `&guild_id=${encodeURIComponent(guildId)}` : ""}`,
+    ),
+
+  /**
+   * Move coins, or be refused in words that name the number that refused them.
+   *
+   * A POST rather than a query string because it writes: the CSRF token goes on
+   * every request this app makes, and this is the one endpoint where that is
+   * not a formality — it moves money in the bot's own database.
+   */
+  adjust: (body: {
+    guildId: string;
+    userId: string;
+    action: EconomyAction;
+    amount?: number;
+    wallet?: number;
+    bank?: number;
+  }) =>
+    request<Adjustment>("/api/console/economy/adjust", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guild_id: body.guildId,
+        user_id: body.userId,
+        action: body.action,
+        amount: body.amount,
+        wallet: body.wallet,
+        bank: body.bank,
+      }),
+    }),
   ops: () => request<Ops>("/api/console/ops"),
   changes: () => request<Changes>("/api/console/changes"),
 

@@ -816,6 +816,207 @@ def read_guild_modules_sync(guild_id: int) -> dict:
         conn.close()
     return modules
 
+#: The two balances a member holds. A whitelist rather than a free string,
+#: because these names reach an f-string in an UPDATE below — the same rule, and
+#: the same reason, as ``cogs/economy.py``'s ``ALLOWED_ECONOMY_FIELDS``.
+ECONOMY_BALANCE_FIELDS = ("wallet", "bank")
+
+#: The largest single movement the operator's console will make. A bound rather
+#: than a policy: nothing in this project limits an owner, and this only stops a
+#: mistyped paste from minting a number the bot can no longer add to.
+MAX_ECONOMY_ADJUSTMENT = 1_000_000_000_000
+
+
+def read_setting_sync(guild_id: int, key: str, default=None):
+    """One ``guild_settings`` value, without an event loop.
+
+    The Flask thread cannot await, and a setting read from a *page* has to be
+    the same value the bot's own command would see — so this mirrors
+    ``get_setting``'s decoding (JSON where it parses, the raw row where it does
+    not, because these rows predate JSON) rather than inventing a second rule
+    about what a stored setting means.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = ? AND key = ?",
+            (int(guild_id), key),
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return default
+    try:
+        return json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return row[0]
+
+
+def read_guild_economy_sync(guild_id: int, limit: int = 25) -> dict:
+    """One server's economy: what is in circulation, and who holds it.
+
+    Read-only, and deliberately so. ``cogs/economy.py`` owns every *write* to
+    these balances, and this is the one place the operator's console reads them
+    — a SELECT, so the two cannot disagree about a number that was never written
+    here.
+
+    Three figures rather than one, because they are three different claims:
+    everything a member's wallet holds, everything in their bank, and the coins
+    **Meow Bank** has collected in fees. The last of those is the interesting
+    one, and it is the one a page can get wrong by forgetting it exists — a fee
+    is banked rather than burned (see ``utils/meowfee.py``), so coins that have
+    left every member's balance are still in the server, and a total that
+    omitted them would be a number that does not add up.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COALESCE(SUM(wallet), 0), COALESCE(SUM(bank), 0), COUNT(*) "
+            "FROM economy WHERE guild_id = ?",
+            (int(guild_id),),
+        )
+        wallet, bank, accounts = cur.fetchone()
+        cur.execute(
+            "SELECT user_id, wallet, bank FROM economy WHERE guild_id = ? "
+            "ORDER BY (wallet + bank) DESC, user_id ASC LIMIT ?",
+            (int(guild_id), int(limit)),
+        )
+        top = [
+            {
+                "user_id": int(user_id),
+                "wallet": int(row_wallet or 0),
+                "bank": int(row_bank or 0),
+                "net": int(row_wallet or 0) + int(row_bank or 0),
+            }
+            for user_id, row_wallet, row_bank in cur.fetchall()
+        ]
+        # The bank table is created at boot and defensively on first use, so a
+        # database restored from a backup taken before it existed has none. An
+        # absent bank is "nothing was ever collected", not a read failure.
+        collected = 0
+        try:
+            cur.execute("SELECT coins FROM meow_bank WHERE guild_id = ?", (int(guild_id),))
+            row = cur.fetchone()
+            collected = int(row[0]) if row else 0
+        except sqlite3.Error:
+            collected = 0
+    finally:
+        conn.close()
+    return {
+        "wallet": int(wallet or 0),
+        "bank": int(bank or 0),
+        "circulation": int(wallet or 0) + int(bank or 0),
+        "accounts": int(accounts or 0),
+        "meow_bank": collected,
+        "top": top,
+    }
+
+
+def move_economy_sync(guild_id: int, user_id: int, field: str, delta: int) -> dict:
+    """Credit or debit one balance, and never *claim* a debit that did not happen.
+
+    A debit is **conditional** — ``wallet = wallet - ? WHERE wallet >= ?`` — and
+    the updated rowcount decides the answer. That is the rule every other money
+    path in this project already follows, and `cogs/economy.py`'s `settle_bet`
+    and `/eco-admin remove` both exist because the older
+    ``MAX(0, wallet + ?)`` reported a removal that never happened: it clamped at
+    zero and confirmed anyway, so "removed 10,000" could describe a wallet that
+    held 50. The console must not be the one surface that lies about a balance.
+
+    Returns ``{"ok": bool, "wallet": int, "bank": int}`` — the balances as they
+    are *after* the attempt, so a refusal comes back with the number that made
+    it a refusal rather than with an error the caller has to interpret.
+    """
+    if field not in ECONOMY_BALANCE_FIELDS:
+        raise ValueError(f"Unknown economy field {field!r}")
+    delta = int(delta)
+    if delta == 0:
+        raise ValueError("An adjustment of zero is not an adjustment")
+    if abs(delta) > MAX_ECONOMY_ADJUSTMENT:
+        raise ValueError("That amount is larger than any balance this bot can hold")
+    guild_id, user_id = int(guild_id), int(user_id)
+
+    def work(cur):
+        # The row may not exist: a member who has never run an economy command
+        # has no balance at all, and crediting one is how they get their first
+        # coins. Inside the transaction, like every other writer here.
+        cur.execute(
+            "INSERT OR IGNORE INTO economy (user_id, guild_id) VALUES (?, ?)",
+            (user_id, guild_id),
+        )
+        if delta < 0:
+            amount = -delta
+            cur.execute(
+                f"UPDATE economy SET {field} = {field} - ? "
+                f"WHERE user_id = ? AND guild_id = ? AND {field} >= ?",
+                (amount, user_id, guild_id, amount),
+            )
+            if cur.rowcount != 1:
+                moved = False
+            else:
+                moved = True
+        else:
+            cur.execute(
+                f"UPDATE economy SET {field} = {field} + ? WHERE user_id = ? AND guild_id = ?",
+                (delta, user_id, guild_id),
+            )
+            moved = True
+        row = cur.execute(
+            "SELECT wallet, bank FROM economy WHERE user_id = ? AND guild_id = ?",
+            (user_id, guild_id),
+        ).fetchone()
+        return {
+            "ok": moved,
+            "wallet": int(row[0] or 0),
+            "bank": int(row[1] or 0),
+        }
+
+    return run_atomic(work)
+
+
+def set_economy_sync(guild_id: int, user_id: int, wallet=None, bank=None) -> dict:
+    """Set a member's balances to exact figures. ``None`` leaves one alone.
+
+    The operator's own power, in Discord as well as here: `/eco-admin set` is
+    owner-only, and this endpoint is reachable only from the operator's console,
+    so there is no approval step to skip — the two surfaces refuse the same
+    people (see `_require_operator_api`).
+    """
+    if wallet is None and bank is None:
+        raise ValueError("Nothing to set")
+    guild_id, user_id = int(guild_id), int(user_id)
+    updates = []
+    for field, value in (("wallet", wallet), ("bank", bank)):
+        if value is None:
+            continue
+        value = int(value)
+        if not 0 <= value <= MAX_ECONOMY_ADJUSTMENT:
+            raise ValueError("A balance cannot be negative or that large")
+        updates.append((field, value))
+
+    def work(cur):
+        cur.execute(
+            "INSERT OR IGNORE INTO economy (user_id, guild_id) VALUES (?, ?)",
+            (user_id, guild_id),
+        )
+        cur.execute(
+            "UPDATE economy SET "
+            + ", ".join(f"{field} = ?" for field, _ in updates)
+            + " WHERE user_id = ? AND guild_id = ?",
+            [value for _, value in updates] + [user_id, guild_id],
+        )
+        row = cur.execute(
+            "SELECT wallet, bank FROM economy WHERE user_id = ? AND guild_id = ?",
+            (user_id, guild_id),
+        ).fetchone()
+        return {"ok": True, "wallet": int(row[0] or 0), "bank": int(row[1] or 0)}
+
+    return run_atomic(work)
+
+
 def write_guild_module_sync(guild_id: int, module_name: str, enabled: bool) -> bool:
     """Synchronous write of one module toggle. Returns True on success.
 
