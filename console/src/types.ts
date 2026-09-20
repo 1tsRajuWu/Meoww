@@ -105,7 +105,12 @@ export type Overview = {
 };
 
 export type ServerRow = {
-  id: number;
+  /** **A string, not a number.** Discord ids are 18-19 digits and a `number` is
+   * exact to about 16, so an id that round-trips through one comes back as a
+   * different server — which is what made every link in this app open a
+   * 404 and the systems matrix render "?" in all of its cells. The type here is
+   * the guard: an id is opaque text, and nothing may do arithmetic on it. */
+  id: string;
   name: string;
   icon: string;
   nick: string;
@@ -146,10 +151,48 @@ export type ServerDetail = {
 export type SystemsMatrix = {
   success: true;
   systems: SystemCard[];
-  servers: { id: number; name: string; icon: string; members: number }[];
+  /** Ids are strings here for the reason spelled out on `ServerRow.id` — and
+   * this is the one payload where it matters most, because the matrix is
+   * *keyed* by them and a rounded key matches nothing. */
+  servers: { id: string; name: string; icon: string; members: number }[];
   matrix: Record<string, Record<string, boolean>>;
-  unreadable: number[];
+  unreadable: string[];
   always_on: string[];
+};
+
+/**
+ * One root command, as the registry and the live tree together describe it.
+ *
+ * The registry says what this deployment *does*; the tree says what Discord was
+ * actually *told*. `published` is `null` when the tree could not be read at all
+ * (a sleeping gateway answers with an empty list, which is not the same claim as
+ * "none of these are published").
+ */
+export type CommandRow = {
+  name: string;
+  /** The system that gates it, or `""` when it is always offered. */
+  system: string;
+  system_name: string;
+  icon: string;
+  /** Whether the feature registry declares it at all. */
+  declared: boolean;
+  published: boolean | null;
+  /** Server names where this command is not in the picker. */
+  off_in: string[];
+};
+
+export type CommandsPayload = {
+  success: true;
+  commands: CommandRow[];
+  servers: { id: string; name: string; icon: string; members: number }[];
+  always_on: string[];
+  tree_read: boolean;
+  /** Declared by the registry, absent from the tree — a command that cannot be typed. */
+  missing: string[];
+  /** In the tree, unknown to the registry — a command no switch can take away. */
+  unregistered: string[];
+  unreadable: string[];
+  totals: { commands: number; declared: number; published: number };
 };
 
 export type Ops = {

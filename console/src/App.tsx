@@ -21,6 +21,7 @@ import { Overview } from "./pages/Overview";
 import { Servers } from "./pages/Servers";
 import { ServerDetail } from "./pages/ServerDetail";
 import { Systems } from "./pages/Systems";
+import { Commands } from "./pages/Commands";
 import { OpsPage } from "./pages/Ops";
 import { Changes } from "./pages/Changes";
 import { Missing } from "./pages/Missing";
@@ -61,9 +62,13 @@ function Router({
 
   const page = useMemo(() => {
     const detail = /^\/servers\/(\d+)$/.exec(path);
-    if (detail) return { kind: "server" as const, id: Number(detail[1]) };
+    // The id stays **text**. `Number()` here is exactly how
+    // `/owner/servers/1542278896148422676` became `/owner/servers/…42700` and
+    // then a "No such server" — see `ServerRow.id` in `types.ts`.
+    if (detail) return { kind: "server" as const, id: String(detail[1]) };
     if (path === "/servers") return { kind: "servers" as const };
     if (path === "/systems") return { kind: "systems" as const };
+    if (path === "/commands") return { kind: "commands" as const };
     if (path === "/ops") return { kind: "ops" as const };
     if (path === "/changes") return { kind: "changes" as const };
     // `/owner` itself is the Overview; **anything else that matched nothing is
@@ -118,6 +123,7 @@ function Router({
     if (page.kind === "systems") {
       return <Systems servers={servers} onGone={toast} />;
     }
+    if (page.kind === "commands") return <Commands servers={servers} />;
     if (page.kind === "ops") return <OpsPage />;
     if (page.kind === "changes") return <Changes />;
     if (page.kind === "missing") return <Missing path={path} />;

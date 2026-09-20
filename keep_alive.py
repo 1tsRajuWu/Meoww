@@ -3028,6 +3028,28 @@ def dashboard():
 # page, it gets sent somewhere it can actually act.
 
 
+def _console_id(value) -> str:
+    """A Discord id as **text**, because a JavaScript number cannot hold one.
+
+    A snowflake is 18-19 digits and a double is exact to about 16, so an id that
+    crosses to the app as a JSON *number* can come back as a different server —
+    and it did, on the live console. ``String(Number("1542278896148422676"))``
+    is ``"1542278896148422700"``: that is what the address bar showed, why
+    ``/owner/servers/…42700`` answered **"No such server"** for a server it had
+    just listed on the page behind it, and why the systems matrix — the one
+    screen drawn as a switch per server — looked its own string keys up with a
+    rounded number and painted **"?" in every cell**. Both symptoms are one
+    defect, and the fix is to stop arithmetic from touching an identifier: ids
+    cross this boundary as text, and everything that reads one parses it back
+    with ``int()``.
+
+    The *server-side* rows keep their integers, deliberately: ``modules.CACHE``
+    and every SQL statement are keyed by the same ``int`` the gateway hands out,
+    so a string there would be a second cache entry for one server.
+    """
+    return str(int(value))
+
+
 def _fleet_rows() -> list[dict]:
     """Every server the bot is in, and the two numbers that make a bad one obvious.
 
@@ -3105,6 +3127,7 @@ OWNER_PAGES = (
     ("overview", "Overview", "/owner", "overview"),
     ("servers", "Servers", "/owner/servers", "servers"),
     ("systems", "Systems", "/owner/systems", "systems"),
+    ("commands", "Commands", "/owner/commands", "commands"),
     ("ops", "Ops", "/owner/ops", "ops"),
     ("changes", "Changes", "/owner/changes", "changes"),
 )
@@ -3346,7 +3369,13 @@ def api_console_fleet():
     if denied:
         return denied
     fleet = _fleet_rows()
-    return jsonify({"success": True, "servers": fleet, "totals": _console_totals(fleet)})
+    # ``_console_id``: the list is drawn as links, and a link built from a
+    # rounded id is a 404 on the page it points at. See the helper.
+    return jsonify({
+        "success": True,
+        "servers": [{**row, "id": _console_id(row["id"])} for row in fleet],
+        "totals": _console_totals(fleet),
+    })
 
 
 @app.route("/api/console/server/<int:guild_id>")
@@ -3368,7 +3397,7 @@ def api_console_server(guild_id: int):
     systems, known = _console_systems_for(guild_id)
     return jsonify({
         "success": True,
-        "server": {**row, "known": known},
+        "server": {**row, "id": _console_id(row["id"]), "known": known},
         "systems": systems,
         # The difference between the registry's total and its switchable count, by
         # name — printing two numbers about one word without naming the gap is the
@@ -3395,7 +3424,7 @@ def api_console_systems():
             print(f"[CONSOLE] could not read module state for {row['id']}: {exc}", flush=True)
             unreadable.append(row["id"])
             continue
-        matrix[str(row["id"])] = {
+        matrix[_console_id(row["id"])] = {
             module["id"]: bool(
                 states.get(module["id"], features.default_enabled(module["id"]))
             )
@@ -3417,7 +3446,7 @@ def api_console_systems():
         ],
         "servers": [
             {
-                "id": row["id"],
+                "id": _console_id(row["id"]),
                 "name": row["name"],
                 "icon": row["icon"],
                 "members": row["members"],
@@ -3427,6 +3456,101 @@ def api_console_systems():
         "matrix": matrix,
         "unreadable": unreadable,
         "always_on": list(features.always_on_names()),
+    })
+
+
+@app.route("/api/console/commands")
+def api_console_commands():
+    """Every command the bot offers, and the server it is missing from.
+
+    Two claims, side by side, because the difference between them is the only
+    honest answer to "is a command missing":
+
+    * the **registry** (``features``) is what this deployment *does* — one row
+      per root command with the system that gates it;
+    * the **live tree** is what Discord was actually *told* — read from the
+      running bot, the same list the publisher writes.
+
+    A name the registry declares and the tree does not publish is a command that
+    exists in this build and cannot be typed in it. A name in the tree that the
+    registry cannot gate is one no switch can ever take away. Both are shown, in
+    their own cards, rather than smoothed into a total.
+
+    Per server, availability is ``command_scope``'s own rule — the same function
+    the publisher uses — so "off in Meow" here means what it means in Discord's
+    picker rather than a second opinion about it.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    fleet = _fleet_rows()
+    states_by_server: dict[int, dict[str, bool]] = {}
+    unreadable: list[str] = []
+    for row in fleet:
+        try:
+            states_by_server[row["id"]] = modules.get_states(row["id"])
+        except Exception as exc:
+            print(f"[CONSOLE] could not read module state for {row['id']}: {exc}", flush=True)
+            unreadable.append(_console_id(row["id"]))
+
+    declared = set(features.ROOT_COMMANDS)
+    published = _command_tree_names()
+    published_set = set(published)
+    # The union, so a command nobody declared still has a row and a command
+    # nobody published still has one. Ordering is the system's, then the name,
+    # because that is how the registry reads.
+    names = sorted(declared | published_set)
+
+    rows: list[dict] = []
+    for name in names:
+        gate = command_scope.gate_of(name)
+        system_id = gate[0] if gate else None
+        feature = features.get(system_id) if system_id else None
+        off_in = [
+            server["name"]
+            for server in fleet
+            if states_by_server.get(server["id"]) is not None
+            and not command_scope.is_available(name, states_by_server[server["id"]])
+        ]
+        rows.append({
+            "name": name,
+            "system": system_id or "",
+            "system_name": feature.name if feature else "Always on",
+            "icon": feature.icon if feature else "◌",
+            # A name nobody declared is not "core" — it is ungated, and saying
+            # which of the two it is is the whole point of the column.
+            "declared": name in declared,
+            "published": name in published_set if published else None,
+            "off_in": off_in,
+        })
+    rows.sort(key=lambda row: (row["system"] or "~", row["name"]))
+
+    return jsonify({
+        "success": True,
+        "commands": rows,
+        "servers": [
+            {
+                "id": _console_id(row["id"]),
+                "name": row["name"],
+                "icon": row["icon"],
+                "members": row["members"],
+            }
+            for row in fleet
+        ],
+        "always_on": list(features.always_on_names()),
+        # ``tree_read`` is reported rather than assumed: a sleeping gateway
+        # answers with an empty tree, and a page that read that as "every
+        # command is missing" would be a false alarm about the whole bot.
+        "tree_read": bool(published),
+        "missing": sorted(declared - published_set) if published else [],
+        "unregistered": sorted(published_set - declared),
+        "unreadable": unreadable,
+        "totals": {
+            "commands": features.command_count(),
+            "declared": len(declared),
+            "published": len(published),
+        },
     })
 
 

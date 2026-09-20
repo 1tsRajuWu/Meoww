@@ -28,10 +28,10 @@ buildable with `scripts/build_hub.py` if it is ever wanted back.
 | `src/lib/useLive.ts` | the polling hook — the one place an interval is set |
 | `src/lib/theme.ts` | the four themes' names; the colours are in `styles.css` |
 | `src/ui.tsx` | the building blocks: card, switch, toast, skeleton, empty |
-| `src/pages/*` | one file per page, each fetching what it draws |
+| `src/pages/*` | one file per page, each fetching what it draws — Overview, Servers and a per-server drill-down, the Systems matrix, Commands, Ops, Changes |
 | `src/styles.css` | tokens, then layout, then components, in that order |
 
-The server side is `keep_alive.py`: the shell route (`owner_console`) and five
+The server side is `keep_alive.py`: the shell route (`owner_console`) and six
 `/api/console/*` routes that open with `_require_operator_api`. The API reuses
 the same helpers the old console used, so the app cannot disagree with the
 dashboard about a server's state.
@@ -76,6 +76,14 @@ the API behind it is operator-only.
   (`<script type="application/json" id="console-boot">`), never as an inline
   script: this page's CSP carries `unsafe-inline` for the older templates, and a
   page that only runs code it shipped has no business spending that allowance.
+- **An id is text, never a number.** Discord ids are 18-19 digits; a JavaScript
+  number is exact to about 16. `String(Number("1542278896148422676"))` is
+  `"1542278896148422700"`, and every link in this app was built from that rounded
+  value — so `/owner/servers/…42700` answered "No such server" for the server it
+  had just listed, and the systems matrix, which is keyed by the *server's own*
+  string keys, looked them up with a number and drew "?" in every cell. Ids cross
+  the API as strings (`_console_id`), `ServerRow.id` is a `string`, and the router
+  passes the address straight through. Nothing may do arithmetic on one.
 - **A switch reports what the server said, not what it hoped.** The knob moves
   immediately and springs back with the server's own sentence if the save is
   refused — the defect this project has been reported for twice is a toggle that

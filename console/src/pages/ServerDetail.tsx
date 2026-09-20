@@ -28,7 +28,9 @@ export function ServerDetail({
   servers,
   onGone,
 }: {
-  guildId: number;
+  /** The id as text, straight from the address. Parsing it to a number here is
+   * how a page opened for one server asked about a different one. */
+  guildId: string;
   servers: ServerRow[];
   onGone: (text: string, tone?: "good" | "warn" | "danger") => void;
 }) {
@@ -60,7 +62,7 @@ export function ServerDetail({
       // than an assumption.
       try {
         const scope = await api.commandScope(guildId);
-        setPublishStamp(typeof scope.publish?.at === "number" ? (scope.publish.at as number) : publishStamp);
+        setPublishStamp(typeof scope.publish?.at === "number" ? scope.publish.at : publishStamp);
       } catch {
         /* the switch itself succeeded; the publish read is a bonus */
       }

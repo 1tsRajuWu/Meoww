@@ -43,6 +43,7 @@ CONSOLE_ROUTES = (
     "/api/console/overview",
     "/api/console/fleet",
     "/api/console/systems",
+    "/api/console/commands",
     "/api/console/ops",
     "/api/console/changes",
 )
@@ -221,7 +222,14 @@ class WhoMayOpenIt(_DashboardFixture):
         failing for exactly one address.
         """
         self.sign_in(scope="global")
-        for path in ("/owner", "/owner/servers", "/owner/systems", "/owner/ops", "/owner/changes"):
+        for path in (
+            "/owner",
+            "/owner/servers",
+            "/owner/systems",
+            "/owner/commands",
+            "/owner/ops",
+            "/owner/changes",
+        ):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 
@@ -438,7 +446,9 @@ class TheConsoleApi(_DashboardFixture):
         source = (CONSOLE / "src" / "api.ts").read_text(encoding="utf-8")
         self.assertIn("function drawableImage", source)
         # Both icon-carrying endpoints, not only the one that looks riskier.
-        for call in ("fleet: async () => {", "server: async (id: number) => {"):
+        # The signature is asserted rather than only the call: `id` is a
+        # **string** because a Discord id cannot survive a JavaScript number.
+        for call in ("fleet: async () => {", "server: async (id: string) => {"):
             with self.subTest(endpoint=call):
                 self.assertIn(call, source)
         self.assertEqual(source.count("icon: drawableImage("), 2)
@@ -497,7 +507,7 @@ class TheConsoleApi(_DashboardFixture):
             [module["id"] for module in keep_alive.AVAILABLE_MODULES],
         )
         self.assertEqual(payload["always_on"], list(keep_alive.features.always_on_names()))
-        self.assertEqual(payload["server"]["id"], GUILD_ID)
+        self.assertEqual(payload["server"]["id"], str(GUILD_ID))
 
     def test_a_server_the_bot_is_not_in_is_a_404_rather_than_an_empty_page(self):
         response = self.client.get("/api/console/server/999999999")
@@ -517,6 +527,85 @@ class TheConsoleApi(_DashboardFixture):
             with self.subTest(guild=guild_id):
                 self.assertEqual(len(systems), len(keep_alive.AVAILABLE_MODULES))
         self.assertEqual(payload["unreadable"], [])
+
+    def test_every_id_crosses_to_the_app_as_text(self):
+        """The defect that made the whole console look broken, pinned.
+
+        A Discord id is 18-19 digits and a JavaScript number is exact to about
+        16, so an id sent as a JSON *number* comes back as a different server:
+        ``String(Number("1542278896148422676"))`` is ``"1542278896148422700"``.
+        Three symptoms, one cause, and all three were on screen at once — every
+        link in the fleet opened **"No such server"**, the systems matrix looked
+        its own string keys up with a rounded number and painted **"?" in every
+        cell**, and the per-server page was unreachable from the list that
+        offered it. So: every id in every console payload is text, it is exactly
+        itself, and the matrix's column keys are the very strings the app was
+        handed.
+        """
+        fleet = self.get("/api/console/fleet")["servers"]
+        systems = self.get("/api/console/systems")
+        server = self.get(f"/api/console/server/{GUILD_ID}")["server"]
+        ids = [row["id"] for row in fleet]
+        for row_id in ids + [server["id"]] + [column["id"] for column in systems["servers"]]:
+            with self.subTest(id=row_id):
+                self.assertIsInstance(row_id, str, "an id crossed as a number")
+                # Round-tripping through the boundary has to be the identity,
+                # which is exactly what a double cannot promise.
+                self.assertEqual(keep_alive._console_id(int(row_id)), row_id)
+        self.assertEqual(
+            sorted(systems["matrix"]),
+            sorted(ids),
+            "the matrix is keyed by something other than the ids the app looks up",
+        )
+
+    def test_the_commands_page_is_the_registry_and_what_discord_was_told(self):
+        """One row per command, availability by the publisher's own rule.
+
+        Cross-checked against `command_scope` rather than against a copy of it:
+        the page has to agree with what actually decides a server's picker, or
+        it is a second opinion about the same question.
+        """
+        payload = self.get("/api/console/commands")
+        names = [row["name"] for row in payload["commands"]]
+        self.assertEqual(len(names), len(set(names)), "a command is listed twice")
+        # Grouped by system, so the rows read like the registry they come from.
+        systems_in_order = [row["system"] or "~" for row in payload["commands"]]
+        self.assertEqual(systems_in_order, sorted(systems_in_order))
+        for name in keep_alive.features.ROOT_COMMANDS:
+            with self.subTest(command=name):
+                self.assertIn(name, names)
+
+        fleet = self.get("/api/console/fleet")["servers"]
+        self.assertEqual(
+            [server["id"] for server in payload["servers"]],
+            [row["id"] for row in fleet],
+            "the columns must be the servers the fleet lists, in the same order",
+        )
+        switchable = {module["id"] for module in keep_alive.AVAILABLE_MODULES}
+        for row in payload["commands"]:
+            with self.subTest(command=row["name"]):
+                # A system column is a real switchable system or nothing at all.
+                self.assertIn(row["system"], switchable | {""})
+                if not row["declared"]:
+                    # The only way to have a row nobody declared is to have read
+                    # it out of Discord's tree.
+                    self.assertIs(row["published"], True)
+                for server in payload["servers"]:
+                    try:
+                        states = keep_alive.modules.get_states(int(server["id"]))
+                    except Exception:  # pragma: no cover - the fixture reads fine
+                        continue
+                    available = keep_alive.command_scope.is_available(row["name"], states)
+                    with self.subTest(server=server["name"]):
+                        self.assertEqual(
+                            server["name"] in row["off_in"],
+                            not available,
+                            f"{row['name']} disagrees with command_scope in {server['name']}",
+                        )
+
+        self.assertEqual(payload["totals"]["declared"], len(keep_alive.features.ROOT_COMMANDS))
+        self.assertEqual(payload["totals"]["commands"], keep_alive.features.command_count())
+        self.assertEqual(payload["always_on"], list(keep_alive.features.always_on_names()))
 
     def test_the_ops_tail_redacts_anything_that_looks_like_a_secret(self):
         """The ring is written by every part of the bot, so this is the boundary.

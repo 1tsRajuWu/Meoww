@@ -942,6 +942,48 @@ a {
   color: var(--warn);
 }
 
+/* -------------------------------------------------------- the command list */
+
+/* The same table as the matrix, one column per server, with the cell being a
+   word rather than a knob: this page reports where a command stands, and asking
+   the operator to read an "on/off" from a switch they cannot move would be a
+   control that lies about being one. */
+.cmds tbody th code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.cmds__system {
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.cmds__dot {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cmds__dot.is-on {
+  color: var(--good);
+  border-color: color-mix(in oklab, var(--good) 34%, var(--line));
+}
+
+.cmds__dot.is-off {
+  color: var(--warn);
+  border-color: color-mix(in oklab, var(--warn) 40%, var(--line));
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+}
+
+.input--select {
+  flex: 0 1 190px;
+  min-width: 150px;
+}
+
 /* ------------------------------------------------------------------- log */
 
 .log {

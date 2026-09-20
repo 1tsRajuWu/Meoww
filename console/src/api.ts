@@ -16,6 +16,7 @@
 import type {
   BootData,
   Changes,
+  CommandsPayload,
   Fleet,
   Ops,
   Overview,
@@ -110,36 +111,38 @@ export const api = {
     };
   },
 
-  server: async (id: number) => {
+  /** `id` is the string the fleet handed us — never a number. See `ServerRow.id`. */
+  server: async (id: string) => {
     const data = await request<ServerDetail>(`/api/console/server/${id}`);
     return { ...data, server: { ...data.server, icon: drawableImage(data.server.icon) } };
   },
   systems: () => request<SystemsMatrix>("/api/console/systems"),
+  commands: () => request<CommandsPayload>("/api/console/commands"),
   ops: () => request<Ops>("/api/console/ops"),
   changes: () => request<Changes>("/api/console/changes"),
 
   /** One system on one server. The endpoint the dashboard itself uses. */
-  toggle: (guildId: number, module: string, enabled: boolean) =>
-    request<{ success: true; guild_id: number; publish_at: number | null }>("/api/toggle", {
+  toggle: (guildId: string, module: string, enabled: boolean) =>
+    request<{ success: true; guild_id: string; publish_at: number | null }>("/api/toggle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guild_id: guildId, module, enabled }),
     }),
 
   /** Every system on one server at once. */
-  toggleAll: (guildId: number, enabled: boolean) =>
-    request<{ success: true; guild_id: number; publish_at: number | null }>("/api/toggle-all", {
+  toggleAll: (guildId: string, enabled: boolean) =>
+    request<{ success: true; guild_id: string; publish_at: number | null }>("/api/toggle-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guild_id: guildId, enabled }),
     }),
 
   /** What Discord actually holds for one server, after a switch settles. */
-  commandScope: (guildId: number) =>
+  commandScope: (guildId: string) =>
     request<{
       success: true;
       available: number;
-      publish: { state?: string; label?: string; [key: string]: unknown };
+      publish: { state?: string; label?: string; at?: number; [key: string]: unknown };
       [key: string]: unknown;
     }>(`/api/command-scope?guild_id=${guildId}`),
 };

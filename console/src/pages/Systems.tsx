@@ -36,7 +36,10 @@ export function Systems({
   const matrix = cells ?? flatten(data.matrix);
   const columns = data.servers.length ? data.servers : servers.map((s) => ({ id: s.id, name: s.name, icon: s.icon, members: s.members }));
 
-  const flip = async (guildId: number, moduleId: string, next: boolean) => {
+  // `guildId` is the string column key, never a number: the matrix is keyed by
+  // the ids the server sent, and turning one into a number here is what made
+  // every cell read "?" (see `ServerRow.id` in `types.ts`).
+  const flip = async (guildId: string, moduleId: string, next: boolean) => {
     const key = `${guildId}:${moduleId}`;
     setBusy(key);
     const before = matrix[key] ?? false;
