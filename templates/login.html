@@ -51,7 +51,6 @@
                     No email, no messages, and the access token is discarded after the
                     two lookups it is used for.
                 </p>
-                <div class="divider"><span>or</span></div>
             </div>
             {% else %}
             <div class="notice" role="status">
@@ -63,27 +62,6 @@
                 </div>
             </div>
             {% endif %}
-
-            {% if passkey_enabled %}
-            <form method="POST" action="/login" autocomplete="on" class="stack">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="field">
-                    <label class="field-label" for="passkey">Admin Passkey</label>
-                    <div class="passkey-wrap">
-                        <input class="input" type="password" id="passkey" name="passkey" placeholder="Enter passkey" required autofocus autocomplete="current-password" {% if error %}aria-invalid="true"{% endif %}>
-                        <button type="button" class="toggle-visibility" id="toggle-pass" aria-controls="passkey" aria-pressed="false">Show</button>
-                    </div>
-                    <span class="hint">The operator's own credential — it reaches every server, so treat it like a password.</span>
-                </div>
-                <button type="submit" class="btn btn-primary btn-block">Sign in</button>
-            </form>
-            {% else %}
-            <div class="notice notice-warn" role="status">
-                Passkey login is not configured on this deployment. Tap
-                <code>⚡ Open Dashboard</code> on <code>/help</code> in Discord instead.
-            </div>
-            {% endif %}
-
             </div>
 
             <p class="hint" style="margin-top: var(--space-5)">
@@ -97,17 +75,5 @@
         </div>
     </main>
 
-    <script>
-        const toggle = document.getElementById("toggle-pass");
-        const input = document.getElementById("passkey");
-        if (toggle && input) {
-            toggle.addEventListener("click", () => {
-                const show = input.type === "password";
-                input.type = show ? "text" : "password";
-                toggle.textContent = show ? "Hide" : "Show";
-                toggle.setAttribute("aria-pressed", show ? "true" : "false");
-            });
-        }
-    </script>
 </body>
 </html>

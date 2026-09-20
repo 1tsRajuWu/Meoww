@@ -178,6 +178,7 @@ if not ADMIN_PASSKEY:
         "passkey login.",
         flush=True,
     )
+OWNER_USER_ID = int(os.environ.get("OWNER_USER_ID", "0") or "0")
 
 
 def _passkey_ok() -> bool:
@@ -369,10 +370,25 @@ def _login_page(error=None, status: int | None = None):
         "login.html",
         error=error,
         csrf_token=get_csrf_token(),
-        passkey_enabled=bool(ADMIN_PASSKEY),
+        passkey_enabled=False,
         oauth_enabled=discord_auth.enabled(),
         oauth_callback=oauth_redirect_uri(),
         oauth_hint=_oauth_setup_hint(),
+        bot_name=name,
+        bot_initial=(name[:1] or "M").upper(),
+    )
+    return (body, status) if status else body
+
+
+def _owner_login_page(error=None, status: int | None = None):
+    """The operator sign-in page for the /owner console."""
+    name = _bot_display_name()
+    body = render_template(
+        "owner_login.html",
+        error=error,
+        csrf_token=get_csrf_token(),
+        passkey_enabled=bool(ADMIN_PASSKEY),
+        oauth_enabled=discord_auth.enabled(),
         bot_name=name,
         bot_initial=(name[:1] or "M").upper(),
     )
@@ -2517,8 +2533,10 @@ def login_discord_callback():
     # Ids only — see ``_visible_guilds`` for why the names are not kept here.
     session["authenticated"] = True
     session.permanent = True
-    session["auth_scope"] = "user"
-    session["user_id"] = _int_or_none(user.get("id"))
+    user_id_int = _int_or_none(user.get("id"))
+    session["user_id"] = user_id_int
+    is_owner_user = bool(OWNER_USER_ID and user_id_int == OWNER_USER_ID)
+    session["auth_scope"] = "global" if is_owner_user else "user"
     user_avatar = discord_auth.avatar_url(user)
     session["discord_user"] = {
         "id": str(user.get("id") or ""),
@@ -2538,6 +2556,8 @@ def login_discord_callback():
         "server(s) they administer that this bot is in.",
         flush=True,
     )
+    if is_owner_user:
+        return redirect(next_path or "/owner")
     if len(servers) == 1:
         session["guild_id"] = int(servers[0]["id"])
     if len(servers) == 1 or next_path:
@@ -3111,6 +3131,43 @@ def _console_built() -> bool:
     """Whether the app has been built. If not, the shell says so."""
     return os.path.exists(os.path.join(CONSOLE_DIST, "app.js"))
 
+@app.route("/owner/login", methods=["GET", "POST"])
+def owner_login():
+    """Operator sign-in page, dedicated to the /owner console."""
+    if request.method == "POST":
+        if not validate_csrf():
+            return _owner_login_page(
+                "Your session expired. Please refresh and try again.", 403
+            )
+
+        ip = _client_ip()
+        if not _login_allowed(ip):
+            return _owner_login_page(
+                "Too many failed attempts. Wait a few minutes and try again.", 429
+            )
+
+        if not ADMIN_PASSKEY:
+            _record_login_failure(ip)
+            return _owner_login_page("Admin passkey is not configured in this deployment.", 401)
+
+        entered_passkey = request.form.get("passkey") or ""
+        if secrets.compare_digest(entered_passkey, ADMIN_PASSKEY):
+            _clear_login_failures(ip)
+            session.clear()
+            session["authenticated"] = True
+            session.permanent = True
+            session["auth_scope"] = "global"
+            get_csrf_token()
+            return redirect("/owner")
+
+        _record_login_failure(ip)
+        return _owner_login_page("Invalid admin passkey. Please try again.", 401)
+
+    if is_authenticated() and session.get("auth_scope") == "global":
+        return redirect("/owner")
+    return _owner_login_page()
+
+
 @app.route("/owner")
 @app.route("/owner/<path:sub>")
 def owner_console(sub: str = ""):
@@ -3129,7 +3186,7 @@ def owner_console(sub: str = ""):
     instead of being given a fleet it may not touch.
     """
     if not is_authenticated():
-        return redirect("/login")
+        return redirect("/owner/login")
     if session.get("auth_scope") != "global":
         # A Discord sign-in goes to the picker rather than to a dashboard, so
         # nobody is dropped onto a server they did not choose.

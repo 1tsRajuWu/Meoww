@@ -347,6 +347,7 @@ const DYNAMIC_PREFIXES = [
   "/login",
   "/logout",
   "/dashboard",
+  "/owner",
   "/servers",
   "/api",
   "/market",

@@ -39,6 +39,9 @@ _site/
 # time on the host that answers *what is the bot doing*.
 _hub/
 
+# The owner console built for its own host (scripts/build_owner.py).
+_owner/
+
 # The console's build inputs. `static/console/` — the bundle itself — **is**
 # committed, and it is the one deliberate exception to the rule recorded twice
 # above. The host that serves the console is a Python runtime with no guaranteed

@@ -28,6 +28,7 @@ import hashlib
 import json
 import re
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import keep_alive
@@ -165,8 +166,33 @@ class WhoMayOpenIt(_DashboardFixture):
     def test_no_session_is_sent_to_sign_in(self):
         response = self.client.get("/owner")
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/login", response.headers.get("Location", ""))
+        self.assertIn("/owner/login", response.headers.get("Location", ""))
         self.assertNothingLeaked(response)
+
+    def test_owner_login_success_with_passkey(self):
+        with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "secret-passkey"):
+            with self.client.session_transaction() as session:
+                session["csrf_token"] = "csrf-token"
+            response = self.client.post(
+                "/owner/login",
+                data={"passkey": "secret-passkey", "csrf_token": "csrf-token"},
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers.get("Location"), "/owner")
+            # Following redirect to /owner now serves 200
+            follow = self.client.get("/owner")
+            self.assertEqual(follow.status_code, 200)
+
+    def test_owner_login_failure_with_wrong_passkey(self):
+        with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "secret-passkey"):
+            with self.client.session_transaction() as session:
+                session["csrf_token"] = "csrf-token"
+            response = self.client.post(
+                "/owner/login",
+                data={"passkey": "wrong-passkey", "csrf_token": "csrf-token"},
+            )
+            self.assertEqual(response.status_code, 401)
+            self.assertIn("Invalid admin passkey", response.get_data(as_text=True))
 
     def test_a_one_time_link_never_opens_it(self):
         self.sign_in(guild_id=GUILD_ID, scope="guild")

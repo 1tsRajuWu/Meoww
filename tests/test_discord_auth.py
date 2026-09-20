@@ -708,14 +708,18 @@ class TheLoginPageForTheOperator(unittest.TestCase):
     def tearDown(self):
         self._patched.stop()
 
-    def test_the_page_still_offers_the_passkey_and_the_link(self):
-        # The passkey is read once at import, so it is the module constant that
-        # has to be set — patching the environment at request time proves nothing.
+    def test_the_public_login_page_does_not_expose_the_passkey(self):
         with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "s3cret"):
             body = self.client.get("/login").get_data(as_text=True)
-        self.assertIn("Admin Passkey", body)
+        self.assertNotIn("Admin Passkey", body)
         self.assertIn("Open Dashboard", body)
-        self.assertIn('action="/login"', body, "the passkey form is gone")
+        self.assertNotIn('action="/login"', body)
+
+    def test_the_owner_login_offers_the_passkey(self):
+        with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "s3cret"):
+            body = self.client.get("/owner/login").get_data(as_text=True)
+        self.assertIn("Admin Passkey", body)
+        self.assertIn('action="/owner/login"', body)
 
     def test_the_front_page_sends_a_signed_in_session_to_the_dashboard(self):
         with self.client.session_transaction() as session:
