@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="chibiFavGradEmber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fa955c" />
+      <stop offset="100%" stop-color="#c45e23" />
+    </linearGradient>
+  </defs>
+
+  <!-- Chubby Chibi head tuned for 16-32px browser tabs (Ember Theme) -->
+  <path d="M16 8 C13 8 10.5 4 8 1.5 C6.8 0.5 5.2 1.5 5.5 3.2 C6 6 5.5 9 3.8 12 C1.2 16 2.2 22.5 7.5 26 C10 27.8 13 28.5 16 28.5 C19 28.5 22 27.8 24.5 26 C29.8 22.5 30.8 16 28.2 12 C26.5 9 26 6 26.5 3.2 C26.8 1.5 25.2 0.5 24 1.5 C21.5 4 19 8 16 8 Z" 
+        fill="url(#chibiFavGradEmber)" />
+
+  <!-- Inner ears -->
+  <path d="M8.2 4.2 C7.2 7 6.8 9 5.8 10.5 C7.2 10.2 9 9.5 9.8 7.8 Z" fill="#ffe6d4" opacity="0.95" />
+  <path d="M23.8 4.2 C24.8 7 25.2 9 26.2 10.5 C24.8 10.2 23 9.5 22.2 7.8 Z" fill="#ffe6d4" opacity="0.95" />
+
+  <!-- Big sparkling eyes -->
+  <ellipse cx="11" cy="15.8" rx="2.2" ry="2.8" fill="#ffffff" />
+  <ellipse cx="21" cy="15.8" rx="2.2" ry="2.8" fill="#ffffff" />
+  <ellipse cx="11" cy="15.8" rx="1.6" ry="2" fill="#140e0a" />
+  <ellipse cx="21" cy="15.8" rx="1.6" ry="2" fill="#140e0a" />
+  <circle cx="10.4" cy="14.8" r="0.75" fill="#ffffff" />
+  <circle cx="20.4" cy="14.8" r="0.75" fill="#ffffff" />
+
+  <!-- Cute smile -->
+  <path d="M14.5 20 C15.2 21 16.8 21 17.5 20" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" />
+
+  <!-- Whiskers -->
+  <path d="M5.5 17 L2 17.5" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" opacity="0.85" />
+  <path d="M5 19 L1.5 21" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" opacity="0.85" />
+  <path d="M26.5 17 L30 17.5" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" opacity="0.85" />
+  <path d="M27 19 L30.5 21" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" opacity="0.85" />
+</svg>

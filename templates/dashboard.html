@@ -797,6 +797,8 @@
         (function () {
             "use strict";
 
+            const PAGES = {{ pages_json|default('{}')|safe }};
+
             function make(tag, className, text) {
                 const node = document.createElement(tag);
                 if (className) node.className = className;

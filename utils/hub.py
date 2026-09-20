@@ -796,4 +796,15 @@ CHANGES_SHOWN = 40
 #: the app's shared `static/`. Listed rather than globbed so a page cannot come to
 #: depend on an asset nobody is shipping, and `tests/test_hub.py` fails on a
 #: reference to anything outside this set plus the hub's own two files.
-SHARED_ASSETS = ("logo.svg", "favicon.svg", "cursor-default.svg", "cursor-pointer.svg")
+SHARED_ASSETS = (
+    "logo.svg",
+    "logo-sakura.svg",
+    "logo-forest.svg",
+    "logo-ember.svg",
+    "favicon.svg",
+    "favicon-sakura.svg",
+    "favicon-forest.svg",
+    "favicon-ember.svg",
+    "cursor-default.svg",
+    "cursor-pointer.svg",
+)

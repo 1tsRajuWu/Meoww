@@ -57,7 +57,12 @@ export function Shell({
     <div className="shell">
       <aside className={`rail${menuOpen ? " rail--open" : ""}`}>
         <div className="rail__brand">
-          <img src="/static/logo.svg" alt="" width={30} height={30} />
+          <img
+            src={theme === "midnight" ? "/static/logo.svg" : `/static/logo-${theme}.svg`}
+            alt=""
+            width={30}
+            height={30}
+          />
           <div>
             <strong>{boot.botName}</strong>
             <span>Console</span>

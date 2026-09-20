@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Meow (Sakura)">
+  <!-- Meow — Handcrafted Chibi Mascot (Sakura Theme) -->
+  <defs>
+    <linearGradient id="chibiGradSakura" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f27ba6" />
+      <stop offset="60%" stop-color="#e0628f" />
+      <stop offset="100%" stop-color="#c94b78" />
+    </linearGradient>
+  </defs>
+
+  <!-- Chubby friendly head -->
+  <path d="M32 15 C26 15 21 8 16 3 C13.5 1 10.5 3 11 6.5 C11.8 12 11 18 7.5 24 C2.5 32 4.5 45 15 52 C20 55.5 26 57 32 57 C38 57 44 55.5 49 52 C59.5 45 61.5 32 56.5 24 C53 18 52.2 12 53 6.5 C53.5 3 50.5 1 48 3 C43 8 38 15 32 15 Z" 
+        fill="url(#chibiGradSakura)" />
+
+  <!-- Soft blossom inner ears -->
+  <path d="M16.5 8.5 C14.5 14 13.5 18 11.5 21 C14.5 20.5 18 19 19.5 15.5 C18 11.5 17 9.5 16.5 8.5 Z" fill="#ffe3ee" opacity="0.95" />
+  <path d="M47.5 8.5 C49.5 14 50.5 18 52.5 21 C49.5 20.5 46 19 44.5 15.5 C46 11.5 47 9.5 47.5 8.5 Z" fill="#ffe3ee" opacity="0.95" />
+
+  <!-- Soft blush pills -->
+  <ellipse cx="14" cy="38" rx="4" ry="2.2" fill="#ff9ec7" opacity="0.55" />
+  <ellipse cx="50" cy="38" rx="4" ry="2.2" fill="#ff9ec7" opacity="0.55" />
+
+  <!-- Big sparkling anime eyes -->
+  <ellipse cx="22" cy="31.5" rx="4.2" ry="5.2" fill="#140d12" />
+  <ellipse cx="42" cy="31.5" rx="4.2" ry="5.2" fill="#140d12" />
+  <circle cx="20.5" cy="29.5" r="1.8" fill="#ffffff" />
+  <circle cx="23.5" cy="33.5" r="0.9" fill="#ffffff" />
+  <circle cx="40.5" cy="29.5" r="1.8" fill="#ffffff" />
+  <circle cx="43.5" cy="33.5" r="0.9" fill="#ffffff" />
+
+  <!-- Pink button nose -->
+  <path d="M30 36.5 C30.5 35.8 33.5 35.8 34 36.5 C33.5 38 30.5 38 30 36.5 Z" fill="#ff80b0" />
+
+  <!-- Cute :3 mouth -->
+  <path d="M32 37.8 L32 39.5 C30.5 39.5 28.5 40.5 27 42" fill="none" stroke="#140d12" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M32 39.5 C33.5 39.5 35.5 40.5 37 42" fill="none" stroke="#140d12" stroke-width="2.2" stroke-linecap="round" />
+
+  <!-- Whiskers -->
+  <path d="M11 34 C7 33 3 34 0 36" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <path d="M10 38 C6 39 3 41 0 44" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <path d="M53 34 C57 33 61 34 64 36" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+  <path d="M54 38 C58 39 61 41 64 44" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.85" />
+</svg>

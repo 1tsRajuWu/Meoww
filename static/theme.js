@@ -74,7 +74,47 @@
         } else {
             root.setAttribute("data-theme", name);
         }
+        if (document.body) {
+            updateThemedAssets(name);
+        }
         return name;
+    }
+
+    function updateThemedAssets(name) {
+        var themeName = (name && THEMES.indexOf(name) !== -1) ? name : DEFAULT;
+        var suffix = themeName === DEFAULT ? "" : "-" + themeName;
+
+        var logos = document.querySelectorAll("img[src*='logo']");
+        for (var i = 0; i < logos.length; i++) {
+            var img = logos[i];
+            var src = img.getAttribute("src") || "";
+            var updated = src.replace(/((?:\/static\/|static\/)logo)(?:-[a-z]+)?(\.svg)/, "$1" + suffix + "$2");
+            if (updated !== src) {
+                img.setAttribute("src", updated);
+            }
+        }
+
+        var favicons = document.querySelectorAll("link[rel*='icon']");
+        for (var j = 0; j < favicons.length; j++) {
+            var link = favicons[j];
+            var href = link.getAttribute("href") || "";
+            var updatedHref = href.replace(/((?:\/static\/|static\/)favicon)(?:-[a-z]+)?(\.svg)/, "$1" + suffix + "$2");
+            if (updatedHref !== href) {
+                link.setAttribute("href", updatedHref);
+            }
+        }
+    }
+
+    if (typeof MutationObserver !== "undefined") {
+        new MutationObserver(function (mutations) {
+            for (var k = 0; k < mutations.length; k++) {
+                if (mutations[k].attributeName === "data-theme") {
+                    var current = document.documentElement.getAttribute("data-theme") || DEFAULT;
+                    updateThemedAssets(current);
+                    break;
+                }
+            }
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     }
 
     /* ---- 1. before paint -------------------------------------------------- */
@@ -85,11 +125,13 @@
 
     function wire() {
         var pickers = document.querySelectorAll("[data-theme-picker]");
+        updateThemedAssets(stored());
         if (!pickers.length) {
             return;
         }
 
         function paint(name) {
+            updateThemedAssets(name);
             Array.prototype.forEach.call(pickers, function (picker) {
                 var trigger = picker.querySelector("[data-theme-open]");
                 var label = picker.querySelector("[data-theme-name]");
