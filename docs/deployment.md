@@ -58,10 +58,25 @@ previous deployment's assets served for a while so that a rollout cannot break
 an app mid-visit, so those responses carried `cf-cache-status: HIT` and a growing
 `age` while every deployment host answered `404`. Re-deploying does not clear it
 (three deploys followed and the copies stayed) and `Purge Everything` does not
-reach a `*.pages.dev` host. They expire on their own. This matters for reading
-the check below: **a `200` at the bare URL is not by itself proof of a leak, and
-a `404` is not proof of safety either** — the next section has the version that
-answers the real question.
+reach a `*.pages.dev` host.
+
+**And they do not expire on their own, which this page claimed for a day and a
+measurement on 2026-09-20 disproved.** The same seven paths were still being
+served then, a day and four deployments after the fix, with `age: 65296` on a
+response carrying this project's own `max-age=300, must-revalidate` — a stored
+copy outliving its own stated lifetime, and every client that asked for a *fresh*
+reading with `Cache-Control: no-cache` got the stored copy anyway. There is no
+remedy inside this repository: the purge is a Cloudflare-side action on a host
+the project does not own, so the honest state of a `cached` verdict is **open
+until somebody at Cloudflare closes it**, not "wait and it will go".
+
+That also means **the check speaks for the location it asks from**, and no more.
+Run from the bot's own host the same module answered `cached: 0` and `clean` for
+six paths that a request from another region was still being handed a file from:
+a *deployment* is one fact read from anywhere, a *cached copy* lives in whichever
+edge location stored it. This matters for reading the check below: **a `200` at
+the bare URL is not by itself proof of a leak, and a `404` is not proof of safety
+either** — the next section has the version that answers the real question.
 
 The output directory must contain `_worker.js` and `_routes.json` (the builder
 writes both). They are what reverse-proxies `/login`, `/dashboard`, `/servers`,

@@ -250,10 +250,13 @@ _SITE_GUARD_CARDS: dict[str, tuple[str, str, int, str]] = {
         "**Not** the build settings — they are correct, and re-deploying does "
         "not clear this: Cloudflare deliberately keeps a previous deployment's "
         "assets served for a while so a rollout cannot break an app mid-visit, "
-        "and `Purge Everything` does not reach a `*.pages.dev` host. It expires "
-        "on its own, and this check goes quiet when it does. To make it go "
-        "sooner, Cloudflare support is the only party that can — they own that "
-        "zone.",
+        "and `Purge Everything` does not reach a `*.pages.dev` host. **It does "
+        "not expire on its own** — this card promised that for a day, and on "
+        "2026-09-20, four deployments later, the same paths were still being "
+        "served with an `age` past their own `max-age`. Cloudflare support is "
+        "the only party who can purge it, because they own that zone; until "
+        "somebody there does, this stays open. The reading is also only from "
+        "the address that asked — a clean one elsewhere is not the same thing.",
     ),
     "fallback": (
         "⚠️ The site answers everything, so the check cannot tell",

@@ -52,9 +52,21 @@ What it is careful about, and why each line is the shape it is:
   response carried `max-age=300, must-revalidate` — and a client
   ``Cache-Control: no-cache`` did not revalidate either. It is Pages keeping a
   previous deployment's assets served so a rollout cannot break an app mid-visit,
-  it is out of this project's hands on a ``*.pages.dev`` host, and it expires on
-  its own. So the card says that instead of sending its reader to fix something
-  that is not broken. The bare URL is asked only about a path the authoritative
+  and it is out of this project's hands on a ``*.pages.dev`` host. So the card
+  says that instead of sending its reader to fix something that is not broken.
+* **And it does not expire on its own, which this module asserted for a day.**
+  Measured on 2026-09-20 — a day and four deployments after the incident — the
+  same seven paths still answered, ``age: 65296``, on responses carrying this
+  project's own ``max-age=300, must-revalidate``: a stored copy outliving its own
+  stated lifetime, with a client ``no-cache`` returned the stored copy anyway. So
+  the card names the purge rather than promising an end to wait for, and a purge
+  is a Cloudflare-side action on a host this project does not own.
+* **One probe is one location, and saying so is part of the answer.** Run from
+  the bot's own host the module answered ``cached: 0`` and ``clean`` for six paths
+  that a request from another region was still being handed source from: a
+  *deployment* is one fact readable from anywhere, while a *cached copy* lives in
+  whichever edge location stored it. A clean reading therefore means "not from
+  here", and the alert says which address it asked from. The bare URL is asked only about a path the authoritative
   probe **refused**, and where it is asked it is a real question: a deployment
   that has stopped serving a path while a cache still does is exactly the state a
   forgotten copy is in. A cycle is two requests per path plus one control, the
@@ -310,8 +322,13 @@ def describe(verdict: Verdict) -> str:
             f"stale cache — {counts['cached']} repository paths still answer "
             f"from the CDN though {verdict.site} itself refuses them: "
             f"{', '.join(verdict.cached_paths)}. The deployment is not the "
-            "problem and a redeploy will not clear it; Pages keeps a previous "
-            "deployment's assets served for a while and it expires on its own."
+            "problem and a redeploy does not clear it: measured on this host, "
+            "those copies were still being served a day and four deployments "
+            "later, past their own max-age, and a client no-cache did not "
+            "revalidate them. Closing it takes a purge, which is a "
+            "Cloudflare-side action on a *.pages.dev host, so this stays open "
+            "until somebody does that — and this reading is from the address "
+            "that asked, so a clean answer elsewhere is not the same as clean."
         )
     if verdict.status == Verdict.UNREACHABLE:
         return (

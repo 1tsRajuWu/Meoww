@@ -522,9 +522,15 @@ class TheAlert(unittest.TestCase):
         stale = self._send(site_guard.check("https://site.test",
                                             fetch=_fetch_from({("bot.py", False): 200})))
         self.assertIn("output directory", _text(leak))
-        self.assertIn("expires on its own", _text(stale))
         self.assertNotIn("output directory", _text(stale),
                          "the cached card sent its reader to build settings that are correct")
+        # The remedy is a purge, and the card must not promise that waiting ends
+        # it. It did promise exactly that — *it expires on its own* — until a
+        # measurement on 2026-09-20 found the same seven paths still being served
+        # a day and four deployments later, past their own `max-age`. A card that
+        # says "wait" about something that has not ended is how a reader learns
+        # to leave it alone.
+        self.assertIn("Cloudflare support", _text(stale))
 
     def test_the_footer_says_how_the_site_was_asked_and_agrees_with_the_card(self):
         """A card that contradicts its own footer is a card nobody trusts.
