@@ -21,6 +21,7 @@ import type {
   EconomyAction,
   EconomyPayload,
   Fleet,
+  LivePayload,
   Ops,
   Overview,
   ServerDetail,
@@ -120,6 +121,18 @@ export const api = {
     return { ...data, server: { ...data.server, icon: drawableImage(data.server.icon) } };
   },
   systems: () => request<SystemsMatrix>("/api/console/systems"),
+
+  /**
+   * What one server is doing right now — channels, voice rooms, chatter.
+   *
+   * `guildId` is omitted for "the biggest one", exactly as the economy endpoint
+   * does it, so the first read of a page the operator has not chosen a server on
+   * still answers something true.
+   */
+  live: (guildId?: string) =>
+    request<LivePayload>(
+      `/api/console/live${guildId ? `?guild_id=${encodeURIComponent(guildId)}` : ""}`,
+    ),
   commands: () => request<CommandsPayload>("/api/console/commands"),
 
   /** One server's economy. `guildId` is omitted for "the biggest one". */

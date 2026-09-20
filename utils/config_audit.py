@@ -248,6 +248,28 @@ SETTINGS: tuple[Setting, ...] = (
         "been configured and refuse.",
     ),
     Setting(
+        "OWNER_DISCORD_ELEVATION",
+        SECURITY,
+        "that a Discord sign-in matching OWNER_USER_ID may open the operator "
+        "console on its own",
+        "the passkey opens the console and nothing else does \u2014 which is the "
+        "intent. Set it to 1 and the sign-in button becomes a complete sign-in for "
+        "that Discord account, so whoever is holding the session has the whole "
+        "fleet without ever typing the credential that guards it.",
+    ),
+    Setting(
+        "OWNER_PROXY_SECRET",
+        SECURITY,
+        "that the owner site's Cloudflare Worker may name the visitor it "
+        "forwarded, and that the name is the one it signed",
+        "sign-in rate limiting on the owner host counts every visitor as one "
+        "client, because the forwarded address chain ends at Cloudflare rather "
+        "than at the person: five wrong passkeys from anybody close the sign-in "
+        "page for everybody on that host for fifteen minutes. Set the same value "
+        "for the Pages build (scripts/build_owner.py) and here.",
+        secret=True,
+    ),
+    Setting(
         "ADMIN_GIVEXP_LIMIT", TUNING,
         "the most XP one /givexp may grant at a time",
         "the compiled limit is used.",

@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -29,9 +30,24 @@ sys.path.insert(0, ROOT)
 DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
 DEFAULT_OUT = os.path.join(ROOT, "_owner")
 
+#: Every file under ``static/`` that a page *this host serves* asks for by name.
+#:
+#: The list is a contract with the templates rather than a wish: this site is a
+#: reverse proxy, so a page rendered by the backend arrives here referring to
+#: ``/static/...`` — and ``/static/`` is the one path the worker answers from the
+#: CDN instead of forwarding. A file that is not in this list is therefore a
+#: **404 on the owner host and nowhere else**, which is exactly how the per-server
+#: dashboard came to render as an unstyled heading with one black rectangle on
+#: it: `dashboard.css`, `motion.js` and `gateway.js` were missing here while
+#: answering correctly on Render. `tests/test_owner_site.py` reads the templates
+#: for their own asset urls and fails if one of them is not copied.
 STATIC_ASSETS = [
     "meow.css",
+    "dashboard.css",
     "theme.js",
+    "motion.js",
+    "gateway.js",
+    "figures.js",
     "logo.svg",
     "logo-sakura.svg",
     "logo-forest.svg",
@@ -45,12 +61,28 @@ STATIC_ASSETS = [
 ]
 
 
-def _worker_file(backend_host: str = "meow-discord-bot.onrender.com") -> str:
+def _js_string(value: str) -> str:
+    """A JS string literal, for a value that came from the environment.
+
+    ``json.dumps`` is exactly that: quoted, with quotes and backslashes escaped.
+    It matters for the proxy secret — one stray quote in it would end the
+    literal and leave the rest of the value as source.
+    """
+    return json.dumps(value)
+
+
+def _worker_file(
+    backend_host: str = "meow-discord-bot.onrender.com", proxy_secret: str = ""
+) -> str:
     return f"""/**
  * Cloudflare Pages Advanced Mode Worker for meow-owner.pages.dev
  * Dedicated Owner Console reverse proxy.
  */
 const BACKEND_HOST = "{backend_host}";
+
+// Shared with the backend's OWNER_PROXY_SECRET. Empty means no stamp is sent,
+// and the backend then falls back to the address Cloudflare connected from.
+const OWNER_PROXY_SECRET = {_js_string(proxy_secret)};
 
 export default {{
   async fetch(request, env) {{
@@ -72,10 +104,40 @@ export default {{
       backendUrl.pathname = "/owner";
     }}
 
+    // The visitor's headers, minus the ones that describe a *hop*. A client that
+    // sends its own X-Forwarded-For is describing a chain it is not part of, and
+    // downstream nothing can tell those from the addresses a proxy appended —
+    // which is how a five-attempt sign-in limit becomes an unlimited one. They
+    // are dropped here and replaced below with what this edge actually saw.
     const reqHeaders = new Headers(request.headers);
+    for (const hop of [
+      "X-Forwarded-For",
+      "X-Forwarded-Host",
+      "X-Forwarded-Proto",
+      "X-Real-IP",
+      "Forwarded",
+      "CF-Connecting-IP",
+      "X-Meow-Client-IP",
+      "X-Meow-Proxy",
+    ]) {{
+      reqHeaders.delete(hop);
+    }}
     reqHeaders.set("Host", BACKEND_HOST);
     reqHeaders.set("X-Forwarded-Host", url.host);
     reqHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
+
+    // *This* is the visitor, as Cloudflare saw them — and it travels with the
+    // shared secret because the header alone would be worth nothing. The backend
+    // rate-limits sign-ins per address, so any address the visitor can set is a
+    // way to choose their own bucket. With the secret it is a claim this worker
+    // made rather than one the caller did.
+    const visitorIp = request.headers.get("CF-Connecting-IP");
+    if (visitorIp) {{
+      reqHeaders.set("X-Meow-Client-IP", visitorIp);
+    }}
+    if (OWNER_PROXY_SECRET) {{
+      reqHeaders.set("X-Meow-Proxy", OWNER_PROXY_SECRET);
+    }}
 
     const hasBody = !["GET", "HEAD"].includes(request.method);
     const proxyReq = new Request(backendUrl.toString(), {{
@@ -178,8 +240,9 @@ def build(out_dir: str, live_app: str = DEFAULT_LIVE_APP) -> None:
         shutil.copytree(console_src, console_out, dirs_exist_ok=True)
 
     # Write worker and configuration files
+    proxy_secret = (os.environ.get("OWNER_PROXY_SECRET") or "").strip()
     with open(os.path.join(out_dir, "_worker.js"), "w", encoding="utf-8") as f:
-        f.write(_worker_file(backend_host))
+        f.write(_worker_file(backend_host, proxy_secret))
 
     with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as f:
         f.write(_routes_file())
@@ -188,6 +251,14 @@ def build(out_dir: str, live_app: str = DEFAULT_LIVE_APP) -> None:
         f.write(_headers_file())
 
     print(f"Built meow-owner site into {out_dir}")
+    if not proxy_secret:
+        # Said out loud because the symptom is invisible: sign-in rate limiting
+        # still *works*, it just counts everybody on this host as one visitor.
+        print(
+            "NOTE: OWNER_PROXY_SECRET is not set, so the worker sends no visitor "
+            "address and sign-in limits on this host share one bucket. Set the "
+            "same value here and in the backend's environment to separate them."
+        )
 
 
 def main() -> None:

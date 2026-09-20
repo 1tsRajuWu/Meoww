@@ -65,7 +65,7 @@
     #}
     <div class="lp-menu" data-menu aria-hidden="true">
         <div class="lp-menu-panel">
-            <div class="lp-header" style="padding-left: 0; padding-right: 0">
+            <div class="lp-header lp-menu-header">
                 <a class="lp-brand" href="/">
                     <img src="/static/logo.svg" alt="">
                     <span>{{ bot_name }}</span>
@@ -76,13 +76,48 @@
                     </button>
                 </div>
             </div>
+            {#
+              The menu is a *list of destinations*, so it is drawn as one: a
+              hairline between each row, the label in display type, and an arrow
+              that only appears under the pointer — which is what makes six rows
+              read as six choices rather than as a paragraph of links. The row a
+              visitor is already on says so with `aria-current`, set by the
+              server and not guessed by a script.
+
+              Every link stays written out rather than looped over a list, and
+              that is deliberate: the suite reads this markup to check that the
+              menu's hrefs are absolute, and a menu built from a Jinja list would
+              satisfy the page while leaving the guard with nothing to read.
+            #}
             <nav class="lp-menu-nav" aria-label="Menu">
-                <a href="/systems"{% if current == "systems" %} aria-current="page"{% endif %}>Systems</a>
-                <a href="/start"{% if current == "start" %} aria-current="page"{% endif %}>Get started</a>
-                <a href="/start#ways-in">Signing in</a>
-                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
-                {% if kofi_url %}<a href="{{ kofi_url }}" target="_blank" rel="noopener">Support (Ko-fi)</a>{% endif %}
-                <a href="/privacy">Privacy</a>
+                <a class="lp-menu-link" href="/systems"{% if current == "systems" %} aria-current="page"{% endif %}>
+                    <span class="lp-menu-label">Systems</span>
+                    <span class="lp-menu-arrow" aria-hidden="true">→</span>
+                </a>
+                <a class="lp-menu-link" href="/start"{% if current == "start" %} aria-current="page"{% endif %}>
+                    <span class="lp-menu-label">Get started</span>
+                    <span class="lp-menu-arrow" aria-hidden="true">→</span>
+                </a>
+                <a class="lp-menu-link" href="/start#ways-in">
+                    <span class="lp-menu-label">Signing in</span>
+                    <span class="lp-menu-arrow" aria-hidden="true">→</span>
+                </a>
+                {% if selling %}
+                <a class="lp-menu-link" href="/pricing"{% if current == "pricing" %} aria-current="page"{% endif %}>
+                    <span class="lp-menu-label">Pricing</span>
+                    <span class="lp-menu-arrow" aria-hidden="true">→</span>
+                </a>
+                {% endif %}
+                {% if kofi_url %}
+                <a class="lp-menu-link" href="{{ kofi_url }}" target="_blank" rel="noopener">
+                    <span class="lp-menu-label">Support (Ko-fi)</span>
+                    <span class="lp-menu-arrow" aria-hidden="true">→</span>
+                </a>
+                {% endif %}
+                <a class="lp-menu-link" href="/privacy"{% if current == "privacy" %} aria-current="page"{% endif %}>
+                    <span class="lp-menu-label">Privacy</span>
+                    <span class="lp-menu-arrow" aria-hidden="true">→</span>
+                </a>
             </nav>
             <div class="lp-menu-foot">
                 {# Full rather than compact: this menu is the phone's only

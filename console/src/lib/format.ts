@@ -1,5 +1,18 @@
 /** Formatting, kept in one place so two pages cannot spell one number two ways. */
 
+/** The address to draw a server's picture from, or `""` when there isn't one.
+ *
+ * The API answers with a path on this origin — `/api/image?…` — because the
+ * dashboard's `img-src 'self' data:` is what stops a page from dialling out, and
+ * Discord's CDN is not this origin. A value that is anything else is therefore
+ * not ours to load, and the row draws its initial instead. `//host/path` is
+ * refused along with it: it looks like a path and is a different site.
+ */
+export function iconSrc(value: string | null | undefined): string {
+  const text = (value ?? "").trim();
+  return text.startsWith("/") && !text.startsWith("//") ? text : "";
+}
+
 /** `90` -> `90`, `12345` -> `12.3k`. The console is read at a glance, not audited. */
 export function compact(value: number): string {
   if (!Number.isFinite(value)) return "—";

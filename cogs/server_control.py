@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import time
 import discord
@@ -6,6 +7,11 @@ from discord import app_commands
 from discord.ext import commands
 from utils import permissions, db
 from utils.style import send_card, display_name
+
+#: Table names this file will count. A name that is not one of these is skipped
+#: rather than quoted into a query.
+_PLAIN_IDENTIFIER = re.compile(r"[A-Za-z0-9_]+")
+
 
 def _root_command_name(interaction: discord.Interaction) -> str | None:
     """The name that identifies the command, subcommand or not.
@@ -74,18 +80,20 @@ def _local_table_counts(db_path: str) -> tuple[dict[str, int], float, float, str
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         for (name,) in cur.fetchall():
             # A table name is an *identifier*, and an identifier cannot be a bound
-            # parameter — ``?`` stands for a value, never for a name — so it is
-            # quoted by hand. Doubling an inner quote is how SQLite escapes one;
-            # without it a table called ``a"b`` would end the quoting early and
-            # the rest of the name would be read as SQL. These names come from
-            # this file's own catalogue rather than from anybody's input, so this
-            # is a belt over a belt — but a row count that could be made to read
-            # a table it was never asked about is not a row count.
-            quoted = str(name).replace('"', '""')
+            # parameter — ``?`` stands for a value, never for a name — so a query
+            # that counts one is necessarily built by hand. The rule here is that
+            # only names that are *nothing but* letters, digits and underscores
+            # are counted at all: every table this bot creates is one of those,
+            # so a name that needs quoting is either somebody else's table or a
+            # name shaped like SQL, and a row count is not worth being the place
+            # that finds out which.
+            table = str(name)
+            if not _PLAIN_IDENTIFIER.fullmatch(table):
+                continue
             try:
-                counts[name] = cur.execute(f'SELECT COUNT(*) FROM "{quoted}"').fetchone()[0]
+                counts[table] = cur.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
             except sqlite3.Error:
-                counts[name] = -1  # unreadable
+                counts[table] = -1  # unreadable
     except sqlite3.Error as e:
         print(f"[DBSTATUS] Could not read the local database: {e}", flush=True)
     finally:

@@ -24,6 +24,36 @@
   --danger: #ff6b6b;
   --glow: 0 0 0 1px rgb(124 140 255 / 0.25), 0 18px 40px -22px rgb(124 140 255 / 0.55);
   --shadow: 0 18px 44px -30px rgb(0 0 0 / 0.9);
+
+  /* The scale. Tier 1 — the only place a literal appears — so a heading and a
+     label cannot drift a pixel apart between two pages, and a change to the
+     rhythm is a change in one block rather than in forty rules. Type is a scale
+     rather than a set of one-offs, tracking is stated once (uppercase runs take
+     the wide one, display takes the tight one) and every duration here is a
+     *fallback*: anything following the operator's hand is a spring, not a time. */
+  --type-eyebrow: 11px;
+  --type-meta: 12px;
+  --type-body: 13px;
+  --type-label: 15px;
+  --type-title: 18px;
+  --type-heading: 32px;
+  --type-figure: 34px;
+  --tracking-eyebrow: 0.16em;
+  --tracking-figure: -0.035em;
+  --tracking-tight: -0.025em;
+  --hairline: 1px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --space-1: 6px;
+  --space-2: 10px;
+  --space-3: 14px;
+  --space-4: 20px;
+  --space-5: 28px;
+  --space-6: 40px;
+  --duration-quick: 0.18s;
+  --duration-panel: 0.28s;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-theme="sakura"] {
@@ -361,7 +391,11 @@ a {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 18px;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  /* A hairline under the masthead, so every page opens with the same rule
+     rather than with a heading floating on a gradient. */
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 .page__title {
@@ -376,18 +410,24 @@ a {
 }
 
 .page__head h1 {
-  font-size: 30px;
-  letter-spacing: -0.025em;
-  font-weight: 600;
+  font-size: var(--type-heading);
+  letter-spacing: var(--tracking-tight);
+  font-weight: 650;
+  /* The masthead is *display* type, which in this console means uppercase and
+     tightly tracked — the one place a page raises its voice, and the reason the
+     eyebrow above it exists: a wide-tracked label that names the reading, over a
+     shouted word that names the page. */
+  text-transform: uppercase;
+  line-height: 1.05;
 }
 
 .eyebrow {
   display: block;
-  font-size: 11px;
+  font-size: var(--type-eyebrow);
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--tracking-eyebrow);
   color: var(--dim);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1);
 }
 
 .readstamp {
@@ -478,9 +518,12 @@ a {
 }
 
 .stat__value {
-  font-size: 34px;
+  font-size: var(--type-figure);
   font-weight: 600;
-  letter-spacing: -0.035em;
+  letter-spacing: var(--tracking-figure);
+  /* Tabular figures are the difference between a column of numbers and a
+     column of numbers that jitters every time one of them changes — which, on a
+     page that re-reads every fifteen seconds, is the whole page. */
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
 }
@@ -1179,50 +1222,38 @@ a {
   z-index: 70;
   pointer-events: none;
   /* Hidden until the pointer moves, and the move handler is the only thing that
-     reveals it — so a page nobody has touched has no decoration parked on it. */
+     reveals it — so a page nobody has touched has no decoration parked on it.
+     Nothing here draws on the point itself: the arrow owns the point, and a
+     decoration on top of it is the smear this rule used to put there. */
   opacity: 0;
-  transition: opacity 0.18s ease;
+  transition: opacity var(--duration-quick) ease;
 }
 
-.cursor__ring,
-.cursor__paw {
+/* Centred on the point with negative margins, so the transform the script writes
+   is a plain translate + rotate + scale about the element's own centre, and the
+   reticle stays concentric with the pointer through its spring. */
+.cursor__ring {
   position: absolute;
   top: 0;
   left: 0;
-  display: grid;
-  place-items: center;
-}
-
-/* Centred on the point with negative margins, so the transform is a plain
-   translate + scale about the element's own centre and the two parts stay
-   concentric through their springs. */
-.cursor__ring {
-  width: 26px;
-  height: 26px;
-  margin: -13px 0 0 -13px;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
   border-radius: 50%;
-  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  background: color-mix(in oklab, var(--accent) 9%, transparent);
-  transition: border-color 0.18s ease, background 0.18s ease;
+  border: var(--hairline) solid color-mix(in oklab, var(--accent) 60%, transparent);
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+  will-change: transform;
+  transition: border-color var(--duration-quick) ease, background var(--duration-quick) ease;
 }
 
-.cursor__paw {
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  color: var(--accent);
-}
-
-.cursor__paw svg {
-  display: block;
-  width: 12px;
-  height: 12px;
-  fill: currentColor;
-}
-
+/* Over anything clickable the reticle names it: a brighter hairline and a wash
+   of the accent. The scale is the script's, which owns the transform — and it
+   tightens rather than balloons, because a cursor that swells exactly when it is
+   covering the label it points at is a cursor that hides what it is being
+   precise about. */
 .cursor--link .cursor__ring {
   border-color: color-mix(in oklab, var(--accent) 95%, transparent);
-  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 
 /* ------------------------------------------- what the deployment was not given */
@@ -1534,12 +1565,294 @@ a {
   box-shadow: 0 0 10px var(--accent);
 }
 
+/* ------------------------------------------------------------------ live */
+/* One server, right now: what exists, who is in it, and where the talking is.
+   The page is read in a glance and then left, so everything here is a row of
+   facts with a hairline between them rather than a card per reading. */
+
+/* The honest half of the page: every reading the deployment could not take, in
+   its own band above the cards. A zero in a card is a measurement; this is what
+   is printed instead when there was no measurement to make. */
+.gaps {
+  grid-column: 1 / -1;
+  padding: var(--space-3) var(--space-4);
+  border: var(--hairline) solid color-mix(in oklab, var(--warn) 45%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--warn) 8%, transparent);
+}
+
+.gaps__head {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--type-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--warn);
+}
+
+.gaps ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-body);
+  color: color-mix(in oklab, var(--text) 78%, var(--dim));
+  max-width: 92ch;
+}
+
+/* A column of cards inside the grid, for the two narrow panels that have to
+   stack: the grid places this once and the cards inside it need no spans. */
+.stack-col {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* Voice rooms. Occupied first (the component sorts them), a hairline between
+   each, and the room's own count on the right of its name — which is the one
+   number an operator is looking for. */
+.rooms {
+  display: flex;
+  flex-direction: column;
+}
+
+.room {
+  padding: var(--space-3) 0;
+  border-top: var(--hairline) solid color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+.room:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.room--live .room__name {
+  color: var(--text);
+}
+
+.room__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.room__name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--type-label);
+  font-weight: 550;
+  color: color-mix(in oklab, var(--text) 72%, var(--dim));
+}
+
+.room__sigil {
+  font-size: var(--type-meta);
+  opacity: 0.75;
+}
+
+.room__count {
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.room--live .room__count {
+  color: var(--accent);
+}
+
+.room__category,
+.room__empty {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-meta);
+  color: var(--dim);
+}
+
+.room__people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  border: var(--hairline) solid var(--line);
+  background: color-mix(in oklab, var(--panel-2) 70%, transparent);
+  font-size: var(--type-meta);
+}
+
+.person__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+.person__bot {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.person__flag {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: var(--hairline) solid color-mix(in oklab, var(--accent) 35%, var(--line));
+  color: var(--accent);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Channel names in the matrix: the sigil is the only thing that says "this one
+   takes messages" without a legend. */
+.chan {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chan__sigil {
+  color: var(--dim);
+}
+
+.chan__note {
+  margin-left: var(--space-1);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+.matrix td.dim {
+  color: var(--dim);
+}
+
+.matrix td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ranked talkers: a numbered line per person, with the voice time as the
+   second value rather than a second table. */
+.talkers {
+  display: flex;
+  flex-direction: column;
+}
+
+.talkers li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 8px 0;
+  border-top: var(--hairline) solid color-mix(in oklab, var(--line) 70%, transparent);
+  font-size: var(--type-body);
+}
+
+.talkers li:first-child {
+  border-top: 0;
+}
+
+.talkers__rank {
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.talkers__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talkers__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.talkers__sub {
+  font-size: var(--type-meta);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What each column is. Prose on a page of numbers is worth exactly one place,
+   and this is it. */
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--type-body);
+  color: color-mix(in oklab, var(--text) 70%, var(--dim));
+  line-height: 1.65;
+}
+
+.notes b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The stat strip on the Live page: the four figures the page exists for, under
+   a bracket at each corner — the same corner-stroke motif the reference panel
+   uses for a box that is a reading rather than a container. */
+.stats--bracket {
+  position: relative;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border: var(--hairline) solid color-mix(in oklab, var(--line) 90%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--panel-2) 45%, transparent);
+}
+
+/* A strip of labels this short must not wrap: a two-line label under one figure
+   beside a one-line label under the next makes one row of numbers look like two. */
+.stats--bracket .stat__label {
+  font-size: var(--type-eyebrow);
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+}
+
+.stats--bracket::before,
+.stats--bracket::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: var(--hairline) solid color-mix(in oklab, var(--accent) 60%, transparent);
+  pointer-events: none;
+}
+
+.stats--bracket::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: var(--radius-md);
+}
+
+.stats--bracket::after {
+  right: -1px;
+  bottom: -1px;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: var(--radius-md);
+}
+
 /* ------------------------------------------------------------- responsive */
 
 @media (max-width: 1180px) {
   .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .card--span-3 { grid-column: span 2; }
   .card--span-2 { grid-column: span 2; }
+  .stack-col { grid-column: span 4; }
 }
 
 @media (max-width: 900px) {
@@ -1564,6 +1877,9 @@ a {
   .page { padding: 20px 16px 60px; }
   .topbar { padding: 12px 16px; }
   .grid { grid-template-columns: minmax(0, 1fr); }
+  .stack-col { grid-column: 1 / -1; }
+  .talkers li { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .talkers__sub { display: none; }
   .card { grid-column: 1 / -1 !important; }
 
   .fleet-row__link {

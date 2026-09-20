@@ -18,6 +18,7 @@ import { Shell } from "./app/Shell";
 import type { PaletteAction } from "./app/CommandPalette";
 import { Failure, Skeleton, ToastHost, useToast } from "./ui";
 import { Overview } from "./pages/Overview";
+import { Live } from "./pages/Live";
 import { Servers } from "./pages/Servers";
 import { ServerDetail } from "./pages/ServerDetail";
 import { Systems } from "./pages/Systems";
@@ -67,6 +68,7 @@ function Router({
     // `/owner/servers/1542278896148422676` became `/owner/servers/…42700` and
     // then a "No such server" — see `ServerRow.id` in `types.ts`.
     if (detail) return { kind: "server" as const, id: String(detail[1]) };
+    if (path === "/live") return { kind: "live" as const };
     if (path === "/servers") return { kind: "servers" as const };
     if (path === "/systems") return { kind: "systems" as const };
     if (path === "/commands") return { kind: "commands" as const };
@@ -112,6 +114,7 @@ function Router({
   );
 
   const body = () => {
+    if (page.kind === "live") return <Live />;
     if (page.kind === "servers") {
       if (fleetLoading && !servers.length) return <Skeleton rows={6} />;
       if (fleetError && !servers.length) {

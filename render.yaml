@@ -46,6 +46,18 @@ services:
       # be awake to answer.
       - key: ADMIN_PASSKEY
         sync: false
+      # The passkey is what opens the operator console. Without this switch the
+      # Discord sign-in is a sign-in and nothing more, however the account is
+      # identified: an owner whose Discord id is configured still has to type the
+      # passkey, because a button that skips it is a console with no door.
+      - key: OWNER_DISCORD_ELEVATION
+        value: "0"
+      # Shared with the owner site's build so the worker can name the visitor it
+      # forwarded. The same value must be set for the Cloudflare Pages build
+      # (scripts/build_owner.py in its build command) and here. Blank is a
+      # supported state: sign-in limits on the owner host then share one bucket.
+      - key: OWNER_PROXY_SECRET
+        sync: false
       # The paid tiers, as Lemon Squeezy hosted checkout URLs (product -> Share
       # -> Copy link). They are rendered into /pricing for anyone to click, so
       # they are public in the same way the client id is — a prompt rather than a

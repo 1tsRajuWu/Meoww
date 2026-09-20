@@ -10,7 +10,7 @@ import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 
 import type { ServerRow } from "../types";
-import { compact } from "../lib/format";
+import { compact, iconSrc } from "../lib/format";
 import { Link } from "../lib/router";
 import { Card, Empty, Pill } from "../ui";
 
@@ -120,8 +120,8 @@ export function Servers({ servers }: { servers: ServerRow[] }) {
             >
               <Link to={`/servers/${server.id}`} className="fleet-row__link">
                 <span className="fleet-row__avatar">
-                  {server.icon ? (
-                    <img src={server.icon} alt="" width={36} height={36} />
+                  {iconSrc(server.icon) ? (
+                    <img src={iconSrc(server.icon)} alt="" width={36} height={36} />
                   ) : (
                     <span className="fleet-row__initial">{server.name.slice(0, 1)}</span>
                   )}

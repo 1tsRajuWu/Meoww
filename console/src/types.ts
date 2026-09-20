@@ -267,6 +267,92 @@ export type Changes = {
   total: number;
 };
 
+/** One person sitting in a voice channel, with the flags that matter from
+ * outside the channel. `id` is text for the usual reason. */
+export type VoicePerson = {
+  id: string;
+  /** Their display name, or `""` when the member cache cannot resolve them —
+   * which is the normal state without the Server Members intent. */
+  name: string;
+  bot: boolean;
+  muted: boolean;
+  deafened: boolean;
+  streaming: boolean;
+  video: boolean;
+  suppressed: boolean;
+};
+
+/** One channel of a server, as the Live page reads it. */
+export type LiveChannel = {
+  id: string;
+  name: string;
+  kind: "text" | "voice" | "forum";
+  category: string;
+  category_id: string;
+  position: number;
+  topic: string;
+  nsfw: boolean;
+  /** Seconds; `0` when there is none. */
+  slowmode: number;
+  /** The voice channel's own cap, or `null` for "no limit". */
+  limit: number | null;
+  /** Who is in it, for a voice channel; empty otherwise. */
+  people: VoicePerson[];
+  messages_today: number;
+  messages_week: number;
+  voice_seconds_week: number;
+};
+
+/**
+ * What one server is *doing*, as `/api/console/live` answers it.
+ *
+ * `read` is the important half of this payload and it is not decoration. Every
+ * number here is a live reading from caches that are legitimately empty — a cold
+ * process knows no channels, a deployment without the Presence intent cannot
+ * count statuses, a build machine has no tracker tables. Each of those is a
+ * different sentence on the page, and painting a zero over any of them would be
+ * inventing a measurement.
+ */
+export type LivePayload = {
+  success: true;
+  server: ServerRow;
+  servers: { id: string; name: string; icon: string; members: number }[];
+  gateway: Gateway & { connected: boolean; started: boolean; ping_ms: number | null };
+  read: { channels: boolean; voice: boolean; presence: boolean; tracker: boolean };
+  presence: {
+    online: number;
+    idle: number;
+    dnd: number;
+    offline: number;
+    streaming: number;
+    total: number;
+  } | null;
+  channels: LiveChannel[];
+  /** Channels past the payload's cap, which are counted rather than listed. */
+  exceeded: number;
+  talkers: { id: string; name: string; messages: number; voice_seconds: number }[];
+  bot_voice: {
+    guild_id: string;
+    guild: string;
+    channel: string;
+    connected: boolean;
+    playing: boolean;
+    paused: boolean;
+  }[];
+  totals: {
+    channels: number;
+    text: number;
+    voice: number;
+    forums: number;
+    in_voice: number;
+    messages_today: number;
+    messages_week: number;
+    voice_seconds_week: number;
+    tracker_since: string;
+  };
+  at: number;
+};
+
 export type BootData = {
   csrfToken: string;
   operator: Operator;

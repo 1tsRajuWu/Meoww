@@ -696,6 +696,68 @@ class TheCallbackWithAHostileNext(_DashboardFixture):
         self.assertEqual(response.headers.get("Location"), "/dashboard?guild_id=5")
 
 
+class TheOwnerIsStillNotTheOperator(_DashboardFixture):
+    """``OWNER_USER_ID`` answers "who is this", never "what may they open".
+
+    The callback used to grant the operator scope to a matching Discord id, so
+    the sign-in button on the owner site *was* the door and the passkey was
+    optional — which is what "there is no pass when entering the owner website"
+    was about. The claim here is that the two are separable: an owner is
+    recognised (the sign-in page can say so) and still has to open the door.
+    """
+
+    def _env(self):
+        return mock.patch.dict(
+            os.environ,
+            {
+                "DISCORD_CLIENT_ID": "1234567890",
+                "DISCORD_CLIENT_SECRET": "shhh",
+                "DASHBOARD_BASE_URL": "https://dashboard.test",
+            },
+        )
+
+    def _sign_in_as(self, user_id: str):
+        with self._env():
+            self.client.get("/login/discord?next=/owner")
+            with self.client.session_transaction() as session:
+                state = session["oauth_state"]
+            with mock.patch.object(discord_auth, "exchange_code", return_value="tok"), \
+                 mock.patch.object(
+                     discord_auth, "fetch_user",
+                     return_value={"id": user_id, "username": "u"},
+                 ), \
+                 mock.patch.object(discord_auth, "fetch_user_guilds", return_value=[]):
+                return self.client.get(f"/login/discord/callback?code=a&state={state}")
+
+    def test_the_owners_id_does_not_grant_the_console(self):
+        with mock.patch.object(keep_alive, "OWNER_USER_ID", 5):
+            response = self._sign_in_as("5")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), "/owner")
+        with self.client.session_transaction() as session:
+            self.assertEqual(session.get("auth_scope"), "user")
+            self.assertTrue(session.get("owner_candidate"))
+        # …and that redirect is the passkey page, not the fleet behind it.
+        self.assertEqual(
+            self.client.get("/owner").headers.get("Location"), "/owner/login"
+        )
+
+    def test_anybody_elses_id_is_not_even_a_candidate(self):
+        with mock.patch.object(keep_alive, "OWNER_USER_ID", 5):
+            self._sign_in_as("6")
+        with self.client.session_transaction() as session:
+            self.assertEqual(session.get("auth_scope"), "user")
+            self.assertFalse(session.get("owner_candidate"))
+
+    def test_the_switch_puts_the_shortcut_back_for_anyone_who_wants_it(self):
+        """``OWNER_DISCORD_ELEVATION`` is how a deployment chooses convenience."""
+        with mock.patch.object(keep_alive, "OWNER_USER_ID", 5), \
+             mock.patch.object(keep_alive, "OWNER_DISCORD_ELEVATION", True):
+            self._sign_in_as("5")
+        with self.client.session_transaction() as session:
+            self.assertEqual(session.get("auth_scope"), "global")
+
+
 class TheLoginPageForTheOperator(unittest.TestCase):
     """The older ways in keep working, and the page describes all three."""
 

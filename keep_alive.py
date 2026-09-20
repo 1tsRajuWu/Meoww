@@ -33,6 +33,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import sys
 import time
 import secrets
@@ -42,6 +43,7 @@ from threading import Lock, Thread
 import socket
 import datetime
 import html as _html
+import ipaddress
 from flask import (
     Flask, render_template, request, redirect, send_from_directory, session, jsonify,
     Response,
@@ -179,6 +181,24 @@ if not ADMIN_PASSKEY:
         flush=True,
     )
 OWNER_USER_ID = int(os.environ.get("OWNER_USER_ID", "0") or "0")
+
+#: Whether a Discord sign-in matching ``OWNER_USER_ID`` may open the console by
+#: itself. It must not: the button on the sign-in page is then a complete
+#: sign-in, which is why "entering the owner site" asked for no pass at all —
+#: whoever is holding that Discord session reaches the whole fleet without ever
+#: typing the credential that is supposed to guard it. The passkey is the door;
+#: this stays off unless a deployment deliberately puts convenience first.
+OWNER_DISCORD_ELEVATION = (
+    os.environ.get("OWNER_DISCORD_ELEVATION", "").strip().lower() in {"1", "true", "yes"}
+)
+
+#: The header the owner site's Cloudflare Worker stamps with the visitor's own
+#: address, and the header carrying the shared secret that proves the stamp came
+#: from that worker rather than from the visitor. Both are needed: see
+#: ``_client_ip`` for what a header alone would mean.
+CLIENT_IP_HEADER = "X-Meow-Client-IP"
+PROXY_SECRET_HEADER = "X-Meow-Proxy"
+OWNER_PROXY_SECRET = (os.environ.get("OWNER_PROXY_SECRET") or "").strip()
 
 
 def _passkey_ok() -> bool:
@@ -380,15 +400,36 @@ def _login_page(error=None, status: int | None = None):
     return (body, status) if status else body
 
 
+def _owner_signin_notice() -> str:
+    """Why somebody already signed in is looking at the operator's sign-in page.
+
+    The Discord route answers "who is this" and not "is this the operator", so
+    the two must be told apart on the page itself: a form with no explanation is
+    indistinguishable from a console that refused them.
+    """
+    if not is_authenticated() or session.get("auth_scope") == "global":
+        return ""
+    if session.get("owner_candidate"):
+        return (
+            "That is the owner's Discord account, and the console still wants "
+            "the passkey. Enter it to unlock the fleet."
+        )
+    return (
+        "You are signed in, but this console belongs to the operator. The "
+        "passkey is the only way in."
+    )
+
+
 def _owner_login_page(error=None, status: int | None = None):
     """The operator sign-in page for the /owner console."""
     name = _bot_display_name()
     body = render_template(
         "owner_login.html",
         error=error,
-        csrf_token=get_csrf_token(),
+        notice=_owner_signin_notice(),
         passkey_enabled=bool(ADMIN_PASSKEY),
         oauth_enabled=discord_auth.enabled(),
+        discord_is_enough=OWNER_DISCORD_ELEVATION,
         bot_name=name,
         bot_initial=(name[:1] or "M").upper(),
     )
@@ -430,14 +471,45 @@ def validate_csrf() -> bool:
     return secrets.compare_digest(str(expected), str(provided))
 
 
+def _normalise_ip(value: str | None) -> str | None:
+    """An address as text, or ``None`` if that is not what this is.
+
+    The value becomes a bucket key, so anything that is not an address is
+    refused rather than trusted: a header that carried a list, a path or a
+    megabyte of padding would otherwise be a way to choose a bucket.
+    """
+    text = (value or "").strip()
+    if not text or len(text) > 64:
+        return None
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        return None
+
+
 def _client_ip() -> str:
     """Return the client IP used for rate limiting.
 
-    X-Forwarded-For is only consulted when a trusted proxy terminates the
-    connection. Each proxy *appends* the address it saw, so the rightmost hop
-    is the safer choice (leftward entries can be client-spoofed). Prefer that
-    hop over ``parts[0]``.
+    Three sources, in the order they can be believed:
+
+    1. The **owner site's worker stamp**, which is honoured only when it arrives
+       with ``OWNER_PROXY_SECRET``. That host is a proxy of a proxy, so the
+       forwarded chain ends at *Cloudflare* rather than at the visitor: every
+       person on the owner domain shared one bucket, which is a five-request
+       lockout anybody could trigger, and it is why the worker now names the
+       visitor instead of leaving us to infer one.
+    2. **X-Forwarded-For**, only when a trusted proxy terminates the connection.
+       Each proxy *appends* the address it saw, so the rightmost hop is the
+       safer choice (leftward entries can be client-spoofed). Prefer that hop
+       over ``parts[0]``.
+    3. The **peer** address, which is the only one a caller cannot write.
     """
+    if OWNER_PROXY_SECRET:
+        offered = request.headers.get(PROXY_SECRET_HEADER, "")
+        if offered and secrets.compare_digest(offered, OWNER_PROXY_SECRET):
+            stamped = _normalise_ip(request.headers.get(CLIENT_IP_HEADER))
+            if stamped:
+                return stamped
     if _trust_proxy_headers:
         forwarded = request.headers.get("X-Forwarded-For", "")
         parts = [p.strip() for p in forwarded.split(",") if p.strip()]
@@ -2536,7 +2608,13 @@ def login_discord_callback():
     user_id_int = _int_or_none(user.get("id"))
     session["user_id"] = user_id_int
     is_owner_user = bool(OWNER_USER_ID and user_id_int == OWNER_USER_ID)
-    session["auth_scope"] = "global" if is_owner_user else "user"
+    # ``owner_candidate`` is a claim about *who this is*, and it buys the copy on
+    # the sign-in page — never the console. Scope is granted by the passkey and
+    # by nothing else, unless a deployment has deliberately switched that off.
+    session["owner_candidate"] = is_owner_user
+    session["auth_scope"] = (
+        "global" if (is_owner_user and OWNER_DISCORD_ELEVATION) else "user"
+    )
     user_avatar = discord_auth.avatar_url(user)
     session["discord_user"] = {
         "id": str(user.get("id") or ""),
@@ -2556,7 +2634,7 @@ def login_discord_callback():
         "server(s) they administer that this bot is in.",
         flush=True,
     )
-    if is_owner_user:
+    if is_owner_user and session.get("auth_scope") == "global":
         return redirect(next_path or "/owner")
     if len(servers) == 1:
         session["guild_id"] = int(servers[0]["id"])
@@ -3125,6 +3203,7 @@ def _page_anchor(pages, current: str) -> str:
 #: anchor is the one section that page renders, which is what the skip link targets.
 OWNER_PAGES = (
     ("overview", "Overview", "/owner", "overview"),
+    ("live", "Live", "/owner/live", "live"),
     ("servers", "Servers", "/owner/servers", "servers"),
     ("systems", "Systems", "/owner/systems", "systems"),
     ("commands", "Commands", "/owner/commands", "commands"),
@@ -3212,6 +3291,12 @@ def owner_console(sub: str = ""):
     if not is_authenticated():
         return redirect("/owner/login")
     if session.get("auth_scope") != "global":
+        if session.get("owner_candidate"):
+            # The owner, signed in through Discord, and still short of the
+            # console: the passkey page is the only thing that can raise the
+            # scope, so hiding it behind this redirect left the "Owner Discord
+            # Sign In" button leading nowhere the owner could return from.
+            return redirect("/owner/login")
         # A Discord sign-in goes to the picker rather than to a dashboard, so
         # nobody is dropped onto a server they did not choose.
         return redirect("/servers" if _visible_guilds() else "/dashboard")
@@ -3457,6 +3542,405 @@ def api_console_systems():
         "matrix": matrix,
         "unreadable": unreadable,
         "always_on": list(features.always_on_names()),
+    })
+
+
+# ---------------------------------------------------------------------------
+# The Live page: what one server is *doing*, as opposed to what it is standing on.
+#
+# Every other page here answers a question about configuration — which switch is
+# on, which command is published, which balance is in the table. None of them can
+# answer the one an operator asks while looking at a server in Discord: *who is
+# in voice, which channels exist, and where is anybody actually talking.* That
+# answer lives in the gateway's own caches, is true for about as long as it takes
+# to read it, and is the whole reason this page exists.
+#
+# Two rules hold every reading below, and they are the same two the public
+# figures follow: a reading that could not be taken is **absent rather than
+# zero**, because "nobody is in voice" and "I could not ask" are different
+# claims and only one of them is worth acting on; and every id crosses to the app
+# as **text**, because a JavaScript number cannot hold a snowflake.
+# ---------------------------------------------------------------------------
+
+#: How many channels one Live payload carries before it stops listing and starts
+#: counting. A server with 300 channels is an ordinary server, and a payload that
+#: dutifully carried all of them would be megabytes of JSON for a page that shows
+#: a screenful — the rest are reported as a count under the list.
+LIVE_CHANNEL_LIMIT = 150
+
+#: The statuses a member can be in, in the order the page reads them. ``offline``
+#: swallows ``invisible`` because Discord reports both as "offline" to everyone
+#: who is not the member themselves, and inventing a seventh word for it would be
+#: a distinction the gateway never made.
+LIVE_STATUSES = ("online", "idle", "dnd", "offline")
+
+
+def _live_channel_source(guild) -> list:
+    """Every channel of a guild, from whichever attribute it exposes.
+
+    ``Guild.channels`` is the real one and the only complete one — categories,
+    forums, stages and the two kinds an operator thinks about, in one list. The
+    split lists are the fallback for a gateway *stand-in* (this project's own
+    preview harness, and the suite's fakes), which is not hypothetical: an
+    endpoint that answers "0 channels" against a stand-in is an endpoint nobody
+    can eyeball, and this console is debugged by eyeballing it.
+    """
+    if guild is None:
+        return []
+    listed = list(getattr(guild, "channels", None) or ())
+    if listed:
+        return listed
+    merged: dict = {}
+    for name in (
+        "text_channels",
+        "voice_channels",
+        "forum_channels",
+        "stage_channels",
+        "categories",
+    ):
+        for channel in list(getattr(guild, name, None) or ()):
+            merged[getattr(channel, "id", id(channel))] = channel
+    return list(merged.values())
+
+
+def _live_channel_kind(channel) -> str:
+    """What kind of channel this is, by Discord's own type rather than by class.
+
+    ``isinstance`` would be the obvious test and it is the wrong one: this
+    project's own test fakes are not ``discord.TextChannel``, and a page that only
+    worked against the real library is a page the suite cannot check. The enum's
+    ``name`` is what both of them carry.
+    """
+    raw = getattr(channel, "type", None)
+    kind = str(getattr(raw, "name", raw) or "").lower()
+    if kind in {"voice", "stage_voice"}:
+        return "voice"
+    if kind == "category":
+        return "category"
+    if kind in {"forum", "news_thread", "public_thread", "private_thread"}:
+        return "forum"
+    return "text"
+
+
+def _live_voice_person(state, member, user_id) -> dict:
+    """One person in one voice channel, with the four flags that matter.
+
+    Read from the *state* where there is one and from the member otherwise, so
+    the row is right with or without the Server Members intent — the flags live
+    on ``VoiceState`` in the payload the gateway sends, and on ``Member.voice``
+    once Discord has resolved the member.
+    """
+    flags = state if state is not None else getattr(member, "voice", None)
+    return {
+        "id": _console_id(user_id) if user_id else "",
+        "name": _live_name(member) if member is not None else "",
+        "bot": bool(getattr(member, "bot", False)),
+        # Both kinds of mute in one word, because from outside the channel they
+        # look the same and the difference (server-muted vs muted by choice) is a
+        # moderation detail no operator reads a roster for.
+        "muted": bool(getattr(flags, "mute", False) or getattr(flags, "self_mute", False)),
+        "deafened": bool(
+            getattr(flags, "deaf", False) or getattr(flags, "self_deaf", False)
+        ),
+        "streaming": bool(getattr(flags, "self_stream", False)),
+        "video": bool(getattr(flags, "self_video", False)),
+        "suppressed": bool(getattr(flags, "suppress", False)),
+    }
+
+
+def _live_voice_people(guild, channel) -> list[dict]:
+    """Who is sitting in one voice channel.
+
+    Two sources on purpose. ``Guild.voice_states`` is the gateway's own map and is
+    complete the moment the connection is up; ``VoiceChannel.members`` is that map
+    resolved against the member cache, which is empty without the Server Members
+    intent. Where the states exist they win — a name that is missing beats a
+    person who is missing.
+    """
+    people: list[dict] = []
+    seen: set = set()
+    states = getattr(guild, "voice_states", None) or {}
+    for state in list(states.values()):
+        if getattr(state, "channel", None) is not channel:
+            continue
+        user_id = getattr(state, "user_id", None)
+        member = getattr(state, "user", None)
+        if member is None and user_id:
+            member = guild.get_member(int(user_id))
+        people.append(_live_voice_person(state, member, user_id))
+        seen.add(str(user_id or ""))
+    for member in list(getattr(channel, "members", ()) or ()):
+        user_id = getattr(member, "id", None)
+        if str(user_id or "") in seen:
+            continue
+        people.append(_live_voice_person(getattr(member, "voice", None), member, user_id))
+    people.sort(key=lambda person: (person["bot"], person["name"].lower(), person["id"]))
+    return people
+
+
+def _live_presence(guild):
+    """Who is online, as counts — or ``None`` when nobody can say.
+
+    Presence is the one reading here that needs a privileged intent, so it is the
+    one that is routinely unavailable: without it ``Member.status`` is not on the
+    object at all. ``None`` is the honest answer and the page draws the state it
+    is in rather than a confident zero.
+    """
+    members = list(getattr(guild, "members", None) or ())
+    if not members:
+        return None
+    counts = {status: 0 for status in LIVE_STATUSES}
+    counts["streaming"] = 0
+    read = 0
+    for member in members:
+        status = getattr(member, "status", None)
+        if status is None:
+            continue
+        key = str(getattr(status, "name", status) or "").lower()
+        if key == "invisible":
+            key = "offline"
+        if key not in counts:
+            continue
+        counts[key] += 1
+        read += 1
+        for activity in list(getattr(member, "activities", ()) or ()):
+            kind = str(getattr(getattr(activity, "type", None), "name", "")).lower()
+            if kind == "streaming" and getattr(activity, "name", None):
+                counts["streaming"] += 1
+                break
+    if not read:
+        return None
+    counts["total"] = read
+    return counts
+
+
+def _live_channel_activity(guild_id: int) -> dict:
+    """What the tracker counted per channel, for today and the last seven days.
+
+    Synchronous, like every other read this side of the project makes, and against
+    the tracker's own two indexed tables so the window means exactly what
+    ``/activity week`` means. Tables that are not there are reported as *not read*
+    rather than as zeros — a build machine has no ``bot.db``, and a page printing
+    "0 messages" for a server holding thousands is worse than one that says it
+    could not read.
+    """
+    start = figures.period_start("week")
+    today = figures.period_start("today")
+    messages: dict[str, dict] = {}
+    voice: dict[str, dict] = {}
+    conn = db.connect()
+    try:
+        for label, floor in (("week", start), ("today", today)):
+            for channel_id, total in conn.execute(
+                "SELECT channel_id, SUM(count) FROM activity_messages "
+                "WHERE guild_id = ? AND date >= ? GROUP BY channel_id",
+                (guild_id, floor),
+            ):
+                row = messages.setdefault(_console_id(channel_id), {"today": 0, "week": 0})
+                row[label] = int(total or 0)
+            for channel_id, total in conn.execute(
+                "SELECT channel_id, SUM(seconds) FROM activity_voice "
+                "WHERE guild_id = ? AND date >= ? GROUP BY channel_id",
+                (guild_id, floor),
+            ):
+                row = voice.setdefault(_console_id(channel_id), {"today": 0, "week": 0})
+                row[label] = int(total or 0)
+    except sqlite3.OperationalError:
+        # No schema to read — see the docstring. Narrow on purpose: anything else
+        # is a real fault in a real database and belongs to the caller.
+        return {"read": False, "messages": {}, "voice": {}, "since": start}
+    finally:
+        conn.close()
+    return {"read": True, "messages": messages, "voice": voice, "since": start}
+
+
+def _live_talkers(guild_id: int, guild) -> list[dict]:
+    """The people talking most this week, by messages, with their voice time.
+
+    Counts come from the tracker; names come from the gateway, because the stored
+    rows only ever held the activity. A member who has left is left out of the
+    list rather than shown as a bare id — the totals above still count them.
+    """
+    start = figures.period_start("week")
+    conn = db.connect()
+    try:
+        rows = list(conn.execute(
+            "SELECT user_id, SUM(count) FROM activity_messages "
+            "WHERE guild_id = ? AND date >= ? GROUP BY user_id "
+            "ORDER BY 2 DESC LIMIT 8",
+            (guild_id, start),
+        ))
+        voice = {
+            _console_id(user_id): int(seconds or 0)
+            for user_id, seconds in conn.execute(
+                "SELECT user_id, SUM(seconds) FROM activity_voice "
+                "WHERE guild_id = ? AND date >= ? GROUP BY user_id",
+                (guild_id, start),
+            )
+        }
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+    talkers = []
+    for user_id, total in rows:
+        member = guild.get_member(int(user_id)) if guild is not None else None
+        if member is None:
+            continue
+        talkers.append({
+            "id": _console_id(user_id),
+            "name": _live_name(member),
+            "messages": int(total or 0),
+            "voice_seconds": voice.get(_console_id(user_id), 0),
+        })
+    return talkers
+
+
+def _live_bot_voice() -> list[dict]:
+    """Where *this bot* is connected to voice, if it is anywhere.
+
+    Read from the bot rather than from any server's payload, so the page can say
+    where the bot itself is sitting — which is the one voice connection an
+    operator is responsible for.
+    """
+    clients = getattr(BOT_INSTANCE, "voice_clients", None) if BOT_INSTANCE else None
+    rows = []
+    for client in list(clients or ()):
+        guild = getattr(client, "guild", None)
+        channel = getattr(client, "channel", None)
+        rows.append({
+            "guild_id": _console_id(getattr(guild, "id", 0) or 0),
+            "guild": getattr(guild, "name", "") or "",
+            "channel": getattr(channel, "name", "") or "",
+            "connected": bool(getattr(client, "is_connected", lambda: False)()),
+            "playing": bool(getattr(client, "is_playing", lambda: False)()),
+            "paused": bool(getattr(client, "is_paused", lambda: False)()),
+        })
+    return rows
+
+
+@app.route("/api/console/live")
+def api_console_live():
+    """What one server is *doing*: its channels, its voice rooms, its chatter.
+
+    Read-only, and every part of it is a reading rather than a stored fact — so
+    the payload carries its own ``read`` block. ``read.channels`` is false when
+    the gateway has not answered yet (a cold process knows nothing), ``read.voice``
+    the same, ``read.presence`` when the Presence intent is off, and
+    ``read.tracker`` when this deployment has no tracker tables. A page that
+    painted a zero over any of those would be inventing a measurement.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    row = _console_economy_server(request.args.get("guild_id"))
+    if row is None:
+        return jsonify({"success": False, "error": "No such server"}), 404
+
+    guild = BOT_INSTANCE.get_guild(row["id"]) if BOT_INSTANCE else None
+    fleet = _fleet_rows()
+
+    channels: list[dict] = []
+    exceeded = 0
+    for channel in _live_channel_source(guild):
+        if _live_channel_kind(channel) == "category":
+            continue
+        if len(channels) >= LIVE_CHANNEL_LIMIT:
+            exceeded += 1
+            continue
+        category = getattr(channel, "category", None)
+        channels.append({
+            "id": _console_id(getattr(channel, "id", 0)),
+            "name": str(getattr(channel, "name", "") or ""),
+            "kind": _live_channel_kind(channel),
+            "category": str(getattr(category, "name", "") or "") if category else "",
+            "category_id": (
+                _console_id(getattr(category, "id"))
+                if getattr(category, "id", None) is not None
+                else ""
+            ),
+            # Position is what puts the page in the same order as the sidebar an
+            # operator is looking at; the name is the tie-break so two channels at
+            # the same position do not swap on every poll.
+            "position": int(getattr(channel, "position", 0) or 0),
+            "topic": str(getattr(channel, "topic", "") or "")[:200],
+            "nsfw": bool(getattr(channel, "nsfw", False)),
+            "slowmode": int(getattr(channel, "slowmode_delay", 0) or 0),
+            "limit": int(getattr(channel, "user_limit", 0) or 0) or None,
+            "people": (
+                _live_voice_people(guild, channel)
+                if _live_channel_kind(channel) == "voice"
+                else []
+            ),
+        })
+    channels.sort(key=lambda ch: (ch["category"], ch["position"], ch["name"].lower()))
+
+    activity = _live_channel_activity(row["id"])
+    for channel in channels:
+        counted = activity["messages"].get(channel["id"], {})
+        channel["messages_today"] = counted.get("today", 0)
+        channel["messages_week"] = counted.get("week", 0)
+        channel["voice_seconds_week"] = activity["voice"].get(channel["id"], {}).get("week", 0)
+
+    voice_channels = [channel for channel in channels if channel["kind"] == "voice"]
+    in_voice = sum(len(channel["people"]) for channel in voice_channels)
+    started, connected = _gateway_state()
+    # Read once, not twice: each call walks every cached member.
+    presence = _live_presence(guild) if guild is not None else None
+
+    return jsonify({
+        "success": True,
+        "server": {
+            "id": _console_id(row["id"]),
+            "name": row["name"],
+            "icon": row["icon"],
+            "nick": row["nick"],
+            "members": row["members"],
+        },
+        "servers": [
+            {
+                "id": _console_id(entry["id"]),
+                "name": entry["name"],
+                "icon": entry["icon"],
+                "members": entry["members"],
+            }
+            for entry in fleet
+        ],
+        "gateway": {
+            **_badge_state(),
+            # The same three-state key every other console payload carries, so a
+            # page can tone its own pill off the same word the topbar's badge is
+            # drawn from rather than re-deriving it.
+            "key": _gateway_label(started, connected),
+            "connected": bool(connected),
+            "started": bool(started),
+            "ping_ms": _bot_ping_ms(),
+        },
+        "read": {
+            "channels": guild is not None,
+            "voice": bool(voice_channels),
+            "presence": presence is not None,
+            "tracker": activity["read"],
+        },
+        "presence": presence,
+        "channels": channels,
+        "exceeded": exceeded,
+        "talkers": _live_talkers(row["id"], guild),
+        "bot_voice": _live_bot_voice(),
+        "totals": {
+            "channels": len(channels),
+            "text": sum(1 for channel in channels if channel["kind"] == "text"),
+            "voice": len(voice_channels),
+            "forums": sum(1 for channel in channels if channel["kind"] == "forum"),
+            "in_voice": in_voice,
+            "messages_today": sum(channel["messages_today"] for channel in channels),
+            "messages_week": sum(channel["messages_week"] for channel in channels),
+            "voice_seconds_week": sum(channel["voice_seconds_week"] for channel in channels),
+            "tracker_since": activity["since"],
+        },
+        "at": int(time.time()),
     })
 
 
@@ -4495,6 +4979,19 @@ def _channel_kind(channel) -> str:
     return "voice" if getattr(channel, "type", None) == discord.ChannelType.voice else "text"
 
 
+def _send_error(exc: BaseException) -> str:
+    """A sentence for a send that raised, with the exception's own words left out.
+
+    An exception's message is a description of the inside of this process — a
+    channel id, a Discord status, occasionally a path — and the two endpoints
+    that report it answer over HTTP. The whole of it goes to the log, where the
+    operator is the reader, and the answer says what happened without becoming a
+    mirror of the host's internals.
+    """
+    print(f"[SEND] Discord did not accept the message: {type(exc).__name__}: {exc}", flush=True)
+    return "Discord did not accept the message — the bot's log names the channel and the reason."
+
+
 async def _deliver_dashboard_message(guild_id: int, channel_ids, payload: dict) -> list[dict]:
     """Send the composed message, one channel at a time, on the bot's loop.
 
@@ -4806,8 +5303,7 @@ def api_send_message():
             ),
         }), 504
     except Exception as e:
-        print(f"[DASHBOARD] Composed message failed: {e}", flush=True)
-        return jsonify({"success": False, "error": f"Discord did not accept it: {e}"}), 502
+        return jsonify({"success": False, "error": _send_error(e)}), 502
 
     # Filed before the answer is built, because this is the only trace an
     # immediate send leaves: the per-channel report below goes to the page and dies
@@ -5175,9 +5671,10 @@ def api_fire_scheduled(msg_id: int):
     try:
         outcome = _run_on_bot_loop(_deliver_scheduled(row, now), timeout=30.0)
     except Exception as e:
-        scheduled.mark_failed(msg_id, now, f"Discord did not accept it: {e}")
+        reason = _send_error(e)
         print(f"[SCHEDULE] Sending #{msg_id} now failed: {e}", flush=True)
-        return jsonify({"success": False, "error": f"Discord did not accept it: {e}"}), 502
+        scheduled.mark_failed(msg_id, now, reason)
+        return jsonify({"success": False, "error": reason}), 502
 
     sent = outcome["sent"]
     failed = outcome["failed"]
@@ -5238,7 +5735,7 @@ async def _deliver_scheduled(msg: dict, now: int) -> dict:
     try:
         results = await _deliver_dashboard_message(msg["guild_id"], channel_ids, payload)
     except Exception as e:
-        error = f"Discord did not accept it: {e}"
+        error = _send_error(e)
 
     sent = [r for r in results if r.get("ok")]
     failed = [r for r in results if not r.get("ok")]

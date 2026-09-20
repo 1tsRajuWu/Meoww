@@ -22,6 +22,7 @@ than describing it, because a stub that is *written* to look right is a stub
 that drifts, and the page then gets blamed for the harness's shape.
 """
 import asyncio
+import datetime
 import html
 import os
 import re
@@ -363,20 +364,87 @@ class _PreviewTree:
         return [_PreviewCommand(name) for name in PREVIEW_COMMANDS]
 
 
+class _PreviewKind:
+    """The ``.name`` half of an enum, for the two readers that want one.
+
+    A channel's kind and a member's presence both arrive as ``discord`` enums in
+    production and both readers take the enum's own ``name`` — so a stub with
+    ``type.name`` and ``status.name`` is read by the real code rather than by a
+    preview-shaped branch of it.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _PreviewChannel:
+    """One channel, as the Live page's reader looks at one."""
+
+    def __init__(self, cid, name, kind, *, category=None, position=0, topic="", limit=None):
+        self.id = cid
+        self.name = name
+        self.type = _PreviewKind(kind)
+        self.category = _PreviewCategory(category) if category else None
+        self.position = position
+        self.topic = topic
+        self.nsfw = False
+        self.slowmode_delay = 0
+        self.user_limit = limit or 0
+        # The fallback source, for a reader that has no voice states to hand.
+        self.members = []
+
+
+class _PreviewCategory:
+    """A category, *with* its type.
+
+    Without one it reads as a text channel — the Live page classifies by
+    Discord's own ``type``, since ``isinstance`` cannot see a stand-in — and the
+    preview then draws "# Chat" as a channel with nothing in it, which looks
+    exactly like a page that has misread a guild.
+    """
+
+    def __init__(self, name: str, cid=None):
+        self.name = name
+        self.id = cid
+        self.type = _PreviewKind("category")
+
+
+class _PreviewVoiceState:
+    """One entry of ``Guild.voice_states``: an id, a channel, and the flags."""
+
+    def __init__(self, user_id, channel, **flags):
+        self.user_id = user_id
+        self.channel = channel
+        self.user = None
+        self.mute = flags.get("mute", False)
+        self.deaf = flags.get("deaf", False)
+        self.self_mute = flags.get("self_mute", False)
+        self.self_deaf = flags.get("self_deaf", False)
+        self.self_stream = flags.get("self_stream", False)
+        self.self_video = flags.get("self_video", False)
+        self.suppress = flags.get("suppress", False)
+
+
 class _PreviewServer:
     """One server as the console's own views read one.
 
     ``_fleet_rows`` wants an id, a name, a member count, the bot's own member in
-    it (for the nickname column), and a member lookup (for the richest list), and
-    nothing else — so that is exactly what this carries rather than a hand-built
-    JSON row, which would drift from what the real code reads.
+    it (for the nickname column), and a member lookup (for the richest list);
+    ``/api/console/live`` wants its channels, its voice states and the presence
+    of its members. That is exactly what this carries — the shapes the real code
+    reads, rather than a hand-built JSON row that would drift from it.
+
+    The channels and voice states are here because the alternative was measured:
+    with none of them the Live page renders "0 channels · 0 in voice", which is
+    honest and useless — it is **this harness's** shape rather than the page's
+    behaviour, and a preview that shows an empty console teaches nothing about
+    the console. Same lesson the economy seeding below was added for.
     """
 
     def __init__(self, entry: dict):
         self.id = int(entry["id"])
         self.name = str(entry["name"])
         self.member_count = int(entry["members"])
-        self.members = []
         self.icon = None
         # No dedicated bot member: `_identity_member` falls back to the bot's own
         # user, which this harness also does not have, and both paths answer ""
@@ -384,6 +452,36 @@ class _PreviewServer:
         # preview invented about a gateway it does not have.
         self.me = None
         self._members = {int(m["id"]): _PreviewMentionable(m, "@") for m in MEMBERS}
+        base = self.id * 1000
+        self.text_channels = [
+            _PreviewChannel(base + 1, "general", "text", category="Chat", topic="Anything goes."),
+            _PreviewChannel(base + 2, "media", "text", category="Chat", position=1),
+            _PreviewChannel(base + 3, "staff", "text", category="Staff"),
+        ]
+        self.voice_channels = [
+            _PreviewChannel(base + 11, "Lobby", "voice", category="Voice", limit=10),
+            _PreviewChannel(base + 12, "Focus Room", "voice", category="Voice", position=1),
+            _PreviewChannel(base + 13, "AFK", "voice", category="Voice", position=2),
+        ]
+        self.categories = [
+            _PreviewCategory(name, base + 20 + index)
+            for index, name in enumerate(("Chat", "Staff", "Voice"))
+        ]
+        self.channels = [*self.text_channels, *self.voice_channels, *self.categories]
+        lobby, focus = self.voice_channels[0], self.voice_channels[1]
+        people = list(self._members.values())
+        # Presence, which needs a status on each member — so the Live page's
+        # "who is around" card can be looked at rather than only believed.
+        for index, member in enumerate(people):
+            member.status = _PreviewKind(("online", "idle", "dnd", "offline")[index % 4])
+            member.bot = False
+            member.activities = []
+        self.members = people
+        self.voice_states = {
+            people[0].id: _PreviewVoiceState(people[0].id, lobby, self_stream=True),
+            people[2].id: _PreviewVoiceState(people[2].id, lobby, self_mute=True),
+            people[1].id: _PreviewVoiceState(people[1].id, focus, self_video=True),
+        }
 
     def get_member(self, user_id):
         try:
@@ -429,6 +527,55 @@ class _PreviewBot:
 
     def is_ready(self) -> bool:
         return bool(self._connected)
+
+
+def seed_activity() -> int:
+    """Give the previewed servers a week of counted chatter, and voice time.
+
+    The same reasoning as ``seed_economy`` below, one table over: the tracker's
+    rows belong to *real* servers, and the stand-in guilds this harness serves
+    appear in none of them — so the Live page's two activity cards rendered a
+    table of zeros. That is a true reading of the database and a useless preview
+    of a page whose whole job is to show where the talking is.
+
+    Written through the tracker's own columns and its own ``ON CONFLICT`` key, and
+    only into a guild that has no rows at all, so re-running the harness neither
+    double-counts nor touches a guild somebody is really using.
+    """
+    conn = _db.connect()
+    written = 0
+    try:
+        for guild in GUILDS:
+            existing = conn.execute(
+                "SELECT COUNT(*) FROM activity_messages WHERE guild_id = ?", (guild["id"],)
+            ).fetchone()[0]
+            if existing:
+                continue
+            base = int(guild["id"]) * 1000
+            for offset in range(7):
+                day = (datetime.date.today() - datetime.timedelta(days=offset)).isoformat()
+                for index, member in enumerate(MEMBERS):
+                    conn.execute(
+                        "INSERT OR REPLACE INTO activity_messages "
+                        "(guild_id, user_id, channel_id, date, count) VALUES (?, ?, ?, ?, ?)",
+                        (
+                            guild["id"],
+                            int(member["id"]),
+                            base + 1 + (index % 3),
+                            day,
+                            max(1, 14 - offset * 2 - index),
+                        ),
+                    )
+                conn.execute(
+                    "INSERT OR REPLACE INTO activity_voice "
+                    "(guild_id, user_id, channel_id, date, seconds) VALUES (?, ?, ?, ?, ?)",
+                    (guild["id"], int(MEMBERS[0]["id"]), base + 11, day, 1800 - offset * 120),
+                )
+            written += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return written
 
 
 def seed_economy() -> int:
@@ -1533,5 +1680,10 @@ if __name__ == "__main__":
     # neither belongs to a test that never asked for one.
     keep_alive.BOT_INSTANCE = _PreviewBot()
     seeded = seed_economy()
-    print(f"[PREVIEW] gateway: {len(GUILDS)} servers; economy: {seeded} seeded row(s)", flush=True)
+    counted = seed_activity()
+    print(
+        f"[PREVIEW] gateway: {len(GUILDS)} servers; economy: {seeded} seeded row(s); "
+        f"activity: {counted} server(s)",
+        flush=True,
+    )
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8099")))

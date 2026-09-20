@@ -62,16 +62,18 @@ class TestDbstatusMath(unittest.TestCase):
         cur.close()
         self.assertEqual(count, 0)
 
-    def test_a_table_whose_name_holds_a_quote_is_still_counted(self):
-        """The identifier is quoted by hand, so the quoting has to be escaped.
+    def test_a_table_whose_name_needs_quoting_is_skipped_not_interpolated(self):
+        """A row count is not the place to find out what a name means.
 
         A table name cannot be a bound parameter — ``?`` stands for a value, not
-        for a name — so the query is built by string interpolation. ``a"b`` is a
-        legal table name, and interpolated straight in it closes the quoting
-        early: SQLite reads the rest as junk, raises a syntax error, and the
-        count comes back ``-1``. That ``-1`` means "unreadable", which is a lie
-        about a table that is perfectly readable. Doubling the inner quote is the
-        whole difference, and this is the test that notices when it is missing.
+        for a name — so a query that counts one is built by string interpolation.
+        ``a"b`` is a legal table name and, interpolated straight in, it closes
+        the quoting early; escaping the inner quote fixed the read, and the rule
+        now is the shorter one: only names that are *nothing but* letters, digits
+        and underscores are counted at all. Every table this bot creates is one
+        of those, so a name outside the set belongs to somebody else — and it is
+        left out rather than reported as unreadable, which would say a readable
+        table is broken.
         """
         from cogs.server_control import _local_table_counts
 
@@ -79,12 +81,17 @@ class TestDbstatusMath(unittest.TestCase):
         conn = sqlite3.connect(weird)
         conn.execute('CREATE TABLE "a""b" (x INTEGER)')
         conn.execute('INSERT INTO "a""b" VALUES (1), (2), (3)')
+        conn.execute("CREATE TABLE plain (x INTEGER)")
+        conn.execute("INSERT INTO plain VALUES (9)")
         conn.commit()
         conn.close()
 
         counts, _size_kb, _wal_kb, integrity = _local_table_counts(weird)
-        self.assertEqual(counts.get('a"b'), 3)
+        self.assertNotIn('a"b', counts)
         self.assertNotIn(-1, counts.values(), f"a table was reported unreadable: {counts}")
+        # …and the ordinary table beside it is still counted, so the rule above
+        # cannot be satisfied by counting nothing at all.
+        self.assertEqual(counts.get("plain"), 1)
         self.assertEqual(integrity, "ok")
 
 

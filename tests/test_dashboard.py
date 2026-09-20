@@ -429,12 +429,17 @@ class DeploymentConfig(unittest.TestCase):
     #: definite state instead of a prompt, and a prompt is where a switch gets
     #: answered differently on two hosts. The checkout URLs are public by the same
     #: argument the client id is — the page renders them for anyone to click.
+    #: ``OWNER_DISCORD_ELEVATION`` joins them for the same reason: it is a switch
+    #: whose committed ``0`` is the *safe* state — the passkey is the door — and a
+    #: prompt is where a switch gets answered differently on two hosts, one of
+    #: which then opens the console without the passkey.
     PUBLIC_KEYS = frozenset({
         "DISCORD_CLIENT_ID",
         "LEMONSQUEEZY_CHECKOUT_PRO",
         "LEMONSQUEEZY_CHECKOUT_ENTERPRISE",
         "PLAN_CHECKOUT",
         "PLAN_ENFORCEMENT",
+        "OWNER_DISCORD_ELEVATION",
     })
 
     def committed_secrets(self, manifest: str) -> list:

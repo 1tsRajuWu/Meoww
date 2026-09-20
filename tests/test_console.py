@@ -30,11 +30,12 @@ import json
 import os
 import re
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
 
 import keep_alive
-from tests.test_composer import GUILD_ID
+from tests.test_composer import CHANNEL_ID, GUILD_ID, _Bot, _Channel, _Guild, _Member, _VoiceChannel
 from tests.test_dashboard import CSRF, _DashboardFixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,7 @@ BUNDLE = ROOT / "static" / "console"
 CONSOLE_ROUTES = (
     "/api/console/overview",
     "/api/console/fleet",
+    "/api/console/live",
     "/api/console/systems",
     "/api/console/commands",
     "/api/console/economy",
@@ -220,6 +222,53 @@ class WhoMayOpenIt(_DashboardFixture):
         self.sign_in(scope="global")
         response = self.client.get("/owner")
         self.assertEqual(response.status_code, 200)
+
+    def _owner_candidate_session(self):
+        """A session that signed in through Discord as the bot's owner.
+
+        This is what the callback produces for ``OWNER_USER_ID``: authenticated,
+        identified, and still short of the console.
+        """
+        with self.client.session_transaction() as session:
+            session["authenticated"] = True
+            session["csrf_token"] = CSRF
+            session["auth_scope"] = "user"
+            session["owner_candidate"] = True
+            session["discord_user"] = {"id": "5", "name": "R A J", "avatar": ""}
+
+    def test_the_owners_own_sign_in_does_not_open_the_console(self):
+        """The account says *who this is*. The passkey decides what it may do.
+
+        The callback used to hand the operator scope to whichever session matched
+        ``OWNER_USER_ID``, which is precisely why entering the owner site asked
+        for no pass: the button on the sign-in page was a complete sign-in, and
+        anybody holding that Discord session had the fleet.
+        """
+        self._owner_candidate_session()
+        response = self.client.get("/owner")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/owner/login", response.headers.get("Location", ""))
+        self.assertNothingLeaked(response)
+
+    def test_the_sign_in_page_says_the_passkey_is_still_wanted(self):
+        self._owner_candidate_session()
+        body = self.client.get("/owner/login").get_data(as_text=True)
+        self.assertEqual(self.client.get("/owner/login").status_code, 200)
+        self.assertIn("passkey", body)
+        self.assertIn("the console still wants the passkey", body)
+
+    def test_the_passkey_raises_that_session_to_operator(self):
+        self._owner_candidate_session()
+        with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "secret-passkey"):
+            response = self.client.post(
+                "/owner/login",
+                data={"passkey": "secret-passkey", "csrf_token": CSRF},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), "/owner")
+        with self.client.session_transaction() as session:
+            self.assertEqual(session.get("auth_scope"), "global")
+        self.assertEqual(self.client.get("/owner").status_code, 200)
 
     def test_every_page_url_serves_the_shell(self):
         """The app owns `/owner/*`, so a deep link is a route, not a 404.
@@ -416,6 +465,26 @@ class TheConsoleApi(_DashboardFixture):
             source = (CONSOLE / "src" / "pages" / name).read_text(encoding="utf-8")
             with self.subTest(page=name):
                 self.assertIn("ConfigAttention", source)
+
+    def test_the_reticle_is_an_instrument_that_follows_rather_than_a_second_pointer(self):
+        """The paw that used to be drawn *on* the point is gone.
+
+        Two pointers at one coordinate is not a flourish, it is a smear: the
+        browser's arrow owns the point (it is what decides what a click hits), and
+        a decoration centred there lands half over it. What is left is a hairline
+        ring that trails on a spring and stretches along its own direction of
+        travel, so speed reads as weight instead of as a second cursor.
+        """
+        css = (CONSOLE / "src" / "styles.css").read_text(encoding="utf-8")
+        self.assertNotIn("cursor__paw", css, "something is drawn on the point again")
+        self.assertIn("cursor__ring", css)
+        source = (CONSOLE / "src" / "app" / "Cursor.tsx").read_text(encoding="utf-8")
+        self.assertIn("STRETCH", source, "the ring no longer reacts to how fast it is moving")
+        self.assertIn("Math.atan2", source, "the stretch is not aligned with the direction of travel")
+        # The loop has to be able to stop: a settled page must not hold a frame
+        # per animation tick for the life of the session.
+        self.assertIn("const settled", source)
+        self.assertIn("cancelAnimationFrame", source)
 
     def test_the_cursor_cannot_paint_before_the_pointer_moves(self):
         """A cursor at rest is a decoration parked on the page.
@@ -641,6 +710,228 @@ class TheConsoleApi(_DashboardFixture):
             self.skipTest("this checkout has no changelog to quote")
         self.assertTrue(entries[0]["version"])
         self.assertTrue(entries[0]["body"] or entries[0]["lead"])
+
+
+class _VoiceState:
+    """One entry of ``Guild.voice_states``, as the gateway sends it.
+
+    Deliberately *not* carrying ``.user``: the payload the gateway sends holds a
+    user id and a channel id and nothing else, so a stand-in that helpfully
+    included the member would hide the one case the page has to get right — a
+    voice state the member cache cannot resolve.
+    """
+
+    def __init__(self, user_id, channel, **flags):
+        self.user_id = user_id
+        self.channel = channel
+        self.user = None
+        self.mute = flags.get("mute", False)
+        self.deaf = flags.get("deaf", False)
+        self.self_mute = flags.get("self_mute", False)
+        self.self_deaf = flags.get("self_deaf", False)
+        self.self_stream = flags.get("self_stream", False)
+        self.self_video = flags.get("self_video", False)
+        self.suppress = flags.get("suppress", False)
+
+
+class TheLivePage(_DashboardFixture):
+    """What one server is *doing* — and what the page refuses to invent.
+
+    This is the only console page whose readings come from caches that are
+    legitimately empty (a cold gateway, the Presence intent off, no tracker
+    tables), so most of what is checked here is the *refusal*: a reading that was
+    never taken has to arrive as absent, with the page saying which one it was,
+    rather than as a confident zero about somebody's server.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in(scope="global")
+
+    def get(self, path):
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200, path)
+        payload = response.get_json()
+        self.assertTrue(payload["success"], path)
+        return payload
+
+    def gateway(self, *, statuses=False):
+        """A server with two voice rooms, one of them occupied."""
+        talk = _Channel(CHANNEL_ID, "general", category="Chat")
+        room = _VoiceChannel(555005, "General Voice", category="Voice")
+        quiet = _VoiceChannel(555006, "Empty Room", category="Voice")
+        here = _Member(333001, "raj", "RAJ")
+        away = _Member(333002, "ash", "Ash")
+        ghost = 333003  # in the room, but the member cache has never seen them
+        members = [here, away]
+        if statuses:
+            here.status = SimpleNamespace(name="online")
+            away.status = SimpleNamespace(name="dnd")
+        guild = _Guild(
+            GUILD_ID,
+            "Meow Server",
+            [talk],
+            members=members,
+            voice_channels=[room, quiet],
+        )
+        guild.member_count = 3
+        # The one list the page reads. A real guild carries text, voice and
+        # category channels together here, which is why the fake has to as well.
+        guild.channels = [talk, room, quiet]
+        guild.voice_states = {
+            here.id: _VoiceState(here.id, room, self_stream=True),
+            ghost: _VoiceState(ghost, room, self_mute=True),
+        }
+        bot = _Bot([guild])
+        bot.latency = 0.05
+        return bot, guild, room
+
+    def payload(self, *, statuses=False, guild_id=None):
+        bot, guild, room = self.gateway(statuses=statuses)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            data = self.get(
+                f"/api/console/live?guild_id={guild_id}" if guild_id else "/api/console/live"
+            )
+        return data, guild, room
+
+    def test_it_lists_every_channel_and_who_is_sitting_in_the_voice_ones(self):
+        data, guild, room = self.payload()
+        by_name = {channel["name"]: channel for channel in data["channels"]}
+        self.assertEqual(sorted(by_name), ["Empty Room", "General Voice", "general"])
+        self.assertEqual(by_name["General Voice"]["kind"], "voice")
+        self.assertEqual(by_name["Empty Room"]["people"], [])
+        self.assertEqual(data["totals"]["in_voice"], 2)
+        self.assertEqual(data["totals"]["voice"], 2)
+        self.assertEqual(data["read"]["channels"], True)
+
+        people = {person["id"]: person for person in by_name["General Voice"]["people"]}
+        self.assertEqual(people[str(333001)]["name"], "RAJ")
+        self.assertIs(people[str(333001)]["streaming"], True)
+        self.assertIs(people[str(333001)]["muted"], False)
+
+    def test_a_voice_state_the_cache_cannot_name_is_an_id_rather_than_a_name(self):
+        """Without the Members intent the gateway knows *that* somebody is in a
+        room and not who — so the row carries the id it has."""
+        data, _guild, _room = self.payload()
+        room = next(ch for ch in data["channels"] if ch["name"] == "General Voice")
+        nameless = [person for person in room["people"] if person["id"] == "333003"]
+        self.assertEqual(len(nameless), 1)
+        self.assertEqual(nameless[0]["name"], "")
+        self.assertIs(nameless[0]["muted"], True)
+
+    def test_every_id_crosses_as_text(self):
+        data, _guild, _room = self.payload()
+        for channel in data["channels"]:
+            with self.subTest(channel=channel["name"]):
+                self.assertIsInstance(channel["id"], str)
+                self.assertEqual(keep_alive._console_id(int(channel["id"])), channel["id"])
+                for person in channel["people"]:
+                    self.assertIsInstance(person["id"], str)
+        self.assertIsInstance(data["server"]["id"], str)
+
+    def test_presence_is_absent_rather_than_zero_when_nobody_can_say(self):
+        """The intent is privileged, so this is the *normal* state — and a page
+        that painted it as "0 online, 3 offline" would be inventing a reading."""
+        without, _guild, _room = self.payload()
+        self.assertIsNone(without["presence"])
+        self.assertIs(without["read"]["presence"], False)
+
+        with_status, _guild, _room = self.payload(statuses=True)
+        self.assertEqual(with_status["read"]["presence"], True)
+        self.assertEqual(with_status["presence"]["online"], 1)
+        self.assertEqual(with_status["presence"]["dnd"], 1)
+        self.assertEqual(with_status["presence"]["offline"], 0)
+        self.assertEqual(with_status["presence"]["total"], 2)
+
+    def test_the_message_counts_are_the_trackers_own_window(self):
+        """Today is one UTC day and the week is today plus six — the same ranges
+        ``/activity week`` means, read out of the same two tables."""
+        bot, _guild, _room = self.gateway()
+        today = keep_alive.figures.period_start("today")
+        stale = "2001-01-01"
+        conn = keep_alive.db.connect()
+        try:
+            conn.execute(
+                "INSERT INTO activity_messages (guild_id, user_id, channel_id, date, count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (GUILD_ID, 333001, CHANNEL_ID, today, 7),
+            )
+            conn.execute(
+                "INSERT INTO activity_messages (guild_id, user_id, channel_id, date, count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (GUILD_ID, 333001, CHANNEL_ID, stale, 400),
+            )
+            conn.execute(
+                "INSERT INTO activity_voice (guild_id, user_id, channel_id, date, seconds) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (GUILD_ID, 333001, 555005, today, 3600),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            data = self.get("/api/console/live")
+
+        self.assertIs(data["read"]["tracker"], True)
+        general = next(ch for ch in data["channels"] if ch["name"] == "general")
+        self.assertEqual(general["messages_today"], 7)
+        self.assertEqual(general["messages_week"], 7, "a row from 2001 landed in this week")
+        self.assertEqual(data["totals"]["messages_today"], 7)
+        room = next(ch for ch in data["channels"] if ch["name"] == "General Voice")
+        self.assertEqual(room["voice_seconds_week"], 3600)
+        self.assertEqual([talker["name"] for talker in data["talkers"]], ["RAJ"])
+
+    def test_no_tracker_tables_is_reported_rather_than_counted_as_zero(self):
+        """A deployment with no `bot.db` — every build machine — has no schema.
+
+        The flag is the whole point: the page prints an em dash where the reading
+        is absent, so a zero here would be a number nobody measured about
+        somebody's server. This is the case `utils/figures` already documents.
+        """
+        bot, _guild, _room = self.gateway()
+        conn = keep_alive.db.connect()
+        try:
+            conn.execute("DROP TABLE activity_messages")
+            conn.commit()
+        finally:
+            conn.close()
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            data = self.get("/api/console/live")
+        self.assertIs(data["read"]["tracker"], False)
+        self.assertEqual(data["talkers"], [])
+
+    def test_a_server_the_bot_is_not_in_is_a_404(self):
+        response = self.client.get("/api/console/live?guild_id=999999999")
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.get_json()["success"])
+
+    def test_the_listing_cap_counts_what_it_does_not_list(self):
+        """A big server must not turn into a megabyte of JSON, and the page has
+        to be able to say how many channels it is not showing."""
+        bot, guild, _room = self.gateway()
+        extra = [_Channel(CHANNEL_ID + 100 + i, f"channel-{i}") for i in range(5)]
+        guild.text_channels = list(guild.text_channels) + extra
+        guild.channels = list(guild.channels) + extra
+        with mock.patch.object(keep_alive, "LIVE_CHANNEL_LIMIT", 3):
+            with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+                data = self.get("/api/console/live")
+        self.assertEqual(len(data["channels"]), 3)
+        self.assertEqual(data["exceeded"], 5)
+
+    def test_the_page_says_a_reading_is_absent_rather_than_printing_a_zero(self):
+        """The app's half of the contract, checked where it is written: Python
+        cannot see which branch a `.tsx` file takes, and a page that ignored the
+        flags would render a confident zero from the same payload."""
+        source = (CONSOLE / "src" / "pages" / "Live.tsx").read_text(encoding="utf-8")
+        for flag in ("read.tracker", "read.voice", "read.channels"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, source, f"Live.tsx never reads `{flag}`")
+        self.assertIn('read.tracker ? duration(totals.voice_seconds_week) : "—"', source)
+        # …and it is a page of the console, not a file nothing routes to.
+        app = (CONSOLE / "src" / "App.tsx").read_text(encoding="utf-8")
+        self.assertIn('path === "/live"', app)
+        self.assertIn("<Live />", app)
+        self.assertIn("live", [page[0] for page in keep_alive.OWNER_PAGES])
 
 
 class TheEconomyPage(_DashboardFixture):

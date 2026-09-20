@@ -3004,16 +3004,19 @@ body.landing:has([data-menu].is-open) {
 /* --------------------------------------------------------------------------
    Fullscreen menu
    -------------------------------------------------------------------------- */
+/* The overlay is the page's inset again: a black field with one rounded sheet
+   on it, the same shape every band below uses, so the menu reads as part of the
+   site rather than as a screen that arrived over it. */
 .lp-menu {
     position: fixed;
     inset: 0;
     z-index: 70;
     display: flex;
     flex-direction: column;
-    padding: 0.5rem;
-    background: rgba(8, 8, 10, 0.96);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    padding: clamp(0.4rem, 1.2vw, 0.75rem);
+    background: rgba(4, 4, 6, 0.72);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
     opacity: 0;
     visibility: hidden;
     transition: opacity 260ms var(--ease), visibility 260ms var(--ease);
@@ -3021,35 +3024,99 @@ body.landing:has([data-menu].is-open) {
 
 .lp-menu.is-open { opacity: 1; visibility: visible; }
 
+/* `overflow: auto` on the panel is a fix rather than a flourish. Six rows of
+   display type do not fit a 400px-tall viewport — a landscape phone — and the
+   version this replaces centred them with no way to scroll, so the last rows
+   were simply unreachable. */
 .lp-menu-panel {
     display: flex;
     flex-direction: column;
     gap: 1rem;
     height: 100%;
-    padding: 1.25rem clamp(1.25rem, 4vw, 2.5rem);
-    transform: translateY(-24px);
+    min-height: 0;
+    padding: 1rem clamp(1rem, 4vw, 2.25rem) 1.25rem;
+    border: 1px solid var(--lp-hair-soft);
+    border-radius: var(--lp-radius-lg);
+    background: var(--lp-ink-2);
+    transform: translateY(-18px);
     transition: transform 320ms var(--ease);
 }
 
 .lp-menu.is-open .lp-menu-panel { transform: translateY(0); }
 
+.lp-menu-header { padding: 0 0 1rem; border-bottom: 1px solid var(--lp-hair-soft); }
+
 .lp-menu-nav {
-    display: grid;
-    align-content: center;
-    gap: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
-.lp-menu-nav a {
+/* One row per destination, a hairline between them, and the arrow that only
+   shows under the pointer. Nothing here is a *state* the reader has to
+   discover: the row they are on says so in the accent, and everything else
+   answers to hover or focus. */
+.lp-menu-link {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    padding: clamp(0.75rem, 2.2vh, 1.55rem) 0;
+    border-top: 1px solid var(--lp-hair-soft);
     color: #fff;
     text-decoration: none;
-    font-size: clamp(2rem, 7vw, 4.5rem);
-    font-weight: 650;
-    letter-spacing: -0.02em;
-    line-height: 1.05;
+    /* Rows rise into place when the sheet opens — from *this* position, so a
+       reduced-motion visitor (whose transitions the sheet flattens) sees them
+       where they belong rather than stacked at an offset. */
+    transform: translateY(12px);
+    opacity: 0;
+    transition: transform 420ms var(--ease), opacity 380ms ease, color 0.18s ease;
 }
 
-.lp-menu-nav a:hover { color: var(--lp-accent-soft); }
+.lp-menu-link:first-child { border-top: 0; }
+.lp-menu.is-open .lp-menu-link { transform: none; opacity: 1; }
+
+.lp-menu.is-open .lp-menu-link:nth-child(2) { transition-delay: 45ms; }
+.lp-menu.is-open .lp-menu-link:nth-child(3) { transition-delay: 90ms; }
+.lp-menu.is-open .lp-menu-link:nth-child(4) { transition-delay: 135ms; }
+.lp-menu.is-open .lp-menu-link:nth-child(5) { transition-delay: 180ms; }
+.lp-menu.is-open .lp-menu-link:nth-child(6) { transition-delay: 225ms; }
+
+.lp-menu-label {
+    font-size: clamp(1.6rem, 5.2vw, 3.25rem);
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.lp-menu-arrow {
+    font-size: clamp(1rem, 2vw, 1.4rem);
+    color: var(--lp-accent-soft);
+    opacity: 0;
+    transform: translateX(-8px);
+    transition: opacity 0.2s ease, transform 0.24s var(--ease);
+}
+
+.lp-menu-link:hover .lp-menu-arrow,
+.lp-menu-link:focus-visible .lp-menu-arrow {
+    opacity: 1;
+    transform: none;
+}
+
+.lp-menu-link:hover .lp-menu-label,
+.lp-menu-link:focus-visible .lp-menu-label { color: var(--lp-accent-soft); }
+
+/* The page you are on, marked by the server. `aria-current` is the only thing
+   that sets this, so what a reader sees and what a screen reader says cannot
+   disagree about it. */
+.lp-menu-link[aria-current="page"] .lp-menu-label { color: var(--lp-accent-soft); }
+.lp-menu-link[aria-current="page"] .lp-menu-arrow { opacity: 0.6; transform: none; }
 
 .lp-menu-foot {
     display: flex;
@@ -3057,8 +3124,17 @@ body.landing:has([data-menu].is-open) {
     gap: 1rem;
     align-items: center;
     justify-content: space-between;
-    border-top: 1px solid var(--lp-hair);
-    padding-top: 1.5rem;
+    border-top: 1px solid var(--lp-hair-soft);
+    padding-top: 1.25rem;
+}
+
+.lp-menu.is-open .lp-menu-foot {
+    animation: lp-menu-foot-in 420ms var(--ease) 180ms both;
+}
+
+@keyframes lp-menu-foot-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
 }
 
 /* --------------------------------------------------------------------------
@@ -3067,6 +3143,27 @@ body.landing:has([data-menu].is-open) {
 @media (min-width: 640px) {
     .lp { padding: 0.75rem; }
     .lp-hero { min-height: calc(100svh - 1.5rem); }
+}
+
+/* From a tablet up the menu's rows are a single column of display type with the
+   panel's full width behind them, which is a lot of air — so the arrow gets a
+   column of its own and the rows hold a readable measure instead of stretching
+   an uppercase label across 1,500 pixels. */
+@media (min-width: 900px) {
+    .lp-menu-panel { padding: 1.5rem clamp(1.5rem, 4vw, 3rem) 1.5rem; }
+    .lp-menu-link { padding: 1.5rem 0; }
+}
+
+@media (max-height: 520px) {
+    .lp-menu-link { padding: 0.6rem 0; }
+    .lp-menu-label { font-size: clamp(1.1rem, 3.4vh, 1.8rem); }
+    .lp-menu-header { padding-bottom: 0.6rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lp-menu-foot,
+    .lp-menu.is-open .lp-menu-foot { animation: none; }
+    .lp-menu-link { transition: none; }
 }
 
 @media (min-width: 768px) {

@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 
 import { api, ApiError } from "../api";
 import type { ServerDetail as Detail, ServerRow, SystemSwitch } from "../types";
-import { ago, compact } from "../lib/format";
+import { ago, compact, iconSrc } from "../lib/format";
 import { Link } from "../lib/router";
 import { useLive } from "../lib/useLive";
 import { Card, Empty, Failure, Pill, Skeleton, Switch } from "../ui";
@@ -108,8 +108,14 @@ export function ServerDetail({
     <div className="grid">
       <div className="page__head">
         <div className="page__title">
-          {data.server.icon ? (
-            <img className="page__avatar" src={data.server.icon} alt="" width={44} height={44} />
+          {iconSrc(data.server.icon) ? (
+            <img
+              className="page__avatar"
+              src={iconSrc(data.server.icon)}
+              alt=""
+              width={44}
+              height={44}
+            />
           ) : null}
           <div>
             <span className="eyebrow">

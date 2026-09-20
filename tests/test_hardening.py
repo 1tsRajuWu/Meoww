@@ -9,7 +9,9 @@ never recover, and commands crashing in DMs.
 import asyncio
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import keep_alive
 from utils import db, features
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -307,6 +309,97 @@ class ThePagesStayReadable(unittest.TestCase):
         filled = "<style>:root { --accent: #5865F2; }" \
                  " .btn { background: var(--accent); color: #fff; }</style>"
         self.assertEqual(self._unreadable_text(filled), [])
+
+
+class TheAddressASignInIsCountedAgainst(unittest.TestCase):
+    """A rate-limit bucket key must not be something the caller chose.
+
+    Five wrong passkeys close the door for a quarter of an hour, which only
+    means anything if the door is counted per person. Three sources are read, and
+    the order is the claim: a *signed* stamp from the owner site's worker first,
+    then the forwarded chain a trusted proxy appends to, then the peer address —
+    the one nobody can write.
+    """
+
+    def _ip(self, headers: dict, *, secret: str = "shared-secret", trust: bool = True) -> str:
+        with mock.patch.object(keep_alive, "OWNER_PROXY_SECRET", secret), \
+             mock.patch.object(keep_alive, "_trust_proxy_headers", trust):
+            with keep_alive.app.test_request_context("/owner/login", headers=headers):
+                return keep_alive._client_ip()
+
+    def test_a_signed_stamp_is_believed(self):
+        self.assertEqual(
+            self._ip({"X-Meow-Proxy": "shared-secret", "X-Meow-Client-IP": "203.0.113.9"}),
+            "203.0.113.9",
+        )
+
+    def test_a_stamp_without_the_secret_is_ignored(self):
+        """The header alone is a claim, and this is the whole reason it is signed."""
+        self.assertNotEqual(self._ip({"X-Meow-Client-IP": "203.0.113.9"}), "203.0.113.9")
+
+    def test_a_wrong_secret_is_ignored(self):
+        self.assertNotEqual(
+            self._ip({"X-Meow-Proxy": "guessed", "X-Meow-Client-IP": "203.0.113.9"}),
+            "203.0.113.9",
+        )
+
+    def test_an_unconfigured_secret_trusts_nobody(self):
+        """No secret in the environment is a deployment that has not opted in."""
+        self.assertNotEqual(
+            self._ip(
+                {"X-Meow-Proxy": "shared-secret", "X-Meow-Client-IP": "203.0.113.9"},
+                secret="",
+            ),
+            "203.0.113.9",
+        )
+
+    def test_a_stamp_that_is_not_an_address_is_ignored(self):
+        for junk in ("", "not-an-ip", "203.0.113.9, 198.51.100.4", "203.0.113.9/24", "x" * 300):
+            with self.subTest(stamp=junk):
+                self.assertNotEqual(
+                    self._ip({"X-Meow-Proxy": "shared-secret", "X-Meow-Client-IP": junk}),
+                    junk,
+                )
+
+    def test_an_ipv6_stamp_is_kept_as_one_bucket_key(self):
+        """Two spellings of one address would be two buckets."""
+        self.assertEqual(
+            self._ip({"X-Meow-Proxy": "shared-secret", "X-Meow-Client-IP": "2001:0db8::1"}),
+            "2001:db8::1",
+        )
+
+    def test_the_forwarded_chain_is_still_the_fallback(self):
+        self.assertEqual(self._ip({"X-Forwarded-For": "198.51.100.4"}), "198.51.100.4")
+
+    def test_without_the_trust_flag_the_header_is_not_read_at_all(self):
+        with keep_alive.app.test_request_context(
+            "/owner/login", headers={"X-Forwarded-For": "198.51.100.4"}
+        ):
+            peer = keep_alive._client_ip()
+        self.assertNotEqual(peer, "198.51.100.4")
+
+
+class AFailedSendDoesNotReciteTheHost(unittest.TestCase):
+    """What Discord said is for the log, not for the answer.
+
+    An exception's text describes the inside of the process — a channel id, a
+    status, a path — and the two endpoints that report a failed send answer over
+    HTTP. The operator reads the log; the caller gets a sentence.
+    """
+
+    def test_the_exception_text_stays_out_of_the_answer(self):
+        answer = keep_alive._send_error(
+            RuntimeError("channel 1234: 403 Forbidden at /srv/app/bot.py")
+        )
+        for leaked in ("1234", "403", "/srv/app", "RuntimeError"):
+            with self.subTest(leaked=leaked):
+                self.assertNotIn(leaked, answer)
+        self.assertIn("log", answer)
+
+    def test_the_endpoints_use_it(self):
+        """A helper nothing calls is not a fix."""
+        source = _read("keep_alive.py")
+        self.assertNotIn('f"Discord did not accept it: {e}"', source)
 
 
 if __name__ == "__main__":
