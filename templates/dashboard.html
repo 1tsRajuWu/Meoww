@@ -549,14 +549,14 @@
 
                             <div class="identity-fields">
                                 <div class="field-head">
-                                    <span class="field-label">Nickname in this server</span>
+                                    <label class="field-label" for="identity-nick">Nickname in this server</label>
                                     <span class="composer-hint">{{ server_identity.max_nick }} characters at most — leave it empty and the bot uses its own name.</span>
                                 </div>
                                 <input class="composer-input" type="text" id="identity-nick" maxlength="{{ server_identity.max_nick }}"
                                        placeholder="What this server calls the bot" value="{{ server_identity.nick }}"{% if not server_identity.can_edit %} disabled{% endif %}>
 
                                 <div class="field-head">
-                                    <span class="field-label">Bio in this server</span>
+                                    <label class="field-label" for="identity-bio">Bio in this server</label>
                                     <span class="composer-hint">{{ server_identity.max_bio }} characters.</span>
                                 </div>
                                 <textarea class="composer-textarea" id="identity-bio" rows="2" maxlength="{{ server_identity.max_bio }}"{% if not server_identity.can_edit %} disabled{% endif %}>{{ server_identity.bio }}</textarea>

@@ -41,9 +41,23 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: The two sheets that decide what anything in this project looks like. Every
 #: other page (dashboard, hub, the Flask-rendered templates) links the first.
 PUBLIC_SHEET = os.path.join(ROOT, "static", "meow.css")
+#: The dashboard's own layout sheet, loaded right after the public one — it
+#: inherits the public sheet's root size and never declares one of its own.
+DASHBOARD_SHEET = os.path.join(ROOT, "static", "dashboard.css")
 CONSOLE_SHEET = os.path.join(ROOT, "console", "src", "styles.css")
 CONSOLE_SRC = os.path.join(ROOT, "console", "src")
 TEMPLATES = os.path.join(ROOT, "templates")
+
+#: The smallest type anybody may be asked to read. Fine print is included, and
+#: that is not a small point: the laws name it because the fine print is exactly
+#: where the smallest sizes collect — a version stamp, a hint under a field, an
+#: eyebrow label — and it is still a sentence somebody has to read.
+TYPE_FLOOR = 12.0
+
+#: What a ``rem`` resolves against when a sheet declares no root size of its own.
+#: ``meow.css`` sets ``html { font-size: var(--text-body) }``, ``--text-body`` is
+#: 16px, and the dashboard inherits it.
+ROOT_PX = 16.0
 
 #: WCAG 2.1, the two numbers the law quotes. 4.5:1 is normal text; 3:1 is large
 #: text and user-interface components — a border, a ring, a bar on a chart.
@@ -665,6 +679,217 @@ class OneAccentPerSurface(unittest.TestCase):
                 f"{selector} declares colours nothing can name — two accents is none:\n"
                 + "\n".join(decorative),
             )
+
+
+class MotionIsOptional(unittest.TestCase):
+    """A person who asked their system for less motion gets less motion.
+
+    Two halves, because the console animates in two languages: hand-written CSS
+    transitions, which the media query in each sheet stops, and JS springs from
+    the animation library, which a media query cannot reach at all — those need
+    the setting handed to the library, or the page keeps moving for somebody who
+    asked it not to.
+    """
+
+    def test_each_sheet_honours_the_setting(self):
+        for path in (PUBLIC_SHEET, DASHBOARD_SHEET, CONSOLE_SHEET):
+            self.assertIn(
+                "prefers-reduced-motion",
+                read(path),
+                f"{os.path.basename(path)} animates with no way to turn it off",
+            )
+
+    def test_the_console_hands_the_setting_to_its_animation_library(self):
+        app = read(os.path.join(CONSOLE_SRC, "App.tsx"))
+        self.assertIn(
+            'reducedMotion="user"',
+            app,
+            "the console's JS animations ignore the system setting unless the "
+            "library is told about it",
+        )
+
+
+class NothingIsSetBelowTheFloor(unittest.TestCase):
+    """No type anywhere under 12px — in the sheets and in the templates.
+
+    ``font-size: 11.5px`` is not a mid-point between two tiers, it is a number
+    somebody typed: the dashboard alone carried **43** declarations between 10px
+    and 11.5px, including the hint under the identity fields and the label on
+    every metric. The floor is 12px, so those are 12px, and this walks the
+    sheets, the templates' inline styles and their ``<style>`` blocks to keep
+    them there.
+
+    ``em`` and ``%`` are deliberately not resolved: they are relative to a
+    parent this file would have to *guess*, and a guard that guessed would be a
+    guard that lies. ``rem`` **is** resolved, against the root size the sheets
+    actually set (``--text-body: 16px``), because that one is knowable.
+    """
+
+    SIZE = re.compile(r"font-size:\s*([\d.]+)\s*(px|rem)\b")
+
+    def _offenders(self, text: str, label: str) -> list[str]:
+        found = []
+        for value, unit in self.SIZE.findall(text):
+            size = float(value) * (ROOT_PX if unit == "rem" else 1.0)
+            if size < TYPE_FLOOR:
+                found.append(f"{label}: font-size: {value}{unit} → {size:g}px")
+        return found
+
+    def _template_files(self) -> list[str]:
+        return [
+            os.path.join(folder, name)
+            for folder, _dirs, files in os.walk(TEMPLATES)
+            for name in files
+            if name.endswith(".html")
+        ]
+
+    def test_no_sheet_sets_type_under_the_floor(self):
+        offenders = []
+        for path in (PUBLIC_SHEET, DASHBOARD_SHEET, CONSOLE_SHEET):
+            offenders.extend(self._offenders(read(path), os.path.basename(path)))
+        self.assertEqual(
+            offenders,
+            [],
+            f"type below {TYPE_FLOOR:g}px: readable for the person who chose it, "
+            "not for the person reading it:\n" + "\n".join(offenders),
+        )
+
+    def test_no_template_sets_type_under_the_floor(self):
+        offenders = []
+        for path in sorted(self._template_files()):
+            offenders.extend(self._offenders(read(path), os.path.basename(path)))
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+
+class ProseHasAMeasure(unittest.TestCase):
+    """45–75 characters a line, and both sheets say so on purpose.
+
+    The measure is the one law a palette cannot rescue: the same paragraph that
+    reads well at 60 characters a line is unreadable across a 27" display, and
+    ``ch`` is the unit that survives somebody changing the font. Only the ceiling
+    is checked — a measure *tighter* than 45 is a deliberate choice (a caption,
+    a figure, a hint under a field), and the half that hurts is the long one.
+    """
+
+    MEASURE_MAX = 75
+
+    def _measures(self, path: str) -> list[float]:
+        """Every ``max-width: <n>ch`` in a sheet, comments stripped.
+
+        Comments are stripped because this file's own lessons get written down in
+        them — ``meow.css`` explains the 18ch caption measure in prose, and a
+        guard that counted the explanation as a rule would fail on its own
+        documentation.
+        """
+        source = re.sub(r"/\*.*?\*/", "", read(path), flags=re.S)
+        return [float(value) for value in re.findall(r"max-width:\s*([\d.]+)ch\b", source)]
+
+    def test_no_sheet_writes_a_line_longer_than_the_law_allows(self):
+        for path in (PUBLIC_SHEET, CONSOLE_SHEET):
+            for value in self._measures(path):
+                self.assertLessEqual(
+                    value,
+                    self.MEASURE_MAX,
+                    f"{os.path.basename(path)} sets a {value}ch measure; "
+                    f"{self.MEASURE_MAX} characters a line is where the eye stops "
+                    "finding its way back",
+                )
+
+    def test_both_sheets_declare_a_measure_at_all(self):
+        """No measure is the failure the number alone cannot catch."""
+        for path in (PUBLIC_SHEET, CONSOLE_SHEET):
+            self.assertTrue(
+                self._measures(path),
+                f"{os.path.basename(path)} declares no character measure, so every "
+                "paragraph in it runs the width of the window",
+            )
+
+
+class FieldsAreNamed(unittest.TestCase):
+    """A field a person can see is a field a screen reader can name.
+
+    Placeholder-only is the classic miss: the text vanishes the moment somebody
+    types, and no assistive technology ever had it as a label (WCAG 3.3.2 and
+    4.1.2). Named means one of: a ``<label for=id>``, an ``aria-label`` /
+    ``aria-labelledby``, a ``<label>`` wrapped around it, or a spread of props
+    from a primitive that carries one.
+    """
+
+    SKIP_TYPES = {"hidden", "submit", "button", "reset", "image"}
+    FIELD = re.compile(r"<(input|select|textarea)\b([^>]*)>", re.I | re.S)
+    ATTR = re.compile(r"([\w-]+)\s*=\s*\"([^\"]*)\"", re.S)
+    LABEL_FOR = re.compile(r"<label[^>]*\bfor\s*=\s*\"([^\"]*)\"", re.I)
+
+    def _wrapped(self, text: str, position: int) -> bool:
+        """Is the field inside a ``<label>`` that carries no ``for``?"""
+        opens = len(re.findall(r"<label\b(?![^>]*\bfor=)", text[:position], re.I))
+        closes = len(re.findall(r"</label>", text[:position], re.I))
+        return opens > closes
+
+    def _unlabelled(self, path: str) -> list[str]:
+        text = read(path)
+        named_by_for = set(self.LABEL_FOR.findall(text))
+        found = []
+        for match in self.FIELD.finditer(text):
+            tag, raw = match.group(1).lower(), match.group(2)
+            attrs = {key.lower(): value for key, value in self.ATTR.findall(raw)}
+            if tag == "input" and attrs.get("type", "text").lower() in self.SKIP_TYPES:
+                continue
+            if any(key in attrs for key in ("aria-label", "aria-labelledby", "title")):
+                continue
+            if attrs.get("id") and attrs["id"] in named_by_for:
+                continue
+            if self._wrapped(text, match.start()):
+                continue
+            line = text[: match.start()].count("\n") + 1
+            found.append(f"{os.path.basename(path)}:{line} <{tag} id={attrs.get('id', '—')}>")
+        return found
+
+    def _html_templates(self) -> list[str]:
+        return [
+            os.path.join(folder, name)
+            for folder, _dirs, files in os.walk(TEMPLATES)
+            for name in files
+            if name.endswith(".html")
+        ]
+
+    def test_every_template_field_is_named(self):
+        offenders = []
+        for path in sorted(self._html_templates()):
+            offenders.extend(self._unlabelled(path))
+        self.assertEqual(
+            offenders,
+            [],
+            "these fields are reachable and nameless — a placeholder is not a "
+            "label, and it disappears the moment somebody types:\n" + "\n".join(offenders),
+        )
+
+    def test_every_console_field_is_named(self):
+        """The same rule for JSX, where a spread of props also counts.
+
+        The console's fields are hand-written ``<input>``s rather than one
+        primitive, so each one states its own name; ``{...props}`` is accepted
+        because that is a primitive forwarding whatever the caller passed,
+        including the label it requires.
+        """
+        offenders = []
+        for folder, _dirs, files in os.walk(CONSOLE_SRC):
+            for name in sorted(files):
+                if not name.endswith(".tsx"):
+                    continue
+                path = os.path.join(folder, name)
+                text = read(path)
+                for match in re.finditer(r"<(input|select|textarea)\b", text):
+                    end = text.find("/>", match.start())
+                    block = text[match.start() : end if end != -1 else match.start() + 400]
+                    if any(
+                        marker in block
+                        for marker in ("aria-label", "aria-labelledby", "{...props}", "hidden")
+                    ):
+                        continue
+                    line = text[: match.start()].count("\n") + 1
+                    offenders.append(f"{name}:{line}")
+        self.assertEqual(offenders, [], "unnamed console fields:\n" + "\n".join(offenders))
 
 
 if __name__ == "__main__":  # pragma: no cover

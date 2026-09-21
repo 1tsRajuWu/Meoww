@@ -58,6 +58,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from scripts import build_site  # noqa: E402 — reuses the URL rewriters
+from utils import ai_guard  # noqa: E402 — needs ROOT on the path first
 
 #: Where the real, live app is. Every link that needs a running process points
 #: here: the console, the legal pages, the health line.
@@ -498,7 +499,16 @@ def build(out_dir: str, live_app: str, hub_url: str = "") -> dict:
         "_worker.js": _worker_file(backend_host),
         "_routes.json": _routes_file(),
         "404.html": _not_found(hub_url, live_app, hub.asset_version()),
-        "robots.txt": "User-agent: *\nAllow: /\n",
+        # The directives and the training prohibition, from ``utils/ai_guard`` —
+        # the same two functions the app serves at /robots.txt and /ai.txt and
+        # the marketing build writes. The hub is the *documentation* surface, so
+        # it is the one a data collector would most like to ingest; leaving it
+        # with the literal `Allow: /` it used to carry would have made this the
+        # host where the whole posture was missing.
+        "robots.txt": ai_guard.robots_txt(
+            sitemap=f"{hub_url.rstrip('/')}/sitemap.xml" if hub_url else ""
+        ),
+        "ai.txt": ai_guard.ai_txt(),
     }
     for name, content in files.items():
         with open(os.path.join(out_dir, name), "w", encoding="utf-8") as handle:
@@ -507,8 +517,6 @@ def build(out_dir: str, live_app: str, hub_url: str = "") -> dict:
     if hub_url:
         with open(os.path.join(out_dir, "sitemap.xml"), "w", encoding="utf-8") as handle:
             handle.write(_sitemap(hub_url, PAGES))
-        with open(os.path.join(out_dir, "robots.txt"), "a", encoding="utf-8") as handle:
-            handle.write(f"Sitemap: {hub_url.rstrip('/')}/sitemap.xml\n")
 
     return report
 

@@ -27,7 +27,7 @@ import hashlib
 import os
 import re
 
-from utils import config_audit, features
+from utils import ai_guard, config_audit, features
 
 # ---------------------------------------------------------------------------
 # The pages
@@ -103,6 +103,7 @@ def marketing_url() -> str:
     true the moment it moves.
     """
     from utils import site_guard  # noqa: PLC0415 — avoids an import cycle
+
 
     return (config_audit.get("MEOW_MARKETING_URL") or site_guard.site_url()
             or "https://meow-bot.pages.dev").rstrip("/")
@@ -784,7 +785,12 @@ SECURITY_HEADERS = (
     ("Referrer-Policy", "no-referrer"),
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=()"),
     ("Strict-Transport-Security", "max-age=31536000; includeSubDomains"),
-)
+) + ai_guard.TRAIN_HEADERS
+# The anti-AI reservation is appended rather than written again here: the same
+# three values travel on every response this project sends, on every host — the
+# app in ``set_security_headers``, the static copies through this tuple, and the
+# owner console through its own `_headers` file. One list, three writers, and
+# the values themselves live in ``utils/ai_guard.py``.
 
 #: How many changelog entries the hub shows. The file is 230-odd entries and
 #: grows with every change, so the page states how many it is showing rather than

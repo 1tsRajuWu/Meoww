@@ -589,6 +589,49 @@ async def setup():
             'ON dashboard_sessions(revoked_at, expires_at)'
         )
 
+        # ── Who read a page no human can reach ──────────────────────────────
+        # The anti-AI guard's ledger: one row per identified crawler refusal or
+        # trap fetch, folded so a collector that asks four hundred times is one
+        # line with a count. Kept here as well as in ``utils/ai_guard.py`` so a
+        # database restored from an older backup starts with an empty ledger
+        # rather than failing every request that touches one. See that module
+        # for why the evidence is kept at all, and for its retention window.
+        await db.execute('''CREATE TABLE IF NOT EXISTS net_guard_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at REAL NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT '',
+            agent TEXT NOT NULL DEFAULT '',
+            path TEXT NOT NULL DEFAULT '',
+            ip TEXT NOT NULL DEFAULT '',
+            country TEXT NOT NULL DEFAULT '',
+            hits INTEGER NOT NULL DEFAULT 1
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_net_guard_at ON net_guard_events(at)'
+        )
+
+        # ── What a sign-in agreed to ────────────────────────────────────────
+        # The clickwrap's record: which *revision* of the three documents was
+        # accepted (a content digest, not a hand-kept number), by which scope or
+        # account, from which address and browser, when. It is the one row in
+        # this database that answers a question asked after an account is gone,
+        # which is why its retention window is the longest here.
+        await db.execute('''CREATE TABLE IF NOT EXISTS legal_acceptances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at REAL NOT NULL DEFAULT 0,
+            version TEXT NOT NULL DEFAULT '',
+            scope TEXT NOT NULL DEFAULT '',
+            guild_id INTEGER,
+            user_id INTEGER,
+            label TEXT NOT NULL DEFAULT '',
+            ip TEXT NOT NULL DEFAULT '',
+            agent TEXT NOT NULL DEFAULT ''
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_legal_acceptances_at '
+            'ON legal_acceptances(at)'
+        )
+
         # A server's own name and picture for the bot. Discord keeps these
         # per guild (they are fields on the bot's *member*, not on the
         # application), so this table is the dashboard's record of what was

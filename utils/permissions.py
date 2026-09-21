@@ -195,6 +195,13 @@ COMMAND_ACCESS: dict[str, str] = {
     "purge": MESSAGES,
     "clearwarnings": ADMIN,
     "modlog": ADMIN,
+    # Deliberately EVERYONE, and the one command in this section that is: the
+    # whole point is that the member an automatic action happened to can reach a
+    # human without asking a moderator for permission to ask. A permission here
+    # would be exactly the dead end `/appeal` exists to remove. What keeps it
+    # from being a flood is the cooldown — one appeal per member per five
+    # minutes — and the fact that it only ever *writes to the log*.
+    "appeal": EVERYONE,
     "automod invites": GUILD,
     "automod antispam": GUILD,
     # -- Server control ---------------------------------------------------- #

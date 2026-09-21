@@ -25,6 +25,7 @@ import urllib.parse
 from unittest import mock
 
 import keep_alive
+from tests.support import agree_to_the_policies, agreed_next_url
 from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
 from utils import discord_auth
 
@@ -683,17 +684,34 @@ class TheCallbackWithAHostileNext(_DashboardFixture):
                 return self.client.get(f"/login/discord/callback?code=a&state={state}")
 
     def test_a_hostile_next_lands_on_this_site(self):
+        """The wrap the clickwrap adds is not a hole in the same guard.
+
+        A door now answers with ``/agree?next=…``, so the hostile shapes have one
+        more place to survive: the value inside the query string. It is read back
+        out and checked rather than string-matched, because what matters is where
+        the *person* ends up, and that is the inner value.
+        """
         for hostile in ("%2F%09%2Fevil.example", "%2F%0A%2Fevil.example", "%2F%5Cevil.example"):
             response = self._callback(hostile)
             self.assertEqual(response.status_code, 302, hostile)
             location = response.headers.get("Location") or ""
             self.assertFalse(location.startswith("//"), f"{hostile} left the site: {location}")
-            self.assertIn(location, ("/dashboard", "/servers"), hostile)
+            if location.startswith("/agree"):
+                self.assertIn(agreed_next_url(location), "/dashboard/servers", hostile)
+            else:
+                self.assertIn(location, ("/dashboard", "/servers"), hostile)
 
     def test_a_welcome_next_is_still_followed(self):
         response = self._callback("%2Fdashboard%3Fguild_id%3D5")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), "/dashboard?guild_id=5")
+        location = response.headers.get("Location") or ""
+        self.assertEqual(agreed_next_url(location), "/dashboard?guild_id=5")
+        # …and accepting lands there, query string and all: the wrap carries the
+        # destination through rather than replacing it with the default.
+        self.assertEqual(
+            agree_to_the_policies(self.client, location).headers.get("Location"),
+            "/dashboard?guild_id=5",
+        )
 
 
 class TheOwnerIsStillNotTheOperator(_DashboardFixture):
@@ -733,7 +751,10 @@ class TheOwnerIsStillNotTheOperator(_DashboardFixture):
         with mock.patch.object(keep_alive, "OWNER_USER_ID", 5):
             response = self._sign_in_as("5")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), "/owner")
+        # Recognised, and still not let in: the door wraps the destination in the
+        # clickwrap, so this session has to read the terms and press an answer
+        # before the passkey page it is headed for even renders.
+        self.assertEqual(agreed_next_url(response.headers.get("Location", "")), "/owner")
         with self.client.session_transaction() as session:
             self.assertEqual(session.get("auth_scope"), "user")
             self.assertTrue(session.get("owner_candidate"))

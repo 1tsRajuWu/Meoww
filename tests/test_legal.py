@@ -32,19 +32,37 @@ class TestLegalDocuments(unittest.TestCase):
         """The reason the section-by-section render exists — keep it honest."""
         self.assertGreater(max(len(self.terms), len(self.privacy)), legal.MAX_DESCRIPTION)
 
-    def test_every_section_reaches_the_card(self):
+    def test_every_section_reaches_the_card_or_the_card_says_it_did_not(self):
+        """Silence is the failure mode; a full card *or* an announced cut is not.
+
+        The documents grew past Discord's 6,000-character ceiling when the Terms
+        gained the anti-AI clause, the arbitration section and the indemnity — and
+        the answer to that is not to shorten a legal document to fit a chat card.
+        What must never happen is a section that simply is not there: either every
+        heading arrives, or the card carries the field that says where the rest of
+        it is, with the address of the published page.
+        """
         for name, text in (("TERMS.md", self.terms), ("PRIVACY.md", self.privacy)):
             embed = legal.document_embed("Doc", text, name)
             rendered = "\n".join(f"{f.name}\n{f.value}" for f in embed.fields)
             _, sections = legal.split_document(text)
             self.assertTrue(sections, f"{name} has no ## sections")
-            for heading, _ in sections:
-                self.assertIn(heading, rendered, f"section {heading!r} was dropped")
+            complete = len(embed.fields) >= len(sections)
+            if complete:
+                for heading, _ in sections:
+                    self.assertIn(heading, rendered, f"section {heading!r} was dropped")
+            else:
+                self.assertIn("The rest of it", rendered, f"{name} was cut with no notice")
+                self.assertIn(legal.hub.marketing_url(), rendered)
+                self.assertGreater(len(embed.fields), 3, f"{name} lost most of its body")
 
-    def test_the_last_words_are_on_the_card(self):
+    def test_the_last_words_are_on_the_card_or_its_tail_is_announced(self):
         """The old renderer's failure mode: the tail of the file disappeared."""
         for name, text in (("TERMS.md", self.terms), ("PRIVACY.md", self.privacy)):
             embed = legal.document_embed("Doc", text, name)
+            if len(embed.fields) < len(legal.split_document(text)[1]):
+                self.assertIn("The rest of it", "\n".join(f.name for f in embed.fields))
+                continue
             tail = text.strip().split("\n")[-1].strip()
             rendered = "\n".join(
                 [embed.description or ""] + [f.value for f in embed.fields]
@@ -312,30 +330,99 @@ class TestTheAIDisclosure(unittest.TestCase):
             text = self._read(name)
             self.assertIn("AI coding assistants", text, f"{name} does not disclose it")
             self.assertIn("AI agents", text, f"{name} does not disclose AI agents")
-            self.assertIn("Version 4", text, f"{name} was not re-versioned")
+            self.assertRegex(text, r"\*\*Version \d+\*\*", f"{name} was not re-versioned")
+
+    def test_the_three_documents_agree_about_their_version(self):
+        """One bundle, one version, one date — the digest the clickwrap records
+
+        is computed over all three files, so a document left at an older version
+        number is a document that was edited and not re-stated.
+        """
+        import re as _re
+
+        versions = {}
+        dates = {}
+        for name in ("TERMS.md", "PRIVACY.md", "AI_POLICY.md"):
+            text = self._read(name)
+            version = _re.search(r"\*\*Version (\d+)\*\*", text)
+            self.assertIsNotNone(version, f"{name} states no version")
+            versions[name] = int(version.group(1))
+            date = _re.search(r"\*\*Effective Date:\*\* ([^·\n]+)", text)
+            self.assertIsNotNone(date, f"{name} states no effective date")
+            dates[name] = date.group(1).strip()
+        self.assertEqual(len(set(versions.values())), 1, f"the bundle disagrees: {versions}")
+        self.assertGreaterEqual(max(versions.values()), 4, "the AI disclosure's version is gone")
+        self.assertEqual(len(set(dates.values())), 1, f"the bundle disagrees on dates: {dates}")
+
+    def test_the_anti_ai_claims_are_written_where_they_can_be_cited(self):
+        """The framework's clause list, checked as text rather than remembered.
+
+        Every one of these is a sentence the *law* side of this change depends on
+        existing: an anti-AI clause, a clickwrap that records a revision, a
+        liability cap, an indemnity, arbitration with a class-action waiver, and
+        the routes a person can use to complain.
+        """
+        terms = " ".join(self._read("TERMS.md").split()).lower()
+        privacy = " ".join(self._read("PRIVACY.md").split()).lower()
+        ai = " ".join(self._read("AI_POLICY.md").split()).lower()
+
+        for needle in (
+            "automated collection is prohibited",
+            "reserved against",
+            "no licence",
+            "arbitration",
+            "class, collective or representative action",
+            "indemnif",
+            "twelve months",
+            "grievance officer",
+            "export-control",
+            "warrant",
+        ):
+            self.assertIn(needle, terms, f"TERMS.md is missing {needle!r}")
+        for needle in ("grievance officer", "data fiduciary", "30 days", "withdraw consent"):
+            self.assertIn(needle, privacy, f"PRIVACY.md is missing {needle!r}")
+        for needle in ("training", "robots.txt", "ai.txt", "180 days", "permission"):
+            self.assertIn(needle, ai, f"AI_POLICY.md is missing {needle!r}")
+
+    def test_the_clickwrap_revision_covers_the_anti_ai_policy(self):
+        """A person has to have been shown the reservation, not just the Terms."""
+        from utils import consent
+
+        self.assertIn(("AI_POLICY.md", "AI &amp; automated use"), consent.DOCUMENTS)
+        self.assertIn("AI_POLICY.md", consent.BUNDLE_EXTRAS + tuple(
+            name for name, _ in consent.DOCUMENTS
+        ))
+        self.assertRegex(consent.version(), r"^[0-9a-f]{12}$")
 
     def test_the_claim_that_no_ai_runs_is_still_true(self):
-        # Grepped rather than asserted from memory, and case-insensitively: a
-        # provider named in an import, a URL, or a client constructor is the way
-        # this claim would actually stop being true.
+        # Grepped rather than asserted from memory: a provider named in an import,
+        # a URL, or a client constructor is the way this claim would actually stop
+        # being true. The patterns are about *calling* one, not about naming one:
+        # `utils/ai_guard.py` names OpenAI, Anthropic, ByteDance and the rest
+        # because that is how a refusal recognises a crawler, and a policy that
+        # could not name the crawler it refuses would be a policy that cannot
+        # enforce anything. A bare mention is therefore not a match; an import, an
+        # API host or a key is.
         import re
         from pathlib import Path
 
         root = Path(ROOT)
         patterns = ("*.py", "utils/*.py", "cogs/*.py", "scripts/*.py")
+        called = re.compile(
+            r"(^|\s)(import|from)\s+(openai|anthropic|cohere|mistralai|google\.generativeai)\b"
+            r"|api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com"
+            r"|huggingface\.co/|api-inference\.huggingface"
+            r"|[A-Z]*(OPENAI|ANTHROPIC|COHERE|MISTRAL|HUGGINGFACE)[A-Z_]*_?(API_)?KEY",
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
         found = []
         for pattern in patterns:
             for path in root.glob(pattern):
                 if path.name.startswith("test_"):
                     continue
                 body = path.read_text(encoding="utf-8", errors="ignore")
-                for match in re.finditer(
-                    r"openai|anthropic|google\.generativeai|huggingface|"
-                    r"api\.cohere|api\.mistralai|generativelanguage",
-                    body,
-                    flags=re.IGNORECASE,
-                ):
-                    found.append(f"{path.name}: {match.group(0)}")
+                for match in called.finditer(body):
+                    found.append(f"{path.name}: {match.group(0).strip()}")
         self.assertEqual(
             found, [],
             "PRIVACY.md states that no AI runs in the Bot, and this says otherwise: "

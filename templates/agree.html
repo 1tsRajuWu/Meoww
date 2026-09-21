@@ -1,0 +1,122 @@
+{#
+  The clickwrap.
+
+  Three documents, one decision, two answers of exactly the same size. The last
+  part is the whole reason this page has its own template instead of a checkbox
+  bolted onto the sign-in form: a page that makes "no" smaller than "yes" is
+  producing a consent that a regulator does not recognise, and — more to the
+  point — it is asking somebody to agree to an anti-AI clause while behaving
+  like the dark pattern the clause exists to make impossible. So:
+
+  * both answers are `<button class="btn btn-block">` with no modifier, no
+    pre-selection, no countdown, no confession of what declining will cost;
+  * declining is described in the same neutral voice as accepting, and the page
+    says what it does (signs the session out) rather than what it does not;
+  * nothing is recorded until one of them is pressed, and the page says that
+    too, because "we have not stored anything yet" is a property a person should
+    be able to verify by reloading.
+
+  The three documents are linked *and* described, the revision is shown as the
+  digest it is (so a person can check the text they read against the text they
+  agreed to), and the ledger's own health is stated when it is not well —
+  a clickwrap that quietly failed to record is worse than none.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b0e13">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
+    <title>Before you carry on — {{ bot_name }}</title>
+    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
+</head>
+<body>
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
+    <a class="skip-link" href="#decision">Skip to the decision</a>
+
+    <main class="auth-shell">
+        <div class="auth-card glass auth-card--wide">
+            <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
+
+            {# One `h1` element, not three inside branches: a page names itself
+               once, and a branch that renders a different heading is still the
+               same page — which is also what the design-law test counts. #}
+            <h1>{% if declined %}You are signed out{% elif notice %}One thing to check{% else %}Before you carry on{% endif %}</h1>
+
+            {% if notice %}
+            <div class="notice{% if notice_bad %} notice-bad{% endif %}" role="{% if notice_bad %}alert{% else %}status{% endif %}">
+                {{ notice }}
+            </div>
+            {% else %}
+            <p class="hint" style="margin: 8px 0 var(--space-5)">
+                This dashboard speaks <strong>as the bot</strong>: it posts messages in your
+                servers, switches systems on and off, and moves coins. So {{ bot_name }} shows you
+                the terms those actions are taken under and records that you saw them.
+                Three documents, one press — and nothing is kept until you press something.
+            </p>
+            {% endif %}
+
+            <ul class="agree-docs">
+                {% for document in documents %}
+                <li>
+                    <a href="{{ document.href }}">{{ document.title|safe }}</a>
+                    {% if document.label %}<span class="agree-doc-version">{{ document.label }}</span>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+
+            <p class="hint agree-meta">
+                This revision: <code>{{ revision or "unknown" }}</code> — the SHA-256 of the three
+                files above, so the text you read and the text you agreed to can be compared
+                later. A revision that is still current is the one you have already accepted,
+                and this page will not ask twice for it.
+                {% if not ledger %}
+                <br><strong>The acceptance ledger could not be written on the last attempt.</strong>
+                Agreeing still works and still signs you in; the record of it would not exist,
+                and the operator sees this on the console's Access page.
+                {% endif %}
+            </p>
+
+            {% if notice %}
+            <p>
+                {% if declined %}
+                <a class="btn btn-block" href="/login">Sign in again</a>
+                {% else %}
+                <a class="btn btn-block" href="{{ next_url }}">Continue</a>
+                {% endif %}
+            </p>
+            <p class="hint" style="margin-top: var(--space-4)">
+                The three documents stay readable without signing in:
+                <a href="/terms">Terms</a>, <a href="/privacy">Privacy</a>,
+                <a href="/ai">AI &amp; crawling</a>.
+            </p>
+            {% else %}
+            <form id="decision" method="post" action="/agree">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <div class="agree-answers">
+                    <button class="btn btn-block" type="submit" name="decision" value="accept">
+                        I agree to these three documents
+                    </button>
+                    <button class="btn btn-block" type="submit" name="decision" value="decline">
+                        I do not agree — sign me out
+                    </button>
+                </div>
+            </form>
+            <p class="hint agree-meta">
+                Both answers are the same size on purpose. Neither is the default: this page
+                records nothing until you press one, and saying no closes your sign-in without
+                changing anything about your servers.
+            </p>
+            <p class="hint">
+                Questions, or a request to see or delete what {{ bot_name }} holds about you —
+                the <a href="/support">support server</a> is where that goes.
+            </p>
+            {% endif %}
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{#
+  The honeytoken link.
+
+  A single anchor, off-screen, on every page whose footer includes this file. It
+  is the one link in this repository that visitors never see and are never meant
+  to: it is disallowed in `robots.txt` for every agent, absent from the sitemap,
+  `tabindex="-1"` so no keyboard user can land on it, `aria-hidden` so no screen
+  reader can read it, and its target answers with a decoy that says what it is.
+  Nothing legitimate follows it; anything that does is a collector that reads
+  markup and ignores directives, which is a fact worth having in writing.
+
+  Written as literal markup rather than generated, and pinned by
+  `tests/test_ai_guard.py`: the href must equal `ai_guard.HONEYTOKENS[0][0]`, and
+  that path must be `Disallow`ed in the file `ai_guard.robots_txt()` produces. A
+  trap nobody can look up is a trap with a broken href, and a trap whose path the
+  directives allow is a link a well-behaved crawler may follow — both are caught
+  by the test rather than discovered in a log months later.
+#}
+<a class="trap-link" href="/api/_index/entities.json" tabindex="-1" aria-hidden="true">internal page index (automated readers only)</a>

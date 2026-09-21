@@ -46,6 +46,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from utils import ai_guard  # noqa: E402 — needs ROOT on the path first
+
 #: Where the real, live app is. Every link that needs a running process points
 #: here. It is the Render service's own hostname, which is stable across
 #: deploys; a custom domain can replace it later by setting ``LIVE_APP_URL``.
@@ -65,6 +67,11 @@ PAGES = (
     ("/pricing", "pricing.html"),
     ("/privacy", "privacy.html"),
     ("/terms", "terms.html"),
+    # The third document, and the one a collector is pointed at. It is built
+    # rather than proxied for the same reason the other two are: the page a
+    # stranger reads before trusting a bot should not be behind a free-tier host
+    # that sleeps, and this one is also the address in `ai.txt`.
+    ("/ai", "ai.html"),
 )
 
 #: The application's client id. This is *public* — it is in every invite link
@@ -275,6 +282,7 @@ def _headers_file() -> str:
     here worth caching hard, and they carry a `?v=` cache-buster in the templates
     precisely so an immutable cache is safe.
     """
+    reservation = "".join(f"  {name}: {value}\n" for name, value in ai_guard.headers().items())
     return (
         "/*\n"
         f"  Content-Security-Policy: {STATIC_CSP}\n"
@@ -283,6 +291,12 @@ def _headers_file() -> str:
         "  Referrer-Policy: no-referrer\n"
         "  Permissions-Policy: camera=(), microphone=(), geolocation=()\n"
         "  Strict-Transport-Security: max-age=31536000; includeSubDomains\n"
+        # The anti-AI reservation, on the CDN copy as well as the app's own. A
+        # static host has no Flask to set a header, and this is the copy most
+        # people actually read — so without these lines the public site would be
+        # the one surface where the prohibition was only ever a comment in a
+        # file. ``ai_guard.headers()`` is the same call the app makes.
+        f"{reservation}"
         # NOT `no-store`: that is right for the dashboard and wrong for a page
         # whose whole job is to be readable by a stranger on a slow connection.
         # Short and revalidated, so a deploy is picked up within minutes while a
@@ -535,13 +549,21 @@ def build(
         handle.write(_routes_file())
     with open(os.path.join(out_dir, "404.html"), "w", encoding="utf-8") as handle:
         handle.write(_not_found_page(live_app))
+    # The directives, from the one module that writes them — the same call the
+    # app serves at /robots.txt and the hub and owner builds make, so a crawler
+    # cannot get a different answer depending on which host it happened to ask.
+    # The sitemap line is the only thing this host adds, and it is this host's.
+    sitemap = f"{site_url.rstrip('/')}/sitemap.xml" if site_url else ""
     with open(os.path.join(out_dir, "robots.txt"), "w", encoding="utf-8") as handle:
-        handle.write("User-agent: *\nAllow: /\n")
+        handle.write(ai_guard.robots_txt(sitemap=sitemap))
+    # The machine-readable half of the same policy: training use reserved
+    # against, in the convention crawlers look for. Served as a file here and as
+    # a route by the app, from one function.
+    with open(os.path.join(out_dir, "ai.txt"), "w", encoding="utf-8") as handle:
+        handle.write(ai_guard.ai_txt())
     if site_url:
         with open(os.path.join(out_dir, "sitemap.xml"), "w", encoding="utf-8") as handle:
             handle.write(_sitemap(PAGES, live_app).replace("{base}", site_url.rstrip("/")))
-        with open(os.path.join(out_dir, "robots.txt"), "a", encoding="utf-8") as handle:
-            handle.write(f"Sitemap: {site_url.rstrip('/')}/sitemap.xml\n")
     return report
 
 

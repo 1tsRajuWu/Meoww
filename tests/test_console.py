@@ -35,6 +35,7 @@ from unittest import mock
 from pathlib import Path
 
 import keep_alive
+from tests.support import agree_to_the_policies, agreed_next_url
 from tests.test_composer import CHANNEL_ID, GUILD_ID, _Bot, _Channel, _Guild, _Member, _VoiceChannel
 from tests.test_dashboard import CSRF, _DashboardFixture
 
@@ -192,7 +193,15 @@ class WhoMayOpenIt(_DashboardFixture):
                 data={"passkey": "secret-passkey", "csrf_token": "csrf-token"},
             )
             self.assertEqual(response.status_code, 302)
-            self.assertEqual(response.headers.get("Location"), "/owner")
+            # The door is the clickwrap now: a passkey opens it and the terms are
+            # shown before the fleet is. The destination is carried, not lost.
+            location = response.headers.get("Location", "")
+            self.assertTrue(location.startswith("/agree"), location)
+            self.assertEqual(agreed_next_url(location), "/owner")
+            self.assertEqual(
+                agree_to_the_policies(self.client, location).headers.get("Location"),
+                "/owner",
+            )
             # Following redirect to /owner now serves 200
             follow = self.client.get("/owner")
             self.assertEqual(follow.status_code, 200)
@@ -213,7 +222,12 @@ class WhoMayOpenIt(_DashboardFixture):
                 data={"passkey": "secret-passkey", "csrf_token": token},
             )
             self.assertEqual(post_res.status_code, 302)
-            self.assertEqual(post_res.headers.get("Location"), "/owner")
+            # The passkey is the door; the agreement is what it opens onto. Noted
+            # here because this is the test that reads the form's own token out of
+            # the page rather than planting one in the session.
+            location = post_res.headers.get("Location", "")
+            self.assertTrue(location.startswith("/agree"), location)
+            self.assertEqual(agreed_next_url(location), "/owner")
 
     def test_owner_login_failure_with_wrong_passkey(self):
         with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "secret-passkey"):
@@ -287,9 +301,15 @@ class WhoMayOpenIt(_DashboardFixture):
                 data={"passkey": "secret-passkey", "csrf_token": CSRF},
             )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers.get("Location"), "/owner")
+        door = response.headers.get("Location", "")
+        self.assertEqual(agreed_next_url(door), "/owner")
         with self.client.session_transaction() as session:
             self.assertEqual(session.get("auth_scope"), "global")
+        # The passkey raised the scope *and* the agreement stands between it and
+        # the fleet: accepting is what turns the last redirect into a 200.
+        self.assertEqual(
+            agree_to_the_policies(self.client, door).headers.get("Location"), "/owner"
+        )
         self.assertEqual(self.client.get("/owner").status_code, 200)
 
     def test_every_page_url_serves_the_shell(self):

@@ -589,6 +589,98 @@ class DeadMedia(OperatorLogCase):
         self.assertFalse(asyncio.run(run()))
 
 
+class TrappedCrawler(OperatorLogCase):
+    """The card for a collector that walked into a path no person can reach.
+
+    The one alert in this file that is *not* about the product's health: it is the
+    detection half of the anti-AI posture, and the only signal in this codebase
+    that identifies a collector positively rather than guessing at one from
+    behaviour. So the card has to carry what a decision needs — which document was
+    fetched, which agent, from where, how often — and it has to say what actually
+    stops it, because \"block the user agent\" is the answer that costs the
+    collector one line to defeat.
+    """
+
+    def _event(self, **overrides):
+        from utils import ai_guard
+
+        event = {
+            "kind": "honeytoken",
+            "agent": "SomeCollector/1.0",
+            "path": ai_guard.HONEYTOKENS[0][0],
+            "ip": "203.0.113.9",
+            "country": "SG",
+            "hits": 3,
+        }
+        event.update(overrides)
+        return event
+
+    def test_it_names_the_path_the_agent_the_address_and_the_count(self):
+        from utils import ai_guard
+
+        async def run():
+            await db.setup()
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id)
+            return await operator_log.ai_guard_alert(
+                self.bot, self._event(), label=ai_guard.HONEYTOKENS[0][1]
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertEqual(len(self.foreign.sent), 1)
+        text = _text_of(self.foreign.sent[0])
+        self.assertIn(ai_guard.HONEYTOKENS[0][0], text, "which document")
+        self.assertIn("SomeCollector/1.0", text, "which agent")
+        self.assertIn("203.0.113.9", text, "from where")
+        self.assertIn("SG", text)
+        self.assertIn("3", text, "how often is the difference between a crawl and a decision")
+        self.assertIn("ASN", text, "the card must say what actually stops it")
+        self.assertIn("Terms", text, "the breach is what makes the record worth keeping")
+
+    def test_a_refusal_flood_says_which_crawler_and_not_that_it_was_a_trap(self):
+        async def run():
+            await db.setup()
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id)
+            return await operator_log.ai_guard_alert(
+                self.bot, self._event(kind="crawler", agent="GPTBot", hits=25)
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        text = _text_of(self.foreign.sent[0])
+        self.assertIn("ignoring robots.txt", text)
+        self.assertIn("25", text)
+        self.assertNotIn("no person can reach", text, "a refusal is not a trap")
+
+    def test_it_never_pings_anyone_even_though_it_names_an_address(self):
+        async def run():
+            await db.setup()
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id)
+            return await operator_log.ai_guard_alert(self.bot, self._event(agent="@everyone"))
+
+        asyncio.run(run())
+        self.assertEqual(self.foreign.sent[0].get("allowed_mentions"), style.NO_PINGS)
+
+    def test_with_nowhere_to_say_it_returns_false_instead_of_raising(self):
+        async def run():
+            await db.setup()
+            return await operator_log.ai_guard_alert(self.bot, self._event())
+
+        self.assertFalse(asyncio.run(run()))
+
+    def test_a_broken_channel_cannot_break_the_refusal(self):
+        """The request that struck the trap has already been answered: the card
+        failing must not turn a recorded event into a raised exception."""
+        async def run():
+            await db.setup()
+            failing = _FailingChannel(GUILDS_CHANNEL, "active-servers")
+            operator = _Guild(BOT_SERVER, "Development", [failing])
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), GUILDS_CHANNEL)
+            return await operator_log.ai_guard_alert(
+                _Bot([operator, self.member]), self._event()
+            )
+
+        self.assertFalse(asyncio.run(run()))
+
+
 class FailureRules(OperatorLogCase):
     def test_an_unbound_channel_reports_and_returns_false(self):
         """No binding: the entry is reported on the host, not raised."""

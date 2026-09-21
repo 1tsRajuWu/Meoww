@@ -173,6 +173,10 @@
                 <ul>
                     <li><a href="/privacy">Privacy Policy</a></li>
                     <li><a href="/terms">Terms of Service</a></li>
+                    {# The anti-AI policy, in the footer where the other two live:
+                       it is the document somebody wants after their own work has
+                       been crawled, and the one a collector is told to read. #}
+                    <li><a href="/ai">AI &amp; crawling</a></li>
                     {# Only when there is somewhere to go. The repository is private,
                        so this used to be a 404 on the page a stranger reads first;
                        see `SOURCE_REPOSITORY` in keep_alive.py. #}
@@ -194,8 +198,14 @@
                 <a href="/health">Status</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/terms">Terms</a>
+                <a href="/ai">AI</a>
+                <a href="/ai.txt">ai.txt</a>
+                <a href="/robots.txt">robots.txt</a>
             </nav>
         </div>
+        {# The honeytoken. Every page on every public host carries it, which is
+           what makes its absence from a crawl report meaningful. #}
+        {% include "_trap.html" %}
     </footer>
 
     {# The figures cards' behaviour, in one file rather than in one page: the

@@ -250,7 +250,7 @@
 .theme-menu-title {
     margin: 2px 8px var(--space-2);
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.09em;
     text-transform: uppercase;
@@ -526,7 +526,7 @@ code, pre, kbd {
 .eyebrow {
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--accent-text);
 }
@@ -896,7 +896,7 @@ code, pre, kbd {
 .field { display: flex; flex-direction: column; gap: 6px; }
 
 .field-label {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -1156,7 +1156,7 @@ textarea:focus {
     gap: var(--space-3);
     margin: var(--space-4) 0;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.1em;
 }
@@ -1301,7 +1301,10 @@ textarea:focus {
    Documents (the two policies)
    -------------------------------------------------------------------------- */
 .doc {
-    max-width: 76ch;
+    /* 72ch, not the 76 it was: the law's ceiling is 75 characters of prose per
+       line and a measure is a *maximum*, so sitting one character under it is
+       the difference between a rule and a coincidence. */
+    max-width: 72ch;
     padding: var(--space-7) 0 var(--space-8);
 }
 
@@ -1915,7 +1918,7 @@ body.landing:has([data-menu].is-open) {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -2353,7 +2356,7 @@ body.landing:has([data-menu].is-open) {
 }
 
 .lp-figure-card span {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.72);
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -2596,7 +2599,7 @@ body.landing:has([data-menu].is-open) {
 }
 
 .lp-cmd-more {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     opacity: 0.8;
 }
 
@@ -2676,7 +2679,7 @@ body.landing:has([data-menu].is-open) {
 }
 
 .lp-mock-tile span {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--text-muted);
@@ -2757,7 +2760,7 @@ body.landing:has([data-menu].is-open) {
    sentence about the chart rather than a tooltip a keyboard user cannot read. */
 .lp-panel-read {
     margin: 0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.5;
     color: var(--text-muted);
     min-height: 1.6em;
@@ -2786,7 +2789,7 @@ body.landing:has([data-menu].is-open) {
     background: none;
     color: var(--text-muted);
     font: inherit;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     cursor: pointer;
@@ -2832,7 +2835,7 @@ body.landing:has([data-menu].is-open) {
     color: var(--lp-accent-soft);
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    font-size: 0.625rem;
+    font-size: 0.75rem;
 }
 
 /* In the flow, not overlaid. The reference floats this caption over a
@@ -2847,7 +2850,7 @@ body.landing:has([data-menu].is-open) {
 }
 
 .lp-panel-caption strong { display: block; font-size: 0.875rem; }
-.lp-panel-caption span { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.75); }
+.lp-panel-caption span { font-size: 0.75rem; color: rgba(255, 255, 255, 0.75); }
 
 /* --------------------------------------------------------------------------
    Numbers, steps, cards
@@ -2964,7 +2967,7 @@ body.landing:has([data-menu].is-open) {
 .lp-price-chip b { display: block; font-size: 1.25rem; letter-spacing: -0.02em; }
 
 .lp-price-chip span {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--text-muted);
@@ -2983,7 +2986,7 @@ body.landing:has([data-menu].is-open) {
 
 .lp-footer h4 {
     margin: 0 0 1rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.2em;
     text-transform: uppercase;
@@ -3422,7 +3425,7 @@ html.has-meow-cursor .disabled {
 .lp-try-icon { font-size: 0.95rem; line-height: 1; }
 
 .lp-try-state {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -3559,4 +3562,80 @@ html.has-meow-cursor .disabled {
 @media (prefers-reduced-motion: reduce) {
     .lp-try-list li { animation: none; }
     .lp-try-system:hover { transform: none; }
+}
+
+/* --------------------------------------------------------------------------
+   The clickwrap — templates/agree.html
+   --------------------------------------------------------------------------
+   Two answers, one size. The `--wide` card is the first page here that has to
+   hold a list *and* a decision without the decision moving when the list wraps,
+   which is why the answers sit in their own grid rather than at the end of a
+   paragraph: their equal width is a legal property of the page, not a styling
+   preference, and a grid is the only thing that keeps them equal when one label
+   is longer than the other. */
+.auth-card--wide {
+    max-width: 560px;
+}
+
+.agree-docs {
+    list-style: none;
+    margin: 0 0 var(--space-4);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.agree-docs li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+
+.agree-docs a {
+    font-weight: 600;
+}
+
+.agree-doc-version {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.agree-answers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+    margin: var(--space-4) 0;
+}
+
+@media (max-width: 560px) {
+    .agree-answers { grid-template-columns: 1fr; }
+}
+
+.agree-meta {
+    display: block;
+    margin-top: var(--space-4);
+}
+
+/* The honeytoken. A person must never see it, must never tab onto it, and must
+   never hear it read out — and a collector that reads markup must find it, so it
+   is off-screen rather than `display: none`: a script that skips hidden elements
+   is a script that reads CSS, and the population this exists for does not. The
+   1×1 size keeps it from adding scroll width on a phone, where an off-screen
+   element without a size is a horizontal scrollbar nobody can explain. */
+.trap-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    white-space: nowrap;
 }

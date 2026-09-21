@@ -123,6 +123,10 @@
                     <a class="btn" href="{{ site.marketing_url }}">The public site</a>
                     <a class="btn" href="{{ site.marketing_url }}/privacy">Privacy</a>
                     <a class="btn" href="{{ site.marketing_url }}/terms">Terms</a>
+                    {# The hub is the surface a data collector would most like to
+                       ingest, so its link to the anti-AI policy is not optional
+                       furniture. #}
+                    <a class="btn" href="{{ site.marketing_url }}/ai">AI &amp; crawling</a>
                 </div>
             </div>
             <p class="stamp">
@@ -131,6 +135,7 @@
                 does. Source is not public; every claim here is checkable from
                 <a class="arrow-link" href="/health">the bot's own health line</a>.
             </p>
+            {% include "_trap.html" %}
         </footer>
     </div>
 </div>

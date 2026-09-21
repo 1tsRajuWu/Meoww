@@ -6,7 +6,7 @@
  * servers there are.
  */
 
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useMemo } from "react";
 
 import { api, setCsrfToken } from "./api";
@@ -42,10 +42,19 @@ export function App({ boot }: { boot: BootData }) {
   const servers = useMemo(() => fleet.data ?? [], [fleet.data]);
 
   return (
-    <ToastHost>
-      <Cursor />
-      <Router boot={boot} servers={servers} fleetError={fleet.error} fleetLoading={fleet.loading} />
-    </ToastHost>
+    // Every animation in this app is a JS spring or tween, and a stylesheet's
+    // `prefers-reduced-motion` block cannot reach one: the media query stops CSS
+    // transitions, while `motion` keeps writing frame-by-frame inline styles. So
+    // the setting is handed to the animation library itself, which then skips
+    // transforms and keeps only what still communicates (opacity, colour). The
+    // reduced-motion block in `styles.css` stays where it is — it covers the
+    // hand-written transitions, and the two together are what the law asks for.
+    <MotionConfig reducedMotion="user">
+      <ToastHost>
+        <Cursor />
+        <Router boot={boot} servers={servers} fleetError={fleet.error} fleetLoading={fleet.loading} />
+      </ToastHost>
+    </MotionConfig>
   );
 }
 

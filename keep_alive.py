@@ -49,10 +49,10 @@ from flask import (
     Response,
 )
 from utils import (
-    command_publish, command_scope, company, config_audit, db, digest, discord_auth,
-    features, figures, guild_directory, hub, identity, media_health, meowfee,
-    modules, plans, principal, ratelimit, scheduled, sessions, site_guard,
-    uptime_status, webdocs,
+    ai_guard, command_publish, command_scope, company, config_audit, consent, db,
+    digest, discord_auth, features, figures, guild_directory, hub, identity,
+    media_health, meowfee, modules, plans, principal, ratelimit, scheduled,
+    sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1062,6 +1062,154 @@ def _enforce_body_limit():
     return None
 
 
+#: Paths that are readable without any kind of sign-in, and are therefore
+#: readable without agreeing to anything. The policies come first because they
+#: have to: an acceptance wall in front of the Terms is worse than no Terms, and
+#: a crawler cannot assent to a page it is refused. ``/agree`` itself is here for
+#: the obvious reason, and the two directive files and the traps are here because
+#: refusing them would mean refusing the agents that are being told what the
+#: rules are.
+#:
+#: A path that is on neither list is **gated**: the invariant test walks Flask's
+#: own route table and fails on a new route that was not classified, so adding a
+#: page means choosing which side of the clickwrap it is on rather than getting
+#: whichever answer the code happened to default to.
+#: `True` for the one address that is a whole page with nothing under it. It is
+#: separate from the prefix list because a prefix list containing ``"/"`` makes
+#: **every** path public — the classification test below would pass while
+#: classifying nothing, and a new private route would silently inherit public
+#: headers. That is the shape of a guard that reads as a rule and is not one.
+PUBLIC_EXACT = ("/",)
+
+PUBLIC_PREFIXES = (
+    "/systems",
+    "/start",
+    "/pricing",
+    "/privacy",
+    "/terms",
+    "/ai",
+    "/ai.txt",
+    "/robots.txt",
+    "/.well-known/",
+    "/support",
+    "/donate",
+    "/market",
+    "/health",
+    "/hub",
+    "/login",
+    "/logout",
+    "/agree",
+    "/static/",
+    "/api/image",
+    "/api/figures",
+    "/api/uptime",
+    "/api/status",
+    "/api/market/",
+    "/api/_index",
+    "/_corpus",
+)
+
+#: The signed-in surfaces the agreement stands in front of. Written out rather
+#: than inferred from "is this route authenticated", because the question the
+#: clickwrap answers is about *this* machinery: it exists so that nobody reaches
+#: a composer that posts as the bot, or an economy adjustment, without having
+#: been shown the terms those actions are taken under.
+GATED_PREFIXES = (
+    "/dashboard",
+    "/servers",
+    "/owner",
+    "/api/config",
+    "/api/live-logs",
+    "/api/identity",
+    "/api/toggle",
+    "/api/set-module",
+    "/api/voice-debug",
+    "/api/mentionables",
+    "/api/send-message",
+    "/api/scheduled",
+    "/api/schedule-message",
+    "/api/console/",
+)
+
+
+def _agreement_stands_here(path: str) -> bool:
+    """Whether the clickwrap is asked of this path.
+
+    Fail-closed by construction: a path that neither list names is gated. That is
+    the safe direction for a rule whose whole purpose is that a condition of use
+    was shown before the page behind it worked.
+    """
+    if path in PUBLIC_EXACT:
+        return False
+    if any(path == gate or path.startswith(gate) for gate in GATED_PREFIXES):
+        return True
+    return not any(path == public or path.startswith(public) for public in PUBLIC_PREFIXES)
+
+
+def _note_guard(kind: str, *, agent: str, path: str, label: str = "") -> None:
+    """Write the event down, and tell the operator when it is worth telling.
+
+    The alert goes out on a thread rather than in the request: a crawler waiting
+    for a Discord card to be composed would be a crawl that costs this deployment
+    the latency of its own notification. Striking a trap and *then* being told
+    about it late is the correct order; being told about it quickly and having
+    the request held open is not.
+    """
+    event = ai_guard.note(
+        kind,
+        agent=agent,
+        path=path,
+        ip=_client_ip() or "",
+        country=request.headers.get("CF-IPCountry", ""),
+    )
+    print(
+        f"[GUARD] {kind}: {event['agent'] or 'no user-agent'} at {event['path']} "
+        f"(x{event['hits']})",
+        flush=True,
+    )
+    if not event["alert"]:
+        return
+    Thread(target=_alert_guard, args=(event, label), daemon=True).start()
+
+
+def _alert_guard(event: dict, label: str = "") -> None:
+    """Put the event in front of the operator, and never raise doing it."""
+    from utils import operator_log  # noqa: PLC0415 — discord is not needed to serve a page
+
+    try:
+        _run_on_bot_loop(operator_log.ai_guard_alert(BOT_INSTANCE, event, label=label), timeout=20)
+    except Exception as exc:
+        print(f"[GUARD] could not report the event: {exc}", flush=True)
+
+
+@app.before_request
+def _refuse_ai_crawlers():
+    """The two active halves of the anti-AI posture, before anything renders.
+
+    Order is deliberate: the trap is checked first, so a declared crawler that
+    wanders into one is recorded as what it is — a positive identification —
+    rather than folded into the refusal counter. Then the token table, which is
+    the cheap answer: a named AI crawler gets 403 and a paragraph naming the two
+    documents it is choosing to ignore, on every path except the directives
+    themselves. Nobody else is touched, which is the property that keeps this
+    from becoming the thing that broke the site.
+    """
+    agent = request.headers.get("User-Agent", "")
+    path = request.path
+
+    label = ai_guard.trap(path)
+    if label is not None:
+        _note_guard("honeytoken", agent=agent, path=path, label=label)
+        return Response(ai_guard.decoy(path), mimetype="application/json")
+
+    token = ai_guard.crawler(agent)
+    if token and ai_guard.refuses(path):
+        _note_guard("crawler", agent=token, path=path)
+        body = ai_guard.refusal_body()
+        return Response(body, status=403, mimetype="text/plain; charset=utf-8")
+    return None
+
+
 @app.errorhandler(413)
 def _payload_too_large(_error):
     """A JSON answer for the JSON-only client.
@@ -1088,6 +1236,18 @@ def _rate_limited(_error):
 
 @app.after_request
 def set_security_headers(response):
+    # The anti-AI reservation, on every response this process writes. It travels
+    # in a header rather than only in `robots.txt` because a header reaches what a
+    # file cannot: a JSON answer, an image, a PDF, a 403 — and because the
+    # collectors that ignore the file are the ones whose log somebody may later
+    # have to read. `private` follows the clickwrap's own split, so the pages
+    # behind a sign-in are additionally `noindex`: they were never public, and a
+    # collector's defence that it read only what was public is not one to leave
+    # open on the pages that need it least.
+    for name, value in ai_guard.headers(
+        private=_agreement_stands_here(request.path)
+    ).items():
+        response.headers[name] = value
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -1253,6 +1413,18 @@ def health():
         # unauthenticated, and the card that names the dead links goes to the
         # operator's own channel.
         "media": media_health.health_json(),
+        # How many automated readers were refused for being what they declared
+        # themselves to be, and how many fetched a page no human can reach. Two
+        # numbers and a date, no agent, no path, no address — the ledger names
+        # those, and it is read by the operator rather than by a stranger with a
+        # monitor. A non-zero `traps` here is not a statistic; it is the thing
+        # the operator is meant to act on.
+        "anti_ai": ai_guard.totals(),
+        # How many sign-ins have agreed to which revision of the policies in the
+        # last 30 days. The revision is the content digest of the documents, so
+        # this also answers "is the live text the one people agreed to" — the
+        # question a clickwrap exists to make answerable.
+        "consent": consent.totals(),
         "timestamp": int(time.time()),
     })
 
@@ -1976,6 +2148,16 @@ POLICY_DOCUMENTS = {
         "eyebrow": "Terms",
         "command": "/tos",
     },
+    # The third document, and the only one that is *not* an agreement: it says
+    # what this deployment does about automated collection, which is a statement
+    # about the operator rather than a condition on the visitor. It is on the same
+    # page template, from the same file, for the reason the other two are — one
+    # policy, readable in a browser and quotable in a complaint.
+    "ai": {
+        "filename": "AI_POLICY.md",
+        "eyebrow": "AI & crawling",
+        "command": "/ai",
+    },
 }
 
 #: Shown in the footer, and the same repository the Discord card names.
@@ -2057,6 +2239,53 @@ def policy_privacy():
 @app.route("/terms")
 def policy_terms():
     return _policy_page("terms")
+
+
+@app.route("/ai")
+def policy_ai():
+    return _policy_page("ai")
+
+
+# ---------------------------------------------------------------------------
+# What automated readers are told
+# ---------------------------------------------------------------------------
+# One source, four surfaces. ``utils.ai_guard`` builds the file and the app
+# serves it; each static build writes the *same* function's output, so the
+# Render host, the marketing site, the hub and the owner console cannot end up
+# with four different answers to one question. Before this, two of those hosts
+# published `User-agent: * / Allow: /` and nothing else — which is the state
+# every deployment drifts into when each one writes its own file by hand.
+#
+# The trap routes below are real routes on purpose. Flask resolves the URL
+# *before* the ``before_request`` hooks run, so a declared trap with no route is
+# a 404 and this hook is never reached: the paths would have been listed, in the
+# directives and in the footer of every page, and served nothing. They exist so
+# that the hook and the route agree, whichever one answers.
+@app.route("/robots.txt")
+def robots_file():
+    """This host's directives. No sitemap: this process publishes none."""
+    return Response(ai_guard.robots_txt(), mimetype="text/plain; charset=utf-8")
+
+
+@app.route("/ai.txt")
+@app.route("/.well-known/ai.txt")
+def ai_file():
+    """The training prohibition, in the form a crawler can read."""
+    return Response(ai_guard.ai_txt(), mimetype="text/plain; charset=utf-8")
+
+
+def _trap_view():
+    """A declared trap, answered as the decoy it is.
+
+    Reached only when the guard hook did not already answer — which is the
+    point: two mechanisms, one of which is the request path doing the work. The
+    hook records and identifies; this is the floor under it.
+    """
+    return Response(ai_guard.decoy(request.path), mimetype="application/json")
+
+
+for _trap_index, (_trap_path, _trap_label) in enumerate(ai_guard.HONEYTOKENS):
+    app.add_url_rule(_trap_path, endpoint=f"trap_{_trap_index}", view_func=_trap_view)
 
 
 @app.route("/pricing")
@@ -2575,7 +2804,7 @@ def login():
                 session["user_id"] = meta["user_id"]
             _record_session(label="one-time link")
             get_csrf_token()
-            return redirect("/dashboard")
+            return redirect(_door_target())
         return _login_page(
             "That sign-in link has expired or already been used. "
             "Tap ⚡ Open Dashboard on /help in Discord for a new one."
@@ -2611,7 +2840,7 @@ def login():
             session["auth_scope"] = principal.SCOPE_GLOBAL
             _record_session(label="passkey")
             get_csrf_token()
-            return redirect("/dashboard")
+            return redirect(_door_target())
 
         _record_login_failure(ip)
         return _login_page("Invalid admin passkey. Please try again."), 401
@@ -2633,6 +2862,167 @@ def logout():
         session.clear()
         return redirect("/login")
     return redirect("/dashboard" if is_authenticated() else "/login")
+
+
+# ---------------------------------------------------------------------------
+# Agreeing to the terms, on purpose
+# -------------------------------------------------------------------
+#: Where each document can be read before deciding. The key is the file, so a
+#: document added to ``consent.DOCUMENTS`` without a page fails loudly in the
+#: test that walks this mapping rather than rendering a link to nowhere.
+AGREE_HREFS = {
+    "TERMS.md": "/terms",
+    "PRIVACY.md": "/privacy",
+    "AI_POLICY.md": "/ai",
+}
+
+
+def _agree_notice(*, declined: bool, written: bool, error: str | None) -> tuple[str, str]:
+    """The sentence the page opens with, and whether it is bad news.
+
+    Three states, and the wording of each is the point. **Declined** is not an
+    error and is never dressed as one: somebody who said no is told exactly what
+    that means and how to change their mind, in the same size of type as the
+    sentence that would have greeted an acceptance. **Unwritten** says that the
+    agreement happened and the *record* of it did not. A failure to write is the
+    one case where a page could quietly lie, so it does not: the person agreed,
+    and the page says which half of that is in doubt.
+    """
+    if error:
+        return error, True
+    if declined:
+        return (
+            "You are signed out, and nothing about your servers was changed. "
+            "The pages you were using need an agreement, so they will ask again "
+            "next time you sign in — and you can read the three documents below "
+            "without signing in at all."
+        ), False
+    if not written:
+        return (
+            "Agreed, and then reloaded — but the record of it could not be "
+            "written on this host, so the ledger is missing an entry. Your "
+            "access is unaffected; the operator has this on the console's "
+            "Access page."
+        ), True
+    return "", False
+
+
+def _door_target(default: str = "/dashboard") -> str:
+    """Where a sign-in goes next: where it was headed, or the agreement first.
+
+    **This is the clickwrap, and it is deliberately at the door rather than on
+    every request.** A signed-in session that has not agreed is sent to
+    ``/agree`` *by the route that signed it in* — the passkey form, the one-time
+    link, Discord's callback, the owner console's form — so the terms are shown
+    at the moment access is granted, which is the moment a reasonable person
+    expects them and the moment a collector cannot describe as something it
+    missed. A gate on every request instead would have been a second, weaker
+    thing: it asks the same question of a session that already answered it, and
+    a background fetch that receives a redirect learns nothing from it.
+
+    What it does not do is ask a *visitor*: the public pages, the policies, the
+    status endpoint and the directives are all reachable signed out, because a
+    policy behind an acceptance wall is worse than no policy at all.
+    """
+    if not consent.needs(session):
+        return default
+    target = _safe_next(default) or "/dashboard"
+    return f"/agree?next={urllib.parse.quote(target)}"
+
+
+def _agree_page(
+    *, next_url: str, error: str | None = None, declined: bool = False, written: bool = True, status: int | None = None
+):
+    """The clickwrap page: three documents, one decision, two equal buttons."""
+    notice, bad = _agree_notice(declined=declined, written=written, error=error)
+    name = _bot_display_name()
+    body = render_template(
+        "agree.html",
+        bot_name=name,
+        bot_initial=(name[:1] or "M").upper(),
+        csrf_token=get_csrf_token(),
+        documents=[
+            {
+                "title": title,
+                "href": AGREE_HREFS[filename],
+                "label": consent.document_label(filename),
+            }
+            for filename, title in consent.DOCUMENTS
+        ],
+        revision=consent.version(),
+        ledger=consent.writable(),
+        next_url=next_url,
+        notice=notice,
+        notice_bad=bad,
+        declined=declined,
+    )
+    return (body, status) if status else body
+
+
+@app.route("/agree", methods=["GET", "POST"])
+def agree():
+    """Ask for an agreement, and record the answer.
+
+    Sign-in-wrap rather than browsewrap: the terms are shown at the door and an
+    explicit act is what opens it. Three rules, and they are the reason this is a
+    route rather than a checkbox on the sign-in form:
+
+    * **The two answers are the same size.** Same class, same width, same
+      type — one button says what agreeing to each document means, the other
+      says what declining means. Neither is pre-selected, nothing is hidden, and
+      there is no countdown, no nagging and no guilt: an interface that makes
+      "no" hard produces a consent that is not consent.
+    * **Declining is a real door.** It signs the session out, says so plainly,
+      and leaves the documents readable without it. Nothing is retained from a
+      refusal except the fact that the person is signed out.
+    * **An old agreement is not a standing agreement.** ``consent.needs`` compares
+      the *content digest* of the documents, so the sentence somebody accepted in
+      June does not cover a clause added in September. That is what makes this a
+      clickwrap rather than a formality.
+    """
+    if not is_authenticated():
+        return redirect("/login")
+    live = consent.version()
+    next_url = _safe_next(request.args.get("next") or request.form.get("next")) or "/dashboard"
+    if not consent.needs(session):
+        return redirect(next_url)
+
+    if request.method == "POST":
+        if not validate_csrf():
+            return _agree_page(
+                next_url=next_url,
+                error="That form had expired. Nothing was recorded — try again.",
+                status=400,
+            )
+        decision = (request.form.get("decision") or "").strip()
+        if decision == "accept":
+            written = consent.accept(
+                scope=session.get("auth_scope") or "",
+                guild_id=session.get("guild_id"),
+                user_id=session.get("user_id"),
+                label=str((session.get("discord_user") or {}).get("name") or ""),
+                ip=_client_ip() or "",
+                agent=request.headers.get("User-Agent", ""),
+            )
+            # Marked either way. The person agreed; a ledger this host could not
+            # write is a fact about the host, and refusing them entry over it
+            # would punish the wrong party for it.
+            if live:
+                session[consent.SESSION_KEY] = live
+            if not written:
+                return _agree_page(next_url=next_url, written=False)
+            return redirect(next_url)
+        if decision == "decline":
+            sessions.revoke(session.get(sessions.COOKIE_KEY))
+            session.clear()
+            return _agree_page(next_url=next_url, declined=True)
+        return _agree_page(
+            next_url=next_url,
+            error="Neither answer arrived with that form — nothing was recorded. Try again.",
+            status=400,
+        )
+
+    return _agree_page(next_url=next_url)
 
 
 # ---------------------------------------------------------------------------
@@ -2735,12 +3125,12 @@ def login_discord_callback():
         flush=True,
     )
     if granted == principal.SCOPE_GLOBAL:
-        return redirect(next_path or "/owner")
+        return redirect(_door_target(next_path or "/owner"))
     if len(servers) == 1:
         session["guild_id"] = int(servers[0]["id"])
     if len(servers) == 1 or next_path:
-        return redirect(next_path or "/dashboard")
-    return redirect("/servers")
+        return redirect(_door_target(next_path or "/dashboard"))
+    return redirect(_door_target("/servers"))
 
 
 def _module_summary(guild_id) -> dict:
@@ -3387,7 +3777,7 @@ def owner_login():
             session["auth_scope"] = principal.SCOPE_GLOBAL
             _record_session(label="passkey")
             get_csrf_token()
-            return redirect("/owner")
+            return redirect(_door_target("/owner"))
 
         _record_login_failure(ip)
         return _owner_login_page("Invalid admin passkey. Please try again.", 401)

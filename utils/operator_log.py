@@ -507,6 +507,95 @@ async def uptime_alert(bot, snapshot, message: str) -> bool:
         return False
 
 
+async def ai_guard_alert(bot, event: dict, label: str = "") -> bool:
+    """Say that something automated read a page no person can reach.
+
+    This card is not a statistic and is not meant to be one: a trap fetch is the
+    only signal in this codebase that positively identifies a collector rather
+    than guessing at one from behaviour, so the card carries what a decision
+    needs — which document was fetched, which agent asked for it, from where, and
+    how many times inside the fold window. Two of those are the pieces an
+    operator can act on (Cloudflare blocks a country far more cheaply than it
+    blocks an agent), and the count is the piece that says whether this is a
+    crawl that wandered in or a decision somebody made.
+
+    The other kind of event this reports is a *named* crawler that has been
+    refused enough times in one window to stop being an accident.
+    """
+    trapped = event.get("kind") == "honeytoken"
+    title = (
+        "🪤 A collector fetched a page no person can reach"
+        if trapped
+        else "🤖 A named AI crawler is ignoring robots.txt"
+    )
+    embed = discord.Embed(
+        title=title,
+        description=(
+            f"`{event.get('path', '?')}`"
+            + (f" — {label}" if label else "")
+        ),
+        color=style.DANGER,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(
+        name="Who fetched it",
+        value=(
+            f"`{event.get('agent') or 'no user-agent'}`\n"
+            f"from {event.get('ip') or 'an unknown address'}"
+            + (f" ({event['country']})" if event.get("country") else "")
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Times seen",
+        value=(
+            f"{int(event.get('hits') or 1)} "
+            f"({'inside the fold window' if trapped else 'refused since the last card'})"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Why this matters",
+        value=(
+            "Nothing links a person to that path, and `robots.txt` disallows it "
+            "for every agent, so this is a collector that reads markup and "
+            "ignores directives — the exact reader the Terms' anti-AI clause and "
+            "the clickwrap exist for. \"I did not see the notice\" stops being "
+            "available to it."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="What to do",
+        value=(
+            "1. **Block the network**, not the string: an ASN or country rule in "
+            "Cloudflare is what actually stops it; user-agent rules cost one line "
+            "to defeat.\n"
+            "2. **Keep the evidence**: the ledger row survives on its own "
+            "(`/health` counts it, the console reads the rest) and it is retained "
+            "longer than any other record here.\n"
+            "3. **Only then decide about letters** — for a commercial collector, "
+            "the fetch of a disallowed path behind a clickwrap is the fact a "
+            "complaint is built on, and this card is where it came from."
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Meow · anti-AI guard · robots.txt + traps")
+    target = None
+    for role in _INSTANCE_ROLES:
+        target = await _channel(bot, role)
+        if target is not None:
+            break
+    if target is None:
+        return False
+    try:
+        await style.send_card(target, embed=embed, timeout=None)
+        return True
+    except Exception as exc:
+        print(f"[LOG] could not report the guard event: {exc}", flush=True)
+        return False
+
+
 async def _post(bot, role: str, kind: str, embed: discord.Embed) -> bool:
     """Send one entry, and never raise: the caller is a command that just worked."""
     try:

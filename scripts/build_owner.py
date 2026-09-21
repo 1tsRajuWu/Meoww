@@ -42,7 +42,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from utils import config_audit  # noqa: E402  (after sys.path, by design)
+from utils import ai_guard, config_audit  # noqa: E402  (after sys.path, by design)
 
 DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
 #: Where this host sends anything that is not the console. The public site is the
@@ -187,6 +187,15 @@ export default {{
       (prefix) => url.pathname === prefix || url.pathname.startsWith(prefix + "/")
     );
 
+    // The two files a host has to answer for itself. Everything else here is
+    // redirected to the public site, and that is right — but a crawler asking
+    // *this* host what it may read has to be answered by this host, or the
+    // console's own address inherits the marketing site's directives, which say
+    // nothing about a sign-in page. Served from the upload like `/static/`.
+    if (url.pathname === "/robots.txt" || url.pathname === "/ai.txt") {{
+      return env.ASSETS.fetch(request);
+    }}
+
     if (!isConsole) {{
       // Not ours. Send it to the site it belongs to rather than to the backend
       // with this host's missing assets — a 301 and not a proxy, because the
@@ -322,18 +331,33 @@ def _routes_file() -> str:
 
 
 def _headers_file() -> str:
-    return """/*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
-  X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
-  Referrer-Policy: no-referrer
-  Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Cache-Control: private, no-cache, no-store, must-revalidate
+    """The console host's headers, including the reservation and `noindex`.
 
-/static/*
-  Cache-Control: public, max-age=31536000, immutable
-"""
+    The owner console is the one surface here where `noindex` is not a
+    preference: every page on this host is either a sign-in form or the
+    operator's own view of the fleet, and an index entry for either is only ever
+    useful to somebody assembling a list of them. The reservation travels the
+    same way it does everywhere else — from ``utils/ai_guard``, so the console
+    cannot end up as the one host that permits training by omission.
+    """
+    reservation = "".join(
+        f"  {name}: {value}\n" for name, value in ai_guard.headers(private=True).items()
+    )
+    return (
+        "/*\n"
+        "  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'\n"
+        "  X-Content-Type-Options: nosniff\n"
+        "  X-Frame-Options: DENY\n"
+        "  Referrer-Policy: no-referrer\n"
+        "  Permissions-Policy: camera=(), microphone=(), geolocation=()\n"
+        "  Strict-Transport-Security: max-age=31536000; includeSubDomains\n"
+        f"{reservation}"
+        "  Cache-Control: private, no-cache, no-store, must-revalidate\n"
+        "\n/static/*\n"
+        "  Cache-Control: public, max-age=31536000, immutable\n"
+    )
 
 
 def _host_of(url: str, fallback: str) -> str:
@@ -387,6 +411,17 @@ def build(
 
     with open(os.path.join(out_dir, "_headers"), "w", encoding="utf-8") as f:
         f.write(_headers_file())
+
+    # This host serves the console and nothing else, so its directives are the
+    # private shape: `Disallow: /` for everybody, named crawlers and traps
+    # written out as well. Without these two files the worker redirected
+    # `/robots.txt` to the public site along with every other unknown path, which
+    # meant the console's own address was governed by a file that never heard of
+    # it.
+    with open(os.path.join(out_dir, "robots.txt"), "w", encoding="utf-8") as f:
+        f.write(ai_guard.robots_txt(private=True))
+    with open(os.path.join(out_dir, "ai.txt"), "w", encoding="utf-8") as f:
+        f.write(ai_guard.ai_txt())
 
     print(f"Built meow-owner site into {out_dir}")
     print(

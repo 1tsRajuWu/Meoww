@@ -34,6 +34,11 @@
                 {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 <a href="/privacy" {% if current == "privacy" %}aria-current="page"{% endif %}>Privacy</a>
                 <a href="/terms" {% if current == "terms" %}aria-current="page"{% endif %}>Terms</a>
+                {# The third document, and the only one that is not an agreement:
+                   what this deployment does about automated collection. It is in
+                   the nav rather than buried because it is the page a person
+                   looks for after their own work has been crawled. #}
+                <a href="/ai" {% if current == "ai" %}aria-current="page"{% endif %}>AI &amp; crawling</a>
                 <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
             </nav>
         </div>
@@ -59,6 +64,7 @@
                 {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
                 <a href="/privacy">Privacy Policy</a>
                 <a href="/terms">Terms of Service</a>
+                <a href="/ai">AI &amp; crawling</a>
                 <a href="/health">Status</a>
                 {# There is no "Source" link while the repository is private — see
                    `SOURCE_REPOSITORY` in keep_alive.py. #}
@@ -81,6 +87,7 @@
                 Questions about either document, or a request to see or delete what
                 {{ bot_name }} holds about you, go in the bot's own support server.
             </p>
+            {% include "_trap.html" %}
         </div>
     </footer>
 </body>

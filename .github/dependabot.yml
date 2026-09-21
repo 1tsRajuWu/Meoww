@@ -9,3 +9,14 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  # The console is a real dependency tree (React, the router, the animation
+  # library) and it was the one ecosystem no robot was watching: pip and the
+  # actions above had monthly updates while `console/package.json` had nobody,
+  # which is how a transitive advisory sits on the operator's own sign-in page
+  # until a human happens to read `npm audit`. The suite pins the built bundle to
+  # its sources, so a bump here that changes behaviour still has to pass it.
+  - package-ecosystem: npm
+    directory: /console
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

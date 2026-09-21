@@ -75,36 +75,61 @@ def split_document(text: str) -> tuple[str, list[tuple[str, str]]]:
     return "\n".join(intro).strip(), [(head, "\n".join(body).strip()) for head, body in sections]
 
 
+#: The field that says where the unedited documents are, and how much room it
+#: needs. Reserved *before* the body is filled, not added afterwards: the first
+#: version of this added it after the fill, which is how TERMS.md — which grew
+#: past the ceiling when it gained the anti-AI clause and the arbitration section
+#: — produced a card of 6,053 characters against Discord's 6,000 ceiling. Discord
+#: rejects that whole embed, so the failure was not a truncated policy, it was
+#: *no policy at all* in the one command a member runs to read it.
+#:
+#: The pointer is written once, here, and measured. Its own length is the
+#: reservation, so the text can change without the arithmetic going stale.
+REST_OF_IT = (
+    "Every document in full, and always the current version, is on "
+    f"the site: [Privacy]({DOCUMENTS.format(page='privacy')}) · "
+    f"[Terms]({DOCUMENTS.format(page='terms')}) · "
+    f"[AI & crawling]({DOCUMENTS.format(page='ai')})"
+)
+
+
+def _fill(embed: discord.Embed, sections, *, fields: int, total: int) -> tuple[int, bool]:
+    """Add sections until one does not fit. ``(characters used, was cut)``."""
+    used = len(embed.description or "")
+    for heading, body in sections:
+        for index, part in enumerate(_chunks(body, MAX_FIELD_VALUE)):
+            name = heading if index == 0 else f"{heading} (cont.)"
+            if len(embed.fields) >= fields or used + len(part) > total:
+                return used, True
+            embed.add_field(name=name[:MAX_FIELD_NAME], value=part, inline=False)
+            used += len(part)
+    return used, False
+
+
 def document_embed(title: str, text: str, filename: str = "") -> discord.Embed:
-    """One embed holding the whole document, section by section."""
+    """One embed holding the whole document, section by section.
+
+    Two passes when the document does not fit. The first asks whether it fits at
+    all; when it does not, the body is filled again with the pointer's own
+    length — and one field of the field budget — taken out of the allowance, so
+    the card that is actually sent is inside every one of Discord's limits rather
+    than inside them plus one field.
+    """
     intro, sections = split_document(text)
     embed = discord.Embed(
         title=title, description=intro[:MAX_DESCRIPTION] or None, color=0x5865F2
     )
 
-    used = len(embed.description or "")
-    truncated = False
-    for heading, body in sections:
-        for index, part in enumerate(_chunks(body, MAX_FIELD_VALUE)):
-            name = heading if index == 0 else f"{heading} (cont.)"
-            if len(embed.fields) >= MAX_FIELDS or used + len(part) > MAX_TOTAL_TEXT:
-                truncated = True
-                break
-            embed.add_field(name=name[:MAX_FIELD_NAME], value=part, inline=False)
-            used += len(part)
-        if truncated:
-            break
-
-    if truncated or sections and len(embed.fields) < len(sections):
-        embed.add_field(
-            name="The rest of it",
-            value=(
-                "Both documents in full, and always the current version, are on "
-                f"the site: [Privacy]({DOCUMENTS.format(page='privacy')}) · "
-                f"[Terms]({DOCUMENTS.format(page='terms')})"
-            ),
-            inline=False,
+    used, cut = _fill(embed, sections, fields=MAX_FIELDS, total=MAX_TOTAL_TEXT)
+    if cut or (sections and len(embed.fields) < len(sections)):
+        embed.clear_fields()
+        _fill(
+            embed,
+            sections,
+            fields=MAX_FIELDS - 1,
+            total=MAX_TOTAL_TEXT - len(REST_OF_IT),
         )
+        embed.add_field(name="The rest of it", value=REST_OF_IT, inline=False)
     if filename:
         embed.set_footer(text=f"{filename} • {DOCUMENTS.format(page=filename.removesuffix('.md').lower())}")
     return embed

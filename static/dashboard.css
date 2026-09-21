@@ -110,7 +110,7 @@
 }
 .rail-brand-text span {
     display: block;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -150,7 +150,7 @@
 .rail-nav a.is-current .rail-icon { opacity: 1; color: var(--accent-text); }
 .rail-nav a .rail-count {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
 }
@@ -162,7 +162,7 @@
     gap: 10px;
     padding-top: 14px;
     border-top: 1px solid var(--border);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
 }
 .rail-foot .rail-account {
@@ -191,7 +191,7 @@
 }
 .rail-hint kbd {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 12px;
     padding: 1px 5px;
     border: 1px solid var(--border-active);
     border-bottom-width: 2px;
@@ -266,7 +266,7 @@
 .palette-trigger kbd {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 12px;
     padding: 2px 6px;
     border: 1px solid var(--border-active);
     border-bottom-width: 2px;
@@ -296,7 +296,7 @@
     gap: 6px;
     padding: 3px 9px;
     border-radius: var(--radius-pill);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.02em;
     border: 1px solid transparent;
@@ -404,7 +404,7 @@
 }
 .eyebrow {
     display: block;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -482,7 +482,7 @@ section { scroll-margin-top: 76px; }
     font-variant-numeric: tabular-nums;
 }
 .metric-info p .unit { font-size: 13px; font-weight: 400; color: var(--text-muted); }
-.metric-hint { display: block; font-size: 11px; color: var(--text-muted); }
+.metric-hint { display: block; font-size: 12px; color: var(--text-muted); }
 .metric-meter {
     height: 4px;
     margin: 7px 0 5px;
@@ -528,7 +528,7 @@ section { scroll-margin-top: 76px; }
     color: var(--text-secondary);
     letter-spacing: 0.01em;
 }
-.composer-hint { font-size: 11.5px; color: var(--text-muted); line-height: 1.55; }
+.composer-hint { font-size: 12px; color: var(--text-muted); line-height: 1.55; }
 .composer-hint strong { color: var(--text-secondary); font-weight: 600; }
 .composer-hint[hidden] { display: none !important; }
 .composer-field[hidden] { display: none !important; }
@@ -616,10 +616,10 @@ svg.search-icon {
     stroke-linecap: round;
     stroke-linejoin: round;
 }
-.counter { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.counter { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .counter.over { color: #ff9ea0; font-weight: 600; }
 .badge-count {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
 }
@@ -669,7 +669,7 @@ svg.search-icon {
 }
 .picker-group {
     padding: 7px 11px 5px;
-    font-size: 10.5px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-muted);
@@ -723,7 +723,7 @@ svg.search-icon {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.picker-note { font-size: 11px; color: var(--text-muted); }
+.picker-note { font-size: 12px; color: var(--text-muted); }
 
 /* Tag picker */
 .mention-results {
@@ -738,7 +738,7 @@ svg.search-icon {
 .mention-results.open { display: block; }
 .mention-group {
     padding: 7px 11px 5px;
-    font-size: 10.5px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-muted);
@@ -753,7 +753,7 @@ svg.search-icon {
 .mention-result.active { background: var(--accent-quiet); }
 .mention-result:hover { background: var(--surface-hover); }
 .mention-text { font-size: 13px; color: var(--text-primary); min-width: 0; }
-.mention-note { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.mention-note { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .chip {
@@ -839,7 +839,7 @@ svg.search-icon {
     flex: none;
 }
 .preview-bot-tag {
-    font-size: 10px;
+    font-size: 12px;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     background: var(--accent);
@@ -847,7 +847,7 @@ svg.search-icon {
     margin-left: 5px;
     vertical-align: 1px;
 }
-.preview-time { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.preview-time { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 .preview-body {
     font-size: 13.5px;
     line-height: 1.6;
@@ -875,7 +875,7 @@ svg.search-icon {
     word-break: break-word;
 }
 .preview-warn {
-    font-size: 11.5px;
+    font-size: 12px;
     color: #ffc46b;
     display: flex;
     gap: 7px;
@@ -899,7 +899,7 @@ svg.search-icon {
 .receipt-title.ok { color: #7ddca6; }
 .receipt-title.warn { color: #ffc46b; }
 .receipt-title.fail { color: #ff9ea0; }
-.receipt-time { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.receipt-time { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 .receipt-close {
     border: 0;
     background: transparent;
@@ -917,10 +917,10 @@ svg.search-icon {
 .receipt-row.note .receipt-mark { color: var(--text-muted); }
 .receipt-name { color: var(--text-primary); }
 .receipt-row.fail .receipt-name { color: #ff9ea0; }
-.receipt-why { color: var(--text-muted); font-size: 11.5px; }
+.receipt-why { color: var(--text-muted); font-size: 12px; }
 .receipt-link {
     margin-left: auto;
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--accent-text);
     text-decoration: none;
 }
@@ -933,7 +933,7 @@ svg.search-icon {
     padding-top: 9px;
     border-top: 1px solid var(--border);
 }
-.receipt-note { font-size: 11.5px; color: var(--text-muted); }
+.receipt-note { font-size: 12px; color: var(--text-muted); }
 
 /* --------------------------------------------------------------------------
    Schedule
@@ -962,11 +962,11 @@ svg.search-icon {
     white-space: nowrap;
     max-width: 100%;
 }
-.schedule-when-text { font-size: 11.5px; color: var(--text-secondary); }
+.schedule-when-text { font-size: 12px; color: var(--text-secondary); }
 .schedule-when-text.late { color: #ffc46b; }
 .schedule-when-text.done { color: var(--text-muted); }
-.schedule-abs { font-size: 11px; color: var(--text-muted); }
-.schedule-note { font-size: 11.5px; color: var(--text-muted); }
+.schedule-abs { font-size: 12px; color: var(--text-muted); }
+.schedule-note { font-size: 12px; color: var(--text-muted); }
 .schedule-results { display: flex; flex-wrap: wrap; gap: 5px; }
 .schedule-actions { display: flex; gap: 7px; margin-left: auto; }
 .schedule-empty {
@@ -985,7 +985,7 @@ svg.search-icon {
     gap: 5px;
     padding: 2px 9px;
     border-radius: var(--radius-pill);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     border: 1px solid var(--border-active);
     background: var(--surface-card);
@@ -1095,7 +1095,7 @@ svg.search-icon {
     letter-spacing: -0.01em;
 }
 .module-category {
-    font-size: 10.5px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.09em;
     color: var(--text-muted);
@@ -1109,7 +1109,7 @@ svg.search-icon {
 .module-commands { display: flex; flex-wrap: wrap; gap: 5px; }
 .cmd-pill {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     padding: 3px 8px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
@@ -1129,7 +1129,7 @@ svg.search-icon {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 500;
 }
 .state-label::before {
@@ -1215,12 +1215,12 @@ svg.search-icon {
     border: 1px solid var(--border);
     display: grid;
     place-items: center;
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
     position: static;
 }
 .identity-banner img { width: 100%; height: 100%; object-fit: cover; }
-.identity-live { font-size: 11.5px; color: var(--text-muted); }
+.identity-live { font-size: 12px; color: var(--text-muted); }
 .identity-live strong { color: var(--text-secondary); }
 .identity-fields { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .identity-file { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
@@ -1248,7 +1248,7 @@ svg.search-icon {
 }
 .upload-btn:hover { border-color: var(--accent); color: var(--text-primary); }
 .upload-btn svg { width: 15px; height: 15px; flex: none; }
-.upload-name { font-size: 11.5px; color: var(--text-muted); }
+.upload-name { font-size: 12px; color: var(--text-muted); }
 .upload-name.is-chosen { color: var(--accent-text); }
 
 /* --------------------------------------------------------------------------
@@ -1262,7 +1262,7 @@ svg.search-icon {
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
 }
-.scope-stat span { display: block; font-size: 11.5px; color: var(--text-muted); }
+.scope-stat span { display: block; font-size: 12px; color: var(--text-muted); }
 
 /* The line under the counts, set apart by a rule because it makes a *different*
    claim: the three figures above are what this server's switches say, and this is
@@ -1325,7 +1325,7 @@ svg.search-icon {
     white-space: nowrap;
 }
 .status-url {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1334,7 +1334,7 @@ svg.search-icon {
 .status-figures {
     display: flex;
     gap: 16px;
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
     flex: none;
@@ -1350,7 +1350,7 @@ svg.search-icon {
 }
 .status-empty code {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--accent-text);
     background: var(--surface);
     padding: 1px 5px;
@@ -1386,7 +1386,7 @@ svg.search-icon {
 .status-actions > .composer-search-wrap,
 .status-actions > .guild-select { flex: 0 1 220px; min-width: 0; }
 .status-actions > .composer-search-wrap { min-width: 168px; }
-.status-meta { font-size: 11.5px; color: var(--text-muted); }
+.status-meta { font-size: 12px; color: var(--text-muted); }
 
 /* The deployment's own counts, as four tiles under the window buttons.
 
@@ -1420,7 +1420,7 @@ svg.search-icon {
 }
 
 .figure-tile span {
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -1487,13 +1487,13 @@ svg.search-icon {
     flex: none;
     display: grid;
     place-items: center;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text-muted);
 }
 .palette-item .palette-kind {
     margin-left: auto;
-    font-size: 10.5px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-muted);
@@ -1504,12 +1504,12 @@ svg.search-icon {
     gap: 14px;
     padding: 9px 15px;
     border-top: 1px solid var(--border);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
 }
 .palette-foot kbd {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 12px;
     padding: 1px 5px;
     border: 1px solid var(--border-active);
     border-bottom-width: 2px;
@@ -1680,7 +1680,7 @@ svg.search-icon {
 }
 
 .fleet-stat span {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
 }
 

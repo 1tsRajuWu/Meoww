@@ -1868,7 +1868,10 @@ a {
   gap: var(--space-1);
   font-size: var(--type-body);
   color: color-mix(in oklab, var(--text) 78%, var(--dim));
-  max-width: 92ch;
+  /* 92ch was two and a half sentences of prose per line — past the 75-character
+     ceiling the laws set, and past the point where the eye loses its place on
+     the way back. It reads as a list of findings, so it is set like one. */
+  max-width: 72ch;
 }
 
 /* A column of cards inside the grid, for the two narrow panels that have to

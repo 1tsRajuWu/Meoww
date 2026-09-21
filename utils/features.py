@@ -132,13 +132,15 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "ban", "kick", "mute", "unmute", "unban", "warn", "warnings",
-            "clearwarnings", "purge", "modlog", "lockdown", "lockdown-server",
+            "clearwarnings", "purge", "modlog", "appeal", "lockdown",
+            "lockdown-server",
             "unlock", "unlock-server", "slowmode", "addrole", "removerole",
             "announce",
         ),
         commands=(
             "/ban", "/kick", "/mute", "/unmute", "/warn", "/warnings",
-            "/clearwarnings", "/purge", "/modlog", "/lockdown", "/unlock",
+            "/clearwarnings", "/purge", "/modlog", "/appeal", "/lockdown",
+            "/unlock",
             "/slowmode", "/addrole", "/removerole", "/announce",
         ),
         cog="cogs.moderation",

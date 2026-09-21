@@ -18,6 +18,7 @@ HELP_MODULES = {
             "> `/ban <member> [delete_days] [reason]` — Ban a member\n"
             "> `/unban <user_id>` — Unban a user\n"
             "> `/purge <amount> [member]` — Bulk delete messages\n"
+            "> `/appeal <reason>` — Ask a human to review an action taken against you\n"
             "> `/modlog <channel>` — Set the moderation audit log channel"
         ),
         "color": 0xED4245,
@@ -28,7 +29,9 @@ HELP_MODULES = {
         "desc": (
             "Automatic server defenses against spam and unauthorized invites.\n\n"
             "> `/automod invites <enabled>` — Toggle blocking of Discord invite links\n"
-            "> `/automod antispam <enabled>` — Toggle rapid-message flood protection"
+            "> `/automod antispam <enabled>` — Toggle rapid-message flood protection\n\n"
+            "Every automatic action is written to the moderation log with the rule "
+            "that fired, and the member it hit is told they can run `/appeal`."
         ),
         "color": 0xE67E22,
         "emoji": "🛡️"

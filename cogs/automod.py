@@ -1,13 +1,67 @@
+"""Basic auto-moderation: spam detection and invite/link filtering.
+
+Two things here are as important as the filters themselves, and both were
+missing until a pass over the bot-platform rules asked what happens *after* an
+automatic decision:
+
+* **Every automatic action leaves a record.** A deleted invite and a five-minute
+timeout used to live only in a notice that deleted itself after ten seconds, so
+nobody but the member had ever seen it and a moderator asked "did the bot mute
+somebody?" had nothing to read. Each decision now posts a card — the rule that
+fired, who it hit, where, and whether Discord accepted the action — to the same
+log channel a manual case goes to (``utils.modlog``).
+* **The member can appeal it.** Automated filters are wrong sometimes, and the
+notice now says so out loud, naming ``/appeal``; the command files a review with
+the humans instead of leaving the member to argue with a bot.
+"""
 import discord
 from discord import app_commands
 from discord.ext import commands
 import re
 import time
 import datetime
-from utils import db
+from utils import db, modlog
+from utils.style import WARN
 
 INVITE_REGEX = re.compile(r"(discord\.gg|discordapp\.com/invite|discord\.com/invite)/\S+", re.IGNORECASE)
 LINK_REGEX = re.compile(r"https?://\S+", re.IGNORECASE)
+
+#: One sentence, in every notice an automatic action leaves behind. A member who
+#: disagrees with a bot needs a door, and it has to be named where they are
+#: standing — a policy page three clicks away is not one.
+APPEAL_POINTER = "If that was wrong, run `/appeal` — a human will read it."
+
+
+def _audit_embed(
+    action: str,
+    member: discord.abc.User,
+    channel,
+    rule: str,
+    detail: str,
+    outcome: str,
+) -> discord.Embed:
+    """What a moderator would need to judge an automatic action.
+
+    No message content: the rules live on a count and a pattern, and copying the
+    text into a log would keep a copy of something the server never asked to
+    keep. The member, the rule, the channel and the outcome are the whole of it.
+    """
+    embed = discord.Embed(
+        title=f"🤖 Auto-mod — {action}",
+        # A warning, through the palette the rest of the cards read: the literal
+        # this used to be was one more colour the product had to keep in step.
+        color=WARN,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_author(name="Meow Moderation Log", icon_url=member.display_avatar.url)
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="👤 Member", value=f"{member.mention}\n`{member.name}`", inline=True)
+    embed.add_field(name="📍 Channel", value=getattr(channel, "mention", "—"), inline=True)
+    embed.add_field(name="📐 Rule", value=rule, inline=False)
+    embed.add_field(name="⚙️ Outcome", value=f"{detail}\n{outcome}", inline=False)
+    embed.set_footer(text=f"Automatic action • Member ID: {member.id}")
+    return embed
+
 
 class AutoMod(commands.Cog):
     """Basic auto-moderation: spam detection and invite/link filtering."""
@@ -77,10 +131,24 @@ class AutoMod(commands.Cog):
                 pass
             try:
                 await message.channel.send(
-                    f"{message.author.mention}, invite links aren't allowed here.", delete_after=5
+                    f"{message.author.mention}, invite links aren't allowed here. "
+                    f"{APPEAL_POINTER}",
+                    delete_after=15,
                 )
             except discord.Forbidden:
                 pass
+            await modlog.post(
+                message.guild,
+                _audit_embed(
+                    "Invite deleted",
+                    message.author,
+                    message.channel,
+                    rule="Invite links are blocked in this server (`/automod invites`).",
+                    detail="The message was deleted; a notice naming `/appeal` was posted.",
+                    outcome="No timeout, no warning — the message was the whole of it.",
+                ),
+                what=f"the automod invite deletion for member {message.author.id}",
+            )
             return
 
         # Basic anti-spam: 5+ messages in 5 seconds
@@ -107,18 +175,38 @@ class AutoMod(commands.Cog):
                         del self.message_log[old_key]
 
             if len(timestamps) >= 6:
+                outcome = "Discord accepted the timeout."
                 try:
                     await message.author.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=5),
                                                    reason="Auto-mod: spamming")
                     await message.channel.send(
-                        f"{message.author.mention} was muted for 5 minutes for spamming.", delete_after=10
+                        f"{message.author.mention} was muted for 5 minutes for spamming. "
+                        f"{APPEAL_POINTER}",
+                        delete_after=15,
                     )
                 except discord.Forbidden:
-                    pass
+                    outcome = (
+                        "Discord refused it (missing permission, or this member's role "
+                        "is above mine) — they were **not** muted. Fix that in Server "
+                        "Settings → Roles, or the filter cannot act on them."
+                    )
                 except discord.HTTPException as e:
                     # e.g. the target holds a role above the bot; don't let one
                     # unmutable spammer take the listener down every message.
                     print(f"[AUTOMOD] Could not time out {message.author}: {e}", flush=True)
+                    outcome = f"Discord rejected it ({type(e).__name__}) — they were **not** muted."
+                await modlog.post(
+                    message.guild,
+                    _audit_embed(
+                        "Member timed out",
+                        message.author,
+                        message.channel,
+                        rule="Six or more messages in five seconds (`/automod antispam`).",
+                        detail="A five-minute timeout was attempted after rapid messages.",
+                        outcome=outcome,
+                    ),
+                    what=f"the automod timeout for member {message.author.id}",
+                )
                 self.message_log[key] = []
 
 async def setup(bot: commands.Bot):
