@@ -22,6 +22,7 @@ None of these tests touch the network: search results are hand-built the way
 yt-dlp's flat extraction presents them.
 """
 import os
+import shlex
 import unittest
 from unittest import mock
 
@@ -881,6 +882,121 @@ class TheClientLadder(unittest.TestCase):
     def test_the_first_rung_is_still_the_extractors_own_choice(self):
         """It is the only one that negotiates audio-only Opus, so it stays first."""
         self.assertEqual(M.client_ladder()[0], ())
+
+
+class TheProxyIsOnlyAFixIfItCarriesBothHalves(unittest.TestCase):
+    """A provider's stream URL is signed for the address that asked for it.
+
+    So a proxy that runs the *extraction* and not the *fetch* produces a stream
+    that resolves cleanly and then dies — this module's oldest failure, arriving in
+    a shape that reads as the provider being unreliable rather than as a setting
+    being half-applied. Both halves are pinned here, and so is the refusal to
+    half-honour a SOCKS URL.
+    """
+
+    def setUp(self):
+        M._proxy_reported = False
+
+    def tearDown(self):
+        M._proxy_reported = False
+
+    @staticmethod
+    def _with(value):
+        return mock.patch.dict(os.environ, {"YTDL_PROXY": value}, clear=False)
+
+    @staticmethod
+    def _track(**kwargs):
+        return M.Track(**{"title": "Song", **kwargs})
+
+    def test_nothing_is_proxied_by_default(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(M.outbound_proxy(), "")
+            self.assertEqual(M.proxy_problem(), "")
+            self.assertNotIn("proxy", M._base_options(flat=False))
+
+    def test_every_extraction_carries_it(self):
+        with self._with("http://user:secret@proxy.test:8080"):
+            for flat in (False, True):
+                with self.subTest(flat=flat):
+                    self.assertEqual(
+                        M._base_options(flat=flat)["proxy"],
+                        "http://user:secret@proxy.test:8080",
+                    )
+
+    def test_every_rung_of_the_ladder_carries_it(self):
+        """A climb must not step back out of the proxy: the rung tried *after* a
+        refusal is precisely the attempt where it matters."""
+        with self._with("http://proxy.test:8080"):
+            rungs = list(M._attempts(M._base_options(flat=False)))
+
+        self.assertGreater(len(rungs), 1, "the ladder is not being climbed")
+        for rung in rungs:
+            self.assertEqual(rung.get("proxy"), "http://proxy.test:8080")
+
+    def test_the_media_fetch_is_proxied_too(self):
+        with self._with("http://user:secret@proxy.test:8080"):
+            args = M.ffmpeg_proxy_args(self._track(found_on="soundcloud"))
+
+        # Quotable, because discord.py shlex-splits this string onto a command line.
+        self.assertEqual(
+            shlex.split(args), ["-http_proxy", "http://user:secret@proxy.test:8080"]
+        )
+
+    def test_a_stream_that_came_from_a_link_is_proxied_by_its_provider(self):
+        with self._with("http://proxy.test:8080"):
+            args = M.ffmpeg_proxy_args(self._track(provider="youtube", found_on=""))
+
+        self.assertIn("-http_proxy", args)
+
+    def test_radio_is_never_proxied(self):
+        """Radio is the fallback that exists to keep playing when the extractor
+        cannot — so it is the one thing that must not gain a new way to fail."""
+        with self._with("http://proxy.test:8080"):
+            self.assertEqual(
+                M.ffmpeg_proxy_args(self._track(provider="radio", is_radio=True)), ""
+            )
+
+    def test_the_credential_free_catalogue_is_not_proxied_either(self):
+        with self._with("http://proxy.test:8080"):
+            self.assertEqual(M.ffmpeg_proxy_args(self._track(provider="audius")), "")
+
+    def test_a_socks_proxy_is_declined_with_its_reason(self):
+        """ffmpeg has no SOCKS support in any version, so a SOCKS URL would carry
+        the extraction and leave the fetch behind — a stream that resolves and then
+        never plays. Declining it is the whole point."""
+        with self._with("socks5://proxy.test:1080"):
+            self.assertEqual(M.outbound_proxy(), "")
+
+        self.assertIn("SOCKS", M.proxy_problem("socks5://proxy.test:1080"))
+        self.assertEqual(M.proxy_problem("http://proxy.test:8080"), "")
+        self.assertEqual(M.proxy_problem("http://user:pw@proxy.test:8080"), "")
+        self.assertIn("scheme", M.proxy_problem("proxy.test:8080"))
+
+    def test_the_credential_is_taken_out_of_what_we_print(self):
+        with self._with("http://user:hunter2@proxy.test:8080"):
+            text = M.redact(
+                "could not fetch http://user:hunter2@proxy.test:8080/x "
+                "by way of http://someone:else@other.test:9/y"
+            )
+
+        self.assertNotIn("hunter2", text)
+        self.assertNotIn("else", text)
+        self.assertIn("<credentials>", text)
+
+    def test_the_report_says_a_proxy_is_carrying_this_host_but_not_which(self):
+        with self._with("http://proxy.test:8080"):
+            reading = M.sources_state()
+
+        self.assertTrue(reading["proxy"])
+        self.assertEqual(reading["proxy_problem"], "")
+        self.assertNotIn("proxy.test", str(reading), "the report carried the proxy host")
+
+    def test_a_configured_but_unusable_proxy_is_reported_as_a_reading(self):
+        with self._with("socks4://proxy.test:1080"):
+            reading = M.sources_state()
+
+        self.assertFalse(reading["proxy"])
+        self.assertIn("SOCKS", reading["proxy_problem"])
 
 
 if __name__ == "__main__":

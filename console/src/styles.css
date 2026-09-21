@@ -512,39 +512,39 @@ a {
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
-.swatch--midnight {
+.swatch--midnight::before {
   background: linear-gradient(140deg, #7c8cff, #16161c 70%);
 }
 
-.swatch--sakura {
+.swatch--sakura::before {
   background: linear-gradient(140deg, #ff74c1, #1d1319 70%);
 }
 
-.swatch--forest {
+.swatch--forest::before {
   background: linear-gradient(140deg, #2fa06b, #101a17 70%);
 }
 
-.swatch--ember {
+.swatch--ember::before {
   background: linear-gradient(140deg, #ff8a3d, #1d1510 70%);
 }
 
-.swatch--sunset {
+.swatch--sunset::before {
   background: linear-gradient(140deg, #ff416c, #ffaa00);
 }
 
-.swatch--plasma {
+.swatch--plasma::before {
   background: linear-gradient(140deg, #8a2387, #e94057 50%, #f27121);
 }
 
-.swatch--aurora {
+.swatch--aurora::before {
   background: linear-gradient(140deg, #00f260, #0575e6 50%, #00c6ff);
 }
 
-.swatch--cosmic {
+.swatch--cosmic::before {
   background: linear-gradient(140deg, #7928ca, #ff0080 50%, #00dfd8);
 }
 
-.swatch--synthwave {
+.swatch--synthwave::before {
   background: linear-gradient(140deg, #00ffff, #ff007f 50%, #7928ca);
 }
 

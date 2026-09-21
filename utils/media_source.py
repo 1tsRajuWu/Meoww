@@ -39,6 +39,7 @@ import json
 import math
 import os
 import re
+import shlex
 import tempfile
 import time
 import urllib.parse
@@ -231,6 +232,12 @@ def _base_options(*, flat: bool) -> dict[str, Any]:
     args = extractor_args()
     if args:
         options["extractor_args"] = args
+    # Every rung of the client ladder inherits this, because :func:`_attempts`
+    # copies the options it is handed — so a climb does not silently step back out
+    # of the proxy on its second attempt, which is the song where it matters most.
+    proxy = outbound_proxy()
+    if proxy:
+        options["proxy"] = proxy
     return options
 
 
@@ -914,6 +921,137 @@ SEARCH_PROVIDERS: tuple[tuple[str, str], ...] = (
     ("audius", ""),
 )
 
+#: The providers reached *through* yt-dlp, which is the only thing a proxy is for.
+#:
+#: Derived from the table above rather than written out again: ``audius`` carries an
+#: empty prefix precisely because it is not a yt-dlp search, and radio never touches
+#: the extractor at all. A second list here would be a list that goes stale the day a
+#: provider is added.
+YTDL_PROVIDERS: frozenset[str] = frozenset(
+    name for name, prefix in SEARCH_PROVIDERS if prefix
+)
+
+#: ``YTDL_PROXY`` — an outbound proxy for the providers that refuse this address.
+#:
+#: The third answer to a refused host, and the only one that asks nothing of an
+#: account: cookies need a throwaway login (`YTDL_COOKIES`) and a PO token needs a
+#: token provider (`YTDL_PO_TOKEN`), while a proxy simply makes the request arrive
+#: from somewhere the provider tolerates. It is a *credential* as well as a setting
+#: — most proxy URLs carry a username and password — so it is declared as a secret
+#: and never appears on a page a signed-out visitor can read.
+#:
+#: The name is spelled out at every read rather than held in a constant, and that is
+#: not a style choice: the config audit finds a setting by *searching the source for
+#: its name*, so a setting reached only through a constant is one the guard cannot
+#: see. That hole was already open — ``YTDL_SOURCE_ORDER`` could be read, was missing
+#: from the registry, and was invisible to the guard, all three at once — which is
+#: why both of them are spelled out now.
+#:
+#: One line per process, not per song: an unusable proxy is a fact about the deploy,
+#: and repeating it on every track is how a log becomes something nobody reads.
+_proxy_reported = False
+
+
+def configured_proxy() -> str:
+    """The proxy exactly as configured, or ``""``."""
+    return (config_audit.get("YTDL_PROXY") or "").strip()
+
+
+def outbound_proxy() -> str:
+    """The configured outbound proxy, or ``""`` — never a value that cannot work.
+
+    A proxy that is set but unusable is worse than none, because it looks like it
+    works: a half-applied proxy resolves a stream cleanly and then fails at the
+    fetch. So the URL is checked before it is used, the reason is printed once, and
+    what comes back is either a proxy that will carry both halves or nothing at all.
+    """
+    url = configured_proxy()
+    if not url:
+        return ""
+    problem = proxy_problem(url)
+    if problem:
+        global _proxy_reported
+        if not _proxy_reported:
+            _proxy_reported = True
+            print(f"[MUSIC] YTDL_PROXY is set but is not being used — {problem}", flush=True)
+        return ""
+    return url
+
+
+def proxy_problem(url: str = "") -> str:
+    """Why a proxy cannot carry a media stream, or ``""`` when it can.
+
+    The refusal that matters is **SOCKS**, and the reason is not fussiness.
+    ``yt-dlp`` can extract through one, but ffmpeg's HTTP protocol has no SOCKS
+    support in any version — so the *media* fetch would still leave from this host,
+    and a provider's stream URL is signed for the address that asked for it. The
+    result is a stream that resolves and then 403s, which is precisely the
+    "it found the song and then silently died" failure this whole pass exists to
+    remove. Half a proxy is worse than no proxy here, so a SOCKS URL is declined
+    with the reason rather than half-honoured.
+    """
+    url = (url or configured_proxy()).strip()
+    if not url:
+        return ""
+    scheme = url.split("://", 1)[0].lower() if "://" in url else ""
+    if scheme.startswith("socks"):
+        return (
+            "a SOCKS proxy cannot be used, because ffmpeg has no SOCKS support: the "
+            "media fetch would go out directly and the provider would refuse it. "
+            "An `http://` proxy is the one that works."
+        )
+    if scheme not in ("http", "https"):
+        return (
+            f"`{scheme or 'no'}://` is not a proxy scheme this understands — it "
+            "takes `http://host:port`, optionally with a user and password."
+        )
+    return ""
+
+
+def redact(text: str) -> str:
+    """A string with any proxy credentials taken out of it.
+
+    A proxy URL carries a username and password in the middle of the string, and
+    this module prints what it could not do — including, sometimes, an extractor's
+    own message. Removing the credentials at the source is cheaper and far more
+    reliable than auditing every line that might carry one.
+    """
+    url = configured_proxy()
+    if not url:
+        return text
+    return re.sub(r"(?<=://)[^/@\s]+:[^/@\s]+(?=@)", "<credentials>", text.replace(url, "<proxy>"))
+
+
+def ffmpeg_proxy_args(track=None) -> str:
+    """``-http_proxy <url>`` for the input ffmpeg is about to open, or ``""``.
+
+    Two things make this more than string formatting.
+
+    **The media fetch needs the proxy as much as the extraction does.** A
+    ``googlevideo`` URL is signed for the address that asked for it, so a proxy
+    applied only to yt-dlp hands back a URL that this host cannot fetch — the
+    stream resolves, the card says what is playing, and then nothing is heard.
+    Setting one without the other is a half-fix that reads exactly like a provider
+    being unreliable.
+
+    **And it is deliberately not applied to everything.** ``radio`` and ``audius``
+    are the two sources that do not refuse this host, and radio is the fallback
+    that exists to keep playing when the extractor cannot — so it is the one thing
+    that must not acquire a new way to fail. The rule is derived rather than listed:
+    a stream is proxied when the provider that actually served it is one that yt-dlp
+    reaches. It also keeps ``-http_proxy`` off inputs that are not HTTP at all,
+    where passing an option the protocol does not have is an error in its own right.
+    """
+    url = outbound_proxy()
+    if not url:
+        return ""
+    if track is not None:
+        serving = getattr(track, "found_on", "") or getattr(track, "provider", "")
+        if str(serving).lower() not in YTDL_PROVIDERS:
+            return ""
+    return f"-http_proxy {shlex.quote(url)}"
+
+
 #: A provider's name as a person writes it, for a sentence somebody has to read.
 PROVIDER_LABELS: dict[str, str] = {
     "youtube": "YouTube",
@@ -944,8 +1082,8 @@ AUDIUS_USER_AGENT = "MeowBot/1.0 (+https://meow-bot.pages.dev)"
 
 #: ``YTDL_SOURCE_ORDER`` — the operator's own order, comma-separated. A deployment
 #: whose network is refused by one platform can say so once instead of paying for
-#: the discovery on every song.
-SOURCE_ORDER_SETTING = "YTDL_SOURCE_ORDER"
+#: the discovery on every song. Spelled out at its read for the reason
+#: :func:`configured_proxy` explains.
 
 #: How long a provider that refused this host is sent to the back of the order.
 #: Not forever, and not per request either: long enough that somebody typing four
@@ -1009,7 +1147,7 @@ def source_order() -> list[tuple[str, str]]:
     names = [name for name, _prefix in SEARCH_PROVIDERS]
     configured = [
         part.strip().lower()
-        for part in (config_audit.get(SOURCE_ORDER_SETTING) or "").split(",")
+        for part in (config_audit.get("YTDL_SOURCE_ORDER") or "").split(",")
         if part.strip()
     ]
     order = [name for name in configured if name in prefixes]
@@ -1733,6 +1871,13 @@ def sources_state() -> dict:
         "refusing": [name for name, _prefix in order if _refusing(name)],
         "preferred": _last_good_source,
         "catalogue": catalogue_reading(),
+        # Whether an outbound proxy is carrying the providers, and the reason when
+        # one is configured and cannot. Deliberately a boolean and a sentence and
+        # never the URL: it is a credential, and the console is not the place for
+        # it. This is what turns "it still does not work after I set the proxy"
+        # into a reading — an unpickable SOCKS URL is the likely answer.
+        "proxy": bool(outbound_proxy()),
+        "proxy_problem": proxy_problem(),
     }
 
 

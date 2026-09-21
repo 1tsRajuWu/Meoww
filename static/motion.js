@@ -559,8 +559,8 @@
             sparkleCluster.appendChild(spEl);
             sparkleParticles.push({
                 el: spEl,
-                x: window.innerWidth / 2,
-                y: window.innerHeight / 2,
+                x: -100,
+                y: -100,
                 lag: 0.14 + (i * 0.04),
                 angle: (i * Math.PI * 2) / 6,
                 dist: 12 + (i % 3) * 8
@@ -755,20 +755,20 @@
         updateCursorButtons(currentCursor);
         updateCursorColorButtons(currentCursorColor);
 
-        var x = window.innerWidth / 2;
-        var y = window.innerHeight / 2;
-        var ringX = x;
-        var ringY = y;
-        var glowX = x;
-        var glowY = y;
-        var blobX = x;
-        var blobY = y;
-        var prevBlobX = x;
-        var prevBlobY = y;
-        var radarX = x;
-        var radarY = y;
-        var vortexX = x;
-        var vortexY = y;
+        var x = -100;
+        var y = -100;
+        var ringX = -100;
+        var ringY = -100;
+        var glowX = -100;
+        var glowY = -100;
+        var blobX = -100;
+        var blobY = -100;
+        var prevBlobX = -100;
+        var prevBlobY = -100;
+        var radarX = -100;
+        var radarY = -100;
+        var vortexX = -100;
+        var vortexY = -100;
         var scale = 1;
         var scaleTo = 1;
         var running = false;

@@ -20,6 +20,7 @@ resolver is never called, and ``play_next``'s network half is replaced with a
 recorder.
 """
 import asyncio
+import os
 import pathlib
 import unittest
 from types import SimpleNamespace
@@ -483,6 +484,34 @@ class SourceSelection(unittest.TestCase):
         self.assertEqual(options.count("-af"), 1)
         self.assertIn(player_module.FILTER_BY_KEY["nightcore"].args, options)
         self.assertIn("volume=0.5", options)
+
+    def test_the_fetch_carries_the_proxy_when_one_is_configured(self):
+        """The extraction and the fetch have to leave by the same address: a
+        provider signs its stream URL for whoever asked for it, so a proxy applied
+        to only one half resolves a stream and then plays silence."""
+        self._current(opus=True, abr=131.0)
+        self.player.volume = 1.0
+        with mock.patch.dict(os.environ, {"YTDL_PROXY": "http://proxy.test:8080"}, clear=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            _source, _engine = self.player._build_source("http://example.invalid/a", 64)
+
+        before = opus_cls.call_args.kwargs["before_options"]
+        self.assertIn("-http_proxy http://proxy.test:8080", before)
+        # ``before_options`` is the half that lands before ``-i``, which is where an
+        # input option belongs — and the pass-through path still *reads* the URL, so
+        # the reconnect flags it needs are alongside rather than replaced.
+        self.assertIn("-reconnect", before)
+
+    def test_a_radio_stream_is_not_sent_through_the_proxy(self):
+        self._current(opus=True, abr=131.0)
+        self.player.current.provider = "radio"
+        self.player.current.is_radio = True
+        self.player.volume = 1.0
+        with mock.patch.dict(os.environ, {"YTDL_PROXY": "http://proxy.test:8080"}, clear=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            self.player._build_source("http://example.invalid/a", 64)
+
+        self.assertNotIn("-http_proxy", opus_cls.call_args.kwargs["before_options"])
 
 
 class SeekRestartsInPlace(_PlayerCase):

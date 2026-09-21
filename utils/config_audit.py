@@ -630,6 +630,34 @@ SETTINGS: tuple[Setting, ...] = (
         "why the two are declared next to each other.",
     ),
     Setting(
+        "YTDL_SOURCE_ORDER", TUNING,
+        "the provider order this host asks, comma-separated, which is how a "
+        "deployment whose network one platform refuses says so once instead of "
+        "paying for the discovery on every song",
+        "the built-in order is used and adapts on its own: whatever last answered "
+        "moves up, and a provider that refuses this host moves to the back for a "
+        "while. Declared late because it was, until now, read through a constant "
+        "that the config audit's own search could not see — so an operator reading "
+        "the report was never told this setting existed at all.",
+    ),
+    Setting(
+        "YTDL_PROXY", TUNING,
+        "an outbound proxy (``http://user:password@host:port``) that every media "
+        "extraction **and** every media fetch is sent through — the third way to "
+        "answer a provider that has decided a datacenter address is a bot, and the "
+        "only one that needs nothing from an account",
+        "the extractor and the player go out from this host's own address, so a "
+        "provider refusing it stays refused. Cookies (``YTDL_COOKIES``) and a PO "
+        "token (``YTDL_PO_TOKEN``) are the other two answers; a proxy is the one "
+        "that asks for no login. It is applied to the media download as well as to "
+        "the extraction, because a provider's stream URL is signed for the address "
+        "that asked for it — a proxy on one half of the pair resolves a stream that "
+        "then never plays. A ``socks://`` URL is declined with that reason printed "
+        "rather than half-honoured, since ffmpeg cannot fetch through one. Never "
+        "shown: it carries a credential.",
+        secret=True,
+    ),
+    Setting(
         "MEOW_FFMPEG", TUNING,
         "an explicit ffmpeg binary for the music player, for a host whose ffmpeg "
         "is somewhere ``PATH`` does not reach",

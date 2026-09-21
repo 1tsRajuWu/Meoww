@@ -51,15 +51,15 @@ export function Cursor() {
     const particleEls = sparkleNode.querySelectorAll<HTMLSpanElement>(".sparkle-particle");
     const sparkles = Array.from(particleEls).map((el, i) => ({
       el,
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
+      x: -100,
+      y: -100,
       lag: 0.14 + i * 0.04,
       angle: (i * Math.PI * 2) / 6,
       dist: 12 + (i % 3) * 8,
     }));
 
-    let targetX = window.innerWidth / 2;
-    let targetY = window.innerHeight / 2;
+    let targetX = -100;
+    let targetY = -100;
     let x = targetX;
     let y = targetY;
     let vx = 0;

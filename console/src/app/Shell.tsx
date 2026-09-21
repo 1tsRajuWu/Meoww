@@ -191,7 +191,7 @@ export function Shell({
 
           <div className="rail__customizer-bar">
             <div className="rail__themes" role="group" aria-label="Theme">
-              {THEMES.map((option) => (
+              {THEMES.slice(0, 4).map((option) => (
                 <button
                   key={option.id}
                   type="button"

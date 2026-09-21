@@ -562,7 +562,21 @@ class GuildPlayer:
         chosen = filter_for(self.filter_name)
         track = self.current
         executable = caps.ffmpeg or "ffmpeg"
-        before = f"{_seek_prefix(self.seek_offset)}{BEFORE_OPTIONS}"
+        # The proxy, when one is configured and this stream is one that needs it.
+        # It has to be here and not only in the extractor: a provider's stream URL
+        # is signed for the address that asked for it, so a proxy that only ran the
+        # extraction hands back a URL this host cannot open — the card says what is
+        # playing and then nothing is heard. `-http_proxy` is an input option, so it
+        # belongs before `-i` alongside the reconnect flags.
+        before = " ".join(
+            part
+            for part in (
+                _seek_prefix(self.seek_offset).strip(),
+                media_source.ffmpeg_proxy_args(track),
+                BEFORE_OPTIONS,
+            )
+            if part
+        )
 
         copy_ok = (
             not chosen.args
