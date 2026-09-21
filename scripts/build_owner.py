@@ -271,6 +271,15 @@ export default {{
     }}
 
     const resHeaders = new Headers(response.headers);
+    if (typeof response.headers.getSetCookie === "function") {{
+      const cookies = response.headers.getSetCookie();
+      if (cookies && cookies.length > 0) {{
+        resHeaders.delete("Set-Cookie");
+        for (const cookie of cookies) {{
+          resHeaders.append("Set-Cookie", cookie);
+        }}
+      }}
+    }}
     const location = resHeaders.get("Location");
     if (location) {{
       try {{

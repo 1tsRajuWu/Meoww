@@ -197,6 +197,24 @@ class WhoMayOpenIt(_DashboardFixture):
             follow = self.client.get("/owner")
             self.assertEqual(follow.status_code, 200)
 
+    def test_owner_login_renders_csrf_token_and_submits_cleanly(self):
+        with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "secret-passkey"):
+            get_res = self.client.get("/owner/login")
+            self.assertEqual(get_res.status_code, 200)
+            html = get_res.get_data(as_text=True)
+            import re
+            match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+            self.assertIsNotNone(match, "owner_login.html must contain non-empty csrf_token")
+            token = match.group(1)
+            self.assertTrue(len(token) > 10)
+
+            post_res = self.client.post(
+                "/owner/login",
+                data={"passkey": "secret-passkey", "csrf_token": token},
+            )
+            self.assertEqual(post_res.status_code, 302)
+            self.assertEqual(post_res.headers.get("Location"), "/owner")
+
     def test_owner_login_failure_with_wrong_passkey(self):
         with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "secret-passkey"):
             with self.client.session_transaction() as session:

@@ -438,6 +438,7 @@ def _owner_login_page(error=None, status: int | None = None):
     body = render_template(
         "owner_login.html",
         error=error,
+        csrf_token=get_csrf_token(),
         notice=_owner_signin_notice(),
         passkey_enabled=bool(ADMIN_PASSKEY),
         oauth_enabled=discord_auth.enabled(),
