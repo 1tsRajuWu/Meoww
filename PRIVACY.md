@@ -18,7 +18,8 @@ answers for it, and using a server that runs the Bot is agreement to it.
 * **Activity Tracker:** per-day, per-channel message counts and voice seconds per
   member; rows older than 365 days are deleted automatically.
 * **Moderation:** warnings, cases with reasons, and automod configuration —
-  visible to server staff.
+  visible to server staff. A warning given from the website is the same row a
+  `/warn` produces, with the same reason text.
 * **Tickets:** ticket configuration, the transcript a closed ticket produces, and
   the rating and comment a member leaves.
 * **Server settings:** enabled features, house-channel, log, starboard and market
@@ -27,10 +28,20 @@ answers for it, and using a server that runs the Bot is agreement to it.
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who
   queued them.
-* **Who signed in, and what they agreed to:** one row per dashboard sign-in
-  (scope, server, address, browser, when it started, when it was last used), and
-  one row per agreement to the policies (which *revision*, which scope, from
-  which address and browser, when). Both are in section 3.
+* **What was done through the website, and by whom:** one row per action taken
+  from the dashboard or the operator's console — the scope, the person's Discord
+  id and username, the server, the action, who or what it was aimed at, whether
+  it worked, and the reason given. This exists because **Discord's own audit log
+  credits the Bot, not the person**: the Bot is what performs a kick or a
+  lockdown, so without this row there is no record of who asked for one. It is a
+  moderation record, kept for the same reason cases are.
+* **A lockdown's undo.** Locking a server down changes every channel's
+  permissions, so what each channel had *before* is written down — channel id and
+  the two permission numbers — for exactly as long as the lockdown stands, so
+  that lifting it restores what was there rather than granting something new.
+* **A blocklist row, where the operator has refused a server:** the server id, the
+  reason, when, and which operator signed in when it happened. No members are in
+  it.
 
 ## 2. What we do NOT store
 
@@ -130,10 +141,13 @@ these services and cannot see what they do with what they receive.
 
 ## 6. Retention, and how to have data removed
 
-Data is kept while the Bot is in your server, because that is the feature. Three
+Data is kept while the Bot is in your server, because that is the feature. Four
 things expire on their own: Activity Tracker rows after **365 days**, dashboard
 message history (what was queued, sent, and the per-channel result) after **90
-days**, and dashboard sign-in rows once they expire or are revoked.
+days**, dashboard sign-in rows once they expire or are revoked, and a lockdown's
+undo record the moment the lockdown is lifted. `guild_blocklist` and
+`web_actions` are read by the operator and are included in any deletion or export
+asked for under section 9.
 
 Staff delete data with the Bot's own commands (`/clearwarnings`, `/eco-admin
 reset`, and the ticket, quote and case tools); the operator can delete or export

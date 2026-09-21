@@ -89,21 +89,43 @@
                     <span>Control Center</span>
                 </div>
             </div>
-            {# Seven pages, seven real links. `aria-current` rather than a scroll
+            {# Nine real links, in four groups. `aria-current` rather than a scroll
                spy: the rail used to answer "where in this document am I", and the
                question now is "which page is this" — and every link carries the
                open server, so moving between pages cannot move you between
                servers. The list comes from `DASHBOARD_PAGES`, so a page cannot be
                routed without appearing here, or here without being routed. #}
             <nav class="rail-nav" id="rail-nav" aria-label="Pages">
+                {# Grouped, and the groups come from the server (`DASHBOARD_GROUPS`)
+                   for the same reason the pages do: this template cannot be the
+                   second place that decides what the navigation contains. The
+                   member loop below uses `loop.previtem` rather than a running
+                   variable, because Jinja's own loop object is the only thing here
+                   that knows the *rendered* order — and a page with no group is
+                   drawn under no heading at all, so the cost of forgetting to
+                   place one is a slightly odd line, never a page nobody can
+                   reach. #}
                 {% for item in dashboard_pages|default([]) %}
+                {% if loop.first or loop.previtem.group != item.group %}
+                {% if not loop.first %}</div>{% endif %}
+                <div class="rail-group"{% if item.group %} role="group" aria-labelledby="rail-group-{{ item.group|lower|replace(' ', '-') }}"{% endif %}>
+                    {# A heading, not a separator: it labels the links under it, and
+                       the group points `aria-labelledby` at it, so a screen reader
+                       hears "Moderate, group" rather than four unlabelled links.
+                       A page nobody placed renders in a group with no label at
+                       all rather than under an empty heading. #}
+                    {% if item.group %}
+                    <span class="rail-group-label" id="rail-group-{{ item.group|lower|replace(' ', '-') }}">{{ item.group }}</span>
+                    {% endif %}
+                {% endif %}
                 <a href="{{ item.url }}"{% if item.current %} class="is-current" aria-current="page"{% endif %}>
-                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true">{% if item.id == 'overview' %}<path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/>{% elif item.id == 'systems' %}<path d="M12 3.5 21 8l-9 4.5L3 8z"/><path d="m3 12 9 4.5L21 12"/><path d="m3 16 9 4.5L21 16"/>{% elif item.id == 'composer' %}<path d="M20.5 12.5c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 21l1.2-3.6C4.1 16.2 3.5 14.4 3.5 12.5c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z"/>{% elif item.id == 'schedule' %}<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>{% elif item.id == 'identity' %}<circle cx="12" cy="9" r="3.6"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/>{% elif item.id == 'commands' %}<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/>{% else %}<path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/>{% endif %}</svg>
+                    <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true">{% if item.id == 'overview' %}<path d="M4 6h7M4 12h7M4 18h7"/><path d="M15 4.5h5v5h-5zM15 14.5h5v5h-5z"/>{% elif item.id == 'systems' %}<path d="M12 3.5 21 8l-9 4.5L3 8z"/><path d="m3 12 9 4.5L21 12"/><path d="m3 16 9 4.5L21 16"/>{% elif item.id == 'composer' %}<path d="M20.5 12.5c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 21l1.2-3.6C4.1 16.2 3.5 14.4 3.5 12.5c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z"/>{% elif item.id == 'schedule' %}<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>{% elif item.id == 'identity' %}<circle cx="12" cy="9" r="3.6"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/>{% elif item.id == 'commands' %}<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7.5 10 2.2 2.2-2.2 2.2M12.5 14.6h4"/>{% elif item.id == 'members' %}<circle cx="9" cy="9" r="3.2"/><path d="M3.5 19.5c.5-3.2 2.9-5 5.5-5s5 1.8 5.5 5"/><path d="M16 5.6a3 3 0 0 1 0 6"/><path d="M17.5 14.3c2 .6 3.3 2.3 3.6 5.2"/>{% elif item.id == 'server-control' %}<path d="M12 3.5 5 6.4v5.3c0 3.9 2.7 7 7 8.8 4.3-1.8 7-4.9 7-8.8V6.4z"/><path d="m9 12 2.2 2.2L15 10.4"/>{% else %}<path d="M3 12.5h3.6L9 6.5l3.4 11 2.4-6 1.6 3.5H21"/>{% endif %}</svg>
                     {{ item.label }}
                     {% if item.id == 'systems' %}
                     <span class="rail-count" id="rail-modules-count">{{ active_count }} / {{ total_count }}</span>
                     {% endif %}
                 </a>
+                {% if loop.last %}</div>{% endif %}
                 {% endfor %}
             </nav>
             {% if fleet_url %}
@@ -752,6 +774,276 @@
                     </div>
                 </section>
                 {% endif %}
+
+                {#
+                    Members and the server itself.
+
+                    Two pages that exist because a web session has no way to do
+                    this in Discord: an administrator who is not at their desktop,
+                    or who would rather not do a bulk permission change from a
+                    phone keyboard, had exactly one option before this — leave the
+                    incident for later.
+
+                    The whole surface is built on one rule: **the page asks, the
+                    endpoint decides.** The roster is a reading from Discord and is
+                    drawn where it is useful; whether this person may act at all,
+                    who may be touched, and whether the bot holds the permission
+                    are all decided at the moment of the click, by the same guard
+                    ``/kick`` uses. So a page left open in a tab cannot be used to
+                    do something the person lost the right to do.
+
+                    ``management`` is absent for the test suite, the preview
+                    harness and the static build, which render every section with
+                    nothing in hand — hence the defaulted block below rather than
+                    an assumption that a request happened.
+                #}
+                {% set mgmt = management|default({'page': '', 'read': False, 'why': 'Not read for this render.', 'roster': none, 'bans': [], 'control': none, 'query': '', 'recent': []}) %}
+                {% if page is not defined or page == 'members' %}
+                <!-- ── Members ──────────────────────────────────────────── -->
+                <section id="members" aria-labelledby="members-title">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Members</span>
+                            <h2 id="members-title">Who is here, and what to do about it</h2>
+                        </div>
+                        <div class="status-actions">
+                            <form method="get" class="member-search" role="search">
+                                <input type="hidden" name="guild_id" value="{{ guild_id }}">
+                                <label class="visually-hidden" for="member-query">Search members</label>
+                                <input class="input" type="search" id="member-query" name="q"
+                                       value="{{ mgmt.query }}" placeholder="Name, nickname or id">
+                                <button type="submit" class="btn">Search</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    {# The panel keeps its shape when the read failed. The alternative —
+                       swapping the whole card for a sentence — is what made the page a
+                       lie in the other direction: the controls disappeared, so a person
+                       could not tell whether they were missing or merely refused. Same
+                       components, same positions, inert and saying why. #}
+                    <div class="status-grid" style="margin-top:16px;">
+                        <div class="panel-card">
+                            <div class="field-head">
+                                {% if mgmt.read %}
+                                <span class="field-label">
+                                    {{ mgmt.roster.matched }} member{{ '' if mgmt.roster.matched == 1 else 's' }}
+                                    {%- if mgmt.roster.matched > mgmt.roster.shown %} · showing the first {{ mgmt.roster.shown }}{% endif %}
+                                </span>
+                                {% if not mgmt.roster.complete %}
+                                <span class="pill warn">partial list</span>
+                                {% endif %}
+                                {% else %}
+                                <span class="field-label">Nobody to show yet</span>
+                                {% endif %}
+                            </div>
+                            {# A partial list says so rather than looking like a server
+                               with three members: the members intent is what fills this
+                               cache, and "I could not ask" is not "there is nobody". #}
+                            {% if not mgmt.read %}
+                            <p class="composer-hint">
+                                {{ mgmt.why or 'This list could not be read just now.' }}
+                                The panel below is still here, and inert — nothing on it
+                                can act on a member it could not read.
+                            </p>
+                            {% elif not mgmt.roster.complete %}
+                            <p class="composer-hint">
+                                This list may be incomplete — Discord only reports the members
+                                a client tracks. Enable the <strong>Server Members</strong> intent
+                                in the Developer Portal for a full one.
+                            </p>
+                            {% endif %}
+                            {# The list renders whether or not it could be read, because
+                               the ids the page's script reaches for have to exist for
+                               the *page* to be one document: an element that vanishes on
+                               a bad read is a script that throws on the way to the parts
+                               of itself that still work. An unread list says so in the
+                               list. #}
+                            <ul class="member-list" id="member-list">
+                                {% if not mgmt.read %}
+                                <li class="status-empty">{{ mgmt.why or 'This list could not be read just now.' }}</li>
+                                {% endif %}
+                                {% for member in mgmt.roster.members %}
+                                <li class="member-row">
+                                    <button type="button" class="member-pick"
+                                            data-member-id="{{ member.id }}"
+                                            data-member-name="{{ member.display_name }}"
+                                            aria-pressed="false">
+                                        <span class="member-name">{{ member.display_name }}</span>
+                                        <span class="member-meta">
+                                            {%- if member.bot %}<span class="pill">bot</span>{% endif -%}
+                                            {%- if member.timeout_seconds %}<span class="pill warn">timed out</span>{% endif -%}
+                                            {{ member.top_role }}
+                                        </span>
+                                        <span class="member-id">{{ member.id }}</span>
+                                    </button>
+                                </li>
+                                {% else %}
+                                <li class="status-empty">Nothing matched that search.</li>
+                                {% endfor %}
+                            </ul>
+                            {% if mgmt.bans %}
+                            <div class="field-head" style="margin-top:14px;">
+                                <span class="field-label">Banned</span>
+                                <span class="composer-hint">Read from Discord's own ban list.</span>
+                            </div>
+                            <ul class="member-list">
+                                {% for entry in mgmt.bans %}
+                                <li class="member-row">
+                                    <button type="button" class="member-pick"
+                                            data-member-id="{{ entry.id }}"
+                                            data-member-name="{{ entry.display_name or entry.name }}"
+                                            data-member-banned="1"
+                                            aria-pressed="false">
+                                        <span class="member-name">{{ entry.display_name or entry.name }}</span>
+                                        <span class="member-meta">{{ entry.reason or 'no reason recorded' }}</span>
+                                        <span class="member-id">{{ entry.id }}</span>
+                                    </button>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+                        </div>
+
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">Do something about it</span>
+                                <span class="composer-hint" id="member-selected">Nobody selected yet.</span>
+                            </div>
+                            {# One `disabled` for the whole form rather than one per
+                               control: a half-enabled form is the harder thing to read,
+                               and every field here is part of one action. #}
+                            <label class="field-label" for="member-action">Action</label>
+                            <select class="input" id="member-action"{% if not mgmt.read %} disabled{% endif %}>
+                                <option value="warn">Warn — a recorded warning</option>
+                                <option value="timeout">Time out — mute for a while</option>
+                                <option value="timeout_remove">Remove a timeout</option>
+                                <option value="kick">Kick — they can come back</option>
+                                <option value="ban">Ban — they cannot</option>
+                                <option value="unban">Unban — by id</option>
+                                <option value="clear_warnings">Clear every warning</option>
+                            </select>
+
+                            <label class="field-label" for="member-minutes">Minutes (a timeout only)</label>
+                            <input class="input" type="number" id="member-minutes" min="1" max="40320" value="60" inputmode="numeric"{% if not mgmt.read %} disabled{% endif %}>
+
+                            <label class="field-label" for="member-reason">Reason (the member is told, and it is the record)</label>
+                            <input class="input" type="text" id="member-reason" maxlength="380" placeholder="What happened"{% if not mgmt.read %} disabled{% endif %}>
+
+                            <button type="button" class="btn btn-primary" id="member-run" disabled>Do it</button>
+                            <button type="button" class="btn" id="member-warnings" disabled>Warnings on record</button>
+                            <p class="composer-hint" id="member-status" role="status">{{ mgmt.why if not mgmt.read else '' }}</p>
+                            <ul class="member-list" id="member-warning-list"></ul>
+                        </div>
+                    </div>
+
+                    {% if mgmt.recent %}
+                    <div class="panel-card" style="margin-top:16px;">
+                        <div class="field-head">
+                            <span class="field-label">Done from this website</span>
+                            <span class="composer-hint">Discord's own audit log credits the bot, so this is the record of who asked.</span>
+                        </div>
+                        <ul class="member-list">
+                            {% for entry in mgmt.recent %}
+                            <li class="member-row">
+                                <span class="member-name">{{ entry.action }}</span>
+                                <span class="member-meta">{{ entry.actor_name or 'someone' }} → {{ entry.target or 'the server' }}{% if entry.detail %} · {{ entry.detail }}{% endif %}</span>
+                                <span class="member-id">{{ entry.at|int }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </section>
+                {% endif %}
+
+                {% if page is not defined or page == 'server' %}
+                <!-- ── Server ──────────────────────────────────────────── -->
+                <section id="server-control" aria-labelledby="server-title">
+                    <div class="section-header">
+                        <div>
+                            <span class="eyebrow">Server</span>
+                            <h2 id="server-title">The whole server at once</h2>
+                        </div>
+                    </div>
+
+                    <div class="status-grid" style="margin-top:16px;">
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">Lockdown</span>
+                                {% if mgmt.read and mgmt.control.locked %}
+                                <span class="pill fail">{{ mgmt.control.locked }} channel(s) locked</span>
+                                {% elif mgmt.read %}
+                                <span class="pill ok">nothing locked</span>
+                                {% else %}
+                                <span class="pill warn">not read</span>
+                                {% endif %}
+                            </div>
+                            <p class="composer-hint">
+                                A lockdown denies <strong>Send Messages</strong>, thread creation and
+                                reactions for <strong>@everyone</strong> in every channel I can manage.
+                                Lifting it puts back <em>exactly</em> what each channel had before — a
+                                channel that was already locked stays locked, because the undo of a
+                                lockdown is not a permission grant. {{ mgmt.control.plan }}
+                            </p>
+                            {# A lockdown is the one action on this page that changes every
+                               channel at once, so the button is disabled — not hidden — when
+                               the ledger could not be read: it is the *undo* that needs the
+                               ledger, and offering "lock" with no way to see what it did is
+                               how a person ends up locking a server they cannot unlock. #}
+                            <button type="button" class="btn btn-primary" id="server-lockdown"{% if not mgmt.read %} disabled{% endif %}>Lock every channel</button>
+                            <button type="button" class="btn" id="server-unlock"{% if not mgmt.read or not mgmt.control.locked %} disabled{% endif %}>Lift the lockdown</button>
+                            <p class="composer-hint" id="server-status" role="status">{{ mgmt.why if not mgmt.read else '' }}</p>
+                        </div>
+
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">Slowmode everywhere</span>
+                                <span class="composer-hint">The server stays readable; nobody can flood it.</span>
+                            </div>
+                            <label class="field-label" for="server-slowmode">Seconds between messages (0 turns it off)</label>
+                            <input class="input" type="number" id="server-slowmode" min="0" max="21600" value="10" inputmode="numeric"{% if not mgmt.read %} disabled{% endif %}>
+                            <button type="button" class="btn btn-primary" id="server-slowmode-run"{% if not mgmt.read %} disabled{% endif %}>Apply to every channel</button>
+                            <p class="composer-hint">Discord's own ceiling is 21600 — six hours. A bigger number is clamped rather than refused.</p>
+                        </div>
+                    </div>
+
+                    {% if mgmt.control and mgmt.control.channels %}
+                    <div class="panel-card" style="margin-top:16px;">
+                        <div class="field-head">
+                            <span class="field-label">Channels a lockdown is holding</span>
+                            <span class="composer-hint">This list is what "lift" will put back.</span>
+                        </div>
+                        <ul class="member-list">
+                            {% for channel in mgmt.control.channels %}
+                            <li class="member-row">
+                                <span class="member-name">#{{ channel.name }}</span>
+                                <span class="member-id">{{ channel.id }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    {% if mgmt.recent %}
+                    <div class="panel-card" style="margin-top:16px;">
+                        <div class="field-head">
+                            <span class="field-label">Done from this website</span>
+                            <span class="composer-hint">Newest first, and it survives a restart.</span>
+                        </div>
+                        <ul class="member-list">
+                            {% for entry in mgmt.recent %}
+                            <li class="member-row">
+                                <span class="member-name">{{ entry.action }}</span>
+                                <span class="member-meta">{{ entry.actor_name or 'someone' }}{% if entry.detail %} · {{ entry.detail }}{% endif %}</span>
+                                <span class="member-id">{{ entry.at|int }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </section>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -1395,6 +1687,164 @@
             }
             return data;
         }
+
+        // ── Members, and the server itself ─────────────────────────────────
+        // Two panels with one idea behind them: the browser collects *intent*
+        // (who, what, why) and the endpoint decides everything else. Nothing here
+        // knows who may do what — the guard, the hierarchy and the permissions
+        // live on the server, because a page cannot be trusted to remember a rule
+        // and a tab can be left open for a week.
+        (function memberPanel() {
+            const list = document.getElementById("member-list");
+            const runButton = document.getElementById("member-run");
+            const warnButton = document.getElementById("member-warnings");
+            const actionSelect = document.getElementById("member-action");
+            const selectedLabel = document.getElementById("member-selected");
+            const status = document.getElementById("member-status");
+            const warningList = document.getElementById("member-warning-list");
+            if (!list || !runButton) return;
+
+            // Text, not a number: a snowflake is 18–19 digits and a JavaScript
+            // double is exact to about 16, so the id that reaches the endpoint has
+            // to be the one that was rendered. `_console_id` is the same rule on
+            // the console's side of the wire.
+            const GUILD_ID = {{ (guild_id|string)|tojson }};
+            let selected = null;
+
+            function say(message, tone) {
+                if (!status) return;
+                status.textContent = message || "";
+                status.style.color = tone === "error" ? "var(--red)" : "";
+            }
+
+            function pick(button) {
+                selected = {
+                    id: button.getAttribute("data-member-id"),
+                    name: button.getAttribute("data-member-name"),
+                    banned: button.getAttribute("data-member-banned") === "1",
+                };
+                Array.prototype.forEach.call(list.querySelectorAll("[data-member-id]"), function (other) {
+                    other.setAttribute("aria-pressed", other === button ? "true" : "false");
+                    other.classList.toggle("is-selected", other === button);
+                });
+                if (selectedLabel) selectedLabel.textContent = `${selected.name} · ${selected.id}`;
+                runButton.disabled = false;
+                if (warnButton) warnButton.disabled = selected.banned;
+                say("");
+                if (warningList) warningList.innerHTML = "";
+                // A member who is banned is offered an unban rather than a kick,
+                // because that is the only action the endpoint can perform on
+                // somebody who is not in the server.
+                if (actionSelect && selected.banned) actionSelect.value = "unban";
+            }
+
+            list.addEventListener("click", function (event) {
+                const button = event.target.closest("[data-member-id]");
+                if (button) pick(button);
+            });
+
+            runButton.addEventListener("click", async function () {
+                if (!selected) return;
+                const action = actionSelect ? actionSelect.value : "warn";
+                const reasonInput = document.getElementById("member-reason");
+                const minutesInput = document.getElementById("member-minutes");
+                const label = actionSelect.options[actionSelect.selectedIndex].textContent;
+                if (action === "ban" && !window.confirm(`Ban ${selected.name} from this server?`)) return;
+                if (action === "kick" && !window.confirm(`Kick ${selected.name} from this server?`)) return;
+                runButton.disabled = true;
+                say(`Working — ${label}…`);
+                try {
+                    const data = await apiPost("/api/member-action", {
+                        guild_id: GUILD_ID,
+                        user_id: selected.id,
+                        action: action,
+                        reason: reasonInput ? reasonInput.value : "",
+                        minutes: minutesInput ? Number(minutesInput.value || 0) : 0
+                    });
+                    say(`${data.said || "Done."} Reload to refresh the list.`, "ok");
+                    showToast(data.said || "Done.", "success");
+                } catch (error) {
+                    say(error.message, "error");
+                    showToast(error.message, "error");
+                } finally {
+                    runButton.disabled = false;
+                }
+            });
+
+            if (warnButton) {
+                warnButton.addEventListener("click", async function () {
+                    if (!selected || !warningList) return;
+                    warningList.innerHTML = "";
+                    try {
+                        const asked = await fetch(
+                            `/api/member-warnings?guild_id=${encodeURIComponent(GUILD_ID)}&user_id=${encodeURIComponent(selected.id)}`,
+                            { credentials: "same-origin", headers: { "Accept": "application/json" } }
+                        );
+                        const data = await asked.json();
+                        if (!data.success) throw new Error(data.error || "That could not be read.");
+                        if (!data.warnings.length) {
+                            say(`${selected.name} has no warnings on record.`);
+                            return;
+                        }
+                        data.warnings.forEach(function (row) {
+                            const li = document.createElement("li");
+                            li.className = "member-row";
+                            const body = document.createElement("span");
+                            body.className = "member-meta";
+                            body.textContent = `${row.reason} (#${row.id})`;
+                            li.appendChild(body);
+                            warningList.appendChild(li);
+                        });
+                        say(`${data.warnings.length} warning(s) on record.`);
+                    } catch (error) {
+                        say(error.message, "error");
+                    }
+                });
+            }
+        })();
+
+        (function serverPanel() {
+            const lockButton = document.getElementById("server-lockdown");
+            if (!lockButton) return;
+            const unlockButton = document.getElementById("server-unlock");
+            const slowButton = document.getElementById("server-slowmode-run");
+            const status = document.getElementById("server-status");
+            const GUILD_ID = {{ (guild_id|string)|tojson }};
+
+            function say(message, tone) {
+                if (!status) return;
+                status.textContent = message || "";
+                status.style.color = tone === "error" ? "var(--red)" : "";
+            }
+
+            async function send(action, extra, confirmText) {
+                if (confirmText && !window.confirm(confirmText)) return;
+                say("Working…");
+                try {
+                    const data = await apiPost("/api/server-action", { guild_id: GUILD_ID, action: action, ...(extra || {}) });
+                    say(`${data.said || "Done."} Reload to see the new state.`, "ok");
+                    showToast(data.said || "Done.", "success");
+                } catch (error) {
+                    say(error.message, "error");
+                    showToast(error.message, "error");
+                }
+            }
+
+            lockButton.addEventListener("click", function () {
+                send("lockdown", null, "Lock every channel I can manage? Everyone will be unable to type — this is reversible from here.");
+            });
+            if (unlockButton) {
+                unlockButton.addEventListener("click", function () {
+                    send("unlock", null, "Put back the permissions each channel had before the lockdown?");
+                });
+            }
+            if (slowButton) {
+                slowButton.addEventListener("click", function () {
+                    const input = document.getElementById("server-slowmode");
+                    send("slowmode", { seconds: Number(input ? input.value : 0) || 0 });
+                });
+            }
+        })();
 
         // ── This server's bot ──────────────────────────────────────────────
         // Discord's per-guild profile: the member fields, not the application's.

@@ -647,6 +647,65 @@ async def setup():
             updated_by INTEGER
         )''')
 
+        # ── A lockdown's own undo, and why it needs one ──────────────────────
+        # "Lock every channel" is a bulk write over somebody else's server, and
+        # the shape that makes it safe is that it remembers what it *changed*:
+        # one row per channel the lockdown touched, holding the overwrite that
+        # was there before. Unlocking then restores what the server had rather
+        # than blanket-allowing `@everyone` to talk — which on a server that had
+        # deliberately locked a channel would be the lockdown's undo handing out
+        # a permission nobody asked for. `previous` is the overwrite target as
+        # three numbers (allow, deny, and whether it existed at all); NULL means
+        # there was nothing there and the row should be removed on unlock.
+        await db.execute('''CREATE TABLE IF NOT EXISTS lockdown_state (
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            previous TEXT NOT NULL DEFAULT '',
+            locked_at REAL NOT NULL DEFAULT 0,
+            locked_by INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, channel_id)
+        )''')
+
+        # ── Servers the bot refuses to be in ─────────────────────────────────
+        # The operator's own decision, which has no Discord equivalent: leaving a
+        # server is `/kick` applied to the bot, and *staying* left is a list.
+        # Enforced on join (`on_guild_join` leaves immediately) rather than only
+        # when somebody clicks leave, because a blocklist that a re-invite can
+        # walk around is a note to self rather than a rule.
+        await db.execute('''CREATE TABLE IF NOT EXISTS guild_blocklist (
+            guild_id INTEGER PRIMARY KEY,
+            reason TEXT NOT NULL DEFAULT '',
+            added_at REAL NOT NULL DEFAULT 0,
+            added_by TEXT NOT NULL DEFAULT ''
+        )''')
+
+        # ── What was done through the website ───────────────────────────────
+        # Discord's own audit log credits the **bot**, because the bot is what
+        # performed the action — so a panel action has no audit entry naming the
+        # person who asked for it. This is that record, and it is not a
+        # convenience: it is the only place a web-signed-in administrator's
+        # identity is attached to what happened. Same three rules as the
+        # moderation record: the action and its outcome, never the text somebody
+        # typed into anything else.
+        await db.execute('''CREATE TABLE IF NOT EXISTS web_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at REAL NOT NULL DEFAULT 0,
+            scope TEXT NOT NULL DEFAULT '',
+            actor_id INTEGER NOT NULL DEFAULT 0,
+            actor_name TEXT NOT NULL DEFAULT '',
+            guild_id INTEGER NOT NULL DEFAULT 0,
+            action TEXT NOT NULL DEFAULT '',
+            target TEXT NOT NULL DEFAULT '',
+            ok INTEGER NOT NULL DEFAULT 0,
+            detail TEXT NOT NULL DEFAULT ''
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_web_actions_at ON web_actions(at)'
+        )
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_web_actions_guild ON web_actions(guild_id, at)'
+        )
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):
@@ -1128,6 +1187,199 @@ async def set_247_setting(guild_id: int, channel_id: int, enabled: bool):
                 enabled = excluded.enabled''',
             (guild_id, channel_id, 1 if enabled else 0))
         await db.commit()
+
+# ── Warnings ─────────────────────────────────────────────────────────────────
+# Three helpers where the commands used to hold the SQL directly. The website
+# became a second caller, and a second copy of "what a warning is" is how a panel
+# and a command end up disagreeing about whether somebody has one.
+
+async def add_warning(guild_id: int, user_id: int, reason: str) -> int:
+    """Record one warning, and hand back its row id."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO warnings (guild_id, user_id, reason) VALUES (?, ?, ?)",
+            (int(guild_id), int(user_id), str(reason)),
+        )
+        await db.commit()
+        return int(cursor.lastrowid or 0)
+
+
+async def get_warnings(guild_id: int, user_id: int) -> list[dict]:
+    """One member's warnings, newest first, as rows the panel can draw."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, reason FROM warnings WHERE guild_id = ? AND user_id = ? "
+            "ORDER BY id DESC",
+            (int(guild_id), int(user_id)),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [{"id": int(row[0]), "reason": str(row[1] or "")} for row in rows]
+
+
+async def clear_warnings(guild_id: int, user_id: int) -> int:
+    """Delete every warning for one member, reporting how many went."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM warnings WHERE guild_id = ? AND user_id = ?",
+            (int(guild_id), int(user_id)),
+        )
+        await db.commit()
+        return int(cursor.rowcount or 0)
+
+
+# ── A lockdown's ledger ──────────────────────────────────────────────────────
+
+async def save_lockdown(guild_id, rows: list[tuple[int, str]], by: int, at: float) -> int:
+    """Write the channels one lockdown touched, with what was there before.
+
+    ``rows`` is ``(channel_id, previous)``. Written before the overwrites are
+    applied, because the ledger is the undo: a lockdown that applied and then
+    failed to record would be a bulk permission change with no way back.
+    """
+    if not rows:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.executemany(
+            'INSERT OR REPLACE INTO lockdown_state '
+            '(guild_id, channel_id, previous, locked_at, locked_by) VALUES (?, ?, ?, ?, ?)',
+            [(int(guild_id), int(channel_id), str(previous), float(at), int(by)) for channel_id, previous in rows],
+        )
+        await db.commit()
+    return len(rows)
+
+
+async def lockdown_rows(guild_id) -> list[tuple[int, str, float]]:
+    """``(channel_id, previous, locked_at)`` for every channel a lockdown holds."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            'SELECT channel_id, previous, locked_at FROM lockdown_state WHERE guild_id = ?',
+            (int(guild_id),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [(int(row[0]), str(row[1] or ""), float(row[2] or 0)) for row in rows]
+
+
+async def forget_lockdown(guild_id, channel_ids=None) -> int:
+    """Forget the ledger — all of it, or the channels that were released."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        if channel_ids:
+            await db.executemany(
+                'DELETE FROM lockdown_state WHERE guild_id = ? AND channel_id = ?',
+                [(int(guild_id), int(channel_id)) for channel_id in channel_ids],
+            )
+        else:
+            await db.execute('DELETE FROM lockdown_state WHERE guild_id = ?', (int(guild_id),))
+        await db.commit()
+    return 0
+
+
+# ── The operator's blocklist ─────────────────────────────────────────────────
+
+async def block_guild(guild_id, reason: str, by: str, at: float) -> None:
+    """Refuse this server the bot, until somebody says otherwise."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            'INSERT OR REPLACE INTO guild_blocklist (guild_id, reason, added_at, added_by) '
+            'VALUES (?, ?, ?, ?)',
+            (int(guild_id), str(reason or ""), float(at), str(by or "")),
+        )
+        await db.commit()
+
+
+async def unblock_guild(guild_id) -> int:
+    """Take a server off the blocklist, reporting whether it was on it."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute('DELETE FROM guild_blocklist WHERE guild_id = ?', (int(guild_id),))
+        await db.commit()
+        return int(cursor.rowcount or 0)
+
+
+async def blocked_guild(guild_id) -> dict | None:
+    """This server's blocklist row, or ``None``."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            'SELECT reason, added_at, added_by FROM guild_blocklist WHERE guild_id = ?',
+            (int(guild_id),),
+        ) as cursor:
+            row = await cursor.fetchone()
+    if row is None:
+        return None
+    return {"reason": str(row[0] or ""), "added_at": float(row[1] or 0), "added_by": str(row[2] or "")}
+
+
+async def blocked_guilds() -> list[dict]:
+    """The whole list, newest first."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            'SELECT guild_id, reason, added_at, added_by FROM guild_blocklist ORDER BY added_at DESC'
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        {
+            "guild_id": str(row[0]),
+            "reason": str(row[1] or ""),
+            "added_at": float(row[2] or 0),
+            "added_by": str(row[3] or ""),
+        }
+        for row in rows
+    ]
+
+
+# ── What the website did ─────────────────────────────────────────────────────
+
+async def record_web_action(
+    *, scope: str, actor_id, actor_name: str, guild_id, action: str,
+    target: str = "", ok: bool = False, detail: str = "", at: float = 0.0,
+) -> None:
+    """Write one line of the website's own audit trail. Never raises: a record
+    that can fail the action it describes is worse than a missing record."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                'INSERT INTO web_actions '
+                '(at, scope, actor_id, actor_name, guild_id, action, target, ok, detail) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (
+                    float(at or 0), str(scope or ""), int(actor_id or 0), str(actor_name or "")[:80],
+                    int(guild_id or 0), str(action or "")[:60], str(target or "")[:120],
+                    1 if ok else 0, str(detail or "")[:400],
+                ),
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[AUDIT] could not record '{action}': {exc}", flush=True)
+
+
+async def recent_web_actions(*, guild_id=None, limit: int = 50) -> list[dict]:
+    """The newest website actions, for one server or for the whole fleet."""
+    query = (
+        'SELECT at, scope, actor_id, actor_name, guild_id, action, target, ok, detail '
+        'FROM web_actions'
+    )
+    args: tuple = ()
+    if guild_id not in (None, "", 0, "0"):
+        query += ' WHERE guild_id = ?'
+        args = (int(guild_id),)
+    query += ' ORDER BY at DESC, id DESC LIMIT ?'
+    args = args + (int(limit),)
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(query, args) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        {
+            "at": float(row[0] or 0),
+            "scope": str(row[1] or ""),
+            "actor_id": str(row[2] or ""),
+            "actor_name": str(row[3] or ""),
+            "guild_id": str(row[4] or ""),
+            "action": str(row[5] or ""),
+            "target": str(row[6] or ""),
+            "ok": bool(row[7]),
+            "detail": str(row[8] or ""),
+        }
+        for row in rows
+    ]
+
 
 async def get_all_247_guilds() -> list[tuple[int, int]]:
     """Returns list of (guild_id, channel_id) where 24/7 mode is enabled."""

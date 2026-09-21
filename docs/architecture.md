@@ -79,11 +79,15 @@ can never disagree.
 
 ## The dashboard's pages
 
-Neither console is one document any more. `DASHBOARD_PAGES` (seven) and
-`OWNER_PAGES` (four) are the single list each rail renders from, every route
+Neither console is one document any more. `DASHBOARD_PAGES` (nine) and
+`OWNER_PAGES` (nine) are the single list each rail renders from, every route
 resolves to one page id, and each page renders only its own section — so the
 composer's listeners only register where a composer exists and the scheduler's
-poll only starts where a queue does. Two consequences worth knowing before
+poll only starts where a queue does. Both rails are also **chunked**: the groups
+come from the server (`DASHBOARD_GROUPS`, `OWNER_GROUPS`) for the same reason the
+pages do, a page nobody placed renders ungrouped rather than vanishing, and
+the home page is deliberately in no group — a home link under a heading reads as
+though it belongs to that heading. Two consequences worth knowing before
 editing either template:
 
 * **The script is one file per console, guarded at each element.** A page is a
@@ -105,6 +109,8 @@ The pages, and what each owns:
 | `/dashboard/composer` | the message builder, channel picker, tag search, receipt |
 | `/dashboard/schedule` | the queue, the history, cancel and send-now |
 | `/dashboard/identity` | per-server nick, avatar, banner, bio |
+| `/dashboard/members` | the roster, the ban list, and one action form — warn, time out, kick, ban, unban |
+| `/dashboard/server` | lockdown, lift, and slowmode applied to every channel at once |
 | `/dashboard/commands` | the per-server command scope and whether the republish landed |
 | `/dashboard/status` | monitors, command publish, this deployment's own readings |
 
@@ -134,6 +140,30 @@ And the jobs themselves:
 5. **The public pages** (`/`, `/privacy`, `/terms`) — no session, no gateway
    dependency for the two policies, and every figure on the landing page either
    measured or absent.
+6. **Member actions** (`/api/member-action`, `/api/member-warnings`) and
+   **whole-server actions** (`/api/server-action`) — the two pages above, and they
+   are thin on purpose: the guard, the hierarchy and the action itself live in
+   `utils/moderation_actions.py` (the module `/kick` calls) and
+   `utils/server_control.py`, so a kick from a phone and a kick from a webpage
+   take one code path to one audit row. Three rules hold the surface together.
+   **The authority is the session's, re-checked per request** — `utils/principal`,
+   the same rule the toggles already ask — and the *person's own* Discord
+   permissions decide what may be done to whom, which is the guard the slash
+   commands have always used. **A refusal is an answer**: permission problems, a
+   member who left between the page loading and the click, and a server the bot
+   is not in are all a sentence naming what to do rather than a 500. **Every
+   action is one row in `web_actions`**, because Discord's audit log credits the
+   *bot* (the bot is what performed it) and this is the only place the person who
+   asked is written down. A lockdown writes its ledger **before** it touches a
+   channel: a bulk permission change that failed to record itself would have no
+   undo, and the undo is the whole reason a lockdown is allowed to be one click.
+7. **The operator's own controls** (`/api/console/server-action`) — republish a
+   server's command list, leave it, leave *and block* it, or take it off the
+   blocklist. Operator scope only (`_require_operator_api`), so a server's own
+   administrator can hold every switch in the Systems panel and still not be
+   allowed to make the bot leave. The blocklist is enforced **on the way in**
+   (`bot.on_guild_join` refuses and leaves before any setup work), because a list
+   a re-invite can walk around is a note to self rather than a rule.
 
 ## The message layer (`utils/style.py`)
 

@@ -4,12 +4,21 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { readBoot } from "./api";
 import { App } from "./App";
-import { applyTheme, currentTheme } from "./lib/theme";
+import {
+  applyCursorColor,
+  applyCursorStyle,
+  applyTheme,
+  currentCursorColor,
+  currentCursorStyle,
+  currentTheme,
+} from "./lib/theme";
 
-// The theme is applied before the first render, so a reload never flashes the
+// The theme and cursor styles are applied before the first render, so a reload never flashes the
 // wrong palette. `console.html` also sets `data-theme="midnight"` in the markup,
 // which is what a first visit with nothing in localStorage paints.
 applyTheme(currentTheme());
+applyCursorStyle(currentCursorStyle());
+applyCursorColor(currentCursorColor());
 
 const node = document.getElementById("console-root");
 

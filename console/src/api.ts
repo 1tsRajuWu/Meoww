@@ -25,6 +25,7 @@ import type {
   LivePayload,
   Ops,
   Overview,
+  ServerAction,
   ServerDetail,
   SystemsMatrix,
 } from "./types";
@@ -121,6 +122,37 @@ export const api = {
     return { ...data, server: { ...data.server, icon: drawableImage(data.server.icon) } };
   },
   systems: () => request<SystemsMatrix>("/api/console/systems"),
+
+  /**
+   * The operator's own controls over one server: leave it, block it, take it
+   * off the blocklist, or republish its command list.
+   *
+   * The three that change anything about the *bot's* presence in a server are
+   * operator-only on the server side (`_require_operator_api`), which is why this
+   * is a console method and not a dashboard one — a server's own administrator
+   * can be given every switch in the Systems panel and still not be allowed to
+   * make the bot leave.
+   *
+   * A POST because all four write: `leave` and `block` change Discord, `resync`
+   * asks Discord to republish, and `unblock` edits the blocklist.
+   */
+  serverAction: (body: {
+    guildId: string;
+    action: ServerAction;
+    reason?: string;
+  }) =>
+    request<{ success: boolean; said?: string; error?: string }>(
+      "/api/console/server-action",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guild_id: body.guildId,
+          action: body.action,
+          reason: body.reason,
+        }),
+      },
+    ),
 
   /**
    * What one server is doing right now — channels, voice rooms, chatter.

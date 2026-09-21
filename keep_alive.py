@@ -29,6 +29,7 @@ Code Architecture & Navigation:
 12. RUNNER & BACKGROUND LOOPS (Lines 3020-3300):
     Background scheduled message daemon and keep_alive() entrypoint.
 """
+import asyncio
 import json
 import math
 import os
@@ -51,8 +52,8 @@ from flask import (
 from utils import (
     ai_guard, command_publish, command_scope, company, config_audit, consent, db,
     digest, discord_auth, features, figures, guild_directory, hub, identity,
-    media_health, meowfee, modules, plans, principal, ratelimit, scheduled,
-    sessions, site_guard, uptime_status, webdocs,
+    media_health, meowfee, moderation_actions, modules, plans, principal, ratelimit,
+    scheduled, server_control, sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1144,6 +1145,14 @@ GATED_PREFIXES = (
     # true rather than accidental.
     "/api/command-scope",
     "/api/channels",
+    # The members and server panels: the same authority as the toggles (a
+    # session's principal, re-checked per request), and they belong behind the
+    # agreement for the same reason — these are actions *as* the bot against
+    # people, and the terms are what somebody agreed to before taking them.
+    "/api/member-action",
+    "/api/member-warnings",
+    "/api/server-action",
+    "/api/console/server-action",
 )
 
 
@@ -3414,11 +3423,35 @@ def api_market_candles():
 DASHBOARD_PAGES = (
     ("overview", "Overview", "/dashboard", "overview"),
     ("systems", "Systems", "/dashboard/systems", "modules"),
+    ("members", "Members", "/dashboard/members", "members"),
+    ("server", "Server", "/dashboard/server", "server-control"),
     ("composer", "Composer", "/dashboard/composer", "composer"),
     ("schedule", "Scheduled", "/dashboard/schedule", "schedule"),
     ("identity", "Identity", "/dashboard/identity", "identity"),
     ("commands", "Commands", "/dashboard/commands", "command-scope"),
     ("status", "Status", "/dashboard/status", "status"),
+)
+
+#: The dashboard rail's groups, as (label, page ids). The same law the operator's
+#: rail is built to (see :data:`OWNER_GROUPS`), applied to the same problem: the
+#: dashboard grew to nine pages, and a flat list of nine is where finding one stops
+#: being instant. The grouping is declared here rather than written into the
+#: template so the rail stays a rendering of the server's own page list — a page
+#: added above that nobody placed in a group is drawn ungrouped, never missing.
+#:
+#: ``overview`` is deliberately absent for the reason it is absent from
+#: :data:`OWNER_GROUPS`: it is the page you return to rather than a destination
+#: beside the others, and a home link under a heading reads as though it belongs to
+#: that heading. ``tests/test_design_laws.py`` holds the arithmetic — no group
+#: longer than five, five groups at most, every other page placed in the order it
+#: was declared.
+DASHBOARD_GROUPS = (
+    # What this server *is* — the systems it runs, the people in it, and the
+    # controls over the whole of it. Three pages, and they are the three an
+    # administrator comes here to read first.
+    ("This server", ("systems", "members", "server")),
+    ("Message", ("composer", "schedule")),
+    ("Configure", ("identity", "commands", "status")),
 )
 
 #: ``/dashboard`` and its six siblings, keyed by path.
@@ -3427,6 +3460,8 @@ DASHBOARD_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in DASHBOAR
 
 @app.route("/dashboard")
 @app.route("/dashboard/systems")
+@app.route("/dashboard/members")
+@app.route("/dashboard/server")
 @app.route("/dashboard/composer")
 @app.route("/dashboard/schedule")
 @app.route("/dashboard/identity")
@@ -3566,8 +3601,17 @@ def dashboard():
     # that dropped `guild_id` would move an administrator from one page of their
     # server to another server's page.
     guild_query = f"?guild_id={guild_id}" if guild_id else ""
+    # The two pages that are about *people and permissions* rather than about
+    # configuration. They are read only where they are drawn, and that is the one
+    # exception to "every page computes everything": a member list is a reading
+    # from Discord rather than a rule about the server, and asking Discord for a
+    # roster while somebody is looking at the composer would be a page nobody can
+    # open. Nothing here is a *rule* — the guards the actions use are computed at
+    # the moment of the action, in the endpoint.
+    management = _management_context(guild_id, page)
     return render_template(
         "dashboard.html",
+        management=management,
         guild_id=guild_id,
         guild_name=guild_name,
         gateway=_badge_state(),
@@ -3581,7 +3625,7 @@ def dashboard():
             for candidate, _label, path, _anchor in DASHBOARD_PAGES
             if candidate == page
         ),
-        dashboard_pages=_page_nav(DASHBOARD_PAGES, page, guild_query),
+        dashboard_pages=_page_nav(DASHBOARD_PAGES, page, guild_query, groups=DASHBOARD_GROUPS),
         guild_query=guild_query,
         # …and the same list as data, for the page's own script: the palette crosses
         # pages by address, so it needs the address of every page with this
@@ -3655,6 +3699,504 @@ def dashboard():
         site_guard_status=site_guard.health_json(),
         config_status=config_audit.health_json(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Members and the server itself
+# ---------------------------------------------------------------------------
+# Two pages and two endpoints, and all four exist because a web session has no
+# way to do this in Discord: an administrator who is not at their desktop, or who
+# would rather not do a bulk permission change from a phone keyboard, had exactly
+# one option — leave the incident for later.
+#
+# Three rules shape the whole surface:
+#
+# * **The authority is the session's, re-checked per request.** ``_principal``
+#   decides who may act on a server (the same rule the toggles and the identity
+#   panel already ask), and the *person's own* Discord permissions decide what
+#   may be done to whom — which is why the actions run through
+#   ``utils.moderation_actions``: the guard that refuses moderating an
+#   administrator, the owner, or somebody with an equal role is the same one
+#   ``/kick`` has always used.
+# * **Every action is one line in ``web_actions``.** Discord's audit log credits
+#   the *bot*, because the bot is what performed the action, so this is the only
+#   place the person who asked is written down.
+# * **A refusal is an answer.** Permission problems, a member who left between the
+#   page loading and the click, and a server where the bot is not present are all
+#   answered with a sentence naming what to do rather than a 500.
+
+
+def _live_guild(guild_id):
+    """The live guild object for this id, or ``None``. Never raises."""
+    if BOT_INSTANCE is None or not guild_id:
+        return None
+    try:
+        return BOT_INSTANCE.get_guild(int(guild_id))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _actor_member(guild, user_id):
+    """The signed-in person's own member in that server.
+
+    Cache first, one fetch after: the Server Members intent fills the cache on a
+    live gateway, and a *cold* cache (a restart, or the intent missing) would
+    otherwise refuse every action with "I could not read your own member" — a
+    sentence that is true and useless.
+    """
+    if guild is None or not user_id:
+        return None
+    member = guild.get_member(int(user_id))
+    if member is not None:
+        return member
+    fetch = getattr(guild, "fetch_member", None)
+    if not callable(fetch):
+        return None
+    try:
+        return await fetch(int(user_id))
+    except Exception:  # noqa: BLE001 — not a member, or Discord refused to say
+        return None
+
+
+def _may_act_here(guild_id) -> bool:
+    """Whether this session may act on this server at all.
+
+    One question with one home (``utils.principal``), asked again on every
+    request: a Discord sign-in's reach is recomputed from the bot's live guilds
+    rather than trusted from the cookie, so a server the person was demoted from
+    stops being reachable immediately.
+    """
+    return _principal().may_act_in(guild_id, administered=[row["id"] for row in _visible_guilds()])
+
+
+def _loop_reading(coro, default):
+    """``(payload, read)`` for one reading that needs the bot's loop.
+
+    The bridge is ``_run_on_bot_loop``, the one this file already had (on the
+    bot's own loop when there is one, and ``asyncio.run`` for the stand-in
+    harness that has none) — a second bridge would be a second set of rules about
+    when Discord may be touched.
+
+    A reading that fails returns the caller's default and ``False``, which is how
+    a page can say *not read* rather than drawing a confident empty list: "I could
+    not ask" and "there is nobody" are different answers, and this project keeps
+    them apart everywhere else too.
+    """
+    try:
+        payload = _run_on_bot_loop(coro, timeout=20.0)
+    except Exception as exc:  # noqa: BLE001 — a reading that fails is not a page that fails
+        print(f"[PANEL] reading failed: {exc}", flush=True)
+        return default, False
+    if isinstance(payload, dict) and payload.get("success") is False:
+        return default, False
+    return payload, True
+
+
+def _management_context(guild_id, page) -> dict:
+    """The roster and the server's own controls, for the two pages that draw them.
+
+    Empty everywhere else, deliberately: this is the one part of this page that
+    costs Discord a request, and a page about the composer has no business asking
+    for a member list.
+
+    **Synchronous on purpose**, because it is called while a page is being
+    rendered: the roster comes out of the gateway's own cache (no await), and the
+    three readings that genuinely need Discord's loop — the ban list, the
+    lockdown ledger, the audit trail — go through :func:`_loop_reading` and say so
+    when there is no loop to use.
+    """
+    context = {
+        "page": page if page in ("members", "server") else "",
+        "read": False,
+        "why": "",
+        "roster": None,
+        "bans": [],
+        "control": None,
+        "query": "",
+        "recent": [],
+    }
+    if context["page"] == "":
+        return context
+    guild = _live_guild(guild_id)
+    if guild is None or not _may_act_here(guild_id):
+        context["why"] = (
+            "I am not in that server right now, so there is nothing to read — a "
+            "restart or a removal makes this list empty rather than wrong."
+            if guild is None
+            else "This sign-in does not reach that server."
+        )
+        return context
+    context["read"] = True
+    try:
+        if context["page"] == "members":
+            context["query"] = (request.args.get("q") or "").strip()
+            cached = moderation_actions.roster_cached(guild, context["query"])
+            if cached is not None:
+                context["roster"] = cached
+            else:
+                # An empty cache is not an empty server: ask Discord once, and on
+                # a host with no loop say that instead.
+                roster, read = _loop_reading(
+                    moderation_actions.roster(guild, context["query"]),
+                    {"members": [], "matched": 0, "shown": 0, "cache": 0, "queried": False, "complete": False},
+                )
+                context["roster"] = roster
+                if not read:
+                    context["why"] = (
+                        "Discord's member cache is empty and the bot is not "
+                        "connected, so I could not ask — the **Server Members** "
+                        "intent is what fills this list."
+                    )
+                    context["read"] = False
+                    return context
+            bans, _read = _loop_reading(moderation_actions.banned(guild, limit=20), [])
+            context["bans"] = bans if isinstance(bans, list) else []
+        else:
+            control, read = _loop_reading(server_control.state(guild), None)
+            if not read:
+                # The plan is pure and needs nothing but the guild object, so even
+                # without the ledger the page can say what a lockdown *would* do.
+                work = server_control.plan(guild)
+                control = {
+                    "locked": 0,
+                    "channels": [],
+                    "counts": work.counts,
+                    "plan": work.sentence(),
+                    "ledger": False,
+                }
+            context["control"] = control
+        recent, _read = _loop_reading(db.recent_web_actions(guild_id=guild_id, limit=12), [])
+        context["recent"] = recent if isinstance(recent, list) else []
+    except Exception as exc:  # noqa: BLE001 — a reading that breaks must not break the page
+        context["read"] = False
+        context["why"] = f"I could not read that just now ({type(exc).__name__})."
+        print(f"[PANEL] management context failed: {exc}", flush=True)
+    return context
+
+
+#: The member actions the panel may ask for, and the Discord permission each one
+#: needs the *bot* to hold. Named here so a refusal can say which permission is
+#: missing rather than "that failed", and so the page cannot offer an action the
+#: endpoint would refuse.
+PANEL_MEMBER_ACTIONS = ("warn", "timeout", "timeout_remove", "kick", "ban", "unban", "clear_warnings")
+#: The whole-server actions the panel may ask for.
+PANEL_SERVER_ACTIONS = ("lockdown", "unlock", "slowmode")
+
+
+@app.route("/api/member-action", methods=["POST"])
+def api_member_action():
+    """Do one thing to one member, from the website.
+
+    Same authority as every other dashboard write (the session's principal, the
+    CSRF token, the server it names), plus the member guard the slash commands
+    use — and one row in ``web_actions`` either way, because a panel action has
+    no Discord audit entry naming the person who asked for it.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None or not _may_act_here(guild_id):
+        return jsonify({"success": False, "error": "That server is not reachable from this sign-in."}), 403
+
+    action = str(data.get("action") or "")
+    if action not in PANEL_MEMBER_ACTIONS:
+        return jsonify({"success": False, "error": "Unknown action"}), 400
+
+    guild = _live_guild(guild_id)
+    if guild is None:
+        return jsonify({
+            "success": False,
+            "error": "I am not connected to that server right now, so nothing was changed.",
+        }), 409
+
+    principal = _principal()
+
+    async def work():
+        actor_member = await _actor_member(guild, principal.user_id)
+        target = await _target_member(guild, data.get("user_id"), action)
+        if target is None:
+            return {
+                "success": False,
+                "error": "That member is not in this server any more — reload the page and try again.",
+            }, 404
+        outcome = await moderation_actions.apply(
+            moderation_actions.Request(
+                guild=guild,
+                action=action,
+                target=target,
+                actor=moderation_actions.Actor(
+                    id=int(principal.user_id or 0),
+                    name=principal.name or "the dashboard",
+                    member=actor_member,
+                    source="dashboard",
+                ),
+                reason=str(data.get("reason") or "No reason provided"),
+                minutes=_int_or_none(data.get("minutes")) or 0,
+                delete_days=_int_or_none(data.get("delete_days")) or 0,
+            )
+        )
+        await db.record_web_action(
+            scope=principal.scope,
+            actor_id=principal.user_id,
+            actor_name=principal.name,
+            guild_id=guild_id,
+            action=action,
+            target=outcome.target_name or str(outcome.target_id),
+            ok=outcome.ok,
+            detail=outcome.detail,
+            at=time.time(),
+        )
+        payload = outcome.to_dict()
+        payload["said"] = (
+            f"{outcome.verb} — case #{outcome.case_id}."
+            if outcome.ok and outcome.case_id
+            else (f"{outcome.verb} done." if outcome.ok else outcome.detail)
+        )
+        return payload, (200 if outcome.ok else 409)
+
+    payload, status = _on_bot_loop(work())
+    return jsonify(payload), status
+
+
+async def _target_member(guild, raw_id, action):
+    """The member an action is about: a member for most, a user for an unban."""
+    user_id = _int_or_none(raw_id)
+    if not user_id or user_id <= 0:
+        return None
+    member = guild.get_member(user_id)
+    if member is not None:
+        return member
+    if action == "unban":
+        fetch_user = getattr(guild, "fetch_user", None)
+        if callable(fetch_user):
+            try:
+                return await fetch_user(user_id)
+            except Exception:  # noqa: BLE001 — a user Discord will not name
+                return None
+        return None
+    fetch = getattr(guild, "fetch_member", None)
+    if callable(fetch):
+        try:
+            return await fetch(user_id)
+        except Exception:  # noqa: BLE001 — left the server between page and click
+            return None
+    return None
+
+
+def _on_bot_loop(coro, timeout: float = 20.0):
+    """Run one coroutine on the bot's event loop and get ``(payload, status)`` back.
+
+    The dashboard is Flask on the *main* thread and the gateway lives on the
+    bot's loop; a Discord call made anywhere else either races that loop or
+    raises. This is the one place that bridges them, and it is why every write
+    from this file becomes a small function scheduled onto that loop rather than
+    a second event loop of its own.
+
+    Returns a payload and a status rather than a response, so each route decides
+    what to do with a success (the console's leave, for instance, writes its
+    audit row afterwards).
+    """
+    import concurrent.futures
+
+    loop = getattr(BOT_INSTANCE, "loop", None) if BOT_INSTANCE is not None else None
+    if loop is None or not loop.is_running():
+        return {
+            "success": False,
+            "error": "The bot is not connected right now, so nothing was changed. Try again in a moment.",
+        }, 409
+    try:
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        result = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        return {
+            "success": False,
+            "error": "Discord did not answer in time — check that server for what actually happened.",
+        }, 504
+    except Exception as exc:  # noqa: BLE001 — a refusal, never a 500
+        print(f"[PANEL] action failed: {exc}", flush=True)
+        return {"success": False, "error": f"That did not go through ({type(exc).__name__})."}, 409
+    # A coroutine that answers ``(payload, status)`` is a route's; one that answers
+    # a plain dict or list is a *reading* (the roster, the ban list, the audit
+    # trail) and gets 200. Both shapes exist because the readings are also called
+    # from a page render, where there is no status to give.
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], int):
+        return result
+    return result, 200
+
+
+@app.route("/api/member-warnings")
+def api_member_warnings():
+    """One member's warnings, for the panel's own list.
+
+    A read, so it is a GET rather than another action: the page asks this when
+    somebody selects a member, and a *read* that went through the write endpoint
+    would put a line in the audit trail saying somebody did something.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    guild_id = _resolve_guild_id(request.args.get("guild_id"))
+    if guild_id is None or not _may_act_here(guild_id):
+        return jsonify({"success": False, "error": "That server is not reachable from this sign-in."}), 403
+    user_id = _int_or_none(request.args.get("user_id"))
+    if not user_id:
+        return jsonify({"success": False, "error": "No member given."}), 400
+    rows, _status = _on_bot_loop(_read_warnings(guild_id, user_id))
+    return jsonify({"success": True, "warnings": rows.get("warnings", [])})
+
+
+async def _read_warnings(guild_id, user_id):
+    """The warning rows, read on the bot's loop like every other database read here."""
+    return {"warnings": await db.get_warnings(guild_id, user_id)}
+
+
+@app.route("/api/server-action", methods=["POST"])
+def api_server_action():
+    """Lock the server down, lift it, or set slowmode — as one recorded action."""
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None or not _may_act_here(guild_id):
+        return jsonify({"success": False, "error": "That server is not reachable from this sign-in."}), 403
+
+    action = str(data.get("action") or "")
+    if action not in PANEL_SERVER_ACTIONS:
+        return jsonify({"success": False, "error": "Unknown action"}), 400
+    guild = _live_guild(guild_id)
+    if guild is None:
+        return jsonify({
+            "success": False,
+            "error": "I am not connected to that server right now, so nothing was changed.",
+        }), 409
+
+    principal = _principal()
+    seconds = _int_or_none(data.get("seconds")) or 0
+
+    async def work():
+        actor = moderation_actions.Actor(
+            id=int(principal.user_id or 0),
+            name=principal.name or "the dashboard",
+            member=await _actor_member(guild, principal.user_id),
+            source="dashboard",
+        )
+        if action == "lockdown":
+            report = await server_control.lockdown(guild, actor)
+        elif action == "unlock":
+            report = await server_control.unlock(guild, actor)
+        else:
+            report = await server_control.set_slowmode(guild, seconds, actor)
+        await db.record_web_action(
+            scope=principal.scope,
+            actor_id=principal.user_id,
+            actor_name=principal.name,
+            guild_id=guild_id,
+            action=action,
+            target="" if action != "slowmode" else f"{seconds}s",
+            ok=report.ok,
+            detail=report.sentence() if not report.ok else report.detail,
+            at=time.time(),
+        )
+        payload = report.to_dict()
+        return payload, (200 if report.ok else 409)
+
+    payload, status = _on_bot_loop(work())
+    return jsonify(payload), status
+
+
+@app.route("/api/console/server-action", methods=["POST"])
+def api_console_server_action():
+    """The operator's own controls over a server as a whole.
+
+    Three of them, and each is a thing only the operator can do: **leave** (the
+    bot removes itself from a server — Discord has no other way for an
+    application to do that), **block** (leave *and* refuse to come back, because
+    a blocklist a re-invite can walk around is a note to self rather than a
+    rule), and **resync** (republish that server's command list, which is the
+    fix for the one failure an operator can see from here and nowhere else).
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    guild_id = _int_or_none(data.get("guild_id"))
+    action = str(data.get("action") or "")
+    if not guild_id:
+        return jsonify({"success": False, "error": "No server given."}), 400
+    if action not in ("leave", "block", "unblock", "resync"):
+        return jsonify({"success": False, "error": "Unknown action"}), 400
+
+    actor = (session.get("discord_user") or {}).get("username") or "the operator"
+
+    async def work():
+        guild = _live_guild(guild_id)
+        if action == "unblock":
+            removed = await db.unblock_guild(guild_id)
+            return {
+                "success": True,
+                "said": (
+                    "That server is welcome again — it was on the list and no longer is."
+                    if removed
+                    else "That server was not on the list, so nothing changed."
+                ),
+            }, 200
+        if guild is None:
+            return {
+                "success": False,
+                "error": "I am not in that server, so there is nothing to leave or republish.",
+            }, 409
+        if action == "resync":
+            resync = getattr(BOT_INSTANCE, "resync_commands", None)
+            if not callable(resync):
+                return {"success": False, "error": "This build cannot republish commands."}, 409
+            try:
+                await resync(guild_id)
+            except Exception as exc:  # noqa: BLE001
+                return {"success": False, "error": f"Discord refused the republish ({type(exc).__name__})."}, 409
+            return {
+                "success": True,
+                "said": "Asked Discord to republish that server's command list — its own client caches the picker, so give it a minute.",
+            }, 200
+
+        reason = f"{actor}: left from the console" if action == "leave" else f"{actor}: blocked from the console"
+        if action == "block":
+            await db.block_guild(guild_id, str(data.get("reason") or ""), actor, time.time())
+        try:
+            await guild.leave()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "success": False,
+                "error": f"Discord refused that ({type(exc).__name__}) — the bot is still there.",
+            }, 409
+        said = (
+            "Left that server. It is on the blocklist, so an invite will be refused too."
+            if action == "block"
+            else "Left that server. An invite can add me again."
+        )
+        # The audit row is written on the same loop as the action, so a leave that
+        # succeeded cannot end up with no record of who asked for it.
+        await db.record_web_action(
+            scope="operator",
+            actor_id=0,
+            actor_name=actor,
+            guild_id=guild_id,
+            action=action,
+            target=str(guild_id),
+            ok=True,
+            detail=said,
+            at=time.time(),
+        )
+        return {"success": True, "said": said, "reason": reason}, 200
+
+    body, status = _on_bot_loop(work())
+    return jsonify(body), status
 
 
 # ---------------------------------------------------------------------------
@@ -4077,6 +4619,11 @@ def api_console_server(guild_id: int):
         return jsonify({"success": False, "error": "No such server"}), 404
 
     systems, known = _console_systems_for(guild_id)
+    # Whether this server is on the blocklist, read through the same bridge every
+    # other crossing in this file uses. The page offers **Block** or **Unblock**
+    # from this and from nothing else — they are not alternatives, and a page that
+    # guessed would be offering to block a server that is already blocked.
+    blocked, _read = _loop_reading(db.blocked_guild(guild_id), None)
     return jsonify({
         "success": True,
         "server": {**row, "id": _console_id(row["id"]), "known": known},
@@ -4086,6 +4633,7 @@ def api_console_server(guild_id: int):
         # defect ``features.always_on_names`` exists to stop.
         "always_on": list(features.always_on_names()),
         "publish_at": _last_publish_at(guild_id),
+        "blocked": blocked if isinstance(blocked, dict) else None,
     })
 
 

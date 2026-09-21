@@ -110,6 +110,12 @@ export const SCHEMAS: Record<string, Record<string, Shape>> = {
   // a refresh landing mid-deploy is how a form ends up believing a failed toggle
   // succeeded.
   "/api/console/access/revoke": { success: "boolean" },
+  // The operator's controls over a server as a whole. `success` and nothing
+  // else is required on purpose: a refusal answers `{success: false, error}` and
+  // a success answers `{success: true, said}` — the page reads whichever is
+  // there, and pinning `said` would make the *refusals* fail the boundary check
+  // before the page could show their sentence.
+  "/api/console/server-action": { success: "boolean" },
   "/api/console/economy/adjust": {
     success: "boolean",
     guild_id: "string",

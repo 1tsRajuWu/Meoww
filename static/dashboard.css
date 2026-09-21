@@ -118,6 +118,25 @@
 }
 
 .rail-nav { display: flex; flex-direction: column; gap: 2px; }
+
+/* The groups. A heading, a little air above it, and nothing between it and the
+   links it labels — the whitespace is what does the grouping, so a divider rule
+   *under* a heading would be a second, redundant separator. The first group's
+   heading sits flush against whatever is above it in the rail, which is why the
+   top margin is only applied from the second one on. */
+.rail-group { display: flex; flex-direction: column; gap: 2px; }
+.rail-group + .rail-group { margin-top: 12px; }
+/* 12px, not 11: the same law the console's own group label is held to — this
+   sheet sets nothing below the floor the eye can read at a glance, and an
+   eyebrow is exactly where a sheet is tempted to make an exception. */
+.rail-group-label {
+    padding: 0 11px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
 .rail-nav a {
     display: flex;
     align-items: center;
@@ -1854,4 +1873,114 @@ svg.search-icon {
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+/* --------------------------------------------------------------------------
+   Members, and the server's own controls
+   --------------------------------------------------------------------------
+   The two panels are lists of *people* rather than of settings, so the row is
+   built like the settings rows above it (a hairline between, no card per item)
+   and the one interactive part — choosing a member — is a real button: 44px
+   tall, keyboard-reachable, with `aria-pressed` carrying the selection rather
+   than a colour alone. The selected state is the accent, because it is the one
+   thing on the page that can be acted on.
+   -------------------------------------------------------------------------- */
+.member-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.member-search .input {
+    min-width: 220px;
+}
+
+.member-list {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+}
+
+.member-row {
+    border-bottom: 1px solid var(--border);
+}
+
+.member-row:last-child {
+    border-bottom: 0;
+}
+
+.member-pick {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.member-pick:hover {
+    background: var(--surface-hover);
+}
+
+.member-pick:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+}
+
+.member-pick[aria-pressed="true"] {
+    background: var(--accent-quiet);
+}
+
+.member-pick[aria-pressed="true"] .member-name {
+    color: var(--accent-text);
+}
+
+.member-name {
+    font-size: 15px;
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.member-meta {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.member-id {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A control that cannot be used must not look usable. Both panels go inert as a
+   whole when the server could not be read, and a disabled button that still
+   lights up under the pointer is the shape of the complaint that started this:
+   "the button does nothing" is indistinguishable from "the button is refused". */
+.panel-card .btn:disabled,
+.panel-card .input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* …and it must not answer the pointer either, which is the half the opacity
+   cannot do: this sheet presses every button down on `:active`, so a disabled
+   one that still moves reads as one that simply did not register the click. */
+.panel-card .btn:disabled:active {
+    transform: none;
 }

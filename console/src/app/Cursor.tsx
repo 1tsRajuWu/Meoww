@@ -1,33 +1,15 @@
-/** The custom cursor: one hairline reticle that trails the pointer on a spring.
+/** The custom cursor: supports 6 geometric styles + click ripple + ambient glow.
  *
- * This replaced a paw sitting on the point. The paw was drawn *at* the pointer,
- * which is the one place a decoration must not be: the browser's own arrow is
- * already there and is the thing that decides what a click hits, so the two
- * overlapped into a small smear that read — correctly — as a rendering artifact.
- * Four rules hold this version together, and each one is the difference between a
- * flourish and a nuisance:
- *
- * * **The arrow stays the pointer.** `cursor: none` appears nowhere, so text
- *   selection, resize handles, the I-beam in a field and a disabled control's
- *   refusal all keep working. What this draws is an *instrument that follows*,
- *   a step behind, never a replacement for the point itself.
- * * **Nothing sits on the point.** The ring trails on a spring and stretches
- *   along its own direction of travel by how fast it is moving, so a fast sweep
- *   reads as weight and a settled cursor reads as a still circle. A drag across
- *   the page is the only time it deforms, which is exactly when it has
- *   information to carry.
- * * **It does not exist until the pointer moves.** The stylesheet hides it and
- *   the move handler is the only thing that reveals it, so a page that has just
- *   loaded — or one reached with the keyboard — has nothing parked on it.
- * * **It is off on touch and under `prefers-reduced-motion`**, where a trailing
- *   ring is either invisible or the exact motion the reader asked to be spared.
- *
- * The loop is not always on: it starts on a pointer move or a state change and
- * stops itself as soon as the ring has caught up, so an idle page costs nothing
- * and a pointer that never moves costs nothing either.
+ * Designed to preserve precision:
+ * - Native pointer is preserved when system style is active.
+ * - Dot is pinned to pointer tip with 0ms lag.
+ * - Ring trails on a responsive physical spring.
+ * - Glow layer renders soft ambient light.
+ * - Reduced motion shuts off custom layers cleanly.
  */
 
 import { useEffect, useRef } from "react";
+import { currentCursorStyle, type CursorStyleId } from "../lib/theme";
 
 /** How hard the ring is pulled toward the pointer, and how much it drags. */
 const PULL = 0.2;
@@ -41,6 +23,8 @@ const REST = 0.12;
 export function Cursor() {
   const shell = useRef<HTMLDivElement | null>(null);
   const ring = useRef<HTMLSpanElement | null>(null);
+  const dot = useRef<HTMLSpanElement | null>(null);
+  const glow = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const fine = window.matchMedia("(pointer: fine)").matches;
@@ -49,7 +33,9 @@ export function Cursor() {
 
     const shellNode = shell.current;
     const ringNode = ring.current;
-    if (!shellNode || !ringNode) return;
+    const dotNode = dot.current;
+    const glowNode = glow.current;
+    if (!shellNode || !ringNode || !dotNode || !glowNode) return;
 
     let targetX = window.innerWidth / 2;
     let targetY = window.innerHeight / 2;
@@ -60,25 +46,62 @@ export function Cursor() {
     let scale = 1;
     let scaleGoal = 1;
     let hovering = false;
+    let textHovering = false;
     let pressed = false;
     let shown = false;
     let running = false;
-    // `live` and the frame handle exist so unmount actually stops the loop: a
-    // pending `requestAnimationFrame` outlives the effect that scheduled it, and
-    // a loop that only checks `running` restarts itself on its last frame.
     let live = true;
     let handle = 0;
+    let activeStyle: CursorStyleId = currentCursorStyle();
+
+    const updateClasses = () => {
+      if (activeStyle === "system") {
+        shellNode.style.display = "none";
+        glowNode.style.display = "none";
+        document.documentElement.classList.remove("has-meow-cursor");
+      } else {
+        shellNode.style.display = "";
+        glowNode.style.display = "";
+        document.documentElement.classList.add("has-meow-cursor");
+      }
+      shellNode.className = `cursor meow-cursor cursor-style-${activeStyle}${
+        hovering ? " cursor--link is-link" : ""
+      }${textHovering ? " is-text" : ""}${pressed ? " is-down" : ""}${
+        shown ? " is-on" : ""
+      }`;
+    };
+
+    updateClasses();
+
+    const observer = new MutationObserver(() => {
+      const nextStyle = currentCursorStyle();
+      if (nextStyle !== activeStyle) {
+        activeStyle = nextStyle;
+        updateClasses();
+        wake();
+      }
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-cursor-style"],
+    });
 
     const paint = () => {
-      // A ring stretched along its own velocity: the angle of travel is the
-      // rotation, and only the *speed* sets how far it is pulled out of shape.
       const speed = Math.hypot(vx, vy);
       const stretch = Math.min(STRETCH_MAX, speed * STRETCH);
       const angle = speed > 0.02 ? (Math.atan2(vy, vx) * 180) / Math.PI : 0;
+
+      // Pin dot directly to pointer coordinates
+      dotNode.style.transform = `translate3d(${targetX.toFixed(2)}px, ${targetY.toFixed(2)}px, 0)`;
+
+      // Trailing spring ring
       ringNode.style.transform =
         `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) ` +
         `rotate(${angle.toFixed(1)}deg) ` +
         `scale(${(scale * (1 + stretch)).toFixed(3)}, ${(scale * (1 - stretch * 0.6)).toFixed(3)})`;
+
+      // Ambient glow
+      glowNode.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
     };
 
     const frame = () => {
@@ -105,12 +128,6 @@ export function Cursor() {
     };
 
     const onMove = (event: PointerEvent) => {
-      // A pointer outside the window has no position *on the page*. Some
-      // environments park the mouse far off-screen (an automation harness, a
-      // pointer that walked off a multi-monitor edge), and trusting that
-      // coordinate sends the reticle flying across the viewport from nine
-      // thousand pixels away — seen while driving this very page. Treat it as
-      // the leave it is, and re-enter at the point rather than sliding in.
       const outside =
         event.clientX < -4 ||
         event.clientY < -4 ||
@@ -123,44 +140,63 @@ export function Cursor() {
       targetX = event.clientX;
       targetY = event.clientY;
       if (!shown) {
-        // Arrive where the pointer is rather than sliding in from wherever the
-        // element happens to be anchored.
         shown = true;
         x = targetX;
         y = targetY;
         vx = vy = 0;
         shellNode.style.opacity = "1";
+        glowNode.classList.add("is-on");
+        updateClasses();
       }
-      // `event.target` is not always an Element: a move that lands on the
-      // document (the scrollbar, a drag past the last node) reports `document`
-      // or `window`, and `window.closest` is not a function — which threw a
-      // TypeError out of this handler on every such move, found by driving the
-      // page and reading its console rather than by reading this file.
       const target = event.target;
-      const next =
-        target instanceof Element &&
+      const isElement = target instanceof Element;
+      const nextHover =
+        isElement &&
         Boolean(
-          target.closest("a, button, [role='switch'], summary, label, input, select, textarea"),
+          target.closest(
+            "a, button, [role='button'], [role='switch'], summary, label, select, .swatch, .btn"
+          )
         );
-      if (next !== hovering) {
-        hovering = next;
-        shellNode.classList.toggle("cursor--link", hovering);
+      const nextText =
+        isElement &&
+        Boolean(target.closest("input, textarea, [contenteditable='true']"));
+
+      if (nextHover !== hovering || nextText !== textHovering) {
+        hovering = nextHover;
+        textHovering = nextText;
+        updateClasses();
       }
-      scaleGoal = hovering ? 1.45 : 1;
+      scaleGoal = hovering ? 1.45 : textHovering ? 0.85 : 1;
       wake();
     };
 
-    const onDown = () => {
+    const onDown = (event: PointerEvent) => {
       pressed = true;
+      updateClasses();
+
+      if (activeStyle !== "system") {
+        const ripple = document.createElement("span");
+        ripple.className = "meow-click-fx";
+        ripple.style.left = `${event.clientX}px`;
+        ripple.style.top = `${event.clientY}px`;
+        document.body.appendChild(ripple);
+        window.setTimeout(() => ripple.remove(), 700);
+      }
+
       wake();
     };
+
     const onUp = () => {
       pressed = false;
+      updateClasses();
       wake();
     };
+
     const onLeave = () => {
       shown = false;
       shellNode.style.opacity = "0";
+      glowNode.classList.remove("is-on");
+      updateClasses();
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
@@ -171,6 +207,7 @@ export function Cursor() {
     paint();
 
     return () => {
+      observer.disconnect();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointerup", onUp);
@@ -183,8 +220,12 @@ export function Cursor() {
   }, []);
 
   return (
-    <div className="cursor" ref={shell} aria-hidden="true">
-      <span className="cursor__ring" ref={ring} />
-    </div>
+    <>
+      <div className="cursor meow-cursor" ref={shell} aria-hidden="true">
+        <span className="cursor__ring meow-cursor-ring" ref={ring} />
+        <span className="meow-cursor-dot" ref={dot} />
+      </div>
+      <div className="meow-glow" ref={glow} aria-hidden="true" />
+    </>
   );
 }

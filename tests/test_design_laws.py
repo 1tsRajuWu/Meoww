@@ -600,10 +600,53 @@ class TheNavIsChunked(unittest.TestCase):
             "chunking nine pages into more than five groups is not chunking",
         )
 
-    def test_the_dashboard_stays_under_the_same_limit(self):
+    def test_the_dashboard_is_chunked_the_same_way(self):
+        """Nine pages, and the same law the owner's rail is held to.
+
+        This was a flat `assertLessEqual(len(DASHBOARD_PAGES), 7)` — a limit that
+        only ever held because the page count happened to stay under it, and that
+        said nothing about whether the rail could be read. The dashboard grew to
+        nine when Members and Server arrived, which is the point the law's own
+        remedy applies: chunk it, do not cap it. The assertions are deliberately
+        the same ones the owner rail is held to, because it is the same problem.
+        """
         import keep_alive
 
-        self.assertLessEqual(len(keep_alive.DASHBOARD_PAGES), 7)
+        declared = {page_id for page_id, *_rest in keep_alive.DASHBOARD_PAGES}
+        placed = [
+            page_id
+            for _label, page_ids in keep_alive.DASHBOARD_GROUPS
+            for page_id in page_ids
+        ]
+        self.assertEqual(len(placed), len(set(placed)), "a page is in two groups")
+
+        home = keep_alive.DASHBOARD_PAGES[0][0]
+        missing = declared - set(placed)
+        self.assertEqual(
+            missing,
+            {home},
+            "these pages are in no group, so the rail would draw them ungrouped: "
+            + ", ".join(sorted(missing)),
+        )
+        self.assertEqual(
+            placed[: len(placed)],
+            [page_id for page_id, *_rest in keep_alive.DASHBOARD_PAGES if page_id != home],
+            "the groups do not hold the pages in the order they were declared",
+        )
+
+        for label, page_ids in keep_alive.DASHBOARD_GROUPS:
+            self.assertTrue(label.strip(), "a group with no label is not a group")
+            self.assertLessEqual(
+                len(page_ids),
+                5,
+                f"the {label} group has {len(page_ids)} entries; five is where a list "
+                "stops being scannable",
+            )
+        self.assertLessEqual(
+            len(keep_alive.DASHBOARD_GROUPS),
+            5,
+            "chunking nine pages into more than five groups is not chunking",
+        )
 
     def test_the_owners_rail_carries_the_groups(self):
         """The console reads the labels off the payload, not off a list of its own."""

@@ -2,8 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import aiosqlite
-import datetime
-from utils import db, modlog
+from utils import db, moderation_actions, modlog
 from utils.style import ACCENT, send_card
 
 # Action type config: emoji, color, verb, ansi_color
@@ -18,22 +17,21 @@ ACTION_CONFIG = {
 
 RESET = "\u001b[0m"
 
-def _mod_target_problem(actor: discord.Member, target: discord.Member) -> str | None:
-    """Refuse self / owner / bot / equal-or-higher role moderation targets."""
-    if target.id == actor.id:
-        return "You cannot moderate yourself."
-    if target.id == actor.guild.owner_id:
-        return "You cannot moderate the server owner."
-    if getattr(actor.guild, "me", None) and target.id == actor.guild.me.id:
-        return "You cannot moderate me."
-    if target.guild_permissions.administrator and not actor.guild_permissions.administrator:
-        return "You cannot moderate an administrator."
-    if actor.id != actor.guild.owner_id and target.top_role >= actor.top_role:
-        return (
-            f"**{target.display_name}** has a role at or above yours "
-            f"(**{target.top_role.name}**)."
-        )
-    return None
+#: The guard lives in ``utils.moderation_actions`` now, because the website became
+#: a second caller of these commands' powers and a guard with two definitions is
+#: how a panel ends up able to do what a command cannot.
+_mod_target_problem = moderation_actions.target_problem
+
+
+def _actor(interaction: discord.Interaction) -> moderation_actions.Actor:
+    """The person who ran the command, as the shared module wants them."""
+    user = interaction.user
+    return moderation_actions.Actor(
+        id=int(getattr(user, "id", 0) or 0),
+        name=str(getattr(user, "display_name", None) or getattr(user, "name", "moderator")),
+        member=user if isinstance(user, discord.Member) else None,
+        source="discord",
+    )
 
 class Moderation(commands.Cog):
     """Full-featured moderation with rich embeds and log channel support."""
@@ -97,75 +95,52 @@ class Moderation(commands.Cog):
         )
         return embed
 
-    def _log_embed(
+    # The log card used to be built here too (``_log_embed``). It is
+    # ``utils.moderation_actions.body_embed`` now, so a card the website caused
+    # and a card ``/ban`` caused are the same card — the log is the record, and a
+    # difference between the two doors would be visible in exactly the list people
+    # read to find out what happened.
+
+    # ── the one door ─────────────────────────────────────────────────────────
+    #
+    # Every command below is now a thin caller of ``utils.moderation_actions``,
+    # which holds the guard, the Discord call, the member's DM and the record. The
+    # website reaches the same function, so "what happened when somebody was
+    # banned" has one answer whether it was typed or clicked — and a refused
+    # timeout is written down as refused instead of only being told to the person
+    # who ran the command.
+    async def _act(
         self,
-        action_type: str,
-        target: discord.Member | discord.User,
-        moderator: discord.Member,
-        reason: str,
-        case_id: int,
-    ) -> discord.Embed:
-        # This card keys off the action name and IDs, unlike _action_embed which
-        # puts the verb in its footer, so the verb slot is unused here.
-        emoji, color, _, _ = ACTION_CONFIG.get(action_type, ("📋", 0x7289DA, "Actioned", "\u001b[1;37m"))
-
-        embed = discord.Embed(
-            title=f"{emoji} {action_type} — Case #{case_id}",
-            color=color,
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_author(
-            name="Meow Moderation Log",
-            icon_url=self.bot.user.display_avatar.url
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-
-        embed.add_field(
-            name="👤 Target",
-            value=f"{target.mention}\n`{target.name}`",
-            inline=True
-        )
-        embed.add_field(
-            name="🛡️ Moderator",
-            value=f"{moderator.mention}\n`{moderator.name}`",
-            inline=True
-        )
-        embed.add_field(
-            name="📋 Reason",
-            value=reason,
-            inline=False
-        )
-        embed.add_field(
-            name="🕐 Time",
-            value=f"<t:{int(discord.utils.utcnow().timestamp())}:R>",
-            inline=True
-        )
-
-        embed.set_footer(
-            text=f"Target ID: {target.id} • Mod ID: {moderator.id}",
-            icon_url=moderator.display_avatar.url
-        )
-        return embed
-
-
-    async def _send_log(
-        self,
-        guild: discord.Guild,
-        action_type: str,
-        target: discord.Member | discord.User,
-        moderator: discord.Member,
-        reason: str,
-        case_id: int,
+        interaction: discord.Interaction,
+        action: str,
+        member,
+        *,
+        reason: str = "No reason provided",
+        minutes: int = 0,
+        delete_days: int = 0,
+        label: str = "",
     ):
-        # One door for every writer — this cog, automod's own actions, and the
-        # member's appeal — so the record is one list rather than three that each
-        # look complete. ``utils.modlog`` owns the resolution and the two refusals
-        # (nothing configured, a channel that no longer exists).
-        await modlog.post(
-            guild,
-            self._log_embed(action_type, target, moderator, reason, case_id),
-            what=f"the '{action_type}' case #{case_id}",
+        """Run one action and answer with the same card the website gets told about."""
+        outcome = await moderation_actions.apply(
+            moderation_actions.Request(
+                guild=interaction.guild,
+                action=action,
+                target=member,
+                actor=_actor(interaction),
+                reason=reason,
+                minutes=minutes,
+                delete_days=delete_days,
+            )
         )
+        if not outcome.ok:
+            return await interaction.followup.send(f"❌ {outcome.detail}", ephemeral=True)
+        await send_card(
+            interaction,
+            embed=self._action_embed(
+                label or outcome.verb, member, interaction.user, outcome.reason, outcome.case_id or 0
+            ),
+        )
+        return outcome
 
     # ── commands ─────────────────────────────────────────────────────────────
 
@@ -174,123 +149,35 @@ class Moderation(commands.Cog):
     @app_commands.checks.has_permissions(moderate_members=True)
     async def warn(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
         await interaction.response.defer()
-        problem = _mod_target_problem(interaction.user, member)
-        if problem:
-            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
-
-
-        async with aiosqlite.connect(db.DB_PATH) as conn:
-            await conn.execute(
-                "INSERT INTO warnings (guild_id, user_id, reason) VALUES (?, ?, ?)",
-                (interaction.guild.id, member.id, reason),
-            )
-            await conn.commit()
-
-        case_id = await db.add_mod_case(interaction.guild.id, "Warn", member.id, interaction.user.id, reason)
-
-        try:
-            dm = discord.Embed(color=0xFFD700, title="⚠️ You have been warned", timestamp=discord.utils.utcnow())
-            dm.add_field(name="Server", value=interaction.guild.name, inline=True)
-            dm.add_field(name="Reason", value=reason, inline=False)
-            await send_card(member, embed=dm)
-        except discord.Forbidden:
-            pass
-
-        await send_card(interaction, embed=self._action_embed("Warn", member, interaction.user, reason, case_id))
-        await self._send_log(interaction.guild, "Warn", member, interaction.user, reason, case_id)
+        await self._act(interaction, "warn", member, reason=reason, label="Warn")
 
     @app_commands.command(name="ban", description="Ban a member from the server.")
     @app_commands.describe(member="Member to ban", reason="Reason for the ban", delete_days="Days of messages to delete (0-7)")
     @app_commands.checks.has_permissions(ban_members=True)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided", delete_days: app_commands.Range[int, 0, 7] = 0):
         await interaction.response.defer()
-        problem = _mod_target_problem(interaction.user, member)
-        if problem:
-            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
-
-
-        # Try to DM before banning
-        try:
-            dm = discord.Embed(color=0xFF3333, title="🔨 You have been banned", timestamp=discord.utils.utcnow())
-            dm.add_field(name="Server", value=interaction.guild.name, inline=True)
-            dm.add_field(name="Reason", value=reason, inline=False)
-            await send_card(member, embed=dm)
-        except discord.Forbidden:
-            pass
-
-        try:
-            await member.ban(reason=f"{interaction.user}: {reason}", delete_message_days=delete_days)
-            case_id = await db.add_mod_case(interaction.guild.id, "Ban", member.id, interaction.user.id, reason)
-            await send_card(interaction, embed=self._action_embed("Ban", member, interaction.user, reason, case_id))
-            await self._send_log(interaction.guild, "Ban", member, interaction.user, reason, case_id)
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "❌ I cannot ban this member — move the bot's role above their highest role in `Server Settings → Roles`.",
-                ephemeral=True,
-            )
+        await self._act(interaction, "ban", member, reason=reason, delete_days=delete_days, label="Ban")
 
     @app_commands.command(name="kick", description="Kick a member from the server.")
     @app_commands.describe(member="Member to kick", reason="Reason for the kick")
     @app_commands.checks.has_permissions(kick_members=True)
     async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
         await interaction.response.defer()
-        problem = _mod_target_problem(interaction.user, member)
-        if problem:
-            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
-
-
-        try:
-            dm = discord.Embed(color=0xFF8C00, title="👢 You have been kicked", timestamp=discord.utils.utcnow())
-            dm.add_field(name="Server", value=interaction.guild.name, inline=True)
-            dm.add_field(name="Reason", value=reason, inline=False)
-            await send_card(member, embed=dm)
-        except discord.Forbidden:
-            pass
-
-        try:
-            await member.kick(reason=f"{interaction.user}: {reason}")
-            case_id = await db.add_mod_case(interaction.guild.id, "Kick", member.id, interaction.user.id, reason)
-            await send_card(interaction, embed=self._action_embed("Kick", member, interaction.user, reason, case_id))
-            await self._send_log(interaction.guild, "Kick", member, interaction.user, reason, case_id)
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I cannot kick this member — move my role above theirs.", ephemeral=True)
+        await self._act(interaction, "kick", member, reason=reason, label="Kick")
 
     @app_commands.command(name="mute", description="Timeout (mute) a member.")
     @app_commands.describe(member="Member to mute", minutes="Duration in minutes", reason="Reason for the mute")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def mute(self, interaction: discord.Interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: str = "No reason provided"):
         await interaction.response.defer()
-        duration = datetime.timedelta(minutes=minutes)
-        full_reason = f"{reason} ({minutes}m)"
-        problem = _mod_target_problem(interaction.user, member)
-        if problem:
-            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
-
-
-        try:
-            await member.timeout(duration, reason=f"{interaction.user}: {full_reason}")
-            case_id = await db.add_mod_case(interaction.guild.id, "Mute", member.id, interaction.user.id, full_reason)
-            await send_card(interaction, embed=self._action_embed("Mute", member, interaction.user, full_reason, case_id))
-            await self._send_log(interaction.guild, "Mute", member, interaction.user, full_reason, case_id)
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I cannot mute this member — move my role above theirs.", ephemeral=True)
+        await self._act(interaction, "timeout", member, reason=reason, minutes=minutes, label="Mute")
 
     @app_commands.command(name="unmute", description="Remove timeout from a member.")
     @app_commands.describe(member="Member to unmute")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member):
         await interaction.response.defer()
-        problem = _mod_target_problem(interaction.user, member)
-        if problem:
-            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
-
-        try:
-            await member.timeout(None, reason=f"Unmuted by {interaction.user}")
-            case_id = await db.add_mod_case(interaction.guild.id, "Unmute", member.id, interaction.user.id, "Timeout removed")
-            await send_card(interaction, embed=self._action_embed("Unmute", member, interaction.user, "Timeout removed", case_id))
-            await self._send_log(interaction.guild, "Unmute", member, interaction.user, "Timeout removed", case_id)
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I cannot unmute this member.", ephemeral=True)
+        await self._act(interaction, "timeout_remove", member, label="Unmute")
 
     @app_commands.command(name="unban", description="Unban a user by ID.")
     @app_commands.describe(user_id="ID of the user to unban", reason="Reason for the unban")
@@ -298,28 +185,17 @@ class Moderation(commands.Cog):
     async def unban(self, interaction: discord.Interaction, user_id: str, reason: str = "Manual Unban"):
         await interaction.response.defer()
         try:
-            user = await self.bot.fetch_user(int(user_id))
-            await interaction.guild.unban(user, reason=f"Unbanned by {interaction.user}: {reason}")
-            case_id = await db.add_mod_case(interaction.guild.id, "Unban", user.id, interaction.user.id, reason)
-            await send_card(interaction, embed=self._action_embed("Unban", user, interaction.user, reason, case_id))
-            await self._send_log(interaction.guild, "Unban", user, interaction.user, reason, case_id)
+            target_id = int(user_id)
         except ValueError:
-            await interaction.followup.send("❌ Invalid user ID.", ephemeral=True)
-        except discord.NotFound:
-            await interaction.followup.send("❌ User is not banned or does not exist.", ephemeral=True)
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I do not have permission to unban.", ephemeral=True)
+            return await interaction.followup.send("❌ Invalid user ID.", ephemeral=True)
+        user = await self.bot.fetch_user(target_id)
+        await self._act(interaction, "unban", user, reason=reason, label="Unban")
 
     @app_commands.command(name="warnings", description="View a member's warnings.")
     @app_commands.describe(member="Member to check")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def warnings(self, interaction: discord.Interaction, member: discord.Member):
-        async with aiosqlite.connect(db.DB_PATH) as conn:
-            async with conn.execute(
-                "SELECT id, reason FROM warnings WHERE guild_id = ? AND user_id = ?",
-                (interaction.guild.id, member.id),
-            ) as cursor:
-                rows = await cursor.fetchall()
+        rows = await db.get_warnings(interaction.guild.id, member.id)
 
         embed = discord.Embed(
             title=f"⚠️ Warnings — {member.display_name}",
@@ -330,7 +206,7 @@ class Moderation(commands.Cog):
         if not rows:
             embed.description = "✅ This member has no warnings."
         else:
-            embed.description = "\n".join([f"`#{row[0]}` — {row[1]}" for row in rows])
+            embed.description = "\n".join([f"`#{row['id']}` — {row['reason']}" for row in rows])
             embed.set_footer(text=f"Total: {len(rows)} warning(s)")
         await send_card(interaction, embed=embed)
 
@@ -338,12 +214,18 @@ class Moderation(commands.Cog):
     @app_commands.describe(member="Member to clear")
     @app_commands.checks.has_permissions(administrator=True)
     async def clearwarnings(self, interaction: discord.Interaction, member: discord.Member):
-        async with aiosqlite.connect(db.DB_PATH) as conn:
-            await conn.execute(
-                "DELETE FROM warnings WHERE guild_id = ? AND user_id = ?",
-                (interaction.guild.id, member.id),
-            )
-            await conn.commit()
+        await interaction.response.defer()
+        problem = _mod_target_problem(interaction.user, member)
+        if problem:
+            return await interaction.followup.send(f"❌ {problem}", ephemeral=True)
+        await db.clear_warnings(interaction.guild.id, member.id)
+        await moderation_actions.record(
+            interaction.guild,
+            "clear_warnings",
+            member,
+            _actor(interaction),
+            "All warnings cleared",
+        )
         embed = discord.Embed(
             description=f"✅ Cleared all warnings for {member.mention}.",
             color=0x2ECC71,

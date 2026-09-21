@@ -825,6 +825,28 @@ def dashboard():
         csrf_token="preview-token",
         guilds=[{"id": g["id"], "name": g["name"]} for g in GUILDS],
         can_switch_guild=True,
+        # The rail, from the same list the routes are registered from — and this
+        # harness never passed it, so the preview's navigation was an empty
+        # ``<nav>`` while production drew nine links. A preview that shows none
+        # of the navigation cannot show anything about how it is chunked, which
+        # is the half of the rail that is a design decision rather than a link.
+        # (The console's route below has carried its own version of this for the
+        # same reason; this is the dashboard's.)
+        dashboard_pages=keep_alive._page_nav(
+            keep_alive.DASHBOARD_PAGES,
+            "",
+            f"?guild_id={guild['id']}",
+            groups=keep_alive.DASHBOARD_GROUPS,
+        ),
+        guild_query=f"?guild_id={guild['id']}",
+        fleet_url="/servers",
+        pages_json=keep_alive._inline_json({
+            page_id: {
+                "url": f"{path}?guild_id={guild['id']}",
+                "label": label,
+            }
+            for page_id, label, path, _anchor in keep_alive.DASHBOARD_PAGES
+        }),
         # A passkey-shaped session (the operator's), which is the one this page
         # renders: no Discord identity in the header, no picker link — but the
         # invite link is gated on the client id alone, exactly as production
@@ -896,7 +918,68 @@ def dashboard():
         system_status=preview_uptime_snapshot(),
         site_guard_status={"status": "clean", "exposed": 0, "probes": 9},
         config_status={"unset": 22, "attention": 5, "status": "attention"},
+        # The rosters and the lockdown ledger, which production reads from the
+        # gateway and this process has none of. Written out here for the reason
+        # the uptime snapshot above is: the panels' whole job is to show a list and
+        # a state, and a preview that showed the *empty* branch of both would show
+        # nothing about any of it. The numbers are the harness's own servers.
+        management=preview_management(guild["id"]),
     )
+
+
+#: What the Members and Server panels show in the preview: a roster with the
+#: shapes that have to render (a bot, somebody timed out, a plain member), a ban
+#: with and without a reason, and a lockdown holding two channels. Deliberately
+#: mixed rather than uniform — a list of five identical rows hides every branch.
+PREVIEW_MEMBERS = (
+    {"id": 424242424242424242, "display_name": "Wren", "bot": False, "timeout_seconds": 0, "top_role": "@admin"},
+    {"id": 515151515151515151, "display_name": "Meow", "bot": True, "timeout_seconds": 0, "top_role": "@bot"},
+    {"id": 626262626262626262, "display_name": "Kite", "bot": False, "timeout_seconds": 5400, "top_role": "@everyone"},
+    {"id": 737373737373737373, "display_name": "Sorrel", "bot": False, "timeout_seconds": 0, "top_role": "@mod"},
+)
+
+
+def preview_management(guild_id: int) -> dict:
+    """The two panels' context, in the shape ``keep_alive._management_context``
+    returns.
+
+    Deliberately the *same keys*, including the `read` flag: the page branches on
+    ``mgmt.read``, so a fixture that quietly supplied the roster and not the flag
+    would preview the branch production takes for a server it could not read.
+    """
+    guild = next((g for g in GUILDS if g["id"] == guild_id), GUILDS[0])
+    return {
+        "page": "",
+        "read": True,
+        "why": "",
+        "roster": {
+            "members": list(PREVIEW_MEMBERS),
+            "matched": len(PREVIEW_MEMBERS),
+            "shown": len(PREVIEW_MEMBERS),
+            "cache": len(PREVIEW_MEMBERS),
+            "queried": False,
+            "complete": True,
+        },
+        "bans": [
+            {"id": 848484848484848484, "name": "Ash", "display_name": "Ash", "reason": "raid coordination"},
+            {"id": 959595959595959595, "name": "Bramble", "display_name": "Bramble", "reason": ""},
+        ],
+        "control": {
+            "locked": 2,
+            "ledger": True,
+            "channels": [
+                {"id": 100000000000000001, "name": "general"},
+                {"id": 100000000000000002, "name": "off-topic"},
+            ],
+            "counts": {"text": 3, "voice": 2, "manageable": 3},
+            "plan": f"On **{guild['name']}** that is 3 of 5 text channels I can manage; 2 are voice and are not touched.",
+        },
+        "query": "",
+        "recent": [
+            {"action": "kick", "actor_name": "Preview Admin", "target": "Ash", "detail": "Kicked — case #11.", "at": 1774000000.0},
+            {"action": "lockdown", "actor_name": "Preview Admin", "target": "", "detail": "Locked 2 channels.", "at": 1773990000.0},
+        ],
+    }
 
 
 #: What the preview's Status panel shows. Deliberately two monitors in two
@@ -1236,6 +1319,62 @@ def api_market_candles():
 @app.route("/api/channels")
 def api_channels():
     return jsonify({"success": True, "guild_id": 777001, "channels": CHANNELS})
+
+
+#: The last member action the page asked for, so a person previewing this can read
+#: back exactly what the browser would have sent — the same reason ``LAST_SEND``
+#: exists below. Nothing is performed: this process has no gateway, and a harness
+#: that *did* the thing would be a second implementation of the feature.
+LAST_MEMBER_ACTION: dict = {}
+
+
+@app.route("/api/member-action", methods=["POST"])
+def api_member_action():
+    """A recorded no-op. The panel, the wording and the payload, not the action."""
+    data = request.get_json(silent=True) or {}
+    LAST_MEMBER_ACTION.clear()
+    LAST_MEMBER_ACTION.update(data)
+    action = str(data.get("action") or "")
+    names = {
+        "warn": "Warn", "timeout": "Mute", "timeout_remove": "Unmute",
+        "kick": "Kick", "ban": "Ban", "unban": "Unban", "clear_warnings": "Warnings cleared",
+    }
+    return jsonify({
+        "success": True,
+        "action": action,
+        "verb": names.get(action, action.title()),
+        "case_id": 12,
+        "said": f"{names.get(action, action.title())} — case #12. (preview: nothing was performed)",
+    })
+
+
+@app.route("/api/member-warnings")
+def api_member_warnings():
+    return jsonify({
+        "success": True,
+        "warnings": [
+            {"id": 7, "reason": "posting invites"},
+            {"id": 9, "reason": "caps in #general"},
+        ],
+    })
+
+
+@app.route("/api/server-action", methods=["POST"])
+def api_server_action():
+    """The same idea one level up: say what would have happened, do nothing."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "")
+    said = {
+        "lockdown": "Locked **3** channel(s). The 2 voice channels are not text.",
+        "unlock": "Restored **3** channel(s) to what they were before.",
+        "slowmode": f"Set slowmode on **3** channel(s) to {int(data.get('seconds') or 0)}s.",
+    }.get(action, "Nothing to do.")
+    return jsonify({
+        "success": True,
+        "action": action,
+        "changed": 3,
+        "said": f"{said} (preview: nothing was performed)",
+    })
 
 
 @app.route("/api/mentionables")

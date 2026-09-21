@@ -2,6 +2,7 @@ import sys
 import asyncio
 import random
 import datetime
+import time
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -1269,6 +1270,44 @@ async def on_guild_join(guild: discord.Guild):
     `#bot-error` and `#logs` were found by name.
     """
     from utils import bot_channels
+
+    # The operator's blocklist, enforced on the way in.
+    #
+    # A blocklist that only took effect when somebody clicked "leave" would be a
+    # note to self rather than a rule: the whole point of one is that an invite
+    # cannot walk around it. So the check is here, before any setup work, and the
+    # leave is the first thing that happens — a server the operator has refused
+    # never gets as far as a welcome message.
+    try:
+        refused = await db.blocked_guild(guild.id)
+    except Exception as exc:  # noqa: BLE001 — a list that cannot be read must not block every join
+        refused = None
+        print(f"[BLOCKLIST] could not read the list for {guild.name}: {exc}", flush=True)
+    if refused:
+        print(
+            f"[BLOCKLIST] leaving {guild.name} ({guild.id}) — on the operator's list: "
+            f"{refused.get('reason') or 'no reason recorded'}",
+            flush=True,
+        )
+        # Written down before the leave, for the same reason the record comes
+        # before the log everywhere else: after ``leave()`` the guild object is
+        # gone from the cache and there is nothing left to describe.
+        await db.record_web_action(
+            scope="bot",
+            actor_id=0,
+            actor_name="the blocklist",
+            guild_id=guild.id,
+            action="refused-join",
+            target=guild.name,
+            ok=True,
+            detail=str(refused.get("reason") or ""),
+            at=time.time(),
+        )
+        try:
+            await guild.leave()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[BLOCKLIST] could not leave {guild.name}: {exc}", flush=True)
+        return
 
     # Written down before the slow work below, so a console opened while this
     # server is still being set up can already name it.

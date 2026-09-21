@@ -146,7 +146,21 @@ export type ServerDetail = {
   systems: SystemSwitch[];
   always_on: string[];
   publish_at: number | null;
+  /** The blocklist row for this server, or `null` when it is welcome here.
+   *
+   * The page offers *Block* or *Unblock* from this and from nothing else: the
+   * two are not alternatives, and a page that guessed which one applied would
+   * be offering to block a server that is already blocked. */
+  blocked: { reason: string; added_at: number; added_by: string } | null;
 };
+
+/** The four things the operator can do to a server as a whole.
+ *
+ * `leave` and `block` both make the bot leave; they differ in whether an invite
+ * can add it back. `resync` changes nothing about the server and is the fix for
+ * the one failure only visible from here — a command list Discord is holding an
+ * old copy of. */
+export type ServerAction = "leave" | "block" | "unblock" | "resync";
 
 export type SystemsMatrix = {
   success: true;

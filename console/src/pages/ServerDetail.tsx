@@ -17,7 +17,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
 import { api, ApiError } from "../api";
-import type { ServerDetail as Detail, ServerRow, SystemSwitch } from "../types";
+import type { ServerAction, ServerDetail as Detail, ServerRow, SystemSwitch } from "../types";
 import { ago, compact, iconSrc } from "../lib/format";
 import { Link } from "../lib/router";
 import { useLive } from "../lib/useLive";
@@ -38,6 +38,12 @@ export function ServerDetail({
   const [systems, setSystems] = useState<SystemSwitch[] | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [publishStamp, setPublishStamp] = useState<number | null>(null);
+  /** Which whole-server action is in flight, so every button can stop at once.
+   *
+   * A name rather than a boolean because the button that is busy says so — and a
+   * single flag shared by four buttons that only differ in what they do is how the
+   * wrong one ends up looking busy. */
+  const [busyAction, setBusyAction] = useState<ServerAction | null>(null);
 
   // The server's answer is the source of truth; local state exists only so a
   // switch can move before the response lands.
@@ -89,6 +95,24 @@ export function ServerDetail({
         delete nextBusy[target.id];
         return nextBusy;
       });
+    }
+  };
+
+  /** One whole-server action, confirmed first and reported in the server's words. */
+  const act = async (action: ServerAction, confirmText: string) => {
+    if (!window.confirm(confirmText)) return;
+    setBusyAction(action);
+    try {
+      const answer = await api.serverAction({ guildId, action });
+      onGone(answer.said ?? "Done.", action === "resync" ? "good" : "warn");
+      // A leave or a block changes what this page is *about*, so the read is
+      // repeated instead of guessed at: a failed leave shows as a server still
+      // there, which is the true answer.
+      live.refresh();
+    } catch (exc) {
+      onGone(exc instanceof ApiError ? exc.message : String(exc), "danger");
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -222,13 +246,93 @@ export function ServerDetail({
           <a className="btn" href={`/dashboard?guild_id=${guildId}`}>
             Open the per-server dashboard
           </a>
-          <a className="btn btn--ghost" href="/api/command-scope?guild_id=" target="_blank" rel="noreferrer" hidden>
-            raw
-          </a>
           <p className="card__hint">
             The dashboard owns this server's identity, composer and schedule. This console owns
             the switches above, which are the same stored state.
           </p>
+        </div>
+      </Card>
+
+      {/* The four things only the operator can do, kept off the Systems card
+       * above because they are not the same kind of decision: every switch there
+       * is reversible from the same switch, and everything here is not. Each one
+       * asks first, and the confirmation names the consequence rather than the
+       * action — "the bot leaves and an invite can add it again" is the sentence
+       * that tells a person which of the two leave buttons they want. */}
+      <Card
+        span={3}
+        index={4}
+        tone="danger"
+        title="Only you can do this"
+        hint="These change the bot's presence in the server, not its settings — which is why a server's own administrator never sees them."
+      >
+        <div className="stack">
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={busyAction !== null}
+            onClick={() => void act("resync", "Ask Discord to republish this server's command list?")}
+          >
+            Republish its commands
+          </button>
+          <p className="card__hint">
+            The fix for a picker holding commands that no longer exist — the bot asked Discord,
+            and Discord's own client may cache it for a minute afterwards.
+          </p>
+
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={busyAction !== null}
+            onClick={() =>
+              void act(
+                "leave",
+                `Make the bot leave ${data.server.name}? Its settings here are kept, and an invite can add it back.`,
+              )
+            }
+          >
+            Leave the server
+          </button>
+
+          {data.blocked ? (
+            <>
+              <p className="card__hint">
+                On the blocklist{data.blocked.added_by ? ` by ${data.blocked.added_by}` : ""}
+                {data.blocked.reason ? ` — “${data.blocked.reason}”` : ""}. An invite is refused
+                while it stays there.
+              </p>
+              <button
+                type="button"
+                className="btn"
+                disabled={busyAction !== null}
+                onClick={() =>
+                  void act("unblock", `Welcome ${data.server.name} back? An invite can add the bot again.`)
+                }
+              >
+                Take it off the blocklist
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn--danger"
+                disabled={busyAction !== null}
+                onClick={() =>
+                  void act(
+                    "block",
+                    `Make the bot leave ${data.server.name} AND refuse every invite back?\n\nBlocking is the one action here that a re-invite cannot undo.`,
+                  )
+                }
+              >
+                Leave and block it
+              </button>
+              <p className="card__hint">
+                Blocking removes the bot and refuses to come back, which is what a re-invite
+                cannot walk around.
+              </p>
+            </>
+          )}
         </div>
       </Card>
     </div>

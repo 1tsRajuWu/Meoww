@@ -36,3 +36,181 @@ export function applyTheme(id: ThemeId): void {
   const hex = THEMES.find((theme) => theme.id === id)?.hex;
   if (meta && hex) meta.setAttribute("content", hex);
 }
+
+/* ----------------------------------------------------------- cursor styles */
+
+export const CURSOR_STYLES = [
+  { id: "crosshair", label: "Crosshair Scope", desc: "Tactical reticle with precision tick marks & center dot" },
+  { id: "blade", label: "Cyber Blade", desc: "Supersonic delta stealth arrow with kinetic trail" },
+  { id: "diamond", label: "Prism Diamond", desc: "45-degree faceted gemstone with inner refraction" },
+  { id: "orbit", label: "Orbital Gyro", desc: "Spinning quantum orbit with electron satellite" },
+  { id: "comet", label: "Ghost Comet", desc: "Organic morphing fluid plasma aura with teardrop core" },
+  { id: "system", label: "Classic System", desc: "Standard operating system pointer" },
+] as const;
+
+export type CursorStyleId = (typeof CURSOR_STYLES)[number]["id"];
+
+export const CURSOR_COLORS = [
+  {
+    id: "theme",
+    label: "Theme Match",
+    desc: "Adaptive to active theme palette",
+    group: "accent",
+    accent: "var(--accent)",
+    accentRgb: "124, 140, 255",
+    glow: "rgba(124, 140, 255, 0.45)",
+    grad: "linear-gradient(135deg, var(--accent) 0%, #ffffff 100%)",
+    preview: "linear-gradient(135deg, #7c8cff, #ff74c1)",
+  },
+  {
+    id: "cyan",
+    label: "Electric Cyan",
+    desc: "Neon cyan (#00f3ff)",
+    group: "solid",
+    accent: "#00f3ff",
+    accentRgb: "0, 243, 255",
+    glow: "rgba(0, 243, 255, 0.45)",
+    grad: "linear-gradient(135deg, #00f3ff 0%, #00a8ff 100%)",
+    preview: "#00f3ff",
+  },
+  {
+    id: "magenta",
+    label: "Neon Magenta",
+    desc: "Vibrant cyber magenta (#ff007f)",
+    group: "solid",
+    accent: "#ff007f",
+    accentRgb: "255, 0, 127",
+    glow: "rgba(255, 0, 127, 0.45)",
+    grad: "linear-gradient(135deg, #ff007f 0%, #ff4b93 100%)",
+    preview: "#ff007f",
+  },
+  {
+    id: "lime",
+    label: "Matrix Lime",
+    desc: "High-voltage lime (#00ff88)",
+    group: "solid",
+    accent: "#00ff88",
+    accentRgb: "0, 255, 136",
+    glow: "rgba(0, 255, 136, 0.45)",
+    grad: "linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)",
+    preview: "#00ff88",
+  },
+  {
+    id: "gold",
+    label: "Solar Gold",
+    desc: "Radiant cyber gold (#ffb700)",
+    group: "solid",
+    accent: "#ffb700",
+    accentRgb: "255, 183, 0",
+    glow: "rgba(255, 183, 0, 0.45)",
+    grad: "linear-gradient(135deg, #ffb700 0%, #ff8800 100%)",
+    preview: "#ffb700",
+  },
+  {
+    id: "gradient-sunset",
+    label: "Sunset Flare",
+    desc: "Pink to orange to gold",
+    group: "gradient",
+    accent: "#ff007f",
+    accentRgb: "255, 0, 127",
+    glow: "rgba(255, 94, 0, 0.55)",
+    grad: "linear-gradient(135deg, #ff007f 0%, #ff8c00 50%, #ffe600 100%)",
+    preview: "linear-gradient(135deg, #ff007f, #ff8c00, #ffe600)",
+  },
+  {
+    id: "gradient-plasma",
+    label: "Hyper Plasma",
+    desc: "Deep violet to electric cyan",
+    group: "gradient",
+    accent: "#00f3ff",
+    accentRgb: "0, 243, 255",
+    glow: "rgba(191, 0, 255, 0.55)",
+    grad: "linear-gradient(135deg, #bf00ff 0%, #7928ca 50%, #00f3ff 100%)",
+    preview: "linear-gradient(135deg, #bf00ff, #00f3ff)",
+  },
+  {
+    id: "gradient-aurora",
+    label: "Aurora Borealis",
+    desc: "Emerald green to cyan to violet",
+    group: "gradient",
+    accent: "#00ff88",
+    accentRgb: "0, 255, 136",
+    glow: "rgba(0, 243, 255, 0.55)",
+    grad: "linear-gradient(135deg, #00ff88 0%, #00f3ff 50%, #7000ff 100%)",
+    preview: "linear-gradient(135deg, #00ff88, #00f3ff, #7000ff)",
+  },
+  {
+    id: "gradient-cosmic",
+    label: "Cosmic Nebula",
+    desc: "Magenta to purple to cyber cyan",
+    group: "gradient",
+    accent: "#ff007f",
+    accentRgb: "255, 0, 127",
+    glow: "rgba(121, 40, 202, 0.55)",
+    grad: "linear-gradient(135deg, #ff007f 0%, #7928ca 50%, #00f3ff 100%)",
+    preview: "linear-gradient(135deg, #ff007f, #7928ca, #00f3ff)",
+  },
+] as const;
+
+export type CursorColorId = (typeof CURSOR_COLORS)[number]["id"];
+
+const CURSOR_STYLE_KEY = "meow-cursor-style";
+const CURSOR_COLOR_KEY = "meow-cursor-color";
+
+export function currentCursorStyle(): CursorStyleId {
+  try {
+    let saved = window.localStorage.getItem(CURSOR_STYLE_KEY);
+    if (saved === "ring" || saved === "halo" || saved === "reticle") saved = "crosshair";
+    if (saved === "stealth") saved = "blade";
+    if (saved === "nova") saved = "orbit";
+    if (saved === "bubble") saved = "comet";
+    const found = CURSOR_STYLES.find((c) => c.id === saved);
+    return found ? found.id : "crosshair";
+  } catch {
+    return "crosshair";
+  }
+}
+
+export function applyCursorStyle(id: CursorStyleId): void {
+  try {
+    window.localStorage.setItem(CURSOR_STYLE_KEY, id);
+  } catch {}
+  document.documentElement.setAttribute("data-cursor-style", id);
+  if (id === "system") {
+    document.documentElement.classList.remove("has-meow-cursor");
+  } else {
+    document.documentElement.classList.add("has-meow-cursor");
+  }
+}
+
+export function currentCursorColor(): CursorColorId {
+  try {
+    const saved = window.localStorage.getItem(CURSOR_COLOR_KEY);
+    const found = CURSOR_COLORS.find((c) => c.id === saved);
+    return found ? found.id : "theme";
+  } catch {
+    return "theme";
+  }
+}
+
+export function applyCursorColor(id: CursorColorId): void {
+  try {
+    window.localStorage.setItem(CURSOR_COLOR_KEY, id);
+  } catch {}
+  document.documentElement.setAttribute("data-cursor-color", id);
+  const found = CURSOR_COLORS.find((c) => c.id === id);
+  if (found) {
+    if (found.id === "theme") {
+      document.documentElement.style.removeProperty("--cursor-accent");
+      document.documentElement.style.removeProperty("--cursor-accent-rgb");
+      document.documentElement.style.removeProperty("--cursor-glow");
+      document.documentElement.style.removeProperty("--cursor-grad");
+    } else {
+      document.documentElement.style.setProperty("--cursor-accent", found.accent);
+      document.documentElement.style.setProperty("--cursor-accent-rgb", found.accentRgb);
+      document.documentElement.style.setProperty("--cursor-glow", found.glow);
+      document.documentElement.style.setProperty("--cursor-grad", found.grad);
+    }
+  }
+}
+

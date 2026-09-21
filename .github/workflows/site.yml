@@ -59,6 +59,8 @@ on:
       # `webdocs.py` alone was the narrow version of this list, and it missed a
       # real change: the invite permissions were narrowed without the site
       # being rebuilt or verified, because nothing here matched.
+      - "console/**"
+      - "scripts/build_owner.py"
       - "utils/**"
       - "PRIVACY.md"
       - "TERMS.md"

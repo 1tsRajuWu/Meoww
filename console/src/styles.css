@@ -879,6 +879,33 @@ a {
   background: transparent;
 }
 
+/* The one action on this page that a re-invite cannot undo, drawn in the token
+   the sheet reserves for exactly that. The border and the text carry it rather
+   than a filled red panel: `--danger` is a *state* (see the palette's own note),
+   and a solid danger button is the thing that reads as the primary action. */
+.btn--danger {
+  color: var(--danger);
+  border-color: color-mix(in oklab, var(--danger) 40%, var(--line));
+  background: transparent;
+}
+
+.btn--danger:hover {
+  border-color: color-mix(in oklab, var(--danger) 65%, var(--line));
+}
+
+/* A button that cannot be clicked must not look clickable, and must not lift on
+   hover — the switch below has said this since it was written, and these buttons
+   are the first ones here that go disabled outside a busy state of their own. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  transform: none;
+  border-color: var(--line);
+}
+
 .input {
   flex: 1;
   min-width: 200px;
@@ -1489,39 +1516,498 @@ a {
   left: 0;
   z-index: 70;
   pointer-events: none;
-  /* Hidden until the pointer moves, and the move handler is the only thing that
-     reveals it — so a page nobody has touched has no decoration parked on it.
-     Nothing here draws on the point itself: the arrow owns the point, and a
-     decoration on top of it is the smear this rule used to put there. */
   opacity: 0;
   transition: opacity var(--duration-quick) ease;
 }
 
-/* Centred on the point with negative margins, so the transform the script writes
-   is a plain translate + rotate + scale about the element's own centre, and the
-   reticle stays concentric with the pointer through its spring. */
-.cursor__ring {
+.meow-cursor-dot {
   position: absolute;
   top: 0;
   left: 0;
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
+  pointer-events: none;
   border-radius: 50%;
-  border: var(--hairline) solid color-mix(in oklab, var(--accent) 60%, transparent);
-  background: color-mix(in oklab, var(--accent) 6%, transparent);
   will-change: transform;
-  transition: border-color var(--duration-quick) ease, background var(--duration-quick) ease;
 }
 
-/* Over anything clickable the reticle names it: a brighter hairline and a wash
-   of the accent. The scale is the script's, which owns the transform — and it
-   tightens rather than balloons, because a cursor that swells exactly when it is
-   covering the label it points at is a cursor that hides what it is being
-   precise about. */
-.cursor--link .cursor__ring {
-  border-color: color-mix(in oklab, var(--accent) 95%, transparent);
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
+.cursor__ring,
+.meow-cursor-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  will-change: transform;
+  transition: border-color var(--duration-quick) ease, background var(--duration-quick) ease, box-shadow var(--duration-quick) ease;
+}
+
+/* Ambient glow trailing layer */
+.meow-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 520px;
+  height: 520px;
+  margin: -260px 0 0 -260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 14%, transparent), transparent 62%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.5s ease;
+  will-change: transform;
+}
+.meow-glow.is-on { opacity: 1; }
+
+/* Click ripple */
+.meow-click-fx {
+  position: fixed;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  pointer-events: none;
+  z-index: 75;
+  border-radius: 50%;
+  border: 1.5px solid var(--cursor-accent, var(--accent));
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 35%, transparent) 0%, transparent 75%);
+  box-shadow: 0 0 12px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+  animation: meow-click-ripple 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes meow-click-ripple {
+  0%   { opacity: 0.95; transform: scale(0.2); }
+  50%  { opacity: 0.6; }
+  100% { opacity: 0;    transform: scale(2.2); }
+}
+
+/* Style 1: Crosshair Scope */
+.meow-cursor.cursor-style-crosshair .meow-cursor-dot {
+  left: -2.5px;
+  top: -2.5px;
+  width: 5px;
+  height: 5px;
+  background: var(--cursor-accent, var(--accent));
+  box-shadow: 0 0 8px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-crosshair .meow-cursor-ring {
+  left: -18px;
+  top: -18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent);
+  background:
+    linear-gradient(var(--cursor-accent, var(--accent)), var(--cursor-accent, var(--accent))) center top / 1.5px 8px no-repeat,
+    linear-gradient(var(--cursor-accent, var(--accent)), var(--cursor-accent, var(--accent))) center bottom / 1.5px 8px no-repeat,
+    linear-gradient(var(--cursor-accent, var(--accent)), var(--cursor-accent, var(--accent))) left center / 8px 1.5px no-repeat,
+    linear-gradient(var(--cursor-accent, var(--accent)), var(--cursor-accent, var(--accent))) right center / 8px 1.5px no-repeat;
+  box-shadow: 0 0 12px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+}
+
+.meow-cursor.cursor-style-crosshair.is-link .meow-cursor-ring {
+  transform: rotate(45deg);
+  border-color: var(--cursor-accent, var(--accent));
+  box-shadow: 0 0 20px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-crosshair.is-down .meow-cursor-ring {
+  transform: scale(0.85);
+  box-shadow: 0 0 24px var(--cursor-accent, var(--accent));
+}
+
+/* Style 2: Cyber Blade */
+.meow-cursor.cursor-style-blade .meow-cursor-dot {
+  left: -2px;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--text);
+  box-shadow: 0 0 10px var(--text), 0 0 16px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-blade .meow-cursor-ring {
+  left: -14px;
+  top: -16px;
+  width: 28px;
+  height: 32px;
+  background: var(--cursor-grad, linear-gradient(135deg, var(--cursor-accent, var(--accent)), var(--text)));
+  clip-path: polygon(50% 0%, 100% 85%, 50% 68%, 0% 85%);
+  filter: drop-shadow(0 0 10px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent)));
+}
+
+.meow-cursor.cursor-style-blade.is-link .meow-cursor-ring {
+  transform: scale(1.35) translateY(-3px);
+  filter: drop-shadow(0 0 18px var(--cursor-accent, var(--accent))) brightness(1.25);
+}
+
+.meow-cursor.cursor-style-blade.is-down .meow-cursor-ring {
+  transform: scale(0.9);
+  filter: drop-shadow(0 0 22px var(--cursor-accent, var(--accent))) brightness(1.4);
+}
+
+/* Style 3: Prism Diamond */
+.meow-cursor.cursor-style-diamond .meow-cursor-dot {
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  transform: rotate(45deg);
+  background: var(--text);
+  box-shadow: 0 0 8px var(--text), 0 0 14px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-diamond .meow-cursor-ring {
+  left: -13px;
+  top: -13px;
+  width: 26px;
+  height: 26px;
+  transform: rotate(45deg);
+  border: 1.5px solid var(--cursor-accent, var(--accent));
+  background: color-mix(in oklab, var(--cursor-accent, var(--accent)) 12%, transparent);
+  box-shadow: inset 0 0 8px color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent), 0 0 14px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+}
+
+.meow-cursor.cursor-style-diamond.is-link .meow-cursor-ring {
+  transform: rotate(135deg) scale(1.3);
+  border-color: var(--text);
+  box-shadow: inset 0 0 14px color-mix(in oklab, var(--text) 50%, transparent), 0 0 24px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-diamond.is-down .meow-cursor-ring {
+  transform: rotate(90deg) scale(0.85);
+  box-shadow: 0 0 22px var(--cursor-accent, var(--accent));
+}
+
+/* Style 4: Orbital Gyro */
+@keyframes meow-orbit-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.meow-cursor.cursor-style-orbit .meow-cursor-dot {
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cursor-accent, var(--accent));
+  box-shadow: 0 0 10px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-orbit .meow-cursor-ring {
+  left: -17px;
+  top: -17px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--cursor-accent, var(--accent)) 45%, transparent);
+  border-top-color: var(--cursor-accent, var(--accent));
+  box-shadow: 0 0 12px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+  animation: meow-orbit-spin 3.5s linear infinite;
+}
+
+.meow-cursor.cursor-style-orbit .meow-cursor-ring::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: calc(50% - 3px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 8px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-orbit.is-link .meow-cursor-ring {
+  animation-duration: 1.2s;
+  border-color: var(--cursor-accent, var(--accent));
+  box-shadow: 0 0 24px var(--cursor-accent, var(--accent));
+}
+
+.meow-cursor.cursor-style-orbit.is-down .meow-cursor-ring {
+  animation-duration: 0.6s;
+  transform: scale(0.8);
+}
+
+/* Style 5: Ghost Comet */
+@keyframes meow-comet-morph {
+  0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+  50%      { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+}
+
+.meow-cursor.cursor-style-comet .meow-cursor-dot {
+  left: -4px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--cursor-grad, linear-gradient(135deg, var(--cursor-accent, var(--accent)), var(--text)));
+  box-shadow: 0 0 10px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+}
+
+.meow-cursor.cursor-style-comet .meow-cursor-ring {
+  left: -19px;
+  top: -19px;
+  width: 38px;
+  height: 38px;
+  border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 25%, transparent) 0%, color-mix(in oklab, var(--cursor-accent, var(--accent)) 4%, transparent) 65%, transparent 100%);
+  border: 1.5px solid color-mix(in oklab, var(--cursor-accent, var(--accent)) 60%, transparent);
+  box-shadow: 0 0 20px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+  animation: meow-comet-morph 5s ease-in-out infinite alternate;
+}
+
+.meow-cursor.cursor-style-comet.is-link .meow-cursor-ring {
+  border-color: var(--text);
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 45%, transparent) 0%, transparent 80%);
+  box-shadow: 0 0 28px var(--cursor-accent, var(--accent));
+  transform: scale(1.35);
+}
+
+.meow-cursor.cursor-style-comet.is-down .meow-cursor-ring {
+  transform: scale(0.85);
+  box-shadow: 0 0 26px var(--cursor-accent, var(--accent));
+}
+
+/* Style 6: Classic System */
+.meow-cursor.cursor-style-system,
+html[data-cursor-style="system"] .meow-cursor,
+html[data-cursor-style="system"] .meow-glow {
+  display: none !important;
+}
+
+/* Appearance & Cursor Customizer */
+.rail__customizer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.rail__cursor-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--type-micro);
+  cursor: pointer;
+  min-height: var(--target-min);
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.rail__cursor-btn:hover,
+.rail__cursor-btn.is-active {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--line));
+  background: color-mix(in oklab, var(--panel-2) 90%, transparent);
+}
+
+.customizer-popover {
+  position: absolute;
+  left: calc(100% + 12px);
+  bottom: 12px;
+  width: 310px;
+  max-height: min(580px, calc(100vh - 36px));
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 860px) {
+  .customizer-popover {
+    left: 12px;
+    right: 12px;
+    bottom: calc(100% + 12px);
+    width: auto;
+  }
+}
+
+.customizer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.customizer-title {
+  font-size: var(--type-meta);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.customizer-close {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--type-title);
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.customizer-close:hover {
+  color: var(--text);
+}
+
+.customizer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.customizer-label {
+  font-size: var(--type-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--dim);
+}
+
+.customizer-themes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.customizer-theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--type-micro);
+  cursor: pointer;
+  min-height: var(--target-min);
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.customizer-theme-btn:hover,
+.customizer-theme-btn.is-current {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+}
+
+.customizer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.customizer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-height: var(--target-min);
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.customizer-item:hover,
+.customizer-item.is-current {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+  background: color-mix(in oklab, var(--panel-2) 85%, var(--accent) 15%);
+}
+
+.customizer-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.customizer-item__name {
+  font-size: var(--type-meta);
+  font-weight: 500;
+}
+
+.customizer-item__desc {
+  font-size: var(--type-micro);
+  color: var(--dim);
+}
+
+.customizer-item__check {
+  color: var(--accent);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.customizer-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.customizer-color-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+  min-height: var(--target-min);
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.customizer-color-btn:hover,
+.customizer-color-btn.is-current {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+}
+
+.customizer-color-chip {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline-strong);
+  flex-shrink: 0;
+}
+
+.customizer-color-name {
+  flex: 1;
+  text-align: left;
+  font-size: var(--type-meta);
+}
+
+.customizer-color-check {
+  color: var(--accent);
+  font-size: var(--type-meta);
+  font-weight: 700;
 }
 
 /* ------------------------------------------- what the deployment was not given */

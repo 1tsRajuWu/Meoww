@@ -7,11 +7,24 @@
  */
 
 import { motion } from "motion/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { BootData, ServerRow } from "../types";
 import { Link, usePath } from "../lib/router";
-import { THEMES, applyTheme, currentTheme, type ThemeId } from "../lib/theme";
+import {
+  THEMES,
+  CURSOR_STYLES,
+  CURSOR_COLORS,
+  applyTheme,
+  currentTheme,
+  applyCursorStyle,
+  currentCursorStyle,
+  applyCursorColor,
+  currentCursorColor,
+  type ThemeId,
+  type CursorStyleId,
+  type CursorColorId,
+} from "../lib/theme";
 import { Pill } from "../ui";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
 
@@ -30,7 +43,7 @@ function grouped(pages: BootData["pages"]) {
     if (last && last.label === label) last.pages.push(page);
     else out.push({ label, pages: [page] });
   }
-  return out.filter((group) => group.pages.length > 0);
+  return out;
 }
 
 export function Shell({
@@ -47,11 +60,44 @@ export function Shell({
   const path = usePath();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeId>(() => currentTheme());
+  const [cursorStyle, setCursorStyle] = useState<CursorStyleId>(() => currentCursorStyle());
+  const [cursorColor, setCursorColor] = useState<CursorColorId>(() => currentCursorColor());
+  const [customizerOpen, setCustomizerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+
+  const selectTheme = (next: ThemeId) => {
+    setTheme(next);
+    applyTheme(next);
+  };
+  const selectCursorStyle = (next: CursorStyleId) => {
+    setCursorStyle(next);
+    applyCursorStyle(next);
+  };
+  const selectCursorColor = (next: CursorColorId) => {
+    setCursorColor(next);
+    applyCursorColor(next);
+  };
 
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    if (!customizerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        const btn = document.querySelector(".rail__cursor-btn");
+        if (btn && btn.contains(e.target as Node)) return;
+        setCustomizerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCustomizerOpen(false);
+    };
+    window.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [customizerOpen]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -143,19 +189,130 @@ export function Shell({
             <kbd>⌘K</kbd>
           </button>
 
-          <div className="rail__themes" role="group" aria-label="Theme">
-            {THEMES.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={`swatch swatch--${option.id}${theme === option.id ? " is-current" : ""}`}
-                aria-pressed={theme === option.id}
-                title={option.label}
-                aria-label={`${option.label} theme`}
-                onClick={() => setTheme(option.id)}
-              />
-            ))}
+          <div className="rail__customizer-bar">
+            <div className="rail__themes" role="group" aria-label="Theme">
+              {THEMES.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`swatch swatch--${option.id}${theme === option.id ? " is-current" : ""}`}
+                  aria-pressed={theme === option.id}
+                  title={option.label}
+                  aria-label={`${option.label} theme`}
+                  onClick={() => selectTheme(option.id)}
+                />
+              ))}
+            </div>
+
+            <button
+              type="button"
+              className={`rail__cursor-btn${customizerOpen ? " is-active" : ""}`}
+              aria-label="Cursor and appearance settings"
+              title="Appearance & Cursor"
+              aria-expanded={customizerOpen}
+              onClick={() => setCustomizerOpen((open) => !open)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="22" y1="12" x2="18" y2="12" />
+                <line x1="6" y1="12" x2="2" y2="12" />
+                <line x1="12" y1="6" x2="12" y2="2" />
+                <line x1="12" y1="22" x2="12" y2="18" />
+              </svg>
+              <span>Cursor</span>
+            </button>
           </div>
+
+          {customizerOpen && (
+            <div
+              className="customizer-popover"
+              ref={popoverRef}
+              role="dialog"
+              aria-label="Appearance and cursor settings"
+            >
+              <div className="customizer-head">
+                <span className="customizer-title">Appearance &amp; Cursor</span>
+                <button
+                  type="button"
+                  className="customizer-close"
+                  aria-label="Close appearance settings"
+                  onClick={() => setCustomizerOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="customizer-section">
+                <span className="customizer-label">Theme</span>
+                <div className="customizer-themes" role="group" aria-label="Theme options">
+                  {THEMES.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`customizer-theme-btn${theme === opt.id ? " is-current" : ""}`}
+                      aria-pressed={theme === opt.id}
+                      aria-label={`${opt.label} theme`}
+                      onClick={() => selectTheme(opt.id)}
+                    >
+                      <span className={`swatch swatch--${opt.id}`} aria-hidden="true" />
+                      <span>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="customizer-section">
+                <span className="customizer-label">Cursor Style</span>
+                <div className="customizer-list" role="group" aria-label="Cursor style options">
+                  {CURSOR_STYLES.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`customizer-item${cursorStyle === opt.id ? " is-current" : ""}`}
+                      aria-pressed={cursorStyle === opt.id}
+                      aria-label={`Cursor style: ${opt.label}`}
+                      onClick={() => selectCursorStyle(opt.id)}
+                    >
+                      <div className="customizer-item__body">
+                        <span className="customizer-item__name">{opt.label}</span>
+                        <span className="customizer-item__desc">{opt.desc}</span>
+                      </div>
+                      {cursorStyle === opt.id && (
+                        <span className="customizer-item__check" aria-hidden="true">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="customizer-section">
+                <span className="customizer-label">Cursor Color &amp; Glow</span>
+                <div className="customizer-colors" role="group" aria-label="Cursor color options">
+                  {CURSOR_COLORS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`customizer-color-btn${cursorColor === opt.id ? " is-current" : ""}`}
+                      aria-pressed={cursorColor === opt.id}
+                      aria-label={`Cursor color: ${opt.label}`}
+                      title={opt.label}
+                      onClick={() => selectCursorColor(opt.id)}
+                    >
+                      <span
+                        className="customizer-color-chip"
+                        style={{ background: opt.preview }}
+                        aria-hidden="true"
+                      />
+                      <span className="customizer-color-name">{opt.label}</span>
+                      {cursorColor === opt.id && (
+                        <span className="customizer-color-check" aria-hidden="true">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
 
