@@ -25,18 +25,31 @@ export function compact(value: number): string {
   return `${m.toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-/** A duration as the two largest units that matter: `3d 4h`, `12m 30s`. */
+/**
+ * A duration as the two largest units that matter: `3d 4h`, `1h 12m`, `12m`, `45s`.
+ *
+ * The rule is about **rate of change, not precision**, and it is deliberately not
+ * "the two largest units" all the way down. Every value here is drawn from a page
+ * that re-reads every few seconds, so a seconds digit on a long span makes every row
+ * a live counter: two screenshots two seconds apart read `5m 0s` and `5m 15s`, which
+ * is seven digits of movement per poll that nobody is reading — and it is what makes
+ * a status page feel jumpy rather than calm.
+ *
+ * So the second unit appears only where it is the whole story (under a minute, which
+ * is also the one place precision matters — a lockout that frees in `45s` is a
+ * countdown somebody is watching), and above that the display changes once a minute,
+ * once an hour, once a day: at the rate a reader would notice the change anyway.
+ */
 export function duration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "—";
   const s = Math.floor(seconds);
   const days = Math.floor(s / 86400);
   const hours = Math.floor((s % 86400) / 3600);
   const minutes = Math.floor((s % 3600) / 60);
-  const secs = s % 60;
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${secs}s`;
-  return `${secs}s`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${s}s`;
 }
 
 /** How long ago a timestamp was, in the words a person would use. */
