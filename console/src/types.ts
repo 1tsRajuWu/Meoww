@@ -451,7 +451,11 @@ export type LivePayload = {
   music: {
     read: { player: boolean; caps: boolean };
     extractor: {
-      status: "ok" | "failed" | "unreachable" | "unknown";
+      /** `climbing` is the one that is not a verdict: the extractor answers, and
+       * it answers through a fallback player client because the default one is
+       * being refused. A host in that state works today and is one provider
+       * change from working not at all, so it is neither `ok` nor a failure. */
+      status: "ok" | "climbing" | "failed" | "unreachable" | "unknown";
       detail: string;
       checked_seconds_ago: number | null;
     } | null;

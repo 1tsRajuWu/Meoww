@@ -344,7 +344,11 @@ class TheSearchIsTwoPhasesAndTheSecondOneNeverSearchesAgain(unittest.TestCase):
         )
         seen = []
 
-        def fake_extract(options, target):
+        def fake_extract(options, target, **_kwargs):
+            # ``require_url`` arrives on a *stream* extraction and not on a search,
+            # which is exactly the distinction this test is about — so the stub
+            # takes whatever the caller passes rather than pinning the older
+            # two-argument shape.
             seen.append(target)
             return {"url": "http://example.invalid/s", "acodec": "opus", "ext": "webm", "abr": 130}
 
@@ -363,6 +367,241 @@ class TheSearchIsTwoPhasesAndTheSecondOneNeverSearchesAgain(unittest.TestCase):
         self.assertTrue(track.is_opus)
         self.assertAlmostEqual(track.abr, 128.0)
         self.assertTrue(track.fresh)
+
+
+class _FakeEngine:
+    """A stand-in for ``yt_dlp.YoutubeDL``: answers, or raises, per client set."""
+
+    def __init__(self, answer):
+        self._answer = answer
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def extract_info(self, target, download=False):  # noqa: ARG002 — yt-dlp's own signature
+        return self._answer(target)
+
+
+def _client_of(options) -> tuple[str, ...]:
+    """The client set an options dict asks for, as :data:`M.CLIENT_LADDER` stores it."""
+    args = options.get("extractor_args") or {}
+    return tuple((args.get("youtube") or {}).get("player_client") or ())
+
+
+def _installs_youtube_dl(answer):
+    """Patch ``yt_dlp.YoutubeDL`` with a factory that records every attempt.
+
+    Returns ``(seen, patch)`` where ``seen`` fills with the client set of each
+    attempt and ``answer(client, target)`` decides what it does — which is how a
+    "this host is refused by one client and answered by another" network is built
+    without anything touching the real one.
+    """
+    seen: list[tuple[str, ...]] = []
+
+    def factory(options):
+        client = _client_of(options)
+        return _FakeEngine(lambda target: (seen.append(client), answer(client, target))[1])
+
+    return seen, mock.patch("yt_dlp.YoutubeDL", side_effect=factory)
+
+
+class TheExtractorClimbsUntilSomethingAnswers(unittest.TestCase):
+    """*"Every song died on the host and played for whoever tested it."*
+
+    That was the production report this exists for: a datacenter IP that YouTube
+    refuses, an install that resolves and searches perfectly from a laptop, and a
+    bot whose every stream ended in ``DownloadError``. The archived cog had one
+    client set and no answer to it. Four behaviours are pinned here, because each
+    is a way the climb can be wrong rather than merely absent: it must happen at
+    all, it must stop when climbing cannot help, it must not accept an answer that
+    is not a stream, and it must not cost a second extraction once a host has
+    settled.
+    """
+
+    PLAYABLE = {"url": "http://example.invalid/s", "acodec": "opus", "ext": "webm", "abr": 130}
+
+    def setUp(self):
+        # Module state, so it has to be put back: a memo of "which client worked"
+        # leaking between tests would make the order they run in observable.
+        saved = M._last_good_client
+        M._last_good_client = None
+        self.addCleanup(setattr, M, "_last_good_client", saved)
+
+    def test_a_refused_client_is_followed_by_one_that_answers(self):
+        import yt_dlp
+
+        def answer(client, _target):
+            if client == ():
+                raise yt_dlp.utils.DownloadError(
+                    "ERROR: [youtube] abc: Sign in to confirm you're not a bot"
+                )
+            return dict(self.PLAYABLE)
+
+        seen, patch = _installs_youtube_dl(answer)
+        with patch:
+            info = M.ytdl_extract(
+                M._base_options(flat=False), "https://www.youtube.com/watch?v=abc", require_url=True
+            )
+
+        self.assertTrue(info["url"])
+        self.assertEqual(seen[0], (), "the configured/default rung must go first")
+        self.assertGreater(len(seen), 1, "it never tried a second client set")
+        self.assertEqual(M._last_good_client, seen[-1])
+
+    def test_a_network_failure_does_not_climb(self):
+        """Four more extractions cannot give a host a route it does not have."""
+        import yt_dlp
+
+        def answer(_client, _target):
+            raise yt_dlp.utils.DownloadError(
+                "ERROR: Unable to download webpage: <urlopen error timed out>"
+            )
+
+        seen, patch = _installs_youtube_dl(answer)
+        with patch, self.assertRaises(yt_dlp.utils.DownloadError):
+            M.ytdl_extract(M._base_options(flat=False), "https://example.invalid/x")
+
+        self.assertEqual(len(seen), 1, "it climbed on a failure climbing cannot fix")
+
+    def test_a_format_list_without_a_url_is_not_an_answer(self):
+        """The distinction that makes the climb do any work at all.
+
+        A client set can answer with 47 formats and nothing a streaming player can
+        open, because the selected format is a video/audio *pair* that would need
+        muxing. That is not a failure and still not a stream.
+        """
+        # *Every* rung answers with a format list and no URL, which is the case the
+        # old code called a success and then handed to the player as no stream.
+        def answer(_client, _target):
+            return {"title": "x", "formats": [{"format_id": "251"}], "url": None}
+
+        seen, patch = _installs_youtube_dl(answer)
+        with patch, self.assertRaises(M.MediaError):
+            M.ytdl_extract(
+                M._base_options(flat=False), "https://www.youtube.com/watch?v=abc", require_url=True
+            )
+
+        self.assertGreater(len(seen), 1, "a format list with no URL was accepted as a stream")
+        self.assertEqual(len(seen), len(M.CLIENT_LADDER), "the ladder must be exhausted")
+
+    def test_the_last_good_client_is_asked_for_first_next_time(self):
+        """A host that has settled on one client set should not re-learn it per song."""
+        M._last_good_client = ("android_vr",)
+
+        def answer(client, _target):
+            if client == ():
+                raise M.MediaError("no_stream", "the default client did not answer")
+            return dict(self.PLAYABLE)
+
+        seen, patch = _installs_youtube_dl(answer)
+        with patch:
+            M.ytdl_extract(
+                M._base_options(flat=False), "https://www.youtube.com/watch?v=abc", require_url=True
+            )
+
+        # The rung that last answered is tried *second*, immediately after the
+        # caller's own options (which is where an operator's token lives) — so a
+        # settled host answers on the first climb rather than re-learning it. The
+        # assertion that matters is the one about `seen[1]`: without the memo this
+        # is `("tv_embedded",)`, which is the ladder's own order.
+        self.assertEqual(seen[0], ())
+        self.assertEqual(seen[1], ("android_vr",))
+
+
+class ASecondProviderIsAskedBeforeAGivingUp(unittest.TestCase):
+    """The same song, somewhere else, instead of a dead queue entry.
+
+    The acceptance rule is deliberately *not* the search's confidence margin:
+    a rescue already knows which recording it is looking for, so the length is a
+    fact about the answer. Without that the rescue inherited the margin, refused
+    to choose between four same-named uploads, and returned nothing — silence,
+    which is the complaint it exists to answer.
+    """
+
+    def _candidate(self, duration, video_id, title="Song", provider="soundcloud"):
+        return M.Candidate(
+            provider=provider,
+            video_id=f"https://soundcloud.com/who/{video_id}",
+            title=title,
+            duration=duration,
+            webpage_url=f"https://soundcloud.com/who/{video_id}",
+        )
+
+    def test_the_recording_is_chosen_by_its_length_and_played(self):
+        track = M.Track(
+            title="Song", provider="youtube", video_id="abc", duration=240,
+            expected_artist="Artist", search_query="Artist Song",
+        )
+        short, right, remix = (
+            self._candidate(30, "preview"),
+            self._candidate(238, "real"),
+            self._candidate(410, "live-version"),
+        )
+        picked = []
+
+        def fake_pick(candidates, *args, **kwargs):
+            picked.extend(candidates)
+            return M.Resolution(query="q", track=M.to_track(right, requester="Someone", query="q"))
+
+        with mock.patch.object(M, "_rescue_candidates", return_value=[short, right, remix]), \
+                mock.patch.object(M, "pick", side_effect=fake_pick), \
+                mock.patch.object(
+                    M, "stream",
+                    return_value=M.Stream(url="http://cdn/x", ext="mp3", codec="mp3", abr=160.0, duration=238),
+                ):
+            rescued = M.rescue(track)
+
+        self.assertIsNotNone(rescued)
+        self.assertEqual(rescued.provider, "soundcloud")
+        self.assertTrue(rescued.stream_url)
+        # The card keeps naming what the member asked for.
+        self.assertEqual(rescued.title, "Song")
+        # …and the preview and the wrong-length upload were never in the running.
+        self.assertIn(right, picked)
+        self.assertNotIn(short, picked)
+        self.assertNotIn(remix, picked)
+
+    def test_nothing_comparable_is_none_rather_than_a_guess(self):
+        track = M.Track(title="Song", provider="youtube", video_id="abc", duration=240)
+        wrong = M.Candidate(
+            provider="soundcloud", video_id="https://soundcloud.com/who/other",
+            title="Something Else", duration=95,
+        )
+        with mock.patch.object(M, "_rescue_candidates", return_value=[wrong]), \
+                mock.patch.object(M, "stream", side_effect=AssertionError("must not be reached")):
+            self.assertIsNone(M.rescue(track))
+
+    def test_a_track_already_on_the_fallback_provider_is_not_rescued(self):
+        """Looking for it again on the host that just refused is not trying harder."""
+        track = M.Track(title="Song", provider="soundcloud", video_id="https://soundcloud.com/a/b")
+        with mock.patch.object(M, "_rescue_candidates", return_value=[]) as search:
+            self.assertIsNone(M.rescue(track))
+        search.assert_not_called()
+
+    def test_a_soundcloud_page_is_its_own_identity(self):
+        """The numeric id is an *API* id: as a path it resolves to a **user**.
+
+        That is not hypothetical — it is how the first rescue reached a 404 on the
+        second provider it was asked for.
+        """
+        parsed = M.parse("https://soundcloud.com/billieeilish/bittersuite")
+        track = M.Track(title="BITTERSUITE", provider="soundcloud", video_id=parsed.video_id)
+
+        self.assertEqual(parsed.video_id, "https://soundcloud.com/billieeilish/bittersuite")
+        self.assertEqual(M.watch_url(track), "https://soundcloud.com/billieeilish/bittersuite")
+
+        from_search = M._candidate_from_entry({
+            "ie_key": "Soundcloud",
+            "id": "1856469195",
+            "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1856469195",
+            "webpage_url": "https://soundcloud.com/user/bittersuite",
+            "title": "BITTERSUITE",
+            "duration": 374.0,
+        })
+        self.assertEqual(from_search.video_id, "https://soundcloud.com/user/bittersuite")
 
 
 class TheSelfCheckAsksForARealRecording(unittest.TestCase):

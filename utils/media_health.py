@@ -273,10 +273,16 @@ class Verdict:
     #: Which kind each failure was, so the card can say "a hardcoded link" or "the
     #: resolver, not a link".
     kinds: dict[str, str] = field(default_factory=dict)
+    #: ``target -> what is worth knowing``, for the things that are **not failures**.
+    #: A third bucket because the first two would both lie about this one: it is not
+    #: dead (it answered) and it is not unchecked (it was asked). What lives here is
+    #: the extractor working *through a fallback client* — true, working today, and
+    #: one provider change away from being neither.
+    noted: dict[str, str] = field(default_factory=dict)
 
     @property
     def ok(self) -> int:
-        return max(0, self.checked - len(self.dead) - len(self.unchecked))
+        return max(0, self.checked - len(self.dead) - len(self.unchecked) - len(self.noted))
 
     @property
     def healthy(self) -> bool:
@@ -293,6 +299,7 @@ class Verdict:
             "ok": self.ok,
             "dead": len(self.dead),
             "unchecked": len(self.unchecked),
+            "noted": len(self.noted),
         }
 
 
@@ -349,6 +356,16 @@ LEFT_EMPTY = "the resolver produced nothing (provider or file)"
 EXTRACTOR_FAILED = "the extractor could not resolve a recording it should always be able to"
 
 
+#: Filed when the extractor answers, but only because a *fallback* player client
+#: did. Not a dead link and not yet an outage: it is the reading that says the
+#: default client has been refused, which is one provider change away from the
+#: extractor answering nothing at all. It rides in ``unchecked`` rather than in
+#: ``dead`` for the same reason a transport failure does — there is nothing to
+#: blame and nothing to fix *today*, and the card's job is to be legible about which
+#: of those it is.
+EXTRACTOR_CLIMBING = "a fallback player client is answering for the default one"
+
+
 async def _extract() -> tuple[bool, str]:
     """Ask the extractor for one recording, off the event loop.
 
@@ -362,6 +379,12 @@ async def _extract() -> tuple[bool, str]:
     except Exception as exc:  # noqa: BLE001 — the pass must not raise
         return False, f"the extractor check itself failed ({type(exc).__name__})"
     if probe.healthy:
+        if probe.climbed:
+            # The early warning, and the only one this pass can give before songs
+            # start dying: the extractor is working *through a fallback*, which is
+            # what a host being refused by the default client looks like from here.
+            return False, f"{EXTRACTOR_CLIMBING} (`{probe.client}`) ({probe.note})" if probe.note \
+                else f"{EXTRACTOR_CLIMBING} (`{probe.client}`)"
         return True, ""
     if probe.unreachable:
         # Deliberately shaped like the link probe's own transport failure, so the
@@ -406,6 +429,7 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
         session = aiohttp.ClientSession()
     dead: dict[str, str] = {}
     unchecked: dict[str, str] = {}
+    noted: dict[str, str] = {}
     places: dict[str, str] = {}
     kinds: dict[str, str] = {}
     try:
@@ -426,6 +450,11 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
             kinds[target.name] = target.kind
             if str(reason).startswith("no answer"):
                 unchecked[target.name] = reason
+            elif reason == EXTRACTOR_CLIMBING or str(reason).startswith(EXTRACTOR_CLIMBING):
+                # Working, and saying so: a *note* rather than a finding, because
+                # filing it as dead would send somebody to fix a link that resolves
+                # and filing it as unchecked would say the extractor was never asked.
+                noted[target.name] = reason
             else:
                 dead[target.name] = reason
     finally:
@@ -441,6 +470,7 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
         places=places,
         unchecked=unchecked,
         kinds=kinds,
+        noted=noted,
     )
 
 
@@ -456,6 +486,11 @@ def describe(verdict: Verdict) -> str:
         return (
             f"media check could not ask about {counts['unchecked']}/{counts['checked']} "
             f"targets: {', '.join(sorted(verdict.unchecked))}"
+        )
+    if verdict.noted:
+        return (
+            f"media check clean, with {counts['noted']} note(s): "
+            + ", ".join(f"{name} ({verdict.noted[name]})" for name in sorted(verdict.noted))
         )
     return f"clean — {counts['ok']}/{counts['checked']} media targets answered with real media"
 
@@ -489,6 +524,13 @@ def note(verdict: Verdict) -> str | None:
     A clean pass is silent, and so is a second look at a pass already reported —
     the loop may be woken by a restart or a manual call, and the same four dead
     links should not produce four cards.
+
+    A pass whose only finding is a *note* is also silent, deliberately. A note
+    means the target **answered** — the extractor working through a fallback client
+    is the one it can raise — and a weekly card about something that works is how a
+    channel gets muted. The note is discoverable where somebody is already looking:
+    ``/health``, the console's extractor panel and ``/music doctor`` all read it,
+    and the moment it stops answering the *dead* alert fires with the full story.
     """
     if not verdict.dead:
         return None
@@ -511,6 +553,12 @@ def _sentence(verdict: Verdict) -> str:
             f"**{len(verdict.unchecked)}** of {verdict.checked} targets could not "
             "be asked about, so this pass proves nothing about them."
         )
+    if verdict.noted:
+        return (
+            f"Every target answered, and **{len(verdict.noted)}** has something worth "
+            "knowing: the extractor is working *through a fallback*, which is what a "
+            "host being refused by the default player client looks like from here."
+        )
     return f"All {verdict.checked} media targets answered with real media."
 
 
@@ -522,6 +570,8 @@ def card_body(verdict: Verdict) -> str:
         lines.append(f"**`{name}`** — {verdict.dead[name]}" + (f"\n{place}" if place else ""))
     for name in sorted(verdict.unchecked):
         lines.append(f"**`{name}`** — could not be asked: {verdict.unchecked[name]}")
+    for name in sorted(verdict.noted):
+        lines.append(f"**`{name}`** — working, worth knowing: {verdict.noted[name]}")
     return "\n\n".join(lines)[:MAX_CARD_CHARS]
 
 
@@ -552,6 +602,16 @@ def extractor_state() -> dict:
         return {
             "status": "unreachable",
             "detail": verdict.unchecked[EXTRACTOR_TARGET],
+            "checked_seconds_ago": age,
+        }
+    if EXTRACTOR_TARGET in verdict.noted:
+        # Its own status rather than `ok`, because it is not one: the extractor
+        # answers, and it answers through a fallback. A reader who sees `ok` on a
+        # host that is being refused by the default client has been told the wrong
+        # thing about a deployment that is one provider change from silence.
+        return {
+            "status": "climbing",
+            "detail": verdict.noted[EXTRACTOR_TARGET],
             "checked_seconds_ago": age,
         }
     return {"status": "ok", "detail": "", "checked_seconds_ago": age}

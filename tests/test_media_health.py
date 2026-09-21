@@ -311,6 +311,65 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("extractor:yt-dlp", verdict.dead)
         self.assertNotIn("extractor:yt-dlp", verdict.kinds)
 
+    async def test_an_extractor_answering_through_a_fallback_is_a_note(self):
+        """The third bucket, and the reason it is a third one.
+
+        The extractor is **working** — it resolved a recording and handed back a
+        stream — but only because a fallback player client answered for the default
+        one. Filing that as dead sends somebody to fix a link that resolves; filing
+        it as unchecked says it was never asked. Both would be a lie about a host
+        that is one provider change away from silence.
+        """
+        verdict = await self._check(
+            ["https://i.imgur.com/ok.gif"],
+            extract=f"{media_health.EXTRACTOR_CLIMBING} (`android_vr`)",
+        )
+        self.assertIn("extractor:yt-dlp", verdict.noted)
+        self.assertNotIn("extractor:yt-dlp", verdict.dead, "a working extractor is not a dead one")
+        self.assertNotIn("extractor:yt-dlp", verdict.unchecked, "it was asked and it answered")
+        self.assertTrue(verdict.healthy, "nothing here stopped working")
+        self.assertEqual(verdict.kinds["extractor:yt-dlp"], "extractor")
+        self.assertEqual(verdict.counts["noted"], 1)
+        self.assertIn("extractor:yt-dlp", media_health.describe(verdict))
+        self.assertIn("extractor:yt-dlp", media_health.card_body(verdict))
+        # …and the pass stays silent about it: a weekly card about something that
+        # works is how a channel gets muted.
+        self.assertIsNone(media_health.note(verdict))
+
+    async def test_the_climbing_note_reads_as_its_own_state_not_as_ok(self):
+        """`ok` on a host being refused by the default client is the wrong reading."""
+        verdict = await self._check(
+            [], extract=f"{media_health.EXTRACTOR_CLIMBING} (`android_vr`)"
+        )
+        media_health.record(verdict)
+        state = media_health.extractor_state()
+        self.assertEqual(state["status"], "climbing")
+        self.assertIn("android_vr", state["detail"])
+
+    async def test_a_probe_that_climbed_is_reported_as_climbing_not_as_healthy(self):
+        """The half of this that lives in ``_extract`` rather than in the pass."""
+        probe = media_source.Probe(
+            healthy=True,
+            detail="Big Buck Bunny · 10:35",
+            version="2026.08.19",
+            target=media_source.DEFAULT_PROBE_TARGET,
+            client="android_vr",
+            climbed=True,
+            at=1000.0,
+        )
+        self.assertTrue(probe.note, "a climbing probe has something to say")
+        with mock.patch.object(media_source, "self_check", lambda *a, **k: probe):
+            healthy, reason = await media_health._extract()
+        self.assertFalse(healthy)
+        self.assertIn(media_health.EXTRACTOR_CLIMBING, reason)
+        self.assertIn("android_vr", reason)
+
+        # And the ordinary healthy case says nothing at all.
+        plain = media_source.Probe(healthy=True, client="default", climbed=False, at=1000.0)
+        self.assertEqual(plain.note, "")
+        with mock.patch.object(media_source, "self_check", lambda *a, **k: plain):
+            self.assertEqual(await media_health._extract(), (True, ""))
+
     async def test_a_network_that_cannot_reach_the_provider_is_not_a_finding(self):
         """The contract between ``_extract`` and the pass, and it is worth a test of
         its own: a blocked extractor is a *finding* (the provider answered), and a

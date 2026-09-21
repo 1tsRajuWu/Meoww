@@ -157,6 +157,10 @@ class Fault:
             "unplayable": "a track could not be played",
             "blocked": "the provider refused this host",
             "opus_missing": "this host cannot encode audio",
+            # Not a failure, and that is the point of giving it a name here: the
+            # song is playing, just from the other provider, and the room is told
+            # so that a *different* upload is never a silent surprise.
+            "rescued": "the track was picked up from another provider",
         }
         return names.get(self.kind, self.kind.replace("_", " "))
 
@@ -375,12 +379,34 @@ class GuildPlayer:
                     resolve_error = f"The provider could not be read ({type(exc).__name__})."
 
             if not track.stream_url:
-                # Naming the reason beats skipping in silence: "it skipped my song"
-                # is indistinguishable from a bug, and this is the message the
-                # member can act on.
-                self.current = None
-                await self._advance_after_failure(track, resolve_error or "No playable stream was found.")
-                return
+                # **Before giving up, ask a different provider.** One host's network
+                # being refused by one platform is the failure nobody can see from
+                # a laptop, and it used to be the end of the song: the room was
+                # told the stream died and the queue moved on. The same artist and
+                # title are looked for somewhere that will answer, and *only if that
+                # also fails* is the track reported as unplayable.
+                rescued = await self._rescue(track)
+                if rescued is not None:
+                    self._report(
+                        Fault(
+                            kind="rescued",
+                            detail=(
+                                f"{track.provider} would not stream it"
+                                + (f" ({resolve_error})" if resolve_error else "")
+                                + f", so this is the {rescued.provider} copy."
+                            ),
+                            title=track.title,
+                            engine=self.engine,
+                        )
+                    )
+                    track = rescued
+                else:
+                    # Naming the reason beats skipping in silence: "it skipped my
+                    # song" is indistinguishable from a bug, and this is the
+                    # message the member can act on.
+                    self.current = None
+                    await self._advance_after_failure(track, resolve_error or "No playable stream was found.")
+                    return
 
             self.current = track
             self.seek_offset = 0.0
@@ -413,6 +439,21 @@ class GuildPlayer:
                 f"[MUSIC] ▶ {track.title!r} via {engine} in guild {self.guild_id}",
                 flush=True,
             )
+
+    async def _rescue(self, track):
+        """The same song from another provider, or ``None``. Off the event loop.
+
+        Off the loop for the same reason a search is: a second provider's search
+        plus its own extraction is seconds of blocking network work, and doing it
+        inline would freeze every other guild's playback.
+        """
+        try:
+            return await asyncio.get_running_loop().run_in_executor(
+                None, media_source.rescue, track
+            )
+        except Exception as exc:  # noqa: BLE001 — a rescue that breaks is a rescue that failed
+            print(f"[MUSIC] rescue failed for {track.title!r}: {exc}", flush=True)
+            return None
 
     async def _advance_after_failure(self, track, reason: str) -> None:
         """Say what went wrong, then keep the queue moving."""

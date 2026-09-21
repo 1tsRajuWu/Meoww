@@ -91,11 +91,16 @@ _YOUTUBE_ID = re.compile(
     r"(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|live/|embed/)|youtu\.be/|music\.youtube\.com/watch\?(?:[^#]*&)?v=)([\w-]{6,})",
     re.IGNORECASE,
 )
-_SOUNDCLOUD_ID = re.compile(r"soundcloud\.com/[\w-]+/[\w-]+", re.IGNORECASE)
+#: A SoundCloud track's *portable* identity is its **page address**, and the scheme
+#: is part of the match: SoundCloud's numeric id is an API id, so an identity
+#: without the address turns ``soundcloud.com/<number>`` into a **user** — which is
+#: how a rescue reached a 404 on the second provider it was asked for.
+_SOUNDCLOUD_ID = re.compile(r"(https?://(?:www\.)?soundcloud\.com/[\w-]+/[\w-]+)", re.IGNORECASE)
 _ARTIST_SPLIT = re.compile(
     r"\s*(?:,|&|;|\bfeat\.?\b|\bft\.?\b|\bwith\b|\bx\b)\s*", re.IGNORECASE
 )
 _SPOTIFY_HOST = re.compile(r"spotify\.(?:com|link)", re.IGNORECASE)
+_NUMERIC = re.compile(r"^\d+$")
 
 
 class MediaError(Exception):
@@ -214,29 +219,161 @@ def _base_options(*, flat: bool) -> dict[str, Any]:
     return options
 
 
-def ytdl_extract(options: dict, target: str):
-    """Run one extraction, retrying with the legacy client set if the defaults fail.
+#: The player-client sets tried, in order, until one answers with a playable
+#: stream. The first rung is **yt-dlp's own choice**, which is the only one that
+#: negotiates audio-only Opus and therefore the only one that sounds like the
+#: source; the rest are the clients that keep answering on a network YouTube has
+#: flagged, which a datacenter IP always is.
+#:
+#: The order is measured rather than guessed, and it matters: on a host YouTube
+#: does not like, ``tv_embedded`` answers with the full format list, ``android_vr``
+#: is the one that hands back a *direct* audio URL with no signature deciphering
+#: (four formats and a ``url``, which is the whole requirement for a stream), and
+#: the legacy ``android``/``web`` pair is last because it is alive everywhere and
+#: sounds the worst — it exposes only a muxed 360p MP4 — so being last means it is
+#: reached only when nothing better answered.
+CLIENT_LADDER: tuple[tuple[str, ...], ...] = (
+    (),
+    ("tv_embedded",),
+    ("android_vr",),
+    ("android", "web"),
+)
 
-    The retry exists because YouTube's bot checks vary by network: the modern
-    clients are the right ones (they negotiate audio-only Opus) and the legacy
-    ``android``/``web`` pair is what still answers on a network that has been
-    flagged. It is a **fallback**, never the default — hardcoding it was the
-    quality bug this project already paid for, because that pair exposes only a
-    muxed 360p MP4.
+#: The client set that last produced a stream, so the next extraction starts where
+#: the last one succeeded. A process-level memo and nothing more: it is a reading
+#: about *this host's network right now*, so persisting it would be a stale guess
+#: about a network that changed — and a restart is exactly when the guess should
+#: be thrown away.
+_last_good_client: tuple[str, ...] | None = None
+
+#: Whether that extraction had to *climb* to get there, which is a different
+#: question from which client answered: a deploy that configured a client of its
+#: own answers on the first rung and looks identical to a deploy the provider likes.
+#: Only climbing is a statement about the network.
+_last_climbed: bool = False
+
+
+def _attempts(options: dict[str, Any]):
+    """The option sets to try for one extraction, best first.
+
+    The options as handed in are always the first attempt, so an operator's
+    ``YTDL_PO_TOKEN`` / ``YTDL_VISITOR_DATA`` configuration is respected rather
+    than overridden — but it is no longer the *only* attempt, which it used to be:
+    a configured token that the provider has stopped honouring disabled every
+    fallback, so the one host that had been configured to cope was the one that
+    died first.
+
+    A rung the last successful extraction used is moved to the front, so a host
+    that has settled on ``android_vr`` asks for it first instead of re-learning it
+    on every single song.
     """
+    order = list(CLIENT_LADDER)
+    if _last_good_client and _last_good_client in order:
+        order.remove(_last_good_client)
+        order.insert(0, _last_good_client)
+    yield options
+    for client in order:
+        if not client:
+            # The empty rung *is* yt-dlp's own choice, which the caller's options
+            # already describe unless an operator configured something else — and
+            # that configuration was the first attempt above.
+            continue
+        attempt = dict(options)
+        attempt["extractor_args"] = {"youtube": {"player_client": list(client)}}
+        yield attempt
+
+
+def _has_playable_url(info) -> bool:
+    """Whether an extraction produced *one* URL a player can open.
+
+    The distinction that matters and is easy to miss: a result can be full of
+    formats and still have nothing directly playable, because the selected format
+    is a video/audio *pair* that would need muxing — which is exactly what
+    ``bestvideo+bestaudio`` means, and why a client set can answer "47 formats" and
+    still be useless to a streaming player.
+    """
+    if not isinstance(info, dict):
+        return False
+    if info.get("entries"):
+        return bool([entry for entry in info["entries"] if entry])
+    return bool(info.get("url"))
+
+
+def _worth_climbing(exc: Exception) -> bool:
+    """Whether a different client set could plausibly answer where this one did not.
+
+    Everything except a *network* failure. A host with no route out will not grow
+    one in the three seconds four more extractions cost, and the failures that do
+    climb are precisely the ones that vary by client: a bot check, a format the
+    client is not offered, a video that one client is told is unavailable.
+    """
+    return not looks_unreachable(exc)
+
+
+def ytdl_extract(options: dict, target: str, *, require_url: bool = False):
+    """Run one extraction, climbing :data:`CLIENT_LADDER` until something answers.
+
+    ``require_url`` is what turns "the provider replied" into "the provider replied
+    with something playable": a metadata extraction does not need a direct URL, a
+    *stream* extraction is nothing but one, and a rung that returns a format list
+    with no playable entry has not answered the question that was asked.
+
+    When every rung fails the **last** failure is raised, so the message a member
+    reads is about the client that got closest rather than the one that was tried
+    first. The rung that worked is remembered for the next call.
+    """
+    global _last_good_client, _last_climbed
+
     import yt_dlp  # noqa: PLC0415
 
-    try:
-        with yt_dlp.YoutubeDL(options) as ytdl:
-            return ytdl.extract_info(target, download=False)
-    except Exception as exc:
-        if options.get("extractor_args") or not _looks_like_format_refusal(exc):
-            raise
-        print(f"[MUSIC] default clients failed ({type(exc).__name__}); retrying legacy", flush=True)
-        legacy = dict(options)
-        legacy["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
-        with yt_dlp.YoutubeDL(legacy) as ytdl:
-            return ytdl.extract_info(target, download=False)
+    last: Exception = MediaError("no_stream", "The provider answered with nothing playable.")
+    tried: list[str] = []
+    for attempt in _attempts(options):
+        client = _client_of(attempt)
+        tried.append(client)
+        try:
+            with yt_dlp.YoutubeDL(attempt) as ytdl:
+                info = ytdl.extract_info(target, download=False)
+        except Exception as exc:
+            last = exc
+            if not _worth_climbing(exc):
+                raise
+            continue
+        if require_url and not _has_playable_url(info):
+            last = MediaError(
+                "no_stream", "The provider gave no playable stream for that recording."
+            )
+            continue
+        climbed = len(tried) > 1
+        if climbed and not _last_climbed:
+            # A line the *first* time it happens and not on every song: the
+            # transition into "this host is being refused by the default client" is
+            # the news, and repeating it per track is a log nobody reads.
+            print(
+                f"[MUSIC] the default client was refused; the extractor settled on "
+                f"{client!r}",
+                flush=True,
+            )
+        _last_good_client = _client_tuple(attempt)
+        _last_climbed = climbed
+        return info
+
+    if len(tried) > 1:
+        print(f"[MUSIC] every client set failed ({', '.join(tried)}): {last}", flush=True)
+    raise last
+
+
+def _client_of(options: dict) -> str:
+    """A readable name for the client set an attempt uses."""
+    args = options.get("extractor_args") or {}
+    clients = (args.get("youtube") or {}).get("player_client") or []
+    return "+".join(clients) if clients else "default"
+
+
+def _client_tuple(options: dict) -> tuple[str, ...]:
+    """The same shape :data:`CLIENT_LADDER` stores, so the memo can be compared."""
+    args = options.get("extractor_args") or {}
+    return tuple((args.get("youtube") or {}).get("player_client") or ())
 
 
 def _looks_like_format_refusal(exc: Exception) -> bool:
@@ -611,7 +748,7 @@ def parse(query: str) -> Parsed:
         return Parsed(
             kind="link",
             provider="soundcloud",
-            video_id=matched.group(0) if matched else "",
+            video_id=matched.group(1) if matched else "",
             url=text,
             text=text,
         )
@@ -630,7 +767,12 @@ def watch_url(track: Track) -> str:
     if track.video_id and track.provider == "youtube":
         return f"https://www.youtube.com/watch?v={track.video_id}"
     if track.video_id and track.provider == "soundcloud":
-        return track.video_id if track.video_id.startswith("http") else f"https://soundcloud.com/{track.video_id}"
+        if track.video_id.startswith("http"):
+            return track.video_id
+        # An id rather than a page: the page it came from is the only addressable
+        # form, and a numeric id here is an API id, not a path.
+        if track.webpage_url and not _NUMERIC.match(track.webpage_url):
+            return track.webpage_url
     return track.webpage_url or track.search_query or track.title
 
 
@@ -646,6 +788,14 @@ def _candidate_from_entry(entry: dict) -> Candidate | None:
     provider = "youtube"
     if "soundcloud" in str(entry.get("ie_key") or "").lower() or "soundcloud.com" in url:
         provider = "soundcloud"
+        # Identity by page address, not by id. A SoundCloud search returns the
+        # numeric track id *and* the page it lives on, and only the second one is
+        # addressable — the first is an API id that resolves as a user.
+        page = str(entry.get("webpage_url") or "")
+        if not page and "soundcloud.com" in url:
+            page = url
+        if page.startswith("http"):
+            video_id = page
     title = entry.get("title") or ""
     if not title and not video_id:
         return None
@@ -685,7 +835,11 @@ def stream(track: Track, *, target: str | None = None) -> Stream:
     re-resolving a song and searching for one again.
     """
     address = target or watch_url(track) or track.title
-    info = ytdl_extract(_base_options(flat=False), address)
+    # ``require_url`` is the difference between "the provider replied" and "the
+    # provider replied with something a player can open", and it is what makes the
+    # client ladder climb: a rung that answers with a format *list* and no direct
+    # URL has not answered this question.
+    info = ytdl_extract(_base_options(flat=False), address, require_url=True)
     if not info:
         raise MediaError("no_stream", "The provider answered with nothing playable.")
     if isinstance(info, dict) and info.get("entries"):
@@ -731,6 +885,153 @@ def apply_stream(track: Track, resolved: Stream) -> Track:
         track.live = True
     track.resolved_at = time.monotonic()
     return track
+
+
+# --------------------------------------------------------------------------- #
+# The rescue: the same song, somewhere else
+# --------------------------------------------------------------------------- #
+# YouTube is the one provider that refuses a datacenter host, and it is also the
+# one this resolver prefers — so the failure mode nobody can see from a laptop is
+# "every song dies on the host and works for whoever tests it". The archived cog
+# had no answer to that. This is the answer: when the provider that *found* a
+# track will not stream it, the same artist and title are looked for on a second
+# provider that will.
+#
+# SoundCloud is the second provider because it is one this resolver already
+# understands end to end (``parse``, ``_candidate_from_entry`` and the scorer all
+# know it) and because it is markedly harder to refuse a datacenter IP on. The
+# result is scored against the *track's own* title **and its known duration**,
+# which is the strongest signal available at this point: the recording was already
+# identified when it was queued, so this is a lookup for that recording rather
+# than another search.
+
+#: Every provider tried, in order, by :func:`rescue`. Named as extractor search
+#: prefixes because that is exactly what they are.
+RESCUE_PROVIDERS: tuple[str, ...] = ("scsearch",)
+
+#: The providers a track can be rescued *from*, which is the question the memo
+#: below is asked in reverse: a rescue means "find this on a provider other than
+#: the one that failed", so a track already on the only fallback has nowhere to go
+#: to and asking again would just be the same host refusing twice.
+RESCUABLE_PROVIDERS: tuple[str, ...] = ("youtube",)
+
+#: How close a rescue candidate's *title* must be when the recording's length is
+#: not known. Only the fallback of the fallback: a candidate that matches neither
+#: the length nor the name is not this recording, and the honest answer is then
+#: silence — the scorer's own margin cannot decide that, because it compares
+#: candidates to *each other* and one candidate always looks confident on its own.
+RESCUE_TITLE_FLOOR = 0.6
+
+
+def _rescue_candidates(text: str, limit: int = SEARCH_LIMIT) -> list[Candidate]:
+    """A flat search of one phrase on every provider but the one that failed."""
+    found: list[Candidate] = []
+    for provider in RESCUE_PROVIDERS:
+        try:
+            info = ytdl_extract(_base_options(flat=True), f"{provider}{limit}:{text}")
+        except Exception as exc:  # noqa: BLE001 — one provider refusing is not the end
+            print(f"[MUSIC] rescue search on {provider} failed: {type(exc).__name__}", flush=True)
+            continue
+        entries = (info or {}).get("entries") if isinstance(info, dict) else None
+        for entry in entries or []:
+            candidate = _candidate_from_entry(entry)
+            if candidate is not None:
+                found.append(candidate)
+    return found
+
+
+#: How far a rescue candidate's own length may be from the recording's before it is
+#: a different recording. Proportional with a floor, because providers round and
+#: truncate: 12% of a three-minute song is 21 seconds and 12% of a nine-minute one
+#: is 65, which is the right shape — but a short track should not be gated by a
+#: 5-second window, so the floor takes over below about three minutes.
+RESCUE_DURATION_SLACK = 0.12
+RESCUE_DURATION_FLOOR = 25.0
+
+
+def _agrees_on_length(candidate: Candidate, expected: float) -> bool:
+    """Whether a candidate is the same recording by its own length.
+
+    The one signal a rescue has that a search does not: the recording was already
+    identified when it was queued, so its length is a fact about the answer rather
+    than a hint about the question.
+    """
+    if not expected or not candidate.duration or candidate.too_short:
+        return False
+    return abs(candidate.duration - expected) <= max(
+        RESCUE_DURATION_FLOOR, expected * RESCUE_DURATION_SLACK
+    )
+
+
+def rescue(track: Track, *, requester: str | None = None) -> Track | None:
+    """Find the *same recording* on another provider, resolved and ready to play.
+
+    Returns a playable :class:`Track`, or ``None`` when nothing comparable was
+    found — in which case the caller keeps the original failure, because a
+    substitution nobody asked for is a worse answer than an honest refusal.
+
+    **The acceptance rule is different from a search's on purpose.** A search asks
+    "which of these did they mean?" and must refuse to guess; a rescue asks "which
+    of these *is* the recording already chosen?" — a question with a hard answer,
+    because the length is known. So a candidate is accepted when its length agrees
+    with the recording's, and the scorer only decides the *order* among the ones
+    that agree. Without this the rescue inherited the search's confidence margin
+    and returned nothing for a four-way tie, which is silence — the exact complaint
+    a rescue exists to answer. A candidate that agrees on nothing falls back to the
+    scorer's own confident pick, and if there is not one, ``None``.
+
+    The returned track's ``title`` is the original one and its ``search_query`` is
+    the original query, so the card names what the member asked for while the
+    ``webpage_url`` and ``provider`` name where it actually played. The caller is
+    expected to *say* that it substituted: a silent swap is the wrong-song bug
+    wearing a different hat.
+    """
+    if track.is_radio or track.provider not in RESCUABLE_PROVIDERS:
+        return None
+    text = " ".join(
+        part for part in (track.expected_artist or "", track.title) if part
+    ).strip() or track.search_query
+    if not text:
+        return None
+    candidates = [c for c in _rescue_candidates(text) if c.provider != track.provider]
+    expected = float(track.duration or 0)
+    agreeing = [c for c in candidates if _agrees_on_length(c, expected)]
+    pool = agreeing
+    if not pool and not expected:
+        # No length was ever recorded for this track (a live stream, a provider that
+        # does not report one), so the name is the only gate there is. A *known*
+        # length and no candidate that agrees with it stays empty on purpose: the
+        # uploads left are the live version and the extended mix, and preferring one
+        # of those over silence is how a member gets played a different recording.
+        pool = [c for c in candidates if similarity(c.title, track.title) >= RESCUE_TITLE_FLOOR]
+    resolution = pick(
+        pool,
+        track.title,
+        int(expected),
+        track.expected_artist or artist_from_query(track.search_query or track.title),
+        requester=requester or track.requester,
+        query=track.search_query or track.title,
+    )
+    alternative = resolution.track
+    if alternative is None and pool:
+        # The gap between the top two agreeing candidates was inside the margin, so
+        # the scorer handed back a shortlist. Every entry on it agrees on length, so
+        # the first one is the recording rather than a guess — and refusing here
+        # would be refusing to answer a question that already has an answer.
+        alternative = resolution.alternatives[0]
+    if alternative is None:
+        return None
+    # A rescue that cannot itself be streamed is not a rescue. This is where the
+    # ladder matters most: the second provider is being asked precisely because the
+    # first one would not answer.
+    try:
+        apply_stream(alternative, stream(alternative))
+    except MediaError:
+        return None
+    alternative.title = track.title
+    alternative.duration = alternative.duration or track.duration
+    alternative.engine = track.engine
+    return alternative
 
 
 def _spotify_tracks(query: str) -> list[dict]:
@@ -879,6 +1180,13 @@ class Probe:
     #: the request. The weekly pass reports these as "could not ask" instead of
     #: "dead", because only one of those is a fault in the deployment.
     unreachable: bool = False
+    #: Which player-client set answered, and what it had to do to answer — the
+    #: half of a self-check that is *diagnosis* rather than a verdict. A host whose
+    #: default client is refused and whose ``android_vr`` answers is working today
+    #: and about to stop being, and the difference between the two is invisible in a
+    #: plain "working".
+    client: str = ""
+    climbed: bool = False
     at: float = 0.0
 
     def to_dict(self) -> dict:
@@ -890,7 +1198,26 @@ class Probe:
             "target": self.target,
             "blocked": self.blocked,
             "unreachable": self.unreachable,
+            "client": self.client,
+            "climbed": self.climbed,
         }
+
+    @property
+    def note(self) -> str:
+        """What the client set says, in one clause, or ``""`` when nothing does.
+
+        Only says something when it is worth saying: a host answering on the
+        default client is the normal case, and a sentence about it on every check
+        is a sentence nobody reads.
+        """
+        if not self.client:
+            return ""
+        if self.climbed:
+            return (
+                f"the default client was refused and `{self.client}` answered, so this "
+                "host is being noticed — worth running `/music doctor` if songs start dying"
+            )
+        return ""
 
     def sentence(self) -> str:
         """One line for a card, with the version attached either way."""
@@ -973,11 +1300,18 @@ def self_check(target: str | None = None) -> Probe:
             target=address,
             at=time.time(),
         )
+    # Which client set the ladder settled on, read from the module memo the
+    # extraction just wrote. This is the difference between "working" and "working
+    # because one fallback is carrying the whole feature" — and it is the reading
+    # that turns a next-week outage into a today ticket.
+    settled = _last_good_client or ()
     return Probe(
         healthy=True,
         detail=f"{track.title} · {format_seconds(track.duration)}",
         version=stamp,
         target=address,
+        client="+".join(settled) if settled else "default",
+        climbed=_last_climbed,
         at=time.time(),
     )
 

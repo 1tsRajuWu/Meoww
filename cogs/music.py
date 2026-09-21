@@ -203,27 +203,91 @@ class Music(commands.Cog):
                 print(f"[MUSIC] could not clear the companion's mute: {exc}", flush=True)
         return vc
 
+    #: How each fault kind reads on the card: (emoji + headline, colour, the line
+    #: under it). Written out rather than assembled, because the middle column is
+    #: the one a reader trusts: the card used to say *"That stream was cut off"*
+    #: whatever had happened — including when nothing had been cut off at all and
+    #: the provider had simply refused to hand over a stream, which is a different
+    #: problem with a different fix and sent whoever read it looking in the wrong
+    #: place. ``Fault.headline`` has named the kinds all along; this is the card
+    #: finally using it.
+    FAULT_CARDS = {
+        "truncated": (
+            "✂️ That stream was cut off",
+            style.WARN,
+            "The queue carried on. If it keeps happening, it is the provider cutting "
+            "this host off rather than one bad link.",
+        ),
+        "unplayable": (
+            "⚠️ That track could not be played",
+            style.WARN,
+            "The queue carried on. Nothing was cut off — the provider would not hand "
+            "over a stream at all, which is usually the host rather than the link.",
+        ),
+        "blocked": (
+            "🚫 The provider refused this host",
+            style.DANGER,
+            "This is a host-level refusal rather than a bad link, so it will affect "
+            "other tracks too. `/music doctor` says what the extractor can reach.",
+        ),
+        "source_error": (
+            "🔇 The audio engine failed",
+            style.DANGER,
+            "ffmpeg or the voice connection stopped. The next track will tell you "
+            "whether it has passed.",
+        ),
+        "opus_missing": (
+            "🔇 This host cannot encode audio",
+            style.DANGER,
+            "The capability probe names the missing piece; nothing will play until "
+            "it is there.",
+        ),
+        # The good news one, and the only entry here that is not a failure: it is
+        # an informational card so that a *substituted* upload is never a silent
+        # surprise — a different recording arriving unexplained is the wrong-song
+        # bug wearing a different hat.
+        "rescued": (
+            "🔄 Playing the same track from another provider",
+            style.INFO,
+            "The provider that found it would not stream it, so it is playing from "
+            "the other one. Nothing to do — this is the bot working around a host "
+            "refusal rather than a broken request.",
+        ),
+    }
+
     async def _on_fault(self, fault: player_module.Fault) -> None:
-        """A track that died is news for the room *and* for the operator."""
+        """A track that died is news for the room *and* for the operator.
+
+        A *substitution* is news for the room only, and it is not a fault: the
+        operator's music alert is about things that went wrong, and a track that
+        is playing is not one of them.
+        """
         player = self.players.get(int(getattr(fault, "guild_id", 0) or 0)) or None
         channel = getattr(player, "text_channel", None) if player else None
+        emoji_headline, colour, advice = self.FAULT_CARDS.get(
+            fault.kind,
+            (f"⚠️ {fault.headline.capitalize()}", style.WARN, "The queue carried on."),
+        )
+        if fault.kind == "rescued":
+            emoji_headline = "🔄 Playing the same track from another provider"
         if channel is not None:
             try:
                 await style.send_card(
                     channel,
                     embed=discord.Embed(
-                        title="⚠️ That stream was cut off",
+                        title=emoji_headline,
                         description=(
                             f"**{fault.title or 'The current track'}** — {fault.detail}."
-                            "\n> The queue carried on. If it keeps happening, it is the "
-                            "provider cutting this host off rather than one bad link."
+                            f"\n> {advice}"
                         ),
-                        color=style.WARN,
+                        color=colour,
                     ),
                     timeout=None,
                 )
             except Exception as exc:
                 print(f"[MUSIC] could not report a fault in the channel: {exc}", flush=True)
+        if fault.kind == "rescued":
+            return
         await operator_log.music_alert(self.bot, fault, player=player)
 
     async def _resolve_in_executor(self, guild_id, query: str, requester: str):
@@ -754,9 +818,15 @@ class Music(commands.Cog):
             f"**DAVE** · `{caps.dave_version or 'missing'}`",
             f"**yt-dlp** · `{probe.version or 'missing'}`",
             f"**Extractor** · {probe.sentence()}",
+            f"**Client** · `{probe.client or 'default'}`",
         ]
         if probe.detail:
             lines.append(f"-# asked for {probe.detail}")
+        if probe.note:
+            # The reading that turns "working today" into a ticket worth opening:
+            # a host answering on a fallback client is one provider change away
+            # from answering nothing at all.
+            lines.append(f"\n⚠️ {probe.note}")
         if not probe.healthy and not probe.unreachable:
             lines.append(
                 "\n-# `/music radio` keeps working either way — a radio station never "

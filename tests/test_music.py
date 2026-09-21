@@ -174,6 +174,108 @@ class FilterRestartKeepsTheQueue(_PlayerCase):
         self.assertFalse(self.player.restart_current())
 
 
+class ARefusedStreamIsLookedForElsewhere(_PlayerCase):
+    """*"I want something that doesn't die."*
+
+    The production report in one screenshot: a track was found, the provider refused
+    this host (``DownloadError``), and the room was told the stream had died while
+    the queue moved on. The provider that *found* a track is not the only one that
+    can play it, so the player now asks another one before it gives up — and this
+    pins the three outcomes, because each is a way that can be wrong: the rescue
+    plays, the rescue is *announced* rather than silent, and a rescue that finds
+    nothing still reports the original failure rather than swallowing it.
+    """
+
+    def _faults(self) -> list:
+        """Collect the faults the player reports, and wait for them.
+
+        ``_report`` hands the coroutine to ``asyncio.run_coroutine_threadsafe``
+        rather than awaiting it — deliberately, so a slow card cannot stall the
+        audio thread. That makes the *delivery* asynchronous, so a test that reads
+        the list straight after ``play_next`` reads it before it was filled; hence
+        :meth:`_settle` rather than a bare assertion.
+        """
+        self.faults = []
+
+        async def record(fault):
+            self.faults.append(fault)
+
+        self.player.on_fault = record
+        return self.faults
+
+    async def _settle(self, count: int = 1) -> None:
+        """Give the loop room to deliver ``count`` scheduled notifications."""
+        for _ in range(100):
+            if len(self.faults) >= count:
+                return
+            await asyncio.sleep(0.005)
+        self.fail(f"only {len(self.faults)} fault(s) arrived, expected {count}")
+
+    async def test_a_track_the_provider_refuses_is_played_from_another_one(self):
+        import utils.media_source as M
+
+        track = _track("Refused", stream_url="")
+        self.player.queue = [track]
+        rescued = M.Track(
+            title="Refused", provider="soundcloud", video_id="https://soundcloud.com/a/b",
+            stream_url="http://example.invalid/rescued", duration=180,
+        )
+        faults = self._faults()
+
+        # A *plain* function: the player calls the resolver through
+        # ``run_in_executor``, so an ``async def`` stub would be handed back as an
+        # un-awaited coroutine and fail as a ``TypeError`` instead — which is the
+        # real code path being exercised, only for the wrong reason.
+        def no_stream(*_args, **_kwargs):
+            raise M.MediaError("no_stream", "The provider gave no playable stream.")
+
+        async def found(_track):
+            return rescued
+
+        with mock.patch.object(player_module.media_source, "stream", no_stream), \
+                mock.patch.object(self.player, "_rescue", found):
+            await self.player.play_next()
+            await self._settle()
+
+        self.assertIs(self.player.current, rescued, "the queue did not play the rescued track")
+        self.assertEqual(len(self.vc.played), 1, "nothing was handed to the voice client")
+        self.assertEqual([f.kind for f in faults], ["rescued"])
+        self.assertIn("soundcloud", faults[0].detail)
+
+    async def test_a_rescue_that_finds_nothing_still_reports_the_original_failure(self):
+        import utils.media_source as M
+
+        self.player.queue = [_track("Gone", stream_url="")]
+        faults = self._faults()
+
+        def no_stream(*_args, **_kwargs):
+            raise M.MediaError("no_stream", "Nothing matched that recording.")
+
+        async def nothing(_track):
+            return None
+
+        with mock.patch.object(player_module.media_source, "stream", no_stream), \
+                mock.patch.object(self.player, "_rescue", nothing):
+            await self.player.play_next()
+            await self._settle()
+
+        self.assertIsNone(self.player.current)
+        self.assertEqual([f.kind for f in faults], ["unplayable"])
+        self.assertIn("Nothing matched that recording", faults[0].detail)
+
+    async def test_a_stream_that_is_already_resolved_is_not_rescued(self):
+        """The common path must not pay for the rare one."""
+        self.player.queue = [_track("Fine")]
+
+        async def forbidden(_track):
+            raise AssertionError("a fresh stream was sent looking for a duplicate")
+
+        with mock.patch.object(self.player, "_rescue", forbidden):
+            await self.player.play_next()
+
+        self.assertIsNotNone(self.player.current)
+
+
 class ATruncatedStreamIsToldApartFromAFinishedOne(_PlayerCase):
     """The "short music" bug, pinned from both directions."""
 
@@ -427,6 +529,65 @@ class TheCommandSurfaceFitsDiscord(unittest.TestCase):
                 f"music {child.name}", permissions.COMMAND_ACCESS,
                 f"/music {child.name} has no declared audience",
             )
+
+
+class TheFaultCardSaysWhatActuallyHappened(unittest.TestCase):
+    """*"That stream was cut off"* over a provider that never gave a stream.
+
+    The card had one headline for every kind of failure. In the screenshot that
+    produced this, nothing had been cut off at all: the provider refused the host
+    (``DownloadError``), which is a different problem with a different fix — and the
+    card was sending whoever read it to look at the wrong thing. `Fault.headline`
+    had named the kinds all along; the card is what ignored it.
+    """
+
+    #: Every kind the player can raise, plus the substitution notice. Named here so
+    #: a new `Fault` kind is caught by this test rather than by a card that quietly
+    #: falls back to the generic one — which is how the original defect existed.
+    KINDS = ("truncated", "unplayable", "blocked", "source_error", "opus_missing", "rescued")
+
+    def _cards(self):
+        import cogs.music as music_cog
+
+        return music_cog.Music.FAULT_CARDS
+
+    def test_every_kind_the_player_can_raise_has_its_own_card(self):
+        import utils.player as player_module
+
+        cards = self._cards()
+        self.assertEqual(
+            sorted(cards), sorted(self.KINDS),
+            "the card table and the player's own kinds have drifted apart",
+        )
+        for kind in self.KINDS:
+            headline, _, advice = cards[kind]
+            self.assertTrue(headline.strip(), f"{kind} has no headline")
+            self.assertTrue(advice.strip(), f"{kind} says nothing about what to do")
+            # The player names each kind too, and the card must not contradict it.
+            self.assertTrue(player_module.Fault(kind=kind, detail="").headline)
+
+    def test_every_kind_reads_differently(self):
+        """One headline per kind is the whole point: a table with repeats is the bug."""
+        cards = self._cards()
+        headlines = [cards[kind][0] for kind in self.KINDS]
+        self.assertEqual(len(set(headlines)), len(headlines))
+
+    def test_a_provider_refusal_does_not_claim_a_stream_was_cut_off(self):
+        cards = self._cards()
+
+        cut_off, _, cut_off_advice = cards["truncated"]
+        refused, _, refused_advice = cards["unplayable"]
+
+        self.assertIn("cut off", cut_off.lower())
+        self.assertNotIn("cut off", refused.lower(), "the wrong headline again")
+        self.assertNotEqual(cut_off_advice, refused_advice)
+        self.assertIn("host", refused_advice.lower())
+
+    def test_the_substitution_card_is_informational_and_not_a_warning(self):
+        from utils import style
+
+        _, colour, _ = self._cards()["rescued"]
+        self.assertEqual(colour, style.INFO, "good news drawn as a warning")
 
 
 class MusicCardsDoNotPing(unittest.TestCase):

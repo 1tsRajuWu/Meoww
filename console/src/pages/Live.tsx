@@ -424,11 +424,18 @@ function MusicPanel({ data }: { data: LivePayload }) {
           ) : (
             <Pill tone="warn">cannot play</Pill>
           )}
-          {extractor && extractor.status !== "ok" && extractor.status !== "unknown" && (
-            <Pill tone={extractor.status === "unreachable" ? "warn" : "danger"}>
-              finds nothing
-            </Pill>
+          {extractor && extractor.status === "climbing" && (
+            /* Working, and on a fallback: the pill says so rather than saying
+             * nothing, because "still resolves a recording" is exactly what a host
+             * about to stop resolving one looks like. */
+            <Pill tone="warn">on a fallback client</Pill>
           )}
+          {extractor && extractor.status !== "ok" && extractor.status !== "unknown" &&
+            extractor.status !== "climbing" && (
+              <Pill tone={extractor.status === "unreachable" ? "warn" : "danger"}>
+                finds nothing
+              </Pill>
+            )}
         </>
       }
     >
@@ -475,6 +482,13 @@ function MusicPanel({ data }: { data: LivePayload }) {
             </>
           ) : extractor.status === "unreachable" ? (
             `could not be asked — ${extractor.detail}`
+          ) : extractor.status === "climbing" ? (
+            <>
+              resolves a recording — through a fallback
+              <span className="chan__note">
+                {extractor.detail} — <code>/music doctor</code> names the client
+              </span>
+            </>
           ) : (
             <>cannot resolve anything now — {extractor.detail}</>
           )}
