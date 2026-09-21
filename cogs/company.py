@@ -266,6 +266,7 @@ class Company(commands.Cog):
                 # Somebody pressed play. The connection is music's now, and
                 # closing it would stop their song — which is a stranger way to
                 # say goodbye than anything this feature could intend.
+                await self._say_brb(channel)
                 self._sitting = {}
                 continue
             if guild is not None and not self._module_on(guild):
@@ -274,6 +275,54 @@ class Company(commands.Cog):
             humans = company.humans_in(channel, bot_id=self._bot_id)
             if company.decide(humans=humans, here=True) == company.LEAVE:
                 await self._leave(client, "the channel emptied" if humans == 0 else "somebody real joined")
+
+    def _resolve_channel(self, channel_id: str):
+        """The channel object for an id, or ``None``. Never raises."""
+        try:
+            return self.bot.get_channel(int(channel_id))
+        except Exception:
+            return None
+
+    async def _say_brb(self, currently_in) -> None:
+        """Tell whoever was being sat with why the bot just walked out.
+
+        Music takes the connection to another room, because one Discord client sits
+        in one voice channel — so somebody who had company a moment ago is alone
+        again with no evidence of why. Unsaid, that reads as *it left because of me*,
+        when the truth is a two-room errand it was asked to run.
+
+        **Nothing is said when the music started in the room the bot was already
+        in.** That person is now less alone than they were, and a goodbye for a song
+        playing in their own channel is noise — which is why the check is on the
+        channel *changing* rather than on music simply starting. It also honours the
+        server's own arrival setting: a server that asked for silent arrivals has
+        asked for silence here too, so it sends nothing at all.
+        """
+        sitting = self._sitting
+        if not sitting or not sitting.get("greeted"):
+            return
+        was_in = str(sitting.get("channel_id") or "")
+        now_in = str(getattr(currently_in, "id", "") or "")
+        if not was_in or was_in == now_in:
+            return
+        channel = self._resolve_channel(was_in)
+        if channel is None:
+            return
+        card = style.card(
+            title="🎧 brb",
+            body=company.leaving(pick=random.choice),
+            accent=style.ACCENT,
+            footer=company.leaving_footer(),
+            timeout=None,
+        )
+        try:
+            await style.send_panel(channel, card)
+            self._log(f"said brb in #{self._name(channel)} — music took the connection")
+        except Exception as exc:
+            # A courtesy that cannot be sent is not a reason to lose the run.
+            self._failure(
+                f"could not say brb in #{self._name(channel)} ({type(exc).__name__}: {exc})"
+            )
 
     async def _leave(self, client, reason: str) -> None:
         """Disconnect, quietly. A failed disconnect is reported, never raised."""

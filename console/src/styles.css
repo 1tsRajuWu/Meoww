@@ -361,6 +361,20 @@ a {
   border-right: 1px solid var(--line);
   background: color-mix(in oklab, var(--panel) 70%, transparent);
   backdrop-filter: blur(14px);
+  /* Nothing may spill out of this column. The rail is a fixed 100vh box and its
+     content is taller than that on a laptop — the nav has seven groups and the
+     foot is pinned to the bottom — so without this the footer *escaped* the box
+     and painted over the page beside it, which is how the appearance swatches
+     and the Cursor button ended up sitting on top of the Overview's own action
+     buttons. Clipping is the fix rather than a taller box: the rail has to fit
+     the viewport, and the list below scrolls inside it instead. */
+  overflow: hidden;
+}
+
+/* The brand and the foot are fixed-size; only the page list gives way. */
+.rail__brand,
+.rail__foot {
+  flex: 0 0 auto;
 }
 
 .rail__brand {
@@ -407,6 +421,16 @@ a {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* The one flexible child: it takes the room that is left, and is allowed to be
+     shorter than its content so it can scroll rather than push the foot out of
+     the column. ``min-height: 0`` is what actually permits that — a flex item
+     defaults to refusing to shrink below its content. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-right: 2px;
 }
 
 .rail__link {

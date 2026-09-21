@@ -324,6 +324,39 @@ def greeting(name: str | None = None, *, streaming: bool = False, pick=None) -> 
     return f"{line}, {name}." if name else f"{line}."
 
 
+#: What is said when the bot has to walk out on somebody to go and play music.
+#:
+#: The scenario both features share one socket for: a person is alone with the bot,
+#: somebody in **another** room presses play, and music moves the connection —
+#: because one Discord client sits in one voice channel at a time. Whoever is left
+#: behind watches the bot leave and is told nothing, which reads as *it left
+#: because of me*. The truth is that it is two rooms away doing what it was asked,
+#: so it gets said: ``brb``, in the bot's own voice, and it comes back.
+LEAVING: tuple[str, ...] = (
+    "brb — somebody asked for music in another room, so I'm on speaker duty",
+    "brb, somebody wants music next door and I'm the speaker again",
+    "one minute — music is wanted in the other room, I'll be right back",
+)
+
+
+def leaving(*, pick=None) -> str:
+    """The line said when music takes the connection away. Injectably chosen,
+    like :func:`greeting`, so a test can pin which variant it gets."""
+    chooser = pick or (lambda options: options[0])
+    return chooser(list(LEAVING))
+
+
+def leaving_footer() -> str:
+    """How the errand ends, held to the same rule as :func:`footer`.
+
+    **No command name.** This card lands in front of the same people the greeting
+    does — whoever was on their own — and the switch is a Manage Server command
+    they cannot see, let alone run. It says when the bot is back and who can turn
+    the behaviour off, and names no syntax either of them would have to try.
+    """
+    return "back when the song is finished · a server admin can turn this off for the server"
+
+
 def body(markup: str, line: str) -> str:
     """The greeting as card text, with the emoji where the eye lands last."""
     return f"{markup} {line}".strip() if markup else line
@@ -362,6 +395,7 @@ def footer() -> str:
         "I only came in because you were on your own · a server admin can turn "
         "this off for the whole server whenever they like"
     )
+
 
 
 # --------------------------------------------------------------------------- #

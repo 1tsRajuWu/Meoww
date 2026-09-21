@@ -666,6 +666,74 @@ class Leaving(_CogCase):
         await self.cog._leave_where_the_company_is_gone()  # must not raise
         self.assertFalse(client.disconnected)
 
+    async def test_music_taking_the_connection_says_brb_to_whoever_was_left(self):
+        """The shared-socket scenario, said out loud.
+
+        Somebody is alone with the bot; somebody *else* presses play; music moves
+        the one voice connection to their room. Whoever is left behind watches it
+        walk out and is told nothing, which reads as *it left because of me* — when
+        the truth is a two-room errand it was asked to run.
+        """
+        guild = _Guild()
+        was_in, _member = self._solo(guild)
+        elsewhere = _Channel(2, "Music", guild=guild, members=[_Member(9, "friend")])
+        bot = await self._make(guild)
+        self.cog._sitting = {"channel_id": str(was_in.id), "channel": "Lobby", "greeted": True}
+        client = _VoiceClient(elsewhere)
+        bot.voice_clients.append(client)
+        bot.get_channel = lambda cid: was_in if cid == was_in.id else None
+
+        with mock.patch.object(self.cog, "_music_owns", return_value=True):
+            await self.cog._leave_where_the_company_is_gone()
+
+        said = _said(was_in)
+        self.assertIn("brb", said)
+        self.assertIn("music", said)
+        self.assertFalse(client.disconnected, "music's own connection must not be closed")
+        self.assertEqual(self.cog._sitting, {}, "the sit died with the connection")
+
+    async def test_music_starting_in_the_same_room_says_nothing(self):
+        """That person is now *less* alone than they were, and a goodbye for a song
+        playing in their own channel is noise. The check is on the channel
+        changing, not on music simply starting."""
+        guild = _Guild()
+        room, _ = self._solo(guild)
+        bot = await self._make(guild)
+        self.cog._sitting = {"channel_id": str(room.id), "greeted": True}
+        bot.voice_clients.append(_VoiceClient(room))
+        bot.get_channel = lambda _cid: room
+
+        with mock.patch.object(self.cog, "_music_owns", return_value=True):
+            await self.cog._leave_where_the_company_is_gone()
+
+        self.assertEqual(getattr(room, "sent", []), [])
+
+    async def test_a_server_that_arrives_silently_gets_no_brb_either(self):
+        """A server that asked for silent arrivals has asked for silence — the
+        goodbye honours the same setting the greeting does."""
+        guild = _Guild()
+        was_in, _ = self._solo(guild)
+        elsewhere = _Channel(2, "Music", guild=guild, members=[_Member(9, "friend")])
+        bot = await self._make(guild)
+        self.cog._sitting = {"channel_id": str(was_in.id), "greeted": False}
+        bot.voice_clients.append(_VoiceClient(elsewhere))
+        bot.get_channel = lambda cid: was_in if cid == was_in.id else None
+
+        with mock.patch.object(self.cog, "_music_owns", return_value=True):
+            await self.cog._leave_where_the_company_is_gone()
+
+        self.assertEqual(getattr(was_in, "sent", []), [])
+
+    async def test_the_brb_names_no_command_its_reader_cannot_run(self):
+        """The same rule the greeting's footer is held to: it lands in front of
+        whoever was alone, and the switch is a Manage Server command Discord hides
+        from their picker entirely."""
+        said = company.leaving() + " " + company.leaving_footer()
+
+        self.assertNotIn("/", said)
+        self.assertNotIn("mode:", said)
+        self.assertIsInstance(company.leaving(pick=lambda options: options[1]), str)
+
 
 class Moving(_CogCase):
     async def test_a_move_to_another_empty_room_is_followed(self):
