@@ -85,6 +85,22 @@ CONSOLE_PREFIXES = (
 #: dashboard came to render as an unstyled heading with one black rectangle on
 #: it: `dashboard.css`, `motion.js` and `gateway.js` were missing here while
 #: answering correctly on Render. `tests/test_owner_site.py` reads the templates
+def _themed_logos() -> list[str]:
+    """Every ``logo-<name>.svg`` on disk, so a new one cannot be forgotten.
+
+    The file name *is* the theme id, which is what makes this derivable: the console
+    asks for ``/static/logo-<theme>.svg``, so anything matching the pattern belongs
+    to a theme and must ship with the static build. Sorted for a deterministic list,
+    since the build writes a manifest a test compares against.
+    """
+    static = os.path.join(ROOT, "static")
+    return sorted(
+        name
+        for name in os.listdir(static)
+        if name.startswith("logo-") and name.endswith(".svg")
+    )
+
+
 #: for their own asset urls and fails if one of them is not copied.
 STATIC_ASSETS = [
     "meow.css",
@@ -93,10 +109,12 @@ STATIC_ASSETS = [
     "motion.js",
     "gateway.js",
     "figures.js",
+    # The themed marks are *discovered* rather than listed, because listing them is
+    # how the console ended up asking for five logos that were never drawn: the
+    # theme vocabulary grew to nine and this list stayed at four, so the rail drew a
+    # broken image on five themes. A tenth themed mark is now copied by existing.
+    *_themed_logos(),
     "logo.svg",
-    "logo-sakura.svg",
-    "logo-forest.svg",
-    "logo-ember.svg",
     "favicon.svg",
     "favicon-sakura.svg",
     "favicon-forest.svg",

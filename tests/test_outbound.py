@@ -247,6 +247,25 @@ class TheConsoleIconAttribute(unittest.TestCase):
         self.assertIn("text.startsWith(\"/\")", source)
         self.assertIn("!text.startsWith(\"//\")", source)
 
+    def test_the_brand_mark_only_ever_names_a_local_asset(self):
+        """`logoFor` is the second door into an `src`, held to the same rule.
+
+        `iconSrc` is allowed into an image attribute because it returns only a
+        same-origin relative path. `logoFor` is allowed there for the same reason, so
+        it is asserted the same way: one interpolation, and it is the theme id.
+        """
+        with open(
+            os.path.join(ROOT, "console", "src", "lib", "theme.ts"), encoding="utf-8"
+        ) as handle:
+            theme_module = handle.read()
+        block = theme_module.split("export function logoFor", 1)[1].split("\n}", 1)[0]
+        self.assertIn('\"/static/logo.svg\"', block)
+        self.assertIn("/static/logo-${id}.svg", block)
+        self.assertEqual(
+            block.count("${"), 1, "only the theme id may be interpolated into the path"
+        )
+        self.assertNotIn("http", block.replace("logoFor", ""))
+
     def test_every_icon_goes_through_it(self):
         """No page builds an image URL by hand."""
         pages = os.path.join(ROOT, "console", "src")
@@ -262,9 +281,14 @@ class TheConsoleIconAttribute(unittest.TestCase):
                     if "src={" not in line:
                         continue
                     # Allowed: the brand mark, whose path is built from the
-                    # *theme id* — a value from a closed set this file owns — and
-                    # which never contains a server-provided string.
-                    if "iconSrc(" in line or "/static/" in line:
+                    # *theme id* — a value from a closed set the theme module owns —
+                    # and which never contains a server-provided string. It used to be
+                    # exempted as an inline `/static/...` here; it now goes through
+                    # `logoFor()` so that the theme vocabulary and the files on disk
+                    # can be checked against each other (see
+                    # ``tests/test_console_brand.py``), which the inline form made
+                    # impossible — the path was built by whichever component drew it.
+                    if "iconSrc(" in line or "logoFor(" in line or "/static/" in line:
                         continue
                     offenders.append(f"{os.path.relpath(path, ROOT)}: {line.strip()}")
         self.assertEqual(

@@ -17,6 +17,7 @@ import {
   CURSOR_COLORS,
   applyTheme,
   currentTheme,
+  logoFor,
   applyCursorStyle,
   currentCursorStyle,
   applyCursorColor,
@@ -132,10 +133,24 @@ export function Shell({
       <aside className={`rail${menuOpen ? " rail--open" : ""}`}>
         <div className="rail__brand">
           <img
-            src={theme === "midnight" ? "/static/logo.svg" : `/static/logo-${theme}.svg`}
+            src={logoFor(theme)}
             alt=""
             width={30}
             height={30}
+            /* A second line of defence, because the first one is a fact about
+             * files rather than about this component: the console is also served
+             * from a *static* build (`scripts/build_owner.py`), and a host that
+             * did not copy a themed mark should degrade to the real logo instead
+             * of drawing the broken-image glyph the operator is looking at as a
+             * bug. Guarded by a data flag so a missing `/static/logo.svg` cannot
+             * become an infinite reload. */
+            onError={(event) => {
+              const image = event.currentTarget;
+              if (image.dataset.fellBack !== "1") {
+                image.dataset.fellBack = "1";
+                image.src = "/static/logo.svg";
+              }
+            }}
           />
           <div>
             <strong>{boot.botName}</strong>

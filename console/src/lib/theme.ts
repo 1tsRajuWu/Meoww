@@ -1,4 +1,4 @@
-/** The four themes, matching the ones the public site offers.
+/** The nine themes, matching the ones the public site offers.
  *
  * They live here as names and one hex each — the values themselves are in
  * `styles.css` under `[data-theme="..."]`, because a theme is a set of colours and
@@ -20,6 +20,37 @@ export const THEMES = [
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];
+
+/* --------------------------------------------------------------- the mark */
+
+/**
+ * The themes that ship their **own** brand mark.
+ *
+ * `Shell` draws `/static/logo-<theme>.svg`, and that is a *promise the file
+ * exists* — one the console could not keep. Five of the nine themes went looking
+ * for `logo-aurora.svg`, `logo-cosmic.svg`, `logo-plasma.svg`, `logo-sunset.svg`
+ * and `logo-synthwave.svg`, none of which is in `static/`, so the rail drew the
+ * browser's broken-image glyph next to the bot's own name. The four themes below
+ * are the ones with a file; **everything else falls back to `logo.svg`**, which is
+ * the mark the product is actually branded with.
+ *
+ * The list is here rather than in the component because this module is what owns
+ * the theme vocabulary, and it is checked rather than trusted: `tests/test_design_laws.py`
+ * walks `THEMES` against `static/` and fails on a theme that has a logo but is not
+ * listed, or is listed without one — which is the shape the original bug had, and
+ * the reason it went unnoticed for two releases.
+ */
+export const THEMED_LOGOS: ThemeId[] = ["sakura", "forest", "ember"];
+
+/**
+ * The brand mark for a theme: its own if one was drawn, the default otherwise.
+ *
+ * A single door on purpose. The path used to be built at the call site, so the
+ * component decided what existed, and nothing could check it.
+ */
+export function logoFor(id: ThemeId): string {
+  return THEMED_LOGOS.includes(id) ? `/static/logo-${id}.svg` : "/static/logo.svg";
+}
 
 /* Named in full rather than `KEY`, which is what a secret scanner is looking
  * for: a variable called `KEY` assigned a string reads, to a scanner and to
