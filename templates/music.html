@@ -1,0 +1,253 @@
+{#
+  Music, as a page.
+
+  This is the one surface of the music feature that is not inside Discord, and it
+  exists because the feature's failures are *quiet*: a bot that is connected, a
+  card that says "playing", and silence. Everything a visitor would otherwise
+  discover by being disappointed is on this page instead — what it does when it
+  cannot tell two recordings apart, what it says when a stream dies, and the one
+  thing it genuinely cannot fix (a media platform deciding a datacenter address
+  is a bot).
+
+  The command list is ``music_commands``, read out of the feature registry by the
+  route, so this page cannot advertise a command the bot does not publish.
+#}
+{% extends "site_base.html" %}
+
+{% block title %}Music — {{ bot_name }}{% endblock %}
+{% block description %}Playback, a live queue with real-time audio effects, 24/7 radio — and what the bot tells you when a stream dies instead of moving on quietly.{% endblock %}
+
+{% block skip_target %}music{% endblock %}
+{% block skip_label %}Skip to what music does{% endblock %}
+
+{% block main %}
+    <main class="lp">
+        {# ------------------------------------------------------------------ #}
+        {# Hero, in its short form                                            #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-hero lp-hero-compact">
+            <div class="lp-plate" aria-hidden="true">
+                <div class="lp-plate-layer" data-parallax="0,8">
+                    <span class="lp-plate-grid"></span>
+                    <img class="lp-plate-mark" src="/static/logo.svg" alt="">
+                </div>
+            </div>
+
+            {% include "site_header.html" %}
+
+            <div class="lp-hero-title">
+                <h1 class="lp-display" data-fit="9" data-text-reveal="words"
+                    data-stagger="120" data-duration="950">
+                    Music, honestly
+                </h1>
+            </div>
+
+            <div class="lp-hero-bottom">
+                <p class="lp-lede">
+                    Search for a song, paste a link, or tune a station. It plays in
+                    your voice channel — and when something goes wrong, it says
+                    which thing.
+                </p>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# What it does                                                       #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-paper lp-section lp-inner" id="music">
+            <header class="lp-paper-head">
+                <p class="lp-eyebrow">Playback</p>
+                <h2 class="lp-h2">Three complaints, answered</h2>
+            </header>
+
+            <div class="lp-rows">
+                <div class="lp-row">
+                    <div>
+                        <h3 class="lp-h2">It plays the song you asked for</h3>
+                        <p class="dim">
+                            Every track keeps the provider's own id for that recording,
+                            so a link that expires is re-resolved by asking for the
+                            <em>same</em> recording rather than searching again — a second
+                            search is a second set of results, which is how a bot ends
+                            up playing a different upload than the one on its card.
+                            When two results are genuinely too close to call, it asks
+                            which one you meant instead of guessing.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="lp-row">
+                    <div>
+                        <h3 class="lp-h2">A cut-off stream is reported, not skipped</h3>
+                        <p class="dim">
+                            A stream that dies reaches the player looking exactly like
+                            a track that finished, so the queue used to move on
+                            mid-song and nobody was told. A stream that ends far short
+                            of its own length now posts a card naming the track, how
+                            much of it played, and what the provider claimed.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="lp-row">
+                    <div>
+                        <h3 class="lp-h2">The audio is the provider's, not a re-encode</h3>
+                        <p class="dim">
+                            It asks for audio-only Opus and passes those packets
+                            through untouched whenever they already fit the channel —
+                            no decode, no re-encode, no loss. Volume starts at 100%
+                            precisely because anything else forfeits that path.
+                            Effects and volume changes are the one case that re-renders
+                            the stream, and they tell you which of the two happened.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# Radio                                                              #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-deep lp-section lp-inner">
+            <header class="lp-paper-head">
+                <p class="lp-eyebrow on-dark">Always available</p>
+                <h2 class="lp-h2 on-dark">Radio, which needs no search</h2>
+                <p class="dim">
+                    Six stations are direct streams. Nothing about them goes through
+                    the extractor, so they keep working on a day when the media
+                    platforms are refusing the host entirely.
+                </p>
+            </header>
+
+            <div class="lp-panels">
+                <div class="lp-panel lp-panel-tilt-a">
+                    <div class="lp-panel-head">
+                        <span aria-hidden="true">📻</span>
+                        <span>Stations</span>
+                    </div>
+                    <div class="lp-panel-body">
+                        <ul class="lp-rows">
+                            {% for station in stations %}
+                            <li class="lp-row">
+                                <span>{{ station.icon }} <strong>{{ station.name }}</strong></span>
+                                <span class="dim">{{ station.desc }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <p class="lp-panel-caption">
+                        Also 24/7 mode, for a server that wants the bot to stay put —
+                        a server-owner setting rather than a member one.
+                    </p>
+                </div>
+
+                <div class="lp-panel lp-panel-tilt-b">
+                    <div class="lp-panel-head">
+                        <span aria-hidden="true">🎛️</span>
+                        <span>What is said out loud</span>
+                    </div>
+                    <div class="lp-panel-body">
+                        <p class="dim">
+                            <strong>A provider refused this host.</strong> Said as
+                            that, because it is a fact about where the bot runs and
+                            not about your search. An operator can give it cookies or
+                            a token to fix it; radio works meanwhile.
+                        </p>
+                        <p class="dim">
+                            <strong>Nothing was found.</strong> Said with what was
+                            searched, rather than a skip that looks like a bug.
+                        </p>
+                        <p class="dim">
+                            <strong>Nobody is asked to guess.</strong> When the search
+                            is ambiguous the bot offers the candidates as buttons.
+                        </p>
+                    </div>
+                    <p class="lp-panel-caption">
+                        Every music failure is also one entry in the operator's own
+                        log — once per reason, not once per track.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# The commands                                                       #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-paper lp-section lp-inner">
+            <header class="lp-paper-head">
+                <p class="lp-eyebrow">The commands</p>
+                <h2 class="lp-h2">One group, because Discord counts</h2>
+                <p class="dim">
+                    Discord allows an application 100 top-level commands in total,
+                    and this bot publishes a lot of them. So <span class="mono">/play</span>
+                    keeps its own slot — it is the one name people type from memory —
+                    and everything else lives under <span class="mono">/music</span>.
+                </p>
+            </header>
+
+            <ul class="lp-rows">
+                {% for command in music_commands %}
+                <li class="lp-row">
+                    <span class="mono">{{ command.split(" — ")[0] }}</span>
+                    <span class="dim">{{ command.split(" — ")[1] if " — " in command else "" }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        {# ------------------------------------------------------------------ #}
+        {# The limits, which are the point of the page                         #}
+        {# ------------------------------------------------------------------ #}
+        <section class="lp-band lp-deep lp-section lp-inner">
+            <header class="lp-paper-head">
+                <p class="lp-eyebrow on-dark">The limits</p>
+                <h2 class="lp-h2 on-dark">What it will not do</h2>
+            </header>
+
+            <div class="lp-rows">
+                <div class="lp-row">
+                    <div>
+                        <h3 class="lp-h2 on-dark">It cannot watch a stream</h3>
+                        <p class="dim">
+                            A Go Live broadcast is not available to a bot: Discord has
+                            no endpoint for it and the gateway never carries the video.
+                            So the bot can tell you that somebody <em>is</em> live, and it will
+                            never pretend to show you a picture of it.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="lp-row">
+                    <div>
+                        <h3 class="lp-h2 on-dark">It depends on a platform that would rather not</h3>
+                        <p class="dim">
+                            Playback resolves recordings from third-party services, and
+                            those services can refuse a host that looks like a datacenter.
+                            That is a fact about the deployment, not a bug in your
+                            search, and the bot says so at the moment it happens. The
+                            radio stations and the lyrics lookups do not depend on it.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="lp-row">
+                    <div>
+                        <h3 class="lp-h2 on-dark">It says when it cannot play at all</h3>
+                        <p class="dim">
+                            A host needs an audio decoder and Discord's own encryption
+                            library before a single frame can be sent. If either is
+                            missing, every music command answers with what is missing
+                            and how to fix it, instead of joining your channel and
+                            playing silence.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <p class="lp-read-again">
+                <a class="btn btn-primary" href="{{ invite_url }}">Add to Discord</a>
+                <a class="btn" href="/systems">See every system</a>
+            </p>
+        </section>
+    </main>
+{% endblock %}

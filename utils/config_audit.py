@@ -583,6 +583,58 @@ SETTINGS: tuple[Setting, ...] = (
         "how long after boot to read UptimeRobot for the first time",
         "the default 60-second delay is used.",
     ),
+    # --- music -----------------------------------------------------------------
+    # Four names, and every one of them is optional: playback does not depend on
+    # any of them. They are the *answer* to the one failure a media feature
+    # cannot design away (a platform deciding a datacenter address is a bot),
+    # which is why they are declared rather than left as an undocumented escape
+    # hatch — an operator who needs them has to be able to find them.
+    Setting(
+        "YTDL_COOKIES", TUNING,
+        "a path to a cookies file for the media providers, which is one of the two "
+        "ways to answer a provider that has started refusing this host",
+        "the extractor runs anonymously. A datacenter address is refused by "
+        "YouTube often enough that this is the first thing to reach for when "
+        "/play stops resolving and radio still works.",
+    ),
+    Setting(
+        "YTDL_COOKIES_B64", TUNING,
+        "the same cookies file, base64-encoded, for a host whose disk does not "
+        "survive a deploy",
+        "nothing is written and the extractor runs anonymously, exactly as if "
+        "YTDL_COOKIES were unset.",
+    ),
+    Setting(
+        "YTDL_PO_TOKEN", TUNING,
+        "a proof-of-origin token (``<client>+<token>``) for the providers that ask "
+        "for one, which is the other way to answer a provider refusing this host",
+        "the extractor asks for none, which is what a fresh deployment does.",
+    ),
+    Setting(
+        "YTDL_VISITOR_DATA", TUNING,
+        "the visitor data a proof-of-origin token must be paired with",
+        "no visitor data is sent. A token without it is usually rejected, which is "
+        "why the two are declared next to each other.",
+    ),
+    Setting(
+        "MEOW_FFMPEG", TUNING,
+        "an explicit ffmpeg binary for the music player, for a host whose ffmpeg "
+        "is somewhere ``PATH`` does not reach",
+        "a system ffmpeg is looked for on ``PATH``, and then the static build "
+        "shipped by ``imageio-ffmpeg`` is used — so this is only ever needed to "
+        "*override* a working default.",
+    ),
+    Setting(
+        "YTDL_PROBE_TARGET", TUNING,
+        "the recording the weekly self-check asks the extractor for, which is how a "
+        "stale extractor reports itself instead of every /play failing quietly one "
+        "at a time",
+        "Blender's own *Big Buck Bunny* upload is used: a recording meant to stay "
+        "up, owned by nobody's catalogue and carrying no age gate. Set this only "
+        "when the default cannot be reached from where this runs — a probe "
+        "recording that gets taken down would report the extractor as broken, "
+        "which is the check becoming the fault it exists to find.",
+    ),
 )
 
 #: Fast lookup for renderers and for anything holding a name from elsewhere.

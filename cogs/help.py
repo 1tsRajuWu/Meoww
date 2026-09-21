@@ -76,6 +76,27 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "🫂"
     },
+    "music": {
+        "title": "🎵 Music & Radio",
+        "desc": (
+            "Search for a song or paste a link and it plays in your voice channel, "
+            "with a live queue, real-time audio effects and 24/7 radio. When the "
+            "search results are genuinely ambiguous it asks which one you meant "
+            "instead of guessing — and if a stream is cut short mid-song it says "
+            "so, rather than moving on and letting it look like a short track.\n\n"
+            "> `/play <song or link>` — Search, or paste a YouTube/SoundCloud/Spotify link\n"
+            "> `/music radio <station>` — 24/7 stations, which need no search at all\n"
+            "> `/music queue` · `/music nowplaying` — What is playing and what is next\n"
+            "> `/music skip` · `/music pause` · `/music resume` · `/music stop`\n"
+            "> `/music volume <percent>` · `/music filter <effect>` — Live audio shaping\n"
+            "> `/music loop <mode>` · `/music shuffle` · `/music seek <seconds>`\n"
+            "> `/music lyrics` · `/music songinfo` — Words and artwork, no playback\n"
+            "> `/music 247 [channel]` — Stay put permanently *(server owner)*\n"
+            "> `/music doctor` — What this host can and cannot do for voice *(admin)*"
+        ),
+        "color": 0x5865F2,
+        "emoji": "🎵"
+    },
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (
@@ -239,7 +260,7 @@ HELP_HOME_BODY = (
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
-    "- 🎵 **Music & Radio** — playback, 24/7 radio, live filters\n"
+    "- 🎵 **Music & Radio** — playback, a live queue, 24/7 radio, audio filters\n"
     "- 🎫 **Tickets** — private staff support\n"
     "- 📊 **Activity Tracker** — per-channel msg & voice stats"
 )

@@ -28,7 +28,13 @@ tests
 .github
 docs
 scripts
-assets
 CONTRIBUTING.md
 CHANGELOG.md
 README.md
+
+# ``assets/`` is deliberately NOT ignored any more. It holds the fonts
+# ``utils/card.py`` draws the rank and now-playing cards with, and the loader is
+# written to fall back rather than raise — so an image without it produces cards
+# in Pillow's bitmap font and reports nothing at all. A silent downgrade in a
+# picture is exactly the class of fault this repository keeps a probe for, and the
+# cheapest fix is one line here.

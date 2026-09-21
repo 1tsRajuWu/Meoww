@@ -74,6 +74,7 @@ can never disagree.
 | How does an update get shipped? | `/bot push` (`cogs/bot_config.py`) — with a Render Deploy Hook in `RENDER_DEPLOY_HOOK_URL`, `utils/deploy.py` POSTs it and the boot announces the release itself; with no hook the command says no code moved and posts this version's notes through `bot.announce_release_notes_to_guild`. The bot cannot commit: it can only deploy what is already on GitHub. Its card goes to the server's `test` channel, falling back to `update` |
 | Where does the bot post in *this* server? | `utils/bot_channels.py` — `update` / `error` / `bug` / `commands` / `log` / `test` are per-guild settings, bound by channel *name* the first time a server is seen (`#update`, `#bot-error`, `#bug-report`, `#bot-cmd`, `#logs`, `#test-ground`) and authoritative after that — matched exactly first, then with decoration stripped, so `💬・bot-cmd` binds the same role. The release note's ping resolves the same way: the role id the bot has always pinged where that server has it, otherwise a role named `Dev` / `Admin` / …, otherwise nothing. A hardcoded channel id here is a bug: it names exactly one server, which is why the update channel, the failure channel, level-up cards and bug reports were all invisible everywhere else. A **bug report** is the one message allowed to leave the server it was filed in: it is posted in that server's own bug channel, and in the bot's own server (`BOT_SERVER_GUILD_ID`, whose `#bug` is found by name even before anything has been bound) when this server has none — so a report can never be refused for want of a channel, and it is never a ticket, which is the ticket panel's job for members' own problems. Two roles, `guilds` and `cmdlog`, belong to **the bot's own server only** (`roles_for` refuses them everywhere else, so no member server can bind them even by naming a channel to match): `#active-servers` and `#real-time-cmd-data` are the operator's log of who has the bot and what people run with it — see the row below |
 | What does the operator learn about the bot itself? | `utils/operator_log.py`, fed by four events in `bot.py`: `on_guild_join` (a server added the bot — logged with its size, owner and, when View Audit Log allows, who added it; the same handler also binds its channels and sends it the release note, each step isolated so one failure cannot hide the others), `on_guild_remove` (removed, deleted, or banned — all one event), `on_app_command_completion` (every command, with the runner, the server, the channel and the moment), and `tree.on_error` (`command_failed` — the command, the runner, where it ran and the reason, which is the entry the operator needs most and the one completion can never produce, because discord.py dispatches completion only in the `else` branch of its own call: a command that raised never reaches it, so a broken bot used to leave an empty channel that read as "nobody uses this"). Three rules, each a failure this project already had: an entry may never break the thing it logs (every failure is reported on the host and swallowed), an entry may never ping (a card carries `NO_PINGS`, which matters because a server's *name* is a stranger's text and `@everyone` is a legal server name), and what a person **typed** is never copied into the log — the command, its runner and its outcome are the record, not its arguments. `bot_server_guild_id()` falling back on a malformed `BOT_SERVER_GUILD_ID` is what keeps a typo in an environment variable from costing the entry. A failure's *reason* is carried only when it comes from Discord (a transport fact); a Python-level error is recorded by its type alone, because a message raised while handling what somebody typed can quote it back and the log promises never to copy that. `report_second_instance` is the fourth rule's opposite number: a boot that finds another live copy of the bot — the same database lease that stops two copies fighting over the backup, `cloud_sync.other_live_copy`, read for the gateway hazard — posts one card naming it, because two sessions of one application receive every interaction, one answers, and the loser's command ends in *Interaction has already been acknowledged* while the ones that reach a quiet session are answered too late to count. `announce_setup` posts the one-time card that explains both channels, on the boot that binds them and never again (it is posted from what that boot *wrote*, not from a read-back of the store, so a write that has not landed cannot cost the card that exists to explain the channel), and `_notice_missing` reports the first entry that finds nothing bound — into the update, then error, then log channel, once per role per process, because an installed feature that writes nowhere is otherwise indistinguishable from one that works |
+| What happens when somebody types `/play`? | three modules and no guessing. `utils/media_source.py` turns words into **one specific recording**: a search runs once and its result carries a *stable identity* (provider + that provider's own id), so a later re-resolution is a lookup rather than a second search — which is where "it plays a different song" came from, because the archived cog kept the *query* and searched again mid-song. It refuses anything under 45 seconds (a preview is not a song), and when the scorer cannot separate the top two results it returns **both** and the member is asked with a menu rather than given a confident wrong answer. `utils/player.py` plays it: one ffmpeg command line built in one place, a generation counter so a stale `after()` callback cannot advance a queue that has moved on, and an **early-EOF guard** — a stream that dies at 30% of a declared 4-minute track is reported as *cut off* (to the member and to the operator) instead of being mistaken for a finished song, which is the "the music is short" complaint. `cogs/music.py` is commands and cards only, and its surface is a decision: Discord allows **100 top-level commands** and this bot publishes 88 roots, so `/play` keeps its own slot and the other sixteen live under **one** `/music` group. `utils/voice_caps.py` gates all of it — every command checks whether this host can play *before* joining a channel and names the missing piece when it cannot |
 | Why is a command missing from the picker — or still in it after being removed? | `utils/commands_sync.py` compares, `bot.py` publishes, `force_sync.py` does the same job from a terminal. Three rules, each already paid for: **read → compare → write**, because Discord allows 200 command writes a day per scope and a blind re-upload spends them on nothing; **upsert one command at a time, never a bulk overwrite**, because a rejected bulk sync has already deleted the scope's whole list (this bot was once left with a single command); and **a name leaves the picker only by being on `RETIRED_COMMANDS`**, because the publisher can only add or replace — a folded command has no local counterpart, so it is neither missing nor stale and nothing else would ever remove it. That list is load-bearing: Discord allows **100 chat-input commands per scope**, and twelve folded names (`/dashboard`, `/sync`, `/updatedb`, `/setavatar`, `/setbanner`, `/addlevelrole`, `/removelevelrole`, `/privacy`, `/tos`, `/meowfee`, `/activity-top`, `/activity-channel`) held the last of that budget, so creating `/bot` and `/legal` was answered with ``30032 Maximum number of application commands reached``. A refusal of one command must not stop the ones behind it — the scope is only full for a *new* name, and updates are still allowed — but a spent daily budget must stop everything, because that window is closed for all of them. Whichever it is, the boot prints the reason: a scope that published nothing used to say only *"published 0, 32 still pending"*, which is how a picker missing two commands and offering twelve dead ones stayed that way for weeks. The `/bot push` command and every deploy go through this same path. |
 
 ## The dashboard's pages
@@ -223,6 +224,51 @@ a URL. Findings go to the operator channel via `operator_log.media_alert`, namin
 target, the file and line, and what the probe got; counts (never names) are on
 `/health` as its own `media` block; `scripts/check_media.py` runs the same pass by
 hand and exits non-zero on a dead link.
+
+The third target is not media at all, and it is the one every other target can be
+healthy on the day music stops working: **the extractor**. `yt-dlp` stays installed,
+importable and reporting a version while answering every search with a bot check,
+because a platform changed how it signs a stream and the package is one release
+behind — so one target asks it for a **known recording** (`media_source.self_check`,
+Blender's own upload by default, `YTDL_PROBE_TARGET` to override) and reads the
+failure for what it is: a refusal by the provider (a finding, with the version
+travelling in the reason), a missing package (a finding), or this host having no route
+out (not a finding — it is filed as `unchecked`, on the same rule as a link that could
+not be asked). `media_health.extractor_state()` is the cheap read of the last verdict
+for the console and `/health` — no network call, and an honest *not asked since this
+process started* when there is none — while `/music doctor` and `/api/voice-debug`
+ask the extractor **now**, because a version string is not evidence.
+
+### Music and radio (`utils/media_source.py`, `utils/player.py`, `cogs/music.py`)
+
+The feature was retired once and this is a **rebuild rather than a restoration**,
+which is why the archived cog is a source of bug reports and not a base: its three
+complaints are each answered by a mechanism rather than a patch.
+
+- **"It plays a different song."** Identity, not query. `Track.video_id` plus a
+  provider is what a re-resolution asks for; the search runs once, at request time.
+- **"The music is short."** A stream that aborts reaches the player as a finished
+  track. `player.GuildPlayer` compares how much actually played against what the
+  provider declared and reports a **truncated** track — with the engine's own last
+  words — to the member and to the operator, so "the song was short" and "this host
+  was cut off" cannot be confused. The archived `FFMPEG_BEFORE_OPTIONS`
+  (`-err_detect ignore_err`) is exactly what hid this; the current command line has
+  no such flag.
+- **"Music is broken here."** `utils/voice_caps.py` probes **before** anything
+  joins: an ffmpeg binary (system, then `imageio-ffmpeg`'s static build), an Opus
+  library *if there is one*, and `davey`, which discord.py refuses to open a voice
+  connection without. It reports *playable* and, when it is not, every missing
+  reason separately — because each one is a different fix — and the boot line, the
+  console panel, `/music doctor` and `/api/voice-debug` all read that one probe.
+
+Radio is the deliberate survivor: `/music radio` streams an HTTP station directly,
+so it never touches the extractor and keeps working on a host the platforms have
+blocked. `/music 247` keeps a channel occupied (the seat is remembered in the
+`music_247` table and reclaimed on boot), and the whole thing is **one** system in
+`utils/features.py` with one `commands` tuple — so a server's own switches, the
+pickers and `/help` all derive from the registry, and nothing in the cog is
+hardcoded per server. Nothing is recorded and nothing is stored per member: the
+queue lives in the process and a restart empties it.
 
 ## Conventions that keep 600+ tests green
 

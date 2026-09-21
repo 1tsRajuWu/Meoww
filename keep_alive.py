@@ -1096,6 +1096,12 @@ PUBLIC_PREFIXES = (
     "/market",
     "/health",
     "/hub",
+    # A feature's own page, in the public nav beside the other product pages.
+    # Found by fixing the check that exists to catch exactly this: `/music` was on
+    # *neither* list, and the list it was missing from made it a signed-in surface
+    # — the agreement stood in front of the marketing page for a music feature,
+    # and it was served `noindex`, which is the wrong answer twice over.
+    "/music",
     "/login",
     "/logout",
     "/agree",
@@ -1129,6 +1135,15 @@ GATED_PREFIXES = (
     "/api/scheduled",
     "/api/schedule-message",
     "/api/console/",
+    # Two reads that were gated by *default* rather than by declaration, which is
+    # the safe direction and still the wrong one: the split decides whether the
+    # agreement stands in front of a path and whether it is served `noindex`, and
+    # a list nobody wrote a name into cannot be read as a decision. Both of these
+    # are the dashboard's own pickers (`_require_auth_api` is what actually stops
+    # a stranger), so declaring them changes no behaviour — it makes the sentence
+    # true rather than accidental.
+    "/api/command-scope",
+    "/api/channels",
 )
 
 
@@ -1606,9 +1621,30 @@ def api_voice_debug():
             })
 
     started, connected = _gateway_state()
+    # The same probe the boot line and /music doctor read, so this endpoint can
+    # never report a different host than they do.
+    try:
+        from utils import voice_caps  # noqa: PLC0415
+
+        caps = voice_caps.probe(refresh=True).to_dict()
+    except Exception as exc:
+        caps = {"playable": None, "why": f"probe failed ({type(exc).__name__})"}
+    # The one reading a version string cannot give: whether the extractor can
+    # still resolve a recording. It is asked here rather than read from the weekly
+    # pass's last verdict because this endpoint's whole job is to answer for the
+    # host *now* — and it reports the kind of failure, not just the fact of one.
+    try:
+        from utils import media_source  # noqa: PLC0415
+
+        extractor = media_source.self_check().to_dict()
+    except Exception as exc:  # noqa: BLE001 — a diagnostic that 500s is not a diagnostic
+        extractor = {"healthy": None, "reason": f"the check could not run ({type(exc).__name__})"}
+
     return jsonify({
         "bot_ready": started,
         "gateway": _gateway_label(started, connected),
+        "caps": caps,
+        "extractor": extractor,
         "opus_finder": opus_finder,
         "opus_loaded": is_opus_loaded,
         "system_ffmpeg": shutil.which("ffmpeg"),
@@ -2093,6 +2129,50 @@ def _start_page():
             "ways to sign in to its dashboard."
         ),
     )
+
+
+def _music_page():
+    """Music, on the site: what it does, and what it refuses to pretend.
+
+    The command list is read out of ``utils/features`` rather than written here,
+    for the reason every other page reads the registry — a page that lists a
+    command the bot does not have is the failure this project keeps meeting. The
+    station list comes from the cog for the same reason.
+
+    The page's last section is the one that makes it worth publishing: a media
+    platform refusing a datacenter address is the single failure this feature
+    cannot design away, so it is stated in words a visitor can check rather than
+    discovered when their song does not play.
+    """
+    music = features.get("music")
+    stations: list[dict] = []
+    try:
+        from cogs import music as music_cog  # noqa: PLC0415
+
+        stations = [
+            {"name": value["name"], "icon": value["icon"], "desc": value["desc"]}
+            for value in music_cog.RADIO_STATIONS.values()
+        ]
+    except Exception as exc:
+        print(f"[SITE] could not read the stations for /music: {exc}", flush=True)
+
+    return render_template(
+        "music.html",
+        **_site_context(),
+        current="music",
+        meta_description=(
+            f"Music in {_bot_display_name()}: search or paste a link, a live queue "
+            "with audio filters, 24/7 radio, and an honest word about what can "
+            "go wrong."
+        ),
+        music_commands=list(music.commands) if music else [],
+        stations=stations,
+    )
+
+
+@app.route("/music")
+def music_page():
+    return _music_page()
 
 
 @app.route("/")
@@ -4353,6 +4433,61 @@ def _live_bot_voice() -> list[dict]:
     return rows
 
 
+def _live_music(guild_id) -> dict:
+    """What the music player is doing in one server, and what this host can do.
+
+    Two halves in one block because they answer one question — *is music working
+    here, and if not, why not* — and the second half is the one nobody can
+    discover from the page otherwise. The capability reading comes from
+    :mod:`utils.voice_caps`, the same probe ``/music doctor``, the boot line and
+    ``/api/voice-debug`` read, so a console that said "fine" while the bot's own
+    doctor said otherwise is not a state this can reach.
+
+    ``read.player`` is false when this guild has no player yet, which is a
+    different sentence from "a player that is idle" — the first means nobody has
+    asked for a song since the last restart.
+
+    The third half is the extractor, and it is the one that cannot be inferred
+    from either of the others: every capability can be present and every link
+    healthy on the day every search starts answering with a bot check. It is read
+    from the **weekly pass's own verdict** rather than asked live, because this is
+    a page that polls and an extraction is a network round trip — so the panel
+    says when the extractor was last asked rather than pretending to have asked.
+    """
+    try:
+        from utils import media_health, player as player_module, voice_caps  # noqa: PLC0415
+
+        caps = voice_caps.probe().to_dict()
+        extractor = media_health.extractor_state()
+    except Exception as exc:
+        return {
+            "read": {"player": False, "caps": False},
+            "why": f"the music modules could not be read ({type(exc).__name__})",
+            "caps": None,
+            "player": None,
+            "extractor": None,
+        }
+
+    entry = None
+    try:
+        key = int(guild_id or 0)
+    except (TypeError, ValueError):
+        key = 0
+    holder = getattr(player_module, "PLAYERS", {}).get(key)
+    if holder is not None:
+        try:
+            entry = holder.status()
+        except Exception as exc:
+            entry = {"error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "read": {"player": holder is not None, "caps": True},
+        "why": "" if caps.get("playable") else "; ".join(caps.get("missing") or []),
+        "caps": caps,
+        "player": entry,
+        "extractor": extractor,
+    }
+
+
 def _live_companion(guild, guild_id, channels: list[dict]) -> dict:
     """Who is alone right now, who is live, and where the companion is sitting.
 
@@ -4584,6 +4719,10 @@ def api_console_live():
         "company": company_block,
         "talkers": _live_talkers(row["id"], guild),
         "bot_voice": _live_bot_voice(),
+        # What music is doing here, and whether this host can play at all. The
+        # second half is the reason the block exists: "nobody has asked for a
+        # song" and "music cannot play on this host" used to look identical.
+        "music": _live_music(row["id"]),
         "totals": {
             "channels": len(channels),
             "text": sum(1 for channel in channels if channel["kind"] == "text"),

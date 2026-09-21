@@ -298,12 +298,21 @@ class TheMarkupAndTheHosts(unittest.TestCase):
     def test_every_route_is_on_one_side_of_the_split(self):
         """A new route has to be classified, not defaulted.
 
-        ``PUBLIC_PREFIXES`` and ``GATED_PREFIXES`` decide one thing that matters
-        in this file and one that matters to the clickwrap: whether a page is
-        served with ``noindex`` (every signed-in surface is) and whether the
-        agreement stands in front of it. A route that is on neither list is
-        handled as gated, which is the safe direction — and this test still fails
-        on it, because "safe by accident" is how a console page ends up indexed.
+        ``PUBLIC_PREFIXES`` and ``GATED_PREFIXES`` decide what matters to the
+        clickwrap and to ``noindex`` (every signed-in surface is served it), and a
+        route that is on neither list is handled as gated — the safe direction,
+        and still the failure this exists to catch, because "safe by accident" is
+        how a *marketing page* ends up behind a sign-in nobody asked for.
+
+        **This test could not fail when it was written, and `/music` is how that
+        was found.** The exemption for ``PUBLIC_EXACT`` was checked with
+        ``covered()`` — the *prefix* matcher — and ``PUBLIC_EXACT`` holds ``("/",)``.
+        A prefix test against ``"/"`` is true for every path that will ever be
+        registered, so the loop skipped its own comparison for all of them and the
+        assertion was vacuous: three routes were sitting on neither list while a
+        green check said otherwise. An exact list is now matched exactly, and the
+        fix is pinned by the second test below, which is what a mutation of this
+        one looks like written down.
         """
         known = (
             "/static/<path:filename>",
@@ -317,7 +326,7 @@ class TheMarkupAndTheHosts(unittest.TestCase):
             path = str(rule)
             if path in known:
                 continue
-            if covered(path, keep_alive.PUBLIC_EXACT):
+            if path in keep_alive.PUBLIC_EXACT:
                 continue
             if not covered(path, keep_alive.PUBLIC_PREFIXES + keep_alive.GATED_PREFIXES):
                 unclassified.append(path)
@@ -327,6 +336,34 @@ class TheMarkupAndTheHosts(unittest.TestCase):
             "these routes are neither public nor gated in keep_alive.PUBLIC_PREFIXES / "
             f"GATED_PREFIXES: {unclassified}",
         )
+
+    def test_the_exemption_for_the_root_is_an_exact_match_not_a_prefix(self):
+        """The mutation, as a test: a path that is not the root must not inherit
+
+        the root's exemption. ``PUBLIC_EXACT`` is a *tuple of exact paths* whose
+        only entry is ``/``, so any matcher that treats it as a prefix list turns
+        the check above into a statement about nothing — and the way this was
+        caught was by asking what the check would say about a path that is
+        deliberately on neither list.
+        """
+        self.assertEqual(keep_alive.PUBLIC_EXACT, ("/",), "the root is the only exact entry")
+        pretend = "/definitely-not-classified"
+        self.assertNotIn(pretend, keep_alive.PUBLIC_EXACT)
+        self.assertFalse(
+            any(pretend == p for p in keep_alive.PUBLIC_EXACT),
+            "an exact list must be matched by equality — as a prefix, '/' covers everything",
+        )
+
+    def test_the_music_page_is_public_rather_than_defaulted_to_gated(self):
+        """A page in the public navigation is reachable without agreeing to
+
+        anything, and that is a *classification*, not a consequence of the guard
+        being permissive: `noindex` and the clickwrap both follow the same list.
+        """
+        self.assertFalse(keep_alive._agreement_stands_here("/music"))
+        self.assertTrue(keep_alive._agreement_stands_here("/api/command-scope"))
+        self.assertTrue(keep_alive._agreement_stands_here("/api/channels"))
+        self.assertEqual(keep_alive._agreement_stands_here("/"), False)
 
     def test_an_unlisted_path_is_gated_rather_than_shrugged_off(self):
         """Fail-closed, and *provably* so: the root's exact-match entry is what

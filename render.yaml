@@ -99,3 +99,26 @@ services:
       # signed in. No value, no link.
       - key: UPTIMEROBOT_STATUS_PAGE
         sync: false
+      # --- music -----------------------------------------------------------------
+      # Nothing here is required for playback. ``imageio-ffmpeg`` (a dependency)
+      # ships a static ffmpeg so a host that cannot apt-get anything can still
+      # decode, and an Opus stream needs no encoder from discord.py — which is
+      # why music works on this runtime and the Dockerfile next to it is the
+      # *upgrade* (a real ffmpeg and libopus0, i.e. volume that changes mid-track
+      # instead of re-rendering the stream) rather than a precondition.
+      #
+      # ``/music doctor`` and the owner console print exactly which of the two
+      # this deployment is, so turning that upgrade on is a decision somebody can
+      # read rather than guess at. Without these variables the extractor runs
+      # anonymously; with them owned by nobody.
+      #
+      # A media platform refusing a datacenter address is the one failure that
+      # cannot be designed away, and these two are the answer to it: cookies from
+      # a throwaway account, or a PO token. Both are credentials, so they are
+      # prompts and never values.
+      - key: YTDL_COOKIES_B64
+        sync: false
+      - key: YTDL_PO_TOKEN
+        sync: false
+      - key: YTDL_VISITOR_DATA
+        sync: false

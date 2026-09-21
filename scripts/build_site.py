@@ -63,6 +63,12 @@ DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
 PAGES = (
     ("/", "index.html"),
     ("/systems", "systems.html"),
+    # The music feature's own page, and the reason it is one: its failures are
+    # quiet (a connected bot, a card that says "playing", and silence), so the
+    # things a reader would otherwise discover by being disappointed are written
+    # down here instead. On the site rather than only in Discord because a
+    # policy is not the only thing worth reading before you trust a bot.
+    ("/music", "music.html"),
     ("/start", "start.html"),
     ("/pricing", "pricing.html"),
     ("/privacy", "privacy.html"),

@@ -42,6 +42,12 @@ answers for it, and using a server that runs the Bot is agreement to it.
 * **No voice audio is recorded or transmitted.** Voice activity is judged only
   from the presence states Discord exposes (joined/left, mute, deafen, camera,
   live). No audio is used for training anything, ever.
+* **No music is stored, and nothing is kept about who asked for what.** A track is
+  streamed from the platform that hosts it straight into the voice channel; the
+  bot keeps no copy, writes no queue to the database, and remembers no request
+  history — the queue lives in memory and a restart empties it. The one thing
+  stored is a per-server preference: which voice channel a server asked to keep
+  occupied, if it asked at all.
 * **No DMs are read**, and nothing is sold, rented or shared for advertising. No
   trackers, no analytics. The Bot requests no profile information itself — the
   exception below is optional and exists only so a server's administrators can
@@ -102,6 +108,16 @@ these services and cannot see what they do with what they receive.
   Yahoo Finance — the ticker symbol only, for example `BTC`.
 * **Fun content:** Reddit and meme-api (memes), Tenor (GIFs), TheCatAPI (cat
   pictures), and Spotify's public oEmbed endpoint, which receives the pasted link.
+* **Music:** YouTube and SoundCloud receive **the words somebody typed** as a
+  search, or the link they pasted, from this host's address — and the audio then
+  streams from that platform into the voice channel, never through the operator.
+  A search is a query and not an account: the bot has no profile on either
+  platform, and nothing links a request to a person. `/music songinfo` sends a
+  title, or an artist and title, to Apple's iTunes search API, `/music lyrics`
+  sends the same pair to `api.lyrics.ovh`, and a radio station (SomaFM, 
+  ilovemusic, plaza.one, listen.moe, zeno.fm and whatever else a deployment 
+  configures) sees the request for its stream — which is this host's address and 
+  nothing about anybody in the channel.
 * **The market chart page:** the visitor's browser loads the chart library from
   **unpkg.com**, falling back to **cdn.jsdelivr.net**, so those hosts see the
   visitor's IP and browser.

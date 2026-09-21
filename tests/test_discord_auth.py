@@ -916,15 +916,20 @@ class InvitePermissionsCase(unittest.TestCase):
 
         Each of these was checked against the tree before being left out: no
         code path pings `@everyone` (announcements ping a role, which needs no
-        permission), music is gone and nothing joins a voice channel (the voice
-        tracker reads state changes, which needs only `view_channel`), and
-        nothing moves, mutes or deafens members or edits their nicknames — the
-        only nickname the bot changes is its own, under `change_nickname`.
+        permission), nothing moves, mutes or deafens members or edits their
+        nicknames — the only nickname the bot changes is its own, under
+        `change_nickname`.
+
+        **`connect`/`speak` are no longer on this list, and that is the test
+        working as intended rather than being weakened.** They were removed from
+        the invite when music was retired, because nothing joined a voice channel
+        any more; `cogs/music.py` joins one again, so the pair is granted. What
+        the assertion below still forbids is every *other* way a hijacked token
+        reaches a room it was not asked to touch.
         """
         perms = self.perms(minimal=True)
         for name in (
             "mention_everyone",
-            "connect",
             "manage_guild",
             "manage_webhooks",
             "create_instant_invite",

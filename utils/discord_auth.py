@@ -124,11 +124,19 @@ INVITE_PERMISSIONS = ADMINISTRATOR_PERMISSIONS
 #:
 #: What is *not* here is as deliberate as what is. There is no **Mention
 #: Everyone** (no code path pings ``@everyone``; announcements ping a role, which
-#: needs no permission), no **Connect** (music is gone and nothing joins a voice
-#: channel — the voice tracker reads state changes, which needs only
-#: ``view_channel``), no **Manage Server**, no **Manage Webhooks**, no **Create
+#: needs no permission), no **Manage Server**, no **Manage Webhooks**, no **Create
 #: Invite**, and none of the member-move/mute/deafen bits. A grant nothing uses
 #: is still a grant: it is what a hijacked token reaches for.
+#:
+#: **Connect and Speak are back**, and the reason they were absent is worth
+#: keeping: music had been retired, so the list was measured against a tree in
+#: which nothing joined a voice channel and the entry was correctly removed as
+#: unused. ``cogs/music.py`` joins one again — and a voice bot without Connect
+#: fails with ``Missing Permissions`` at exactly the moment somebody asks it to
+#: play something, which is the least useful time to discover an invite link was
+#: built from an out-of-date list. ``tests/test_discord_auth.py`` decodes the
+#: bitfield rather than comparing it to a number, which is what caught the
+#: original omission.
 MINIMAL_PERMISSION_BITS = (
     # --- answering at all ---
     ("view_channel", 1 << 10),
@@ -143,6 +151,9 @@ MINIMAL_PERMISSION_BITS = (
     ("ban_members", 1 << 2),             # /ban
     ("moderate_members", 1 << 40),       # /mute, /unmute, automod's 5-minute timeout
     ("manage_messages", 1 << 13),        # /purge
+    # --- voice: playback (cogs/music.py) ---
+    ("connect", 1 << 20),                # /play, /music radio — joining the channel
+    ("speak", 1 << 21),                  # the same commands, playing into it
     # --- structure ---
     ("manage_channels", 1 << 4),         # /lock, /unlock, ticket channels
     ("manage_roles", 1 << 28),           # level rewards, /defaultrole

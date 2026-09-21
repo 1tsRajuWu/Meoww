@@ -37,11 +37,15 @@ jobs:
         # Not plain `unittest discover`, which exits 0 when every test it finds
         # skips — a green check has to mean the suite *ran*, not that nothing
         # failed among the tests that chose to run. The floor is the number of
-        # tests that must actually execute (~769 of 780 collected today), and the
-        # skip budget is the eleven known skips: nine retired command-sync tests
-        # and two modules for a music cog that is no longer in the tree. A rename
-        # that stops discovery matching, or a batch of tests that quietly starts
-        # skipping, is the failure this step exists to catch.
+        # tests that must actually execute (~2,200 of 2,245 collected today), and
+        # the skip budget is now **zero plus headroom**: the suite used to carry
+        # eleven skips, nine of them retired command-sync tests and two for a
+        # music cog that had been removed — and both are gone, because the cog
+        # came back rebuilt and the retired tests were replaced rather than
+        # parked. The budget stays at ten rather than at zero so that a genuine
+        # platform skip does not go red, while a batch of tests quietly skipping
+        # still does. A rename that stops discovery matching is the other failure
+        # this step exists to catch, and the floor is what catches it.
         run: |
           python - <<'PY'
           import faulthandler
@@ -52,12 +56,13 @@ jobs:
           # suite that blocked on the runner sat at "Run test suite" until
           # GitHub's six-hour ceiling: no log was published, the check never went
           # red, and every later push queued behind it. Two minutes is far longer
-          # than the whole suite takes (~15s) and short enough to read a log:
-          # every thread's stack is dumped and the process exits non-zero.
+          # than the whole suite takes (~25s locally, under a minute on a cold
+          # runner) and short enough to read a log: every thread's stack is dumped
+          # and the process exits non-zero.
           faulthandler.dump_traceback_later(120, exit=True)
 
-          FLOOR = 740
-          SKIP_BUDGET = 20
+          FLOOR = 2200
+          SKIP_BUDGET = 10
 
           result = unittest.TextTestRunner(verbosity=1).run(
               unittest.defaultTestLoader.discover("tests", top_level_dir=".")

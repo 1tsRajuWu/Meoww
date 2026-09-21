@@ -420,6 +420,65 @@ export type LivePayload = {
     playing: boolean;
     paused: boolean;
   }[];
+  /**
+   * What the music player is doing here, whether this host can play at all, and
+   * whether the extractor can still find anything.
+   *
+   * All three in one block because "nobody has asked for a song", "music cannot
+   * play on this host" and "music cannot find the song" used to look identical on
+   * this page — and the second and third are the faults an operator can actually
+   * fix, in different ways. `caps.playable` is `null` when the probe could not be
+   * run at all, which is a third state and is drawn as one.
+   *
+   * `extractor` is read from the weekly pass rather than asked live (an
+   * extraction is a network round trip and this page polls), so it carries the
+   * age of the reading and an `unknown` state for a process that has not run one.
+   */
+  music: {
+    read: { player: boolean; caps: boolean };
+    extractor: {
+      status: "ok" | "failed" | "unreachable" | "unknown";
+      detail: string;
+      checked_seconds_ago: number | null;
+    } | null;
+    why: string;
+    caps: {
+      playable: boolean | null;
+      quality?: string;
+      ffmpeg?: string | null;
+      ffmpeg_source?: string;
+      opus?: boolean;
+      opus_source?: string;
+      live_volume?: boolean;
+      dave?: boolean;
+      dave_version?: string | null;
+      dave_problem?: string | null;
+      missing?: string[];
+    } | null;
+    player: {
+      guild_id: number;
+      connected: boolean;
+      channel: string | null;
+      playing: boolean;
+      paused: boolean;
+      current: {
+        title: string;
+        provider: string;
+        duration: number;
+        requester: string;
+        identity: string;
+      } | null;
+      engine: string;
+      position: number;
+      volume: number;
+      filter: string;
+      loop: string;
+      queue: number;
+      queue_preview: string[];
+      is_247: boolean;
+      error?: string;
+    } | null;
+  };
   totals: {
     channels: number;
     text: number;

@@ -200,6 +200,24 @@ class Company(commands.Cog):
         self._sitting["streaming"] = bool(getattr(state, "self_stream", False))
         self._sitting["video"] = bool(getattr(state, "self_video", False))
 
+    def _music_owns(self, guild) -> bool:
+        """Whether the music player is using this guild's connection right now.
+
+        The two features share one socket, because a Discord client sits in one
+        voice channel at a time — so the companion has to be able to stand down.
+        Without this, a companion that decided the room had company would
+        disconnect the bot *mid-song*: the music is on the same connection it was
+        about to close. Imported here rather than at module scope so this stays
+        the only direction of dependency between the two features (music does not
+        know the companion exists).
+        """
+        try:
+            from utils import player as player_module  # noqa: PLC0415
+
+            return player_module.holds_voice(getattr(guild, "id", None))
+        except Exception:
+            return False
+
     def _is_ours(self, channel) -> bool:
         connected = self._connected_channel()
         return (
@@ -216,6 +234,8 @@ class Company(commands.Cog):
         which is cheaper and calmer than disconnecting and rejoining, and it does
         not start a five-minute cooldown over somebody switching rooms.
         """
+        if self._music_owns(getattr(target, "guild", None)):
+            return
         client = next(iter(getattr(self.bot, "voice_clients", None) or []), None)
         if client is None:
             return
@@ -242,6 +262,12 @@ class Company(commands.Cog):
             if channel is None:
                 continue
             guild = getattr(channel, "guild", None)
+            if guild is not None and self._music_owns(guild):
+                # Somebody pressed play. The connection is music's now, and
+                # closing it would stop their song — which is a stranger way to
+                # say goodbye than anything this feature could intend.
+                self._sitting = {}
+                continue
             if guild is not None and not self._module_on(guild):
                 await self._leave(client, "the module was switched off")
                 continue
@@ -289,7 +315,7 @@ class Company(commands.Cog):
         connected = self._connected_channel()
         if connected is not None:
             guild = getattr(connected, "guild", None)
-            if guild is not None and not self._module_on(guild):
+            if guild is not None and not self._module_on(guild) and not self._music_owns(guild):
                 await self._leave(
                     next(iter(getattr(self.bot, "voice_clients", None) or []), None),
                     "the module was switched off",

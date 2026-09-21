@@ -19,6 +19,15 @@ stops". Two kinds of thing are probed, because the bot sends two kinds:
   fetched at use time and verified before they are sent (:mod:`utils.gifs`). The
   question here is whether the *resolver* still produces something: a provider
   that quietly changed its payload shape fails this while answering ``200``.
+* **The extractor itself** — one recording asked for the whole way to a stream
+  URL (:func:`utils.media_source.self_check`). This is the only target that is
+  not media at all: it is the *machine that finds* media, and it fails in a way
+  no link can. yt-dlp stays installed, importable and reporting a version while
+  answering *"Sign in to confirm you're not a bot"* to every search, because a
+  provider changed how it signs a stream and the extractor is one release behind
+  — and every picture and sound in this module would still be healthy on that
+  day. Asking for one known recording weekly is what turns "music is broken" into
+  a sentence naming the fix.
 
 Three rules, all learned from what went wrong:
 
@@ -34,6 +43,7 @@ Three rules, all learned from what went wrong:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -41,7 +51,7 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
-from . import config_audit, db, gifs
+from . import config_audit, db, gifs, media_source
 
 #: Where this check's clock lives. Guild ``0`` is the application's own row, the
 #: same sentinel ``utils.presence`` uses for a value that belongs to no server.
@@ -206,11 +216,14 @@ def _walk(path: str) -> tuple[str, ...]:
 
 
 def declared() -> tuple[Target, ...]:
-    """The media this bot *makes*: one target per action, one per pet.
+    """The media this bot *makes*: one target per action, one per pet — plus the
+    extractor, which makes the media possible.
 
     Read off the resolver's own tables, so an action added there is checked
     without anybody remembering to add it here — and a test fails if the two ever
-    drift apart.
+    drift apart. The extractor target is the same idea one level up: its probe
+    target is read from :func:`utils.media_source.probe_target`, so a deployment
+    that overrides ``YTDL_PROBE_TARGET`` is checked against what it configured.
     """
     targets = [
         Target(name=f"action:{action}", kind="action", source="utils/gifs.py")
@@ -220,7 +233,21 @@ def declared() -> tuple[Target, ...]:
         Target(name=f"pet:{kind}", kind="pet", source="utils/gifs.py")
         for kind in sorted(gifs.PET_SOURCES)
     ]
+    targets.append(
+        Target(
+            name=EXTRACTOR_TARGET,
+            kind="extractor",
+            url=media_source.probe_target(),
+            source="utils/media_source.py",
+        )
+    )
     return tuple(targets)
+
+
+#: The extractor's own target, named once because three places read it: the
+#: target list, the console's music panel and this module's own reading of the
+#: last pass.
+EXTRACTOR_TARGET = "extractor:yt-dlp"
 
 
 def targets(root: str | None = None) -> tuple[Target, ...]:
@@ -315,6 +342,39 @@ async def _probe(session, url: str) -> tuple[bool, str]:
 LEFT_EMPTY = "the resolver produced nothing (provider or file)"
 
 
+#: One reason per way the extractor can be unable to do its job. Asserted on,
+#: like :data:`LEFT_EMPTY`: the card's whole value is that the *kind* of failure
+#: is legible, because "upgrade the package" and "this host needs cookies" are
+#: different afternoons.
+EXTRACTOR_FAILED = "the extractor could not resolve a recording it should always be able to"
+
+
+async def _extract() -> tuple[bool, str]:
+    """Ask the extractor for one recording, off the event loop.
+
+    ``self_check`` is synchronous yt-dlp work (a network call inside a package
+    that does its own retrying), so it goes to a thread rather than blocking the
+    pass — a check that stutters the gateway while it runs is a check that gets
+    switched off.
+    """
+    try:
+        probe = await asyncio.to_thread(media_source.self_check)
+    except Exception as exc:  # noqa: BLE001 — the pass must not raise
+        return False, f"the extractor check itself failed ({type(exc).__name__})"
+    if probe.healthy:
+        return True, ""
+    if probe.unreachable:
+        # Deliberately shaped like the link probe's own transport failure, so the
+        # pass files it as ``unchecked``: a host that cannot reach the provider is
+        # not a finding about the extractor, and the two must not be told apart by
+        # a reader of the card.
+        return False, f"no answer ({probe.reason})"
+    # The version is part of the finding: "one release behind" is the common case
+    # and it is invisible without it.
+    suffix = f" (yt-dlp `{probe.version}`)" if probe.version else ""
+    return False, f"{probe.reason or EXTRACTOR_FAILED}{suffix}"
+
+
 async def _resolve(target: Target) -> tuple[str | None, str]:
     """The URL the resolver produces for an action/pet, or the reason it did not.
 
@@ -353,6 +413,9 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
             if target.kind == "file":
                 healthy, reason = await _probe(session, target.url)
                 url = target.url
+            elif target.kind == "extractor":
+                healthy, reason = await _extract()
+                url = ""
             else:
                 url, reason = await _resolve(target)
                 healthy = bool(url)
@@ -464,6 +527,34 @@ def card_body(verdict: Verdict) -> str:
 
 #: Discord's description limit, minus room for the sentence above it.
 MAX_CARD_CHARS = 3800
+
+
+def extractor_state() -> dict:
+    """What the last pass found about the extractor, without asking again.
+
+    The console panel and ``/health`` both want this, and neither may trigger a
+    network call: one is a page that polls, the other is unauthenticated. So it
+    reads the last verdict and says plainly when there is not one yet — *not
+    checked* is a state a reader can act on (``/music doctor`` asks now), and it
+    is the honest answer for a process that has just restarted.
+    """
+    verdict = _state["last"]
+    if verdict is None:
+        return {
+            "status": "unknown",
+            "detail": "the extractor has not been asked in this process yet",
+            "checked_seconds_ago": None,
+        }
+    age = max(0, int(time.time()) - verdict.at)
+    if EXTRACTOR_TARGET in verdict.dead:
+        return {"status": "failed", "detail": verdict.dead[EXTRACTOR_TARGET], "checked_seconds_ago": age}
+    if EXTRACTOR_TARGET in verdict.unchecked:
+        return {
+            "status": "unreachable",
+            "detail": verdict.unchecked[EXTRACTOR_TARGET],
+            "checked_seconds_ago": age,
+        }
+    return {"status": "ok", "detail": "", "checked_seconds_ago": age}
 
 
 def health_json() -> dict:

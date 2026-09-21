@@ -435,6 +435,129 @@ async def media_alert(bot, verdict, message: str) -> bool:
         return False
 
 
+#: Music faults already reported in this process, by kind. Music fails *per track*:
+#: a provider that has started refusing this host refuses every search, and a
+#: card per attempt would be a hundred cards an hour about one fact. One entry per
+#: reason is the whole design, and it is why the card carries the count of what it
+#: is standing in for.
+_music_reported: dict[str, int] = {}
+
+#: What to do about each kind, in the words of somebody who has to fix it.
+_MUSIC_REMEDIES: dict[str, str] = {
+    "blocked": (
+        "The provider has decided this host is a bot and answered with a check "
+        "instead of a stream. Nothing in the search is wrong. Two things fix it: "
+        "`YTDL_COOKIES` (or `YTDL_COOKIES_B64`) from a throwaway account, or "
+        "`YTDL_PO_TOKEN` from a token provider — and `/music radio` keeps working "
+        "either way, because a radio station never touches the extractor."
+    ),
+    "truncated": (
+        "The stream was cut short mid-track, which is not the same as a short song. "
+        "If the card names a **different engine** each time, the host is being "
+        "throttled rather than the link being bad."
+    ),
+    "source_error": (
+        "The audio engine (ffmpeg) exited with an error. The card names what it "
+        "said; `-err_detect ignore_err` used to hide exactly this."
+    ),
+    "unplayable": (
+        "A queued track could not be turned into a stream. A single one is usually "
+        "a dead or region-locked upload; every track is the extractor being stale "
+        "(`pip install -U yt-dlp` is the fix, and it is refreshed on every image build)."
+    ),
+    "opus_missing": (
+        "Not a fault: without libopus the volume is baked into the stream instead "
+        "of applied live. Install `libopus0` on a Docker host to change volume "
+        "mid-track without a restart."
+    ),
+}
+
+
+def music_reported(kind: str) -> int:
+    """How many times a kind has already been reported in this process."""
+    return _music_reported.get(kind, 0)
+
+
+def forget_music_reports() -> None:
+    """Let the next fault be reported again. For tests, and for an operator who
+    wants the card back after fixing something and watching it fail again."""
+    _music_reported.clear()
+
+
+async def music_alert(bot, fault, *, player=None) -> bool:
+    """Say that playback broke, once per reason, with the evidence attached.
+
+    Music's failures are all quiet: the bot stays connected, the card says it is
+    playing, and the only symptom is that nothing is heard — which is why the
+    archived cog survived a week of "it doesn't work" with nothing in the log.
+    Four kinds share this entry point because they are one question asked under
+    different conditions, and the operator needs the *difference*: a provider
+    refusing this host reads nothing like a single dead upload.
+
+    Deduplicated by kind rather than by track, because that is the unit the
+    operator acts on: one host being blocked is one fact however many songs it
+    ruins. The card says how many times it has happened since the first report,
+    so a single quiet entry does not read as a single event.
+    """
+    kind = getattr(fault, "kind", "unknown")
+    seen = _music_reported.get(kind, 0)
+    _music_reported[kind] = seen + 1
+    if seen:
+        # Already reported in this process: the count moved, the card did not.
+        return False
+
+    embed = discord.Embed(
+        title=f"🎵 Music: {getattr(fault, 'headline', kind)}",
+        description=getattr(fault, "detail", "") or "no further detail",
+        color=style.WARN if kind != "blocked" else style.DANGER,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(
+        name="Where",
+        value=f"`guild {getattr(fault, 'guild_id', 0) or 'unknown'}`",
+        inline=True,
+    )
+    if getattr(fault, "title", ""):
+        embed.add_field(name="Track", value=f"**{fault.title}**"[:1024], inline=True)
+    if getattr(fault, "engine", ""):
+        embed.add_field(name="Engine", value=f"`{fault.engine}`", inline=True)
+    if getattr(fault, "expected", 0):
+        embed.add_field(
+            name="Played",
+            value=f"{int(getattr(fault, 'played', 0))}s of {int(fault.expected)}s",
+            inline=True,
+        )
+    if player is not None:
+        embed.add_field(
+            name="Player",
+            value=(
+                f"`{player.engine or 'idle'}` · {len(player.queue)} queued · "
+                f"volume {int(player.volume * 100)}% · filter {player.filter_name}"
+            ),
+            inline=False,
+        )
+    embed.add_field(
+        name="What to do",
+        value=_MUSIC_REMEDIES.get(kind, "The card carries what was seen; this kind has no scripted remedy yet."),
+        inline=False,
+    )
+    embed.set_footer(text="Meow · music · once per reason, not once per track")
+
+    target = None
+    for role in _INSTANCE_ROLES:
+        target = await _channel(bot, role)
+        if target is not None:
+            break
+    if target is None:
+        return False
+    try:
+        await style.send_card(target, embed=embed, timeout=None)
+        return True
+    except Exception as exc:
+        print(f"[LOG] could not report the music fault: {exc}", flush=True)
+        return False
+
+
 async def uptime_alert(bot, snapshot, message: str) -> bool:
     """Say that a monitor changed state, with the evidence beside it.
 

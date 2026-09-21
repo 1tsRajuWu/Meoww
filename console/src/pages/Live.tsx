@@ -209,6 +209,8 @@ export function Live() {
 
       <Companion data={data} />
 
+      <MusicPanel data={data} />
+
       <div className="stack-col">
         <Card span={2} index={3} title="Who is around" hint="Needs the Presence intent.">
           {data.presence ? (
@@ -380,6 +382,151 @@ export function Live() {
         </ul>
       </Card>
     </div>
+  );
+}
+
+/** The music player, and — the half nobody can otherwise discover — whether
+ * this host is able to play at all.
+ *
+ * The two used to be the same page's blind spot: a deployment with no ffmpeg, no
+ * libopus and no `davey` looked exactly like a server where nobody had asked for
+ * a song, because both render as an idle player. So the panel leads with the
+ * capability reading, which comes from the same probe the boot line,
+ * `/music doctor` and `/api/voice-debug` read — and every *missing* reason is
+ * printed rather than summarised, because each one is a different fix.
+ *
+ * The extractor is the third reading and the one that cannot be inferred from the
+ * other two: every capability present, every other link healthy, and every search
+ * answering with a bot check. It carries the age of the reading because it comes
+ * from the weekly pass rather than from a request this page made — the honest
+ * thing to draw for "asked two days ago" is two days ago.
+ */
+function MusicPanel({ data }: { data: LivePayload }) {
+  const music = data.music;
+  const caps = music?.caps ?? null;
+  const player = music?.player ?? null;
+  const extractor = music?.extractor ?? null;
+  const playable = caps?.playable ?? null;
+  const asked = extractor?.checked_seconds_ago;
+
+  return (
+    <Card
+      span={6}
+      index={11}
+      title="Music & radio"
+      hint="What is queued here, what is found, and what this host can actually do for voice."
+      action={
+        <>
+          {playable === null ? (
+            <Pill tone="warn">not probed</Pill>
+          ) : playable ? (
+            <Pill tone="good">can play</Pill>
+          ) : (
+            <Pill tone="warn">cannot play</Pill>
+          )}
+          {extractor && extractor.status !== "ok" && extractor.status !== "unknown" && (
+            <Pill tone={extractor.status === "unreachable" ? "warn" : "danger"}>
+              finds nothing
+            </Pill>
+          )}
+        </>
+      }
+    >
+      <dl className="rows">
+        <dt>ffmpeg</dt>
+        <dd>
+          {caps?.ffmpeg ? (
+            <>
+              {caps.ffmpeg_source ?? "found"} <span className="chan__note">{caps.ffmpeg}</span>
+            </>
+          ) : (
+            "missing — nothing can be decoded"
+          )}
+        </dd>
+        <dt>libopus</dt>
+        <dd>
+          {caps?.live_volume
+            ? "loaded — the volume changes without restarting the track"
+            : "not loaded — the volume is baked into the stream and a change re-renders it"}
+        </dd>
+        <dt>DAVE</dt>
+        <dd>
+          {caps?.dave
+            ? `${caps.dave_version ?? "installed"} — required for any voice connection`
+            : "missing — Discord refuses a voice connection without it"}
+        </dd>
+        <dt>Extractor</dt>
+        <dd>
+          {extractor === null ? (
+            "not reported by this backend"
+          ) : extractor.status === "ok" ? (
+            <>
+              still resolves a recording
+              {asked !== null && asked !== undefined ? (
+                <span className="chan__note"> asked {duration(asked)} ago</span>
+              ) : null}
+            </>
+          ) : extractor.status === "unknown" ? (
+            <>
+              not asked since this process started{" "}
+              <span className="chan__note">
+                the weekly pass asks, and <code>/music doctor</code> asks now
+              </span>
+            </>
+          ) : extractor.status === "unreachable" ? (
+            `could not be asked — ${extractor.detail}`
+          ) : (
+            <>cannot resolve anything now — {extractor.detail}</>
+          )}
+        </dd>
+      </dl>
+
+      {caps?.missing?.length ? (
+        <ul className="alone">
+          {caps.missing.map((reason) => (
+            <li key={reason}>{reason.replace(/\*\*/g, "")}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      <dl className="rows">
+        <dt>Player</dt>
+        <dd>
+          {player
+            ? player.connected
+              ? `🔊 ${player.channel ?? "a voice channel"} · ${
+                  player.playing ? (player.paused ? "paused" : "playing") : "idle"
+                }`
+              : "connected nowhere right now"
+            : "no player yet — nobody has asked for a song since the last restart"}
+        </dd>
+        {player?.current && (
+          <>
+            <dt>Playing</dt>
+            <dd>
+              {player.current.title}
+              {player.current.requester ? ` <span className="chan__note">for ${player.current.requester}</span>` : null}
+            </dd>
+            <dt>Engine</dt>
+            <dd>{player.engine || "starting"}</dd>
+            <dt>Queue</dt>
+            <dd>
+              {player.queue} track{player.queue === 1 ? "" : "s"}
+              {player.queue_preview?.length ? ` — next: ${player.queue_preview[0]}` : ""}
+            </dd>
+            <dt>Volume · filter · loop</dt>
+            <dd>
+              {Math.round(player.volume * 100)}% · {player.filter} · {player.loop}
+            </dd>
+          </>
+        )}
+      </dl>
+      <p className="alone__foot">
+        A stream that is cut off mid-song is reported rather than skipped: the bot sends a card naming
+        how much of the track played, and the operator log gets one entry per reason — so "the music
+        was short" can be told apart from "the provider cut this host off".
+      </p>
+    </Card>
   );
 }
 

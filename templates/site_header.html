@@ -18,6 +18,7 @@
 <header class="lp-header">
     <nav class="lp-nav" aria-label="Main">
         <a href="/systems"{% if current == "systems" %} class="is-here" aria-current="page"{% endif %}>Systems</a>
+        <a href="/music"{% if current == "music" %} class="is-here" aria-current="page"{% endif %}>Music</a>
         <a href="/start"{% if current == "start" %} class="is-here" aria-current="page"{% endif %}>Get started</a>
         {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
     </nav>

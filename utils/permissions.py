@@ -180,6 +180,31 @@ COMMAND_ACCESS: dict[str, str] = {
     "trivia": EVERYONE,
     "uwu": EVERYONE,
     "zoo": EVERYONE,
+    # -- Music: everyone plays, the server owner keeps the seat ---------------- #
+    # Playback control is deliberately open to any member: it is a shared room,
+    # the person who queued nothing is still in it, and every other music bot
+    # people have used lets them skip. What is *not* open is a permanent
+    # connection — that is the server's decision, so 24/7 is the guild owner's
+    # (with the bot's own owner allowed alongside, checked in the callback).
+    "play": EVERYONE,
+    "music radio": EVERYONE,
+    "music skip": EVERYONE,
+    "music pause": EVERYONE,
+    "music resume": EVERYONE,
+    "music stop": EVERYONE,
+    "music queue": EVERYONE,
+    "music nowplaying": EVERYONE,
+    "music volume": EVERYONE,
+    "music filter": EVERYONE,
+    "music loop": EVERYONE,
+    "music shuffle": EVERYONE,
+    "music seek": EVERYONE,
+    "music lyrics": EVERYONE,
+    "music songinfo": EVERYONE,
+    # The readout names the host's own paths and libraries, which is the
+    # operator's business rather than a member's.
+    "music doctor": ADMIN,
+    "music 247": OWNER,
     "customquote add": EVERYONE,
     "customquote get": EVERYONE,
     "customquote list": EVERYONE,

@@ -7,6 +7,13 @@ tests care about three things above the plumbing — that the *scan* really walk
 the tree that may hold a link and skips the places that deliberately hold broken
 ones, that a probe distinguishes "dead" from "could not ask", and that a clean
 week is silence while a dead link is said exactly once.
+
+The fourth thing joined later and is a different kind of finding: the extractor.
+Every link in the tree can be healthy on the day music stops working, because the
+fault is in the *machine that finds* media — so one target asks it for a known
+recording, and the tests keep that target honest: it is the last one, it is only
+one, it names no URL to blame, and its recording is a setting rather than a
+constant.
 """
 import asyncio
 import json
@@ -17,7 +24,7 @@ import unittest
 from unittest import mock
 
 from tests.support import TempDatabaseMixin
-from utils import config_audit, db, gifs, media_health
+from utils import config_audit, db, gifs, media_health, media_source
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -107,9 +114,38 @@ class WhatIsDeclared(unittest.TestCase):
         everything = media_health.targets(ROOT)
         self.assertEqual(len(everything), len(media_health.declared()) + len(media_health.scan_source(ROOT)))
 
+    def test_the_extractor_itself_is_the_last_target_and_only_one(self):
+        everything = media_health.targets(ROOT)
+        extractors = [t for t in everything if t.kind == "extractor"]
+        self.assertEqual(len(extractors), 1)
+        self.assertEqual(extractors[0].name, "extractor:yt-dlp")
+        self.assertEqual(extractors[0].url, media_source.probe_target())
+        self.assertEqual(extractors[0].source, "utils/media_source.py")
+
+    def test_the_probe_recording_is_a_setting_and_has_a_default(self):
+        """An operator whose network a provider has flagged can point the check at a
+        mirror without a release — and with nothing set, it asks for the default."""
+        self.assertEqual(media_source.probe_target(), media_source.DEFAULT_PROBE_TARGET)
+        with mock.patch.object(config_audit, "get", lambda key, *a: "https://example.test/v/1"):
+            self.assertEqual(media_source.probe_target(), "https://example.test/v/1",)
+            self.assertEqual(
+                [t.url for t in media_health.declared() if t.kind == "extractor"],
+                ["https://example.test/v/1"],
+            )
+        self.assertEqual(
+            media_source.probe_target(),
+            media_source.DEFAULT_PROBE_TARGET,
+            "the default is what a deployment with no setting asks for",
+        )
+
 
 def _image(status=200, content_type="image/gif"):
     return {"status": status, "content_type": content_type}
+
+
+async def _extract_ok():
+    """The extractor as a healthy one answers, for the cases about links."""
+    return True, ""
 
 
 class _Content:
@@ -151,13 +187,18 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         media_health.reset()
 
-    async def _check(self, urls, *, live=True, resolved=None):
+    async def _check(self, urls, *, live=True, resolved=None, extract=None):
         """One pass over a tree of made-up links, with the resolver stubbed.
 
         ``live`` says whether the links written into that tree answer with media
         or are gone; ``resolved`` names the declared targets whose resolver answer
         should be something other than healthy, and a value of ``None`` there
         means it produced nothing at all.
+
+        The extractor is stubbed for the same reason the resolver is: the real
+        one is a network call to a video platform, and a test that needs YouTube
+        to be reachable is a test that fails for reasons that are not this code.
+        ``extract`` is the reason to report instead, when a case wants one.
         """
         with tempfile.TemporaryDirectory() as folder:
             os.makedirs(os.path.join(folder, "cogs"))
@@ -171,10 +212,14 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
                     return answer, ("" if answer else media_health.LEFT_EMPTY)
                 return RESOLVED_OK, ""
 
+            async def fake_extract():
+                return (False, extract) if extract else (True, "")
+
             routes = {url: _image() for url in urls} if live else {}
             routes[RESOLVED_OK] = _image()
             session = _Session(routes)
-            with mock.patch.object(media_health, "_resolve", new=fake_resolve):
+            with mock.patch.object(media_health, "_resolve", new=fake_resolve), \
+                    mock.patch.object(media_health, "_extract", new=fake_extract):
                 return await media_health.check(session=session, root=folder, now=1000)
 
     async def test_a_healthy_tree_is_clean(self):
@@ -204,7 +249,8 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
             async def healthy_resolve(_target):
                 return RESOLVED_OK, ""
 
-            with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
+            with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
+                    mock.patch.object(media_health, "_extract", new=_extract_ok):
                 verdict = await media_health.check(session=_Wrong({}), root=folder, now=1000)
         self.assertIn("not media", verdict.dead["cogs/card.py:1"])
 
@@ -223,7 +269,8 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
             async def healthy_resolve(_target):
                 return RESOLVED_OK, ""
 
-            with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
+            with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
+                    mock.patch.object(media_health, "_extract", new=_extract_ok):
                 verdict = await media_health.check(session=_Dead({}), root=folder, now=1000)
         self.assertEqual(verdict.dead, {})
         self.assertIn("no answer", verdict.unchecked["cogs/card.py:1"])
@@ -241,6 +288,61 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("pet:cat", verdict.dead)
         self.assertNotIn("pet:cat", verdict.kinds)
 
+    async def test_a_stale_extractor_is_a_finding_about_no_url_at_all(self):
+        """The extractor is the one target with nothing to blame and nothing to
+        edit: every picture it was checked beside is healthy, and the reason is the
+        machine that finds them."""
+        verdict = await self._check(
+            ["https://i.imgur.com/ok.gif"],
+            extract="the extractor answered nothing (Sign in to confirm you're not a bot) (yt-dlp `2026.01.01`)",
+        )
+        self.assertEqual(list(verdict.names), ["extractor:yt-dlp"])
+        self.assertIn("yt-dlp `2026.01.01`", verdict.dead["extractor:yt-dlp"])
+        self.assertEqual(verdict.kinds["extractor:yt-dlp"], "extractor")
+        self.assertIsNone(verdict.places.get("extractor:yt-dlp"), "there is no URL to name")
+        self.assertFalse(verdict.healthy)
+        # And it reaches the operator as a sentence about the extractor, not as a
+        # broken picture.
+        self.assertIn("extractor:yt-dlp", media_health.describe(verdict))
+        self.assertIn("extractor:yt-dlp", media_health.card_body(verdict))
+
+    async def test_a_working_extractor_is_not_a_finding(self):
+        verdict = await self._check([])
+        self.assertNotIn("extractor:yt-dlp", verdict.dead)
+        self.assertNotIn("extractor:yt-dlp", verdict.kinds)
+
+    async def test_a_network_that_cannot_reach_the_provider_is_not_a_finding(self):
+        """The contract between ``_extract`` and the pass, and it is worth a test of
+        its own: a blocked extractor is a *finding* (the provider answered), and a
+        host with no route out is *unchecked*. Only one of those is worth waking
+        somebody for, and the pass tells them apart by the reason's own shape."""
+        probe = media_source.Probe(
+            healthy=False,
+            reason="this host could not reach the provider (DownloadError)",
+            version="2026.08.19",
+            target="https://example.test/v/1",
+            unreachable=True,
+            at=1000.0,
+        )
+        with mock.patch.object(media_source, "self_check", lambda *a, **k: probe):
+            healthy, reason = await media_health._extract()
+        self.assertFalse(healthy)
+        self.assertTrue(reason.startswith("no answer"), reason)
+
+        blocked = media_source.Probe(
+            healthy=False,
+            reason="the provider is refusing this host rather than answering",
+            version="2026.08.19",
+            target="https://example.test/v/1",
+            blocked=True,
+            at=1000.0,
+        )
+        with mock.patch.object(media_source, "self_check", lambda *a, **k: blocked):
+            healthy, reason = await media_health._extract()
+        self.assertFalse(healthy)
+        self.assertFalse(reason.startswith("no answer"), reason)
+        self.assertIn("yt-dlp `2026.08.19`", reason, "the version travels with the finding")
+
     async def test_the_counts_add_up(self):
         verdict = await self._check([], resolved={"pet:cat": None})
         counts = verdict.counts
@@ -257,7 +359,8 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         async def healthy_resolve(_target):
             return RESOLVED_OK, ""
 
-        with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
+        with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
+                mock.patch.object(media_health, "_extract", new=_extract_ok):
             verdict = await media_health.check(session=_Exploding(), root=ROOT, now=1000)
         self.assertGreater(verdict.checked, 0)
         self.assertTrue(verdict.unchecked)
@@ -535,7 +638,12 @@ class TheWeeklyClock(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 class ItNeverBlocksTheBot(unittest.IsolatedAsyncioTestCase):
     async def test_a_real_pass_over_the_real_tree_finishes(self):
         """One pass with no network at all: every target must land in ``unchecked``
-        rather than raising, because this runs inside the bot's own loop."""
+        rather than raising, because this runs inside the bot's own loop.
+
+        The extractor is stubbed *as offline* rather than left real: two of the
+        findings here are about a network that is not there, and a pass that
+        reached YouTube would be testing the opposite of what it claims.
+        """
         class _Offline:
             async def get(self, *args, **kwargs):
                 raise OSError("network is unreachable")
@@ -543,8 +651,12 @@ class ItNeverBlocksTheBot(unittest.IsolatedAsyncioTestCase):
         async def healthy_resolve(_target):
             return RESOLVED_OK, ""
 
+        async def offline_extract():
+            return False, "no answer (this host could not reach the provider)"
+
         media_health.reset()
-        with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
+        with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
+                mock.patch.object(media_health, "_extract", new=offline_extract):
             verdict = await media_health.check(session=_Offline(), root=ROOT, now=1000)
         self.assertGreater(verdict.checked, 10)
         self.assertEqual(verdict.dead, {})

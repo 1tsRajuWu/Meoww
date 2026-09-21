@@ -1,23 +1,23 @@
-"""Music & Radio: the playback-state bugs, tested without a Discord connection.
+"""Music, tested without a Discord connection: the player's two silent failures.
 
-Three genuine defects lived in the restored cog:
+Both of these were *shipped* bugs, and neither had a symptom that pointed at
+itself.
 
-* applying a filter (or a volume change) called ``voice_client.stop()`` and then
-  started the rebuilt source by hand, so the stop's after-callback *also* advanced
-  the queue — switching a filter threw away a queued song;
-* ``/radio`` did the same thing explicitly, so two advances ran: the second found
-  an empty queue and cleared ``current`` while the stream was still playing, after
-  which ``/nowplaying``, ``/queue`` and ``/skip`` all denied anything was on;
-* ``/volume`` only assigned a field, which the live source never read (PCM) or had
-  already baked into its ffmpeg command line (opus), so it did nothing at all.
+**A deliberate stop is not a finished song.** Applying a filter or changing the
+volume replaces the audio source, and the old source's after-callback fires on
+the way out — so the queue advanced too, and changing a filter ate a queued
+track. A generation counter fixes it: every source's callback is tagged with the
+generation it belongs to, and a callback only advances the queue while its
+generation is current.
 
-The fix is a generation counter: every source gets an after-callback tagged with
-the generation it was created in, and a callback only advances the queue when its
-generation is still current. These tests pin that, plus the source-selection and
-the no-mention rules.
+**A stream that dies is not a short song.** ffmpeg exiting early arrives as
+``err=None``, exactly like a track finishing — which is what "the music is
+short" was. The player knows how long the source should have run, and a source
+that ends far short of that is reported as a fault.
 
-ffmpeg/yt-dlp are never invoked here: ``_build_source`` is exercised with the
-source classes mocked, and ``play_next`` is replaced with a recorder.
+ffmpeg and yt-dlp are never invoked here: the source classes are mocked, the
+resolver is never called, and ``play_next``'s network half is replaced with a
+recorder.
 """
 import asyncio
 import pathlib
@@ -25,24 +25,24 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-if not (pathlib.Path(__file__).resolve().parent.parent / "cogs" / "music.py").exists():
-    # Music is no longer in the tree (see the feature archive), so these tests
-    # cover a cog that does not exist. Skipping keeps the suite honest instead of
-    # erroring at import — and they come straight back to life the moment
-    # cogs/music.py is restored.
-    raise unittest.SkipTest("cogs/music.py is not in this build")
-
-from cogs import music as music_module
-from tests.support import TempDatabaseMixin
-from utils import db
+from utils import player as player_module
+from utils.media_source import Track
 
 GUILD = 321
 
-Track = music_module.Track
 
-
-def _track(title: str) -> "Track":
-    return Track(title=title, source_url="http://example.invalid/stream", duration=180, requester="Raj")
+def _track(title: str, **kwargs) -> Track:
+    """A track with sensible defaults; ``kwargs`` wins, including ``duration``."""
+    fields = {
+        "title": title,
+        "provider": "youtube",
+        "video_id": "abc123",
+        "stream_url": "http://example.invalid/stream",
+        "duration": 180,
+        "requester": "Raj",
+    }
+    fields.update(kwargs)
+    return Track(**fields)
 
 
 class _FakeChannel:
@@ -56,7 +56,7 @@ class _FakeChannel:
 
 
 class _FakeVoiceClient:
-    """Mimics the parts of VoiceClient/Guild that the player touches.
+    """Mimics the parts of VoiceClient the player touches.
 
     ``stop()`` invokes the registered after-callback, the same way discord.py's
     audio thread does when a source is stopped or finishes.
@@ -94,215 +94,349 @@ class _FakeVoiceClient:
             callback(None)
 
 
-class _FakeBot:
-    def __init__(self):
-        self.loop = asyncio.get_running_loop()
-
-
-class _FakeResponse:
-    def __init__(self):
-        self.messages = []
-
-    async def send_message(self, content=None, **kwargs):
-        self.messages.append({"content": content, **kwargs})
-
-
-class _FakeInteraction:
-    def __init__(self):
-        self.guild = SimpleNamespace(id=GUILD, name="Guild")
-        self.user = SimpleNamespace(id=7, display_name="Raj", mention="<@7>")
-        self.channel = SimpleNamespace(id=55, mention="<#55>")
-        self.response = _FakeResponse()
-        self.edits = []
-
-    async def edit_original_response(self, **kwargs):
-        self.edits.append(kwargs)
-
-
-class _MusicCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+class _PlayerCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.use_temp_database("music.db")
-        music_module.DB = db
-        await db.setup()
+        self.bot = SimpleNamespace(loop=asyncio.get_running_loop())
+        self.player = player_module.GuildPlayer(self.bot, GUILD)
+        self.vc = _FakeVoiceClient()
+        self.player.voice_client = self.vc
 
     async def asyncTearDown(self):
-        self.release_temp_database()
+        player_module.PLAYERS.pop(GUILD, None)
 
-    def _player(self):
-        bot = _FakeBot()
-        player = music_module.GuildMusicPlayer(bot, GUILD)
-        vc = _FakeVoiceClient()
-        player.voice_client = vc
-        return player, vc
-
-    def _recorder(self, player):
+    def _recorder(self):
         """Replace play_next with something that records and mimics the pop."""
         calls = []
 
         async def fake_play_next(error=None):
             calls.append(error)
-            if player.queue:
-                player.current = player.queue.pop(0)
+            if self.player.queue:
+                self.player.current = self.player.queue.pop(0)
 
-        player.play_next = fake_play_next
+        self.player.play_next = fake_play_next
         return calls
 
 
-class FilterRestartKeepsTheQueue(_MusicCase):
+class FilterRestartKeepsTheQueue(_PlayerCase):
     async def test_restarting_for_a_filter_does_not_advance_the_queue(self):
-        player, vc = self._player()
-        player.current = _track("Now Playing")
-        player.queue = [_track("Queued Song")]
-        vc.play(object(), after=player._after_for(player._generation))   # a track is playing
-        calls = self._recorder(player)
+        self.player.current = _track("Now Playing")
+        self.player.queue = [_track("Queued Song")]
+        self.vc.play(object(), after=self.player._after_for(self.player._generation))
+        calls = self._recorder()
 
-        self.assertTrue(player.restart_current())
+        self.assertTrue(self.player.restart_current())
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
         self.assertEqual(calls, [], "the deliberate stop was treated as a finished song")
-        self.assertEqual(len(player.queue), 1, "a queued track was consumed by the restart")
-        self.assertEqual(player.current.title, "Now Playing")
-        self.assertEqual(vc.stop_calls, 1)
+        self.assertEqual(len(self.player.queue), 1, "a queued track was consumed by the restart")
+        self.assertEqual(self.player.current.title, "Now Playing")
+        self.assertEqual(self.vc.stop_calls, 1)
 
     async def test_the_replacement_source_still_advances_when_it_really_ends(self):
-        player, vc = self._player()
-        player.current = _track("Now Playing")
-        player.queue = [_track("Queued Song")]
-        vc.play(object(), after=player._after_for(player._generation))
-        calls = self._recorder(player)
+        self.player.current = _track("Now Playing")
+        self.player.queue = [_track("Queued Song")]
+        self.vc.play(object(), after=self.player._after_for(self.player._generation))
+        calls = self._recorder()
 
-        player.restart_current()
+        self.player.restart_current()
         await asyncio.sleep(0)
         self.assertEqual(calls, [])
 
-        vc.after(None)          # the re-rendered track finishes for real
+        self.vc.after(None)          # the re-rendered track finishes for real
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
         self.assertEqual(len(calls), 1, "the queue stalled after a restart")
-        self.assertEqual(player.current.title, "Queued Song")
+        self.assertEqual(self.player.current.title, "Queued Song")
 
     async def test_a_stale_callback_from_a_replaced_source_is_ignored(self):
-        player, vc = self._player()
-        player.current = _track("Now Playing")
-        stale = player._after_for(player._generation)
-        vc.play(object(), after=stale)
-        player.restart_current()          # bumps the generation
-        calls = self._recorder(player)
+        self.player.current = _track("Now Playing")
+        stale = self.player._after_for(self.player._generation)
+        self.vc.play(object(), after=stale)
+        self.player.restart_current()          # bumps the generation
+        calls = self._recorder()
 
-        stale(None)                       # the abandoned source reports it ended
+        stale(None)                            # the abandoned source reports it ended
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
         self.assertEqual(calls, [], "an abandoned source advanced the queue")
 
     async def test_restart_is_refused_when_nothing_is_playing(self):
-        player, vc = self._player()
-        player.current = _track("Nothing playing")
-        self.assertFalse(player.restart_current())
-        self.assertEqual(vc.stop_calls, 0)
+        self.player.current = _track("Nothing playing")
+        self.assertFalse(self.player.restart_current())
+        self.assertEqual(self.vc.stop_calls, 0)
 
     async def test_restart_is_refused_without_a_stream_url(self):
-        player, vc = self._player()
-        player.current = Track(title="Spotify pending", source_url="", duration=1, requester="Raj")
-        vc._playing = True
-        self.assertFalse(player.restart_current())
+        self.player.current = _track("Spotify pending", stream_url="")
+        self.vc._playing = True
+        self.assertFalse(self.player.restart_current())
 
 
-class SourceSelection(_MusicCase):
-    async def test_without_libopus_the_volume_is_baked_into_the_ffmpeg_command(self):
-        player, _vc = self._player()
-        player.volume = 0.5
-        with mock.patch.object(music_module.discord.opus, "is_loaded", return_value=False), \
-             mock.patch.object(music_module.discord, "FFmpegOpusAudio") as opus_cls:
-            source = player._build_source("http://example.invalid/a")
+class ATruncatedStreamIsToldApartFromAFinishedOne(_PlayerCase):
+    """The "short music" bug, pinned from both directions."""
 
-        self.assertIs(source, opus_cls.return_value)
-        options = opus_cls.call_args.kwargs["options"]
-        self.assertIn("volume=0.5", options, "volume would never reach the stream")
+    async def _run_source(self, played_seconds: float, duration: int = 200, live: bool = False):
+        faults = []
 
-    async def test_with_libopus_the_source_is_wrapped_in_a_live_volume_transformer(self):
-        player, _vc = self._player()
-        player.volume = 0.25
-        with mock.patch.object(music_module.discord.opus, "is_loaded", return_value=True), \
-             mock.patch.object(music_module.discord, "FFmpegPCMAudio"), \
-             mock.patch.object(music_module.discord, "PCMVolumeTransformer") as vol_cls:
-            source = player._build_source("http://example.invalid/a")
+        async def collect(fault):
+            faults.append(fault)
 
-        self.assertIs(source, vol_cls.return_value)
+        self.player.on_fault = collect
+        self.player.current = _track("A Song", duration=duration, live=live)
+        self.player._expected = float(duration)
+        # Pretend the source started `played_seconds` ago.
+        self.player._started_at = player_module.time.monotonic() - played_seconds
+        self.player._generation = 5
+        self.player.play_next = mock.AsyncMock()
+        self.player._after_for(5)(None)
+        for _ in range(4):
+            await asyncio.sleep(0)
+        return faults
+
+    async def test_a_stream_that_ends_early_is_reported_as_a_fault(self):
+        faults = await self._run_source(played_seconds=12, duration=200)
+
+        self.assertEqual([f.kind for f in faults], ["truncated"])
+        self.assertIn("cut-off", faults[0].detail)
+        self.assertEqual(faults[0].guild_id, GUILD)
+
+    async def test_a_track_that_reaches_its_end_is_not_a_fault(self):
+        faults = await self._run_source(played_seconds=199, duration=200)
+        self.assertEqual(faults, [])
+
+    async def test_a_genuinely_short_track_is_not_judged(self):
+        # Under the floor there is nothing to be wrong: an intro, a stinger, a
+        # live join. Judging those would make the card cry wolf.
+        faults = await self._run_source(played_seconds=10, duration=20)
+        self.assertEqual(faults, [])
+
+    async def test_a_live_stream_is_never_truncated(self):
+        faults = await self._run_source(played_seconds=30, duration=600, live=True)
+        self.assertEqual(faults, [])
+
+    async def test_an_engine_error_is_reported_with_its_own_kind(self):
+        faults = []
+
+        async def collect(fault):
+            faults.append(fault)
+
+        self.player.on_fault = collect
+        self.player.current = _track("A Song")
+        self.player._expected = 180.0
+        self.player._generation = 3
+        self.player.play_next = mock.AsyncMock()
+        self.player._after_for(3)(RuntimeError("pipe broken"))
+        for _ in range(4):
+            await asyncio.sleep(0)
+
+        self.assertEqual([f.kind for f in faults], ["source_error"])
+        self.assertIn("pipe broken", faults[0].detail)
+
+
+class SourceSelection(unittest.TestCase):
+    """Three paths, and the reason each one is taken."""
+
+    def setUp(self):
+        self.bot = SimpleNamespace(loop=None)
+        self.player = player_module.GuildPlayer(self.bot, GUILD)
+        self.player.voice_client = _FakeVoiceClient()
+
+    def _current(self, *, opus=True, abr=131.0):
+        track = _track("Song")
+        track.is_opus = opus
+        track.abr = abr
+        self.player.current = track
+
+    def test_opus_that_fits_the_channel_is_passed_through(self):
+        self._current(opus=True, abr=131.0)
+        self.player.volume = 1.0
+        with mock.patch.object(player_module.discord.opus, "is_loaded", return_value=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            _source, engine = self.player._build_source("http://example.invalid/a")
+
+        self.assertEqual(opus_cls.call_args.kwargs.get("codec"), "copy")
+        self.assertNotIn("options", opus_cls.call_args.kwargs)
+        self.assertIn("pass-through", engine)
+
+    def test_the_default_volume_is_one_so_the_pass_through_path_is_reachable(self):
+        # The archived cog shipped 0.7, which silently disqualified *every* track
+        # from the pass-through path — a re-encode by default, which is the
+        # quality complaint written down as a number.
+        self.assertEqual(player_module.GuildPlayer(SimpleNamespace(loop=None), 1).volume, 1.0)
+
+    def test_a_non_unity_volume_re_encodes(self):
+        self._current(opus=True, abr=96.0)
+        self.player.volume = 0.5
+        with mock.patch.object(player_module.discord.opus, "is_loaded", return_value=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            self.player._build_source("http://example.invalid/a")
+
+        self.assertIsNone(opus_cls.call_args.kwargs.get("codec"))
+        self.assertIn("volume=0.5", opus_cls.call_args.kwargs["options"])
+
+    def test_with_libopus_the_volume_is_live(self):
+        self._current(opus=True, abr=96.0)
+        self.player.volume = 0.25
+        with mock.patch.object(player_module.voice_caps, "probe") as probe, \
+             mock.patch.object(player_module.discord, "FFmpegPCMAudio"), \
+             mock.patch.object(player_module.discord, "PCMVolumeTransformer") as vol_cls:
+            probe.return_value = SimpleNamespace(ffmpeg="/usr/bin/ffmpeg", opus=True)
+            self.player._build_source("http://example.invalid/a")
+
         self.assertEqual(vol_cls.call_args.kwargs["volume"], 0.25)
 
-    async def test_the_filter_command_line_is_applied(self):
-        player, _vc = self._player()
-        player.current_filter = "nightcore"
-        with mock.patch.object(music_module.discord.opus, "is_loaded", return_value=False), \
-             mock.patch.object(music_module.discord, "FFmpegOpusAudio") as opus_cls:
-            player._build_source("http://example.invalid/a")
+    def test_a_filter_beats_the_pass_through_path(self):
+        self._current(opus=True, abr=96.0)
+        self.player.volume = 1.0
+        self.player.filter_name = "nightcore"
+        with mock.patch.object(player_module.discord.opus, "is_loaded", return_value=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            self.player._build_source("http://example.invalid/a")
 
-        options = opus_cls.call_args.kwargs["options"]
-        self.assertIn(music_module.AUDIO_FILTERS["nightcore"]["ffmpeg"], options)
+        self.assertIsNone(opus_cls.call_args.kwargs.get("codec"))
+        self.assertIn(
+            player_module.FILTER_BY_KEY["nightcore"].args, opus_cls.call_args.kwargs["options"]
+        )
+
+    def test_the_ffmpeg_command_line_does_not_carry_the_truncating_flags(self):
+        # ``-err_detect ignore_err -probesize 32768 -analyzeduration 0`` tells
+        # ffmpeg to ignore the errors that would explain a truncation and to start
+        # playing before it knows what the container is. They were in the archived
+        # command line and they are the prime suspects for the short-song report.
+        for flag in ("-err_detect", "ignore_err", "-analyzeduration", "-probesize"):
+            self.assertNotIn(flag, player_module.BEFORE_OPTIONS)
+        self.assertIn("-reconnect", player_module.BEFORE_OPTIONS)
 
 
-class RadioStartsExactlyOneStream(_MusicCase):
-    async def _run_radio(self, playing: bool):
-        player, vc = self._player()
-        vc._playing = playing
-        if playing:
-            vc.play(object(), after=player._after_for(player._generation))
+class SeekRestartsInPlace(_PlayerCase):
+    async def test_a_seek_sets_the_offset_and_re_renders(self):
+        self.player.current = _track("Song", duration=200)
+        self.player._expected = 200.0
+        self.vc._playing = True
+        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
+            applied, position = self.player.seek(90)
 
-        cog = music_module.Music(bot=SimpleNamespace(loop=asyncio.get_running_loop()))
-        cog.get_player = lambda _gid: player
+        self.assertTrue(applied)
+        self.assertEqual(position, 90.0)
+        self.assertEqual(self.player.seek_offset, 90.0)
 
-        async def fake_ensure_voice(_interaction):
-            return vc
+    async def test_a_seek_past_the_end_is_refused(self):
+        self.player.current = _track("Song", duration=100)
+        self.vc._playing = True
+        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
+            applied, position = self.player.seek(500)
 
-        cog._ensure_voice = fake_ensure_voice
-        calls = self._recorder(player)
-        interaction = _FakeInteraction()
+        self.assertFalse(applied)
+        self.assertEqual(position, 0.0)
+        self.assertEqual(self.player.seek_offset, 0.0)
 
-        await music_module.Music.radio.callback(cog, interaction, SimpleNamespace(value="lofi"))
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        return player, calls, interaction
 
-    async def test_replacing_a_playing_track_advances_only_once(self):
-        player, calls, interaction = await self._run_radio(playing=True)
+class LoopDoesNotEatTheQueue(_PlayerCase):
+    async def test_loop_track_puts_the_current_track_back(self):
+        first = _track("Repeat me")
+        self.player.current = first
+        self.player.queue = []
+        self.player.loop = "track"
+        self.player._expected = 5.0
+        self.vc._playing = True
 
-        self.assertEqual(len(calls), 1, "two advances ran; the second cleared `current`")
-        self.assertIsNotNone(player.current, "current was cleared while the radio plays")
-        self.assertEqual(player.current.title, music_module.RADIO_STATIONS["lofi"]["name"])
-        self.assertEqual(player.current.requester, "Raj")
-        self.assertTrue(interaction.edits, "the radio card was never sent")
+        started = []
+        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
+            self.vc.play = lambda source, after=None: started.append(source)
+            await self.player.play_next()
 
-    async def test_starting_from_silence_advances_once(self):
-        player, calls, _interaction = await self._run_radio(playing=False)
+        self.assertIs(self.player.current, first, "the looped track was lost")
 
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(player.current.title, music_module.RADIO_STATIONS["lofi"]["name"])
+    async def test_loop_off_moves_on(self):
+        self.player.current = _track("First")
+        self.player.queue = [_track("Second")]
+        self.player.loop = "off"
+        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
+            self.vc.play = lambda source, after=None: None
+            await self.player.play_next()
+
+        self.assertEqual(self.player.current.title, "Second")
+        self.assertEqual(self.player.queue, [])
+
+
+class FormatDuration(unittest.TestCase):
+    def test_a_live_stream_reads_as_live(self):
+        self.assertEqual(player_module.format_duration(0), "live")
+        self.assertEqual(player_module.format_duration(-5), "live")
+
+    def test_minutes_and_seconds(self):
+        self.assertEqual(player_module.format_duration(65), "1:05")
+
+    def test_hours(self):
+        self.assertEqual(player_module.format_duration(3725), "1:02:05")
+
+
+class TheCommandSurfaceFitsDiscord(unittest.TestCase):
+    """Discord allows 100 top-level commands; this bot publishes most of them."""
+
+    def test_the_tree_publishes_the_two_roots_the_registry_declares(self):
+        from utils import features
+
+        self.assertIn("play", features.MODULE_COMMAND_MAP)
+        self.assertIn("music", features.MODULE_COMMAND_MAP)
+        self.assertEqual(
+            features.MODULE_COMMAND_MAP["play"], ("music",),
+            "/play must be gated by the music feature and nothing else",
+        )
+
+    def test_the_count_is_under_the_ceiling(self):
+        from utils import features
+
+        self.assertLessEqual(
+            features.command_count(), 100,
+            "Discord refuses a new command at 100 per scope — this is the ceiling "
+            "the archived cog's twelve roots would have blown through",
+        )
+
+    def test_the_cog_declares_one_group_and_one_play_command(self):
+        import cogs.music as music_cog
+
+        names = {command.name for command in music_cog.Music.__cog_app_commands__}
+        # Exactly two, and that is the decision this pins: the archived cog had
+        # twelve top-level commands, which would not fit Discord's ceiling.
+        self.assertEqual(names, {"play", "music"})
+
+    def test_the_group_holds_every_other_command(self):
+        import cogs.music as music_cog
+
+        group = next(
+            command for command in music_cog.Music.__cog_app_commands__ if command.name == "music"
+        )
+        names = {child.name for child in group.commands}
+        for expected in ("radio", "skip", "pause", "resume", "stop", "queue", "nowplaying"):
+            self.assertIn(expected, names)
+        self.assertLessEqual(len(names), 24, "a group the picker cannot render is not a group")
+
+    def test_every_subcommand_is_declared_for_a_permission_audience(self):
+        from utils import permissions
+
+        import cogs.music as music_cog
+
+        group = next(
+            command for command in music_cog.Music.__cog_app_commands__ if command.name == "music"
+        )
+        for child in group.commands:
+            self.assertIn(
+                f"music {child.name}", permissions.COMMAND_ACCESS,
+                f"/music {child.name} has no declared audience",
+            )
 
 
 class MusicCardsDoNotPing(unittest.TestCase):
     def test_no_user_mentions_in_music_output(self):
-        with open("cogs/music.py", encoding="utf-8") as handle:
-            source = handle.read()
+        source = pathlib.Path("cogs/music.py").read_text(encoding="utf-8")
 
-        # Channel mentions are fine (they never notify); user mentions are not.
+        # A channel mention never notifies; a user mention does.
         self.assertNotIn("interaction.user.mention", source)
         self.assertNotIn("member.mention", source)
         self.assertIn("interaction.user.display_name", source)
-
-
-class FormatDuration(unittest.TestCase):
-    def test_live_streams_read_as_live(self):
-        self.assertEqual(music_module.format_duration(0), "Live Stream 🔴")
-        self.assertEqual(music_module.format_duration(-5), "Live Stream 🔴")
-
-    def test_minutes_and_seconds(self):
-        self.assertEqual(music_module.format_duration(65), "01:05")
-
-    def test_hours(self):
-        self.assertEqual(music_module.format_duration(3725), "01:02:05")
 
 
 if __name__ == "__main__":
