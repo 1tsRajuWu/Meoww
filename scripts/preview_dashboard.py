@@ -490,6 +490,45 @@ class _PreviewServer:
             return None
 
 
+class _PreviewCompany:
+    """The voice companion, as ``cogs.company.Company.snapshot`` answers it.
+
+    Shaped from the same dict the real cog returns — sitting, waiting, left_us,
+    blocked_seconds, grace and cooldown — rather than from the console's own
+    idea of it, so the preview fails in the same way the page would if that shape
+    ever changed.
+    """
+
+    def __init__(self, guild, channel, person):
+        self._guild = guild
+        self._channel = channel
+        self._person = person
+
+    def snapshot(self) -> dict:
+        if self._channel is None or self._person is None:
+            return {}
+        return {
+            "sitting": {
+                "guild_id": str(self._guild.id),
+                "guild": self._guild.name,
+                "channel_id": str(self._channel.id),
+                "channel": self._channel.name,
+                "person_id": str(self._person.id),
+                "person": self._person.display_name,
+                "since": int(time.time()) - 214,
+                "streaming": False,
+                "video": True,
+                "greeted": True,
+                "reason": "they were alone in the room",
+            },
+            "waiting": [],
+            "left_us": [],
+            "blocked_seconds": 0,
+            "grace_seconds": 12.0,
+            "cooldown_seconds": 300.0,
+        }
+
+
 class _PreviewBot:
     """The gateway the console's real views read.
 
@@ -527,6 +566,28 @@ class _PreviewBot:
 
     def is_ready(self) -> bool:
         return bool(self._connected)
+
+    def get_cog(self, name):
+        """The voice companion, as the Live page reads it.
+
+        Only one cog is stood up, and only for the same reason the gateways above
+        exist: the companion card's *three* readings (who is alone, who is live,
+        where the bot is sitting) are worth looking at, and a preview that showed
+        "not sitting with anybody" under a card that explains what it would look
+        like is a preview of the empty state only. Nothing here is read by
+        anything but ``/api/console/live``.
+        """
+        if name != "Company":
+            return None
+        first = self.guilds[0] if self.guilds else None
+        if first is None:
+            return None
+        focus = next(
+            (channel for channel in first.voice_channels if channel.name == "Focus Room"),
+            None,
+        )
+        person = first.members[1] if len(first.members) > 1 else None
+        return _PreviewCompany(first, focus, person)
 
 
 def seed_activity() -> int:

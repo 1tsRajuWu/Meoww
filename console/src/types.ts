@@ -303,6 +303,78 @@ export type LiveChannel = {
   voice_seconds_week: number;
 };
 
+/** Somebody on their own in a voice room, or live in one.
+ *
+ * `seconds` is how long the companion's own clock has had this person alone, and
+ * it is **`null` when that is not known** rather than `0` — the clock starts on a
+ * voice event, so a room this process has watched since it booted carries an age
+ * and one it inherited does not.
+ */
+export type CompanyRoom = {
+  channel_id: string;
+  channel: string;
+  category: string;
+  person_id: string;
+  person: string;
+  streaming: boolean;
+  video: boolean;
+  seconds: number | null;
+};
+
+/** A person streaming or on camera, and the room they are doing it in. */
+export type CompanyLive = {
+  id: string;
+  name: string;
+  channel_id: string;
+  channel: string;
+  streaming: boolean;
+  video: boolean;
+};
+
+/**
+ * What the voice companion is doing, as the console reads it.
+ *
+ * Two facts are deliberately *not* here, because they do not exist: a bot cannot
+ * watch a Go Live stream (Discord has no API for it, and the gateway carries no
+ * video), and a reading of "alone" is about the room rather than about the person
+ * — so `live[].streaming` is the fact that somebody is live, never a picture.
+ */
+export type CompanyPayload = {
+  /** `loaded` is about the process rather than the server: a deployment where
+   * the companion never loaded still has live voice rooms (they come from the
+   * gateway) and no clock of its own. */
+  read: { rooms: boolean; loaded: boolean; settings: boolean };
+  settings: { mode: string; greeting: boolean; on: boolean } | null;
+  /** Voice rooms whose only occupant is one person, alone right now. */
+  rooms: CompanyRoom[];
+  /** Everybody streaming or on camera in this server. */
+  live: CompanyLive[];
+  /** Where the companion itself is sitting, if it is sitting anywhere. */
+  sitting: {
+    guild_id: string;
+    guild: string;
+    channel_id: string;
+    channel: string;
+    person_id: string;
+    person: string;
+    since: number;
+    streaming: boolean;
+    video: boolean;
+    greeted: boolean;
+    reason: string;
+    /** True when the companion is connected somewhere *else* — a different
+     * server — which this page says rather than drawing as if it were here. */
+    elsewhere?: boolean;
+  } | null;
+  grace_seconds: number;
+  cooldown_seconds: number;
+  blocked_seconds: number;
+  left_us: string[];
+  /** The :pastelpink: picture the greeting carries. */
+  emoji: string;
+  emoji_name: string;
+};
+
 /**
  * What one server is *doing*, as `/api/console/live` answers it.
  *
@@ -318,7 +390,16 @@ export type LivePayload = {
   server: ServerRow;
   servers: { id: string; name: string; icon: string; members: number }[];
   gateway: Gateway & { connected: boolean; started: boolean; ping_ms: number | null };
-  read: { channels: boolean; voice: boolean; presence: boolean; tracker: boolean };
+  read: {
+    channels: boolean;
+    voice: boolean;
+    presence: boolean;
+    tracker: boolean;
+    /** Whether the voice companion is running on this deployment. */
+    company: boolean;
+  };
+  /** The voice companion: who is alone, who is live, where the bot is sitting. */
+  company: CompanyPayload;
   presence: {
     online: number;
     idle: number;
@@ -430,5 +511,8 @@ export type BootData = {
   operator: Operator;
   botName: string;
   gateway: Gateway;
-  pages: { id: string; label: string; href: string; current: boolean }[];
+  /** The rail's pages. `group` is the heading the server placed this page under
+   * (`OWNER_GROUPS`) — empty when it placed it in none, which draws it
+   * ungrouped rather than hiding it. */
+  pages: { id: string; label: string; href: string; current: boolean; group?: string }[];
 };

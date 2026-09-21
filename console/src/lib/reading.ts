@@ -10,7 +10,7 @@
  *
  * So a figure is either read or it is not, and the not-case carries its reason:
  *
- *   const figures = readFlags(data.read);
+ *   const figures = fromFlag(data.read, "voice", totals.in_voice, because);
  *   <Figure label="in voice" read={figures.voice} value={compact(totals.in_voice)} />
  *
  * `Figure` (in `ui.tsx`) draws the em dash and keeps the reason as its tooltip,
@@ -53,7 +53,12 @@ export function unread<T>(because: string, key?: string): Reading<T> {
  * without a reason is the bug this type exists to prevent.
  */
 export function fromFlag<T>(
-  flags: Record<string, boolean> | undefined,
+  // ``unknown`` values rather than ``boolean``: a payload's ``read`` block is
+  // flags *and* nested flag groups (the Live payload carries ``read.company``
+  // for the voice companion), and a signature that only admitted booleans would
+  // force that block to be either flattened or cast — and a cast is how a
+  // missing flag comes back as a confident `true`.
+  flags: Record<string, unknown> | undefined,
   key: string,
   value: T,
   because: string,

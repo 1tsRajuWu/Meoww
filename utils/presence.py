@@ -58,10 +58,13 @@ ACTIVITY_KINDS: dict[str, discord.ActivityType] = {
     "watching": discord.ActivityType.watching,
     "listening": discord.ActivityType.listening,
     "competing": discord.ActivityType.competing,
+    "streaming": discord.ActivityType.streaming,
 }
 _CUSTOM = getattr(discord.ActivityType, "custom", None)
 if _CUSTOM is not None:
     ACTIVITY_KINDS["custom"] = _CUSTOM
+
+DEFAULT_STREAM_URL = "https://twitch.tv/meow"
 
 #: The types whose text has to read as a continuation of a verb. ``custom`` is the
 #: exception, and the reason a verb is prepended at all is Discord's rendering.
@@ -75,26 +78,18 @@ STATUS_KINDS: dict[str, discord.Status] = {
     "dnd": discord.Status.dnd,
 }
 
-#: What the bot says when nothing has been configured. The reported line is not
-#: here; everything else is what the bot shipped with.
-#:
-#: Every line is written to follow its verb, which is why they read as fragments:
-#: "Watching **over your server**", "Listening **for /help**", "Playing **with the
-#: laser pointer**". The old list was written as headlines — one of them rendered
-#: as "Playing Meowing at the wall 🐈 | /help", which is the line that prompted the
-#: report. Nothing else changed: same count, same cat voice, same six-hour stories.
+#: What the bot says when nothing has been configured. The reported lines ("water glass",
+#: "zoomies") are removed. All default lines use streaming status (purple badge).
 DEFAULT_LINES: tuple[tuple[str, str], ...] = (
-    ("over your server 🛡️ | /help", "watching"),
-    ("for /help 🐾", "listening"),
-    ("the live crypto & stock markets 📈", "watching"),
-    ("with the laser pointer 🔴", "playing"),
-    ("the birds outside 🐦", "watching"),
-    ("for the warmest sunbeam ☀️", "competing"),
-    ("to purring ASMR 🎧", "listening"),
-    ("you sleep from the bookshelf 👁️", "watching"),
-    ("in the 3 AM zoomies 🏃", "competing"),
-    ("for wet food being opened 🐟", "listening"),
-    ("over its world domination plans 😼", "watching"),
+    ("over your server 🛡️ | /help", "streaming"),
+    ("for /help 🐾 | meow-bot.pages.dev", "streaming"),
+    ("the live crypto & stock markets 📈", "streaming"),
+    ("with the laser pointer 🔴", "streaming"),
+    ("the birds outside 🐦", "streaming"),
+    ("for the warmest sunbeam ☀️", "streaming"),
+    ("to purring ASMR 🎧", "streaming"),
+    ("for wet food being opened 🐟", "streaming"),
+    ("over its world domination plans 😼", "streaming"),
 )
 
 #: How long each line stays up. An hour is what this shipped with, and it is
@@ -152,11 +147,15 @@ def parse(raw, default=DEFAULT_LINES) -> list[tuple[str, str]]:
     for entry in loaded:
         try:
             if isinstance(entry, dict):
-                out.append(_clean_line(entry.get("text", ""), entry.get("type", "playing")))
+                text, kind = _clean_line(entry.get("text", ""), entry.get("type", "playing"))
             elif isinstance(entry, (list, tuple)) and len(entry) == 2:
-                out.append(_clean_line(entry[0], entry[1]))
+                text, kind = _clean_line(entry[0], entry[1])
             else:
-                out.append(_clean_line(entry, "playing"))
+                text, kind = _clean_line(entry, "playing")
+            # Dropped lines reported as unwanted (zoomies, water glass)
+            if any(banned in text.lower() for banned in ("zoomies", "water glass")):
+                continue
+            out.append((text, kind))
         except PresenceError:
             # One bad entry does not invalidate the others: dropping it loses a
             # line, where refusing the whole value loses the feature.
@@ -219,11 +218,18 @@ async def add_line(text: str, kind: str = "playing") -> list[tuple[str, str]]:
     return current
 
 
-def build(text: str, kind: str, status: str = "online") -> discord.Activity:
+def build(
+    text: str,
+    kind: str,
+    status: str = "online",
+    url: str | None = None,
+) -> discord.Activity | discord.Streaming:
     """One activity object, or a ``PresenceError`` naming what is wrong.
 
     A ``custom`` kind is a :class:`discord.CustomActivity` rather than a typed
     one, which is the only shape Discord renders without a verb in front of it.
+    A ``streaming`` kind is a :class:`discord.Streaming` which renders as
+    "Streaming <text>" and displays a purple streaming indicator in Discord.
     """
     text, kind = _clean_line(text, kind)
     if status not in STATUS_KINDS:
@@ -235,7 +241,10 @@ def build(text: str, kind: str, status: str = "online") -> discord.Activity:
         if custom is None:
             raise PresenceError(
                 "This library cannot set a custom status; use playing, watching, "
-                "listening or competing instead."
+                "listening, competing, or streaming instead."
             )
         return custom(name=text)
+    if kind == "streaming":
+        return discord.Streaming(name=text, url=url or DEFAULT_STREAM_URL)
     return discord.Activity(type=ACTIVITY_KINDS[kind], name=text)
+

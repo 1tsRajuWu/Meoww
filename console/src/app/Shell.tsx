@@ -15,6 +15,24 @@ import { THEMES, applyTheme, currentTheme, type ThemeId } from "../lib/theme";
 import { Pill } from "../ui";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
 
+/**
+ * The page list, in the order the server sent it, split into its groups.
+ *
+ * Order is preserved rather than sorted: the server's tuple is the order
+ * somebody chose (the Overview first, then the things you look at, then the
+ * things you change), and alphabetising it here would quietly overrule that.
+ */
+function grouped(pages: BootData["pages"]) {
+  const out: { label: string; pages: BootData["pages"] }[] = [];
+  for (const page of pages) {
+    const label = page.group ?? "";
+    const last = out[out.length - 1];
+    if (last && last.label === label) last.pages.push(page);
+    else out.push({ label, pages: [page] });
+  }
+  return out.filter((group) => group.pages.length > 0);
+}
+
 export function Shell({
   boot,
   servers,
@@ -53,6 +71,16 @@ export function Shell({
   const gatewayTone =
     boot.gateway.key === "connected" ? "good" : boot.gateway.key === "reconnecting" ? "warn" : "danger";
 
+  // Where the reader is, derived from the *same* list the rail is drawn from —
+  // so a page the server adds appears here without a second edit, and the two
+  // can never name different places. Jakob's law, applied literally: the
+  // location is in the same corner on every screen.
+  const current = boot.pages.find((page) =>
+    page.href === "/owner"
+      ? path === "" || path === "/"
+      : path.startsWith(page.href.replace("/owner", "")),
+  );
+
   return (
     <div className="shell">
       <aside className={`rail${menuOpen ? " rail--open" : ""}`}>
@@ -70,27 +98,39 @@ export function Shell({
         </div>
 
         <nav className="rail__nav" aria-label="Console pages">
-          {boot.pages.map((page) => {
-            const isCurrent =
-              page.href === "/owner" ? path === "" : path.startsWith(page.href.replace("/owner", ""));
-            return (
-              <Link
-                key={page.id}
-                to={page.href.replace(/^\/owner/, "")}
-                className={`rail__link${isCurrent ? " is-current" : ""}`}
-                aria-current={isCurrent ? "page" : undefined}
-              >
-                {isCurrent && (
-                  <motion.span
-                    className="rail__marker"
-                    layoutId="rail-marker"
-                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                  />
-                )}
-                {page.label}
-              </Link>
-            );
-          })}
+          {/* Grouped, and the groups come from the server (`OWNER_GROUPS`) for
+           * the same reason the pages do: this file cannot be the second place
+           * that decides what the navigation contains. A page with no group is
+           * drawn in a group of its own with no heading, so the cost of
+           * forgetting to place one is a slightly odd-looking line rather than
+           * a page nobody can reach. */}
+          {grouped(boot.pages).map((group) => (
+            <div className="rail__group" key={group.label || "ungrouped"}>
+              {group.label && <span className="rail__group-label">{group.label}</span>}
+              {group.pages.map((page) => {
+                const isCurrent = page.href === "/owner"
+                  ? path === "" || path === "/"
+                  : path.startsWith(page.href.replace("/owner", ""));
+                return (
+                  <Link
+                    key={page.id}
+                    to={page.href.replace(/^\/owner/, "")}
+                    className={`rail__link${isCurrent ? " is-current" : ""}`}
+                    aria-current={isCurrent ? "page" : undefined}
+                  >
+                    {isCurrent && (
+                      <motion.span
+                        className="rail__marker"
+                        layoutId="rail-marker"
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                      />
+                    )}
+                    {page.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className="rail__foot">
@@ -129,10 +169,15 @@ export function Shell({
           >
             Menu
           </button>
+          <span className="topbar__crumb">
+            {boot.botName}
+            <span aria-hidden="true">/</span>
+            <b>{current?.label ?? "Not a page"}</b>
+          </span>
+          <span className="topbar__spacer" />
           <Pill tone={gatewayTone} pulse={boot.gateway.pulse} title="Gateway state">
             {boot.gateway.label}
           </Pill>
-          <span className="topbar__spacer" />
           {boot.operator.username && (
             <span className="topbar__who" title="Signed in as">
               {boot.operator.global_name || boot.operator.username}

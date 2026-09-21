@@ -24,19 +24,19 @@ import bot as bot_module
 from tests.support import TempDatabaseMixin
 from utils import db, presence
 
-#: The line that was reported and removed. Named once, so the guard reads as the
-#: thing it is about.
-REPORTED_LINE = "water glass"
+#: The lines that were reported and removed.
+REPORTED_LINES = ("water glass", "zoomies")
 
 
 class TheDefaults(unittest.TestCase):
-    def test_the_reported_line_is_not_in_the_defaults(self):
+    def test_the_reported_lines_are_not_in_the_defaults(self):
         for text, _kind in presence.DEFAULT_LINES:
-            self.assertNotIn(
-                REPORTED_LINE,
-                text,
-                f"{text!r} is the presence that was asked to be removed",
-            )
+            for reported in REPORTED_LINES:
+                self.assertNotIn(
+                    reported,
+                    text.lower(),
+                    f"{text!r} is the presence that was asked to be removed",
+                )
 
     def test_nothing_in_the_defaults_is_unusable(self):
         """Every shipped line must survive validation and build a real activity.
@@ -94,7 +94,7 @@ class ReadingWhatIsStored(unittest.TestCase):
 class RefusalsThatNameTheProblem(unittest.TestCase):
     def test_an_unknown_activity_type_lists_the_valid_ones(self):
         with self.assertRaises(presence.PresenceError) as caught:
-            presence.build("hello", "streaming")
+            presence.build("hello", "singing")
         message = str(caught.exception)
         for kind in presence.ACTIVITY_KINDS:
             self.assertIn(kind, message)
@@ -310,10 +310,17 @@ class ReadingTheVerb(unittest.TestCase):
                     f"{kind} {text!r} reads as a headline, not a continuation",
                 )
 
-    def test_the_verbs_offered_are_the_four_discord_renders_plus_a_verbless_one(self):
-        for kind in ("playing", "watching", "listening", "competing"):
+    def test_the_verbs_offered_are_the_four_discord_renders_plus_streaming_and_verbless(self):
+        for kind in ("playing", "watching", "listening", "competing", "streaming"):
             self.assertIn(kind, presence.ACTIVITY_KINDS)
             self.assertNotIn(kind, presence.VERBLESS_KINDS)
+
+    def test_streaming_status_builds_discord_streaming_with_url(self):
+        activity = presence.build("over your server 🐾 | /help", "streaming")
+        self.assertIsInstance(activity, bot_module.discord.Streaming)
+        self.assertEqual(activity.name, "over your server 🐾 | /help")
+        self.assertEqual(activity.type, bot_module.discord.ActivityType.streaming)
+        self.assertTrue(activity.url.startswith("https://twitch.tv/"))
 
     def test_a_custom_status_is_available_and_carries_no_verb(self):
         if "custom" not in presence.ACTIVITY_KINDS:
@@ -339,6 +346,14 @@ class ReadingTheVerb(unittest.TestCase):
 
         source = inspect.getsource(bot_config)
         self.assertIn('value="custom"', source)
+
+    def test_the_owner_can_pick_the_streaming_kind(self):
+        import inspect
+
+        from cogs import bot_config
+
+        source = inspect.getsource(bot_config)
+        self.assertIn('value="streaming"', source)
 
 
 if __name__ == "__main__":

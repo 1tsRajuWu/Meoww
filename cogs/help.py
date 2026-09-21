@@ -59,6 +59,20 @@ HELP_MODULES = {
         "color": 0xE91E63,
         "emoji": "🐱"
     },
+    "company": {
+        "title": "🫂 Voice Company",
+        "desc": (
+            "When somebody is alone in a voice channel, the bot joins them — deafened "
+            "and muted, so it can neither hear the room nor speak into it — and says "
+            "hello. It leaves the moment somebody real arrives, and it never follows "
+            "somebody who walked out.\n\n"
+            "> `/company` — Auto (default) or Off for this server, and whether it says hi\n"
+            "> A bot cannot watch a Go Live stream: Discord has no API for it. What it "
+            "*can* see is that somebody is live, which the owner's dashboard shows."
+        ),
+        "color": 0x5865F2,
+        "emoji": "🫂"
+    },
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (

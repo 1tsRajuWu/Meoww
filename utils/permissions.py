@@ -152,6 +152,9 @@ COMMAND_ACCESS: dict[str, str] = {
     "crash": EVERYONE,
     "dice": EVERYONE,
     "divorce": EVERYONE,
+    # One administrator decides whether the bot sits in the server's voice
+    # channels; a member cannot opt a whole server into being visited.
+    "company": GUILD,
     "flavor": GUILD,
     "flex": EVERYONE,
     "gamble": EVERYONE,

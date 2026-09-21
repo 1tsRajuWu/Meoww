@@ -49,9 +49,10 @@ from flask import (
     Response,
 )
 from utils import (
-    command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    figures, guild_directory, hub, identity, media_health, meowfee, modules, plans,
-    principal, ratelimit, scheduled, sessions, site_guard, uptime_status, webdocs,
+    command_publish, command_scope, company, config_audit, db, digest, discord_auth,
+    features, figures, guild_directory, hub, identity, media_health, meowfee,
+    modules, plans, principal, ratelimit, scheduled, sessions, site_guard,
+    uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -3260,7 +3261,7 @@ def _fleet_rows() -> list[dict]:
     return rows
 
 
-def _page_nav(pages, current: str, query: str = "") -> list[dict]:
+def _page_nav(pages, current: str, query: str = "", groups=()) -> list[dict]:
     """One surface's pages, as its rail renders them.
 
     A function rather than a comprehension inside each view because *three*
@@ -3273,7 +3274,15 @@ def _page_nav(pages, current: str, query: str = "") -> list[dict]:
     ``query`` is a suffix every link carries, which is how the dashboard's rail
     keeps the open server: moving from one page of a server to another page of
     the same server should not require re-choosing it.
+
+    ``groups`` is optional and, when given, names the heading each page belongs
+    under (:data:`OWNER_GROUPS`). A page it does not mention keeps an empty
+    group, which the rail draws under no heading at all — so the failure mode of
+    forgetting to place a new page is "it is still there", never "it is gone".
     """
+    placed = {
+        page_id: label for label, page_ids in groups for page_id in page_ids
+    }
     return [
         {
             "id": spec_id,
@@ -3282,6 +3291,7 @@ def _page_nav(pages, current: str, query: str = "") -> list[dict]:
             "anchor": anchor,
             "url": f"{path}{query}",
             "current": spec_id == current,
+            "group": placed.get(spec_id, ""),
         }
         for spec_id, label, path, anchor in pages
     ]
@@ -3308,6 +3318,22 @@ OWNER_PAGES = (
     ("ops", "Ops", "/owner/ops", "ops"),
     ("access", "Access", "/owner/access", "access"),
     ("changes", "Changes", "/owner/changes", "changes"),
+)
+
+#: The rail's groups, as (label, page ids) — **the console has nine pages and a
+#: flat list of nine is where finding one stops being instant** (Hick's law: the
+#: time to choose grows with the number of choices). Grouping is the remedy the
+#: law itself prescribes, and it is applied here rather than in the React app so
+#: that the rail is still drawn from the server's own page list: a page added
+#: above that nobody placed in a group shows up ungrouped rather than vanishing
+#: from the navigation.
+#:
+#: ``tests/test_design_laws.py`` holds the arithmetic: no group longer than five,
+#: no page missing from the groups, and nothing named twice.
+OWNER_GROUPS = (
+    ("Fleet", ("live", "servers", "systems")),
+    ("Work", ("commands", "economy", "ops")),
+    ("Owner", ("access", "changes")),
 )
 
 #: Where the bundled console app is built to (``console/`` builds into it).
@@ -3409,7 +3435,7 @@ def owner_console(sub: str = ""):
         asset_stamp=_console_asset_stamp(),
         built=_console_built(),
         gateway=_badge_state(),
-        pages=_page_nav(OWNER_PAGES, "overview"),
+        pages=_page_nav(OWNER_PAGES, "overview", groups=OWNER_GROUPS),
     )
 
 
@@ -3920,6 +3946,120 @@ def _live_bot_voice() -> list[dict]:
     return rows
 
 
+def _live_companion(guild, guild_id, channels: list[dict]) -> dict:
+    """Who is alone right now, who is live, and where the companion is sitting.
+
+    One block because it answers one question an operator asks — *is anybody
+    sitting in a room on their own, and is the bot in there with them?* — and the
+    answer is what the companion acts on. Nothing here is stored: the rooms are
+    read off the same voice rosters the page has just been handed, so a room that
+    emptied in the last second is already gone from the list.
+
+    The limit is stated rather than papered over: **a bot cannot watch a Go Live
+    stream.** Discord has no API for it and the gateway carries no video, so what
+    the ``streaming`` flag means here is the fact (``self_stream`` on somebody's
+    voice state), and the console shows the fact. A page that showed a picture
+    would be showing somebody something that does not exist.
+    """
+    rooms = []
+    live = []
+    for channel in channels:
+        if channel["kind"] != "voice":
+            continue
+        people = channel["people"]
+        for person in people:
+            if person["bot"]:
+                continue
+            if person["streaming"] or person["video"]:
+                live.append({
+                    "id": person["id"],
+                    "name": person["name"],
+                    "channel_id": channel["id"],
+                    "channel": channel["name"],
+                    "streaming": person["streaming"],
+                    "video": person["video"],
+                })
+        # Somebody on their own: one person in the room and nobody else at all.
+        # A second *bot* in there counts, which is the same rule the companion
+        # itself follows — a music bot is company of a kind, and a room with two
+        # silent bots in it is not a room where anybody is alone.
+        if len(people) == 1 and not people[0]["bot"]:
+            person = people[0]
+            rooms.append({
+                "channel_id": channel["id"],
+                "channel": channel["name"],
+                "category": channel["category"],
+                "person_id": person["id"],
+                "person": person["name"],
+                "streaming": person["streaming"],
+                "video": person["video"],
+                "seconds": None,
+            })
+
+    cog = None
+    getter = getattr(BOT_INSTANCE, "get_cog", None) if BOT_INSTANCE else None
+    if callable(getter):
+        try:
+            cog = getter("Company")
+        except Exception:
+            cog = None
+    snapshot = {}
+    if cog is not None and hasattr(cog, "snapshot"):
+        try:
+            snapshot = dict(cog.snapshot() or {})
+        except Exception:
+            snapshot = {}
+
+    # How long each person has been on their own, where the live loop has an
+    # opinion. The timer only starts on a voice event, so a room this process has
+    # never seen change carries no age rather than a made-up one.
+    waiting = {
+        str(room.get("channel_id")): int(room.get("waiting_seconds") or 0)
+        for room in snapshot.get("waiting") or []
+    }
+    for room in rooms:
+        if room["channel_id"] in waiting:
+            room["seconds"] = waiting[room["channel_id"]]
+
+    sitting = snapshot.get("sitting") or None
+    if sitting is not None and str(sitting.get("guild_id", "")) != _console_id(guild_id):
+        # The companion is somewhere else entirely: said, not shown as if it were
+        # in this server, because the console is looking at one server at a time.
+        sitting = dict(sitting, elsewhere=True)
+
+    settings = None
+    if guild_id:
+        settings = company.settings_from(
+            db.read_setting_sync(int(guild_id), company.MODE_KEY, None),
+            db.read_setting_sync(int(guild_id), company.GREETING_KEY, None),
+        )
+
+    return {
+        # ``loaded`` is about this *process* rather than about the server: a
+        # deployment where the companion never loaded still has live voice rooms
+        # (those come from the gateway) and no clock of its own.
+        "read": {
+            "rooms": guild is not None,
+            "loaded": bool(snapshot),
+            "settings": settings is not None,
+        },
+        "settings": (
+            {"mode": settings.mode, "greeting": settings.greeting, "on": settings.enabled}
+            if settings is not None
+            else None
+        ),
+        "rooms": rooms,
+        "live": live,
+        "sitting": sitting,
+        "grace_seconds": snapshot.get("grace_seconds", company.GRACE_SECONDS),
+        "cooldown_seconds": snapshot.get("cooldown_seconds", company.COOLDOWN_SECONDS),
+        "blocked_seconds": int(snapshot.get("blocked_seconds") or 0),
+        "left_us": list(snapshot.get("left_us") or []),
+        "emoji": company.EMOJI_URL,
+        "emoji_name": company.EMOJI_NAME,
+    }
+
+
 @app.route("/api/console/live")
 def api_console_live():
     """What one server is *doing*: its channels, its voice rooms, its chatter.
@@ -3986,6 +4126,9 @@ def api_console_live():
 
     voice_channels = [channel for channel in channels if channel["kind"] == "voice"]
     in_voice = sum(len(channel["people"]) for channel in voice_channels)
+    # Read once: the block walks every voice roster, and the payload carries it
+    # twice over (its own key, and its ``read`` flags under the page's ``read``).
+    company_block = _live_companion(guild, row["id"], channels)
     started, connected = _gateway_state()
     # Read once, not twice: each call walks every cached member.
     presence = _live_presence(guild) if guild is not None else None
@@ -4023,10 +4166,15 @@ def api_console_live():
             "voice": bool(voice_channels),
             "presence": presence is not None,
             "tracker": activity["read"],
+            # One flag for the page's own gap notice, because the sentence a
+            # reader needs is "the companion is not running here" rather than
+            # three sub-flags. The detail stays in ``company.read``.
+            "company": bool(company_block["read"]["loaded"]),
         },
         "presence": presence,
         "channels": channels,
         "exceeded": exceeded,
+        "company": company_block,
         "talkers": _live_talkers(row["id"], guild),
         "bot_voice": _live_bot_voice(),
         "totals": {

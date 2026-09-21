@@ -181,14 +181,15 @@ class BotConfig(commands.Cog):
         description="What the bot is doing: show it, add a line, or turn it off (Owner only).",
     )
     @app_commands.describe(
-        text="A status line to add, e.g. 'with the laser pointer' — leave blank to just look",
-        type="How that line reads: playing, watching, listening, competing, or custom (no verb)",
+        text="A status line to add, e.g. 'over your server 🐾 | /help' — leave blank to just look",
+        type="How that line reads: streaming (purple badge), playing, watching, listening, competing, or custom",
         interval="Minutes each line stays up (1-1440)",
         clear="Turn the activity off entirely (just be online)",
         reset="Throw away the custom list and go back to the shipped one",
     )
     @app_commands.choices(
         type=[
+            app_commands.Choice(name="Streaming … (purple badge)", value="streaming"),
             app_commands.Choice(name="Playing …", value="playing"),
             app_commands.Choice(name="Watching …", value="watching"),
             app_commands.Choice(name="Listening to …", value="listening"),
@@ -236,7 +237,7 @@ class BotConfig(commands.Cog):
                 await presence.set_lines([])
                 changed = True
             if text is not None:
-                kind = type.value if type is not None else "playing"
+                kind = type.value if type is not None else "streaming"
                 await presence.add_line(text, kind)
                 changed = True
             if interval is not None:

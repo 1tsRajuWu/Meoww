@@ -25,7 +25,7 @@ import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 
 import { api } from "../api";
-import type { LiveChannel, LivePayload, VoicePerson } from "../types";
+import type { CompanyRoom, LiveChannel, LivePayload, VoicePerson } from "../types";
 import { ago, compact, duration } from "../lib/format";
 import { fromFlag } from "../lib/reading";
 import { Link } from "../lib/router";
@@ -53,6 +53,10 @@ const GAPS: { key: keyof LivePayload["read"]; said: string }[] = [
   {
     key: "tracker",
     said: "There are no tracker tables on this deployment, so message and voice totals are absent rather than zero — the bot counts them once it has been running.",
+  },
+  {
+    key: "company",
+    said: "The voice companion is not loaded on this deployment, so nobody's own clock is running and it is sitting anywhere only if another feature put it there. The rooms below are still live — they come from the gateway, not from the companion.",
   },
 ];
 
@@ -202,6 +206,8 @@ export function Live() {
           </div>
         )}
       </Card>
+
+      <Companion data={data} />
 
       <div className="stack-col">
         <Card span={2} index={3} title="Who is around" hint="Needs the Presence intent.">
@@ -374,6 +380,166 @@ export function Live() {
         </ul>
       </Card>
     </div>
+  );
+}
+
+/** The voice companion, as somebody running the bot needs to see it.
+ *
+ * Three readings, in the order the questions get asked: **who is on their own**
+ * (the trigger), **who is live** (the thing the bot cannot watch), and **where the
+ * bot is sitting** (the action it took, and why). The middle one exists because
+ * pretending otherwise would be the one dishonest thing on this page — Discord
+ * gives a bot no way into a Go Live stream, so what is shown is the fact
+ * (`self_stream` on somebody's voice state) and never a picture of the stream.
+ */
+function Companion({ data }: { data: LivePayload }) {
+  const company = data.company;
+  const rooms = company?.rooms ?? [];
+  const live = company?.live ?? [];
+  const sitting = company?.sitting ?? null;
+  const settings = company?.settings ?? null;
+
+  return (
+    <>
+    <Card
+      span={4}
+      index={8}
+      title="Alone in voice"
+      hint="One person in a room with nobody else, read from the gateway's own voice states."
+      action={
+        rooms.length ? (
+          <Pill tone="accent">{rooms.length} alone</Pill>
+        ) : (
+          <Pill tone="neutral">nobody</Pill>
+        )
+      }
+    >
+      {rooms.length === 0 ? (
+        <Empty
+          title="Nobody is on their own"
+          body="No voice room in this server holds exactly one person. The list is live to the second, so this is a reading rather than a stored state."
+        />
+      ) : (
+        <ul className="alone">
+          {rooms.map((room, index) => (
+            <AloneRow key={room.channel_id} room={room} index={index} />
+          ))}
+        </ul>
+      )}
+      <p className="alone__foot">
+        {settings ? (
+          <>
+            Companion is <b>{settings.mode}</b>
+            {settings.greeting ? ", and it says hello when it arrives" : ", and it arrives silently"}.
+            {" "}It waits {company.grace_seconds}s before it moves, and stays out of a room for{" "}
+            {Math.round(company.cooldown_seconds / 60)} minutes after somebody walks away from it.
+          </>
+        ) : (
+          "This deployment could not read the companion's settings, so this is the reading it runs with by default: it joins, and it says hello."
+        )}
+      </p>
+    </Card>
+
+    <div className="stack-col">
+      <Card
+        span={2}
+        index={9}
+        title="Live right now"
+        hint="Streaming or on camera, in a voice room somewhere in this server."
+        action={<Pill tone={live.length ? "good" : "neutral"}>{live.length}</Pill>}
+      >
+        {live.length === 0 ? (
+          <Empty
+            title="Nobody is streaming"
+            body="Not one voice state in this server has self_stream set. The companion shows this rather than a stream, because a bot is not allowed to watch a Go Live broadcast — Discord has no API for it."
+          />
+        ) : (
+          <ul className="live-list">
+            {live.map((person) => (
+              <li key={`${person.channel_id}-${person.id}`}>
+                <span className="live-list__dot" aria-hidden="true" />
+                <span className="live-list__name">
+                  {person.name || `Member ${person.id}`}
+                </span>
+                <span className="live-list__where">
+                  {person.streaming ? "streaming" : "on camera"} in {person.channel}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="alone__foot">
+          <b>Why there is no player here.</b> Discord exposes a bot's voice connection but not a
+          Go Live stream: there is no endpoint for it and the gateway never carries the video, so
+          the honest thing to show is who is live rather than a picture that would be invented.
+        </p>
+      </Card>
+
+      <Card
+        span={2}
+        index={10}
+        title="Where the bot is sitting"
+        hint="Its companion connection, and which person it went to sit with."
+      >
+        {!sitting ? (
+          <Empty
+            title="Not sitting with anybody"
+            body="Either nobody is alone, or the bot is somewhere else entirely. It holds one voice connection at a time, and never takes the socket from another feature."
+          />
+        ) : (
+          <dl className="rows">
+            <dt>Sitting with</dt>
+            <dd>{sitting.person || `Member ${sitting.person_id}`}</dd>
+            <dt>In</dt>
+            <dd>
+              🔊 {sitting.channel}
+              {sitting.elsewhere && <span className="chan__note">on another server</span>}
+            </dd>
+            <dt>There for</dt>
+            <dd>{duration(Math.max(0, data.at - sitting.since))}</dd>
+            <dt>Because</dt>
+            <dd>{sitting.reason}</dd>
+            <dt>Said hello</dt>
+            <dd>{sitting.greeted ? "yes" : "no — the server asked it to arrive quietly"}</dd>
+            <dt>They are</dt>
+            <dd>
+              {sitting.streaming ? "streaming (shown above, not watched)" : sitting.video ? "on camera" : "not live"}
+            </dd>
+          </dl>
+        )}
+        {company && company.blocked_seconds > 0 && (
+          <p className="alone__foot">
+            It could not connect to a room and is standing down for{" "}
+            {duration(company.blocked_seconds)} — a failed handshake retried every cycle is how a bot
+            gets rate-limited at the voice gateway.
+          </p>
+        )}
+      </Card>
+    </div>
+    </>
+  );
+}
+
+function AloneRow({ room, index }: { room: CompanyRoom; index: number }) {
+  const waiting = room.seconds;
+  return (
+    <motion.li
+      className="alone__row"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 230, damping: 26, delay: Math.min(index * 0.03, 0.3) }}
+    >
+      <span className="alone__who">{room.person || `Member ${room.person_id}`}</span>
+      <span className="alone__where">🔊 {room.channel}</span>
+      <span className="alone__meta">
+        {room.streaming && <span className="person__flag">live</span>}
+        {room.video && <span className="person__flag">video</span>}
+        {/* A clock this process did not start says nothing rather than zero. */}
+        <span className="chan__note">
+          {waiting === null ? "alone for a while" : `alone ${duration(waiting)}`}
+        </span>
+      </span>
+    </motion.li>
   );
 }
 

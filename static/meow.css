@@ -106,6 +106,19 @@
     --base: 220ms;
     --slow: 600ms;
 
+    /* The size prose is read at, and the size the form controls are set to for
+       the same reason: a page whose paragraphs are 16px and whose text field is
+       14px is one a phone zooms into on focus, which then scrolls the form out
+       from under the thumb that tapped it. */
+    --text-body: 16px;
+
+    /* Fitts's law, as a number rather than as a hope. Anything a finger is meant
+       to hit declares this as a minimum — the entry fields used to reach a
+       workable size by padding 14px type by 11px, which lands near enough on a
+       desktop and is a coin flip on a phone. `tests/test_design_laws.py` fails
+       if this drops below 44 or if a control stops reading it. */
+    --tap-min: 44px;
+
     --page: 1120px;
 }
 
@@ -312,7 +325,7 @@ body {
     background-color: var(--bg);
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: var(--text-body);
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
@@ -686,13 +699,14 @@ code, pre, kbd {
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
+    min-height: var(--tap-min);
     padding: 11px 18px;
     background: var(--btn-bg);
     border: 1px solid var(--btn-border);
     border-radius: var(--radius-md);
     color: var(--btn-text);
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     cursor: pointer;
     text-decoration: none;
@@ -897,13 +911,14 @@ input[type="datetime-local"],
 select,
 textarea {
     width: 100%;
+    min-height: var(--tap-min);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 11px 13px;
     color: var(--text-primary);
     font: inherit;
-    font-size: 14px;
+    font-size: var(--text-body);
     transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 
@@ -914,12 +929,17 @@ textarea:hover {
     border-color: var(--border-active);
 }
 
+/* The outline is replaced rather than removed: a field with a caret in it is
+   focused but *not* necessarily being driven by a keyboard, so the state has to
+   be visible either way, and it is drawn as the border the field already has
+   rather than as a ring floating inside it. */
 .input:focus,
 input:focus,
 select:focus,
 textarea:focus {
     outline: none;
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-quiet);
     background: var(--surface-card);
 }
 

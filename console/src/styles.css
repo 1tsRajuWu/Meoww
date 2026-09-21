@@ -5,39 +5,89 @@
  * a second way to say "panel" — for a page that is read by one person who already
  * knows what it says. Tokens first, then layout, then components, in that order,
  * so a change to a colour is a change in one block.
+ *
+ * The rules this file is written to, all of them checkable — and checked, by
+ * ``tests/test_design_laws.py``, against this file rather than against anybody's
+ * opinion about it:
+ *
+ * 1. **60-30-10.** ``--bg`` is the 60 (the page itself), ``--panel``/``--panel-2``
+ *    are the 30 (every surface that sits on the page), and ``--accent`` is the 10 —
+ *    spent on what can be *acted on* and on the one reading that matters most on a
+ *    page, never on decoration.
+ * 2. **A scale, not a pile of one-offs.** Every size in here is a ``--type-*``
+ *    token; body text is ≥16px because that is the size a paragraph is read at
+ *    rather than the size a table is scanned at, and a literal ``font-size`` in a
+ *    component is how a scale turns back into a pile.
+ * 3. **One hue.** ``--accent`` is the only decorative colour; ``--good``, ``--warn``
+ *    and ``--danger`` are *states* and may only be used where a state is being
+ *    reported. A page with four accents has none.
+ * 4. **Nothing is reachable only with a mouse.** One global ``:focus-visible``, at
+ *    least 44×44 for anything a finger is meant to hit (Fitts's law, and the number
+ *    is a token so it cannot drift), and every icon-only control carries a label.
+ * 5. **Motion follows the hand.** A spring for anything the operator is driving; a
+ *    duration only for an entrance, and ``prefers-reduced-motion`` turns the rest
+ *    off.
  */
 
 /* ------------------------------------------------------------------- tokens */
 
 :root,
 [data-theme="midnight"] {
+  /* The 60. One background, one value, and the whole page sits on it. */
   --bg: #08080a;
+  /* The 30. Surfaces *on* the page: the rail, the cards, the inputs. */
   --panel: #101014;
   --panel-2: #17171d;
   --line: #24242c;
   --text: #f3f3f6;
+  /* Small print. Chosen against ``--panel`` rather than against ``--bg`` — the
+     card is what it is usually read on, and this is the token that carries the
+     smallest type on the page. */
   --dim: #9b9ba8;
+  /* The 10. Interactive, or the one thing on a page the eye should land on. */
   --accent: #7c8cff;
   --accent-ink: #0a0a12;
+  /* States, and only states. Success, attention, failure — nothing decorative
+     may use these three words. */
   --good: #39d98a;
   --warn: #f5b451;
   --danger: #ff6b6b;
   --glow: 0 0 0 1px rgb(124 140 255 / 0.25), 0 18px 40px -22px rgb(124 140 255 / 0.55);
   --shadow: 0 18px 44px -30px rgb(0 0 0 / 0.9);
+  /* Neutral overlays, which are *not* palette: a hairline on a dark surface is
+     white at low alpha and a scrim is the page dimmed behind a dialog. None of
+     these is a colour this product chose, which is exactly why they belong here
+     as named values — the sheet used to carry twelve raw ``rgba(...)`` literals
+     in component rules, and a fifth theme would have had to find them all. */
+  --hairline-faint: rgb(255 255 255 / 0.06);
+  --hairline-soft: rgb(255 255 255 / 0.08);
+  --hairline-strong: rgb(255 255 255 / 0.16);
+  --shine: rgb(255 255 255 / 0.2);
+  --scrim-soft: rgb(0 0 0 / 0.25);
+  --scrim: rgb(4 5 8 / 0.75);
+  --shade: rgb(0 0 0 / 0.6);
+  --shade-deep: rgb(0 0 0 / 0.85);
 
   /* The scale. Tier 1 — the only place a literal appears — so a heading and a
      label cannot drift a pixel apart between two pages, and a change to the
      rhythm is a change in one block rather than in forty rules. Type is a scale
      rather than a set of one-offs, tracking is stated once (uppercase runs take
      the wide one, display takes the tight one) and every duration here is a
-     *fallback*: anything following the operator's hand is a spring, not a time. */
-  --type-eyebrow: 11px;
-  --type-meta: 12px;
-  --type-body: 13px;
-  --type-label: 15px;
-  --type-title: 18px;
-  --type-heading: 32px;
-  --type-figure: 34px;
+     *fallback*: anything following the operator's hand is a spring, not a time.
+
+     ``--type-body`` is 16px and that is the floor, not a preference: it is the
+     size a sentence is read at. Anything smaller exists only for type that is
+     *not* prose — an eyebrow, a table cell, a note under a figure. */
+  --type-micro: 12px;
+  --type-eyebrow: 12px;
+  --type-meta: 13px;
+  --type-body: 16px;
+  --type-label: 16px;
+  --type-title: 20px;
+  --type-subhead: 24px;
+  --type-heading: 34px;
+  --type-figure: 36px;
+  --type-figure-sm: 26px;
   --tracking-eyebrow: 0.16em;
   --tracking-figure: -0.035em;
   --tracking-tight: -0.025em;
@@ -45,12 +95,20 @@
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
-  --space-1: 6px;
-  --space-2: 10px;
-  --space-3: 14px;
-  --space-4: 20px;
-  --space-5: 28px;
-  --space-6: 40px;
+  /* The spacing scale. Four-based, so two elements from different rules can
+     still line up — and stated as tokens because a hand-picked 13px of gap is
+     how a layout stops having a rhythm. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  /* Fitts's law, as a number. Nothing a finger is meant to hit may be smaller
+     than this in both directions, and it lives here so that it cannot be
+     quietly shrunk in one component at a time. */
+  --target-min: 44px;
   --duration-quick: 0.18s;
   --duration-panel: 0.28s;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -115,9 +173,11 @@ body {
   min-height: 100%;
   background: var(--bg);
   color: var(--text);
+  /* One family for everything, the system one: a second webfont was never
+     needed for six pages, and no third-party origin may be contacted. */
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--type-body);
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -156,6 +216,9 @@ kbd {
 }
 
 code {
+  /* Relative on purpose: inline code sits inside whatever size the sentence
+     around it is set at, so a fixed size here is how a code span ends up larger
+     than the line it lives in. */
   font-size: 0.9em;
   color: var(--accent);
 }
@@ -165,9 +228,18 @@ a {
   text-decoration: none;
 }
 
+/* One focus ring for the whole console.
+ *
+ * A single rule rather than one per component, and ``:focus-visible`` rather
+ * than ``:focus``: the ring is for somebody driving this with a keyboard, and
+ * drawing it on every mouse click is how a page teaches its user that the ring
+ * is noise. It is the accent colour plus a 2px gap so it reads on both the page
+ * and a raised card — see ``tests/test_design_laws.py``, which fails if a
+ * stylesheet in this project suppresses an outline without replacing it. */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .console-skip {
@@ -215,15 +287,36 @@ a {
 
 .rail__brand strong {
   display: block;
-  font-size: 15px;
+  font-size: var(--type-body);
   letter-spacing: -0.01em;
 }
 
 .rail__brand span {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.12em;
+}
+
+/* A heading, then its links. The heading is *small type* on purpose: it labels
+ * a group rather than competing with the links it labels, which is the whole
+ * point of grouping nine destinations (see ``OWNER_GROUPS``). */
+.rail__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rail__group + .rail__group {
+  margin-top: var(--space-4);
+}
+
+.rail__group-label {
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
 }
 
 .rail__nav {
@@ -234,8 +327,10 @@ a {
 
 .rail__link {
   position: relative;
-  display: block;
-  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding: 10px 14px;
   border-radius: 10px;
   color: var(--dim);
   font-weight: 500;
@@ -272,7 +367,8 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
+  min-height: var(--target-min);
+  padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: transparent;
@@ -290,29 +386,44 @@ a {
   padding: 2px 6px;
   border-radius: 6px;
   border: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--type-micro);
 }
 
 .rail__themes {
   display: flex;
-  gap: 8px;
+  gap: 2px;
+  /* The four dots are a control, not an ornament: the button is a full target
+     and the dot is drawn inside it, because a 22px circle is a 22px circle to
+     a finger no matter how pretty it is. */
+  margin: 0 -8px;
 }
 
 .swatch {
-  width: 22px;
-  height: 22px;
+  position: relative;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  border: none;
+  background: transparent;
   border-radius: 50%;
-  border: 1px solid var(--line);
   cursor: pointer;
   padding: 0;
-  transition: transform 0.16s ease, border-color 0.16s ease;
+  transition: transform 0.16s ease;
+}
+
+.swatch::before {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .swatch:hover {
-  transform: translateY(-1px) scale(1.08);
+  transform: translateY(-1px) scale(1.06);
 }
 
-.swatch.is-current {
+.swatch.is-current::before {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent);
 }
@@ -359,18 +470,38 @@ a {
 
 .topbar__who {
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--type-meta);
 }
 
 .topbar__menu {
   display: none;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
   font: inherit;
   color: var(--text);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 10px;
+  padding: 8px 12px;
   cursor: pointer;
+}
+
+/* Where you are, said in words. The rail marks the current page with an
+ * ``aria-current`` and a moving pill; this is the same fact as text, because the
+ * page's own heading is the only other place it appears and a heading is read
+ * *after* the topbar. Small, dim, and never a second ``h1`` — see the design-law
+ * test, which fails on a page with more than one. */
+.topbar__crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+  font-size: var(--type-meta);
+}
+
+.topbar__crumb b {
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- the page */
@@ -431,7 +562,7 @@ a {
 }
 
 .readstamp {
-  font-size: 12px;
+  font-size: var(--type-micro);
   color: var(--dim);
   white-space: nowrap;
 }
@@ -441,19 +572,22 @@ a {
   grid-column: span 6;
   padding: 20px;
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--hairline-soft);
   background: color-mix(in oklab, var(--panel) 82%, transparent);
   backdrop-filter: blur(20px) saturate(170%);
   -webkit-backdrop-filter: blur(20px) saturate(170%);
-  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 36px -12px var(--shade), inset 0 1px 0 var(--hairline-strong);
   overflow: hidden;
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .card:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in oklab, var(--accent) 35%, rgba(255, 255, 255, 0.15));
-  box-shadow: 0 20px 45px -12px rgba(0, 0, 0, 0.75), 0 0 30px -10px color-mix(in oklab, var(--accent) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--hairline-strong));
+  box-shadow:
+    0 20px 45px -12px var(--scrim),
+    0 0 30px -10px color-mix(in oklab, var(--accent) 30%, transparent),
+    inset 0 1px 0 var(--shine);
 }
 
 .card::after {
@@ -482,7 +616,7 @@ a {
 }
 
 .card__title {
-  font-size: 15px;
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -490,7 +624,7 @@ a {
 .card__hint,
 .card__body {
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--type-meta);
   margin-top: 3px;
 }
 
@@ -543,19 +677,19 @@ a {
 }
 
 .stats--tight .stat__value {
-  font-size: 26px;
+  font-size: var(--type-figure-sm);
 }
 
 .stat__label {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
 .stat__sub {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 /* ── the Access page ──────────────────────────────────────────────────────── */
@@ -665,7 +799,7 @@ a {
 
 .rows dt {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.09em;
 }
@@ -686,7 +820,7 @@ a {
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--type-micro);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -714,7 +848,11 @@ a {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 9px 14px;
+  /* Fitts's law, as a floor rather than a hope: the padding below sets the
+     comfortable size, and this makes sure nothing shrinks past what a thumb can
+     actually hit. */
+  min-height: var(--target-min);
+  padding: 10px 16px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: color-mix(in oklab, var(--panel-2) 80%, transparent);
@@ -744,7 +882,8 @@ a {
 .input {
   flex: 1;
   min-width: 200px;
-  padding: 9px 12px;
+  min-height: var(--target-min);
+  padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: color-mix(in oklab, var(--bg) 60%, transparent);
@@ -762,13 +901,14 @@ a {
 }
 
 .segmented__item {
-  padding: 5px 10px;
+  min-height: calc(var(--target-min) - 6px);
+  padding: 8px 12px;
   border-radius: 7px;
   border: none;
   background: transparent;
   color: var(--dim);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-micro);
   cursor: pointer;
   transition: color 0.16s ease, background 0.16s ease;
 }
@@ -847,7 +987,7 @@ a {
   grid-template-columns: 120px 1fr 32px;
   align-items: center;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .bars__name {
@@ -899,7 +1039,7 @@ a {
 
 .toolbar__count {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .quick {
@@ -913,7 +1053,7 @@ a {
 .quick__note,
 .fineprint {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .fineprint {
@@ -975,7 +1115,7 @@ a {
 .fleet-row__name small,
 .fleet-row__systems small {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .fleet-row__systems {
@@ -987,7 +1127,7 @@ a {
 .fleet-row__names {
   padding: 0 16px 14px 76px;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 /* -------------------------------------------------------------- a server */
@@ -1029,7 +1169,7 @@ a {
 .systems__text small {
   display: block;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
   opacity: 0.85;
 }
 
@@ -1037,13 +1177,13 @@ a {
   display: block;
   margin-top: 3px;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .systems__icon {
-  font-size: 20px;
+  font-size: var(--type-title);
   text-align: center;
 }
 
@@ -1066,13 +1206,13 @@ a {
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--type-meta);
   font-weight: 500;
 }
 
 .matrix thead th {
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   white-space: nowrap;
@@ -1085,7 +1225,7 @@ a {
 .matrix tbody th small {
   display: block;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--type-micro);
   font-weight: 400;
 }
 
@@ -1105,7 +1245,7 @@ a {
    control that lies about being one. */
 .cmds tbody th code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .cmds__system {
@@ -1118,7 +1258,7 @@ a {
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  font-size: 10px;
+  font-size: var(--type-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1151,7 +1291,7 @@ a {
   border-radius: 12px;
   border: 1px solid var(--line);
   background: color-mix(in oklab, var(--bg) 70%, transparent);
-  font-size: 12px;
+  font-size: var(--type-micro);
   line-height: 1.6;
 }
 
@@ -1189,24 +1329,24 @@ a {
 }
 
 .change__icon {
-  font-size: 18px;
+  font-size: var(--type-title);
 }
 
 .change h2 {
-  font-size: 16px;
+  font-size: var(--type-body);
   letter-spacing: -0.01em;
 }
 
 .change__lead {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--type-meta);
   opacity: 0.92;
 }
 
 .change__body {
   margin-top: 8px;
   color: var(--dim);
-  font-size: 12.5px;
+  font-size: var(--type-meta);
   max-height: 220px;
   overflow: auto;
   white-space: pre-wrap;
@@ -1222,7 +1362,7 @@ a {
   justify-content: center;
   align-items: flex-start;
   padding-top: 14vh;
-  background: rgba(4, 5, 8, 0.75);
+  background: var(--scrim);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
@@ -1230,27 +1370,42 @@ a {
 .palette__panel {
   width: min(620px, 92vw);
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--hairline-strong);
   background: color-mix(in oklab, var(--panel) 84%, transparent);
   backdrop-filter: blur(28px) saturate(190%);
   -webkit-backdrop-filter: blur(28px) saturate(190%);
   box-shadow: 
-    0 40px 90px -20px rgb(0 0 0 / 0.85),
+    0 40px 90px -20px var(--shade-deep),
     0 0 35px -10px color-mix(in oklab, var(--accent) 35%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    inset 0 1px 0 var(--shine);
   overflow: hidden;
 }
 
 .palette__input {
   width: 100%;
+  min-height: var(--target-min);
   padding: 16px 18px;
   border: none;
   border-bottom: 1px solid var(--line);
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--type-body);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+/* The one place an outline is suppressed, and it is replaced rather than
+   removed: this input *is* the dialog's whole first row, so a 2px ring floating
+   inside it reads as a ring around nothing. Typing here lights the rule under
+   the input instead — same colour, same meaning, drawn where the eye already
+   is. (``:focus`` as well as ``:focus-visible``: the pointer can put a caret in
+   a text field, and a text field with no visible focus at all is the state a
+   keyboard user cannot recover from.) */
+.palette__input:focus,
+.palette__input:focus-visible {
   outline: none;
+  border-bottom-color: var(--accent);
+  box-shadow: 0 2px 0 -1px var(--accent);
 }
 
 .palette__list {
@@ -1265,7 +1420,8 @@ a {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 10px 12px;
+  min-height: var(--target-min);
+  padding: 10px 14px;
   border: none;
   border-radius: 10px;
   background: transparent;
@@ -1282,7 +1438,7 @@ a {
 .palette__hint,
 .palette__none {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .palette__none {
@@ -1295,7 +1451,7 @@ a {
   padding: 10px 18px;
   border-top: 1px solid var(--line);
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--type-micro);
 }
 
 /* ---------------------------------------------------------------- toasts */
@@ -1317,7 +1473,7 @@ a {
   border: 1px solid var(--line);
   background: var(--panel-2);
   box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: var(--type-meta);
   cursor: pointer;
 }
 
@@ -1382,7 +1538,7 @@ a {
 .config-missing__head {
   margin-bottom: 4px;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 /* One line per setting, collapsed. Five names are scannable; five sentences of
@@ -1408,7 +1564,7 @@ a {
 .config-missing__item > summary::before {
   content: "+";
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--type-micro);
   line-height: 1;
   /* The marker turns as the row opens. `content` swapping between "+" and "−"
      cannot be transitioned — a different glyph is not a different value — so the
@@ -1442,13 +1598,13 @@ a {
 .config-missing__item code {
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--type-micro);
 }
 
 .config-missing__kind {
   margin-left: auto;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--type-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1457,14 +1613,14 @@ a {
   margin: 2px 0 8px;
   padding: 0 8px 0 24px;
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--type-meta);
   line-height: 1.55;
 }
 
 .config-missing__foot {
   margin-top: 4px;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--type-micro);
 }
 
 /* --------------------------------------------------- skeleton / empty / fail */
@@ -1494,14 +1650,14 @@ a {
 }
 
 .empty__mark {
-  font-size: 22px;
+  font-size: var(--type-subhead);
   color: var(--accent);
 }
 
 .empty h3,
 .failure strong {
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--type-meta);
 }
 
 .failure {
@@ -1519,7 +1675,7 @@ a {
 }
 
 .console-orphan h1 {
-  font-size: 22px;
+  font-size: var(--type-subhead);
   margin-bottom: 10px;
 }
 
@@ -1555,7 +1711,7 @@ a {
 
 .gauge__bg {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.08);
+  stroke: var(--hairline-soft);
 }
 
 .gauge__val {
@@ -1565,7 +1721,7 @@ a {
 
 .gauge__pct {
   position: absolute;
-  font-size: 14px;
+  font-size: var(--type-meta);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -1578,12 +1734,12 @@ a {
 }
 
 .gauge__label {
-  font-size: 13px;
+  font-size: var(--type-meta);
   font-weight: 600;
 }
 
 .gauge__sub {
-  font-size: 12px;
+  font-size: var(--type-micro);
   color: var(--dim);
 }
 
@@ -1594,8 +1750,8 @@ a {
   margin-top: 12px;
   padding: 10px 14px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--scrim-soft);
+  border: 1px solid var(--hairline-faint);
 }
 
 .live-pulse__head {
@@ -1605,14 +1761,14 @@ a {
 }
 
 .live-pulse__label {
-  font-size: 11px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--dim);
 }
 
 .live-pulse__val {
-  font-size: 12px;
+  font-size: var(--type-micro);
   font-weight: 600;
   color: var(--good);
   font-variant-numeric: tabular-nums;
@@ -1630,7 +1786,7 @@ a {
 }
 
 .live-pulse__grid {
-  stroke: rgba(255, 255, 255, 0.08);
+  stroke: var(--hairline-soft);
   stroke-dasharray: 4 4;
 }
 
@@ -1642,7 +1798,7 @@ a {
 }
 
 .telemetry-row:not(:last-child) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--hairline-faint);
 }
 
 .telemetry-row__head {
@@ -1652,12 +1808,12 @@ a {
 }
 
 .telemetry-row__label {
-  font-size: 13px;
+  font-size: var(--type-meta);
   color: var(--dim);
 }
 
 .telemetry-row__val {
-  font-size: 14px;
+  font-size: var(--type-meta);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1666,14 +1822,18 @@ a {
   width: 100%;
   height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hairline-soft);
   overflow: hidden;
 }
 
 .telemetry-row__bar-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 70%, #fff));
+  background: linear-gradient(
+    90deg,
+    var(--accent),
+    color-mix(in oklab, var(--accent) 70%, var(--text))
+  );
   box-shadow: 0 0 10px var(--accent);
 }
 
@@ -1808,7 +1968,7 @@ a {
 }
 
 .person__bot {
-  font-size: 10px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--dim);
@@ -1819,7 +1979,7 @@ a {
   border-radius: 999px;
   border: var(--hairline) solid color-mix(in oklab, var(--accent) 35%, var(--line));
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -1838,7 +1998,7 @@ a {
 
 .chan__note {
   margin-left: var(--space-1);
-  font-size: 10px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -2006,6 +2166,118 @@ a {
 
   .fleet-row__names { padding-left: 16px; }
   .bars__row { grid-template-columns: 92px 1fr 28px; }
+}
+
+/* ------------------------------------------------------- the voice companion */
+
+/* "Alone in voice" — one row per room whose only occupant is one person.
+ *
+ * Three columns, and the middle one is the *room* rather than the person: the
+ * question this card answers is "is anybody on their own, and where", and a row
+ * that named the person twice would make the reader parse it to find the room. */
+.alone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alone__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+
+.alone__who {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alone__where {
+  color: var(--dim);
+  font-size: var(--type-meta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alone__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+}
+
+.alone__foot {
+  margin: var(--space-4) 0 0;
+  color: var(--dim);
+  font-size: var(--type-meta);
+  line-height: 1.6;
+}
+
+/* "Live right now" — who is streaming, and the honest note that the bot cannot
+ * watch it. The dot is the same one the voice roster uses for a live flag, so
+ * "live" looks like live everywhere on this surface. */
+.live-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-list li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-areas: "dot name" "dot where";
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+
+.live-list__dot {
+  grid-area: dot;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--good);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.live-list__name {
+  grid-area: name;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-list__where {
+  grid-area: where;
+  color: var(--dim);
+  font-size: var(--type-meta);
+}
+
+@media (max-width: 720px) {
+  .alone__row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

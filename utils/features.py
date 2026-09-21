@@ -244,6 +244,23 @@ FEATURES: tuple[Feature, ...] = (
         help_key="games",
     ),
     Feature(
+        id="company",
+        name="Voice Company",
+        icon="🫂",
+        category="Community",
+        description=(
+            "When somebody is alone in a voice channel the bot joins, deafened and "
+            "muted, and says hello — and it shows on the owner's dashboard who is "
+            "alone and who is live."
+        ),
+        # The command *is* the setting, so it is the whole gate: /company is how a
+        # server decides whether the bot does this at all.
+        gate_commands=("company",),
+        commands=("/company — auto or off, and whether I say hello",),
+        cog="cogs.company",
+        help_key="company",
+    ),
+    Feature(
         id="tracker",
         name="Activity Tracker",
         icon="📊",
