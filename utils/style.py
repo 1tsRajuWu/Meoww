@@ -501,13 +501,21 @@ def _build_children(
     for node in (extra or []):
         _place(children, node)
 
-    footer_at = None
     if footer_text:
         _place(children, RULE)
-        footer_at = len(children)
         _place(children, TextDisplay(footer_text))
 
-    return _close(children), footer_at
+    finished = _close(children)
+    closing_at = None
+    if footer_text:
+        # The closing block is the footer *and* the rule directly above it, so new
+        # content goes above both. Marking the footer's own index put an appended
+        # paragraph between the two — which is the very shape this index exists to
+        # prevent: a rule with a line of text on either side of it.
+        closing_at = len(finished) - 1
+        if closing_at and _spacer_shape(finished[closing_at - 1]) is not None:
+            closing_at -= 1
+    return finished, closing_at
 
 
 # --------------------------------------------------------------------------- #

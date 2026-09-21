@@ -155,6 +155,39 @@ status ("Playing …") is Discord's, chosen by the activity *type*. A line writt
 as a headline renders as "Playing Meowing at the wall", so shipped lines read as
 continuations, and `custom` exists for a line with no verb at all.
 
+### The card's type and spacing scale
+
+Discord draws four sizes and one hairline, and a card assembled without a rule
+puts a title, five bold labels and a footer at the same volume. So `utils/style`
+owns the scale and the builders are the only place a marker is written:
+
+- **`title()`** is the subject — the only level-two heading on a card, so a body
+  that opens with its own `##` is demoted to a group rather than arguing with the
+  title. **`section()`** is a group inside a card; body text is unmarked; and
+  **`label()`** (Discord's small `-#`) is what a value *is*. A field is therefore a
+  quiet label over body text: read down to find the field, across to get it.
+- **Spacing is four named levels** — `GAP`, `BREAK`, `RULE`, `RULE_LARGE` — placed
+  by `_place()`, which holds three invariants: never a spacer as a card's first or
+  last child, never two spacers side by side (the stronger one wins), never a rule
+  where it separates nothing. `clean_text()` trims every string, collapses runs of
+  blank lines, and drops a hand-drawn divider that would otherwise sit directly
+  above the card's own rule.
+- **One accent, four states.** `ACCENT` plus `SUCCESS`/`WARN`/`DANGER`/`INFO`, and
+  `accent_for()` is the only door: a value `ACCENT_ALIASES` knows becomes the state
+  it means, anything else becomes the accent. That is what the 251 `0x` literals in
+  the cogs meet on the way in.
+- **New content has one place to go**: `Panel.append()`, which inserts above the
+  closing rule, so a merged embed's later fields or a route's extra line cannot
+  land *under* the footer's hairline.
+
+`scripts/preview_cards.py` renders the cards without sending one: it builds the
+fixtures through the real module, reads them back out of `to_components()` — the
+JSON Discord receives — and draws two columns, the working tree and any revision
+of `utils/style.py` loaded out of git, with the component/spacer/accent counts
+beside each. It exists because a card can otherwise only be seen in Discord, and a
+preview drawn from a hand-written mock would agree with whatever its author
+believed.
+
 ### The media watch (`utils/media_health.py`)
 
 "A picture has to exist" is checked at use time, which leaves the other half open:

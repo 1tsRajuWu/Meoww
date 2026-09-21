@@ -757,6 +757,16 @@ class TheOwnerIsStillNotTheOperator(_DashboardFixture):
         with self.client.session_transaction() as session:
             self.assertEqual(session.get("auth_scope"), "global")
 
+    def test_default_owner_ids_elevate_when_switch_enabled(self):
+        """The 3 owner accounts are recognized and elevated when the switch is on."""
+        for owner_id in (1526964236708745318, 1348622207999279146, 1549177590328205393):
+            with self.subTest(owner_id=owner_id):
+                with mock.patch.object(keep_alive, "OWNER_DISCORD_ELEVATION", True):
+                    self._sign_in_as(str(owner_id))
+                with self.client.session_transaction() as session:
+                    self.assertEqual(session.get("auth_scope"), "global")
+                    self.assertTrue(session.get("owner_candidate"))
+
 
 class TheLoginPageForTheOperator(unittest.TestCase):
     """The older ways in keep working, and the page describes all three."""

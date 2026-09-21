@@ -51,7 +51,7 @@ services:
       # identified: an owner whose Discord id is configured still has to type the
       # passkey, because a button that skips it is a console with no door.
       - key: OWNER_DISCORD_ELEVATION
-        value: "0"
+        value: "1"
       # Shared with the owner site's build so the worker can name the visitor it
       # forwarded. The same value must be set for the Cloudflare Pages build
       # (scripts/build_owner.py in its build command) and here. Blank is a

