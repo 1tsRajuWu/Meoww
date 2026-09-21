@@ -3586,6 +3586,25 @@ body.landing:has([data-menu].is-open) {
     box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.55);
 }
 
+/* Active tactile click feedback when pointer is pressed */
+.meow-cursor.is-down .meow-cursor-ring {
+    border-color: var(--accent-text);
+    box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.6);
+}
+.meow-cursor.cursor-style-reticle.is-down .meow-cursor-ring {
+    box-shadow: 0 0 24px var(--accent);
+    filter: brightness(1.35);
+}
+.meow-cursor.cursor-style-nova.is-down .meow-cursor-dot {
+    box-shadow: 0 0 16px #ffffff, 0 0 28px var(--accent-text);
+}
+.meow-cursor.cursor-style-bubble.is-down .meow-cursor-ring {
+    box-shadow: inset 0 3px 8px rgba(255, 255, 255, 0.75), 0 0 22px rgba(var(--accent-rgb), 0.55);
+}
+.meow-cursor.cursor-style-stealth.is-down .meow-cursor-ring {
+    box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.8);
+}
+
 /* --------------------------------------------------------------------------
    Style 6: Classic System — Standard pointer (hides the custom layer)
    -------------------------------------------------------------------------- */

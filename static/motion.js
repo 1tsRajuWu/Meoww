@@ -532,6 +532,31 @@
         }
 
         window.setCursorStyle = applyCursorStyle;
+        window.cycleCursorStyle = function () {
+            var idx = CURSOR_STYLES.indexOf(currentCursor);
+            var next = CURSOR_STYLES[(idx + 1) % CURSOR_STYLES.length];
+            applyCursorStyle(next);
+            return next;
+        };
+
+        window.addEventListener("keydown", function (event) {
+            if (event.altKey && (event.key === "c" || event.key === "C")) {
+                window.cycleCursorStyle();
+            }
+        });
+
+        function wireCursorButtons() {
+            var buttons = document.querySelectorAll("[data-cursor-value]");
+            Array.prototype.forEach.call(buttons, function (btn) {
+                btn.addEventListener("click", function () {
+                    var chosen = btn.getAttribute("data-cursor-value");
+                    if (chosen) {
+                        applyCursorStyle(chosen);
+                    }
+                });
+            });
+        }
+        wireCursorButtons();
 
         document.addEventListener("click", function (event) {
             var btn = event.target && event.target.closest ? event.target.closest("[data-cursor-value]") : null;
@@ -540,7 +565,7 @@
             if (chosen) {
                 applyCursorStyle(chosen);
             }
-        });
+        }, true);
 
         updateCursorButtons(currentCursor);
 
@@ -621,10 +646,14 @@
             wake();
         }, { passive: true });
 
-        // Clean modern ripple pulse at point of contact
+        // Tactile click compression and ripple burst at point of contact
         var ripples = 0;
         document.addEventListener("pointerdown", function (event) {
-            if (event.pointerType === "touch" || ripples >= 8 || currentCursor === "system") return;
+            if (event.pointerType === "touch" || currentCursor === "system") return;
+            host.classList.add("is-down");
+            scaleTo = 0.82;
+            wake();
+            if (ripples >= 8) return;
             var ripple = document.createElement("span");
             ripple.className = "meow-click-fx";
             ripple.style.left = event.clientX + "px";
@@ -635,6 +664,13 @@
                 ripple.remove();
             });
             document.body.appendChild(ripple);
+        }, { passive: true });
+
+        document.addEventListener("pointerup", function () {
+            if (currentCursor === "system") return;
+            host.classList.remove("is-down");
+            scaleTo = host.classList.contains("is-link") ? (currentCursor === "bubble" ? 1.5 : (currentCursor === "reticle" ? 1.4 : 1.7)) : 1;
+            wake();
         }, { passive: true });
     }
 

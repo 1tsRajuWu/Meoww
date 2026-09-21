@@ -150,6 +150,21 @@
                         );
                     }
                 );
+                var activeCursor = "halo";
+                try {
+                    var c = window.localStorage.getItem("meow-cursor-style");
+                    if (c === "ring") c = "halo";
+                    if (["halo", "reticle", "nova", "bubble", "stealth", "system"].indexOf(c) !== -1) activeCursor = c;
+                } catch (error) {}
+                Array.prototype.forEach.call(
+                    picker.querySelectorAll("[data-cursor-value]"),
+                    function (option) {
+                        option.setAttribute(
+                            "aria-pressed",
+                            option.getAttribute("data-cursor-value") === activeCursor ? "true" : "false",
+                        );
+                    }
+                );
             });
         }
 
@@ -192,6 +207,25 @@
                     var name = apply(option.getAttribute("data-theme-value"));
                     save(name);
                     paint(name);
+                    close(picker);
+                    trigger.focus();
+                });
+            });
+
+            Array.prototype.forEach.call(picker.querySelectorAll("[data-cursor-value]"), function (option) {
+                option.addEventListener("click", function () {
+                    var chosen = option.getAttribute("data-cursor-value");
+                    if (window.setCursorStyle) {
+                        window.setCursorStyle(chosen);
+                    } else {
+                        try {
+                            window.localStorage.setItem("meow-cursor-style", chosen);
+                        } catch (error) {}
+                        document.documentElement.setAttribute("data-cursor-style", chosen);
+                    }
+                    Array.prototype.forEach.call(document.querySelectorAll("[data-cursor-value]"), function (btn) {
+                        btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-value") === chosen ? "true" : "false");
+                    });
                     close(picker);
                     trigger.focus();
                 });
