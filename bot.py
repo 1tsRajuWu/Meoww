@@ -27,8 +27,8 @@ load_dotenv()
 
 from keep_alive import keep_alive  # noqa: E402
 from utils import (  # noqa: E402
-    command_publish, command_scope, commands_sync, config_audit, db, features,
-    guild_directory, modules, operator_log, permissions,
+    alert_webhook, command_publish, command_scope, commands_sync, config_audit, db,
+    features, guild_directory, modules, operator_log, permissions,
 )
 
 # Force real-time unbuffered log streaming to Render / cloud console
@@ -1206,6 +1206,87 @@ async def report_duplicate_instance() -> str | None:
         return None
 
 
+def _age_text(created) -> str:
+    """How old an account is, in the coarsest unit that is still useful.
+
+    Coarse on purpose: the alert needs "minutes old" versus "years old", and a
+    precise timestamp would be a second personal-data field for no added reading.
+    """
+    if created is None:
+        return "age not reported"
+    try:
+        seconds = max(0.0, (discord.utils.utcnow() - created).total_seconds())
+    except Exception:  # noqa: BLE001 — an unreadable timestamp is not worth a failure
+        return "age not reported"
+    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if seconds >= size:
+            count = int(seconds // size)
+            return f"{count} {unit}{'s' if count != 1 else ''} old"
+    return "minutes old"
+
+
+async def _inviter_of(guild: discord.Guild) -> dict | None:
+    """Who added the bot, and how old that account is — read from the audit log.
+
+    Best-effort by construction. Reading the audit log needs **View Audit Log**,
+    which this deployment may not hold in a server it has just joined, and Discord
+    keeps entries for a limited time — so ``None`` is a fact about permissions
+    rather than a failure, and the alert says so in words instead of showing a
+    blank. What it is for: a hundred invites sent from accounts minutes old is what
+    a raid looks like, and this is the only place that answer exists.
+    """
+    me = getattr(guild, "me", None)
+    try:
+        entries = [
+            entry
+            async for entry in guild.audit_logs(
+                limit=5, action=discord.AuditLogAction.bot_add
+            )
+        ]
+    except Exception:  # noqa: BLE001 — no permission, or no audit log to read
+        return None
+    for entry in entries:
+        target = getattr(entry, "target", None)
+        if me is not None and getattr(target, "id", None) != getattr(me, "id", None):
+            continue
+        user = getattr(entry, "user", None)
+        if user is None:
+            continue
+        return {
+            "name": str(user),
+            "id": getattr(user, "id", 0),
+            "created": getattr(user, "created_at", None),
+        }
+    return None
+
+
+def _join_fields(guild: discord.Guild, inviter: dict | None) -> list[tuple[str, str]]:
+    """The card's fields — and the whole of what this alert discloses about a server.
+
+    Listed here as one function so the *field list* is a thing somebody can read
+    against ``PRIVACY.md`` section 5 rather than a set of string literals spread
+    through a handler: a server's name, its id, its size, its owner, who added the
+    bot and how old that account is. No message, no member roster, no channel list.
+    """
+    rows = [
+        ("Server", guild.name),
+        ("Id", str(guild.id)),
+        ("Members", str(guild.member_count) if guild.member_count else "not reported"),
+        (
+            "Owner",
+            str(guild.owner) if getattr(guild, "owner", None) else f"id {guild.owner_id}",
+        ),
+    ]
+    if inviter:
+        rows.append(("Added by", f"{inviter['name']} ({inviter['id']})"))
+        rows.append(("Their account", _age_text(inviter.get("created"))))
+    else:
+        rows.append(
+            ("Added by", "not readable — I need View Audit Log to say who invited me")
+        )
+    return rows
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     """Auto-assign the default role to a new member, if one is configured.
@@ -1214,6 +1295,34 @@ async def on_member_join(member: discord.Member):
     intent is off, Discord never sends this event, so the handler is never
     called — which is the correct failure mode (no role, no crash).
     """
+    # First, and in its own guard, because it is about the *arrival* rather than
+    # about what this server asked for on arrival. Out of band and silent: a join
+    # wave is the thing an operator wants to see forming, and the account's age is
+    # the only signal that separates an invitation from a raid.
+    try:
+        alert_webhook.send(
+            "member-joined",
+            "👤 Somebody joined a server",
+            detail=(
+                "Silent, and sent for the pattern rather than for the person: one "
+                "arrival is a member, and a wave of them from accounts minutes old "
+                "is not."
+            ),
+            fields=[
+                ("Server", member.guild.name),
+                ("Server id", str(member.guild.id)),
+                ("Account", _age_text(getattr(member, "created_at", None))),
+                (
+                    "Members",
+                    str(member.guild.member_count)
+                    if member.guild.member_count
+                    else "not reported",
+                ),
+            ],
+            severity="info",
+        )
+    except Exception as exc:  # noqa: BLE001 — an alert may never fail a join
+        print(f"[ALERT] could not report a join in {member.guild.id}: {exc}", flush=True)
     try:
         role_id = await db.get_setting(member.guild.id, "default_role_id")
         if not role_id:
@@ -1316,6 +1425,26 @@ async def on_guild_join(guild: discord.Guild):
     # directory records as "keep what you have" rather than as a zero.
     guild_directory.remember(guild.id, guild.name, guild.member_count)
 
+    # Out of band, and first, because this is the one moment the ordinary path
+    # provably cannot be used: the bot has just arrived, so it is in none of this
+    # server's channels yet and `operator_log` has nowhere to post. Silent, so it
+    # does not page anybody — and the *reason* a server was added is the reading
+    # that matters when a raid arrives as a hundred invites, which is why the
+    # account that did it, its age, and whether it is new are all on the card.
+    try:
+        alert_webhook.send(
+            "guild-joined",
+            "➕ A server added the bot",
+            detail=(
+                "Sent out of band because the bot is in none of this server's channels "
+                "yet. A server added by an account minutes old is the shape a raid takes."
+            ),
+            fields=_join_fields(guild, await _inviter_of(guild)),
+            severity="info",
+        )
+    except Exception as exc:  # noqa: BLE001 — an alert may never fail a join
+        print(f"[ALERT] could not report the join of {guild.id}: {exc}", flush=True)
+
     try:
         bound = await bot_channels.ensure_bound(guild)
         if bound:
@@ -1354,6 +1483,20 @@ async def on_guild_remove(guild: discord.Guild):
     # Forgotten as well as logged: the console offers operators the servers in
     # the directory, so a row left behind would offer one the bot is not in.
     guild_directory.forget(guild.id)
+    # The other direction of the same event, and the one that is easy to miss: a
+    # hundred servers removing the bot in a minute is a coordinated thing, and it
+    # looks like nothing at all on a console that only lists what is still here.
+    alert_webhook.send(
+        "guild-left",
+        "➖ A server removed the bot",
+        detail="Logged for the same reason the joins are: the pattern is the signal.",
+        fields=[
+            ("Server", guild.name),
+            ("Id", str(guild.id)),
+            ("Members", str(guild.member_count) if guild.member_count else "not reported"),
+        ],
+        severity="warn",
+    )
     await operator_log.guild_left(bot, guild)
 
 # ``/dashboard`` used to live here as a top-level command. It was one of the

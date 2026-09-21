@@ -134,6 +134,24 @@ these services and cannot see what they do with what they receive.
   visitor's IP and browser.
 * **Backups:** Supabase's API, using the operator's service-role key.
 * **This website:** Cloudflare serves it, so it sees the visitor's IP.
+* **Security notices:** a private Discord webhook the operator configures, used
+  for the notifications that have no other route — the Bot was just added to a server (so
+  it is in none of that server's channels), the Bot is unreachable, or the
+  website is being flooded by an automated client. What such a notice contains is
+  **closed and exhaustively listed**: the kind of event; the requesting
+  **IP address** and the **User-Agent string** it presented, which names an
+  operating system and a browser; the **URL path** requested and the coarse
+  **country** Cloudflare reports; the **counts** that make the event legible (how
+  many times, how many members, how old an account is); and, when the event is
+  about a server, that server's **name and identifier**. Nothing else — no
+  message, no member name, no email, no token, no cookie, no content of any kind.
+  It is sent **silently** (it does not notify anybody's device), at most once per
+  kind of event every 30 seconds, and only when something noticeable has happened;
+  while the setting is unset, nothing is transmitted and the dashboard reports
+  that as a missing setting rather than as silence. This is deliberately narrow
+  because its purpose is to let the operator recognise abuse **as it begins**
+  rather than after it ends, and the list above is enforced by the software's own
+  test suite, not only by this paragraph.
 * **What none of them get:** an account, a message, a transcript, or a name of
   yours that is not already inside the thing being sent. The operator's list of
   sub-processors, with what each one receives and how to drop one, is the
@@ -174,6 +192,7 @@ the same bundle.
 | Moderation cases, warnings | so a server can keep a record of its own mod actions | the same |
 | Bug reports, quote text, sticky settings | because somebody deliberately submitted them | consent, which is why submitting them is how they got there |
 | Sign-in rows and agreement records | to know who is signed in and what they agreed to | legitimate interest in the security of the deployment, and in being able to prove the agreement |
+| Abuse signals about requests to the website — address, client string, path, country, counts (section 5, *Security notices*) | to identify and repel automated abuse, denial-of-service attempts and unauthorised collection as they happen, and to keep a short record that one occurred | legitimate interest in the integrity and availability of the service; a request that is refused is not consented to, and the data is limited to what identifying and repelling the request requires |
 | Personal data from the European Union, the United Kingdom, India or California | the same purposes, with the rights in section 9 | the GDPR/UK GDPR bases above; India's DPDP Act 2023, where the operator is the Data Fiduciary and consent is itemised and never bundled; the CCPA/CPRA, under which nothing is sold or shared as those terms are defined |
 
 Two rules from that table, applied everywhere: **data is collected for the

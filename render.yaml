@@ -122,3 +122,17 @@ services:
         sync: false
       - key: YTDL_VISITOR_DATA
         sync: false
+      # --- out-of-band alerts ----------------------------------------------------
+      # A second webhook, for the events a channel *inside a server* cannot
+      # receive: the bot was just added (so it is in none of that server's
+      # channels yet), the gateway is down (which is why the web process is
+      # answering), or the web surface is being flooded. Plain HTTP from a thread,
+      # posted silently, bounded to one message per kind per 30 seconds and 120
+      # per process — the thing watching a flood must not be the amplifier.
+      #
+      # Declared here for the reason every setting on this file is: one that the
+      # code reads and the deploy never offers is a feature that is off on the
+      # host with no error to show for it. What it receives is listed in full in
+      # PRIVACY.md section 5 and TERMS.md section 12.
+      - key: ALERT_WEBHOOK_URL
+        sync: false

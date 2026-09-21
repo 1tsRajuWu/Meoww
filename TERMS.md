@@ -164,6 +164,27 @@ what was found. This is the human-intervention route described by the AI policy
 and by the Privacy Policy, and it is the one to use for a decision you believe
 was wrong rather than for a bug you can reproduce.
 
+### 12.1 Security monitoring, and the notices it produces
+
+The service is protected against automated abuse, request flooding and
+unauthorised collection. One part of that protection is a **notice** the operator
+receives when something noticeable happens — the Bot is added to a server, a
+person joins one, a decoy page is fetched, or an automated client is refused
+repeatedly. These notices travel over a channel that does not depend on the Bot
+being connected, which is the point: a notice about an outage cannot be delivered
+by the thing that is down.
+
+**What a notice contains is closed and exhaustively listed in the Privacy Policy,
+section 5** — the event's kind, the requesting address and client string, the path
+and coarse country, the counts, and a server's name and identifier. It contains no
+message, no member name, no content, and no credential, and it is transmitted
+silently and rate-limited by the software itself. Where an address or client
+string is processed this way it is for **security and abuse defence only**: it is
+not used to profile you, not sold, not shared for advertising, and not used for
+training of any kind. You must not attempt to defeat, evade or overload these
+measures, and doing so is a breach of section 4 and may be reported to the
+relevant provider or authority.
+
 ## 13. No professional reliance
 
 Nothing the Bot produces is **medical, legal, financial, tax or other licensed

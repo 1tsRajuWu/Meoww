@@ -50,10 +50,10 @@ from flask import (
     Response,
 )
 from utils import (
-    ai_guard, command_publish, command_scope, company, config_audit, consent, db,
-    digest, discord_auth, features, figures, guild_directory, hub, identity,
-    media_health, meowfee, moderation_actions, modules, plans, principal, ratelimit,
-    scheduled, server_control, sessions, site_guard, uptime_status, webdocs,
+    ai_guard, alert_webhook, command_publish, command_scope, company, config_audit,
+    consent, db, digest, discord_auth, features, figures, guild_directory, hub,
+    identity, media_health, meowfee, moderation_actions, modules, plans, principal,
+    ratelimit, scheduled, server_control, sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1193,6 +1193,15 @@ def _note_guard(kind: str, *, agent: str, path: str, label: str = "") -> None:
     )
     if not event["alert"]:
         return
+    # Two destinations on purpose, because they fail differently. The card is for
+    # the operator who is *watching*; the webhook is out of band and silent, and it
+    # is the one that still arrives when the gateway is down — which is exactly the
+    # situation a flood creates. Neither can raise, and both are sent from here so
+    # the decision about what is worth reporting stays in one place.
+    try:
+        alert_webhook.guard_event(kind, event, label=label)
+    except Exception as exc:  # noqa: BLE001 — an alert may never fail a request
+        print(f"[GUARD] could not hand the event to the alert webhook: {exc}", flush=True)
     Thread(target=_alert_guard, args=(event, label), daemon=True).start()
 
 
@@ -3698,6 +3707,11 @@ def dashboard():
         system_status=uptime_status.snapshot(),
         site_guard_status=site_guard.health_json(),
         config_status=config_audit.health_json(),
+        # What has been sent out of band, and whether anything can be. Read from
+        # process state, so this panel costs no request on a page somebody is
+        # waiting for — and it is deliberately the *same* ledger the sender writes,
+        # so what an operator reads here is what actually went to the channel.
+        alert_state=alert_webhook.state(),
         # The one thing on the Overview that is about the *server* rather than
         # about the deployment, and the only thing an administrator opening this
         # page actually wants first: who is in a room, who is in one alone, and

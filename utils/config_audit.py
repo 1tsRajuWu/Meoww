@@ -349,6 +349,19 @@ SETTINGS: tuple[Setting, ...] = (
         secret=True,
     ),
     Setting(
+        "ALERT_WEBHOOK_URL",
+        CAPABILITY,
+        "a Discord webhook for the out-of-band alerts \u2014 the one channel that "
+        "still works when the gateway does not: the bot was just added, it is "
+        "down, or the web surface is being flooded",
+        "nothing out of band is sent. Everything that uses this webhook is sent "
+        "only when something *noticeable* happens (a new server, a trap page "
+        "fetched, a declared crawler that keeps coming back), so an unset value "
+        "is quiet rather than broken \u2014 and every event it does send is listed "
+        "in PRIVACY.md section 5 and TERMS.md section 12.",
+        secret=True,
+    ),
+    Setting(
         "BOT_SERVER_GUILD_ID",
         CAPABILITY,
         "which server is the bot's home, for bug reports filed where the server "

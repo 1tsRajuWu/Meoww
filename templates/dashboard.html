@@ -877,6 +877,67 @@
                                 </div>
                             </div>
                         </div>
+
+                        {#
+                            The alerts that do not need the gateway.
+
+                            Three situations have nothing to post to: the bot has
+                            just been added, so it is in none of that server's
+                            channels; it is down, which is why the web process is
+                            answering at all; and a flood arrives at the web surface,
+                            which has no gateway to begin with. Those go out over a
+                            webhook instead — silently, bounded to one per kind per
+                            30 seconds — and this panel is the *same ledger* the
+                            sender writes, so what is read here is what was sent.
+                            Unset is reported as a missing setting rather than as a
+                            quiet success, which is the whole reason the panel
+                            exists rather than just the channel.
+                        #}
+                        {% set alerts = alert_state|default({'configured': false, 'setting': 'ALERT_WEBHOOK_URL', 'totals': {}, 'recent': []}) %}
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">Out-of-band alerts</span>
+                                {% if alerts.configured %}
+                                <span class="pill ok">watching</span>
+                                {% else %}
+                                <span class="pill warn">not configured</span>
+                                {% endif %}
+                            </div>
+                            {% if alerts.configured %}
+                            <div class="status-row">
+                                <span class="status-dot up" aria-hidden="true"></span>
+                                <div class="status-main">
+                                    <div class="status-name">A second channel, outside Discord's gateway</div>
+                                    <div class="status-url">
+                                        Silent, and at most one per kind every
+                                        {{ alerts.interval_seconds|default(30) }}s — {{ alerts.totals.get('sent', 0) }} sent,
+                                        {{ alerts.totals.get('folded', 0) }} folded,
+                                        {{ alerts.totals.get('failed', 0) }} unanswered
+                                    </div>
+                                </div>
+                            </div>
+                            {% if alerts.recent %}
+                            <ul class="member-list">
+                                {% for entry in alerts.recent %}
+                                <li class="member-row">
+                                    <span class="status-dot {{ 'up' if entry.sent else 'paused' }}" aria-hidden="true"></span>
+                                    <span class="member-name">{{ entry.title }}</span>
+                                    <span class="member-meta">{% if entry.sent %}sent{% else %}{{ entry.why }}{% endif %}</span>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            {% else %}
+                            <div class="status-empty">Nothing worth waking anybody for has happened in this process yet. The two joins and the security events are what go here.</div>
+                            {% endif %}
+                            {% else %}
+                            <div class="status-empty">
+                                <code>{{ alerts.setting }}</code> is unset, so the alerts that have no other way to
+                                arrive — a server added, a join wave, a flood against this site — reach nobody.
+                                Everything it carries is listed in the Privacy Policy, section 5, and the Terms,
+                                section 12.
+                            </div>
+                            {% endif %}
+                        </div>
                     </div>
                 </section>
                 {% endif %}
