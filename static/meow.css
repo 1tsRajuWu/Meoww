@@ -300,6 +300,115 @@
     opacity: 1;
 }
 
+.theme-menu-divider {
+    height: 1px;
+    margin: 8px 4px;
+    background: var(--border);
+}
+
+.cursor-options {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cursor-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.cursor-option:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.cursor-option[aria-pressed="true"] {
+    background: var(--accent-quiet);
+    color: var(--text-primary);
+}
+
+.cursor-preview {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.cursor-preview.preview-halo {
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+}
+.cursor-preview.preview-halo::after {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+.cursor-preview.preview-reticle {
+    border: 1.5px dashed var(--accent);
+    border-radius: 3px;
+}
+.cursor-preview.preview-reticle::after {
+    content: '';
+    width: 3px;
+    height: 3px;
+    background: var(--accent);
+}
+
+.cursor-preview.preview-nova {
+    border-radius: 50%;
+    background: radial-gradient(circle, #ffffff 25%, var(--accent) 70%, transparent 100%);
+    box-shadow: 0 0 6px var(--accent);
+}
+
+.cursor-preview.preview-bubble {
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+.cursor-preview.preview-stealth {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--accent);
+    transform: rotate(45deg);
+    background: rgba(var(--accent-rgb), 0.25);
+}
+
+.cursor-preview.preview-system {
+    width: 12px;
+    height: 14px;
+    background: var(--text-secondary);
+    clip-path: polygon(0 0, 100% 70%, 55% 70%, 40% 100%);
+}
+
+.cursor-option .cursor-tick {
+    margin-left: auto;
+    color: var(--accent-text);
+    opacity: 0;
+}
+
+.cursor-option[aria-pressed="true"] .cursor-tick {
+    opacity: 1;
+}
+
 /* Where it sits in a page footer, under the link row rather than inside it:
    the row lays its children out as links and a control among them would take
    their spacing and their colour. */
@@ -1393,14 +1502,14 @@ body.has-aurora .aurora { z-index: -1; }
    Custom Cat Cursors
    -------------------------------------------------------------------------- */
 html, body, div, p, span, h1, h2, h3, h4, h5, h6, section, article, main, header, footer, table, tr, td, th {
-    cursor: url('/static/cursor-default.svg') 6 2, auto !important;
+    cursor: url('/static/cursor-default.svg') 4 3, auto;
 }
 
 a, button, [role="button"], label, select, summary,
 input[type="submit"], input[type="button"], input[type="checkbox"],
 input[type="radio"], .btn, .card-hover, .server-row, .toggle-track,
 .brand, .stat, .feature-card, .toggle-btn, .pill, [onclick], [tabindex] {
-    cursor: url('/static/cursor-pointer.svg') 16 8, pointer !important;
+    cursor: url('/static/cursor-pointer.svg') 11 3, pointer;
 }
 
 input[type="text"], input[type="password"], input[type="search"], textarea {
@@ -3238,95 +3347,299 @@ body.landing:has([data-menu].is-open) {
     z-index: 90;
 }
 
-.meow-cursor { inset: 0 auto auto 0; }
+.meow-cursor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 100000;
+    inset: 0 auto auto 0;
+}
 
 .meow-cursor-dot,
 .meow-cursor-ring {
     position: absolute;
-    border-radius: var(--radius-pill);
+    pointer-events: none;
     will-change: transform;
 }
 
-/* Half its own size, so the transform the script writes is the *centre* of
-   the dot rather than its corner. */
-.meow-cursor-dot {
+/* --------------------------------------------------------------------------
+   Style 1: Halo Ring (Default) — Smooth luminous magnetic ring + core pip
+   -------------------------------------------------------------------------- */
+.meow-cursor:not([class*="cursor-style-"]) .meow-cursor-dot,
+.meow-cursor.cursor-style-halo .meow-cursor-dot {
     left: -3px;
     top: -3px;
     width: 6px;
     height: 6px;
+    border-radius: var(--radius-pill);
     background: var(--accent-text);
-    box-shadow: 0 0 10px rgba(var(--accent-text-rgb), 0.7);
+    box-shadow: 0 0 10px rgba(var(--accent-text-rgb), 0.75);
     opacity: 0;
     transition: opacity 0.25s var(--ease);
 }
 
-.meow-cursor-ring {
+.meow-cursor:not([class*="cursor-style-"]) .meow-cursor-ring,
+.meow-cursor.cursor-style-halo .meow-cursor-ring {
     left: -16px;
     top: -16px;
     width: 32px;
     height: 32px;
-    border: 1px solid rgba(var(--accent-text-rgb), 0.55);
+    border-radius: var(--radius-pill);
+    border: 1.5px solid rgba(var(--accent-text-rgb), 0.6);
     opacity: 0;
     transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
-                background-color 0.25s var(--ease);
+                background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
 
-.meow-cursor.is-on .meow-cursor-dot,
-.meow-cursor.is-on .meow-cursor-ring { opacity: 1; }
+.meow-cursor:not([class*="cursor-style-"]).is-on .meow-cursor-dot,
+.meow-cursor:not([class*="cursor-style-"]).is-on .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-halo.is-on .meow-cursor-ring { opacity: 1; }
 
-/* Over anything clickable the ring takes the accent and a wash of it, so the
-   control under the pointer is named by the cursor as well as by its own hover
-   state. The scale itself is animated by the script, which owns the ring's
-   transform. */
-.meow-cursor.is-link .meow-cursor-ring {
+.meow-cursor:not([class*="cursor-style-"]).is-link .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-link .meow-cursor-ring {
     border-color: var(--accent);
     background-color: var(--accent-quiet);
+    box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.35);
 }
-.meow-cursor.is-text .meow-cursor-ring {
-    border-color: rgba(244, 242, 239, 0.35);
+
+.meow-cursor:not([class*="cursor-style-"]).is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-text .meow-cursor-ring {
+    border-color: rgba(244, 242, 239, 0.45);
     border-style: dashed;
 }
 
-/* A paw where a click landed, then gone. Physics rather than a fade: it is
-   printed *at* the point of contact and pushes out of it. */
-.meow-paw {
-    position: fixed;
-    width: 22px;
-    height: 22px;
-    margin: -11px 0 0 -11px;
-    pointer-events: none;
-    z-index: 89;
-    opacity: 0.75;
-    background: currentColor;
-    color: var(--accent-text);
-    -webkit-mask: no-repeat center / contain url('/static/cursor-default.svg');
-    mask: no-repeat center / contain url('/static/cursor-default.svg');
-    animation: meow-paw 850ms cubic-bezier(0.16, 0.84, 0.44, 1) forwards;
+/* --------------------------------------------------------------------------
+   Style 2: Cyber Reticle — Tactical HUD target brackets with rotating lock-on
+   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-reticle .meow-cursor-dot {
+    left: -2px;
+    top: -2px;
+    width: 4px;
+    height: 4px;
+    border-radius: 1px;
+    background: #38bdf8;
+    box-shadow: 0 0 8px #38bdf8;
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
 }
 
-@keyframes meow-paw {
-    0%   { opacity: 0.8; transform: scale(0.35) rotate(-8deg); }
-    55%  { opacity: 0.45; }
-    100% { opacity: 0; transform: scale(1.9) rotate(6deg); }
+.meow-cursor.cursor-style-reticle .meow-cursor-ring {
+    left: -16px;
+    top: -16px;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    border: 1.5px solid transparent;
+    background:
+        linear-gradient(var(--accent), var(--accent)) top left / 7px 1.5px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) top left / 1.5px 7px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) top right / 7px 1.5px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) top right / 1.5px 7px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom left / 7px 1.5px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom left / 1.5px 7px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom right / 7px 1.5px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom right / 1.5px 7px no-repeat;
+    opacity: 0;
+    box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.3);
+    transition: opacity 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-reticle.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-reticle.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-reticle.is-link .meow-cursor-ring {
+    box-shadow: 0 0 22px rgba(var(--accent-rgb), 0.7);
+    filter: brightness(1.25);
+}
+
+.meow-cursor.cursor-style-reticle.is-text .meow-cursor-ring {
+    width: 14px;
+    left: -7px;
+    border-left: 1.5px solid var(--accent);
+    border-right: 1.5px solid var(--accent);
+    background: none;
+}
+
+/* --------------------------------------------------------------------------
+   Style 3: Cosmic Nova — Radiant starburst flare with nebula aura
+   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-nova .meow-cursor-dot {
+    left: -4px;
+    top: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 0 8px #ffffff, 0 0 16px var(--accent-text), 0 0 24px var(--accent);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-nova .meow-cursor-ring {
+    left: -20px;
+    top: -20px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(var(--accent-text-rgb), 0.4);
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.28) 0%, rgba(var(--accent-rgb), 0) 70%);
+    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.4);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-nova.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-nova.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-nova.is-link .meow-cursor-ring {
+    border-color: rgba(255, 255, 255, 0.75);
+    box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.7), 0 0 14px rgba(255, 255, 255, 0.6);
+}
+
+/* --------------------------------------------------------------------------
+   Style 4: Jelly Bubble — Frosted liquid glass droplet with inner refraction
+   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-bubble .meow-cursor-dot {
+    left: -2px;
+    top: -2px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-bubble .meow-cursor-ring {
+    left: -18px;
+    top: -18px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1.5px solid rgba(255, 255, 255, 0.4);
+    box-shadow:
+        inset 0 2px 4px rgba(255, 255, 255, 0.45),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.25),
+        0 8px 20px rgba(0, 0, 0, 0.2),
+        0 0 16px rgba(var(--accent-rgb), 0.3);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
+                background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-bubble.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-bubble.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-bubble.is-link .meow-cursor-ring {
+    border-color: rgba(255, 255, 255, 0.7);
+    background: rgba(var(--accent-rgb), 0.18);
+    box-shadow:
+        inset 0 2px 6px rgba(255, 255, 255, 0.65),
+        0 8px 24px rgba(0, 0, 0, 0.25),
+        0 0 24px rgba(var(--accent-rgb), 0.55);
+}
+
+/* --------------------------------------------------------------------------
+   Style 5: Stealth Dart — Precision minimalist geometric diamond
+   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-stealth .meow-cursor-dot {
+    left: -2.5px;
+    top: -2.5px;
+    width: 5px;
+    height: 5px;
+    border-radius: 1px;
+    background: var(--accent-text);
+    transform: rotate(45deg);
+    box-shadow: 0 0 8px rgba(var(--accent-text-rgb), 0.85);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-stealth .meow-cursor-ring {
+    left: -12px;
+    top: -12px;
+    width: 24px;
+    height: 24px;
+    border-radius: 2px;
+    border: 1.5px solid var(--accent);
+    transform: rotate(45deg);
+    background: rgba(var(--accent-rgb), 0.08);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
+                background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-stealth.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-stealth.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-stealth.is-link .meow-cursor-ring {
+    border-color: var(--accent-text);
+    background: rgba(var(--accent-rgb), 0.22);
+    box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.55);
+}
+
+/* --------------------------------------------------------------------------
+   Style 6: Classic System — Standard pointer (hides the custom layer)
+   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-system,
+html[data-cursor-style="system"] .meow-cursor,
+html[data-cursor-style="system"] .meow-glow {
+    display: none !important;
+}
+
+/* Modern ripple click pulse & backwards compatibility */
+.meow-click-fx,
+.meow-paw {
+    position: fixed;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
+    pointer-events: none;
+    z-index: 100001;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.38) 0%, transparent 75%);
+    animation: meow-click-ripple 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes meow-click-ripple {
+    0%   { opacity: 0.95; transform: scale(0.2); }
+    50%  { opacity: 0.6; }
+    100% { opacity: 0;    transform: scale(2.2); }
 }
 
 .meow-glow {
+    position: fixed;
+    top: 0;
+    left: 0;
     width: 620px;
     height: 620px;
     margin: -310px 0 0 -310px;
     border-radius: var(--radius-pill);
     background: radial-gradient(circle, rgba(var(--accent-rgb), 0.14), rgba(var(--accent-rgb), 0) 62%);
     opacity: 0;
+    pointer-events: none;
+    z-index: 0;
     transition: opacity 0.6s var(--ease);
     will-change: transform;
 }
 .meow-glow.is-on { opacity: 1; }
 
-/* `cursor: none` is scoped to the elements the script actually draws the
-   cursor over: a text field keeps its beam, and anything disabled keeps the
-   refusal the browser draws, because both are information. */
+/* `cursor: none` is scoped strictly to html.has-meow-cursor so pages where
+   the script does not run retain their native cursor. Hover states are
+   equally suppressed so no element can flash the fallback pointer. */
 html.has-meow-cursor,
-html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled) {
+html.has-meow-cursor body,
+html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled),
+html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled):hover {
     cursor: none !important;
 }
 html.has-meow-cursor input[type="text"],
@@ -3344,7 +3657,9 @@ html.has-meow-cursor .disabled {
 
 @media (prefers-reduced-motion: reduce) {
     .meow-cursor,
-    .meow-glow { display: none !important; }
+    .meow-glow,
+    .meow-click-fx,
+    .meow-paw { display: none !important; }
     html.has-meow-cursor,
     html.has-meow-cursor * { cursor: auto; }
 }

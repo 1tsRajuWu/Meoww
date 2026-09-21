@@ -98,14 +98,14 @@ meow-discord-bot/
 ├── static/                ← meow.css (the one design system), logo, favicon, cat cursors
 ├── assets/                ← fonts + sounds the bot ships with
 ├── scripts/               ← helper tools (avatar/banner, dev runner, preview, build_site.py)
-├── docs/                  ← deployment, voice-debug + architecture guides
-├── tests/                 ← 600+ unit tests (stdlib only, no network)
+├── docs/                  ← newbie guide, architecture, deployment, and voice-debug
+├── tests/                 ← 2,150+ automated unit tests (stdlib only, no network)
 ├── deleted_features/      ← retired features, kept but never imported
 └── .github/               ← CI + the GitHub Pages publish workflow, issue forms, PR template
 ```
 
 **Reading order for newbies:**
-`bot.py` → [`utils/features.py`](utils/features.py) →
+[`docs/newbie_guide.md`](docs/newbie_guide.md) (start here!) → `bot.py` → [`utils/features.py`](utils/features.py) →
 [`docs/architecture.md`](docs/architecture.md) → any file in `cogs/`.
 Each folder has its own `README.md` explaining what's inside in plain words.
 
@@ -246,8 +246,9 @@ fallback, the id is stable.
 
 ## 📚 Docs & deep-dives
 
-| Doc | What it covers |
+| Guide / Document | What it covers |
 |---|---|
+| [`docs/newbie_guide.md`](docs/newbie_guide.md) | **Start here!** Plain-English repo map, tests explained, adding commands |
 | [`docs/architecture.md`](docs/architecture.md) | How a slash command flows through the code (with diagram) |
 | [`docs/deployment.md`](docs/deployment.md) | Hosting, env vars, backups, monitoring |
 | [`docs/voice-debug.md`](docs/voice-debug.md) | Voice-XP not paying? Diagnose it here |

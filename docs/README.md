@@ -4,6 +4,7 @@ Start at the [main README](../README.md), then come back here when you need dept
 
 | Guide | When to read it |
 |---|---|
+| [`newbie_guide.md`](newbie_guide.md) | **Start here if you're a new dev!** Plain-English repo map, tests explained, adding commands |
 | [`architecture.md`](architecture.md) | "How does a slash command actually work?" — the code tour with a diagram |
 | [`deployment.md`](deployment.md) | Hosting the bot 24/7 (Render + Supabase), env vars, backups, monitoring |
 | [`voice-debug.md`](voice-debug.md) | Voice XP/coins not paying? Diagnose it step by step |

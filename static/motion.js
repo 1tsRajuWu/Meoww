@@ -460,8 +460,24 @@
     function pointerLayer() {
         if (reduced || !fine || !document.body) return;
 
+        var CURSOR_KEY = "meow-cursor-style";
+        var CURSOR_STYLES = ["halo", "reticle", "nova", "bubble", "stealth", "system"];
+        var DEFAULT_CURSOR = "halo";
+
+        function getStoredCursor() {
+            try {
+                var val = window.localStorage.getItem(CURSOR_KEY);
+                if (val === "ring") return "halo";
+                return CURSOR_STYLES.indexOf(val) === -1 ? DEFAULT_CURSOR : val;
+            } catch (e) {
+                return DEFAULT_CURSOR;
+            }
+        }
+
+        var currentCursor = getStoredCursor();
+
         var host = document.createElement("div");
-        host.className = "meow-cursor";
+        host.className = "meow-cursor cursor-style-" + currentCursor;
         host.setAttribute("aria-hidden", "true");
         var ring = document.createElement("span");
         ring.className = "meow-cursor-ring";
@@ -476,7 +492,57 @@
 
         document.body.appendChild(host);
         document.body.appendChild(glow);
-        document.documentElement.classList.add("has-meow-cursor");
+        if (currentCursor !== "system") {
+            document.documentElement.classList.add("has-meow-cursor");
+        } else {
+            host.style.display = "none";
+            glow.style.display = "none";
+        }
+        document.documentElement.setAttribute("data-cursor-style", currentCursor);
+
+        function updateCursorButtons(style) {
+            var buttons = document.querySelectorAll("[data-cursor-value]");
+            Array.prototype.forEach.call(buttons, function (btn) {
+                var val = btn.getAttribute("data-cursor-value");
+                btn.setAttribute("aria-pressed", val === style ? "true" : "false");
+            });
+        }
+
+        function applyCursorStyle(style) {
+            if (CURSOR_STYLES.indexOf(style) === -1) style = DEFAULT_CURSOR;
+            currentCursor = style;
+            try { window.localStorage.setItem(CURSOR_KEY, style); } catch (e) {}
+            document.documentElement.setAttribute("data-cursor-style", style);
+
+            CURSOR_STYLES.forEach(function (s) {
+                host.classList.remove("cursor-style-" + s);
+            });
+            host.classList.add("cursor-style-" + style);
+
+            if (style === "system") {
+                document.documentElement.classList.remove("has-meow-cursor");
+                host.style.display = "none";
+                glow.style.display = "none";
+            } else {
+                document.documentElement.classList.add("has-meow-cursor");
+                host.style.display = "";
+                glow.style.display = "";
+            }
+            updateCursorButtons(style);
+        }
+
+        window.setCursorStyle = applyCursorStyle;
+
+        document.addEventListener("click", function (event) {
+            var btn = event.target && event.target.closest ? event.target.closest("[data-cursor-value]") : null;
+            if (!btn) return;
+            var chosen = btn.getAttribute("data-cursor-value");
+            if (chosen) {
+                applyCursorStyle(chosen);
+            }
+        });
+
+        updateCursorButtons(currentCursor);
 
         var x = window.innerWidth / 2;
         var y = window.innerHeight / 2;
@@ -505,7 +571,7 @@
         }
 
         function wake() {
-            if (running) return;
+            if (running || currentCursor === "system") return;
             running = true;
             requestAnimationFrame(frame);
         }
@@ -515,6 +581,7 @@
             // hover to enhance: the first move both reveals and deactivates the
             // layer, so a phone never carries it.
             if (event.pointerType === "touch") { hide(); return; }
+            if (currentCursor === "system") return;
             var first = !host.classList.contains("is-on");
             host.classList.add("is-on");
             glow.classList.add("is-on");
@@ -543,31 +610,31 @@
         var LINK = "a, button, [role='button'], label, select, summary, input[type='checkbox'], input[type='radio'], .btn, .chip, [data-hover]";
         var TEXT = "input[type='text'], input[type='password'], input[type='search'], input[type='email'], textarea";
         document.addEventListener("pointerover", function (event) {
+            if (currentCursor === "system") return;
             var node = event.target;
             if (!node || !node.closest) return;
             var text = !!node.closest(TEXT);
             var link = !text && !!node.closest(LINK);
             host.classList.toggle("is-text", text);
             host.classList.toggle("is-link", link);
-            scaleTo = link ? 1.7 : 1;
+            scaleTo = link ? (currentCursor === "bubble" ? 1.5 : (currentCursor === "reticle" ? 1.4 : 1.7)) : 1;
             wake();
         }, { passive: true });
 
-        // A paw at the point of contact, capped: a rapid clicker on a slow frame
-        // should not be able to leave a page full of elements behind.
-        var paws = 0;
+        // Clean modern ripple pulse at point of contact
+        var ripples = 0;
         document.addEventListener("pointerdown", function (event) {
-            if (event.pointerType === "touch" || paws >= 8) return;
-            var paw = document.createElement("span");
-            paw.className = "meow-paw";
-            paw.style.left = event.clientX + "px";
-            paw.style.top = event.clientY + "px";
-            paws += 1;
-            paw.addEventListener("animationend", function () {
-                paws -= 1;
-                paw.remove();
+            if (event.pointerType === "touch" || ripples >= 8 || currentCursor === "system") return;
+            var ripple = document.createElement("span");
+            ripple.className = "meow-click-fx";
+            ripple.style.left = event.clientX + "px";
+            ripple.style.top = event.clientY + "px";
+            ripples += 1;
+            ripple.addEventListener("animationend", function () {
+                ripples -= 1;
+                ripple.remove();
             });
-            document.body.appendChild(paw);
+            document.body.appendChild(ripple);
         }, { passive: true });
     }
 
