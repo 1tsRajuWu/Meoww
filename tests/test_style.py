@@ -175,6 +175,124 @@ class CardEdits(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(target.calls, [])
 
 
+class _SendTarget:
+    """A Messageable stand-in that records what a card payload carried."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def send(self, **kwargs):
+        self.calls.append(kwargs)
+        return self
+
+
+def _component_types(view) -> list[int]:
+    """Every nested component type in a layout, flattened."""
+    def walk(node):
+        if isinstance(node, dict):
+            if "type" in node:
+                yield node["type"]
+            for value in node.values():
+                yield from walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from walk(value)
+
+    return list(walk(view.to_components()))
+
+
+class AttachmentsOnACard(unittest.IsolatedAsyncioTestCase):
+    """A Components V2 message shows an attachment only when a component
+    references it. That is why the soundboard had "no sound": the clip uploaded
+    fine and Discord drew nothing, with no error anywhere."""
+
+    FILE_COMPONENT = 13
+
+    async def test_a_file_is_referenced_and_sent(self):
+        target = _SendTarget()
+        attachment = discord.File("assets/sounds/purr.ogg", filename="purr.ogg")
+        await style.send_card(target, content="listen", file=attachment)
+        payload = target.calls[0]
+        self.assertIs(payload.get("file"), attachment, "the upload must travel with the card")
+        view = payload["view"]
+        self.assertIn(self.FILE_COMPONENT, _component_types(view))
+        self.assertIn("attachment://purr.ogg", str(view.to_components()))
+
+    async def test_several_files_are_sent_as_a_list(self):
+        target = _SendTarget()
+        files = [
+            discord.File("assets/sounds/purr.ogg", filename="a.ogg"),
+            discord.File("assets/sounds/meow_1.ogg", filename="b.ogg"),
+        ]
+        await style.send_card(target, content="listen", files=files)
+        self.assertEqual(target.calls[0].get("files"), files)
+        self.assertNotIn("file", target.calls[0])
+
+    async def test_an_embed_card_still_carries_its_file(self):
+        target = _SendTarget()
+        await style.send_card(
+            target,
+            embed=discord.Embed(title="Sound", description="clip"),
+            file=discord.File("assets/sounds/purr.ogg", filename="purr.ogg"),
+        )
+        payload = target.calls[0]
+        self.assertIn("file", payload)
+        self.assertNotIn("embeds", payload)
+        self.assertIn(self.FILE_COMPONENT, _component_types(payload["view"]))
+
+    async def test_a_card_without_files_is_unchanged(self):
+        target = _SendTarget()
+        await style.send_card(target, content="hello")
+        self.assertNotIn("file", target.calls[0])
+        self.assertNotIn(self.FILE_COMPONENT, _component_types(target.calls[0]["view"]))
+
+    def test_a_file_component_is_skipped_rather_than_guessed_at(self):
+        self.assertEqual(style.file_components(["not a file"]), [])
+        self.assertEqual(style.file_components(None), [])
+
+
+class MentionsOnACard(unittest.TestCase):
+    """The opt-in that /action, /rizz and /roast needed."""
+
+    def test_pings_names_its_users_and_nothing_else(self):
+        alice = discord.Object(id=1)
+        allowed = style.pings(alice)
+        self.assertEqual([u.id for u in allowed.users], [1])
+        self.assertFalse(allowed.everyone, "a ping set is never @everyone")
+        self.assertFalse(allowed.roles, "and never a role")
+        self.assertEqual(allowed.replied_user, False)
+
+    def test_no_users_means_silence(self):
+        """A caller with nobody to name gets nothing notified, rather than an
+        accidental @everyone."""
+        for empty in (style.pings(), style.pings(None)):
+            self.assertEqual(list(empty.users), [])
+            self.assertFalse(empty.everyone)
+
+    def test_the_default_is_still_silence(self):
+        """``AllowedMentions.none()`` blanks every list — that is the whole point
+        of it being the default on every other card in this bot."""
+        for field in ("everyone", "users", "roles", "replied_user"):
+            self.assertFalse(getattr(style.NO_PINGS, field), field)
+
+
+class TheAuthorPicture(unittest.TestCase):
+    def test_a_card_with_nothing_to_draw_uses_the_authors_icon(self):
+        embed = discord.Embed(title="Welcome", description="hi")
+        embed.set_author(name="Meow", icon_url="https://example.invalid/bot.png")
+        panel = style.embed_to_layout(embed)
+        self.assertIn("https://example.invalid/bot.png", str(panel.to_components()))
+
+    def test_a_real_thumbnail_still_wins_over_the_author_icon(self):
+        embed = discord.Embed(title="Welcome", description="hi")
+        embed.set_author(name="Meow", icon_url="https://example.invalid/bot.png")
+        embed.set_thumbnail(url="https://example.invalid/thumb.png")
+        panel = style.embed_to_layout(embed)
+        rendered = str(panel.to_components())
+        self.assertIn("https://example.invalid/thumb.png", rendered)
+        self.assertNotIn("https://example.invalid/bot.png", rendered)
+
+
 class RegistryIndependence(unittest.TestCase):
     def test_style_exports_survive(self):
         """The panels/helpers other cogs import must keep existing."""

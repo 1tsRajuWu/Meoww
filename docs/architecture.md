@@ -128,6 +128,33 @@ And the jobs themselves:
    dependency for the two policies, and every figure on the landing page either
    measured or absent.
 
+## The message layer (`utils/style.py`)
+
+Every non-interactive message is a Components V2 card, and V2 is stricter than an
+embed in three ways that have each been a shipped bug:
+
+- **An attachment is invisible unless a component references it.** Discord's
+  component reference says it in one line: *"Attachments won't show by default -
+  they must be exposed through components"*. The upload succeeds, the API accepts
+  the message, and nothing is drawn — which is why `/meowsound` had "no sound"
+  while looking fine. `send_card(file=…)`/`files=…` now appends a File component
+  for each upload, and skips the card entirely (legacy send) if the installed
+  library has no File component, where an attachment is at least visible as a file.
+- **Mentions notify, so they must be opted into.** A `TextDisplay` mention pings
+  its target; `send_card` therefore defaults to `AllowedMentions.none()`, and a
+  card that is *about* somebody passes `style.pings(target)`. Without that, a card
+  can name two people and reach neither — which is what `/action`, `/rizz` and
+  `/roast` did. `pings()` names `everyone` and `roles` as `False` because
+  discord.py treats an omitted field as *allowed*.
+- **A picture has to exist.** Cards resolve GIFs through `utils/gifs`, which
+  fetches from keyless providers and only uses a URL after a probe confirms an
+  `image/*` body; nothing confirmed means no picture, never a broken one.
+
+A bot's presence has one more rule of the same kind: the word in front of the
+status ("Playing …") is Discord's, chosen by the activity *type*. A line written
+as a headline renders as "Playing Meowing at the wall", so shipped lines read as
+continuations, and `custom` exists for a line with no verb at all.
+
 ## Conventions that keep 600+ tests green
 
 - **Declare, don't duplicate.** Feature? → `features.py`. Audience? →
@@ -139,4 +166,5 @@ And the jobs themselves:
   `utils/meowfee.py` take plain arguments (no `discord` import) so tests can
   call them directly.
 - **Cards never ping by accident.** `send_card` defaults to
-  `AllowedMentions.none()`; only `/announce` opts in, deliberately.
+  `AllowedMentions.none()`; only `/announce` and the cards that are *about* a
+  person (`/action`, `/rizz`, `/roast`) opt in, deliberately and by name.

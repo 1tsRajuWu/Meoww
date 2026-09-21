@@ -39,10 +39,11 @@ What it is careful about:
 from __future__ import annotations
 
 import json
-import os
 import time
 import urllib.parse
 import urllib.request
+
+from utils import config_audit
 
 #: Where the key and the optional public status page come from. The key is a
 #: read-only credential (UptimeRobot -> My Settings -> API Settings -> Read-Only
@@ -99,11 +100,11 @@ def configured() -> bool:
 
 
 def api_key() -> str:
-    # The name is read literally here, rather than through ``ENV_KEY``, because
-    # the configuration audit finds what the code reads by looking for exactly
-    # this shape in the source — and a setting it cannot see is a setting that
+    # The name is written out here, rather than through ``ENV_KEY``, because the
+    # configuration audit finds what the code reads by looking for exactly this
+    # shape in the source — and a setting it cannot see is a setting that
     # silently vanishes from the report that exists to list them all.
-    return (os.environ.get("UPTIMEROBOT_API_KEY") or "").strip()
+    return config_audit.get("UPTIMEROBOT_API_KEY")
 
 
 def page_url() -> str:
@@ -112,7 +113,7 @@ def page_url() -> str:
     UptimeRobot's status pages are the one part of it a *visitor* can be sent
     to, so it is the link the dashboard offers beside the rows.
     """
-    return (os.environ.get("UPTIMEROBOT_STATUS_PAGE") or "").strip()
+    return config_audit.get("UPTIMEROBOT_STATUS_PAGE")
 
 
 def _number(value):

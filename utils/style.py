@@ -32,6 +32,11 @@ import discord
 # after the V2 upgrade every ``member.mention`` placed in a leaderboard started
 # tagging people. Cards therefore suppress mentions by default, and a caller that
 # genuinely wants to notify someone opts in explicitly with ``allowed_mentions``.
+#
+# The default is what broke ``/action``, ``/rizz`` and ``/roast``: those cards are
+# *about* somebody and put ``member.mention`` in the text, so suppressing mentions
+# left every one of them showing a name that never pinged. They now pass
+# :func:`pings`, which is the whole of the opt-in.
 NO_PINGS = discord.AllowedMentions.none()
 
 # --------------------------------------------------------------------------- #
@@ -62,11 +67,38 @@ MediaGalleryItem = discord.MediaGalleryItem
 Container = discord.ui.Container
 ActionRow = discord.ui.ActionRow
 LayoutView = discord.ui.LayoutView
+#: The File display component (discord.py 2.6+). A Components V2 message
+#: **does not show an attachment unless a component references it** — the file is
+#: uploaded, Discord accepts the message, and the attachment is simply never
+#: drawn. That is why ``/meowsound`` sent an audio clip nobody could play. When
+#: this is unavailable (an older library) attachments are sent as their own
+#: follow-up message instead, which is the only other way to make one visible.
+FileDisplay = getattr(discord.ui, "File", None)
 
 
 def v2_ready() -> bool:
     """True when the installed discord.py exposes Components V2."""
     return hasattr(discord.ui, "LayoutView") and hasattr(discord.ui, "Container")
+
+
+def pings(*users) -> discord.AllowedMentions:
+    """The opt-in ping set for a card that is *about* the listed people.
+
+    Used by the roleplay/social commands, where the entire point is that the
+    person is told something happened to them. Everything else keeps
+    :data:`NO_PINGS`, because a leaderboard must never notify the whole server.
+
+    ``everyone`` and ``roles`` are named explicitly because discord.py's
+    ``AllowedMentions`` treats *omitted* as allowed: constructing one with only a
+    user list leaves @everyone and every role pingable, which is not a set of
+    "just this person" at all.
+    """
+    return discord.AllowedMentions(
+        users=[u for u in users if u is not None],
+        roles=False,
+        everyone=False,
+        replied_user=False,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -168,6 +200,7 @@ def _build_children(
     footer: str | None = None,
     fields: list[tuple[str, str]] | None = None,
     extra: list | None = None,
+    attachments: list | None = None,
 ) -> list:
     """Assemble the ordered children of a card, respecting the text budget."""
     children: list = []
@@ -200,6 +233,10 @@ def _build_children(
         children.append(separator(visible=False))
         children.append(media)
 
+    # Attachments are referenced here, which is the only thing that makes Discord
+    # draw them on a V2 message at all (see ``FileDisplay``).
+    children.extend(file_components(attachments))
+
     if extra:
         children.extend(extra)
 
@@ -230,6 +267,7 @@ class Panel(LayoutView):
         footer: str | None = None,
         fields: list[tuple[str, str]] | None = None,
         timeout: float | None = 180,
+        attachments: list | None = None,
     ):
         super().__init__(timeout=timeout)
         self._accent = accent
@@ -240,6 +278,7 @@ class Panel(LayoutView):
             image_urls=gallery,
             footer=footer,
             fields=fields,
+            attachments=attachments,
         )
         self.container = Container(*children, accent_color=accent)
         self.add_item(self.container)
@@ -267,6 +306,7 @@ def card(
     footer: str | None = None,
     fields: list[tuple[str, str]] | None = None,
     timeout: float | None = 180,
+    attachments: list | None = None,
 ) -> Panel:
     """Functional alias for :class:`Panel` used by the semantic helpers."""
     return Panel(
@@ -278,7 +318,32 @@ def card(
         footer=footer,
         fields=fields,
         timeout=timeout,
+        attachments=attachments,
     )
+
+
+def file_components(attachments) -> list:
+    """Display components for uploaded files, or ``[]`` when there are none.
+
+    Only objects that are actually an upload are referenced — a ``discord.File``
+    (or anything else shaped like one). A component built around some other object
+    would serialize into a reference to a file that is not in the payload, which
+    Discord rejects at send time rather than at construction, and a failed send is
+    how a command dies.
+    """
+    if not attachments or FileDisplay is None:
+        return []
+    out = []
+    for attachment in attachments:
+        if not (isinstance(attachment, discord.File) or (
+            hasattr(attachment, "filename") and hasattr(attachment, "fp")
+        )):
+            continue
+        try:
+            out.append(FileDisplay(attachment))
+        except Exception:
+            continue
+    return out[:MAX_V2_COMPONENTS]
 
 
 # Semantic one-liners ------------------------------------------------------- #
@@ -301,7 +366,7 @@ def warn(body: str, *, title: str = "Heads up", **kw) -> Panel:
 # --------------------------------------------------------------------------- #
 # Embed -> Components V2 conversion
 # --------------------------------------------------------------------------- #
-def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180) -> Panel | None:
+def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180, attachments: list | None = None) -> Panel | None:
     """Convert a legacy embed into a Components V2 card.
 
     Returns ``None`` when there is nothing safe to render, so callers can fall
@@ -346,7 +411,16 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180) -> Pan
     if embed_image and getattr(embed_image, "url", None):
         image_urls.append(embed_image.url)
 
-    if not body and not fields and not image_urls:
+    if not thumb_url and not image_urls:
+        # Nothing to draw on the right, so the author's own picture takes that
+        # slot. Cards that set an author with the bot's avatar (help, tickets,
+        # most of the tuneful ones) were otherwise a bare block of text, and the
+        # icon was being thrown away because a converted embed has no author row.
+        author_icon = getattr(author, "icon_url", None) if author else None
+        if author_icon:
+            thumb_url = str(author_icon)
+
+    if not body and not fields and not image_urls and not attachments:
         return None
 
     return Panel(
@@ -358,10 +432,13 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180) -> Pan
         footer=footer,
         fields=fields,
         timeout=timeout,
+        attachments=attachments,
     )
 
 
-def embeds_to_layout(embeds: list[discord.Embed], *, timeout: float | None = 180) -> Panel | None:
+def embeds_to_layout(
+    embeds: list[discord.Embed], *, timeout: float | None = 180, attachments: list | None = None
+) -> Panel | None:
     """Merge several embeds into one card (first wins for media/accent)."""
     usable = [e for e in (embeds or []) if e is not None]
     if not usable:
@@ -373,11 +450,11 @@ def embeds_to_layout(embeds: list[discord.Embed], *, timeout: float | None = 180
             extra_fields.append((embed.title, embed.description or ""))
         elif embed.description:
             extra_fields.append(("", embed.description))
-    base = embed_to_layout(merged, timeout=timeout)
+    base = embed_to_layout(merged, timeout=timeout, attachments=attachments)
     if base is None:
         if not extra_fields:
             return None
-        return Panel(title="", body="", fields=extra_fields, timeout=timeout)
+        return Panel(title="", body="", fields=extra_fields, timeout=timeout, attachments=attachments)
     if extra_fields:
         base.container.add_item(TextDisplay(field_text(extra_fields)))
     return base
@@ -418,26 +495,55 @@ def _layout_from(
     embeds: list[discord.Embed] | None,
     content: str | None,
     timeout: float | None,
+    attachments: list | None = None,
 ) -> Panel | None:
     """Build a V2 layout from an embed/embeds/content, or None if not possible."""
     if not v2_ready():
         return None
     try:
         if embed is not None:
-            layout = embed_to_layout(embed, timeout=timeout)
+            layout = embed_to_layout(embed, timeout=timeout, attachments=attachments)
             if layout is not None and content:
                 layout.container.add_item(TextDisplay(str(content)))
             return layout
         if embeds:
-            layout = embeds_to_layout(list(embeds), timeout=timeout)
+            layout = embeds_to_layout(list(embeds), timeout=timeout, attachments=attachments)
             if layout is not None and content:
                 layout.container.add_item(TextDisplay(str(content)))
             return layout
-        if content:
-            return card(body=str(content), timeout=timeout)
+        if content or attachments:
+            return card(body=str(content or ""), timeout=timeout, attachments=attachments)
     except Exception:
         return None
     return None
+
+
+def _split_attachments(extras: dict) -> list:
+    """Pull ``file``/``files`` out of the keyword soup, as one ordered list.
+
+    They are removed from ``extras`` on purpose: an attachment has to travel with
+    the component that *references* it, so it is added back to the outbound
+    payload deliberately rather than passed through by accident.
+    """
+    single = extras.pop("file", None)
+    multi = extras.pop("files", None)
+    files: list = []
+    if isinstance(multi, (list, tuple)):
+        files.extend(multi)
+    elif multi is not None:
+        files.append(multi)
+    if single is not None:
+        files.insert(0, single)
+    return [f for f in files if f is not None]
+
+
+def _attachment_kwargs(attachments: list) -> dict:
+    """The one attachment keyword to send — never both."""
+    if not attachments:
+        return {}
+    if len(attachments) == 1:
+        return {"file": attachments[0]}
+    return {"files": attachments}
 
 
 def _one_embed(embed: discord.Embed | None, embeds: list[discord.Embed] | None) -> dict:
@@ -526,21 +632,34 @@ async def send_card(
     A legacy interactive ``view`` is passed straight through, because merging a
     legacy View into a layout would silently drop its timeout and
     ``interaction_check`` guards.
+
+    ``file``/``files`` are referenced by the card's own File components, which is
+    the only thing that makes Discord display an attachment on a V2 message. When
+    the installed library has no File component the card is skipped entirely and
+    the legacy payload is sent instead, where the attachment is visible as a file.
     """
+    attachments = _split_attachments(extras)
     passthrough = {k: v for k, v in extras.items() if v is not None}
+    file_kwargs = _attachment_kwargs(attachments)
 
     if view is not None:
         return await _dispatch_send(
-            target, {"content": content, "embed": embed, "embeds": embeds, "view": view, **passthrough}, ephemeral
+            target,
+            {"content": content, "embed": embed, "embeds": embeds, "view": view, **file_kwargs, **passthrough},
+            ephemeral,
         )
 
-    legacy = {"content": content, "embed": embed, "embeds": embeds, **passthrough}
-    layout = _layout_from(embed, embeds, content, timeout)
+    legacy = {"content": content, "embed": embed, "embeds": embeds, **file_kwargs, **passthrough}
+    if attachments and FileDisplay is None:
+        # Nothing would reference the file, so a card would swallow it.
+        return await _dispatch_send(target, legacy, ephemeral)
+
+    layout = _layout_from(embed, embeds, content, timeout, attachments=attachments)
     if layout is None:
         return await _dispatch_send(target, legacy, ephemeral)
 
     try:
-        return await _dispatch_send(target, {"view": layout, **passthrough}, ephemeral)
+        return await _dispatch_send(target, {"view": layout, **file_kwargs, **passthrough}, ephemeral)
     except Exception:
         # A rejected payload must never take the command down with it.
         return await _dispatch_send(target, legacy, ephemeral)

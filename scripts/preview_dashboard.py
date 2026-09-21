@@ -172,7 +172,7 @@ app.jinja_env.globals["asset_version"] = keep_alive.asset_version
 
 from utils import (  # noqa: E402
     command_publish, command_scope, digest, discord_auth, features, identity,
-    market as market_module, uptime_status,
+    market as market_module, sessions, uptime_status,
 )
 
 
@@ -617,6 +617,51 @@ def seed_economy() -> int:
     return written
 
 
+def seed_sessions() -> int:
+    """Give the Access page something true to draw. Returns rows written.
+
+    The ledger is real — this seeds nothing that the page then invents: two
+    sign-ins are recorded the way a sign-in records one, and one of them is
+    revoked so the list contains each of its three states. Without this the page
+    is honest and useless: one row (the harness's own session) and three empty
+    windows, which is exactly the state a fresh deployment is in and tells a
+    reader nothing about what the page looks like when it has something to say.
+
+    The blocked window is seeded as *attempts* rather than as a verdict, so the
+    count, the address and the time left are all computed by the same code the
+    deployment runs. Keyed to an address that is documentation-only (RFC 5737),
+    so nothing here can name a real visitor.
+    """
+    from utils import ratelimit as _ratelimit
+
+    written = 0
+    # Two rows, as somebody's phone and an old link would have left them. The
+    # third — this browser — is the harness's own session, which records itself
+    # in `owner_console`: seeding a row for it here would show the operator two
+    # of their own sessions, one of which does not exist.
+    for label, agent, ip, ended in (
+        ("R A J", "Mozilla/5.0 (iPhone) Safari/604", "203.0.113.24", False),
+        ("one-time link", "curl/8.7", "198.51.100.9", True),
+    ):
+        sid = sessions.start("global", label=label, ip=ip, agent=agent)
+        if not sid:
+            continue
+        written += 1
+        if ended:
+            sessions.revoke(sid)
+
+    # A window that is *partly* used, so the reading has something to show for the
+    # fifteen minutes it lasts: three wrong passkeys from one address, which is
+    # under the limit and therefore not a lockout. The send window is touched the
+    # same way but is one minute wide, so what it demonstrates is that a count
+    # ages out — a reading of nothing, correctly, rather than a stale one.
+    for _ in range(3):
+        keep_alive._PASSKEY.record("198.51.100.44")
+    keep_alive._SEND.allow("198.51.100.44")
+    keep_alive._SEND.note_refused()
+    return written
+
+
 #: Which server this harness is "in". Production keeps that in the session and a
 #: passkey session can move between servers; here it is one process-wide value,
 #: which is the only sense in which this harness has a session at all. It exists
@@ -983,6 +1028,9 @@ def owner_console(sub: str = ""):
     session["authenticated"] = True
     session["auth_scope"] = "global"
     session["csrf_token"] = "preview-token"
+    # …and into the ledger, by the same call a real sign-in makes, so the Access
+    # page lists this browser as itself rather than as a row nobody can name.
+    keep_alive._record_session(label="this browser")
     return render_template(
         "console.html",
         csrf_token="preview-token",
@@ -1681,9 +1729,10 @@ if __name__ == "__main__":
     keep_alive.BOT_INSTANCE = _PreviewBot()
     seeded = seed_economy()
     counted = seed_activity()
+    signed_in = seed_sessions()
     print(
         f"[PREVIEW] gateway: {len(GUILDS)} servers; economy: {seeded} seeded row(s); "
-        f"activity: {counted} server(s)",
+        f"activity: {counted} server(s); sessions: {signed_in}",
         flush=True,
     )
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8099")))

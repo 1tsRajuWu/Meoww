@@ -31,14 +31,13 @@ API, so no API key is stored here and no webhook endpoint has to exist.
 from __future__ import annotations
 
 import json
-import os
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-from utils import db
+from utils import config_audit, db
 
 #: The licence API. Every call in this file goes here and nowhere else.
 LICENSE_API = "https://api.lemonsqueezy.com/v1/licenses"
@@ -145,12 +144,12 @@ _CACHE: dict[int, str] = {}
 def _switch(name: str) -> bool:
     """An operator's on/off switch, read fresh every time.
 
-    Spelled out rather than left to ``bool(os.environ.get(...))``, because the
+    Spelled out rather than left to the truthiness of the raw value, because the
     empty string and the word "0" are both false strings an operator may well
-    write, and ``bool("0")`` is true — a switch that turns itself on when
+    write, and the string "0" is truthy — a switch that turns itself on when
     somebody writes "off" is the worst kind.
     """
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+    return config_audit.flag(name)
 
 
 def enforcement_enabled() -> bool:
@@ -342,7 +341,7 @@ def checkout_url(plan: Plan) -> str:
     """
     if not selling_enabled():
         return ""
-    return (os.environ.get(CHECKOUT_ENV.get(plan.id, "")) or "").strip()
+    return config_audit.get(CHECKOUT_ENV.get(plan.id, ""))
 
 
 def normalise_key(key: str) -> str:
@@ -372,7 +371,7 @@ def plan_for_product(meta: dict) -> Plan | None:
     variant = str(meta.get("variant_id") or "").strip()
     if variant:
         for plan in (PRO, ENTERPRISE):
-            configured = (os.environ.get(VARIANT_ENV[plan.id]) or "").strip()
+            configured = config_audit.get(VARIANT_ENV[plan.id])
             if configured and configured == variant:
                 return plan
     name = str(meta.get("product_name") or "").strip().lower()

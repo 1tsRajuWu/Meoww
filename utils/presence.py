@@ -44,12 +44,28 @@ INTERVAL_KEY = "presence_interval_minutes"
 #: not in here is refused rather than guessed at, because an unknown type is not
 #: a small mistake: ``discord.ActivityType(99)`` raises at the moment the presence
 #: is applied, so a typo would take the *whole rotation* down.
+#:
+#: This mapping is also the answer to "why does it say *Playing* that?": the verb
+#: in front of the line is Discord's, chosen by the **type**, not by the text. A
+#: type of ``playing`` always renders "Playing <text>", so a line has to read as a
+#: continuation of a verb ("with the laser pointer") rather than as a headline
+#: ("Meowing at the wall" → "Playing Meowing at the wall", which is what was
+#: reported). ``custom`` is the one type with no verb at all — the text stands
+#: alone — and it is offered rather than defaulted, because it depends on the
+#: client rendering a bot's custom status.
 ACTIVITY_KINDS: dict[str, discord.ActivityType] = {
     "playing": discord.ActivityType.playing,
     "watching": discord.ActivityType.watching,
     "listening": discord.ActivityType.listening,
     "competing": discord.ActivityType.competing,
 }
+_CUSTOM = getattr(discord.ActivityType, "custom", None)
+if _CUSTOM is not None:
+    ACTIVITY_KINDS["custom"] = _CUSTOM
+
+#: The types whose text has to read as a continuation of a verb. ``custom`` is the
+#: exception, and the reason a verb is prepended at all is Discord's rendering.
+VERBLESS_KINDS = frozenset({"custom"})
 
 #: The status shown beside the activity (the coloured dot). ``invisible`` is
 #: deliberately absent — a bot that appears offline reads as broken.
@@ -61,18 +77,24 @@ STATUS_KINDS: dict[str, discord.Status] = {
 
 #: What the bot says when nothing has been configured. The reported line is not
 #: here; everything else is what the bot shipped with.
+#:
+#: Every line is written to follow its verb, which is why they read as fragments:
+#: "Watching **over your server**", "Listening **for /help**", "Playing **with the
+#: laser pointer**". The old list was written as headlines — one of them rendered
+#: as "Playing Meowing at the wall 🐈 | /help", which is the line that prompted the
+#: report. Nothing else changed: same count, same cat voice, same six-hour stories.
 DEFAULT_LINES: tuple[tuple[str, str], ...] = (
-    ("/help | meow-discord-bot.onrender.com 🌐", "watching"),
-    ("Protecting your server 🛡️ | /help", "watching"),
-    ("Listening to commands 🐾 | /help", "listening"),
-    ("Live crypto & stock markets 📈", "watching"),
-    ("Meowing at the wall 🐈 | /help", "playing"),
-    ("Chasing a laser pointer 🔴", "competing"),
-    ("Demanding wet food 🐟", "listening"),
-    ("Judging you silently 👁️ | /help", "watching"),
-    ("Zoomies at 3 AM 🏃", "playing"),
-    ("Purring happily... 🐾", "listening"),
-    ("Plotting world domination 😼", "watching"),
+    ("over your server 🛡️ | /help", "watching"),
+    ("for /help 🐾", "listening"),
+    ("the live crypto & stock markets 📈", "watching"),
+    ("with the laser pointer 🔴", "playing"),
+    ("the birds outside 🐦", "watching"),
+    ("for the warmest sunbeam ☀️", "competing"),
+    ("to purring ASMR 🎧", "listening"),
+    ("you sleep from the bookshelf 👁️", "watching"),
+    ("in the 3 AM zoomies 🏃", "competing"),
+    ("for wet food being opened 🐟", "listening"),
+    ("over its world domination plans 😼", "watching"),
 )
 
 #: How long each line stays up. An hour is what this shipped with, and it is
@@ -198,10 +220,22 @@ async def add_line(text: str, kind: str = "playing") -> list[tuple[str, str]]:
 
 
 def build(text: str, kind: str, status: str = "online") -> discord.Activity:
-    """One ``discord.Activity``, or a ``PresenceError`` naming what is wrong."""
+    """One activity object, or a ``PresenceError`` naming what is wrong.
+
+    A ``custom`` kind is a :class:`discord.CustomActivity` rather than a typed
+    one, which is the only shape Discord renders without a verb in front of it.
+    """
     text, kind = _clean_line(text, kind)
     if status not in STATUS_KINDS:
         raise PresenceError(
             f"'{status}' is not a status. Use one of: {', '.join(sorted(STATUS_KINDS))}."
         )
+    if kind in VERBLESS_KINDS:
+        custom = getattr(discord, "CustomActivity", None)
+        if custom is None:
+            raise PresenceError(
+                "This library cannot set a custom status; use playing, watching, "
+                "listening or competing instead."
+            )
+        return custom(name=text)
     return discord.Activity(type=ACTIVITY_KINDS[kind], name=text)

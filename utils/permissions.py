@@ -152,6 +152,7 @@ COMMAND_ACCESS: dict[str, str] = {
     "crash": EVERYONE,
     "dice": EVERYONE,
     "divorce": EVERYONE,
+    "flavor": GUILD,
     "flex": EVERYONE,
     "gamble": EVERYONE,
     "highlow": EVERYONE,

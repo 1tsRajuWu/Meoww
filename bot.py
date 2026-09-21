@@ -1,5 +1,4 @@
 import sys
-import os
 import asyncio
 import random
 import datetime
@@ -38,12 +37,17 @@ try:
 except Exception:
     pass
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = config_audit.get("DISCORD_TOKEN") or None
 
 
 def _env_flag(name: str) -> bool:
-    """Read a 1/true/yes/on environment flag (default: off)."""
-    return os.getenv(name, "0").strip().lower() in {"1", "true", "yes", "on"}
+    """Read a 1/true/yes/on environment flag (default: off).
+
+    Called with the setting's name rather than reading the environment here, so
+    the deployment still has exactly one place that does — ``config_audit``,
+    which is also the list that says what a missing one costs.
+    """
+    return config_audit.flag(name)
 
 
 # Privileged intents stay OFF unless explicitly enabled. Requesting one the app
@@ -225,8 +229,11 @@ async def rotate_status():
             last = random.choice(pool)
             text, kind = last
             try:
+                # ``presence.build`` is the single place that knows how a line maps
+                # to an activity object — including the verbless ``custom`` kind,
+                # which is a CustomActivity rather than a typed one.
                 await bot.change_presence(
-                    activity=discord.Activity(type=presence.ACTIVITY_KINDS[kind], name=text),
+                    activity=presence.build(text, kind),
                     status=discord.Status.online,
                 )
             except Exception as e:
@@ -1513,7 +1520,7 @@ def _report_error(error: BaseException, interaction: discord.Interaction | None 
     Errors used to be swallowed into stdout, which is how a silently broken
     module stayed broken for weeks. This is opt-in and never raises.
     """
-    url = (os.getenv("ERROR_WEBHOOK_URL") or "").strip()
+    url = config_audit.get("ERROR_WEBHOOK_URL")
     if not url:
         return
     try:

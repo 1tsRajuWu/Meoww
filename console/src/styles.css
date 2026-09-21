@@ -517,6 +517,20 @@ a {
   gap: 2px;
 }
 
+/* A figure that was not read. Dimmed rather than hidden: the reader should see
+   that a number belongs here and that nobody took it, and the tooltip carries
+   the reason. The em dash is the whole mark — a `0` in this position is the
+   defect this exists to prevent. */
+.stat--unread .stat__value {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.stat--unread .stat__label {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
 .stat__value {
   font-size: var(--type-figure);
   font-weight: 600;
@@ -542,6 +556,104 @@ a {
 .stat__sub {
   color: var(--dim);
   font-size: 12px;
+}
+
+/* ── the Access page ──────────────────────────────────────────────────────── */
+.sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+
+/* The one row that is this browser. A hairline on the left rather than a
+   different background: the reader has to be able to tell it apart at a glance
+   while scanning a list, and it must not look like a *different kind* of row. */
+.session--current {
+  border-left: 2px solid var(--accent);
+}
+
+.session__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session__scope {
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.session__you {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.session__meta {
+  color: var(--muted);
+  font-size: var(--type-small);
+  font-variant-numeric: tabular-nums;
+  /* An agent string is attacker-controlled text: one line, and clipped rather
+     than wrapped — a 4 KB User-Agent must not be able to reshape the page. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60ch;
+}
+
+.session__side {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.windows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.window__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.window__name {
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.window__hint {
+  color: var(--muted);
+  font-size: var(--type-small);
+}
+
+.window__blocked {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--danger);
+  font-size: var(--type-small);
+  font-variant-numeric: tabular-nums;
 }
 
 .rows {

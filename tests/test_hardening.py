@@ -32,9 +32,14 @@ class NoPublishedCredential(unittest.TestCase):
 
     def test_passkey_has_no_fallback_value(self):
         source = _read("keep_alive.py")
-        # The environment value is used verbatim; there is no `or "<something>"`
-        # fallback, so an unset variable yields an empty (unusable) passkey.
-        self.assertIn('ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "").strip()', source)
+        # The environment value is used verbatim, through the one module that
+        # reads the environment, and there is no `or "<something>"` fallback —
+        # so an unset variable yields an empty (unusable) passkey rather than a
+        # compiled-in credential. This used to match the literal
+        # `os.environ.get(...)` line; the reader replaced that line, and the
+        # property being checked is the same one, so the check moved with it.
+        self.assertIn('ADMIN_PASSKEY = config_audit.get("ADMIN_PASSKEY")', source)
+        self.assertNotRegex(source, r'ADMIN_PASSKEY\s*=\s*[^\n(]*or\s+"[^"]+"')
 
     def test_passkey_endpoints_reject_an_empty_credential(self):
         source = _read("keep_alive.py")

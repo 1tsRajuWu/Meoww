@@ -63,7 +63,6 @@ Limits, because a market is a place to lose money and not a place to print it:
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Iterable, Mapping
@@ -71,7 +70,7 @@ from typing import Any, Awaitable, Callable, Iterable, Mapping
 import aiohttp
 import aiosqlite
 
-from utils import db
+from utils import config_audit, db
 from utils import meowfee
 
 # --------------------------------------------------------------------------- #
@@ -142,7 +141,7 @@ def access_role_ids() -> tuple[int, ...]:
     nothing usable is left the compiled default stands, because an empty allow
     list would silently lock the market for everyone forever.
     """
-    raw = os.getenv("MARKET_ROLE_IDS", "") or os.getenv("MARKET_ROLE_ID", "")
+    raw = config_audit.get("MARKET_ROLE_IDS") or config_audit.get("MARKET_ROLE_ID")
     parsed = tuple(
         int(part)
         for part in raw.replace(";", ",").split(",")

@@ -100,12 +100,13 @@ a static host would expose if the output directory went wrong again.
 """
 from __future__ import annotations
 
-import os
 import random
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+
+from utils import config_audit
 
 #: The site's own address. ``SITE_URL`` is the variable the build already reads,
 #: so a deployment that renamed its host has one place to say so.
@@ -158,7 +159,7 @@ CONTROL_PREFIX = "site-guard-control-no-such-path"
 
 def site_url() -> str:
     """Where the public site lives, with the trailing slash removed."""
-    return (os.environ.get(SITE_ENV) or "").strip().rstrip("/") or DEFAULT_SITE
+    return config_audit.get(SITE_ENV).rstrip("/") or DEFAULT_SITE
 
 
 def _fetch(site: str, path: str, *, bust: bool = False) -> int | None:

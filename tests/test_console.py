@@ -50,12 +50,16 @@ CONSOLE_ROUTES = (
     "/api/console/commands",
     "/api/console/economy",
     "/api/console/ops",
+    "/api/console/access",
     "/api/console/changes",
 )
 
-#: The one console route that *moves money*, so it is a POST and the access
-#: tests below cannot reach it with a GET.
-CONSOLE_WRITE_ROUTES = ("/api/console/economy/adjust",)
+#: The console routes that *write*, so they are POSTs the access tests below
+#: cannot reach with a GET.
+CONSOLE_WRITE_ROUTES = (
+    "/api/console/economy/adjust",
+    "/api/console/access/revoke",
+)
 
 
 def _source_hash() -> tuple[str, int]:
@@ -314,6 +318,77 @@ class WhoMayOpenIt(_DashboardFixture):
         for path in CONSOLE_WRITE_ROUTES:
             with self.subTest(path=path):
                 self.assertEqual(self.client.post(path, json={}).status_code, 401, path)
+
+
+class ThePayloadBoundaryKnowsEveryEndpoint(unittest.TestCase):
+    """`console/src/lib/payload.ts` is keyed by path, so the paths are a contract.
+
+    The console checks every payload against a schema before a page sees it — the
+    bundle is committed and served from a CDN, so a browser can be running last
+    week's build against this week's server, and a missing key should arrive as a
+    sentence rather than as a crash inside a `.map()`. A table like that has two
+    ways to be wrong, and both are silent:
+
+    * a schema for a path the app does not serve, which is dead weight that looks
+      like coverage;
+    * a route with no schema, which is a payload passing the boundary unchecked —
+      the exact gap the table exists to close.
+    """
+
+    def schemas(self) -> set[str]:
+        text = (CONSOLE / "src" / "lib" / "payload.ts").read_text(encoding="utf-8")
+        return set(re.findall(r'^\s*"(/api/[^"]+)":\s*\{', text, flags=re.MULTILINE))
+
+    def test_the_table_was_found(self):
+        self.assertGreater(len(self.schemas()), 4, "no schemas were parsed out of payload.ts")
+
+    def test_every_schema_names_a_route_this_app_serves(self):
+        """A schema may name a route, or the family a parameterised route is in.
+
+        `/api/console/server` is not a route and is not meant to be: it is the
+        family `/api/console/server/<int:guild_id>` belongs to, and the runtime
+        lookup matches a concrete path against it. Everything else must be an
+        endpoint this app actually serves.
+        """
+        exact: set[str] = set()
+        families: set[str] = set()
+        for rule in keep_alive.app.url_map.iter_rules():
+            families.add(rule.rule.split("<")[0].rstrip("/"))
+            if "<" not in rule.rule:
+                exact.add(rule.rule)
+        unknown = sorted(
+            path
+            for path in self.schemas()
+            if path not in exact
+            and path not in families
+            and not any(family == path for family in families)
+        )
+        self.assertEqual(
+            unknown,
+            [],
+            f"payload.ts describes endpoints nothing serves: {unknown}",
+        )
+
+    def test_every_console_family_has_a_schema(self):
+        """Exact or by family, the same rule `schemaFor` applies at runtime."""
+        schemas = self.schemas()
+        families = {
+            rule.rule.split("<")[0].rstrip("/")
+            for rule in keep_alive.app.url_map.iter_rules()
+            if rule.rule.startswith("/api/console/")
+        }
+        uncovered = sorted(
+            family
+            for family in families
+            if family not in schemas
+            and not any(candidate.startswith(family + "/") for candidate in schemas)
+        )
+        self.assertEqual(
+            uncovered,
+            [],
+            "these console endpoints answer payloads the boundary cannot check: "
+            + ", ".join(uncovered),
+        )
 
 
 class TheShellItServes(_DashboardFixture):
@@ -923,10 +998,20 @@ class TheLivePage(_DashboardFixture):
         cannot see which branch a `.tsx` file takes, and a page that ignored the
         flags would render a confident zero from the same payload."""
         source = (CONSOLE / "src" / "pages" / "Live.tsx").read_text(encoding="utf-8")
-        for flag in ("read.tracker", "read.voice", "read.channels"):
+        for flag in ("tracker", "voice", "channels"):
             with self.subTest(flag=flag):
-                self.assertIn(flag, source, f"Live.tsx never reads `{flag}`")
-        self.assertIn('read.tracker ? duration(totals.voice_seconds_week) : "—"', source)
+                self.assertIn(
+                    f'fromFlag(read, "{flag}"',
+                    source,
+                    f"Live.tsx draws a figure without asking whether `{flag}` was read",
+                )
+        self.assertIn("<Figure", source)
+        # …and the mark itself comes from the one component that draws it, so a
+        # page cannot print a different dash, or a zero, for the same absence.
+        ui = (CONSOLE / "src" / "ui.tsx").read_text(encoding="utf-8")
+        self.assertIn("NOT_READ", ui)
+        self.assertIn("stat--unread", ui)
+        self.assertIn("title={read.ok ? undefined : read.because}", ui)
         # …and it is a page of the console, not a file nothing routes to.
         app = (CONSOLE / "src" / "App.tsx").read_text(encoding="utf-8")
         self.assertIn('path === "/live"', app)

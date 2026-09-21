@@ -40,14 +40,21 @@ Three consumers, chosen because they are surfaces people already look at:
 * **``/api/config``** — ``full_json()`` — behind the administrator's sign-in,
   where the names, the purposes and the costs are.
 
-What this module does **not** do is read a setting on behalf of the code that
-uses it. Every module keeps its own ``os.getenv`` and its own default: this is a
-*description* of that surface, not a second source of truth that could drift
-away from it. ``tests/test_config_audit.py`` walks the source to prove the two
-agree in both directions — a setting read but not declared here fails that test,
-and so does one declared here that nothing reads. It found both an omission in the
-first draft of this file (``DISCORD_CLIENT_ID``, of all things) and a setting
-nothing read, which is the point of writing the guard before trusting the list.
+It also **reads** the environment, and it is the only place in the running
+application that does. ``get``/``flag`` are the two functions every runtime
+module calls, so "what can this deployment be configured with" has a single
+answer: the tuple below. That rule is enforced rather than trusted —
+``tests/test_config_audit.py`` walks the source and fails if ``keep_alive``,
+``bot.py``, ``cogs/`` or ``utils/`` reaches for ``os.environ`` directly. The
+build tooling under ``scripts/`` is deliberately exempt: it runs on a different
+machine, and ``tests/test_config_audit.py`` still proves every name it reads is
+declared here.
+
+The registry is also *checked* in both directions: a setting read but not
+declared fails a test, and so does one declared here that nothing reads. It found
+both an omission in the first draft of this file (``DISCORD_CLIENT_ID``, of all
+things) and a setting nothing read, which is the point of writing the guard
+before trusting the list.
 
 And it never reports a **value**, only whether one is there. Half of these are
 credentials — a bot token, a Supabase service key that is the database's password,
@@ -447,6 +454,15 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "OWNER_PUBLIC_SITE_URL", TUNING,
+        "where the owner host sends a path it does not serve — the public site, "
+        "which is the host whose build has the assets those pages ask for",
+        "the compiled default (https://meow-bot.pages.dev) is used. Set it when "
+        "the public site moves: the owner host answers only the console's own "
+        "paths, and every other one is redirected here.",
+        scope=BUILD,
+    ),
+    Setting(
         "CLOUDFLARE_PROXY", TUNING,
         "whether the build emits a Cloudflare proxy worker for dynamic routes",
         "the static pages are built without it.",
@@ -559,6 +575,31 @@ def _get(environ, name: str) -> str:
     return (environ.get(name) or "").strip()
 
 
+def get(name: str, default: str = "") -> str:
+    """A setting's value, stripped, or ``default`` when it is absent or blank.
+
+    The runtime's only way to the environment. The stripping is not cosmetic: it
+    is what every caller in this tree already did by hand —
+    ``(os.environ.get(X) or "").strip()`` — and it is why a blank line in a
+    template switches a feature off instead of half-enabling it.
+    """
+    return _get(os.environ, name) or default
+
+
+#: What counts as "on". Spelled once, because four modules had four spellings of
+#: this set and a deployment could therefore be configured differently by two
+#: features reading the same variable.
+_TRUTHS = frozenset({"1", "true", "yes", "on"})
+
+
+def flag(name: str) -> bool:
+    """Whether a setting is switched on: ``1``, ``true``, ``yes`` or ``on``.
+
+    Case-insensitive, and absent is off — a missing switch is never a yes.
+    """
+    return get(name).lower() in _TRUTHS
+
+
 def is_implied(setting: Setting, environ=None) -> bool:
     """Whether the code already works this setting out from something else set.
 
@@ -584,7 +625,9 @@ def audit(environ=None) -> dict:
     """The whole picture: what is set, what is not, and what that costs.
 
     ``environ`` is injectable so a test can ask about a deployment that is not
-    this one. Values are never read here — only presence.
+    this one. Values are never read here — only presence. That is a rule about
+    the *report*: ``get`` above hands a caller its own setting's value, and
+    nothing in this module ever puts one into a page, a log line or JSON.
     """
     env = os.environ if environ is None else environ
 

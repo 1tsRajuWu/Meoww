@@ -8,14 +8,19 @@ exposing secrets.
 """
 from __future__ import annotations
 
-import os
 import discord
 
+from utils import config_audit
+
 # The channel where update messages are posted.
-UPDATE_CHANNEL_ID: int = int(os.environ.get("UPDATE_CHANNEL_ID", "1548948620600942632"))
+UPDATE_CHANNEL_ID: int = int(
+    config_audit.get("UPDATE_CHANNEL_ID", "1548948620600942632")
+)
 
 # The role that gets pinged on updates.
-UPDATE_ROLE_ID: int = int(os.environ.get("UPDATE_ROLE_ID", "1548948461301534791"))
+UPDATE_ROLE_ID: int = int(
+    config_audit.get("UPDATE_ROLE_ID", "1548948461301534791")
+)
 
 
 def _fmt_section(title: str, lines: list[str]) -> str:

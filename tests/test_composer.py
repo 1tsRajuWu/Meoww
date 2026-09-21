@@ -630,7 +630,13 @@ class ComposerCase(_ComposerFixture):
             self._send(content="spam")
         self.assertEqual(self._send(content="spam").status_code, 429)
         time.sleep(0.02)
-        with mock.patch.object(self.keep_alive, "SEND_WINDOW_SECONDS", 0):
+        # The window belongs to the limiter object rather than to the module, so
+        # it is the thing patched — the claim being tested is that the *same* key
+        # is admitted again once its window has passed, and that is a property of
+        # the window, wherever it is stored. (``keep_alive.SEND_WINDOW_SECONDS``
+        # is the configured value the limiter was built from; patching it would
+        # change the module and nothing else.)
+        with mock.patch.object(self.keep_alive._SEND, "window_seconds", 0):
             self.assertTrue(self._send(content="spam").get_json()["success"])
 
     def test_an_offline_bot_is_not_a_silent_no_op(self):

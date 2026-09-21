@@ -39,6 +39,18 @@ from utils import config_audit
 
 ROOT = Path(__file__).resolve().parent.parent
 
+#: The part of the tree that runs the deployment, as opposed to the tooling that
+#: builds the published sites. These are the directories the "one reader" rule
+#: below covers; ``scripts/`` is exempt because it runs on a different machine,
+#: which is also why the reports keep a ``scope`` per setting.
+RUNTIME_DIRS = ("cogs", "utils")
+RUNTIME_FILES = ("bot.py", "keep_alive.py")
+
+#: The one module allowed to read the environment for the runtime. Everything
+#: else asks it, which is what makes the registry the whole answer to "what can
+#: this deployment be configured with" instead of a second list beside the code.
+SETTINGS_READER = "utils/config_audit.py"
+
 #: Directories whose Python is not this application. ``deleted_features`` is
 #: exactly what it says: retired code kept for reference, with its own tests, and
 #: none of it is loaded, imported or deployed. Its environment reads are not this
@@ -50,6 +62,7 @@ SKIP_DIRS = {"deleted_features", "tests", ".venv", "venv", "_site", "__pycache__
 #: module-level constant that holds the *name* rather than the value —
 #: ``ENV = "RENDER_DEPLOY_HOOK_URL"``, ``SELLING_ENV = "PLAN_CHECKOUT"``.
 READ_PATTERNS = (
+    r"""config_audit\.(?:get|flag|is_set)\(\s*["']([A-Z][A-Z0-9_]*)["']""",
     r"""os\.getenv\(\s*["']([A-Z][A-Z0-9_]*)["']""",
     r"""os\.environ\.get\(\s*["']([A-Z][A-Z0-9_]*)["']""",
     r"""os\.environ(?:\.setdefault|\.pop)?\(\s*["']([A-Z][A-Z0-9_]*)["']""",
@@ -175,6 +188,56 @@ class TheRegistryIsTheWholeTruth(unittest.TestCase):
                 )
                 for implied in setting.implied_by:
                     self.assertIn(implied, config_audit.BY_NAME)
+
+
+class TheRuntimeReachesTheEnvironmentThroughOneModule(unittest.TestCase):
+    """A registry that describes reads it does not perform can drift from them.
+
+    ``config_audit`` began as a *description* of ~50 ``os.getenv`` calls spread
+    across the tree, held to them only by the parity test above. That test proves
+    the two lists agree about **names**; it cannot see a default, a stripping
+    rule or a truthy-set that differs from what the audit's prose promises. The
+    reader is what closes that gap, and this guard is what keeps the reader the
+    only one — a new ``os.environ`` lookup in the runtime is a new place where a
+    setting can be spelled differently from how the registry describes it.
+
+    It is a source walk rather than an import-time check because the failure it
+    has to catch is an *added* read, which no runtime assertion can see.
+    """
+
+    def runtime_sources(self) -> list[Path]:
+        found = [ROOT / name for name in RUNTIME_FILES]
+        for directory in RUNTIME_DIRS:
+            found.extend(sorted((ROOT / directory).glob("*.py")))
+        return [path for path in found if path.exists()]
+
+    def test_only_the_settings_module_reads_the_environment(self):
+        offenders: list[str] = []
+        for path in self.runtime_sources():
+            relative = str(path.relative_to(ROOT))
+            if relative == SETTINGS_READER:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                if re.search(r"os\.(?:getenv|environ)", line):
+                    offenders.append(f"{relative}:{number}: {line.strip()}")
+        self.assertEqual(
+            offenders,
+            [],
+            "these read the environment directly instead of through "
+            f"config_audit.get/flag, so the registry is no longer the whole "
+            "surface: " + "; ".join(offenders),
+        )
+
+    def test_the_walk_actually_covers_the_application(self):
+        """A guard that found no files would pass the test above forever."""
+        sources = {str(path.relative_to(ROOT)) for path in self.runtime_sources()}
+        self.assertIn("bot.py", sources)
+        self.assertIn("keep_alive.py", sources)
+        self.assertIn("utils/db.py", sources)
+        self.assertIn("cogs/economy.py", sources)
+        self.assertGreater(len(sources), 20)
 
 
 class NoPublicPageNamesASetting(unittest.TestCase):

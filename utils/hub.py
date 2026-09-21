@@ -104,15 +104,15 @@ def marketing_url() -> str:
     """
     from utils import site_guard  # noqa: PLC0415 — avoids an import cycle
 
-    return (os.environ.get("MEOW_MARKETING_URL") or site_guard.site_url()
-            or "https://meow-bot.pages.dev").strip().rstrip("/")
+    return (config_audit.get("MEOW_MARKETING_URL") or site_guard.site_url()
+            or "https://meow-bot.pages.dev").rstrip("/")
 
 
 def live_url() -> str:
     """Where the bot itself is reachable — the console's own host."""
-    return (os.environ.get("LIVE_APP_URL")
-            or os.environ.get("MEOW_LIVE_APP_URL")
-            or "https://meow-discord-bot.onrender.com").strip().rstrip("/")
+    return (config_audit.get("LIVE_APP_URL")
+            or config_audit.get("MEOW_LIVE_APP_URL")
+            or "https://meow-discord-bot.onrender.com").rstrip("/")
 
 
 # ---------------------------------------------------------------------------

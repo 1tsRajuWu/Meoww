@@ -353,6 +353,78 @@ export type LivePayload = {
   at: number;
 };
 
+/**
+ * One signed-in session, as the ledger lists it.
+ *
+ * `sid` is **masked** by the server — `abc123…9f4c` — because a session id is a
+ * bearer credential: the page's job is to name a row to revoke, and a console
+ * that printed the whole value would make its own screen a way in.
+ */
+export type SessionRow = {
+  id: number;
+  sid: string;
+  scope: string;
+  /** Ids as text, for the usual reason — a snowflake is not a number. */
+  guild_id: string;
+  user_id: string;
+  label: string;
+  ip: string;
+  agent: string;
+  started_at: number;
+  seen_at: number;
+  expires_at: number;
+  revoked_at: number | null;
+  state: "live" | "expired" | "revoked";
+  /** Whether this is the browser asking for the list. */
+  current: boolean;
+};
+
+/**
+ * The ledger, or the reason there is not one.
+ *
+ * `available: false` is not "nobody is signed in" — it is "nobody can say",
+ * which is a different sentence and the only honest one on a host whose
+ * database could not be read.
+ */
+export type SessionLedger = {
+  available: boolean;
+  because: string;
+  idle_ttl_seconds: number;
+  rows: SessionRow[];
+  live: number;
+  revoked: number;
+};
+
+/** One guard window, as `utils/ratelimit.py` reports it. */
+export type Window = {
+  name: string;
+  window_seconds: number;
+  limit: number;
+  /** Keys inside the window right now — normally addresses. */
+  tracked: number;
+  attempts: number;
+  blocked: { key: string; attempts: number; frees_at: number; seconds_left: number }[];
+  refused: number;
+  last_refused_at: number | null;
+};
+
+/** The two switches that decide whether a limit counts people or a proxy. */
+export type Doors = {
+  passkey_enabled: boolean;
+  discord_elevation: boolean;
+  visitor_address_signed: boolean;
+  ledger_writable: boolean;
+};
+
+export type AccessPayload = {
+  success: true;
+  sessions: SessionLedger;
+  limits: Record<string, Window>;
+  doors: Doors;
+  process: { uptime_seconds: number; started_at: number; now: number };
+  read: { sessions: { ok: boolean; because: string } };
+};
+
 export type BootData = {
   csrfToken: string;
   operator: Operator;

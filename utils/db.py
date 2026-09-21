@@ -564,6 +564,31 @@ async def setup():
             "guild_id": "INTEGER DEFAULT 0",
         })
 
+        # ── Signed-in dashboard sessions ────────────────────────────────────
+        # A Flask session is a signed cookie and cannot be recalled; this is the
+        # row that can. One per sign-in, carrying the scope it was granted and
+        # the moment it stops being believed — see ``utils/sessions.py``, which
+        # also creates it defensively on first use so a database restored from a
+        # backup taken before this existed does not break every sign-in.
+        await db.execute('''CREATE TABLE IF NOT EXISTS dashboard_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sid TEXT NOT NULL UNIQUE,
+            scope TEXT NOT NULL DEFAULT '',
+            guild_id INTEGER,
+            user_id INTEGER,
+            label TEXT NOT NULL DEFAULT '',
+            ip TEXT NOT NULL DEFAULT '',
+            agent TEXT NOT NULL DEFAULT '',
+            started_at REAL NOT NULL DEFAULT 0,
+            seen_at REAL NOT NULL DEFAULT 0,
+            expires_at REAL NOT NULL DEFAULT 0,
+            revoked_at REAL
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_sessions_live '
+            'ON dashboard_sessions(revoked_at, expires_at)'
+        )
+
         # A server's own name and picture for the bot. Discord keeps these
         # per guild (they are fields on the bot's *member*, not on the
         # application), so this table is the dashboard's record of what was

@@ -273,5 +273,73 @@ class TheRotation(TempDatabaseMixin):
         self.assertTrue(seen, "the rotation stopped on a failed read")
 
 
+class ReadingTheVerb(unittest.TestCase):
+    """"Why does it say *Playing* that?" — because the verb is Discord's.
+
+    A typed activity always renders as "<Type> <text>", so the text has to read as
+    a continuation of a verb. The list this shipped with was written as headlines,
+    and one of them therefore rendered as **"Playing Meowing at the wall 🐈 |
+    /help"**, which is the line that was reported. These tests keep the whole list
+    on the grammatical side of that rule instead of re-listing the old wording.
+    """
+
+    #: The rendering that was reported, checked as the produced sentence rather
+    #: than as the substring, so a rewording elsewhere cannot hide it.
+    REPORTED = "Playing Meowing at the wall"
+
+    def test_no_default_line_renders_as_the_reported_sentence(self):
+        for text, kind in presence.DEFAULT_LINES:
+            self.assertNotIn(
+                self.REPORTED.lower(),
+                f"{kind} {text}".lower(),
+                f"{text!r} still reads as a headline after its verb",
+            )
+
+    def test_every_typed_line_continues_its_verb(self):
+        """A line that follows a verb starts with a lowercase word ("with the
+        laser pointer") or with decoration (an emoji). A capitalised first word is
+        a sentence, and a sentence after "Playing" is the bug."""
+        for text, kind in presence.DEFAULT_LINES:
+            if kind in presence.VERBLESS_KINDS:
+                continue
+            first = text.strip()[:1]
+            self.assertTrue(first, f"{kind}: an empty line")
+            if first.isalnum():
+                self.assertTrue(
+                    first.islower(),
+                    f"{kind} {text!r} reads as a headline, not a continuation",
+                )
+
+    def test_the_verbs_offered_are_the_four_discord_renders_plus_a_verbless_one(self):
+        for kind in ("playing", "watching", "listening", "competing"):
+            self.assertIn(kind, presence.ACTIVITY_KINDS)
+            self.assertNotIn(kind, presence.VERBLESS_KINDS)
+
+    def test_a_custom_status_is_available_and_carries_no_verb(self):
+        if "custom" not in presence.ACTIVITY_KINDS:
+            self.skipTest("this discord.py has no ActivityType.custom")
+        self.assertIn("custom", presence.VERBLESS_KINDS)
+        activity = presence.build("Meowing at the wall 🐈", "custom")
+        self.assertEqual(activity.name, "Meowing at the wall 🐈")
+        self.assertIsInstance(activity, bot_module.discord.CustomActivity)
+
+    def test_the_rotation_applies_the_status_through_build(self):
+        """One place decides how a line becomes an activity, so the verbless kind
+        cannot work in the command and silently not in the loop — or the other way
+        round."""
+        import inspect
+
+        source = inspect.getsource(bot_module.rotate_status)
+        self.assertIn("presence.build(", source)
+
+    def test_the_owner_can_pick_the_verbless_kind(self):
+        import inspect
+
+        from cogs import bot_config
+
+        source = inspect.getsource(bot_config)
+        self.assertIn('value="custom"', source)
+
+
 if __name__ == "__main__":
     unittest.main()

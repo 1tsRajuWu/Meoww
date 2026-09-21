@@ -11,7 +11,6 @@ wallet cannot drift apart.
 """
 from __future__ import annotations
 
-import os
 import time
 
 import discord
@@ -19,7 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.economy import ensure_eco, get_eco
-from utils import chart, market
+from utils import chart, config_audit, market
 from utils.style import send_card
 
 #: How many trades `/market history` shows.
@@ -32,7 +31,7 @@ FIELD_LIMIT = 1024
 
 #: Where the live chart page is served. The same host as the dashboard, because
 #: that is the process that already has the market in memory.
-DASHBOARD_BASE = os.getenv(
+DASHBOARD_BASE = config_audit.get(
     "DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com"
 ).rstrip("/")
 

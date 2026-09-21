@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import type { ConfigHealth } from "./types";
+import { NOT_READ, type Reading } from "./lib/reading";
 
 /* ------------------------------------------------------------------ layout */
 
@@ -80,6 +81,75 @@ export function Stat({
       <span className="stat__value">{value}</span>
       <span className="stat__label">{label}</span>
       {sub && <span className="stat__sub">{sub}</span>}
+    </motion.div>
+  );
+}
+
+/**
+ * A figure that knows whether it was read.
+ *
+ * `Stat` prints whatever it is handed, which is right for a count the server
+ * always has. A **reading** — who is in voice, how many messages today, how many
+ * sessions can be revoked — can legitimately be missing, and the one thing it
+ * must never become is a zero: "nobody is in voice" and "the gateway has not
+ * answered" are different sentences, and only one of them is true.
+ *
+ * So a missing figure prints an em dash, carries its reason as the tooltip, and
+ * is dimmed rather than hidden — a page that removed the figure would leave the
+ * reader wondering what used to be there. The *sentences* live in each page's
+ * own gap notice, because only the page knows what it drew.
+ */
+export function Figure({
+  label,
+  read,
+  value,
+  sub,
+  index = 0,
+}: {
+  label: string;
+  read: Reading<unknown>;
+  value: ReactNode;
+  sub?: ReactNode;
+  index?: number;
+}) {
+  return (
+    <motion.div
+      className={`stat${read.ok ? "" : " stat--unread"}`}
+      data-read={read.ok ? "ok" : "missing"}
+      title={read.ok ? undefined : read.because}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 220, damping: 26, delay: index * 0.05 }}
+    >
+      <span className="stat__value">{read.ok ? value : NOT_READ}</span>
+      <span className="stat__label">{label}</span>
+      {sub && <span className="stat__sub">{sub}</span>}
+    </motion.div>
+  );
+}
+
+/**
+ * The band that says "this part of the page could not be read".
+ *
+ * Deliberately not an error: nothing is broken, a reading was not taken — the
+ * gateway has not answered yet, the intent is off, the database could not be
+ * opened. A page that painted this as a failure would send its reader looking
+ * for a fault that is not there, and one that painted it as zeros would be
+ * inventing numbers. Same shape as the Live page's gap notice, lifted here so
+ * the two cannot drift apart.
+ */
+export function Unread({ title, said }: { title: string; said: ReactNode }) {
+  return (
+    <motion.div
+      className="gaps"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 200, damping: 26 }}
+    >
+      <span className="gaps__head">{title}</span>
+      <ul>
+        <li>{said}</li>
+      </ul>
     </motion.div>
   );
 }

@@ -4,9 +4,9 @@ from discord.ext import commands
 import random
 import asyncio
 import aiosqlite
-from utils import db
+from utils import db, gifs
 from cogs.economy import get_eco, update_wallet, ensure_eco, take_stake
-from utils.style import send_card, display_name
+from utils.style import send_card, display_name, pings
 
 DB_PATH = db.DB_PATH
 
@@ -97,18 +97,17 @@ TIER_NAMES = {
 }
 
 # -------------------------------------------------------------
-# ANIME ACTION GIFS & CAPTIONS
+# ANIME ACTION CAPTIONS (and what each action looks like)
 # -------------------------------------------------------------
+# The pictures are deliberately **not** here. Every entry used to carry a list of
+# hand-typed ``media.tenor.com`` links, and every one of them answered 404 — which
+# the bot cannot notice and Discord draws as an empty box, the "no gif" report.
+# ``utils/gifs`` resolves and verifies an image at the moment it is used instead,
+# so a deleted file is a missing picture rather than a broken one.
 ACTIONS_DATA = {
     "bonk": {
         "title": "🔨 BONK!",
         "color": 0xFEE75C,
-        "gifs": [
-            "https://media.tenor.com/P_Vf4q6c0rQAAAAC/cheems-bonk.gif",
-            "https://media.tenor.com/2s_nK2pZhyMAAAAC/anime-bonk.gif",
-            "https://media.tenor.com/wOozmK-TtNsAAAAC/bonk-doge.gif",
-            "https://media.tenor.com/4qK49d4g88gAAAAC/anime-slap-bonk.gif",
-        ],
         "lines": [
             "{author} pulled out a 100-ton squeaky cartoon hammer and **BONKED** {target}! 💥",
             "*BONK!* Go directly to horny jail, {target}! Do not pass GO! 🚨",
@@ -119,11 +118,6 @@ ACTIONS_DATA = {
     "slap": {
         "title": "👋 SLAP!",
         "color": 0xED4245,
-        "gifs": [
-            "https://media.tenor.com/Ws6Dm1ZW_vMAAAAC/girl-slap.gif",
-            "https://media.tenor.com/CvBTA0GyrogAAAAC/anime-slap.gif",
-            "https://media.tenor.com/XiYuCeAUhTIAAAAC/anime-slap-angry.gif",
-        ],
         "lines": [
             "{author} slapped some sense into {target}! 👋",
             "The echo of {author}'s slap against {target}'s cheek resonated across the whole server! 💥",
@@ -133,11 +127,6 @@ ACTIONS_DATA = {
     "hug": {
         "title": "🤗 Warm Hug!",
         "color": 0x57F287,
-        "gifs": [
-            "https://media.tenor.com/kCZvsN3U9VUAAAAC/anime-hug.gif",
-            "https://media.tenor.com/7oAptNOZ0d8AAAAC/hug-anime.gif",
-            "https://media.tenor.com/wUQH5C6KlSMAAAAC/anime-cuddle.gif",
-        ],
         "lines": [
             "{author} wrapped their arms around {target} in a super warm and cozy hug! ❤️",
             "{author} glomped {target} tightly and refuses to let go! 🥰",
@@ -147,11 +136,6 @@ ACTIONS_DATA = {
     "kiss": {
         "title": "💋 Sweet Kiss!",
         "color": 0xEB459E,
-        "gifs": [
-            "https://media.tenor.com/F02Ep3b2qJgAAAAC/anime-kiss.gif",
-            "https://media.tenor.com/d_T8l9d_qLAAAAAC/kiss-anime.gif",
-            "https://media.tenor.com/I83WJ7-2ttgAAAAC/anime-kissing.gif",
-        ],
         "lines": [
             "{author} leaned in and gave {target} a sweet kiss on the cheek! 🌸",
             "*smooch* {author} kissed {target}! Look at them blushing red! 🥰",
@@ -161,11 +145,6 @@ ACTIONS_DATA = {
     "pat": {
         "title": "🐾 Headpats!",
         "color": 0x5865F2,
-        "gifs": [
-            "https://media.tenor.com/E6fWJRrwP_AAAAAC/anime-pat.gif",
-            "https://media.tenor.com/kM1m3Ff1i7UAAAAC/headpat-anime.gif",
-            "https://media.tenor.com/Y7x9Yj8qKzAAAAAC/pat-anime.gif",
-        ],
         "lines": [
             "{author} gently patted {target} on the head. Good boy/girl! 🐾",
             "{author} gave {target} soft, affectionate headpats! *purrrrr* 🐱",
@@ -175,10 +154,6 @@ ACTIONS_DATA = {
     "punch": {
         "title": "🥊 K.O. Punch!",
         "color": 0xE74C3C,
-        "gifs": [
-            "https://media.tenor.com/Ev1H7K4J5fEAAAAC/anime-punch.gif",
-            "https://media.tenor.com/UH8J05CXEBoAAAAC/anime-punch-fight.gif",
-        ],
         "lines": [
             "{author} hit {target} with an anime knockout punch! Critical hit! 💥",
             "ONE PUNCH! {author} sent {target} flying into orbit! 🚀",
@@ -188,10 +163,6 @@ ACTIONS_DATA = {
     "bite": {
         "title": "🦷 Playful Chomp!",
         "color": 0xE67E22,
-        "gifs": [
-            "https://media.tenor.com/eT5zK6h1n2YAAAAC/anime-bite.gif",
-            "https://media.tenor.com/No9Z4J_4hWAAAAAC/bite-anime.gif",
-        ],
         "lines": [
             "{author} took a playful little chomp out of {target}! *nom nom* 😋",
             "{target} got bitten by {author}! Ow, watch the teeth! 😼",
@@ -201,10 +172,6 @@ ACTIONS_DATA = {
     "cuddle": {
         "title": "🧸 Cozy Cuddle!",
         "color": 0x9B59B6,
-        "gifs": [
-            "https://media.tenor.com/DV7M8iO5_lAAAAAC/anime-cuddle.gif",
-            "https://media.tenor.com/S6M_pSjVlWwAAAAC/cuddle-anime.gif",
-        ],
         "lines": [
             "{author} snuggled up and cuddled with {target} under a fluffy blanket! 🧸",
             "{author} pulled {target} close for the coziest snuggle ever! 💖",
@@ -213,10 +180,6 @@ ACTIONS_DATA = {
     "poke": {
         "title": "👉 Boop / Poke!",
         "color": 0x1ABC9C,
-        "gifs": [
-            "https://media.tenor.com/3dK8nN2WqSIAAAAC/anime-poke.gif",
-            "https://media.tenor.com/y4vK0yB3pG8AAAAC/poke-anime.gif",
-        ],
         "lines": [
             "{author} poked {target}'s squishy cheek repeatedly! *poke poke* 👉",
             "{author} booped {target} right on the nose! Boop! 🐽",
@@ -225,10 +188,6 @@ ACTIONS_DATA = {
     "feed": {
         "title": "🍰 Feeding Time!",
         "color": 0xF39C12,
-        "gifs": [
-            "https://media.tenor.com/I84yvWc_V84AAAAC/anime-feed.gif",
-            "https://media.tenor.com/M6L2yY-hT68AAAAC/feed-anime.gif",
-        ],
         "lines": [
             "{author} feeds {target} a delicious sweet treat! Say 'aaahhh~' 🍓🍰",
             "{author} fed {target} yummy snacks! *nom nom nom* 🍪",
@@ -705,8 +664,11 @@ class Social(commands.Cog):
         if member.id == interaction.user.id:
             return await interaction.response.send_message(f"❌ You can't {action} yourself!", ephemeral=True)
 
+        # The picture is fetched and verified first, so the reply is deferred up
+        # front rather than answering twice on a slow provider.
+        await interaction.response.defer()
+
         data = ACTIONS_DATA[action]
-        gif = random.choice(data["gifs"])
         line = random.choice(data["lines"]).format(author=interaction.user.mention, target=member.mention)
 
         embed = discord.Embed(
@@ -715,8 +677,19 @@ class Social(commands.Cog):
             color=data["color"],
             timestamp=discord.utils.utcnow()
         )
-        embed.set_image(url=gif)
-        await send_card(interaction, embed=embed)
+
+        # Verified, or nothing: an unconfirmed link used to be drawn as an empty
+        # placeholder, which looks like the bot is broken (see utils/gifs).
+        gif = await gifs.action_gif(action)
+        if gif:
+            embed.set_image(url=gif)
+
+        embed.set_footer(text=f"{interaction.user.display_name} → {member.display_name}")
+
+        # Cards suppress mentions by default, and this one *is* about somebody who
+        # is supposed to be told. The target is the only person notified: pinging
+        # the author back at themselves is noise nobody asked for.
+        await send_card(interaction, embed=embed, allowed_mentions=pings(member))
 
     @app_commands.command(name="action", description="Perform an anime/social roleplay action with another member!")
     @app_commands.describe(action="The roleplay action to perform", member="The member to interact with")

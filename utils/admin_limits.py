@@ -7,25 +7,26 @@ from __future__ import annotations
 
 import discord
 
+from utils import config_audit
+
 # ---------------------------------------------------------------------------
 # Limits (configurable via environment variables)
 # ---------------------------------------------------------------------------
-import os
 
 #: Max XP an admin can give without owner approval
-ADMIN_GIVEXP_LIMIT: int = int(os.environ.get("ADMIN_GIVEXP_LIMIT", "10000"))
+ADMIN_GIVEXP_LIMIT: int = int(config_audit.get("ADMIN_GIVEXP_LIMIT", "10000"))
 
 #: Max money an admin can add without owner approval
-ADMIN_ADDMONEY_LIMIT: int = int(os.environ.get("ADMIN_ADDMONEY_LIMIT", "50000"))
+ADMIN_ADDMONEY_LIMIT: int = int(config_audit.get("ADMIN_ADDMONEY_LIMIT", "50000"))
 
 #: Max money an admin can set without owner approval
-ADMIN_SETMONEY_LIMIT: int = int(os.environ.get("ADMIN_SETMONEY_LIMIT", "100000"))
+ADMIN_SETMONEY_LIMIT: int = int(config_audit.get("ADMIN_SETMONEY_LIMIT", "100000"))
 
 #: Max money an admin can add to bank without owner approval
-ADMIN_ADDBANK_LIMIT: int = int(os.environ.get("ADMIN_ADDBANK_LIMIT", "50000"))
+ADMIN_ADDBANK_LIMIT: int = int(config_audit.get("ADMIN_ADDBANK_LIMIT", "50000"))
 
 #: The bot owner's user ID (for approval notifications)
-OWNER_USER_ID: int = int(os.environ.get("OWNER_USER_ID", "0"))
+OWNER_USER_ID: int = int(config_audit.get("OWNER_USER_ID", "0"))
 
 
 def needs_approval(amount: int, limit: int) -> bool:

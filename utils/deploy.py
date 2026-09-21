@@ -13,9 +13,10 @@ error — including the ``URLError`` that would happily quote it back.
 """
 
 import asyncio
-import os
 import urllib.error
 import urllib.request
+
+from utils import config_audit
 
 #: Where the deploy hook lives. Unset means this bot can read its own version and
 #: post release notes, but cannot make the host build anything.
@@ -24,7 +25,7 @@ ENV = "RENDER_DEPLOY_HOOK_URL"
 
 def hook_url() -> str:
     """The configured deploy hook, or ``""``."""
-    return (os.getenv(ENV) or "").strip()
+    return config_audit.get(ENV)
 
 
 def configured() -> bool:

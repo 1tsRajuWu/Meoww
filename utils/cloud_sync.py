@@ -36,12 +36,14 @@ import urllib.error
 import urllib.request
 import json as _json
 
+from utils import config_audit
+
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
 
-SUPABASE_URL: str = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-SUPABASE_KEY: str = (os.environ.get("SUPABASE_SERVICE_KEY") or "").strip()
+SUPABASE_URL: str = config_audit.get("SUPABASE_URL").rstrip("/")
+SUPABASE_KEY: str = config_audit.get("SUPABASE_SERVICE_KEY")
 BUCKET: str = "bot-backups"
 
 #: The primary backup file — always the latest state.
@@ -51,7 +53,7 @@ SNAPSHOT_PREFIX: str = "bot-db-"
 SNAPSHOT_SUFFIX: str = ".db"
 #: How many snapshots to keep (oldest pruned first).
 try:
-    BACKUP_KEEP: int = max(1, int(os.environ.get("BACKUP_KEEP", "5")))
+    BACKUP_KEEP: int = max(1, int(config_audit.get("BACKUP_KEEP", "5")))
 except (TypeError, ValueError):
     BACKUP_KEEP = 5
 #: Seconds between snapshot rotations.
@@ -225,9 +227,7 @@ LEASE_TOUCH_INTERVAL: int = 120
 #: Consecutive checks a *shrunk* database is held back before its state is accepted.
 SHRINK_GRACE_TICKS: int = 4
 #: Escape hatch for a deliberate wipe: ``CLOUD_SYNC_ALLOW_SHRINK=1``.
-ALLOW_SHRINK: bool = (os.environ.get("CLOUD_SYNC_ALLOW_SHRINK") or "").strip().lower() in {
-    "1", "true", "yes", "on",
-}
+ALLOW_SHRINK: bool = config_audit.flag("CLOUD_SYNC_ALLOW_SHRINK")
 
 # Module-level state shared with the upload path.
 _last_sync_hash: str | None = None

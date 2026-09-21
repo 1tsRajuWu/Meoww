@@ -27,9 +27,10 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import type { LiveChannel, LivePayload, VoicePerson } from "../types";
 import { ago, compact, duration } from "../lib/format";
+import { fromFlag } from "../lib/reading";
 import { Link } from "../lib/router";
 import { useLive } from "../lib/useLive";
-import { Card, Empty, Failure, Pill, Skeleton, Stat } from "../ui";
+import { Card, Empty, Failure, Figure, Pill, Skeleton } from "../ui";
 
 const VOICE_INTERVAL = 15_000;
 
@@ -40,6 +41,10 @@ const GAPS: { key: keyof LivePayload["read"]; said: string }[] = [
   {
     key: "channels",
     said: "The gateway has not answered yet, so this page cannot list channels or voice rooms. It fills in as soon as the handshake finishes.",
+  },
+  {
+    key: "voice",
+    said: "This server has no voice channels, so there are no rooms to read. The dashes beside the voice figures mean there is nothing to count, not that counting failed.",
   },
   {
     key: "presence",
@@ -80,6 +85,20 @@ export function Live() {
 
   const { totals, read } = data;
   const gaps = GAPS.filter((gap) => !read[gap.key]);
+  // One sentence per flag, so a dash and its explanation always come from the
+  // same entry in `GAPS` rather than from a literal typed beside a number.
+  const explain = (key: keyof LivePayload["read"]) =>
+    GAPS.find((gap) => gap.key === key)?.said ?? "This reading was not taken.";
+  // Every figure goes through the same `Reading`, whether or not it can be
+  // missing: a count that can never be absent is one *call* away from one that
+  // can, and the two should not need different components to be drawn honestly.
+  const figures = {
+    channels: fromFlag(read, "channels", totals.channels, explain("channels")),
+    inVoice: fromFlag(read, "voice", totals.in_voice, explain("voice")),
+    messagesToday: fromFlag(read, "tracker", totals.messages_today, explain("tracker")),
+    messagesWeek: fromFlag(read, "tracker", totals.messages_week, explain("tracker")),
+    voiceWeek: fromFlag(read, "tracker", totals.voice_seconds_week, explain("tracker")),
+  };
   const occupied = voice.filter((channel) => channel.people.length > 0);
   const quiet = voice.filter((channel) => channel.people.length === 0);
 
@@ -138,13 +157,24 @@ export function Live() {
 
       <Card span={6} index={1} title="At a glance" hint="Live where the gateway can answer, counted where the tracker can.">
         <div className="stats stats--tight stats--bracket">
-          <Stat value={read.voice ? compact(totals.in_voice) : "—"} label="in voice" index={0} />
-          <Stat value={compact(totals.channels)} label="channels" index={1} />
-          <Stat value={read.tracker ? compact(totals.messages_today) : "—"} label="messages today" index={2} />
-          <Stat value={read.tracker ? compact(totals.messages_week) : "—"} label="messages · 7d" index={3} />
-          <Stat
-            value={read.tracker ? duration(totals.voice_seconds_week) : "—"}
+          <Figure label="in voice" read={figures.inVoice} value={compact(totals.in_voice)} index={0} />
+          <Figure label="channels" read={figures.channels} value={compact(totals.channels)} index={1} />
+          <Figure
+            label="messages today"
+            read={figures.messagesToday}
+            value={compact(totals.messages_today)}
+            index={2}
+          />
+          <Figure
+            label="messages · 7d"
+            read={figures.messagesWeek}
+            value={compact(totals.messages_week)}
+            index={3}
+          />
+          <Figure
             label="voice · 7d"
+            read={figures.voiceWeek}
+            value={duration(totals.voice_seconds_week)}
             index={4}
           />
         </div>

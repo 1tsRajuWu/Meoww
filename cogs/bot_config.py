@@ -7,13 +7,11 @@ loading at all. A subcommand nests inside its parent and costs none of that
 budget, so the commands that address the *bot* rather than any server's members
 now live in one group, and there is room for the next one.
 """
-import os
-
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import db
+from utils import config_audit, db
 
 #: The two seeded channel IDs below only exist in the home server. Writing them
 #: into any other guild pointed its moderation log at a channel that isn't there
@@ -25,7 +23,9 @@ def _pricing_url() -> str:
     moved hosts (or is being looked at from one) points at its own page instead
     of at this project's Render URL.
     """
-    base = os.getenv("DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com")
+    base = config_audit.get(
+        "DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com"
+    )
     return f"{base.rstrip('/')}/pricing"
 
 
@@ -111,8 +111,7 @@ class BotConfig(commands.Cog):
         Checking guild.owner_id let *any* server owner the bot shared a guild
         with replace the avatar/banner for every guild — a multi-tenant takeover.
         """
-        import os
-        configured = int(os.environ.get("OWNER_USER_ID", "0") or "0")
+        configured = int(config_audit.get("OWNER_USER_ID", "0") or "0")
         if configured and interaction.user.id == configured:
             return True
         if await interaction.client.is_owner(interaction.user):
@@ -180,18 +179,19 @@ class BotConfig(commands.Cog):
         description="What the bot is doing: show it, add a line, or turn it off (Owner only).",
     )
     @app_commands.describe(
-        text="A status line to add, e.g. 'Watching the leaderboard' — leave blank to just look",
-        type="How that line reads: playing, watching, listening or competing",
+        text="A status line to add, e.g. 'with the laser pointer' — leave blank to just look",
+        type="How that line reads: playing, watching, listening, competing, or custom (no verb)",
         interval="Minutes each line stays up (1-1440)",
         clear="Turn the activity off entirely (just be online)",
         reset="Throw away the custom list and go back to the shipped one",
     )
     @app_commands.choices(
         type=[
-            app_commands.Choice(name="Playing", value="playing"),
-            app_commands.Choice(name="Watching", value="watching"),
-            app_commands.Choice(name="Listening to", value="listening"),
-            app_commands.Choice(name="Competing in", value="competing"),
+            app_commands.Choice(name="Playing …", value="playing"),
+            app_commands.Choice(name="Watching …", value="watching"),
+            app_commands.Choice(name="Listening to …", value="listening"),
+            app_commands.Choice(name="Competing in …", value="competing"),
+            app_commands.Choice(name="(no verb, custom status)", value="custom"),
         ]
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -254,8 +254,13 @@ class BotConfig(commands.Cog):
             body = f"{len(lines)} line(s), rotating every {minutes} min:\n{shown}{more}"
         prefix = "Updated." if changed else "Current status:"
         await interaction.response.send_message(
-            f"{prefix}\n{body}\n\n-# This is application-wide: Discord has no per-server "
-            "status, so every server sees the same line.",
+            f"{prefix}\n{body}\n\n"
+            "-# The word before each line is Discord's, chosen by the type — "
+            "`playing` always shows as \"Playing …\", so a line should read as a "
+            "continuation (\"with the laser pointer\"). Use `custom` for a line with "
+            "no verb at all.\n"
+            "-# This is application-wide: Discord has no per-server status, so every "
+            "server sees the same line.",
             ephemeral=True,
         )
 

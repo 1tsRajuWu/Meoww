@@ -172,6 +172,50 @@ Render, and Render redeploys on every push), so a hand-deployed `meow-owner` is 
 second, cacheable copy of one app — worth knowing when the two disagree, and the
 reason the answer is "deploy it" rather than "the console is wrong".
 
+#### This host serves the console and nothing else
+
+`_owner/_worker.js` answers a **short prefix list** — `/owner`, `/api/console`,
+`/api/toggle`, `/api/toggle-all`, `/api/command-scope`, `/api/image`,
+`/login/discord`, `/logout`, and `/static/` from its own CDN — and **301s every
+other path to `OWNER_PUBLIC_SITE_URL`** (default `https://meow-bot.pages.dev`),
+with the path and query string preserved. The root is the console sought directly
+(`/` → `/owner`), so a bookmark to the bare hostname lands on the fleet.
+
+This is a fix for a *class* of bug rather than an untidiness. As a reverse proxy
+of the whole application this host had two properties that both cost real time:
+every page the backend renders arrives referring to `/static/...`, which only
+exists here if the build copied it — so a missing stylesheet 404'd **on this host
+alone**, silently (that is how `/dashboard` came back as a heading over a black
+rectangle) — and every door the backend has was a door here too, which is how the
+console grew a second entrance whose guard nobody was reading (`/login` answered
+200 on this domain). Both are gone: the asset contract is one directory, and the
+only sign-in this host proxies is the console's own (`/login` is *deliberately*
+not on the list). `tests/test_owner_site.py` derives the paths the bundled
+console actually calls out of `console/src/` and fails if one is not covered, and
+reads the prefix list back out of the generated worker, so the two cannot drift.
+
+Moving the public site? Set `OWNER_PUBLIC_SITE_URL` for this build as well; the
+compiled default is the `meow-bot` host.
+
+#### The strongest setting to add, and it is not in this repository
+
+The path list above is what makes **Cloudflare Access** (Zero Trust) practical
+here: an Access application covering `/owner*` and `/api/console/*` asks for an
+identity at the edge, before the request reaches Render, and the passkey stays
+as the app-side layer rather than the only thing standing in the doorway. Hiding
+the whole hostname behind Access is *not* recommended — `/static/` and the
+sign-in redirect have to stay reachable for a signed-out browser to be told what
+it is missing — so scope the policy to the two prefixes and leave `/` and
+`/static/*` public. Verify Access is entitled on the plan before relying on it.
+
+Nothing about this is enforced in the repository, which is exactly why it is
+written down here: a change made only in a dashboard is a change the next reader
+of this file cannot see. The passkey and the per-address sign-in limit
+(`OWNER_PROXY_SECRET`) remain correct on their own — Access is one more layer,
+not a substitute for either — and the Render host deliberately keeps serving
+`/owner` with only the passkey, so that a mistake in an edge policy cannot lock
+the operator out of their own console.
+
 ## Environment Variables Required
 
 ### Discord Bot
@@ -200,6 +244,27 @@ reason the answer is "deploy it" rather than "the console is wrong".
   dashboard port would carry the session cookie)
 
 ## Deployment Process
+
+### One-off repairs (posting as the bot, by hand)
+
+`scripts/repair_untagged_actions.py` is the shape to copy for anything that has to
+*act* as the bot once, in one place, without a redeploy. It always prints what it
+would do first and needs `--apply` to write anything, and it records what it has
+already done in `guild_settings` so running it twice is a no-op.
+
+```bash
+# dry run: reads history, posts nothing
+.venv/bin/python scripts/repair_untagged_actions.py --guild Hmm --channel general \
+    --date 2026-09-21 --hours 1-5 --tz +05:30
+
+# and then, once that output reads correctly
+.venv/bin/python scripts/repair_untagged_actions.py --guild Hmm --channel general \
+    --date 2026-09-21 --hours 1-5 --tz +05:30 --apply
+```
+
+It needs `DISCORD_TOKEN` (environment or `.env`) and is read-only until `--apply`.
+Channel names are matched with their decoration stripped, because real channels are
+`#💬・general` and an exact-name lookup finds nothing.
 
 ### Initial Setup
 1. Create Supabase project

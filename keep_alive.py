@@ -38,7 +38,7 @@ import sys
 import time
 import secrets
 import urllib.parse
-from collections import defaultdict, deque
+from collections import deque
 from threading import Lock, Thread
 import socket
 import datetime
@@ -50,8 +50,8 @@ from flask import (
 )
 from utils import (
     command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    figures, guild_directory, hub, identity, meowfee, modules, plans, scheduled,
-    site_guard, uptime_status, webdocs,
+    figures, guild_directory, hub, identity, meowfee, modules, plans, principal,
+    ratelimit, scheduled, sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -122,7 +122,7 @@ def asset_version(name: str) -> str:
 # the same function, and a missing registration fails loudly the moment anything
 # renders that page rather than quietly shipping an unversioned URL.
 app.jinja_env.globals["asset_version"] = asset_version
-_env_secret = (os.environ.get("FLASK_SECRET_KEY") or "").strip()
+_env_secret = config_audit.get("FLASK_SECRET_KEY")
 if _env_secret:
     app.secret_key = _env_secret
 else:
@@ -133,15 +133,17 @@ else:
         flush=True,
     )
 
-_behind_https_host = bool(os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT"))
+_behind_https_host = bool(
+    config_audit.is_set("RENDER") or config_audit.is_set("RAILWAY_ENVIRONMENT")
+)
 # Only trust proxy headers when we are actually behind a known reverse proxy.
 # Otherwise a client could spoof X-Forwarded-For and bypass login rate limiting.
-_trust_proxy_headers = _behind_https_host or (os.environ.get("TRUST_PROXY_HEADERS", "").strip().lower() in {"1", "true", "yes"})
+_trust_proxy_headers = _behind_https_host or config_audit.flag("TRUST_PROXY_HEADERS")
 # A self-hosted reverse proxy cannot be fingerprinted the way Render can, and the
 # server binds 0.0.0.0 — so without this switch a deployment behind its own TLS
 # terminator issued a session cookie with no Secure flag, and a plaintext request
 # to port 8080 would carry it. DASHBOARD_HTTPS=1 says "this host is HTTPS only".
-_https_only_override = (os.environ.get("DASHBOARD_HTTPS") or "").strip().lower() in {"1", "true", "yes"}
+_https_only_override = config_audit.flag("DASHBOARD_HTTPS")
 #: Almost every body here is a small JSON object — a message of at most 2000
 #: characters, a switch, a schedule — and 16 KB is generous for that.
 JSON_BODY_LIMIT = 16 * 1024
@@ -171,7 +173,7 @@ _BOT_AVATAR_URL: str | None = None
 # session and no CSRF token. When it is unset the passkey is now empty, which
 # disables passkey login and every passkey endpoint (they all reject an empty
 # credential) while the /dashboard magic link keeps working.
-ADMIN_PASSKEY = (os.environ.get("ADMIN_PASSKEY") or "").strip()
+ADMIN_PASSKEY = config_audit.get("ADMIN_PASSKEY")
 if not ADMIN_PASSKEY:
     print(
         "[DASHBOARD] ADMIN_PASSKEY is not set — passkey login and the passkey API "
@@ -180,7 +182,7 @@ if not ADMIN_PASSKEY:
         "passkey login.",
         flush=True,
     )
-OWNER_USER_ID = int(os.environ.get("OWNER_USER_ID", "0") or "0")
+OWNER_USER_ID = int(config_audit.get("OWNER_USER_ID", "0") or "0")
 
 #: Whether a Discord sign-in matching ``OWNER_USER_ID`` may open the console by
 #: itself. It must not: the button on the sign-in page is then a complete
@@ -188,9 +190,7 @@ OWNER_USER_ID = int(os.environ.get("OWNER_USER_ID", "0") or "0")
 #: whoever is holding that Discord session reaches the whole fleet without ever
 #: typing the credential that is supposed to guard it. The passkey is the door;
 #: this stays off unless a deployment deliberately puts convenience first.
-OWNER_DISCORD_ELEVATION = (
-    os.environ.get("OWNER_DISCORD_ELEVATION", "").strip().lower() in {"1", "true", "yes"}
-)
+OWNER_DISCORD_ELEVATION = config_audit.flag("OWNER_DISCORD_ELEVATION")
 
 #: The header the owner site's Cloudflare Worker stamps with the visitor's own
 #: address, and the header carrying the shared secret that proves the stamp came
@@ -198,7 +198,7 @@ OWNER_DISCORD_ELEVATION = (
 #: ``_client_ip`` for what a header alone would mean.
 CLIENT_IP_HEADER = "X-Meow-Client-IP"
 PROXY_SECRET_HEADER = "X-Meow-Proxy"
-OWNER_PROXY_SECRET = (os.environ.get("OWNER_PROXY_SECRET") or "").strip()
+OWNER_PROXY_SECRET = config_audit.get("OWNER_PROXY_SECRET")
 
 
 def _passkey_ok() -> bool:
@@ -237,6 +237,10 @@ def _passkey_denied():
     if not ADMIN_PASSKEY:
         return jsonify({"error": "Passkey authentication is disabled"}), 401
     if _passkey_attempts_left() <= 0:
+        # Recorded here rather than inside the limiter, because ``remaining`` is a
+        # question a caller may ask without acting on — the refusal happens at
+        # the call site, so this is where the window learns one occurred.
+        _PASSKEY.note_refused()
         return jsonify({"error": "Too many attempts. Wait a few minutes and try again."}), 429
     return jsonify({"error": "Unauthorized"}), 401
 
@@ -255,8 +259,6 @@ PROCESS_STARTED_AT = time.time()
 MAGIC_TTL_SECONDS = 15 * 60
 MAGIC_TOKENS = {}
 _magic_lock = Lock()
-_login_lock = Lock()
-_login_attempts = defaultdict(deque)  # ip -> timestamps
 LOGIN_WINDOW_SECONDS = 15 * 60
 LOGIN_MAX_ATTEMPTS = 5
 
@@ -265,8 +267,18 @@ LOGIN_MAX_ATTEMPTS = 5
 # long-lived secret that is typed once into a host's dashboard and never rotated.
 PASSKEY_WINDOW_SECONDS = 15 * 60
 PASSKEY_MAX_ATTEMPTS = 10
-_passkey_lock = Lock()
-_passkey_attempts = defaultdict(deque)  # ip -> timestamps
+
+#: The three doors, and their one implementation (see ``utils/ratelimit.py``).
+#: Named rather than anonymous because the console's Access page reports each
+#: window separately: "too many failed attempts" is about the passkey, and the
+#: sign-in form's window is a different question with the same shape.
+_SIGN_IN = ratelimit.RateLimiter("sign-in", LOGIN_WINDOW_SECONDS, LOGIN_MAX_ATTEMPTS)
+_PASSKEY = ratelimit.RateLimiter("passkey", PASSKEY_WINDOW_SECONDS, PASSKEY_MAX_ATTEMPTS)
+#: The buckets themselves, under the names the suite has always driven them by —
+#: ``keep_alive._passkey_attempts.clear()`` in a test's ``setUp`` is how every
+#: passkey test isolates itself, and the limiter's map *is* this object.
+_login_attempts = _SIGN_IN.buckets
+_passkey_attempts = _PASSKEY.buckets
 
 # Card metadata and the allow-list are derived from the feature registry so the
 # dashboard can never advertise a module the bot does not have (the old
@@ -292,7 +304,7 @@ def dashboard_base_url() -> str:
     whose process had never heard of the token. "That link has expired" was the
     symptom, and nothing had expired.
     """
-    explicit = (os.environ.get("DASHBOARD_BASE_URL") or "").strip().rstrip("/")
+    explicit = config_audit.get("DASHBOARD_BASE_URL").rstrip("/")
     if explicit:
         return explicit
     try:
@@ -305,14 +317,14 @@ def dashboard_base_url() -> str:
     except Exception:
         pass
     # Render sets this to the service's public URL automatically.
-    hosted = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+    hosted = config_audit.get("RENDER_EXTERNAL_URL").rstrip("/")
     if hosted:
         return hosted
-    if os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT"):
+    if config_audit.is_set("RENDER") or config_audit.is_set("RAILWAY_ENVIRONMENT"):
         return "https://meow-discord-bot.onrender.com"
     # Anywhere else the dashboard is a local one, and the admin is on the same
     # machine as the process that minted the token.
-    return f"http://localhost:{os.environ.get('PORT', '8080')}"
+    return f"http://localhost:{config_audit.get('PORT', '8080')}"
 
 
 def oauth_redirect_uri() -> str:
@@ -407,7 +419,7 @@ def _owner_signin_notice() -> str:
     the two must be told apart on the page itself: a form with no explanation is
     indistinguishable from a console that refused them.
     """
-    if not is_authenticated() or session.get("auth_scope") == "global":
+    if not is_authenticated() or _principal().is_operator:
         return ""
     if session.get("owner_candidate"):
         return (
@@ -432,6 +444,12 @@ def _owner_login_page(error=None, status: int | None = None):
         discord_is_enough=OWNER_DISCORD_ELEVATION,
         bot_name=name,
         bot_initial=(name[:1] or "M").upper(),
+        # Where the public site is, for the one link on this page that leaves the
+        # operator's surface. It used to be "/", which on the owner host is the
+        # console — so "Return to Public Site" returned the operator to the page
+        # they were already on. The address comes from the same reader the hub
+        # uses, so a deployment that moves its site moves this link with it.
+        site_url=hub.marketing_url(),
     )
     return (body, status) if status else body
 
@@ -451,8 +469,88 @@ def generate_magic_token(guild_id: int | None = None, user_id: int | None = None
     return token
 
 
+def _begin_session() -> None:
+    """Start a fresh session: the one this browser was holding is *retired*.
+
+    Every door clears the session before it signs somebody in, and does so on
+    purpose — a sign-in that keeps the previous session id is a session-fixation
+    bug. But ``session.clear()`` only *forgets* the id. The ledger row stays, so a
+    dead browser keeps a live-looking row in the console's list, and the same
+    person signing in again appears twice. Closing the row first makes the list
+    describe browsers rather than sign-ins.
+    """
+    sessions.revoke(session.get(sessions.COOKIE_KEY))
+    session.clear()
+
+
+def _record_session(*, label: str = "") -> None:
+    """Put this sign-in in the ledger, with the address and browser it came from.
+
+    Called at every sign-in, after the session's scope has been decided: the row
+    has to describe the session that actually exists, or the console's list is a
+    description of something else. A failure to write is not a failure to sign
+    in — ``utils/sessions`` answers "" and the session simply cannot be revoked,
+    which the Access page says out loud.
+
+    **The sid is kept only while it is still believed.** Two sign-ins in one
+    session — a signed-in person entering the passkey — keep the row they started
+    with, so the list does not grow a second entry for the same browser. But a sid
+    the ledger has refused (revoked from the Access page, expired, or minted by a
+    database that a restore has since replaced) must be *replaced* here rather
+    than kept: the console answers such a session with "your sign-in is no longer
+    valid, reload to sign in again", and the sign-in that follows is the reload.
+    Keeping the dead sid made that advice impossible to follow — the person signed
+    in successfully and stayed refused, with a cookie purge as the only way out.
+    """
+    sid = session.get(sessions.COOKIE_KEY)
+    if sid and sessions.live(sid):
+        return
+    sid = sessions.start(
+        session.get("auth_scope") or "",
+        guild_id=session.get("guild_id"),
+        user_id=session.get("user_id"),
+        label=label or str((session.get("discord_user") or {}).get("name") or ""),
+        ip=_client_ip(),
+        agent=request.headers.get("User-Agent", ""),
+    )
+    if sid:
+        session[sessions.COOKIE_KEY] = sid
+    else:
+        # A host that cannot write the ledger has no row to point at, and a sid
+        # left in the cookie would be one nothing knows — which is refused. An
+        # empty session is adopted at first use instead, which is the same ring
+        # of fallbacks ``is_authenticated`` describes.
+        session.pop(sessions.COOKIE_KEY, None)
+
+
 def is_authenticated():
-    return session.get("authenticated") is True
+    """Whether this request carries a sign-in that is still believed.
+
+    Two checks rather than one, and the second is the new one: Flask's cookie
+    says *this server signed this*, and the ledger says *and it has not been
+    revoked*. A session with no sid — one opened before the ledger existed, or
+    one whose row could not be written — is adopted here on its first request so
+    that it, too, becomes something the operator can end.
+    """
+    if session.get("authenticated") is not True:
+        return False
+    sid = session.get(sessions.COOKIE_KEY)
+    if not sid:
+        _record_session(label="adopted at first use")
+        return True
+    return sessions.live(sid)
+
+
+def _principal() -> principal.Principal:
+    """This request's session, as the policy object.
+
+    Spelled as a function rather than a cached module global because Flask's
+    session is per-request and this process serves them concurrently. The rules
+    themselves live in ``utils/principal.py``, in one table, which is the point:
+    eleven comparisons against three string literals had eleven homes for the
+    same policy.
+    """
+    return principal.from_session(session)
 
 
 def get_csrf_token() -> str:
@@ -520,60 +618,35 @@ def _client_ip() -> str:
 
 
 def _login_allowed(ip: str) -> bool:
-    now = time.time()
-    with _login_lock:
-        bucket = _login_attempts[ip]
-        while bucket and now - bucket[0] > LOGIN_WINDOW_SECONDS:
-            bucket.popleft()
-        return len(bucket) < LOGIN_MAX_ATTEMPTS
+    """Whether this address may try the passkey form again yet.
+
+    A question, not a verdict: the sign-in route records only the *failures*, so
+    a correct passkey leaves no trace in the window (it clears whatever is
+    there, which is why somebody who mistypes once and then gets it right is not
+    one attempt closer to a lockout).
+    """
+    return _SIGN_IN.remaining(ip) > 0
 
 
 def _record_login_failure(ip: str):
-    with _login_lock:
-        # One deque per source address, forever, is a slow memory leak when a
-        # scanner walks through many addresses. Drop buckets that are outside the
-        # window once the map grows past anything a real deployment needs.
-        if len(_login_attempts) > 5000:
-            now = time.time()
-            for stale_ip in [
-                key for key, stamps in _login_attempts.items()
-                if not stamps or now - stamps[-1] > LOGIN_WINDOW_SECONDS
-            ]:
-                _login_attempts.pop(stale_ip, None)
-        _login_attempts[ip].append(time.time())
+    _SIGN_IN.record(ip)
 
 
 def _clear_login_failures(ip: str):
-    with _login_lock:
-        _login_attempts.pop(ip, None)
+    _SIGN_IN.clear(ip)
 
 
 def _passkey_attempts_left() -> int:
     """How many passkey guesses this client has left in the current window."""
-    now = time.time()
-    ip = _client_ip()
-    with _passkey_lock:
-        # A scanner walking through addresses would otherwise grow this map forever.
-        if len(_passkey_attempts) > 5000:
-            for stale in [
-                key for key, stamps in _passkey_attempts.items()
-                if not stamps or now - stamps[-1] > PASSKEY_WINDOW_SECONDS
-            ]:
-                _passkey_attempts.pop(stale, None)
-        bucket = _passkey_attempts[ip]
-        while bucket and now - bucket[0] > PASSKEY_WINDOW_SECONDS:
-            bucket.popleft()
-        return PASSKEY_MAX_ATTEMPTS - len(bucket)
+    return _PASSKEY.remaining(_client_ip())
 
 
 def _record_passkey_failure() -> None:
-    with _passkey_lock:
-        _passkey_attempts[_client_ip()].append(time.time())
+    _PASSKEY.record(_client_ip())
 
 
 def _clear_passkey_failures() -> None:
-    with _passkey_lock:
-        _passkey_attempts.pop(_client_ip(), None)
+    _PASSKEY.clear(_client_ip())
 
 
 def _schedule_cloud_backup():
@@ -651,8 +724,8 @@ def _visible_guilds():
     bot has been removed from stops being offered immediately.
     """
     known = {g["id"]: g for g in _known_guilds()}
-    scope = session.get("auth_scope")
-    if scope == "user":
+    who = _principal()
+    if who.is_administered_session:
         # Only the *ids* live in the session. The session is a signed cookie, and
         # a name per server would push a person who administers a few dozen of
         # them past the 4 KB a browser will store — a session that vanishes on
@@ -660,16 +733,10 @@ def _visible_guilds():
         # debug. Names come from the bot's live cache instead, so a renamed
         # server shows its new name and one the bot has left disappears by
         # itself.
-        wanted = []
-        for raw in session.get("admin_guild_ids") or []:
-            gid = _int_or_none(raw)
-            if gid is not None:
-                wanted.append(gid)
-        return [known[gid] for gid in wanted if gid in known]
-    if scope == "guild":
-        gid = _int_or_none(session.get("guild_id"))
-        return [known[gid]] if gid in known else []
-    if scope == "global":
+        return [known[gid] for gid in who.administered if gid in known]
+    if who.is_scoped_link:
+        return [known[who.guild_id]] if who.guild_id in known else []
+    if who.is_operator:
         return list(known.values())
     return []
 
@@ -823,8 +890,9 @@ def _foreign_guild_refusal(requested):
     if requested in (None, "", 0):
         # No server named: the fallback is the whole point of the call.
         return None
-    if session.get("auth_scope") not in ("user", "guild"):
-        # The operator's scopes see every server the bot is in, by design.
+    who = _principal()
+    if not (who.is_administered_session or who.is_scoped_link):
+        # The operator's scope sees every server the bot is in, by design.
         return None
     gid = _int_or_none(requested)
     if gid is None:
@@ -855,9 +923,10 @@ def _resolve_guild_id(requested=None):
     scoped session to an unscoped one and it could then toggle *any* server.
     """
     known = {g["id"] for g in _known_guilds()}
+    who = _principal()
 
-    if session.get("auth_scope") == "guild":
-        gid = _int_or_none(session.get("guild_id"))
+    if who.is_scoped_link:
+        gid = who.guild_id
         if gid is None:
             print("[DASHBOARD] Guild-scoped session with no server; refusing.", flush=True)
             return None
@@ -874,7 +943,7 @@ def _resolve_guild_id(requested=None):
             return None
         return gid
 
-    if session.get("auth_scope") == "user":
+    if who.is_administered_session:
         # A Discord sign-in reaches only the servers it was told this person
         # administers, and the set is recomputed from the bot's live guilds on
         # every request — so a server they were demoted from, or one the bot has
@@ -887,7 +956,7 @@ def _resolve_guild_id(requested=None):
                 wanted_candidates.append(int(requested))
             except (TypeError, ValueError):
                 pass
-        stored = _int_or_none(session.get("guild_id"))
+        stored = who.guild_id
         if stored is not None:
             wanted_candidates.append(stored)
         for gid in wanted_candidates:
@@ -897,10 +966,10 @@ def _resolve_guild_id(requested=None):
         # and the picker's job is to tell them what to do about it.
         return min(allowed) if allowed else None
 
-    if session.get("auth_scope") != "global":
+    if not who.is_operator:
         return None
 
-    session_guild = session.get("guild_id")
+    session_guild = who.guild_id
     candidates = []
     if requested not in (None, "", 0):
         try:
@@ -1235,7 +1304,7 @@ def api_live_logs():
         # it: a guild-scoped link is *one server's* session, and these lines were
         # written while serving every server. ``_resolve_guild_id`` draws exactly
         # this line for every other endpoint.
-        if session.get("auth_scope") != "global":
+        if not _principal().is_operator:
             return jsonify({
                 "error": "Logs are available only to an administrator sign-in (ADMIN_PASSKEY).",
             }), 403
@@ -1268,7 +1337,7 @@ def api_config():
     deployment, not one server.
     """
     if is_authenticated():
-        if session.get("auth_scope") != "global":
+        if not _principal().is_operator:
             return jsonify({
                 "error": "Configuration is available only to an administrator sign-in.",
             }), 403
@@ -1479,7 +1548,7 @@ def _static_site() -> bool:
     — a visitor reads a permanently half-started bot. Set only by
     ``scripts/build_site.py``; the bot never sets it.
     """
-    return (os.environ.get("MEOW_STATIC_SITE") or "").strip().lower() in {"1", "true", "yes"}
+    return config_audit.flag("MEOW_STATIC_SITE")
 
 
 def _home_status() -> dict:
@@ -1691,8 +1760,8 @@ def _figures_url() -> str:
     copy talking to the live host directly, which is why `/api/figures` carries a
     cross-origin allowance for the site's own address.
     """
-    live = (os.environ.get("MEOW_LIVE_APP_URL") or "").strip().rstrip("/")
-    proxied = (os.environ.get("CLOUDFLARE_PROXY") or "").strip().lower() in {"1", "true", "yes"}
+    live = config_audit.get("MEOW_LIVE_APP_URL").rstrip("/")
+    proxied = config_audit.flag("CLOUDFLARE_PROXY")
     if _static_site() and live and not proxied:
         return f"{live}/api/figures"
     return "/api/figures"
@@ -1786,7 +1855,7 @@ def _systems_page():
     # published the operator's own laptop as the live figures: *467 messages this
     # week* on a public page, about a bot the reader is not running. The same
     # one-line rule the hub's context has always applied; this page never did.
-    static_copy = os.environ.get("MEOW_STATIC_SITE", "").strip() == "1"
+    static_copy = config_audit.get("MEOW_STATIC_SITE") == "1"
     live_figures = _public_figures(read_tracker=not static_copy)
     periods = live_figures.get("periods") or []
     # The window the Activity card opens on. Seven days, because it is the one a
@@ -2066,7 +2135,7 @@ def _hub_context(page: str) -> dict:
     # not the deployment. Reading it here would publish the builder's numbers as
     # the deployment's, which is worse than a stale figure — it is a wrong one,
     # and this page has no way to notice.
-    static_copy = os.environ.get("MEOW_STATIC_SITE", "").strip() == "1"
+    static_copy = config_audit.get("MEOW_STATIC_SITE") == "1"
     reading = _public_figures(read_tracker=not static_copy)
     started, connected = _gateway_state()
     guard = site_guard.health_json()
@@ -2476,14 +2545,17 @@ def login():
             _purge_magic_tokens()
             meta = MAGIC_TOKENS.pop(token, None)
         if meta and time.time() < meta["expires_at"]:
-            session.clear()
+            _begin_session()
             session["authenticated"] = True
             session.permanent = True
-            session["auth_scope"] = "guild" if meta.get("guild_id") else "global"
+            session["auth_scope"] = (
+                principal.SCOPE_GUILD if meta.get("guild_id") else principal.SCOPE_GLOBAL
+            )
             if meta.get("guild_id"):
                 session["guild_id"] = meta["guild_id"]
             if meta.get("user_id"):
                 session["user_id"] = meta["user_id"]
+            _record_session(label="one-time link")
             get_csrf_token()
             return redirect("/dashboard")
         return _login_page(
@@ -2499,6 +2571,7 @@ def login():
 
         ip = _client_ip()
         if not _login_allowed(ip):
+            _SIGN_IN.note_refused()
             return _login_page(
                 "Too many failed attempts. Wait a few minutes and try again, "
                 "sign in with Discord, or tap ⚡ Open Dashboard on /help in Discord."
@@ -2514,10 +2587,11 @@ def login():
         entered_passkey = request.form.get("passkey") or ""
         if secrets.compare_digest(entered_passkey, ADMIN_PASSKEY):
             _clear_login_failures(ip)
-            session.clear()
+            _begin_session()
             session["authenticated"] = True
             session.permanent = True
-            session["auth_scope"] = "global"
+            session["auth_scope"] = principal.SCOPE_GLOBAL
+            _record_session(label="passkey")
             get_csrf_token()
             return redirect("/dashboard")
 
@@ -2534,6 +2608,10 @@ def logout():
     # Only a CSRF-validated POST actually signs out; a bare GET link (which any
     # site could trigger) is treated as a no-op.
     if request.method == "POST" and validate_csrf():
+        # The ledger row is closed before the cookie is dropped. A sign-out that
+        # only forgot the token would leave a revocable row with no browser
+        # beside it, which is a thing a session list should not have to explain.
+        sessions.revoke(session.get(sessions.COOKIE_KEY))
         session.clear()
         return redirect("/login")
     return redirect("/dashboard" if is_authenticated() else "/login")
@@ -2601,7 +2679,7 @@ def login_discord_callback():
     servers = discord_auth.servers_for(
         guilds, user.get("id"), [g["id"] for g in _known_guilds()]
     )
-    session.clear()
+    _begin_session()
     # Ids only — see ``_visible_guilds`` for why the names are not kept here.
     session["authenticated"] = True
     session.permanent = True
@@ -2612,9 +2690,12 @@ def login_discord_callback():
     # the sign-in page — never the console. Scope is granted by the passkey and
     # by nothing else, unless a deployment has deliberately switched that off.
     session["owner_candidate"] = is_owner_user
-    session["auth_scope"] = (
-        "global" if (is_owner_user and OWNER_DISCORD_ELEVATION) else "user"
+    granted = (
+        principal.SCOPE_GLOBAL
+        if (is_owner_user and OWNER_DISCORD_ELEVATION)
+        else principal.SCOPE_USER
     )
+    session["auth_scope"] = granted
     user_avatar = discord_auth.avatar_url(user)
     session["discord_user"] = {
         "id": str(user.get("id") or ""),
@@ -2628,13 +2709,14 @@ def login_discord_callback():
         "avatar_cdn": user_avatar,
     }
     session["admin_guild_ids"] = [int(entry["id"]) for entry in servers]
+    _record_session(label=session["discord_user"]["name"])
     get_csrf_token()
     print(
         f"[DASHBOARD] {session['discord_user']['name']} signed in — {len(servers)} "
         "server(s) they administer that this bot is in.",
         flush=True,
     )
-    if is_owner_user and session.get("auth_scope") == "global":
+    if granted == principal.SCOPE_GLOBAL:
         return redirect(next_path or "/owner")
     if len(servers) == 1:
         session["guild_id"] = int(servers[0]["id"])
@@ -2667,7 +2749,7 @@ def _module_summary(guild_id) -> dict:
 
 def _servers_page(error=None, status: int | None = None):
     """The servers this session may manage, and how to add the bot to another."""
-    operator = session.get("auth_scope") == "global"
+    operator = _principal().is_operator
     servers = [
         {**entry, "icon": _guild_icon(entry["id"])} for entry in _visible_guilds()
     ]
@@ -2700,7 +2782,7 @@ def servers():
     """Pick which server the dashboard is looking at."""
     if not is_authenticated():
         return redirect("/login")
-    if session.get("auth_scope") == "guild":
+    if _principal().is_scoped_link:
         # A one-time link is scoped to exactly one server, so there is nothing to
         # pick. The operator's passkey reaches every server and wants this page
         # most of all: it is how a second server is fixed without first knowing
@@ -3033,15 +3115,13 @@ def dashboard():
         # Only the servers this session may act on, so the switcher cannot even
         # offer one it would then refuse.
         guilds=_visible_guilds(),
-        can_switch_guild=session.get("auth_scope") in ("global", "user"),
+        can_switch_guild=_principal().may_switch_guild,
         signed_in_as=session.get("discord_user") or {},
-        pick_server_url=(
-            "/servers" if session.get("auth_scope") in ("user", "global") else ""
-        ),
+        pick_server_url=("/servers" if _principal().may_switch_guild else ""),
         # The fleet console is the operator's alone, so the link to it is only
         # offered where it would actually open. A server's administrator seeing
         # a button that bounces them back to the picker is worse than no button.
-        fleet_url=("/owner" if session.get("auth_scope") == "global" else ""),
+        fleet_url=("/owner" if _principal().is_operator else ""),
         # Whether anything is on sale. The topbar and the palette both link to
         # `/pricing`, and while the product is free that page has nothing to
         # offer — so the link is not offered either. It was: three surfaces
@@ -3209,6 +3289,7 @@ OWNER_PAGES = (
     ("commands", "Commands", "/owner/commands", "commands"),
     ("economy", "Economy", "/owner/economy", "economy"),
     ("ops", "Ops", "/owner/ops", "ops"),
+    ("access", "Access", "/owner/access", "access"),
     ("changes", "Changes", "/owner/changes", "changes"),
 )
 
@@ -3245,6 +3326,7 @@ def owner_login():
 
         ip = _client_ip()
         if not _login_allowed(ip):
+            _SIGN_IN.note_refused()
             return _owner_login_page(
                 "Too many failed attempts. Wait a few minutes and try again.", 429
             )
@@ -3256,17 +3338,18 @@ def owner_login():
         entered_passkey = request.form.get("passkey") or ""
         if secrets.compare_digest(entered_passkey, ADMIN_PASSKEY):
             _clear_login_failures(ip)
-            session.clear()
+            _begin_session()
             session["authenticated"] = True
             session.permanent = True
-            session["auth_scope"] = "global"
+            session["auth_scope"] = principal.SCOPE_GLOBAL
+            _record_session(label="passkey")
             get_csrf_token()
             return redirect("/owner")
 
         _record_login_failure(ip)
         return _owner_login_page("Invalid admin passkey. Please try again.", 401)
 
-    if is_authenticated() and session.get("auth_scope") == "global":
+    if is_authenticated() and _principal().is_operator:
         return redirect("/owner")
     return _owner_login_page()
 
@@ -3290,7 +3373,7 @@ def owner_console(sub: str = ""):
     """
     if not is_authenticated():
         return redirect("/owner/login")
-    if session.get("auth_scope") != "global":
+    if not _principal().is_operator:
         if session.get("owner_candidate"):
             # The owner, signed in through Discord, and still short of the
             # console: the passkey page is the only thing that can raise the
@@ -3328,7 +3411,7 @@ def owner_console(sub: str = ""):
 def _require_operator_api():
     if not is_authenticated():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
-    if session.get("auth_scope") != "global":
+    if not _principal().is_operator:
         return jsonify({"success": False, "error": "Operator sign-in required"}), 403
     if request.method != "GET" and not validate_csrf():
         return jsonify({"success": False, "error": "Invalid or missing CSRF token"}), 403
@@ -4322,6 +4405,138 @@ def api_console_ops():
     })
 
 
+@app.route("/api/console/access")
+def api_console_access():
+    """Who is signed in, and what the three doors are doing.
+
+    Two readings that belong on one page because they answer one question from
+    two sides. The **ledger** says which sessions exist, where each came from and
+    which one is this browser's — and it is the thing that can end one. The
+    **windows** say whether somebody is being refused right now, which is the
+    answer to "is that lockout me mistyping, or a stranger?" that a 429 sentence
+    cannot give.
+
+    Nothing here is a secret: a masked session id, an address, a label, and
+    counts. The sid is masked because it is a bearer credential — the page's job
+    is to name a row, and a console that printed the whole value would make its
+    own screen a way in rather than a way out.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    ledger = sessions.reading(current_sid=session.get(sessions.COOKIE_KEY))
+    return jsonify({
+        "success": True,
+        "sessions": ledger,
+        # Named windows rather than a list: the console draws one row per name,
+        # and an anonymous array would make the page's labels a second copy of
+        # these names that could drift from them.
+        "limits": {
+            "sign-in": _SIGN_IN.snapshot(),
+            "passkey": _PASSKEY.snapshot(),
+            "send": _SEND.snapshot(),
+        },
+        "doors": {
+            "passkey_enabled": bool(ADMIN_PASSKEY),
+            # Both of these are the difference between a limit that counts people
+            # and one that counts a proxy, so they are stated rather than left to
+            # the reader to infer from a behaviour they cannot see.
+            "discord_elevation": OWNER_DISCORD_ELEVATION,
+            "visitor_address_signed": bool(OWNER_PROXY_SECRET),
+            "ledger_writable": sessions.writable(),
+        },
+        "process": {
+            "uptime_seconds": max(0, int(time.time() - PROCESS_STARTED_AT)),
+            "started_at": PROCESS_STARTED_AT,
+            "now": time.time(),
+        },
+        # The same shape the other console payloads use for a reading that can
+        # fail: a fact and the reason it is missing, not a zero standing in for
+        # an answer nobody took.
+        "read": {
+            "sessions": {
+                "ok": bool(ledger["available"]),
+                "because": ledger["because"],
+            },
+        },
+    })
+
+
+@app.route("/api/console/access/revoke", methods=["POST"])
+def api_console_access_revoke():
+    """End one session, or every session except the one asking.
+
+    "Every session" deliberately spares the caller's own: an operator who clicks
+    it and is signed out by their own click has lost the page that tells them so,
+    and the useful outcome — every other browser out — is the same either way.
+    Signing this one out is ``/logout``, which is a word they already know.
+
+    A revocation is answered with what actually happened rather than with an
+    acknowledgement: a session that had already expired is a different fact from
+    one that was live and now is not, and only the second is a change.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    mine = session.get(sessions.COOKIE_KEY)
+
+    if data.get("all"):
+        closed = sessions.revoke_all(keep=mine)
+        print(
+            f"[DASHBOARD] Operator ended {closed} session(s); this one stays open.",
+            flush=True,
+        )
+        return jsonify({"success": True, "revoked": closed, "scope": "all"})
+
+    row_id = _int_or_none(data.get("id"))
+    if row_id is None:
+        return jsonify({"success": False, "error": "Which session?"}), 400
+
+    ledger = sessions.reading(current_sid=mine)
+    if not ledger["available"]:
+        return jsonify({
+            "success": False,
+            "error": "The database could not be read, so nothing was ended.",
+        }), 503
+    row = next((entry for entry in ledger["rows"] if entry["id"] == row_id), None)
+    if row is None:
+        return jsonify({
+            "success": False,
+            "error": "That session is not in the list any more.",
+        }), 404
+    if row["current"]:
+        return jsonify({
+            "success": False,
+            "error": (
+                "That is this browser's own session. Use Sign out if you mean "
+                "to close it."
+            ),
+        }), 400
+    if row["state"] != "live":
+        return jsonify({
+            "success": True,
+            "revoked": False,
+            "error": "",
+            "note": f"That session had already {row['state']}.",
+        })
+
+    ended = sessions.revoke_row(row_id)
+    if ended:
+        print(
+            f"[DASHBOARD] Operator ended a session ({row['label'] or row['scope']}, "
+            f"{row['agent']}) from the Access page.",
+            flush=True,
+        )
+    return jsonify({
+        "success": True,
+        "revoked": bool(ended),
+        "note": "Ended." if ended else "That session had already ended.",
+    })
+
+
 @app.route("/api/console/changes")
 def api_console_changes():
     """The project's own changelog, newest first — the same reader the hub uses."""
@@ -4553,13 +4768,16 @@ def _image_mime(data: bytes) -> str:
 
 
 def _may_edit_identity(guild) -> bool:
-    if session.get("auth_scope") == "guild":
-        return _int_or_none(session.get("guild_id")) == getattr(guild, "id", None)
-    if session.get("auth_scope") == "user":
-        # Discord OAuth users see only the servers they administer; the identity
-        # panel should work for any of them, not just the one they landed on.
-        return getattr(guild, "id", None) in session.get("admin_guild_ids", [])
-    return session.get("auth_scope") == "global"
+    """Whether this session may change the bot's own member in one server.
+
+    The same set of servers as acting on it, asked as its own question because it
+    reads like a narrower one: a Discord sign-in may rename the bot in **any**
+    server it administers, not only the one it happened to land on — the panel is
+    about the bot's own member, and somebody who runs two servers should not have
+    to sign in twice. The rule is in ``utils/principal.py``; this is the sentence
+    that says why the question exists.
+    """
+    return _principal().may_act_in(getattr(guild, "id", None))
 
 
 def _identity_member(guild):
@@ -4765,8 +4983,11 @@ SEND_MAX_PER_WINDOW = 30
 #: message is late — the only thing it costs is a cheap indexed query.
 SCHEDULER_TICK_SECONDS = 15
 
-_send_lock = Lock()
-_send_attempts = defaultdict(deque)  # ip -> timestamps
+#: The composer's window: a request is counted when it is *sent*, not when it is
+#: refused, which is the opposite of the sign-in form and the reason ``allow``
+#: exists beside ``record`` beside ``remaining``.
+_SEND = ratelimit.RateLimiter("send", SEND_WINDOW_SECONDS, SEND_MAX_PER_WINDOW)
+_send_attempts = _SEND.buckets
 
 
 def _int_or_none(raw):
@@ -4786,19 +5007,7 @@ def _send_allowed(ip: str) -> bool:
     A stuck retry loop (or a curious administrator holding Enter) could otherwise
     post hundreds of messages before anyone noticed.
     """
-    now = time.time()
-    with _send_lock:
-        if len(_send_attempts) > 5000:
-            cutoff = now - SEND_WINDOW_SECONDS
-            for stale in [k for k, v in _send_attempts.items() if not v or v[-1] < cutoff]:
-                _send_attempts.pop(stale, None)
-        bucket = _send_attempts[ip]
-        while bucket and now - bucket[0] > SEND_WINDOW_SECONDS:
-            bucket.popleft()
-        if len(bucket) >= SEND_MAX_PER_WINDOW:
-            return False
-        bucket.append(now)
-        return True
+    return _SEND.allow(ip)
 
 
 def _mention_entry(member) -> dict:
@@ -6117,8 +6326,12 @@ def start_scheduler(bot):
 #: the one message that matters. One re-check is done shortly after every boot,
 #: because a boot is a deploy and a deploy is when the output directory could
 #: have changed.
-SITE_GUARD_INTERVAL_SECONDS = int(os.environ.get("SITE_GUARD_INTERVAL_SECONDS") or 6 * 3600)
-SITE_GUARD_FIRST_CHECK_SECONDS = int(os.environ.get("SITE_GUARD_FIRST_CHECK_SECONDS") or 90)
+SITE_GUARD_INTERVAL_SECONDS = int(
+    config_audit.get("SITE_GUARD_INTERVAL_SECONDS") or 6 * 3600
+)
+SITE_GUARD_FIRST_CHECK_SECONDS = int(
+    config_audit.get("SITE_GUARD_FIRST_CHECK_SECONDS") or 90
+)
 
 
 async def _run_site_guard() -> None:
@@ -6183,8 +6396,8 @@ def start_site_guard(bot):
 #: faster poll would spend somebody's rate limit to learn the same thing. The
 #: first pass is early because a boot is a deploy, and "did the deploy stay up?"
 #: is the question this panel answers.
-UPTIME_INTERVAL_SECONDS = int(os.environ.get("UPTIME_INTERVAL_SECONDS") or 300)
-UPTIME_FIRST_CHECK_SECONDS = int(os.environ.get("UPTIME_FIRST_CHECK_SECONDS") or 60)
+UPTIME_INTERVAL_SECONDS = int(config_audit.get("UPTIME_INTERVAL_SECONDS") or 300)
+UPTIME_FIRST_CHECK_SECONDS = int(config_audit.get("UPTIME_FIRST_CHECK_SECONDS") or 60)
 
 
 async def _run_uptime_check() -> None:
@@ -6253,7 +6466,7 @@ def find_free_port(start=8080):
 
 
 def run():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(config_audit.get("PORT", "8080"))
     try:
         app.run(host="0.0.0.0", port=port)
     except OSError as e:

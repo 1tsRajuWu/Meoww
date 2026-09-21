@@ -11,6 +11,21 @@ Having a separate site allows:
 2. A single, dedicated portal for the owner at https://meow-owner.pages.dev.
 3. Edge-caching of all static console bundles while proxying API calls to the backend.
 
+What this build must **not** do is make that host a second copy of the whole
+application, twice learned:
+
+* a page it served but could not dress — the per-server dashboard arrived as an
+  unstyled heading because this host only has the files listed below, and a
+  missing stylesheet reports nothing, anywhere;
+* a door nobody was watching — `/login` answered on this domain with its own
+  passkey form, so the console was only ever as guarded as the looser of two
+  doors into one room.
+
+So the worker below serves the console's own paths and **redirects everything
+else to the public site**, which is where those pages belong. The asset contract
+shrinks to one directory, and "which host am I on" stops being a question this
+project has to answer twice.
+
 Usage::
 
     python scripts/build_owner.py
@@ -27,8 +42,32 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from utils import config_audit  # noqa: E402  (after sys.path, by design)
+
 DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
+#: Where this host sends anything that is not the console. The public site is the
+#: one place a member-facing page *works*: it is built with its own assets, and
+#: its worker forwards the dynamic routes back to the same backend this host
+#: proxies. So a bookmark to `/dashboard` here becomes a page that renders,
+#: instead of a page this host serves and cannot dress.
+DEFAULT_PUBLIC_SITE = "https://meow-bot.pages.dev"
 DEFAULT_OUT = os.path.join(ROOT, "_owner")
+
+#: The prefixes this host serves — the same list the worker is built from, kept
+#: here so the build's own output can say what the contract is rather than only
+#: the JavaScript being able to. ``tests/test_owner_site.py`` reads the worker's
+#: list back out of the generated source and compares it with this one, so the
+#: two cannot drift into a host that claims one thing and does another.
+CONSOLE_PREFIXES = (
+    "/owner",
+    "/api/console",
+    "/api/toggle",
+    "/api/toggle-all",
+    "/api/command-scope",
+    "/api/image",
+    "/login/discord",
+    "/logout",
+)
 
 #: Every file under ``static/`` that a page *this host serves* asks for by name.
 #:
@@ -72,17 +111,68 @@ def _js_string(value: str) -> str:
 
 
 def _worker_file(
-    backend_host: str = "meow-discord-bot.onrender.com", proxy_secret: str = ""
+    backend_host: str = "meow-discord-bot.onrender.com",
+    proxy_secret: str = "",
+    public_site: str = "meow-bot.pages.dev",
 ) -> str:
     return f"""/**
  * Cloudflare Pages Advanced Mode Worker for meow-owner.pages.dev
- * Dedicated Owner Console reverse proxy.
+ *
+ * The operator's console, and **only** the console.
+ *
+ * This host used to be a reverse proxy of the entire application: it answered
+ * every path the backend does, with one exception (`/static/`, which it served
+ * from this project's CDN). That is a shape with two defects built into it, and
+ * both were found by using it:
+ *
+ *   1. Every page rendered by the backend arrives here referring to
+ *      `/static/...`, and this host only has the files its build copied. So a
+ *      page whose stylesheet was not copied rendered as unstyled markup *on this
+ *      host alone* — silently, because a missing stylesheet is not an error
+ *      anywhere. That is how the per-server dashboard came back as a heading
+ *      over one black rectangle.
+ *   2. Every door the backend has was a door here too. `/login` answered 200 on
+ *      this domain, with its own passkey form, and the operator's console was
+ *      therefore only ever as guarded as the *loosest* of the two doors.
+ *
+ * The fix is to stop being a second copy of the application. The paths below are
+ * the console; everything else is redirected to the public site, which is the
+ * host those pages belong to. `/static/` is still answered here — the bundle and
+ * the sign-in page's own assets live here — and it is now the *only* asset
+ * contract this build has to keep.
  */
 const BACKEND_HOST = "{backend_host}";
+const PUBLIC_SITE_HOST = "{public_site}";
 
 // Shared with the backend's OWNER_PROXY_SECRET. Empty means no stamp is sent,
 // and the backend then falls back to the address Cloudflare connected from.
 const OWNER_PROXY_SECRET = {_js_string(proxy_secret)};
+
+// What this host serves. A prefix list rather than a route table, because the
+// backend owns the routes and this file should not have to be edited every time
+// one is added inside the console — but a *short* list, because the value of the
+// list is what is missing from it. `tests/test_owner_site.py` derives the paths
+// the bundled console actually calls out of `console/src/` and fails if one of
+// them is not covered here.
+const CONSOLE_PREFIXES = [
+  "/owner",
+  "/api/console",
+  // The console's own switches: the reused dashboard endpoints it posts to
+  // rather than reimplementing. `/api/toggle` and `/api/toggle-all` write, and
+  // `/api/command-scope` reads what Discord holds after a write settles.
+  "/api/toggle",
+  "/api/toggle-all",
+  "/api/command-scope",
+  // Pictures the console draws, served from the backend's own origin so the CSP
+  // can keep `img-src 'self'`.
+  "/api/image",
+  // Signing in and out. `/login/discord` is the owner's Discord button on the
+  // console's own sign-in page; `/logout` is the sign-out the Access page offers.
+  // `/login` itself is deliberately *not* here: that is the member-facing
+  // passkey form, and proxying it is how this domain grew a second door.
+  "/login/discord",
+  "/logout"
+];
 
 export default {{
   async fetch(request, env) {{
@@ -93,13 +183,36 @@ export default {{
       return env.ASSETS.fetch(request);
     }}
 
-    // Proxy everything else to the Render backend
+    const isConsole = CONSOLE_PREFIXES.some(
+      (prefix) => url.pathname === prefix || url.pathname.startsWith(prefix + "/")
+    );
+
+    if (!isConsole) {{
+      // Not ours. Send it to the site it belongs to rather than to the backend
+      // with this host's missing assets — a 301 and not a proxy, because the
+      // other host is the one that can render it.
+      const target = new URL(request.url);
+      target.hostname = PUBLIC_SITE_HOST;
+      target.protocol = "https:";
+      target.port = "";
+      return new Response(null, {{
+        status: 301,
+        headers: {{
+          "Location": target.toString(),
+          "Cache-Control": "no-store",
+          "X-Meow-Owner-Host": "redirected"
+        }}
+      }});
+    }}
+
     const backendUrl = new URL(request.url);
     backendUrl.hostname = BACKEND_HOST;
     backendUrl.protocol = "https:";
     backendUrl.port = "";
 
-    // Map root / or /index.html on meow-owner.pages.dev directly to backend /owner
+    // The root of this host is the console, so a bookmark to it lands on the
+    // fleet rather than on a redirect. `/index.html` too: that is what a
+    // bookmark saved from the old site is.
     if (url.pathname === "/" || url.pathname === "/index.html") {{
       backendUrl.pathname = "/owner";
     }}
@@ -214,8 +327,20 @@ def _headers_file() -> str:
 """
 
 
-def build(out_dir: str, live_app: str = DEFAULT_LIVE_APP) -> None:
-    backend_host = live_app.replace("https://", "").replace("http://", "").split("/")[0]
+def _host_of(url: str, fallback: str) -> str:
+    """A bare hostname from a URL, for a value that came from an environment."""
+    text = (url or "").strip()
+    if not text:
+        return fallback
+    return text.replace("https://", "").replace("http://", "").split("/")[0] or fallback
+
+
+def build(
+    out_dir: str,
+    live_app: str = DEFAULT_LIVE_APP,
+    public_site: str = "",
+) -> None:
+    backend_host = _host_of(live_app, "meow-discord-bot.onrender.com")
 
     if os.path.abspath(out_dir) == ROOT:
         raise ValueError("Cannot write to repository root")
@@ -240,9 +365,13 @@ def build(out_dir: str, live_app: str = DEFAULT_LIVE_APP) -> None:
         shutil.copytree(console_src, console_out, dirs_exist_ok=True)
 
     # Write worker and configuration files
-    proxy_secret = (os.environ.get("OWNER_PROXY_SECRET") or "").strip()
+    proxy_secret = config_audit.get("OWNER_PROXY_SECRET")
+    public_host = _host_of(
+        public_site or config_audit.get("OWNER_PUBLIC_SITE_URL"),
+        _host_of(DEFAULT_PUBLIC_SITE, "meow-bot.pages.dev"),
+    )
     with open(os.path.join(out_dir, "_worker.js"), "w", encoding="utf-8") as f:
-        f.write(_worker_file(backend_host, proxy_secret))
+        f.write(_worker_file(backend_host, proxy_secret, public_host))
 
     with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as f:
         f.write(_routes_file())
@@ -251,6 +380,10 @@ def build(out_dir: str, live_app: str = DEFAULT_LIVE_APP) -> None:
         f.write(_headers_file())
 
     print(f"Built meow-owner site into {out_dir}")
+    print(
+        f"This host serves the console ({', '.join(CONSOLE_PREFIXES)}...); "
+        f"every other path is redirected to https://{public_host}."
+    )
     if not proxy_secret:
         # Said out loud because the symptom is invisible: sign-in rate limiting
         # still *works*, it just counts everybody on this host as one visitor.
@@ -265,8 +398,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build the owner console site.")
     parser.add_argument("--out", default=DEFAULT_OUT, help="Output directory")
     parser.add_argument("--live-app", default=DEFAULT_LIVE_APP, help="Live app URL")
+    parser.add_argument(
+        "--public-site",
+        default="",
+        help="Where paths that are not the console are redirected (default: the built-in public site)",
+    )
     args = parser.parse_args()
-    build(args.out, args.live_app)
+    build(args.out, args.live_app, args.public_site)
 
 
 if __name__ == "__main__":

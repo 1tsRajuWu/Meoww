@@ -19,9 +19,7 @@ Nothing here talks to Discord beyond the objects it is handed, so the whole
 module is exercised with stand-in guilds.
 """
 
-import os
-
-from utils import db
+from utils import config_audit, db
 
 #: The house channels every server may configure. The names are also the setting
 #: keys' prefixes: ``"error"`` is stored as ``error_channel_id``.
@@ -51,7 +49,7 @@ def bot_server_guild_id() -> int:
     on the path that files a bug report, and a typo in an environment variable
     must not be the reason a report cannot be filed.
     """
-    raw = (os.environ.get("BOT_SERVER_GUILD_ID") or "").strip()
+    raw = config_audit.get("BOT_SERVER_GUILD_ID")
     if not raw:
         return _DEFAULT_BOT_SERVER_GUILD_ID
     try:

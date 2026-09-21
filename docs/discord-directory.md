@@ -19,7 +19,7 @@ security, and policy requirements:
 |---|---|---|
 | **Privacy Policy URL** | ✅ Ready at `/privacy` | Served by `keep_alive.py` and `scripts/build_site.py` from `PRIVACY.md` |
 | **Terms of Service URL** | ✅ Ready at `/terms` | Served from `TERMS.md` through the same renderer |
-| **Global Slash Commands** | ✅ 90 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
+| **Global Slash Commands** | ✅ 91 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
 | **Command Descriptions** | ✅ Every command documented | Provided via `@app_commands.describe` and docstrings across `cogs/*.py` |
 | **No Mandatory Privileged Intents** | ✅ Default off | Bot operates fully without privileged gateway intents (`bot.py`) |
 | **No User Bots / Self-Bots** | ✅ Compliant | Built on discord.py as an official application |
@@ -83,7 +83,7 @@ A community bot for moderation, tickets with transcripts, leveling, an economy w
 
 ### Detailed Description
 ```markdown
-Meow is a moderation and community bot that stays out of your way. It brings 12 systems and 90 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, a live market, a starboard, social roleplay, fun commands and mini-games, and a per-channel activity tracker keeping a 365-day window.
+Meow is a moderation and community bot that stays out of your way. It brings 12 systems and 91 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, a live market, a starboard, social roleplay, fun commands and mini-games, and a per-channel activity tracker keeping a 365-day window.
 
 Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
 

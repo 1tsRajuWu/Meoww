@@ -14,6 +14,7 @@
  */
 
 import type {
+  AccessPayload,
   Adjustment,
   BootData,
   Changes,
@@ -27,16 +28,10 @@ import type {
   ServerDetail,
   SystemsMatrix,
 } from "./types";
+import { ApiError } from "./lib/errors";
+import { expectPayload } from "./lib/payload";
 
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+export { ApiError };
 
 /** A picture this app is willing to put in an `<img src>`, or `""`.
  *
@@ -100,7 +95,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(message, response.status);
   }
 
-  return data as T;
+  // The boundary. `data as T` is a promise the compiler cannot keep on its own:
+  // the bundle is committed and served from a CDN, so a browser can be running
+  // last week's build against this week's server — and a payload that no longer
+  // has a key this page needs should arrive as a sentence, not as a crash inside
+  // a `.map()`. See `lib/payload.ts` for what this does and does not check.
+  return expectPayload<T>(path, data, response.status);
 }
 
 export const api = {
@@ -171,6 +171,42 @@ export const api = {
   ops: () => request<Ops>("/api/console/ops"),
   changes: () => request<Changes>("/api/console/changes"),
 
+  /**
+   * Who is signed in, and what the three guard windows are doing.
+   *
+   * Read on its own interval by the Access page, and refreshed by hand after a
+   * revocation — the list is a *claim about right now*, and a revocation that
+   * left its own row on screen would be an interface arguing with itself.
+   */
+  access: () => request<AccessPayload>("/api/console/access"),
+
+  /**
+   * End a session by the row id the list showed, or every other one.
+   *
+   * A POST with the row id rather than a method on the sid: the page never
+   * receives a usable session id (the server masks it), and it should not — a
+   * screen that printed one would be a way in rather than a way out.
+   */
+  revokeSession: (id: number) =>
+    request<{ success: true; revoked: boolean; note?: string }>(
+      "/api/console/access/revoke",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      },
+    ),
+
+  revokeOtherSessions: () =>
+    request<{ success: true; revoked: number; scope: "all" }>(
+      "/api/console/access/revoke",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      },
+    ),
+
   /** One system on one server. The endpoint the dashboard itself uses. */
   toggle: (guildId: string, module: string, enabled: boolean) =>
     request<{ success: true; guild_id: string; publish_at: number | null }>("/api/toggle", {
@@ -186,6 +222,27 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guild_id: guildId, enabled }),
     }),
+
+  /**
+   * Sign this browser out, then leave for the sign-in page.
+   *
+   * The one request here that does not go through `request()`: `/logout`
+   * answers a redirect to an HTML page, not JSON, so there is no payload to
+   * check and nothing to hand back. The CSRF token still travels — the route
+   * refuses a bare GET, which is what stops any site making a link sign the
+   * operator out.
+   */
+  signOut: async () => {
+    const headers = new Headers();
+    if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
+    try {
+      await fetch("/logout", { method: "POST", credentials: "same-origin", headers });
+    } finally {
+      // Even a failed request leaves the page: the alternative is a console that
+      // looks signed in and is not.
+      window.location.assign("/owner/login");
+    }
+  },
 
   /** What Discord actually holds for one server, after a switch settles. */
   commandScope: (guildId: string) =>

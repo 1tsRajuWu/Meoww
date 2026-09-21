@@ -216,11 +216,12 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "meme", "8ball", "meow", "meowsound", "tan", "kms", "quote",
-            "customquote", "rizz", "roast", "scam", "aura",
+            "customquote", "rizz", "roast", "scam", "aura", "flavor",
         ),
         commands=(
             "/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote",
             "/customquote", "/rizz", "/roast", "/scam", "/aura", "/flex",
+            "/flavor — cat, dog or neutral, per server",
         ),
         cog="cogs.fun",
         help_key="fun",

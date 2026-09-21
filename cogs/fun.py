@@ -4,8 +4,8 @@ from discord.ext import commands
 import random
 import aiohttp
 import aiosqlite
-from utils import db, loans
-from utils.style import send_card, display_name
+from utils import db, loans, gifs, flavor
+from utils.style import send_card, display_name, pings
 
 DB_PATH = db.DB_PATH
 
@@ -257,37 +257,33 @@ class Fun(commands.Cog):
         # Send publicly without any time limit (stays forever!)
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="meow", description="Get a random meow and a cat pic!")
+    @app_commands.command(name="meow", description="Get a random meow and a picture!")
     async def meow(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        
-        meows = [
-            "Meow.", "Mreoww!", "Mrrrp?", "Nya!", 
-            "*purrrr*", "Meow meow!", "Hiss!", 
-            "Feed me right now. I mean, meow.", 
-            "Prrbt!", "*stares at you judgingly*"
-        ]
-        
+
+        # The wording and the picture both come from this server's flavour, so a
+        # server that picked Dog gets woofs and a dog — and a server that picked
+        # Neutral gets neither, which is the point of the setting existing.
+        chosen = await flavor.get(interaction.guild_id)
+
         embed = discord.Embed(
-            title=random.choice(meows),
+            title=random.choice(chosen.sounds),
             color=0x2B2D31,
             timestamp=discord.utils.utcnow()
         )
-        
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                # The Cat API provides free random cat images
-                async with session.get("https://api.thecatapi.com/v1/images/search") as response:
-                    data = await response.json()
-                    embed.set_image(url=data[0]["url"])
-        except Exception:
-            embed.description = "Couldn't find a cat pic, so I guess you just get text. Meow."
-            
-        embed.set_footer(text="Meow")
+
+        picture = await gifs.pet_picture(chosen.pet) if chosen.pet else None
+        if picture:
+            embed.set_image(url=picture)
+        elif chosen.pet:
+            embed.description = (
+                f"Couldn't reach a {chosen.noun} picture just now, so the words will have to do."
+            )
+
+        embed.set_footer(text=f"{chosen.emoji} {chosen.label} • /flavor changes this")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="meowsound", description="Listen to a real cat meow audio clip!")
+    @app_commands.command(name="meowsound", description="Listen to a real cat sound clip!")
     async def meowsound(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -304,30 +300,77 @@ class Fun(commands.Cog):
 
         sound_file, sound_title, sound_caption = choice
         file_path = f"assets/sounds/{sound_file}"
+        chosen = await flavor.get(interaction.guild_id)
 
         embed = discord.Embed(
             title=f"🔊 {sound_caption}",
-            description=(
-                f"> 🐱 **Sound:** {sound_title}\n"
-                f"> 🎧 Click the player **above** to listen!"
-            ),
+            description=f"**Sound:** {sound_title}",
             color=0x5865F2,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_author(name="Meow Soundboard", icon_url=interaction.guild.me.display_avatar.url)
-        embed.set_footer(text=f"Played for {interaction.user.display_name} • Real Cat Audio", icon_url=interaction.user.display_avatar.url)
+        embed.set_author(name=chosen.soundboard_title, icon_url=interaction.guild.me.display_avatar.url)
+        embed.set_footer(
+            text=f"Played for {interaction.user.display_name} • {chosen.audio_credit} • /flavor changes this",
+            icon_url=interaction.user.display_avatar.url,
+        )
 
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get("https://api.thecatapi.com/v1/images/search") as response:
-                    data = await response.json()
-                    embed.set_thumbnail(url=data[0]["url"])
-        except Exception:
-            embed.set_thumbnail(url=interaction.guild.me.display_avatar.url)
+        # An *animated* picture, which is what "no gif" was about. A still cat
+        # photo in the thumbnail slot is not a gif, however good the photo is.
+        if chosen.pet:
+            picture = await gifs.pet_picture(chosen.pet)
+            if picture:
+                embed.set_image(url=picture)
 
+        # The attachment is referenced by a File component inside the card, which
+        # is the only way Discord draws an attachment on a Components V2 message.
+        # Before this, the clip was uploaded and then silently never shown, which
+        # is why the soundboard had "no sound" and still looked like it worked.
         file = discord.File(file_path, filename=sound_file)
         await send_card(interaction, embed=embed, file=file)
+
+    @app_commands.command(name="flavor", description="Choose how the fun commands look in this server (per-server).")
+    @app_commands.describe(style="Cat, Dog, or Neutral — what the fun cards show")
+    @app_commands.choices(style=[
+        app_commands.Choice(name="🐱 Cat (default)", value="cat"),
+        app_commands.Choice(name="🐶 Dog", value="dog"),
+        app_commands.Choice(name="🐾 Neutral (no animals)", value="neutral"),
+    ])
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def flavor_cmd(self, interaction: discord.Interaction, style: app_commands.Choice[str] = None):
+        """Set this server's flavour, or show what it is now.
+
+        Named ``flavor_cmd`` on purpose: binding the attribute to ``flavor`` would
+        shadow the imported ``utils.flavor`` module for the whole class.
+
+        Server-scoped, because taste is: a member who does not want cats cannot
+        overrule everyone else, so the server decides once. The switch is the
+        guild's, and it is the *presentation* only — the bundled sound clips are
+        cat recordings whatever this is set to, which the card says out loud.
+        """
+        if interaction.guild is None:
+            return await interaction.response.send_message("❌ This is a per-server setting.", ephemeral=True)
+
+        if style is None:
+            current = await flavor.get(interaction.guild.id)
+            listing = "\n".join(
+                f"{'→' if option.id == current.id else '•'} {option.emoji} **{option.label}** — {option.summary}"
+                for option in flavor.choices()
+            )
+            return await interaction.response.send_message(
+                f"**This server's flavour:** {current.emoji} **{current.label}**\n\n{listing}\n\n"
+                "-# /flavor style:Cat to change it. Sound clips stay the bundled cat pack; "
+                "turn the Fun module off to drop those too.",
+                ephemeral=True,
+            )
+
+        chosen = await flavor.set_flavor(interaction.guild.id, style.value)
+        if chosen is None:
+            return await interaction.response.send_message("❌ That is not one of the flavours.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ This server now speaks **{chosen.emoji} {chosen.label}**. {chosen.describe()}\n"
+            f"-# Try `/meow` or `/action` to see it.",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="tan", description="Check what Tan is currently doing.")
     async def tan(self, interaction: discord.Interaction):
@@ -831,7 +874,10 @@ class Fun(commands.Cog):
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.set_footer(text=f"Rizz applied by {interaction.user.display_name}")
-        await send_card(interaction, embed=embed)
+        # The line is *aimed at* somebody, so it has to reach them. Cards suppress
+        # mentions by default (see utils.style.NO_PINGS), which is exactly why
+        # this never tagged anyone until now.
+        await send_card(interaction, embed=embed, allowed_mentions=pings(target))
 
     @app_commands.command(name="roast", description="Deliver a savage, funny roast to a member.")
     @app_commands.describe(member="The member to roast")
@@ -855,7 +901,8 @@ class Fun(commands.Cog):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"Ordered by {interaction.user.display_name} • Emotionally damaged")
-        await send_card(interaction, embed=embed)
+        # A roast nobody sees is just a note to self.
+        await send_card(interaction, embed=embed, allowed_mentions=pings(member))
 
     @app_commands.command(name="scam", description="Try a completely legit, totally not shady investment scheme.")
     async def scam(self, interaction: discord.Interaction):

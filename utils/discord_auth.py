@@ -22,10 +22,11 @@ from __future__ import annotations
 import base64
 import http.client
 import json
-import os
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from utils import config_audit
 
 #: Discord's permission bits. The bar for "may configure a bot in this server"
 #: is **Administrator, or being the owner** — not Manage Server.
@@ -168,15 +169,15 @@ def _client_id_from_token(token: str) -> str:
 
 def client_id() -> str:
     """This application's client id, or empty when OAuth is not configured."""
-    explicit = (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
+    explicit = config_audit.get("DISCORD_CLIENT_ID")
     if explicit:
         return explicit
-    return _client_id_from_token((os.environ.get("DISCORD_TOKEN") or "").strip())
+    return _client_id_from_token(config_audit.get("DISCORD_TOKEN"))
 
 
 def client_secret() -> str:
     """The client secret. Server-side only; never sent to a browser."""
-    return (os.environ.get("DISCORD_CLIENT_SECRET") or "").strip()
+    return config_audit.get("DISCORD_CLIENT_SECRET")
 
 
 def enabled() -> bool:

@@ -465,7 +465,10 @@
             {% endif %}
 
             <div class="cockpit-foot">
-                <a href="/">← Return to Public Site</a>
+                {# The public site's own address, not "/": on the owner host the
+                   root is this console, so "/" returned the operator to the page
+                   they were already looking at. #}
+                <a href="{{ site_url or 'https://meow-bot.pages.dev' }}">← Return to Public Site</a>
             </div>
         </div>
     </main>

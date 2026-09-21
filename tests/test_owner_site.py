@@ -148,6 +148,120 @@ class TheBuiltDirectoryIsTheSite(unittest.TestCase):
             build_owner.build(str(ROOT), build_owner.DEFAULT_LIVE_APP)
 
 
+class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
+    """The shape of the host, asserted on what the console actually calls.
+
+    This host used to be a reverse proxy of the entire application, which is a
+    shape with two defects in it, both since hit for real: a page it served but
+    could not dress (the dashboard, whose stylesheet was never copied here), and a
+    second door to the same room (`/login`, answering on this domain with its own
+    passkey form). The list in the worker is what replaced "everything" — and a
+    list is only as good as what is *not* on it, so this reads the console's own
+    sources for the paths it calls rather than trusting the list to be complete.
+    """
+
+    #: A path literal in a console source file, or in a template this host
+    #: serves: `/api/console/live`, `/api/toggle`, `/owner/servers`.
+    CALLED_PATH = re.compile(
+        r"""["'`](/(?:api|owner|login|logout)[A-Za-z0-9_./-]*)"""
+    )
+
+    def worker_prefixes(self) -> list[str]:
+        """The list as the worker itself declares it."""
+        worker = build_owner._worker_file("backend.test", "", "public.test")
+        block = re.search(
+            r"const CONSOLE_PREFIXES = \[(.*?)\];", worker, flags=re.DOTALL
+        )
+        self.assertIsNotNone(block, "the worker no longer declares what it serves")
+        return re.findall(r'"([^"]+)"', block.group(1))
+
+    def paths_the_console_calls(self) -> set[str]:
+        found: set[str] = set()
+        sources = [
+            path
+            for path in (ROOT / "console" / "src").rglob("*")
+            if path.suffix in (".ts", ".tsx")
+        ]
+        sources += [TEMPLATES / "console.html", TEMPLATES / "owner_login.html"]
+        for path in sources:
+            for raw in self.CALLED_PATH.findall(path.read_text(encoding="utf-8")):
+                found.add(raw.rstrip("/"))
+        return found
+
+    def test_the_builder_and_the_worker_agree_about_what_is_served(self):
+        self.assertEqual(self.worker_prefixes(), list(build_owner.CONSOLE_PREFIXES))
+
+    def test_every_path_the_console_calls_is_one_this_host_serves(self):
+        prefixes = self.worker_prefixes()
+        called = self.paths_the_console_calls()
+        self.assertGreater(len(called), 5, "the console's own calls were not found")
+        uncovered = sorted(
+            path
+            for path in called
+            if not any(path == p or path.startswith(p + "/") for p in prefixes)
+        )
+        self.assertEqual(
+            uncovered,
+            [],
+            "the bundled console calls paths this host redirects away, so those "
+            f"actions would leave the console: {uncovered}",
+        )
+
+    def test_the_member_facing_sign_in_page_is_not_served_here(self):
+        """`/login` is the second door. It is the one path that must not be here.
+
+        A `/login/discord` prefix covers the console's own Discord button, and
+        deliberately does not cover `/login` itself: proxying that page is how
+        this domain came to offer a passkey form whose limits and guards nobody
+        was looking at, while the console behind it was being reviewed.
+        """
+        prefixes = self.worker_prefixes()
+        self.assertIn("/login/discord", prefixes)
+        self.assertNotIn("/login", prefixes)
+        # And a bare `/login` is not covered by any prefix that is there.
+        self.assertFalse(
+            any("/login" == p or "/login".startswith(p + "/") for p in prefixes)
+        )
+
+    def test_everything_else_is_redirected_to_the_public_site(self):
+        worker = build_owner._worker_file("backend.test", "", "public.test")
+        self.assertIn('const PUBLIC_SITE_HOST = "public.test";', worker)
+        self.assertIn("if (!isConsole) {", worker)
+        self.assertIn("status: 301", worker)
+        self.assertIn("target.hostname = PUBLIC_SITE_HOST", worker)
+        # Not a proxy: a 301 answers without asking the backend anything, which is
+        # what makes the assets impossible to get wrong for those pages.
+        self.assertIn('"Location": target.toString()', worker)
+
+    def test_the_public_site_address_comes_from_the_environment(self):
+        """A build that hardcoded its own answer would move neither link."""
+        out = tempfile.mkdtemp(prefix="meow-owner-public-")
+        said = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, {"OWNER_PUBLIC_SITE_URL": "https://site.test/"}):
+                with contextlib.redirect_stdout(said):
+                    build_owner.build(out, build_owner.DEFAULT_LIVE_APP)
+            worker = (Path(out) / "_worker.js").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+        self.assertIn('const PUBLIC_SITE_HOST = "site.test";', worker)
+        self.assertIn("every other path is redirected to https://site.test", said.getvalue())
+
+    def test_the_build_says_what_this_host_does(self):
+        """The contract is printed, so a deploy log answers the question."""
+        out = tempfile.mkdtemp(prefix="meow-owner-said-")
+        said = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("OWNER_PUBLIC_SITE_URL", None)
+                with contextlib.redirect_stdout(said):
+                    build_owner.build(out, build_owner.DEFAULT_LIVE_APP)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+        self.assertIn("meow-bot.pages.dev", said.getvalue())
+        self.assertIn("/api/console", said.getvalue())
+
+
 class TheWorkerNamesTheVisitorItForwarded(unittest.TestCase):
     """This host is a proxy of a proxy, so the chain ends at Cloudflare.
 
