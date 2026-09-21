@@ -57,7 +57,7 @@ BASE = ROOT / "templates" / "site_base.html"
 SHARED = ("home.html", "systems.html", "start.html")
 
 #: The themes, and the one that is the stylesheet's default rather than a block.
-THEMES = ("sakura", "forest", "ember")
+THEMES = ("sakura", "forest", "ember", "sunset", "plasma", "aurora", "cosmic", "synthwave")
 DEFAULT = "midnight"
 
 

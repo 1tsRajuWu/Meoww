@@ -12,6 +12,11 @@ export const THEMES = [
   { id: "sakura", label: "Sakura", hex: "#140d12" },
   { id: "forest", label: "Forest", hex: "#0a1210" },
   { id: "ember", label: "Ember", hex: "#140e0a" },
+  { id: "sunset", label: "Sunset Flare", hex: "#140a10" },
+  { id: "plasma", label: "Cyber Plasma", hex: "#120a1c" },
+  { id: "aurora", label: "Aurora Borealis", hex: "#061313" },
+  { id: "cosmic", label: "Cosmic Nebula", hex: "#10091e" },
+  { id: "synthwave", label: "Synthwave", hex: "#0e0a1a" },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];
@@ -40,11 +45,11 @@ export function applyTheme(id: ThemeId): void {
 /* ----------------------------------------------------------- cursor styles */
 
 export const CURSOR_STYLES = [
-  { id: "crosshair", label: "Crosshair Scope", desc: "Tactical reticle with precision tick marks & center dot" },
-  { id: "blade", label: "Cyber Blade", desc: "Supersonic delta stealth arrow with kinetic trail" },
-  { id: "diamond", label: "Prism Diamond", desc: "45-degree faceted gemstone with inner refraction" },
-  { id: "orbit", label: "Orbital Gyro", desc: "Spinning quantum orbit with electron satellite" },
-  { id: "comet", label: "Ghost Comet", desc: "Organic morphing fluid plasma aura with teardrop core" },
+  { id: "sparkle", label: "Sparkle Swarm", desc: "Twinkling star cluster with celestial constellation flare" },
+  { id: "sword", label: "Cyber Blade", desc: "16-bit energy katana with slash attack on click" },
+  { id: "radar", label: "Tactical Radar HUD", desc: "Conic scanning beam with target-locking brackets" },
+  { id: "blob", label: "Velocity Blob", desc: "Squash & stretch liquid mercury drop with jelly splat" },
+  { id: "vortex", label: "Quantum Sacred Vortex", desc: "Dual counter-rotating sacred runes with singularity collapse" },
   { id: "system", label: "Classic System", desc: "Standard operating system pointer" },
 ] as const;
 
@@ -160,14 +165,15 @@ const CURSOR_COLOR_KEY = "meow-cursor-color";
 export function currentCursorStyle(): CursorStyleId {
   try {
     let saved = window.localStorage.getItem(CURSOR_STYLE_KEY);
-    if (saved === "ring" || saved === "halo" || saved === "reticle") saved = "crosshair";
-    if (saved === "stealth") saved = "blade";
-    if (saved === "nova") saved = "orbit";
-    if (saved === "bubble") saved = "comet";
+    if (saved === "crosshair" || saved === "ring" || saved === "halo" || saved === "reticle") saved = "radar";
+    if (saved === "blade" || saved === "stealth") saved = "sword";
+    if (saved === "diamond") saved = "sparkle";
+    if (saved === "orbit" || saved === "nova") saved = "vortex";
+    if (saved === "comet" || saved === "bubble") saved = "blob";
     const found = CURSOR_STYLES.find((c) => c.id === saved);
-    return found ? found.id : "crosshair";
+    return found ? found.id : "sparkle";
   } catch {
-    return "crosshair";
+    return "sparkle";
   }
 }
 

@@ -25,7 +25,7 @@
     /* The four, in the order the menu lists them. `midnight` is `:root` in the
      * stylesheet, so it is the answer for a visitor who has chosen nothing and
      * for one whose stored choice has since been retired. */
-    var THEMES = ["midnight", "sakura", "forest", "ember"];
+    var THEMES = ["midnight", "sakura", "forest", "ember", "sunset", "plasma", "aurora", "cosmic", "synthwave"];
     var DEFAULT = "midnight";
     /* `STORAGE_KEY`, not `KEY`: a short name holding a string is what a secret
      * scanner reports as a hardcoded credential, and a false alarm in a scan is
@@ -43,7 +43,17 @@
      * (`#08080a` on the landing page, `#0b0e13` on the three document pages,
      * `#090c10` on the two consoles). Writing it from here meant every page
      * advertised one value that matched none of them. */
-    var LABELS = { midnight: "Midnight", sakura: "Sakura", forest: "Forest", ember: "Ember" };
+    var LABELS = {
+        midnight: "Midnight",
+        sakura: "Sakura",
+        forest: "Forest",
+        ember: "Ember",
+        sunset: "Sunset Flare",
+        plasma: "Cyber Plasma",
+        aurora: "Aurora Borealis",
+        cosmic: "Cosmic Nebula",
+        synthwave: "Synthwave"
+    };
 
     function stored() {
         try {
@@ -123,12 +133,13 @@
     (function () {
         try {
             var c = window.localStorage.getItem("meow-cursor-style");
-            if (c === "ring" || c === "halo" || c === "reticle") c = "crosshair";
-            if (c === "stealth") c = "blade";
-            if (c === "nova") c = "orbit";
-            if (c === "bubble") c = "comet";
-            var valid = ["crosshair", "blade", "diamond", "orbit", "comet", "system"];
-            var choice = (valid.indexOf(c) !== -1) ? c : "crosshair";
+            if (c === "crosshair" || c === "reticle" || c === "halo" || c === "ring") c = "radar";
+            if (c === "blade" || c === "stealth") c = "sword";
+            if (c === "diamond") c = "sparkle";
+            if (c === "orbit" || c === "nova") c = "vortex";
+            if (c === "comet" || c === "bubble") c = "blob";
+            var valid = ["sparkle", "sword", "radar", "blob", "vortex", "system"];
+            var choice = (valid.indexOf(c) !== -1) ? c : "sparkle";
             document.documentElement.setAttribute("data-cursor-style", choice);
         } catch (error) {}
         try {

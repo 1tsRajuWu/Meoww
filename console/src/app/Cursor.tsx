@@ -25,6 +25,11 @@ export function Cursor() {
   const ring = useRef<HTMLSpanElement | null>(null);
   const dot = useRef<HTMLSpanElement | null>(null);
   const glow = useRef<HTMLDivElement | null>(null);
+  const sparkleCluster = useRef<HTMLDivElement | null>(null);
+  const swordEntity = useRef<HTMLDivElement | null>(null);
+  const radarHud = useRef<HTMLDivElement | null>(null);
+  const blobDrop = useRef<HTMLDivElement | null>(null);
+  const vortexContainer = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const fine = window.matchMedia("(pointer: fine)").matches;
@@ -35,7 +40,23 @@ export function Cursor() {
     const ringNode = ring.current;
     const dotNode = dot.current;
     const glowNode = glow.current;
-    if (!shellNode || !ringNode || !dotNode || !glowNode) return;
+    const sparkleNode = sparkleCluster.current;
+    const swordNode = swordEntity.current;
+    const radarNode = radarHud.current;
+    const blobNode = blobDrop.current;
+    const vortexNode = vortexContainer.current;
+
+    if (!shellNode || !ringNode || !dotNode || !glowNode || !sparkleNode || !swordNode || !radarNode || !blobNode || !vortexNode) return;
+
+    const particleEls = sparkleNode.querySelectorAll<HTMLSpanElement>(".sparkle-particle");
+    const sparkles = Array.from(particleEls).map((el, i) => ({
+      el,
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+      lag: 0.14 + i * 0.04,
+      angle: (i * Math.PI * 2) / 6,
+      dist: 12 + (i % 3) * 8,
+    }));
 
     let targetX = window.innerWidth / 2;
     let targetY = window.innerHeight / 2;
@@ -94,7 +115,33 @@ export function Cursor() {
       // Pin dot directly to pointer coordinates
       dotNode.style.transform = `translate3d(${targetX.toFixed(2)}px, ${targetY.toFixed(2)}px, 0)`;
 
-      // Trailing spring ring
+      // 1. Sparkle swarm particles with orbital float
+      for (const p of sparkles) {
+        p.x += (targetX - p.x) * p.lag;
+        p.y += (targetY - p.y) * p.lag;
+        p.angle += 0.04;
+        const fx = Math.cos(p.angle) * p.dist;
+        const fy = Math.sin(p.angle) * p.dist;
+        p.el.style.transform = `translate3d(${(p.x + fx).toFixed(2)}px, ${(p.y + fy).toFixed(2)}px, 0)`;
+      }
+
+      // 2. Cyber blade tip pinned directly to pointer
+      swordNode.style.transform = `translate3d(${targetX.toFixed(2)}px, ${targetY.toFixed(2)}px, 0)`;
+
+      // 3. Tactical Radar HUD
+      radarNode.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+
+      // 4. Fluid velocity blob with dynamic squash & stretch
+      const blobStretch = Math.min(0.65, speed * 0.05);
+      blobNode.style.transform =
+        `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) ` +
+        `rotate(${angle.toFixed(1)}deg) ` +
+        `scale(${((1 + blobStretch) * scale).toFixed(3)}, ${((1 / (1 + blobStretch * 0.5)) * scale).toFixed(3)})`;
+
+      // 5. Quantum Sacred Vortex
+      vortexNode.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+
+      // Trailing spring ring (fallback)
       ringNode.style.transform =
         `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) ` +
         `rotate(${angle.toFixed(1)}deg) ` +
@@ -222,6 +269,37 @@ export function Cursor() {
   return (
     <>
       <div className="cursor meow-cursor" ref={shell} aria-hidden="true">
+        <div className="sparkle-cluster" ref={sparkleCluster}>
+          <span className="sparkle-particle" />
+          <span className="sparkle-particle" />
+          <span className="sparkle-particle" />
+          <span className="sparkle-particle" />
+          <span className="sparkle-particle" />
+          <span className="sparkle-particle" />
+        </div>
+        <div className="sword-entity" ref={swordEntity}>
+          <span className="sword-blade" />
+          <span className="sword-hilt" />
+        </div>
+        <div className="radar-hud" ref={radarHud}>
+          <span className="radar-sweep-beam" />
+          <span className="radar-center-pip" />
+          <span className="radar-bracket tl" />
+          <span className="radar-bracket tr" />
+          <span className="radar-bracket bl" />
+          <span className="radar-bracket br" />
+        </div>
+        <div className="blob-drop" ref={blobDrop}>
+          <span className="blob-shine" />
+        </div>
+        <div className="vortex-container" ref={vortexContainer}>
+          <span className="vortex-inner-rune" />
+          <span className="vortex-outer-ring">
+            <span className="vortex-tachyon t1" />
+            <span className="vortex-tachyon t2" />
+            <span className="vortex-tachyon t3" />
+          </span>
+        </div>
         <span className="cursor__ring meow-cursor-ring" ref={ring} />
         <span className="meow-cursor-dot" ref={dot} />
       </div>

@@ -462,19 +462,20 @@
        and a page whose pointer never moves costs nothing either. */
     var CURSOR_KEY = "meow-cursor-style";
     var CURSOR_COLOR_KEY = "meow-cursor-color";
-    var CURSOR_STYLES = ["crosshair", "blade", "diamond", "orbit", "comet", "system"];
+    var CURSOR_STYLES = ["sparkle", "sword", "radar", "blob", "vortex", "system"];
     var CURSOR_COLORS = ["theme", "cyan", "magenta", "lime", "gold", "gradient-sunset", "gradient-plasma", "gradient-aurora", "gradient-cosmic"];
-    var DEFAULT_CURSOR = "crosshair";
+    var DEFAULT_CURSOR = "sparkle";
     var DEFAULT_CURSOR_COLOR = "theme";
     var activeCursorStyleHandler = null;
     var activeCursorColorHandler = null;
 
     function normalizeCursorStyle(val) {
         if (!val) return DEFAULT_CURSOR;
-        if (val === "ring" || val === "halo" || val === "reticle") return "crosshair";
-        if (val === "stealth") return "blade";
-        if (val === "nova") return "orbit";
-        if (val === "bubble") return "comet";
+        if (val === "crosshair" || val === "ring" || val === "halo" || val === "reticle") return "radar";
+        if (val === "blade" || val === "stealth") return "sword";
+        if (val === "diamond") return "sparkle";
+        if (val === "orbit" || val === "nova") return "vortex";
+        if (val === "comet" || val === "bubble") return "blob";
         return CURSOR_STYLES.indexOf(val) === -1 ? DEFAULT_CURSOR : val;
     }
 
@@ -547,6 +548,82 @@
         var host = document.createElement("div");
         host.className = "meow-cursor cursor-style-" + currentCursor;
         host.setAttribute("aria-hidden", "true");
+
+        // 1. Magic Sparkle Swarm (Cluster of 6 twinkling 4-point micro-stars)
+        var sparkleCluster = document.createElement("div");
+        sparkleCluster.className = "sparkle-cluster";
+        var sparkleParticles = [];
+        for (var i = 0; i < 6; i++) {
+            var spEl = document.createElement("span");
+            spEl.className = "sparkle-particle";
+            sparkleCluster.appendChild(spEl);
+            sparkleParticles.push({
+                el: spEl,
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2,
+                lag: 0.14 + (i * 0.04),
+                angle: (i * Math.PI * 2) / 6,
+                dist: 12 + (i % 3) * 8
+            });
+        }
+        host.appendChild(sparkleCluster);
+
+        // 2. Cyber Pixel Blade (16-bit retro energy dagger)
+        var swordEntity = document.createElement("div");
+        swordEntity.className = "sword-entity";
+        var swordBlade = document.createElement("span");
+        swordBlade.className = "sword-blade";
+        var swordHilt = document.createElement("span");
+        swordHilt.className = "sword-hilt";
+        swordEntity.appendChild(swordBlade);
+        swordEntity.appendChild(swordHilt);
+        host.appendChild(swordEntity);
+
+        // 3. Tactical Radar HUD (Continuous sweep beam + 4 corner target brackets)
+        var radarHud = document.createElement("div");
+        radarHud.className = "radar-hud";
+        var radarBeam = document.createElement("span");
+        radarBeam.className = "radar-sweep-beam";
+        var radarPip = document.createElement("span");
+        radarPip.className = "radar-center-pip";
+        var bracketTL = document.createElement("span"); bracketTL.className = "radar-bracket tl";
+        var bracketTR = document.createElement("span"); bracketTR.className = "radar-bracket tr";
+        var bracketBL = document.createElement("span"); bracketBL.className = "radar-bracket bl";
+        var bracketBR = document.createElement("span"); bracketBR.className = "radar-bracket br";
+        radarHud.appendChild(radarBeam);
+        radarHud.appendChild(radarPip);
+        radarHud.appendChild(bracketTL);
+        radarHud.appendChild(bracketTR);
+        radarHud.appendChild(bracketBL);
+        radarHud.appendChild(bracketBR);
+        host.appendChild(radarHud);
+
+        // 4. Fluid Velocity Blob (Liquid squash & stretch mercury droplet)
+        var blobDrop = document.createElement("div");
+        blobDrop.className = "blob-drop";
+        var blobShine = document.createElement("span");
+        blobShine.className = "blob-shine";
+        blobDrop.appendChild(blobShine);
+        host.appendChild(blobDrop);
+
+        // 5. Quantum Sacred Vortex (Dual counter-rotating rune rings)
+        var vortexContainer = document.createElement("div");
+        vortexContainer.className = "vortex-container";
+        var vortexInner = document.createElement("span");
+        vortexInner.className = "vortex-inner-rune";
+        var vortexOuter = document.createElement("span");
+        vortexOuter.className = "vortex-outer-ring";
+        var tachyon1 = document.createElement("span"); tachyon1.className = "vortex-tachyon t1";
+        var tachyon2 = document.createElement("span"); tachyon2.className = "vortex-tachyon t2";
+        var tachyon3 = document.createElement("span"); tachyon3.className = "vortex-tachyon t3";
+        vortexOuter.appendChild(tachyon1);
+        vortexOuter.appendChild(tachyon2);
+        vortexOuter.appendChild(tachyon3);
+        vortexContainer.appendChild(vortexInner);
+        vortexContainer.appendChild(vortexOuter);
+        host.appendChild(vortexContainer);
+
+        // Fallback elements kept for legacy selectors
         var ring = document.createElement("span");
         ring.className = "meow-cursor-ring";
         var dot = document.createElement("span");
@@ -684,6 +761,14 @@
         var ringY = y;
         var glowX = x;
         var glowY = y;
+        var blobX = x;
+        var blobY = y;
+        var prevBlobX = x;
+        var prevBlobY = y;
+        var radarX = x;
+        var radarY = y;
+        var vortexX = x;
+        var vortexY = y;
         var scale = 1;
         var scaleTo = 1;
         var running = false;
@@ -694,12 +779,57 @@
             glowX += (x - glowX) * 0.05;
             glowY += (y - glowY) * 0.05;
             scale += (scaleTo - scale) * 0.16;
+
+            // 1. Sparkle Swarm physics
+            for (var si = 0; si < sparkleParticles.length; si++) {
+                var sp = sparkleParticles[si];
+                sp.x += (x - sp.x) * sp.lag;
+                sp.y += (y - sp.y) * sp.lag;
+                sp.angle += 0.04;
+                var fx = Math.cos(sp.angle) * sp.dist;
+                var fy = Math.sin(sp.angle) * sp.dist;
+                sp.el.style.transform = "translate3d(" + (sp.x + fx).toFixed(2) + "px," + (sp.y + fy).toFixed(2) + "px,0)";
+            }
+
+            // 2. Cyber Blade (Tip pinned directly to pointer)
+            swordEntity.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+
+            // 3. Tactical Radar HUD
+            radarX += (x - radarX) * 0.25;
+            radarY += (y - radarY) * 0.25;
+            radarHud.style.transform = "translate3d(" + radarX.toFixed(2) + "px," + radarY.toFixed(2) + "px,0)";
+
+            // 4. Fluid Velocity Blob (Squash & stretch deformation)
+            blobX += (x - blobX) * 0.22;
+            blobY += (y - blobY) * 0.22;
+            var bvx = blobX - prevBlobX;
+            var bvy = blobY - prevBlobY;
+            prevBlobX = blobX;
+            prevBlobY = blobY;
+            var bspeed = Math.hypot(bvx, bvy);
+            var bangle = bspeed > 0.05 ? (Math.atan2(bvy, bvx) * 180 / Math.PI) : 0;
+            var bstretch = Math.min(0.65, bspeed * 0.05);
+            blobDrop.style.transform =
+                "translate3d(" + blobX.toFixed(2) + "px," + blobY.toFixed(2) + "px,0) " +
+                "rotate(" + bangle.toFixed(1) + "deg) " +
+                "scale(" + ((1 + bstretch) * scale).toFixed(3) + "," + ((1 / (1 + bstretch * 0.5)) * scale).toFixed(3) + ")";
+
+            // 5. Quantum Sacred Vortex
+            vortexX += (x - vortexX) * 0.20;
+            vortexY += (y - vortexY) * 0.20;
+            vortexContainer.style.transform = "translate3d(" + vortexX.toFixed(2) + "px," + vortexY.toFixed(2) + "px,0)";
+
+            // Glow and fallback ring
             ring.style.transform =
                 "translate3d(" + ringX.toFixed(2) + "px," + ringY.toFixed(2) + "px,0) " +
                 "scale(" + scale.toFixed(3) + ")";
             glow.style.transform =
                 "translate3d(" + glowX.toFixed(2) + "px," + glowY.toFixed(2) + "px,0)";
+
             running = Math.abs(x - ringX) > 0.3 || Math.abs(y - ringY) > 0.3 ||
+                Math.abs(x - blobX) > 0.3 || Math.abs(y - blobY) > 0.3 ||
+                Math.abs(x - radarX) > 0.3 || Math.abs(y - radarY) > 0.3 ||
+                Math.abs(x - vortexX) > 0.3 || Math.abs(y - vortexY) > 0.3 ||
                 Math.abs(scaleTo - scale) > 0.002;
             if (running) requestAnimationFrame(frame);
         }
@@ -726,6 +856,18 @@
                 ringY = y;
                 glowX = x;
                 glowY = y;
+                blobX = x;
+                blobY = y;
+                prevBlobX = x;
+                prevBlobY = y;
+                radarX = x;
+                radarY = y;
+                vortexX = x;
+                vortexY = y;
+                for (var si = 0; si < sparkleParticles.length; si++) {
+                    sparkleParticles[si].x = x;
+                    sparkleParticles[si].y = y;
+                }
             }
             dot.style.transform = "translate3d(" + x + "px," + y + "px,0)";
             wake();
@@ -751,7 +893,7 @@
             var link = !text && !!node.closest(LINK);
             host.classList.toggle("is-text", text);
             host.classList.toggle("is-link", link);
-            scaleTo = link ? (currentCursor === "bubble" ? 1.5 : (currentCursor === "reticle" ? 1.4 : 1.7)) : 1;
+            scaleTo = link ? 1.35 : (text ? 0.85 : 1);
             wake();
         }, { passive: true });
 
@@ -778,7 +920,7 @@
         document.addEventListener("pointerup", function () {
             if (currentCursor === "system") return;
             host.classList.remove("is-down");
-            scaleTo = host.classList.contains("is-link") ? (currentCursor === "bubble" ? 1.5 : (currentCursor === "reticle" ? 1.4 : 1.7)) : 1;
+            scaleTo = host.classList.contains("is-link") ? 1.35 : 1;
             wake();
         }, { passive: true });
     }
