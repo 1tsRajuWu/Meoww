@@ -335,8 +335,19 @@ def fields(*, streaming: bool, channel: str | None = None) -> list[tuple[str, st
 
 
 def footer() -> str:
-    """How to get rid of it, said plainly, on the card that arrived uninvited."""
-    return "joined because you were alone · `/company mode:Off` stops this for the server"
+    """How to get rid of it, said plainly, on the card that arrived uninvited.
+
+    The card lands in front of whoever was alone — which is usually somebody who
+    *cannot* run the switch: ``/company`` is declared with the Manage Server
+    audience, so Discord hides it from the picker of a member without that
+    permission, and a footer naming a command the reader cannot see reads as a
+    card that is broken. So the sentence says who can act on it instead of
+    implying the reader can.
+    """
+    return (
+        "joined because you were alone · an administrator can stop this for the "
+        "server with `/company mode:Off`"
+    )
 
 
 # --------------------------------------------------------------------------- #

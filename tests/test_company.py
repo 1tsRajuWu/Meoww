@@ -22,7 +22,7 @@ from unittest import mock
 import discord
 
 from tests.support import TempDatabaseMixin
-from utils import company, db, media_health, style
+from utils import company, db, media_health, permissions, style
 
 
 # --------------------------------------------------------------------------- #
@@ -324,6 +324,23 @@ class TheGreeting(unittest.TestCase):
 
     def test_the_card_says_how_to_turn_it_off(self):
         self.assertIn("/company mode:Off", company.footer())
+
+    def test_the_card_names_who_can_actually_turn_it_off(self):
+        """The card lands in front of whoever was alone, and the switch is gated.
+
+        ``/company`` is declared with the Manage Server audience, so Discord
+        *hides it from the picker* for a member without that permission — which
+        made the first version of this footer a card telling its reader to run a
+        command they cannot see. The sentence has to name the administrator
+        instead of implying the reader can act on it.
+        """
+        footer = company.footer()
+        self.assertIn("administrator", footer.lower())
+        self.assertEqual(
+            permissions.COMMAND_ACCESS["company"],
+            permissions.GUILD,
+            "if this audience ever widens, the footer's sentence has to change with it",
+        )
 
 
 class TheEmoji(unittest.TestCase):

@@ -1335,6 +1335,102 @@ class TogglingFromTheConsole(_DashboardFixture):
                 self.assertTrue(states.get(module["id"], False))
 
 
+class TheConsoleSchemaIsWhatTheServerAnswers(_DashboardFixture):
+    """A payload the page cannot read is a click that quietly does nothing.
+
+    ``console/src/lib/payload.ts`` is the boundary every answer crosses before a
+    page sees it, and it is typed — so a field the server sends as a JSON
+    *number* under a schema that says string is not a cosmetic mismatch. The
+    check throws, the caller's ``catch`` runs, and whatever that click was going
+    to do next is skipped. That is precisely how *Voice Company* could be on in
+    the database, on in this console, and absent from Discord: ``/api/toggle``
+    answered ``guild_id`` as a number, the schema said string, and the click that
+    would have read the publish stamp — the one thing that says whether Discord
+    was told — died in the boundary check and showed "the console and the bot are
+    out of step" instead.
+
+    So the shape is read out of the TypeScript and compared against the server's
+    own answer, field by field, rather than pinned by hand in two places.
+    """
+
+    PY_TYPES = {
+        "string": str,
+        "number": (int, float),
+        "boolean": bool,
+        "object": dict,
+        "array": list,
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in(scope="global")
+        with self.client.session_transaction() as session:
+            session["csrf_token"] = "csrf-token"
+
+    def declared(self, path: str) -> dict[str, str]:
+        """The schema ``payload.ts`` declares for one path, as {field: type}."""
+        text = (CONSOLE / "src" / "lib" / "payload.ts").read_text(encoding="utf-8")
+        block = re.search(
+            r'"' + re.escape(path) + r'":\s*\{(.*?)\}', text, flags=re.S
+        )
+        self.assertIsNotNone(block, f"payload.ts declares no schema for {path}")
+        return dict(re.findall(r'(\w+):\s*"(\w+)"', block.group(1)))
+
+    def _assert_matches(self, path: str, payload: dict) -> None:
+        for field, declared in self.declared(path).items():
+            with self.subTest(path=path, field=field):
+                self.assertIn(field, payload, f"{path} does not answer {field!r}")
+                expected = self.PY_TYPES[declared]
+                self.assertIsInstance(
+                    payload[field],
+                    expected,
+                    f"{path} answers {field!r} as {type(payload[field]).__name__}; "
+                    f"the console's schema says {declared!r}, and a mismatch throws "
+                    "before the page can use it",
+                )
+                if declared == "boolean":
+                    self.assertIs(type(payload[field]), bool)
+
+    def test_the_single_switch_answers_what_its_schema_declares(self):
+        module = keep_alive.AVAILABLE_MODULES[0]["id"]
+        payload = self.client.post(
+            "/api/toggle",
+            json={"guild_id": GUILD_ID, "module": module, "enabled": True},
+            headers={"X-CSRF-Token": "csrf-token"},
+        ).get_json()
+        self._assert_matches("/api/toggle", payload)
+        self.assertIsInstance(payload["guild_id"], str, "a snowflake crosses as text")
+        self.assertIn("republish", payload)
+
+    def test_the_bulk_switch_answers_what_its_schema_declares(self):
+        payload = self.client.post(
+            "/api/toggle-all",
+            json={"guild_id": GUILD_ID, "enabled": False},
+            headers={"X-CSRF-Token": "csrf-token"},
+        ).get_json()
+        self._assert_matches("/api/toggle-all", payload)
+        self.assertIsInstance(payload["guild_id"], str)
+
+    def test_a_republish_nobody_could_hear_is_reported_as_such(self):
+        """The switch saves either way; the *picker* only changes if the bot heard.
+
+        A deploy is exactly when somebody toggles something — and a booting bot
+        has no tree to republish from, so the honest answer is "saved, and the
+        command list was not re-sent", which the console turns into a warning
+        instead of a green toast about a command that cannot be typed yet.
+        """
+        module = keep_alive.AVAILABLE_MODULES[0]["id"]
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", None):
+            payload = self.client.post(
+                "/api/toggle",
+                json={"guild_id": GUILD_ID, "module": module, "enabled": True},
+                headers={"X-CSRF-Token": "csrf-token"},
+            ).get_json()
+        self.assertTrue(payload["success"])
+        self.assertIs(payload["republish"], False)
+        self.assertTrue(keep_alive.modules.is_enabled(GUILD_ID, module))
+
+
 class ThePreviewHarnessShowsAConsole(_DashboardFixture):
     """The harness the README points at must be able to show this console.
 
