@@ -999,5 +999,138 @@ class TheProxyIsOnlyAFixIfItCarriesBothHalves(unittest.TestCase):
         self.assertIn("SOCKS", reading["proxy_problem"])
 
 
+class AMenuOfThingsThatCannotPlay(unittest.TestCase):
+    """*"Why is it showing option when I gave him the link … and it takes so long
+    after selecting and error"* — the whole report, in one defect.
+
+    A flat search is cheap and unauthenticated; only the **stream** extraction is
+    refused by a platform that has decided this address is a bot. So a provider can
+    answer the search and still have nothing it can hand over — and the menu used to
+    be built from that search without ever asking. The member is then asked to
+    choose between things none of which can play, waits through an extraction after
+    choosing, and gets an error for an answer. The bot had already said *YouTube is
+    refusing this host's address right now*, which is the same fact ignored twice.
+    """
+
+    BLOCKED = "Sign in to confirm you're not a bot"
+
+    def setUp(self):
+        # The refusal ledger is module state with a 15-minute cooldown: leaking a
+        # refusal out of these tests would reorder the providers for every other
+        # test in the suite.
+        M._refused_at.clear()
+        self.addCleanup(M._refused_at.clear)
+        patcher = mock.patch.object(
+            M,
+            "source_order",
+            return_value=[("youtube", "ytsearch"), ("soundcloud", "scsearch")],
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _candidate(provider, title, *, channel="Channel", views=1000, verified=False, duration=200):
+        return M.Candidate(
+            provider=provider,
+            video_id="abc12345678",
+            title=title,
+            duration=duration,
+            channel=channel,
+            verified=verified,
+            views=views,
+            webpage_url="https://example.invalid/watch",
+        )
+
+    def _search(self, *_args, provider=None, **_kwargs):
+        """YouTube cannot decide; SoundCloud decides.
+
+        Which is the real shape of this: an ambiguous search is a property of one
+        platform's catalogue, and the next provider is asked precisely because it
+        may be able to answer where the last one could only ask.
+        """
+        who = provider or "youtube"
+        if who == "youtube":
+            # Two identical results: the real scorer's own rule for "I cannot tell",
+            # so the shortlist under test comes from the code that makes the real one.
+            return [
+                self._candidate(who, "Song", channel=channel)
+                for channel in ("Channel One", "Channel Two")
+            ]
+        return [self._candidate(who, "Song (Official Audio)", views=90_000_000, verified=True)]
+
+    def _stream(self, track, **_kwargs):
+        """YouTube cannot hand anything over. This is what the host actually does."""
+        if track.provider == "youtube":
+            raise M.MediaError("blocked", self.BLOCKED, provider="youtube")
+        return M.Stream(url="http://example.invalid/s", is_opus=True, abr=130.0, duration=200)
+
+    @staticmethod
+    def _stream_ok(track, **_kwargs):
+        return M.Stream(url="http://example.invalid/s", is_opus=True, abr=130.0, duration=200)
+
+    def test_a_provider_that_cannot_stream_does_not_get_to_offer_a_menu(self):
+        asked = []
+
+        def record(track, **kwargs):
+            asked.append(track.provider)
+            return self._stream(track, **kwargs)
+
+        with mock.patch.object(M, "search", side_effect=self._search), \
+             mock.patch.object(M, "stream", side_effect=record):
+            resolution, provider = M._chain("Song", requester="Raj")
+
+        self.assertEqual(asked[:2], ["youtube", "soundcloud"], "the next provider was never asked")
+        self.assertEqual(provider, "soundcloud")
+        self.assertIsNotNone(resolution.track, "it should play, not ask")
+        self.assertEqual(resolution.alternatives, [])
+
+    def test_the_menu_is_offered_once_its_provider_has_proved_it_can_play(self):
+        with mock.patch.object(M, "search", side_effect=self._search), \
+             mock.patch.object(M, "stream", side_effect=self._stream_ok):
+            resolution, provider = M._chain("Song", requester="Raj")
+
+        self.assertIsNone(resolution.track)
+        self.assertTrue(resolution.needs_choice)
+        self.assertEqual(provider, "youtube")
+        # The likeliest choice is already resolved, so picking it costs nothing —
+        # which is the half of the report about it taking so long after selecting.
+        self.assertTrue(resolution.alternatives[0].stream_url)
+
+    def test_a_result_set_of_only_edits_is_not_a_menu(self):
+        """SoundCloud's actual answer for a mainstream single, on the run this was
+        found: a **30-second preview** of the real upload and four edits. The
+        preview is a sample rather than the recording, and the edits are the wrong
+        recording — so this provider has nothing, and a choice between four wrong
+        recordings is the worst possible way to say so."""
+
+        def only_edits(*_args, provider=None, **_kwargs):
+            who = provider or "youtube"
+            return [
+                self._candidate(who, "Song", duration=30),  # the preview
+                self._candidate(who, "Song (Slowed)", duration=260),
+                self._candidate(who, "Song (Mashup)", duration=262),
+            ]
+
+        with mock.patch.object(M, "search", side_effect=only_edits), \
+             mock.patch.object(M, "stream", side_effect=self._stream_ok):
+            with self.assertRaises(M.MediaError) as caught:
+                M._chain("Song", requester="Raj")
+
+        self.assertEqual(caught.exception.kind, "wrong_version")
+
+    def test_when_nothing_can_play_the_answer_is_a_sentence_not_a_menu(self):
+        def always_blocked(track, **kwargs):
+            raise M.MediaError("blocked", self.BLOCKED, provider=track.provider)
+
+        with mock.patch.object(M, "search", side_effect=self._search), \
+             mock.patch.object(M, "stream", side_effect=always_blocked):
+            with self.assertRaises(M.MediaError) as caught:
+                M._chain("Song", requester="Raj")
+
+        self.assertEqual(caught.exception.kind, "blocked")
+        self.assertIn("YouTube", str(caught.exception))
+        self.assertIn("refusing this host", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

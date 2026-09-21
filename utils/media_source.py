@@ -1540,6 +1540,42 @@ def rescue(track: Track, *, requester: str | None = None) -> Track | None:
 # and only when it is not the obvious answer.
 
 
+def _shortlist_is_worth_offering(resolution: Resolution, provider: str):
+    """``None`` when this menu can be played from, or the reason it cannot.
+
+    The defect this removes, in the member's own words: *"why is it showing option
+    when I gave him the link … and it takes so long after selecting and error"*. A
+    link resolved, the card asked **which of these did you mean**, they picked one,
+    and the answer was *that track could not be played*. So the menu was built from
+    a provider that could **search** and not **stream** — which is exactly what
+    YouTube does from an address it has decided is a bot: the flat search is cheap
+    and unauthenticated, and only the stream extraction is refused.
+
+    The bot had already said *"YouTube is refusing this host's address right now"*
+    and then offered a YouTube-only menu, which is the same fact being ignored
+    twice in a row.
+
+    **This is not extra work.** The alternatives carry no stream URL — the chain
+    only streams the entry it settles on — so choosing one costs an extraction
+    *anyway*, after the member has waited and after the menu has promised. Doing
+    that extraction here instead means the likeliest choice is already resolved and
+    fresh by the time they pick it, a refusal is discovered while there is still a
+    provider left to try, and the failure is a sentence rather than a menu nobody
+    could have chosen correctly from.
+    """
+    if not resolution.alternatives:
+        return MediaError("no_stream", "That provider offered nothing it could play.")
+    probe = resolution.alternatives[0]
+    try:
+        apply_stream(probe, stream(probe))
+    except Exception as exc:  # noqa: BLE001 — an unusable provider is one to move past
+        return exc if isinstance(exc, MediaError) else MediaError(
+            "no_stream", f"That provider could not hand over what it offered ({type(exc).__name__}).",
+            provider=provider,
+        )
+    return None
+
+
 def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | None = None):
     """The query, resolved against the providers in turn. Returns ``(Resolution, provider)``.
 
@@ -1562,12 +1598,55 @@ def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | No
             continue
         if not candidates:
             continue
+        # Only what could *be* the recording counts here: a 30-second preview of the
+        # real upload is not a usable answer either, and it is what a provider
+        # offers instead of the recording often enough to matter — SoundCloud had
+        # exactly that for the request this was found on, alongside four edits. It
+        # is excluded first so that the set being judged is the set that could be
+        # played, rather than the set that merely came back.
+        usable = [c for c in candidates if not c.too_short or c.live]
+        if usable and all(junk_penalty(candidate.title or "", text) > 0 for candidate in usable):
+            # A result set made *entirely* of other recordings has not found the
+            # recording. This is the state a second provider is usually in for a
+            # mainstream request: with YouTube refusing this host the search moves
+            # on, and SoundCloud answers an Ariana Grande single with *Slowed*, a
+            # *Piano & String Version* remix and a *Mashup*. Penalising those is
+            # enough to rank them under a real upload — and no help at all when
+            # there is no real upload, where the penalty leaves the best of three
+            # wrong recordings to be offered as a choice. So they are not a
+            # shortlist to pick from; they are a provider with nothing, and the
+            # next one is asked.
+            last = MediaError(
+                "wrong_version",
+                f"the only matches for **{text}** are edits, covers or remixes",
+            )
+            continue
         resolution = pick(
             candidates, text, expected_sec, artist, requester=requester, query=text
         )
         if resolution.track is None:
-            # A shortlist is a real answer: the member is being asked which of these,
-            # and there is nothing to stream yet, so the next provider is not asked.
+            # A shortlist is a real answer **only if the provider offering it can
+            # hand over what it is offering**, and that used to be assumed rather
+            # than checked. See :func:`_shortlist_is_worth_offering`. A provider
+            # already in its refusal cooldown is skipped outright rather than
+            # probed: the answer is a fact this host established minutes ago, and
+            # re-establishing it costs the member seconds on every song.
+            if _refusing(provider):
+                last = MediaError(
+                    "blocked",
+                    f"**{PROVIDER_LABELS.get(provider, provider)}** is refusing this host",
+                    provider=provider,
+                )
+                refusal = refusal or (provider, last)
+                continue
+            because = _shortlist_is_worth_offering(resolution, provider)
+            if because is not None:
+                last = because
+                if is_blocked(because):
+                    note_refusal(provider)
+                    refusal = refusal or (provider, because)
+                continue
+            note_source(provider)
             return resolution, provider
         if resolution.track.duration and resolution.track.duration < MIN_TRACK_SECONDS \
                 and not resolution.track.live:
