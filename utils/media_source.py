@@ -77,6 +77,13 @@ JUNK_MARKERS: tuple[str, ...] = (
     "sped up", "speed up", "slowed", "reverb", "chopped", "screwed",
     "8d audio", "bass boost", "bass boosted", "reaction", "tribute",
     "made popular by", "in the style of", "ai cover", "live cover", "loop",
+    # An *arrangement* is a different recording too, and this is the one that got
+    # through: with YouTube refusing the host, the second provider becomes the
+    # first one asked, and SoundCloud's answer to the studio single was
+    # "we can't be friends (wait for your love) [Acoustic Version]". Asking for
+    # the flavour is still honoured — the marker is skipped when the query
+    # contains it — so *"Ariana Grande acoustic"* still finds one.
+    "acoustic", "piano version",
 )
 JUNK_PENALTY = 300.0
 

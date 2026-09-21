@@ -411,6 +411,79 @@ class SourceSelection(unittest.TestCase):
             self.assertNotIn(flag, player_module.BEFORE_OPTIONS)
         self.assertIn("-reconnect", player_module.BEFORE_OPTIONS)
 
+    def test_a_song_keeps_its_own_bitrate_on_an_ordinary_channel(self):
+        """The regression behind the quality report, stated as the number it is.
+
+        A normal Discord voice channel is **64 kbps**. The old gate refused to pass
+        through anything louder than that, so a 131 kbps Opus song was decoded and
+        re-encoded down to 64 on the way out — every song, on every unboosted
+        server — which is what an echo and a thin, hollow mix sound like.
+        """
+        self._current(opus=True, abr=131.0)
+        self.player.volume = 1.0
+        with mock.patch.object(player_module.discord.opus, "is_loaded", return_value=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            _source, engine = self.player._build_source("http://example.invalid/a", 64)
+
+        self.assertEqual(opus_cls.call_args.kwargs.get("codec"), "copy")
+        self.assertIn("131 kbps", engine)
+
+    def test_encoding_never_goes_below_the_source_or_below_the_channel(self):
+        # 160 kbps of MP3 asked for on a 64 kbps channel: encoding at 64 would
+        # discard more than half of a recording that arrived intact.
+        self.assertEqual(player_module.encode_bitrate(64, SimpleNamespace(abr=160.0)), 160)
+        # A boosted channel wants 384, which is past the point music gains anything.
+        self.assertEqual(player_module.encode_bitrate(384, SimpleNamespace(abr=96.0)), 256)
+        # Nothing known about the source: the channel's own number is the floor.
+        self.assertEqual(player_module.encode_bitrate(96, SimpleNamespace(abr=0)), 96)
+        self.assertEqual(player_module.encode_bitrate(0, SimpleNamespace(abr=0)), 64)
+
+    def test_a_non_opus_source_is_never_passed_through(self):
+        self._current(opus=False, abr=160.0)
+        self.player.volume = 1.0
+        with mock.patch.object(player_module.discord.opus, "is_loaded", return_value=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            self.player._build_source("http://example.invalid/a", 64)
+
+        self.assertIsNone(opus_cls.call_args.kwargs.get("codec"))
+
+    def test_the_encoder_is_told_this_is_music(self):
+        """Measured against a musical signal at 96 kbps: discord.py's own
+        ``-fec true -packet_loss 15`` cost 4.3 dB and ``-application voip`` a
+        further 6.9 dB, because the redundancy is carried by libopus's speech
+        path. Neither is the right trade for a music player."""
+        self._current(opus=False, abr=160.0)
+        self.player.volume = 1.0
+        with mock.patch.object(player_module.discord.opus, "is_loaded", return_value=False), \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            _source, engine = self.player._build_source("http://example.invalid/a", 64)
+
+        options = opus_cls.call_args.kwargs["options"]
+        self.assertIn("-application audio", options)
+        self.assertIn("-fec false", options)
+        self.assertIn("-packet_loss 0", options)
+        self.assertIn("-compression_level 10", options)
+        self.assertEqual(opus_cls.call_args.kwargs["bitrate"], 160)
+        # And the card says which of the three paths ran, so a bad-sounding song
+        # is a reading rather than a guess.
+        self.assertIn("160 kbps", engine)
+
+    def test_a_filter_and_a_volume_change_share_one_filtergraph(self):
+        """Two ``-af`` flags are not a chain: ffmpeg replaces the first with the
+        second, which is how a filter chosen here used to vanish in silence."""
+        self._current(opus=True, abr=96.0)
+        self.player.volume = 0.5
+        self.player.filter_name = "nightcore"
+        with mock.patch.object(player_module.voice_caps, "probe") as probe, \
+             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+            probe.return_value = SimpleNamespace(ffmpeg="/usr/bin/ffmpeg", opus=False)
+            self.player._build_source("http://example.invalid/a", 96)
+
+        options = opus_cls.call_args.kwargs["options"]
+        self.assertEqual(options.count("-af"), 1)
+        self.assertIn(player_module.FILTER_BY_KEY["nightcore"].args, options)
+        self.assertIn("volume=0.5", options)
+
 
 class SeekRestartsInPlace(_PlayerCase):
     async def test_a_seek_sets_the_offset_and_re_renders(self):

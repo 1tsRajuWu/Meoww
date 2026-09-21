@@ -205,6 +205,19 @@ class MatchingTheRightRecording(unittest.TestCase):
     def test_a_flavour_the_member_asked_for_is_not_penalised(self):
         self.assertEqual(M.junk_penalty("song (extended remix)", "artist - song remix"), 0.0)
 
+    def test_an_arrangement_is_a_different_recording(self):
+        """Measured rather than guessed. While YouTube refuses this host the second
+        provider is the first one asked, and SoundCloud's answer for the studio
+        single was ``we can't be friends (wait for your love) [Acoustic Version]``
+        — a real recording, and not the one that was asked for."""
+        self.assertEqual(
+            M.junk_penalty("we can't be friends (acoustic version)", "x"), M.JUNK_PENALTY
+        )
+        self.assertEqual(M.junk_penalty("song (piano version)", "x"), M.JUNK_PENALTY)
+
+    def test_asking_for_the_arrangement_still_finds_one(self):
+        self.assertEqual(M.junk_penalty("song (acoustic)", "artist - song acoustic"), 0.0)
+
     def test_a_live_take_is_penalised_only_when_it_was_not_asked_for(self):
         live = _entry("Artist - Song (Live at Wembley)", "Artist", 260, views=5_000_000, verified=True)
         studio = _entry("Artist - Song (Official Audio)", "Artist", 200, views=90_000_000, verified=True)

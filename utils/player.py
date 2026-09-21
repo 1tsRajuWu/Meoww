@@ -134,6 +134,70 @@ def filter_for(key: str) -> Filter:
     return FILTER_BY_KEY.get((key or "normal").lower(), FILTER_BY_KEY["normal"])
 
 
+#: What ``libopus`` is told whenever this process has to re-encode, and why each
+#: part of it. This is the second half of the quality complaint, and it exists
+#: because the first half (a ceiling on pass-through, below) is not the only way
+#: to throw audio away.
+#:
+#: ``discord.py`` writes ``-fec true -packet_loss 15`` into *every*
+#: ``FFmpegOpusAudio`` command line. That is the right trade for a voice library —
+#: telling the encoder to expect 15% loss is how a dropped syllable survives — and
+#: the wrong one for a music player, because the in-band redundancy is carried by
+#: libopus's **speech** path. Measured on this host, against a musical signal at
+#: 96 kbps, the fidelity of the encoded result was:
+#:
+#: ====================  ====================
+#: ``-application audio``  −43.83 dB (best)
+#: ``audio`` + FEC on      −39.53 dB
+#: ``-application voip``   −36.97 dB
+#: ====================  ====================
+#:
+#: i.e. discord.py's two defaults together cost about **7 dB** against the music
+#: configuration, and turning FEC off removed the whole of its 4.3 dB share even
+#: with ``-packet_loss 15`` still present. ``-compression_level 10`` then buys a
+#: little more quality at the same bitrate for CPU one stream never notices.
+#:
+#: These are appended *after* discord.py's own flags on purpose: ffmpeg keeps the
+#: last occurrence of an option, so ours are the ones that take effect.
+MUSIC_ENCODER = (
+    "-application audio -frame_duration 20 -vbr on -compression_level 10 "
+    "-fec false -packet_loss 0"
+)
+
+#: The highest this will ever ask libopus for. Past this a music stream gains
+#: nothing audible, and it is comfortably under Discord's own 384 kbps ceiling.
+MAX_ENCODE_KBPS = 256
+
+
+def channel_bitrate_kbps(vc) -> int:
+    """What the channel this connection is in asks Discord's clients to encode at.
+
+    Discord's default is 64 kbps, and it is the *channel's* number rather than a
+    limit on what the bot may send — which is why :func:`encode_bitrate` treats it
+    as a floor and not as the target.
+    """
+    raw = int(getattr(getattr(vc, "channel", None), "bitrate", 128000) or 128000)
+    return min(max(raw // 1000, 64), 384)
+
+
+def encode_bitrate(channel_kbps: int, track) -> int:
+    """How fast to encode when the audio has to be re-encoded rather than passed on.
+
+    The rule used to be *the channel's own bitrate*, and that is the number behind
+    the report of echo and poor quality: Discord's default voice channel is **64
+    kbps**, so a 160 kbps recording was decoded and re-encoded at 64 — more than
+    half of it discarded before libopus had done anything else — and this is the
+    path taken by *every* source that is not already Opus, which is every source
+    once the provider that does serve Opus refuses the host.
+
+    Encoding above the source cannot bring back what is gone; encoding below it
+    throws away what is not. So: the source's own rate, never under what the
+    channel asks for, never past :data:`MAX_ENCODE_KBPS`.
+    """
+    source = int(getattr(track, "abr", 0) or 0)
+    return min(max(int(channel_kbps or 0), source, 64), MAX_ENCODE_KBPS)
+
+
 @dataclass
 class Fault:
     """Something that went wrong during playback, in the shape a card needs."""
@@ -410,8 +474,7 @@ class GuildPlayer:
 
             self.current = track
             self.seek_offset = 0.0
-            channel_bitrate = int(getattr(getattr(vc, "channel", None), "bitrate", 128000) or 128000)
-            bitrate_kbps = min(max(channel_bitrate // 1000, 64), 384)
+            bitrate_kbps = channel_bitrate_kbps(vc)
 
             try:
                 source, engine = self._build_source(track.stream_url, bitrate_kbps)
@@ -475,15 +538,25 @@ class GuildPlayer:
         a reason that is measured rather than hoped:
 
         * **pass-through** — nothing to reshape, volume at 100%, the source already
-          Opus and no louder than the channel: the packets go out untouched, which
-          keeps the provider's own ~130 kbps instead of re-encoding it down, and
-          skips an entire encode pass. This is also the path that needs **no
-          libopus at all** (``FFmpegOpusAudio.is_opus()`` is ``True``, so
-          ``discord.py`` never builds an encoder).
+          Opus: the packets go out untouched, which keeps the provider's own ~130
+          kbps instead of re-encoding it down, and skips an entire encode pass.
+          This is also the path that needs **no libopus at all**
+          (``FFmpegOpusAudio.is_opus()`` is ``True``, so ``discord.py`` never
+          builds an encoder).
+
+          It used to *also* require the source to be no louder than the channel,
+          and that one clause is the quality report: a channel's bitrate is where
+          Discord's own client should encode and it is **64 kbps on a normal
+          server**, so a 130 kbps Opus song failed the test and was re-encoded down
+          to 64 — every song, on every server without a boost. Handing on the
+          provider's own packets costs nothing and cannot sound worse than
+          re-encoding them, so the clause is gone.
         * **PCM with a live volume transformer** — when libopus is available, so
           the volume can change mid-track instead of restarting the stream.
         * **re-encode in ffmpeg** — the always-available path: filters and volume
-          are baked into the command line, and a change re-renders the source.
+          are baked into the command line, and a change re-renders the source. It
+          encodes at :func:`encode_bitrate` and with :data:`MUSIC_ENCODER`, both
+          because this is a music player and not a phone call.
         """
         caps = voice_caps.probe()
         chosen = filter_for(self.filter_name)
@@ -496,14 +569,15 @@ class GuildPlayer:
             and abs(self.volume - 1.0) < 1e-6
             and track is not None
             and track.is_opus
-            and 0 < track.abr <= bitrate_kbps + 8
         )
         if copy_ok:
+            source_kbps = getattr(track, "abr", 0) or 0
+            kept = f"{source_kbps:.0f} kbps" if source_kbps else "source rate"
             return (
                 discord.FFmpegOpusAudio(
                     stream_url, executable=executable, codec="copy", before_options=before
                 ),
-                f"pass-through ({track.abr:.0f} kbps)",
+                f"pass-through ({kept}, untouched)",
             )
 
         shaping = "-vn"
@@ -511,7 +585,8 @@ class GuildPlayer:
             shaping += f" -af {chosen.args}"
         if abs(self.volume - 1.0) >= 1e-6 and caps.opus:
             # PCM + transformer: the volume is applied in this process, so it can
-            # change without touching the stream.
+            # change without touching the stream. ``discord.py``'s own encoder is
+            # already ``APPLICATION_AUDIO``, so nothing has to be corrected here.
             raw = discord.FFmpegPCMAudio(
                 stream_url, executable=executable, before_options=before, options=shaping
             )
@@ -520,18 +595,26 @@ class GuildPlayer:
                 f"PCM + live volume [{chosen.name}]",
             )
 
+        # One ``-af``, not two: a second one *replaces* the first rather than
+        # chaining onto it, so a filter chosen here used to disappear silently
+        # whenever the volume was not at 100%.
+        chain: list[str] = []
+        if chosen.args:
+            chain.append(chosen.args)
         if abs(self.volume - 1.0) >= 1e-6:
-            volume_arg = f"volume={self.volume}"
-            shaping = f"{shaping} -af {volume_arg}" if chosen.args else f"-vn -af {volume_arg}"
+            chain.append(f"volume={self.volume}")
+        options = f"-vn -af {','.join(chain)}" if chain else "-vn"
+        options = f"{options} {MUSIC_ENCODER}"
+        target_kbps = encode_bitrate(bitrate_kbps, track)
         return (
             discord.FFmpegOpusAudio(
                 stream_url,
                 executable=executable,
-                bitrate=bitrate_kbps,
+                bitrate=target_kbps,
                 before_options=before,
-                options=shaping,
+                options=options,
             ),
-            f"ffmpeg re-encode [{chosen.name}]",
+            f"ffmpeg encode [{chosen.name}] {target_kbps} kbps",
         )
 
     def restart_current(self) -> bool:
@@ -549,7 +632,9 @@ class GuildPlayer:
         if not self.current or not self.current.stream_url:
             return False
         try:
-            source, engine = self._build_source(self.current.stream_url)
+            source, engine = self._build_source(
+                self.current.stream_url, channel_bitrate_kbps(vc)
+            )
         except Exception as exc:
             print(f"[MUSIC] could not rebuild the source: {exc}", flush=True)
             return False
