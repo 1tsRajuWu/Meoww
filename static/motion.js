@@ -48,7 +48,10 @@
     // A mouse or a trackpad: anything that can hover and be followed. A phone
     // reports `coarse`, and a device with neither query support (or no
     // pointer) reports nothing — so the test is positive, never "not coarse".
-    var fine = !!(window.matchMedia && window.matchMedia("(pointer: fine)").matches);
+    var fine = !!(
+        (window.matchMedia && (window.matchMedia("(pointer: fine)").matches || window.matchMedia("(any-pointer: fine)").matches)) ||
+        (typeof window !== "undefined" && !('ontouchstart' in window))
+    );
 
     /* ---------------------------------------------------------------------
        One rAF loop for every spring on the page
@@ -457,12 +460,35 @@
        content that never moved. This one starts on a pointer move and stops
        itself as soon as the ring has caught up, so an idle page costs nothing
        and a page whose pointer never moves costs nothing either. */
+    var CURSOR_KEY = "meow-cursor-style";
+    var CURSOR_STYLES = ["halo", "reticle", "nova", "bubble", "stealth", "system"];
+    var DEFAULT_CURSOR = "halo";
+    var activeCursorStyleHandler = null;
+
+    window.setCursorStyle = function (style) {
+        if (activeCursorStyleHandler) {
+            activeCursorStyleHandler(style);
+        } else {
+            if (CURSOR_STYLES.indexOf(style) === -1) style = DEFAULT_CURSOR;
+            try { window.localStorage.setItem(CURSOR_KEY, style); } catch (e) {}
+            document.documentElement.setAttribute("data-cursor-style", style);
+            var buttons = document.querySelectorAll("[data-cursor-value]");
+            Array.prototype.forEach.call(buttons, function (btn) {
+                btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-value") === style ? "true" : "false");
+            });
+        }
+    };
+    window.cycleCursorStyle = function () {
+        var current = document.documentElement.getAttribute("data-cursor-style") || DEFAULT_CURSOR;
+        var idx = CURSOR_STYLES.indexOf(current);
+        var next = CURSOR_STYLES[(idx + 1) % CURSOR_STYLES.length];
+        window.setCursorStyle(next);
+        return next;
+    };
+
     function pointerLayer() {
         if (reduced || !fine || !document.body) return;
-
-        var CURSOR_KEY = "meow-cursor-style";
-        var CURSOR_STYLES = ["halo", "reticle", "nova", "bubble", "stealth", "system"];
-        var DEFAULT_CURSOR = "halo";
+        if (document.querySelector(".meow-cursor")) return;
 
         function getStoredCursor() {
             try {
@@ -531,7 +557,7 @@
             updateCursorButtons(style);
         }
 
-        window.setCursorStyle = applyCursorStyle;
+        activeCursorStyleHandler = applyCursorStyle;
         window.cycleCursorStyle = function () {
             var idx = CURSOR_STYLES.indexOf(currentCursor);
             var next = CURSOR_STYLES[(idx + 1) % CURSOR_STYLES.length];

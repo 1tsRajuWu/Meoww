@@ -120,6 +120,15 @@
     /* ---- 1. before paint -------------------------------------------------- */
 
     apply(stored());
+    (function () {
+        try {
+            var c = window.localStorage.getItem("meow-cursor-style");
+            if (c === "ring") c = "halo";
+            var valid = ["halo", "reticle", "nova", "bubble", "stealth", "system"];
+            var choice = (valid.indexOf(c) !== -1) ? c : "halo";
+            document.documentElement.setAttribute("data-cursor-style", choice);
+        } catch (e) {}
+    })();
 
     /* ---- 2. the picker ---------------------------------------------------- */
 
@@ -213,15 +222,15 @@
             });
 
             Array.prototype.forEach.call(picker.querySelectorAll("[data-cursor-value]"), function (option) {
-                option.addEventListener("click", function () {
+                option.addEventListener("click", function (event) {
+                    event.stopPropagation();
                     var chosen = option.getAttribute("data-cursor-value");
+                    try {
+                        window.localStorage.setItem("meow-cursor-style", chosen);
+                    } catch (error) {}
+                    document.documentElement.setAttribute("data-cursor-style", chosen);
                     if (window.setCursorStyle) {
                         window.setCursorStyle(chosen);
-                    } else {
-                        try {
-                            window.localStorage.setItem("meow-cursor-style", chosen);
-                        } catch (error) {}
-                        document.documentElement.setAttribute("data-cursor-style", chosen);
                     }
                     Array.prototype.forEach.call(document.querySelectorAll("[data-cursor-value]"), function (btn) {
                         btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-value") === chosen ? "true" : "false");

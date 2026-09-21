@@ -3653,12 +3653,14 @@ html[data-cursor-style="system"] .meow-glow {
 .meow-glow.is-on { opacity: 1; }
 
 /* `cursor: none` is scoped strictly to html.has-meow-cursor so pages where
-   the script does not run retain their native cursor. Hover states are
-   equally suppressed so no element can flash the fallback pointer. */
+   the script does not run retain their native cursor. Hover states and
+   pseudo-elements are equally suppressed so no element can flash the fallback pointer. */
 html.has-meow-cursor,
 html.has-meow-cursor body,
 html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled),
-html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled):hover {
+html.has-meow-cursor *:not(input):not(textarea):not([disabled]):not(:disabled):hover,
+html.has-meow-cursor *::before,
+html.has-meow-cursor *::after {
     cursor: none !important;
 }
 html.has-meow-cursor input[type="text"],
@@ -3672,6 +3674,35 @@ html.has-meow-cursor [disabled],
 html.has-meow-cursor :disabled,
 html.has-meow-cursor .disabled {
     cursor: not-allowed !important;
+}
+
+/* Classic system cursor style override */
+html[data-cursor-style="system"],
+html[data-cursor-style="system"] body,
+html[data-cursor-style="system"] * {
+    cursor: auto !important;
+}
+html[data-cursor-style="system"] a,
+html[data-cursor-style="system"] button,
+html[data-cursor-style="system"] [role="button"],
+html[data-cursor-style="system"] label,
+html[data-cursor-style="system"] select,
+html[data-cursor-style="system"] summary,
+html[data-cursor-style="system"] input[type="submit"],
+html[data-cursor-style="system"] input[type="button"],
+html[data-cursor-style="system"] input[type="checkbox"],
+html[data-cursor-style="system"] input[type="radio"],
+html[data-cursor-style="system"] .btn,
+html[data-cursor-style="system"] .cursor-option,
+html[data-cursor-style="system"] .theme-option {
+    cursor: pointer !important;
+}
+html[data-cursor-style="system"] input[type="text"],
+html[data-cursor-style="system"] input[type="password"],
+html[data-cursor-style="system"] input[type="search"],
+html[data-cursor-style="system"] input[type="email"],
+html[data-cursor-style="system"] textarea {
+    cursor: text !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
