@@ -42,6 +42,21 @@ from utils import config_audit, db
 #: The licence API. Every call in this file goes here and nowhere else.
 LICENSE_API = "https://api.lemonsqueezy.com/v1/licenses"
 
+#: The only host the licence calls may reach. A licence key is a credential people
+#: pay for, and the key travels in the request — so the URL is the boundary, not a
+#: detail. Checked in :func:`_post` rather than assumed from the constant above,
+#: because the *next* caller is the one the check exists for.
+LICENSE_HOSTS = frozenset({"api.lemonsqueezy.com"})
+
+
+def checked_endpoint(url: str) -> str:
+    """``url``, or ``OSError`` — HTTPS to one of :data:`LICENSE_HOSTS` only."""
+    parsed = urllib.parse.urlparse(url or "")
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in LICENSE_HOSTS:
+        raise OSError("refused a licence request to somewhere that is not the store")
+    return url
+
 #: Licence API calls are rate limited to 60/minute, and activation happens once
 #: per server rather than on a hot path, so a slow answer is never worth hanging
 #: a command for.
@@ -288,8 +303,12 @@ def _post(path: str, fields: dict[str, str]) -> dict:
     does not know — is returned as the store's answer.
     """
     body = urllib.parse.urlencode(fields).encode("utf-8")
+    # Resolved and checked *before* the request is built, on its own line, so the
+    # guard is a step rather than an argument: the URL this function ends up
+    # posting a licence key to can only ever be the store's.
+    url = checked_endpoint(f"{LICENSE_API}/{path}")
     request = urllib.request.Request(
-        f"{LICENSE_API}/{path}",
+        url,
         data=body,
         headers={
             "Accept": "application/json",

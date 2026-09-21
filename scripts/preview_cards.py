@@ -61,10 +61,36 @@ GALLERY_TYPE, FILE_TYPE, SEPARATOR_TYPE, ROW_TYPE = 12, 13, 14, 1
 # --------------------------------------------------------------------------- #
 # Loading a revision of the module
 # --------------------------------------------------------------------------- #
+#: What a revision may look like: a branch, a tag, a short or full hash, a
+#: relative revision (``HEAD~2``) — and nothing else. No whitespace, no quotes, no
+#: leading dash.
+_SAFE_REVISION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/^~-]{0,79}$")
+
+
+def checked_revision(rev: str) -> str:
+    """A revision this script will hand to git — and nothing but a revision.
+
+    Hardened rather than trusted because this argument is the one thing in the
+    project that ends in ``exec``: what runs below is whatever git prints for
+    ``<rev>:utils/style.py``, so the only thing between a command line and
+    somebody's code is that the argument *names a commit* instead of being passed
+    through. A leading dash is refused for the same reason git needs ``--`` in
+    front of a path — ``--output=…`` would be read as an option, not a revision —
+    and whitespace and quotes are refused because they are how a single argument
+    pretends to be two.
+    """
+    if not _SAFE_REVISION.match(rev or ""):
+        raise ValueError(
+            f"'{rev}' is not a git revision this script will read: revisions are "
+            "branch names, tags and hashes, and nothing that looks like an option"
+        )
+    return rev
+
+
 def load_revision(rev: str, label: str) -> types.ModuleType:
     """The ``utils/style.py`` of ``rev``, imported under its own name."""
     source = subprocess.run(
-        ["git", "show", f"{rev}:utils/style.py"],
+        ["git", "show", f"{checked_revision(rev)}:utils/style.py"],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout
     module = types.ModuleType(f"meow_style_{label}")
@@ -573,6 +599,9 @@ def main() -> int:
         before = load_revision(args.before_rev, "before")
     except subprocess.CalledProcessError as exc:
         print(f"could not read {args.before_rev}:utils/style.py from git\n{exc.stderr.strip()}")
+        return 2
+    except ValueError as exc:
+        print(exc)
         return 2
 
     sections, count = build_sections(before, style, args.before_rev, "working tree", args.only)

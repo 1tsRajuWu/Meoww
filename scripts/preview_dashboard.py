@@ -514,7 +514,12 @@ class _PreviewCompany:
                 "channel_id": str(self._channel.id),
                 "channel": self._channel.name,
                 "person_id": str(self._person.id),
-                "person": self._person.display_name,
+                # The same reading ``keep_alive._live_name`` makes: a display
+                # name where the object has one, and the plain name otherwise —
+                # these stand-ins carry only the second, exactly as a member
+                # without the Server Members intent does.
+                "person": getattr(self._person, "display_name", None)
+                or getattr(self._person, "name", ""),
                 "since": int(time.time()) - 214,
                 "streaming": False,
                 "video": True,
@@ -1100,16 +1105,13 @@ def owner_console(sub: str = ""):
         asset_stamp=keep_alive._console_asset_stamp(),
         built=keep_alive._console_built(),
         gateway=keep_alive._badge_state(),
-        pages=[
-            {
-                "id": candidate,
-                "label": label,
-                "href": href,
-                "anchor": anchor,
-                "current": candidate == "overview",
-            }
-            for candidate, label, href, anchor in keep_alive.OWNER_PAGES
-        ],
+        # The real nav builder, groups and all, rather than a second copy of the
+        # comprehension: this list *is* the rail, so a harness that assembled it
+        # by hand would show a rail that is missing whatever was added last — and
+        # the grouping is exactly the kind of thing that goes missing silently.
+        pages=keep_alive._page_nav(
+            keep_alive.OWNER_PAGES, "overview", groups=keep_alive.OWNER_GROUPS
+        ),
     )
 
 

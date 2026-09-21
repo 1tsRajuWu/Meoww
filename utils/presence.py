@@ -78,18 +78,10 @@ STATUS_KINDS: dict[str, discord.Status] = {
     "dnd": discord.Status.dnd,
 }
 
-#: What the bot says when nothing has been configured. The reported lines ("water glass",
-#: "zoomies") are removed. All default lines use streaming status (purple badge).
+#: What the bot says when nothing has been configured. Empty text with streaming
+#: kind displays ONLY the purple streaming badge on the avatar with no text in bio.
 DEFAULT_LINES: tuple[tuple[str, str], ...] = (
-    ("over your server 🛡️ | /help", "streaming"),
-    ("for /help 🐾 | meow-bot.pages.dev", "streaming"),
-    ("the live crypto & stock markets 📈", "streaming"),
-    ("with the laser pointer 🔴", "streaming"),
-    ("the birds outside 🐦", "streaming"),
-    ("for the warmest sunbeam ☀️", "streaming"),
-    ("to purring ASMR 🎧", "streaming"),
-    ("for wet food being opened 🐟", "streaming"),
-    ("over its world domination plans 😼", "streaming"),
+    ("", "streaming"),
 )
 
 #: How long each line stays up. An hour is what this shipped with, and it is
@@ -111,18 +103,18 @@ class PresenceError(ValueError):
 def _clean_line(text: str, kind: str) -> tuple[str, str]:
     """One validated ``(text, kind)`` pair."""
     line = " ".join(str(text or "").split())
-    if not line:
+    lowered = str(kind or "streaming").strip().lower()
+    if lowered not in ACTIVITY_KINDS:
+        raise PresenceError(
+            f"'{kind}' is not an activity type. Use one of: "
+            f"{', '.join(sorted(ACTIVITY_KINDS))}."
+        )
+    if not line and lowered != "streaming":
         raise PresenceError("A status line cannot be empty.")
     if len(line) > MAX_LINE_LENGTH:
         raise PresenceError(
             f"That line is {len(line)} characters; Discord allows "
             f"{MAX_LINE_LENGTH} in a status."
-        )
-    lowered = str(kind or "playing").strip().lower()
-    if lowered not in ACTIVITY_KINDS:
-        raise PresenceError(
-            f"'{kind}' is not an activity type. Use one of: "
-            f"{', '.join(sorted(ACTIVITY_KINDS))}."
         )
     return line, lowered
 

@@ -300,7 +300,7 @@ class ReadingTheVerb(unittest.TestCase):
         laser pointer") or with decoration (an emoji). A capitalised first word is
         a sentence, and a sentence after "Playing" is the bug."""
         for text, kind in presence.DEFAULT_LINES:
-            if kind in presence.VERBLESS_KINDS:
+            if kind in presence.VERBLESS_KINDS or not text.strip():
                 continue
             first = text.strip()[:1]
             self.assertTrue(first, f"{kind}: an empty line")

@@ -6678,10 +6678,18 @@ def start_uptime_status(bot):
 
 
 def find_free_port(start=8080):
+    """The first port nothing is already listening on, from ``start`` upwards.
+
+    The probe binds the **loopback** address, which is the question being asked:
+    "is this port free on this machine". ``0.0.0.0`` answers a different one — it
+    asks whether the whole interface range is available — and it needs more
+    privilege than the probe is worth. (``app.run`` below still binds every
+    interface, deliberately: Render reaches the container from outside it.)
+    """
     for port in range(start, start + 20):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.bind(("0.0.0.0", port))
+                s.bind(("127.0.0.1", port))
                 return port
             except OSError:
                 continue

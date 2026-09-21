@@ -52,6 +52,30 @@ AUTHORIZE_ENDPOINT = "https://discord.com/oauth2/authorize"
 TOKEN_ENDPOINT = "https://discord.com/api/oauth2/token"
 API_BASE = "https://discord.com/api/v10"
 
+#: The only host this module may talk to. Not decoration: one of the requests
+#: below carries an ``access_token`` in an ``Authorization`` header, so the URL is
+#: the security boundary rather than a detail — a configurable API base, or a
+#: future refactor that builds one from a setting, would post a live credential to
+#: whoever owned the host it named. The check is what keeps that from being a
+#: comment somebody has to remember.
+DISCORD_HOSTS = frozenset({"discord.com"})
+
+
+def checked_endpoint(url: str) -> str:
+    """``url``, or ``AuthError`` — HTTPS to one of :data:`DISCORD_HOSTS`.
+
+    Called by every request this module makes, including the ones whose URL is a
+    literal, because the point of the check is the *next* caller: a token-bearing
+    request is exactly the one that must never be pointed somewhere else.
+    """
+    parsed = urllib.parse.urlparse(url or "")
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in DISCORD_HOSTS:
+        raise AuthError(
+            "Refused to send a sign-in request to somewhere other than Discord."
+        )
+    return url
+
 #: ``identify`` is the user id, name and avatar; ``guilds`` is the list this
 #: module filters. Nothing else is requested, because nothing else is used.
 LOGIN_SCOPES = ("identify", "guilds")
@@ -371,6 +395,7 @@ def _read_json(url: str, *, token: str | None = None, form: dict | None = None) 
     and so the *reason* Discord gives survives: a wrong redirect URI is Discord's
     most common sign-in refusal and its body says exactly which URI it expected.
     """
+    url = checked_endpoint(url)
     data = urllib.parse.urlencode(form).encode() if form is not None else None
     headers = {"User-Agent": "MeowDashboard (sign-in, 1.0)"}
     if data is not None:
