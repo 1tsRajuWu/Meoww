@@ -280,6 +280,7 @@ FEATURES: tuple[Feature, ...] = (
         commands=(
             "/play — search, or paste a link (YouTube, SoundCloud, Spotify)",
             "/music radio — 24/7 stations that never touch the extractor",
+            "/music stations — browse the catalogue by genre, language or mood",
             "/music queue", "/music nowplaying", "/music skip", "/music pause",
             "/music resume", "/music stop", "/music volume", "/music filter",
             "/music loop", "/music shuffle", "/music seek", "/music 247",

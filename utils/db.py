@@ -1,6 +1,7 @@
 import aiosqlite
 import json
 import sqlite3
+import time
 
 from utils import features, levels
 
@@ -356,6 +357,16 @@ async def setup():
             guild_id INTEGER PRIMARY KEY,
             channel_id INTEGER DEFAULT 0,
             enabled INTEGER DEFAULT 0
+        )''')
+
+        # The station a server last put on. One row per server, because the question
+        # it answers is "what do we put on when nobody wants to choose" and that has
+        # exactly one answer — a history would be a table nobody reads. ``as_of`` is
+        # here so a stale choice is visible; nothing branches on it yet.
+        await db.execute('''CREATE TABLE IF NOT EXISTS music_radio (
+            guild_id INTEGER PRIMARY KEY,
+            station TEXT DEFAULT '',
+            as_of REAL DEFAULT 0
         )''')
 
         # One-time migration for the 1:1 rate change (250 coins per dollar became
@@ -1186,6 +1197,33 @@ async def set_247_setting(guild_id: int, channel_id: int, enabled: bool):
                 channel_id = excluded.channel_id,
                 enabled = excluded.enabled''',
             (guild_id, channel_id, 1 if enabled else 0))
+        await db.commit()
+
+# ── Radio ────────────────────────────────────────────────────────────────────
+# What this server last chose, so `/music radio` with no argument puts *that* back
+# on rather than picking for them. The read has no default to guess: an empty
+# string is "nothing remembered", which the caller turns into a random station and
+# says so, instead of pretending the choice was anybody's.
+
+async def get_radio_station(guild_id: int) -> str:
+    """The station key this guild last played, or ``''`` if it never has."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            'SELECT station FROM music_radio WHERE guild_id = ?', (guild_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    return str(row[0] or "") if row else ""
+
+
+async def set_radio_station(guild_id: int, station: str):
+    """Remember the station this guild just put on."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('''INSERT INTO music_radio (guild_id, station, as_of)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                station = excluded.station,
+                as_of = excluded.as_of''',
+            (guild_id, station, time.time()))
         await db.commit()
 
 # ── Warnings ─────────────────────────────────────────────────────────────────

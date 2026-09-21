@@ -96,7 +96,7 @@ MEDIA_EXTENSIONS: tuple[str, ...] = (
 )
 #: Hosts that serve media at extension-less paths. Asking for a URL on one of
 #: these is worth it even when the path has no dot in it.
-MEDIA_HOSTS: tuple[str, ...] = (
+CDN_HOSTS: tuple[str, ...] = (
     "media.tenor.com", "c.tenor.com", "i.imgur.com", "i.redd.it",
     "cdn.purrbot.site", "cdn.otakugifs.xyz", "cataas.com",
     "media.discordapp.net", "cdn.discordapp.com",
@@ -105,6 +105,48 @@ MEDIA_HOSTS: tuple[str, ...] = (
 #: (CDNs do it), but an HTML page is never media whatever extension it was asked
 #: for under.
 MEDIA_PREFIXES: tuple[str, ...] = ("image/", "audio/", "video/", "application/ogg")
+
+#: Hosts that serve media at a URL with **no file extension**, which is the one shape
+#: the extension test below cannot recognise.
+#:
+#: This list exists because of the radio catalogue, and the size of the gap is the
+#: argument for it: of 122 stations, the extension test saw the 31 ending in
+#: ``.mp3``/``.aac`` and skipped the other **91** — ``https://stream.laut.fm/lofi`` and
+#: ``https://listen.moe/stream`` are a host and a word. That is this module's own bug,
+#: one level down from the one it was written for: a dead stream that nothing checks,
+#: because nothing recognised it as a stream. Nothing was *broken* while it went
+#: unnoticed; the point is that nothing would have *said* so, which is the entire job.
+#:
+#: Ports are part of the host here, because :func:`_is_media_url` compares what the
+#: URL says. Streaming hosts are usually not the CDN hosts above — they are icecast,
+#: Shoutcast and Azura servers — so this is a different kind of name and is kept
+#: apart from them deliberately.
+STREAM_HOSTS: tuple[str, ...] = (
+    "admin.stream.rinse.fm",  # Kool FM London
+    "drive.uber.radio",  # the Hindi chart stations
+    "ice1.somafm.com",  # the SomaFM catalogue
+    "icecast.radiofrance.fr",  # France Musique's opera channel
+    "kpophits.stream.laut.fm",
+    "listen.moe",  # J-Pop and K-Pop
+    "maggie.torontocast.com:2020",
+    "manager7.streamradio.fr:1435",
+    "radio.plaza.one",
+    "stream-143.zeno.fm",
+    "stream-37.zeno.fm",
+    "stream.brokenbeats.net",
+    "stream.cinz.net",
+    "stream.laut.fm",  # the largest single group: one station per genre
+    "stream.radioparadise.com",
+    "stream.srg-ssr.ch",  # Swiss Jazz/Classic/Pop and SRF 3
+    "stream.zeno.fm",
+    "stream0.wfmu.org",
+    "uk2.streamingpulse.com",
+    "www.ukbassradio.com",
+)
+
+#: Both kinds, kept separate above so a reader can tell a CDN name from a streaming
+#: one — they need different rules, because an icecast root *is* the stream.
+MEDIA_HOSTS: tuple[str, ...] = CDN_HOSTS + STREAM_HOSTS
 
 #: Where a hardcoded URL can live. Declared rather than walked at large: tests
 #: hold deliberately broken URLs, ``docs/`` quotes examples, and
@@ -149,10 +191,16 @@ def _is_media_url(url: str) -> bool:
     # asking for it answers 403 — a finding about a constant, reported as a dead
     # picture, on a link that was never meant to be fetched.
     after_host = path.split("//", 1)[-1]
+    host = after_host.split("/", 1)[0].lower()
+    if any(host == known or host.endswith("." + known) for known in STREAM_HOSTS):
+        # Declared, so it needs no shape test at all. An icecast server's *root* is
+        # the stream — ``https://stream.cinz.net/`` is one — and the empty-path rule
+        # below exists to keep an *inferred* constant out of the probe list, which is
+        # a different question from a host somebody wrote down as a station.
+        return True
     if "/" not in after_host or not after_host.split("/", 1)[1].strip("/"):
         return False
-    host = after_host.split("/", 1)[0].lower()
-    return any(host == known or host.endswith("." + known) for known in MEDIA_HOSTS)
+    return any(host == known or host.endswith("." + known) for known in CDN_HOSTS)
 
 
 @dataclass(frozen=True)

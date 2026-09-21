@@ -1587,7 +1587,14 @@ def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | No
         raise MediaError("extractor_missing", "This build knows of no source to search.")
     last: Exception = MediaError("not_found", f"Nothing matched **{text}**.")
     refusal: tuple[str, Exception] | None = None
+    # What every provider was asked and what it came back with, so that the sentence
+    # a member reads at the end can name *both* facts instead of one. See the note on
+    # the failure it is raised from, at the bottom of this function.
+    asked: set[str] = set()
+    nothing: set[str] = set()
+    only_edits: set[str] = set()
     for index, (provider, _prefix) in enumerate(order):
+        asked.add(provider)
         try:
             candidates = search(text, provider=provider)
         except Exception as exc:  # noqa: BLE001 — a provider that fails is a provider to skip
@@ -1597,6 +1604,7 @@ def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | No
                 refusal = refusal or (provider, exc)
             continue
         if not candidates:
+            nothing.add(provider)
             continue
         # Only what could *be* the recording counts here: a 30-second preview of the
         # real upload is not a usable answer either, and it is what a provider
@@ -1616,6 +1624,7 @@ def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | No
             # wrong recordings to be offered as a choice. So they are not a
             # shortlist to pick from; they are a provider with nothing, and the
             # next one is asked.
+            only_edits.add(provider)
             last = MediaError(
                 "wrong_version",
                 f"the only matches for **{text}** are edits, covers or remixes",
@@ -1683,9 +1692,34 @@ def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | No
     if refusal is not None:
         provider, exc = refusal
         label = PROVIDER_LABELS.get(provider, provider)
+        # One refusal is a fact about the deployment and the half an *operator* can
+        # act on — but it is not the whole story when the other sources were asked
+        # and had nothing, and reporting only the refusal is what produces the
+        # sentence this exists to fix. A member pasting a mainstream single read
+        # *"YouTube is refusing this host's address right now"* about a request that
+        # SoundCloud answered with four edits and Audius with three remixes — a true
+        # sentence pointing at the wrong problem, because nothing is wrong with this
+        # host's reach: there is simply no playable upload of *that recording*.
+        #
+        # So the clause is added only when it is true of **every** provider asked
+        # besides the one that refused. A provider that failed some other way (a
+        # cooldown, a timeout, a shortlist that could not be probed) leaves no
+        # clause at all, because "the other sources do not have it" is a claim, and
+        # a claim this code cannot support is worse than a shorter sentence.
+        others = sorted(asked - {provider})
+        unexplained = [name for name in others if name not in nothing | only_edits]
+        clause = ""
+        if others and not unexplained:
+            if any(name in only_edits for name in others):
+                clause = (
+                    ", and the other sources have nothing but edits, covers or "
+                    "remixes of it"
+                )
+            else:
+                clause = ", and the other sources do not have it"
         raise MediaError(
             "blocked",
-            f"**{label}** is refusing this host's address right now",
+            f"**{label}** is refusing this host's address right now" + clause,
             provider=provider,
         ) from exc
     if isinstance(last, MediaError):

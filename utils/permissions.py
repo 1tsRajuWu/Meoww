@@ -188,6 +188,7 @@ COMMAND_ACCESS: dict[str, str] = {
     # (with the bot's own owner allowed alongside, checked in the callback).
     "play": EVERYONE,
     "music radio": EVERYONE,
+    "music stations": EVERYONE,
     "music skip": EVERYONE,
     "music pause": EVERYONE,
     "music resume": EVERYONE,
