@@ -924,7 +924,65 @@ def dashboard():
         # a state, and a preview that showed the *empty* branch of both would show
         # nothing about any of it. The numbers are the harness's own servers.
         management=preview_management(guild["id"]),
+        # The Overview's own panel. Stubbed for the same reason the rosters above
+        # are: production reads the gateway, this process has none, and a preview
+        # that only ever showed the *cold-process* branch would show nothing about
+        # the panel at all — including the branch that matters most, a room with
+        # exactly one person in it.
+        overview_live=PREVIEW_LIVE,
     )
+
+
+#: What the Overview's "right now" panel shows in the preview: two rooms, one of
+#: them holding a single person (the case the companion exists for), and a player
+#: mid-song with a queue behind it.
+PREVIEW_LIVE: dict = {
+    "read": True,
+    "why": "",
+    "rooms": [
+        {"id": "1", "name": "Lobby", "people": 4, "alone": False, "live": True},
+        {"id": "2", "name": "Study", "people": 1, "alone": True, "live": False},
+    ],
+    "people": 5,
+    "alone": 1,
+    "music": {
+        "read": {"player": True, "caps": True},
+        "why": "",
+        "caps": {"playable": True, "missing": []},
+        "extractor": {
+            "status": "climbing",
+            "detail": "answered on a fallback client (`android_vr`)",
+            "checked_seconds_ago": 420,
+            "sources": {
+                "order": [
+                    {"name": "youtube", "label": "YouTube"},
+                    {"name": "soundcloud", "label": "SoundCloud"},
+                    {"name": "audius", "label": "Audius"},
+                ],
+                "refusing": ["youtube"],
+                "preferred": "soundcloud",
+                "catalogue": True,
+            },
+        },
+        "player": {
+            "connected": True,
+            "channel": "Lobby",
+            "playing": True,
+            "paused": False,
+            "engine": "opus",
+            "volume": 0.8,
+            "queue": 3,
+            "queue_preview": ["Billie Eilish - BITTERSUITE", "Frou Frou - Let Go", "Radiohead - Weird Fishes"],
+            "current": {
+                "title": "Billie Eilish - BIRDS OF A FEATHER",
+                "provider": "soundcloud",
+                "duration": 210,
+                "requester": "RAJ",
+                "identity": "soundcloud:https://soundcloud.com/x/y",
+            },
+        },
+    },
+}
 
 
 #: What the Members and Server panels show in the preview: a roster with the

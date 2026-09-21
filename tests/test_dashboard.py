@@ -37,6 +37,7 @@ from tests.test_composer import (
     _Guild,
     _Member,
     _Role,
+    _VoiceChannel,
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -294,6 +295,94 @@ class DashboardCase(_DashboardFixture):
             self.session_state()[1], (GUILD_ID, 999002),
             "a junk guild_id falls back to a server the bot is really in",
         )
+
+
+class OverviewLive(_DashboardFixture):
+    """The Overview's own panel, on the page nobody opens *to configure* anything.
+
+    The page answered four questions about the **deployment** — ping, systems,
+    members, commands — and none about the server, so an administrator opening the
+    page they open first learned how fast the gateway was and nothing about the
+    room they were about to walk into. It read as empty because it was.
+
+    The panel reads the gateway, so these pin both halves: what it says when it
+    could read, and what it says when it could not. A cold process reporting zero
+    people in voice would be inventing a measurement, which is the one thing a
+    status panel may never do.
+    """
+
+    def _with_voice(self, *, members, name="Lobby"):
+        voice = _VoiceChannel(7001, name)
+        voice.members = members
+        guild = _Guild(
+            GUILD_ID,
+            "Meow Server",
+            [_Channel(CHANNEL_ID, "general", category="Chat")],
+            roles=[_Role(ROLE_ID, "Members")],
+            members=[_Member(MEMBER_ID, "raj")],
+            voice_channels=[voice],
+        )
+        guild.member_count = 4
+        voice.guild = guild
+        bot = _Bot([guild])
+        bot._has_started = True
+        bot.latency = 0.05
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            return keep_alive._overview_live(GUILD_ID)
+
+    def test_a_room_and_its_people_are_read_off_the_gateway(self):
+        raj = _Member(MEMBER_ID, "raj")
+        raj.voice = SimpleNamespace(self_stream=False)
+        live = self._with_voice(members=[raj])
+        self.assertTrue(live["read"])
+        self.assertEqual(live["people"], 1)
+        self.assertEqual([room["name"] for room in live["rooms"]], ["Lobby"])
+        self.assertTrue(live["rooms"][0]["alone"], "one person in a room is the reading")
+
+    def test_the_bot_is_not_one_of_the_people(self):
+        """Counting the bot would make every room with only the bot in it "occupied"."""
+        me = _Member(4242, "Meow")
+        me.bot = True
+        me.voice = SimpleNamespace(self_stream=False)
+        live = self._with_voice(members=[me])
+        self.assertEqual(live["people"], 0)
+        self.assertEqual(live["rooms"], [])
+
+    def test_a_room_is_flagged_live_rather_than_described(self):
+        someone = _Member(MEMBER_ID, "raj")
+        someone.voice = SimpleNamespace(self_stream=True)
+        live = self._with_voice(members=[someone])
+        self.assertTrue(live["rooms"][0]["live"])
+
+    def test_a_cold_process_says_it_could_not_read_rather_than_showing_zero(self):
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", None):
+            live = keep_alive._overview_live(GUILD_ID)
+        self.assertFalse(live["read"])
+        self.assertEqual(live["people"], 0)
+        self.assertTrue(live["why"], "an unread panel owes its reader a sentence")
+
+    def test_the_page_draws_both_panels_with_a_reading_in_them(self):
+        """The two panels an administrator actually opens this page for.
+
+        A read that found nothing is a *reading* and says so: the fix for an empty
+        Overview is not to invent a number, it is to draw the two panels and let
+        them say what they found — and the cold-process sentence above is asserted
+        on the helper, where the branch lives.
+        """
+        self.sign_in()
+        body = self.client.get("/dashboard").data.decode()
+        self.assertIn("In voice right now", body)
+        self.assertIn("The player", body)
+        self.assertIn("Nobody is in a voice channel. That is the reading, not a failure.", body)
+        self.assertNotIn("Nothing was read for this render.", body, "this render did read")
+
+    def test_the_four_destinations_are_offered_with_this_session_server(self):
+        """The panel is navigation, so a link that dropped the server would move the
+        reader to another server's page — the exact failure the rail already guards."""
+        self.sign_in()
+        body = self.client.get(f"/dashboard?guild_id={GUILD_ID}").data.decode()
+        for path in ("members", "server", "composer", "schedule"):
+            self.assertIn(f'href="/dashboard/{path}?guild_id={GUILD_ID}"', body)
 
 
 class CacheHeaders(TempDatabaseMixin, unittest.TestCase):

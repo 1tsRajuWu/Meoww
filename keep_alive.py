@@ -3698,6 +3698,11 @@ def dashboard():
         system_status=uptime_status.snapshot(),
         site_guard_status=site_guard.health_json(),
         config_status=config_audit.health_json(),
+        # The one thing on the Overview that is about the *server* rather than
+        # about the deployment, and the only thing an administrator opening this
+        # page actually wants first: who is in a room, who is in one alone, and
+        # what the player is doing. Reads the gateway; never raises.
+        overview_live=_overview_live(guild_id),
     )
 
 
@@ -3792,6 +3797,33 @@ def _loop_reading(coro, default):
     return payload, True
 
 
+def _bot_abilities(guild) -> list[dict] | None:
+    """What this deployment's own permissions let it do here — a reading, not a guess.
+
+    Every control on the two management pages depends on a permission the bot may
+    not hold: it was invited without *Manage Channels*, or its role sits below the
+    one it is trying to change. The failure that produces is the worst kind — a
+    button that reports success and changes nothing — and the reason is on
+    ``guild.me``, which costs no request to read. ``None`` when there is no member
+    object to read, because "I could not check" and "you cannot do this" are
+    different sentences and only one of them is actionable.
+    """
+    perms = getattr(getattr(guild, "me", None), "guild_permissions", None)
+    if perms is None:
+        return None
+    rows = (
+        ("Kick members", "kick_members", "the kick button, on the Members page"),
+        ("Ban members", "ban_members", "ban, and undoing one"),
+        ("Moderate members", "moderate_members", "timeouts and warnings"),
+        ("Manage channels", "manage_channels", "lockdown, lifting it, and slowmode"),
+        ("Manage messages", "manage_messages", "clearing up after one"),
+    )
+    return [
+        {"label": label, "ok": bool(getattr(perms, attr, False)), "why": why}
+        for label, attr, why in rows
+    ]
+
+
 def _management_context(guild_id, page) -> dict:
     """The roster and the server's own controls, for the two pages that draw them.
 
@@ -3814,6 +3846,10 @@ def _management_context(guild_id, page) -> dict:
         "control": None,
         "query": "",
         "recent": [],
+        # What this deployment may actually do here, so a control that cannot work
+        # says so *before* it is pressed rather than after. Filled for both pages,
+        # because a kick needs a permission exactly as a lockdown does.
+        "abilities": None,
     }
     if context["page"] == "":
         return context
@@ -3827,6 +3863,7 @@ def _management_context(guild_id, page) -> dict:
         )
         return context
     context["read"] = True
+    context["abilities"] = _bot_abilities(guild)
     try:
         if context["page"] == "members":
             context["query"] = (request.args.get("q") or "").strip()
@@ -5033,6 +5070,76 @@ def _live_music(guild_id) -> dict:
         "caps": caps,
         "player": entry,
         "extractor": extractor,
+    }
+
+
+def _overview_live(guild_id) -> dict:
+    """What this server is doing *right now*, for the page somebody opens first.
+
+    The Overview used to answer four questions about the **deployment** — ping,
+    systems, members, commands — and none about the server, so an administrator
+    opening the page they open first learned how fast the gateway was and nothing
+    about the room they were about to walk into. The page read as empty because it
+    was: four numbers and a great deal of space.
+
+    So this is read off the gateway the way the fleet console reads it, on the same
+    rule as everything else here: it reports what it could read and says so when it
+    could not, rather than painting a zero over a cold process. ``alone`` is carried
+    rather than inferred, because a single person in a room is the one reading on
+    this page that the companion acts on.
+    """
+    guild = _live_guild(guild_id)
+    if guild is None:
+        return {
+            "read": False,
+            "why": (
+                "The gateway has not answered for this server yet, so there is "
+                "nothing to read. A free host sleeps when nobody knocks."
+            ),
+            "rooms": [],
+            "people": 0,
+            "alone": 0,
+            "music": None,
+        }
+    rooms: list[dict] = []
+    people = 0
+    alone = 0
+    try:
+        for channel in _live_channel_source(guild):
+            if _live_channel_kind(channel) != "voice":
+                continue
+            members = [
+                row for row in _live_voice_people(guild, channel) if not row.get("bot")
+            ]
+            if not members:
+                continue
+            only = len(members) == 1
+            people += len(members)
+            alone += 1 if only else 0
+            rooms.append({
+                "id": str(getattr(channel, "id", "")),
+                "name": getattr(channel, "name", "a voice channel"),
+                "people": len(members),
+                "alone": only,
+                "live": any(row.get("streaming") for row in members),
+            })
+    except Exception as exc:  # noqa: BLE001 — a roster that cannot be read is a sentence
+        return {
+            "read": False,
+            "why": f"The voice roster could not be read ({type(exc).__name__}).",
+            "rooms": [],
+            "people": 0,
+            "alone": 0,
+            "music": None,
+        }
+    rooms.sort(key=lambda row: (-row["people"], row["name"]))
+    return {
+        "read": True,
+        "why": "",
+        "rooms": rooms[:8],
+        "people": people,
+        "alone": alone,
+        "music": _live_music(guild_id),
     }
 
 

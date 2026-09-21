@@ -310,10 +310,24 @@ class TheGreeting(unittest.TestCase):
         self.assertIn("rek_ter", company.greeting("rek_ter"))
 
     def test_the_field_about_a_stream_does_not_pretend_to_see_it(self):
+        """The field is read by the streamer, so it is about *them*.
+
+        The first version explained `self_stream` and the missing Go Live API to
+        the one person who did not ask: a true sentence about a mechanism, in the
+        place where somebody who was just noticed looks for how they were seen.
+        The law is that it may not describe a mechanism at all.
+        """
         (name, value), = company.fields(streaming=True)
         self.assertEqual(name, "You're live")
-        self.assertIn("no API for Go Live", value)
-        self.assertIn("self_stream", value)
+        for mechanism in ("self_stream", "API", "flag", "intent", "presence"):
+            self.assertNotIn(mechanism.lower(), value.lower(), mechanism)
+        self.assertIn("you're live", value.lower())
+
+    def test_the_stream_offer_is_honest_about_the_one_thing_it_cannot_do(self):
+        """It is watching, or it is honest — it may not imply a viewer."""
+        self.assertIn("if I could", company.STREAM_NOTE)
+        self.assertNotIn("watching your stream", company.STREAM_NOTE)
+        self.assertIn("can't watch", company.STREAM_GREETING)
 
     def test_a_quiet_arrival_has_no_fields_at_all(self):
         self.assertEqual(company.fields(streaming=False), [])
@@ -322,20 +336,30 @@ class TheGreeting(unittest.TestCase):
         self.assertEqual(company.body("", "hello"), "hello")
         self.assertEqual(company.body("<a:p:1>", "hello"), "<a:p:1> hello")
 
-    def test_the_card_says_how_to_turn_it_off(self):
-        self.assertIn("/company mode:Off", company.footer())
-
-    def test_the_card_names_who_can_actually_turn_it_off(self):
-        """The card lands in front of whoever was alone, and the switch is gated.
+    def test_the_card_names_no_command_at_all(self):
+        """No card may name syntax its reader cannot run.
 
         ``/company`` is declared with the Manage Server audience, so Discord
-        *hides it from the picker* for a member without that permission — which
-        made the first version of this footer a card telling its reader to run a
-        command they cannot see. The sentence has to name the administrator
-        instead of implying the reader can act on it.
+        *hides it from the picker* for anybody without that permission — which is
+        most of the people this card lands in front of. A footer carrying the
+        command is therefore a card that reads as broken to the only person who
+        was addressed by it, and "why are you showing a command to a normal user"
+        is exactly that complaint. The rule is general, not a phrasing: no slash
+        token, no parameter, no option name — anywhere in the card.
         """
         footer = company.footer()
-        self.assertIn("administrator", footer.lower())
+        self.assertNotIn("/", footer)
+        self.assertNotIn("mode", footer)
+        for field, value in company.fields(streaming=True, channel="<#1>"):
+            self.assertNotIn("/", value, field)
+        self.assertNotIn("/", company.greeting())
+        self.assertNotIn("/", company.STREAM_GREETING)
+
+    def test_the_card_names_who_can_actually_turn_it_off(self):
+        """The sentence has to point at somebody who *can* act, not the reader."""
+        footer = company.footer()
+        self.assertIn("admin", footer.lower())
+        self.assertIn("turn this off", footer.lower())
         self.assertEqual(
             permissions.COMMAND_ACCESS["company"],
             permissions.GUILD,
@@ -467,7 +491,7 @@ class Arriving(_CogCase):
         await self.cog._arrive(channel, company.Settings())
         sent = _said(channel)
         self.assertIn("You're live", sent)
-        self.assertIn("no API for Go Live", sent)
+        self.assertIn("if I could", sent)
 
     async def test_a_server_that_asked_for_silence_gets_silence(self):
         guild = _Guild()
@@ -756,7 +780,7 @@ class TheCard(unittest.TestCase):
         self.assertIn("You're not alone", markup)
         self.assertIn(company.EMOJI_URL, markup)
         self.assertIn("-# ", markup, "the footer is a label on the type scale")
-        self.assertIn("/company mode:Off", markup)
+        self.assertNotIn("/company", markup, "no card names a command its reader cannot run")
 
     def test_the_id_and_the_url_cannot_drift_apart(self):
         """The URL is a literal so the media watch can probe it; this is the tie."""

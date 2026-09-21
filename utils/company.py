@@ -79,19 +79,24 @@ COOLDOWN_SECONDS = 300.0
 #: continuation rather than a headline: the emoji is the last thing on the line.
 GREETINGS: tuple[str, ...] = (
     "hi — you're not alone in here, I'm with you",
-    "sat down. Nobody's in here but us, and I'll stay",
-    "hello! Empty room, so I came to keep it company",
-    "hey. I saw you in here on your own, so here I am",
+    "sat down next to you. Take your time, I'm not going anywhere",
+    "hello! The room was quiet, so I brought it some company",
+    "hey — I saw the empty room and thought you might want a friend in it",
 )
 
 #: Said instead when the person is live. The stream itself is the one thing the
 #: bot cannot see, so the sentence does not pretend otherwise.
-STREAM_GREETING = "you're live, and I can't watch a stream — Discord doesn't show bots Go Live"
-#: ...and the field under it, which is where the owner's console is named.
+STREAM_GREETING = "you're live — I can't watch along, but you're not up there on your own"
+#: ...and the field under it.
+#:
+#: Written for the person streaming, in the second person, because that is who reads
+#: a card in a voice channel's chat. It used to explain `self_stream` and the absence
+#: of a Go Live API to them — a true sentence that told its reader nothing they could
+#: use, about a mechanism they did not ask about. What they are told instead is the
+#: only thing that matters to them: they were noticed, and it is nice.
 STREAM_NOTE = (
-    "I can see that you are streaming (`self_stream` on your voice state — the fact, "
-    "not the picture) and the owner's dashboard shows it. Watching it is not "
-    "something a bot can do; Discord has no API for Go Live."
+    "You're live, and I'd watch if I could — Discord doesn't show bots a stream, so "
+    "picture me as the one listener in the corner, cheering you on anyway."
 )
 
 
@@ -330,23 +335,32 @@ def fields(*, streaming: bool, channel: str | None = None) -> list[tuple[str, st
     if streaming:
         out.append(("You're live", STREAM_NOTE))
     if channel:
-        out.append(("Where", f"I'm sitting in {channel}, deafened and muted — nothing to hear, nothing to say."))
+        out.append((
+            "Where",
+            f"I'm in {channel} with you, muted and deafened so nothing of mine "
+            "gets in your way.",
+        ))
     return out
 
 
 def footer() -> str:
     """How to get rid of it, said plainly, on the card that arrived uninvited.
 
-    The card lands in front of whoever was alone — which is usually somebody who
-    *cannot* run the switch: ``/company`` is declared with the Manage Server
-    audience, so Discord hides it from the picker of a member without that
-    permission, and a footer naming a command the reader cannot see reads as a
-    card that is broken. So the sentence says who can act on it instead of
-    implying the reader can.
+    **No command name, and that is the fix rather than an omission.** The card
+    lands in front of whoever was alone — usually somebody who *cannot* run the
+    switch: ``/company`` is declared with the Manage Server audience, so Discord
+    hides it from their picker entirely, and a footer naming a command the reader
+    cannot see is a card that reads as broken. It used to name one anyway, which is
+    what "why are you showing a command to a normal user" was about.
+
+    So the sentence says *who can act on it*, which is useful to the member and to
+    the administrator, and names no syntax either of them would have to try. Where
+    the switch lives is on the surfaces that belong to the person who can throw it:
+    the command's own description, the help panel, and the dashboard's Systems page.
     """
     return (
-        "joined because you were alone · an administrator can stop this for the "
-        "server with `/company mode:Off`"
+        "I only came in because you were on your own · a server admin can turn "
+        "this off for the whole server whenever they like"
     )
 
 

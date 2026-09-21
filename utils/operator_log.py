@@ -445,11 +445,16 @@ _music_reported: dict[str, int] = {}
 #: What to do about each kind, in the words of somebody who has to fix it.
 _MUSIC_REMEDIES: dict[str, str] = {
     "blocked": (
-        "The provider has decided this host is a bot and answered with a check "
-        "instead of a stream. Nothing in the search is wrong. Two things fix it: "
-        "`YTDL_COOKIES` (or `YTDL_COOKIES_B64`) from a throwaway account, or "
-        "`YTDL_PO_TOKEN` from a token provider — and `/music radio` keeps working "
-        "either way, because a radio station never touches the extractor."
+        "Every source that was asked has decided this host is a bot and answered "
+        "with a check instead of a stream. Nothing in the search is wrong, and the "
+        "card names **which** platform refused, because that is the part with a "
+        "next step in it. A credential is the only thing that changes the answer "
+        "for YouTube: `YTDL_COOKIES` (or `YTDL_COOKIES_B64`) from a throwaway "
+        "account, or `YTDL_PO_TOKEN` from a token provider. Until then the search "
+        "falls through to the open catalogue on its own, which needs no "
+        "credential — so a card here means every door was shut at once, and "
+        "`/music radio` keeps working regardless, because a radio station never "
+        "touches an extractor."
     ),
     "truncated": (
         "The stream was cut short mid-track, which is not the same as a short song. "

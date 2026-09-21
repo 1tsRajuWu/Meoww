@@ -346,6 +346,23 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state["status"], "climbing")
         self.assertIn("android_vr", state["detail"])
 
+    async def test_the_verdict_carries_the_doors_that_are_left(self):
+        """"The provider refused this host" is only the whole story when there is
+        nowhere behind it, so the state a console reads has to say what is behind.
+        That is the difference between a member hearing silence and a song, and it is
+        process state — no network call, on a page that polls."""
+        verdict = await self._check([], extract="Big Buck Bunny · 10:35")
+        media_health.record(verdict)
+        state = media_health.extractor_state()
+        order = [row["name"] for row in state["sources"]["order"]]
+        # A permutation, not a fixed list: the order is *learned* (a provider that
+        # answered moves to the front, one that refused moves to the back), which is
+        # the whole point of carrying it — so this asserts the doors, not the queue.
+        self.assertEqual(sorted(order), sorted(name for name, _ in media_source.SEARCH_PROVIDERS))
+        self.assertEqual(state["sources"]["refusing"], [])
+        self.assertTrue(all(row["label"] for row in state["sources"]["order"]))
+        self.assertIn("sources", state)
+
     async def test_a_probe_that_climbed_is_reported_as_climbing_not_as_healthy(self):
         """The half of this that lives in ``_extract`` rather than in the pass."""
         probe = media_source.Probe(

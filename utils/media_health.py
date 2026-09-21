@@ -587,7 +587,25 @@ def extractor_state() -> dict:
     reads the last verdict and says plainly when there is not one yet — *not
     checked* is a state a reader can act on (``/music doctor`` asks now), and it
     is the honest answer for a process that has just restarted.
+
+    The verdict is merged with the **provider order** because the two answer one
+    question between them. "The provider refused this host" is only the whole story
+    when there is nowhere behind it, and the sources say whether there is: a host
+    refused by YouTube may still have an open catalogue to fall through to, and that
+    is the difference between a member hearing silence and hearing a song.
     """
+    verdict = _extractor_verdict()
+    try:
+        from . import media_source  # noqa: PLC0415
+
+        verdict["sources"] = media_source.sources_state()
+    except Exception:  # noqa: BLE001 — a panel without the source list is still a panel
+        pass
+    return verdict
+
+
+def _extractor_verdict() -> dict:
+    """The extractor's last verdict on its own, before the provider order is added."""
     verdict = _state["last"]
     if verdict is None:
         return {

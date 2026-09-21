@@ -323,12 +323,17 @@ class Music(commands.Cog):
                 await self._send_now_playing(interaction, player)
         elif announce:
             position = len(player.queue) + (1 if player.current else 0)
+            # The substitution, when there is one, in the member's own words — and
+            # nothing at all otherwise, because "played from the place you expect"
+            # is not news. `Track.source_note` is the one place that decides it.
+            note = getattr(track, "source_note", "")
             embed = discord.Embed(
                 title="➕ Queued",
                 description=(
                     f"**{track.title}**\n"
                     f"-# {_mmss(track.duration)} · {interaction.user.display_name} · "
                     f"position #{position}"
+                    + (f"\n-# {note}" if note else "")
                 ),
                 color=style.SUCCESS,
             )
@@ -421,18 +426,34 @@ class Music(commands.Cog):
                     self.bot,
                     player_module.Fault(
                         kind="blocked",
-                        detail="the provider refused this host's address",
+                        # Named, because `_chain` now refuses to report a refusal as
+                        # "a provider": the platform is the whole content of the
+                        # sentence, and it is what tells the operator which .env
+                        # line or cookie this deployment is short of.
+                        detail=(
+                            f"{media_source.PROVIDER_LABELS.get(getattr(exc, 'provider', ''), 'a provider')} "
+                            "refused this host's address, and the other sources had nothing to play"
+                        ),
                         title=query,
+                        guild_id=int(interaction.guild_id or 0),
                     ),
                     player=player,
                 )
+                # Written for the member who typed the search, because that is who
+                # reads a public card. It used to hand them two environment-variable
+                # names and an operator's remedy: a deployment detail addressed to
+                # somebody who has no way to act on it. The remedy is already on its
+                # own way to the operator (`music_alert` above), so all this card owes
+                # its reader is what they can still do.
                 return await style.send_card(
                     interaction,
                     content=(
-                        "🚫 **The provider refused this host.** That is a fact about where "
-                        "the bot runs, not about your search — a direct link or "
-                        "`/music radio` still works.\n"
-                        "-# An operator can add `YTDL_COOKIES` or a PO token to fix it."
+                        "🎧 **That one didn't make it, and it isn't your fault.**\n"
+                        "I tried every source I know for it and they all turned me "
+                        "away just now — nothing was wrong with what you typed.\n"
+                        "-# Nothing to change on your end: paste a direct link and it "
+                        "usually plays, and `/music radio` always does — it never "
+                        "touches any of this."
                     ),
                 )
             return await style.send_card(interaction, content="❌ That search failed. Try a direct link.")
@@ -819,6 +840,22 @@ class Music(commands.Cog):
             f"**yt-dlp** · `{probe.version or 'missing'}`",
             f"**Extractor** · {probe.sentence()}",
             f"**Client** · `{probe.client or 'default'}`",
+            # The doors this host can actually knock on, in the order it will knock.
+            # A refusal is only a dead end when there is nowhere behind it, and this
+            # is the line that says whether there is: a host YouTube has flagged is
+            # answered by the open catalogue on its own, so "the provider refused"
+            # stops being the whole story.
+            "**Sources** · "
+            + " → ".join(
+                media_source.PROVIDER_LABELS.get(name, name)
+                for name, _prefix in media_source.source_order()
+            ),
+            "**Catalogue** · "
+            + (
+                "reachable"
+                if media_source.catalogue_reachable(refresh=True)
+                else "**not answering** — this host has one fewer door than it should"
+            ),
         ]
         if probe.detail:
             lines.append(f"-# asked for {probe.detail}")

@@ -679,5 +679,196 @@ class TheSelfCheckAsksForARealRecording(unittest.TestCase):
         self.assertIn("could not turn it into a stream", probe.reason)
 
 
+class _FakeResponse:
+    """The bits of an ``http.client`` response the catalogue client reads."""
+
+    def __init__(self, payload=b"", content_type="audio/mpeg"):
+        self._payload = payload
+        self.headers = {"Content-Type": content_type}
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+class TheCatalogue(unittest.TestCase):
+    """The provider that exists because the other two refuse datacenter hosts.
+
+    A refusal that cannot be designed away is a refusal that needs somewhere else
+    to go: YouTube answers a flagged address with a bot check, SoundCloud with a
+    403, and an operator who has configured neither cookies nor a PO token has run
+    out of doors. This one asks for nothing, so it is the door that stays open —
+    which is why it is asserted here rather than left to the live hosts to find.
+    """
+
+    _ROW = {
+        "id": "XbNA7By",
+        "title": "BITTERSUITE",
+        "duration": 213,
+        "play_count": 40000,
+        "permalink": "https://audius.co/oliver/bittersuite",
+        "user": {"name": "Oliver", "is_verified": True},
+        "artwork": {"480x480": "https://cdn.test/art.jpg"},
+    }
+
+    def test_the_catalogue_is_asked_without_the_extractor(self):
+        """It is not a yt-dlp search, so the pattern here is the JSON, not a prefix."""
+        prefixes = dict(M.SEARCH_PROVIDERS)
+        self.assertIn("audius", prefixes)
+        self.assertEqual(prefixes["audius"], "")
+
+    def test_a_row_becomes_a_candidate_with_the_id_that_re_resolves_it(self):
+        with mock.patch.object(M, "_audius_json", return_value={"data": [self._ROW]}):
+            found = M.audius_search("bittersuite")
+        (candidate,) = found
+        self.assertEqual(candidate.provider, "audius")
+        self.assertEqual(candidate.video_id, "XbNA7By")
+        self.assertEqual(candidate.duration, 213)
+        self.assertEqual(candidate.channel, "Oliver")
+        self.assertIn("BITTERSUITE", candidate.title)
+        self.assertIn("Oliver", candidate.title, "the artist rides the title, as on YouTube")
+
+    def test_a_row_without_an_id_is_not_a_track(self):
+        with mock.patch.object(M, "_audius_json", return_value={"data": [{"title": "nameless"}]}):
+            self.assertEqual(M.audius_search("nameless"), [])
+
+    def test_the_stream_is_the_id_and_the_answer_is_checked(self):
+        track = M.Track(title="BITTERSUITE", provider="audius", video_id="XbNA7By")
+        with mock.patch.object(M.urllib.request, "urlopen", return_value=_FakeResponse()) as opened:
+            stream = M.stream(track)
+        self.assertEqual(stream.ext, "mp3")
+        self.assertIn("XbNA7By", stream.url)
+        self.assertIn("stream", stream.url)
+        self.assertIn("Range", opened.call_args[0][0].headers)
+
+    def test_an_error_page_is_not_a_stream(self):
+        """The promise :func:`stream` makes is a playable URL, so an HTML answer has
+        to reach the chain as a failure — otherwise the next door is never tried."""
+        track = M.Track(title="x", provider="audius", video_id="XbNA7By")
+        with mock.patch.object(
+            M.urllib.request, "urlopen", return_value=_FakeResponse(b"<html>", "text/html")
+        ):
+            with self.assertRaises(M.MediaError) as raised:
+                M.stream(track)
+        self.assertEqual(raised.exception.kind, "no_stream")
+        self.assertEqual(raised.exception.provider, "audius")
+
+    def test_a_catalogue_that_does_not_answer_is_a_provider_to_skip(self):
+        with mock.patch.object(M, "_audius_json", side_effect=OSError("no route")):
+            with self.assertRaises(M.MediaError) as raised:
+                M.audius_search("x")
+        self.assertEqual(raised.exception.provider, "audius")
+        self.assertFalse(M.is_blocked(raised.exception), "a dead host is not a refusal")
+
+    def test_the_ladder_reaches_the_catalogue_when_both_others_refuse(self):
+        """The whole point, end to end: the datacenter failure, answered.
+
+        Both hostile providers are made to refuse exactly as they do on a host
+        YouTube has flagged, and the search still has to end with a playable track
+        rather than a card about a refusal.
+        """
+        real = M.search
+
+        def hostile(text, *, limit=M.SEARCH_LIMIT, provider=None):
+            if provider in ("youtube", "soundcloud"):
+                raise M.MediaError("blocked", "Sign in to confirm you're not a bot", provider=provider)
+            return real(text, limit=limit, provider=provider)
+
+        with mock.patch.object(M, "search", side_effect=hostile), mock.patch.object(
+            M, "_audius_json", return_value={"data": [self._ROW]}
+        ), mock.patch.object(M.urllib.request, "urlopen", return_value=_FakeResponse()):
+            resolution, provider = M._chain("Oliver BITTERSUITE", requester="RAJ")
+        self.assertEqual(provider, "audius")
+        self.assertIsNotNone(resolution.track)
+        self.assertTrue(resolution.track.moved, "the card has to say it was not the usual source")
+        self.assertEqual(resolution.track.found_on, "audius")
+
+
+class TheFailureThatGetsReported(unittest.TestCase):
+    """Which failure a member is shown when every provider failed.
+
+    The old rule was "raise the last one", and it read the order as a sequence of
+    increasing information. It is not: the order is a *preference*, and it moves a
+    provider that refused to the back — so the failure that ended up last was
+    usually a refusal, and the card blamed a platform that had barely been asked.
+    """
+
+    def tearDown(self):
+        M._refused_at.clear()
+
+    def test_a_refusal_outranks_a_provider_that_simply_found_nothing(self):
+        """
+        YouTube refuses, SoundCloud answers with an empty list. "Nothing matched" is
+        the wrong sentence: something was never asked.
+        """
+
+        def search(text, *, limit=M.SEARCH_LIMIT, provider=None):
+            if provider == "youtube":
+                raise M.MediaError("blocked", "Sign in to confirm you're not a bot", provider=provider)
+            return []
+
+        with mock.patch.object(M, "search", side_effect=search):
+            with self.assertRaises(M.MediaError) as raised:
+                M._chain("anything", requester="RAJ")
+        self.assertEqual(raised.exception.kind, "blocked")
+        self.assertIn("YouTube", raised.exception.message)
+        self.assertEqual(raised.exception.provider, "youtube")
+
+    def test_when_nobody_refused_the_last_failure_is_still_the_answer(self):
+        with mock.patch.object(M, "search", return_value=[]):
+            with self.assertRaises(M.MediaError) as raised:
+                M._chain("nothing at all", requester="RAJ")
+        self.assertEqual(raised.exception.kind, "not_found")
+
+    def test_a_refusal_is_never_reported_without_its_platform(self):
+        """The card's whole job is to point at the right thing, and "a provider" is
+        not a thing. This is the sentence an operator is supposed to act on, so every
+        provider the chain can ask has to have a name a reader recognises — including
+        any provider added later, which is what this checks."""
+        for name, _prefix in M.SEARCH_PROVIDERS:
+            self.assertIn(name, M.PROVIDER_LABELS, f"{name} would be reported as itself")
+            label = M.PROVIDER_LABELS[name]
+            self.assertTrue(label.strip(), name)
+            self.assertEqual(label, label[0].upper() + label[1:], f"{name} is not a written name")
+
+
+class TheClientLadder(unittest.TestCase):
+    """A rung is only a rung if the installed extractor knows the client name.
+
+    ``tv_embedded`` was measured as answering once, and then yt-dlp removed it.
+    Nothing reported the change, because an unknown client name is not an error —
+    it is the absence of one — so the rung became a copy of the first and every
+    failing extraction paid for it twice.
+    """
+
+    def test_every_rung_is_a_client_this_build_knows(self):
+        known = M.known_clients()
+        self.assertTrue(known, "the extractor's client table has to be readable")
+        for rung in M.client_ladder():
+            for name in rung:
+                self.assertIn(name, known)
+
+    def test_a_rung_this_build_cannot_honour_is_dropped(self):
+        invented = (("a_client_that_does_not_exist",),)
+        with mock.patch.object(M, "CLIENT_LADDER", M.CLIENT_LADDER + invented):
+            rungs = M.client_ladder()
+        self.assertNotIn(invented[0], rungs)
+        self.assertIn(M.CLIENT_LADDER[1], rungs, "the real rungs survive the check")
+
+    def test_an_uncheckable_ladder_is_tried_whole_rather_than_emptied(self):
+        """An older extractor with a different table should still climb."""
+        with mock.patch.object(M, "known_clients", return_value=frozenset()):
+            self.assertEqual(M.client_ladder(), M.CLIENT_LADDER)
+
+    def test_the_first_rung_is_still_the_extractors_own_choice(self):
+        """It is the only one that negotiates audio-only Opus, so it stays first."""
+        self.assertEqual(M.client_ladder()[0], ())
+
+
 if __name__ == "__main__":
     unittest.main()

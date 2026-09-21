@@ -373,6 +373,19 @@
 .btn:hover { background: var(--surface-hover); border-color: var(--border-active); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* The Overview's own footer: the four destinations people actually come here for.
+   A wrapping flex row rather than a grid, because the last of four buttons should
+   sit *beside* the third wherever there is room — and because a page whose final
+   element is one stretched button reads as unfinished, which is the impression the
+   Overview used to leave for a different reason (it had nothing there at all). */
+.quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+}
+.quick-actions .btn { min-height: 40px; }
 .btn-primary {
     background: var(--accent);
     border-color: var(--accent);

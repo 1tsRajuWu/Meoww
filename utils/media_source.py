@@ -35,11 +35,14 @@ from __future__ import annotations
 
 import base64
 import difflib
+import json
 import math
 import os
 import re
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -111,10 +114,15 @@ class MediaError(Exception):
     instead of restating the failure.
     """
 
-    def __init__(self, kind: str, message: str):
+    def __init__(self, kind: str, message: str, *, provider: str = ""):
         super().__init__(message)
         self.kind = kind
         self.message = message
+        #: Which platform this failure belongs to, when it belongs to one. A
+        #: refusal that cannot name the platform that refused is a sentence the
+        #: operator can only guess at, and guessing is what sent somebody to
+        #: upgrade yt-dlp over a SoundCloud 403.
+        self.provider = provider
 
 
 # --------------------------------------------------------------------------- #
@@ -223,21 +231,64 @@ def _base_options(*, flat: bool) -> dict[str, Any]:
 #: stream. The first rung is **yt-dlp's own choice**, which is the only one that
 #: negotiates audio-only Opus and therefore the only one that sounds like the
 #: source; the rest are the clients that keep answering on a network YouTube has
-#: flagged, which a datacenter IP always is.
+#: flagged, which a datacenter address always is.
 #:
-#: The order is measured rather than guessed, and it matters: on a host YouTube
-#: does not like, ``tv_embedded`` answers with the full format list, ``android_vr``
-#: is the one that hands back a *direct* audio URL with no signature deciphering
-#: (four formats and a ``url``, which is the whole requirement for a stream), and
-#: the legacy ``android``/``web`` pair is last because it is alive everywhere and
-#: sounds the worst — it exposes only a muxed 360p MP4 — so being last means it is
-#: reached only when nothing better answered.
+#: The order is measured rather than guessed — and it has to be measured *again*
+#: whenever the extractor moves, which is the lesson this tuple now carries. Of the
+#: thirteen clients yt-dlp 2026.08 knows, the previous second rung does not appear:
+#: ``tv_embedded`` had been removed upstream, so the rung had become a copy of the
+#: first one — a full extraction, spent every time the host was already failing, to
+#: learn what the first attempt had just said. Nothing anywhere reported it, because
+#: an unknown client name is not an error, it is the absence of one.
+#: :func:`client_ladder` is the answer to that: a rung this build cannot honour is
+#: dropped on the way in, so the next rename costs nothing instead of costing speed
+#: on exactly the hosts the ladder exists for.
+#:
+#: ``android_vr`` leads because it hands back a *direct* audio URL with no signature
+#: deciphering (a handful of formats and a ``url``, which is the whole requirement),
+#: the ``tv`` family follows because that is where a flagged address still gets
+#: through, and the legacy ``android``/``web`` pair is last because it is alive
+#: everywhere and sounds the worst — it exposes only a muxed 360p MP4 — so being
+#: last means it is reached only when nothing better answered.
 CLIENT_LADDER: tuple[tuple[str, ...], ...] = (
     (),
-    ("tv_embedded",),
     ("android_vr",),
+    ("tv",),
+    ("visionos",),
+    ("ios",),
     ("android", "web"),
 )
+
+
+def known_clients() -> frozenset[str]:
+    """Every player client the installed yt-dlp knows, or an empty set.
+
+    Read from the extractor rather than kept as a list here, because a list here
+    is a list that goes stale in silence.
+    """
+    try:
+        from yt_dlp.extractor.youtube._base import INNERTUBE_CLIENTS  # noqa: PLC0415
+
+        return frozenset(INNERTUBE_CLIENTS)
+    except Exception:  # noqa: BLE001 — a version that moved its tables is not a failure
+        return frozenset()
+
+
+def client_ladder() -> tuple[tuple[str, ...], ...]:
+    """ :data:`CLIENT_LADDER` with every rung this yt-dlp cannot honour removed.
+
+    An empty answer from :func:`known_clients` means the check could not be made,
+    and an uncheckable ladder is tried whole rather than dropped — a host with an
+    older extractor should still climb.
+    """
+    known = known_clients()
+    if not known:
+        return CLIENT_LADDER
+    rungs = [()]
+    for rung in CLIENT_LADDER:
+        if rung and all(name in known for name in rung):
+            rungs.append(rung)
+    return tuple(rungs)
 
 #: The client set that last produced a stream, so the next extraction starts where
 #: the last one succeeded. A process-level memo and nothing more: it is a reading
@@ -267,7 +318,7 @@ def _attempts(options: dict[str, Any]):
     that has settled on ``android_vr`` asks for it first instead of re-learning it
     on every single song.
     """
-    order = list(CLIENT_LADDER)
+    order = list(client_ladder())
     if _last_good_client and _last_good_client in order:
         order.remove(_last_good_client)
         order.insert(0, _last_good_client)
@@ -666,6 +717,31 @@ class Track:
     live: bool = False
     #: How a stream URL started, so a truncated stream can name what it was.
     engine: str = ""
+    #: The provider that actually handed over the stream. Usually the same as
+    #: ``provider``; different when the platform that *found* the recording would not
+    #: stream it and another one would.
+    found_on: str = ""
+    #: True when that provider is not the one at the front of this host's search
+    #: order — i.e. the recording had to be fetched somewhere other than where the
+    #: obvious answer lives. The **only** thing that decides whether the card says so.
+    moved: bool = False
+
+    @property
+    def source_note(self) -> str:
+        """Where this came from, in the words a **member** needs — or ``""``.
+
+        One clause, and only when it is news. A track fetched from the platform the
+        bot usually uses is the normal case and says nothing; one fetched elsewhere
+        says so, because an unmentioned substitution is how a member wonders whether
+        they are listening to the right upload.
+
+        Written for somebody who *asked for a song* rather than for whoever runs the
+        bot: no command, no setting, nothing to configure. The deployment's own
+        reading is on the operator's surfaces, where somebody can act on it.
+        """
+        if not self.moved or not self.found_on:
+            return ""
+        return f"the usual source would not stream it, so this one came from {self.found_on}"
 
     @property
     def identity(self) -> str:
@@ -766,6 +842,10 @@ def watch_url(track: Track) -> str:
     """
     if track.video_id and track.provider == "youtube":
         return f"https://www.youtube.com/watch?v={track.video_id}"
+    if track.video_id and track.provider == "audius":
+        # The id is the drift-proof form here too, and it is the address the stream
+        # endpoint takes — no numeric-id trap like SoundCloud's below.
+        return track.webpage_url or f"https://audius.co/tracks/{track.video_id}"
     if track.video_id and track.provider == "soundcloud":
         if track.video_id.startswith("http"):
             return track.video_id
@@ -813,10 +893,275 @@ def _candidate_from_entry(entry: dict) -> Candidate | None:
     )
 
 
-def search(text: str, *, limit: int = SEARCH_LIMIT) -> list[Candidate]:
-    """Flat-search a phrase. Metadata only: no stream URL, so this is the fast half."""
-    target = f"ytsearch{limit}:{text}"
-    info = ytdl_extract(_base_options(flat=True), target)
+#: Every provider a *search* can run against, as ``(name, yt-dlp prefix)``.
+#:
+#: The declaration order is the default, and :func:`source_order` is what actually
+#: decides — because the right order is a property of **this host's network**
+#: rather than of the product, and the failure that order exists for is invisible
+#: from everywhere except the host.
+SEARCH_PROVIDERS: tuple[tuple[str, str], ...] = (
+    ("youtube", "ytsearch"),
+    ("soundcloud", "scsearch"),
+    # An empty prefix: this one is not yt-dlp's search at all, and that is the whole
+    # reason it is here. See :func:`audius_search`.
+    ("audius", ""),
+)
+
+#: A provider's name as a person writes it, for a sentence somebody has to read.
+PROVIDER_LABELS: dict[str, str] = {
+    "youtube": "YouTube",
+    "soundcloud": "SoundCloud",
+    "audius": "Audius",
+}
+
+#: Audius: an open catalogue whose API hands over a **direct audio URL** and asks
+#: for no credential of any kind.
+#:
+#: It is here because of a fact about networks rather than about music. Two
+#: providers is a choice between two doors, and both of the others are hostile to a
+#: datacenter address: YouTube answers one with a bot check, SoundCloud answers one
+#: with a 403, and an operator who has configured neither cookies nor a PO token has
+#: nowhere left to go. Audius answers, and it answers with the URL itself — no player
+#: client, no signature deciphering, no check to pass — which makes it the one
+#: provider a flagged host can reach *without* anybody being told to go and fetch a
+#: credential. It is third rather than first because a search here returns the
+#: catalogue's own uploads, which is a narrower answer than YouTube's for a
+#: mainstream request; being third means it is reached exactly when the other two
+#: fail, which is the case it exists for.
+AUDIUS_API = "https://api.audius.co/v1"
+AUDIUS_TIMEOUT = 12.0
+#: The API asks callers to name themselves. It is a courtesy rather than a
+#: credential, and it is the same string the bot's own user-agent carries.
+AUDIUS_APP = "meow-discord-bot"
+AUDIUS_USER_AGENT = "MeowBot/1.0 (+https://meow-bot.pages.dev)"
+
+#: ``YTDL_SOURCE_ORDER`` — the operator's own order, comma-separated. A deployment
+#: whose network is refused by one platform can say so once instead of paying for
+#: the discovery on every song.
+SOURCE_ORDER_SETTING = "YTDL_SOURCE_ORDER"
+
+#: How long a provider that refused this host is sent to the back of the order.
+#: Not forever, and not per request either: long enough that somebody typing four
+#: songs in a row does not pay four times for one refusal, short enough that a
+#: provider which relents is noticed in the same session.
+REFUSAL_COOLDOWN = 900.0
+
+#: ``provider -> the monotonic moment it refused``, for this process. Deliberately
+#: not persisted: it is a reading about the network *now*, and a restart is exactly
+#: when that reading should be thrown away.
+_refused_at: dict[str, float] = {}
+
+#: The provider that last produced a *playable* track, so the next search begins
+#: where the last one succeeded. This is what turns "refused, rescued, played" into
+#: "just played" for everyone after the first song.
+_last_good_source: str = ""
+
+
+def note_refusal(provider: str) -> None:
+    """Record that a provider would not answer this host, for :data:`REFUSAL_COOLDOWN`."""
+    if not provider:
+        return
+    _refused_at[provider] = time.monotonic()
+    print(f"[MUSIC] {provider} refused this host; other sources move up", flush=True)
+
+
+def note_source(provider: str) -> None:
+    """Record that a provider produced a playable track."""
+    global _last_good_source
+    if provider and provider != _last_good_source:
+        if _last_good_source:
+            print(f"[MUSIC] searches now prefer {provider}", flush=True)
+        _last_good_source = provider
+    _refused_at.pop(provider, None)
+
+
+def _refusing(provider: str) -> bool:
+    """Whether this provider refused this host recently."""
+    when = _refused_at.get(provider)
+    return bool(when) and (time.monotonic() - when) < REFUSAL_COOLDOWN
+
+
+def source_order() -> list[tuple[str, str]]:
+    """The provider order for *this host*, right now — and why it is not a constant.
+
+    Three inputs, in order of authority:
+
+    1. **The operator's** ``YTDL_SOURCE_ORDER`` if it names anything, because a
+       deployment knows its own network better than this module can infer it.
+    2. **The provider that last answered**, which is the whole point: a host
+       YouTube refuses should search SoundCloud on the *first* attempt of the next
+       song rather than discover the refusal again. This is what makes the fix
+       permanent rather than a per-song rescue.
+    3. **The declaration order** for everything else.
+
+    A provider that refused recently is *moved to the back*, never dropped. A
+    refusal is a statement about the last few minutes, and a list that forgets a
+    provider cannot recover on its own when the refusal lifts.
+    """
+    prefixes = dict(SEARCH_PROVIDERS)
+    names = [name for name, _prefix in SEARCH_PROVIDERS]
+    configured = [
+        part.strip().lower()
+        for part in (config_audit.get(SOURCE_ORDER_SETTING) or "").split(",")
+        if part.strip()
+    ]
+    order = [name for name in configured if name in prefixes]
+    order += [name for name in names if name not in order]
+    if _last_good_source in order:
+        order.remove(_last_good_source)
+        order.insert(0, _last_good_source)
+    refusing = [name for name in order if _refusing(name)]
+    willing = [name for name in order if name not in refusing]
+    return [(name, prefixes[name]) for name in willing + refusing]
+
+
+def _audius_json(path: str, params: dict[str, Any]) -> Any:
+    """One GET against the open catalogue, as JSON.
+
+    ``urllib`` rather than a new dependency: this is three lines of request and one
+    of parsing, and a bot that already ships yt-dlp does not need a second HTTP
+    client to ask one endpoint.
+    """
+    query = urllib.parse.urlencode({"app_name": AUDIUS_APP, **params})
+    request = urllib.request.Request(
+        f"{AUDIUS_API}{path}?{query}", headers={"User-Agent": AUDIUS_USER_AGENT}
+    )
+    with urllib.request.urlopen(request, timeout=AUDIUS_TIMEOUT) as response:
+        return json.loads(response.read().decode("utf-8", "replace"))
+
+
+def _candidate_from_audius(row: dict) -> Candidate | None:
+    """One catalogue row as a candidate, with the id that re-resolves it.
+
+    ``title`` carries the artist the way a YouTube upload title does, so the same
+    scorer sees the same shape from every provider; ``channel`` keeps it separately
+    because that is what the artist check reads.
+    """
+    track_id = str(row.get("id") or "").strip()
+    title = str(row.get("title") or "").strip()
+    if not track_id or not title:
+        return None
+    user = row.get("user") if isinstance(row.get("user"), dict) else {}
+    artist = str(user.get("name") or "").strip()
+    artwork = row.get("artwork") if isinstance(row.get("artwork"), dict) else {}
+    permalink = str(row.get("permalink") or "").strip()
+    return Candidate(
+        provider="audius",
+        video_id=track_id,
+        title=f"{artist} - {title}" if artist else title,
+        duration=int(row.get("duration") or 0),
+        channel=artist,
+        verified=bool(user.get("is_verified")),
+        views=int(row.get("play_count") or 0),
+        webpage_url=permalink or f"https://audius.co/tracks/{track_id}",
+        thumbnail=str(artwork.get("480x480") or artwork.get("150x150") or ""),
+    )
+
+
+def audius_search(text: str, *, limit: int = SEARCH_LIMIT) -> list[Candidate]:
+    """The catalogue's own search, in the shape every other provider returns.
+
+    A failure here is raised as a :class:`MediaError` naming the platform, because
+    the chain's job is to move on to the next door and it can only do that if it
+    knows which door did not open.
+    """
+    try:
+        payload = _audius_json("/tracks/search", {"query": text, "limit": limit})
+    except Exception as exc:  # noqa: BLE001 — a provider that fails is a provider to skip
+        # Recorded as a refusal so the *order* learns: a catalogue that is down should
+        # be asked last rather than first, and it should come back on its own when it
+        # returns, which is what the cooldown does and a permanent drop would not.
+        note_refusal("audius")
+        raise MediaError(
+            "provider_failed",
+            f"Audius did not answer ({type(exc).__name__}).",
+            provider="audius",
+        ) from exc
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    found = [_candidate_from_audius(row) for row in rows or [] if isinstance(row, dict)]
+    return [candidate for candidate in found if candidate is not None]
+
+
+def _audius_stream(track: Track) -> Stream:
+    """A direct audio URL for one catalogue track, and the answer is checked.
+
+    The endpoint redirects to a CDN file; ffmpeg follows the redirect, so the API
+    address is the URL to keep — the CDN one is the kind that expires. It is probed
+    with a one-byte range request first, because "this provider will hand it over"
+    is the promise :func:`stream` makes, and an answer that turns out to be an error
+    page has to reach the chain as a failure so the next door is tried.
+    """
+    if not track.video_id:
+        raise MediaError(
+            "no_stream", "That catalogue entry has no id, so it cannot be played.",
+            provider="audius",
+        )
+    url = (
+        f"{AUDIUS_API}/tracks/{urllib.parse.quote(track.video_id)}/stream"
+        f"?app_name={AUDIUS_APP}"
+    )
+    request = urllib.request.Request(
+        url, headers={"User-Agent": AUDIUS_USER_AGENT, "Range": "bytes=0-1"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=AUDIUS_TIMEOUT) as response:
+            kind = str(response.headers.get("Content-Type") or "")
+    except Exception as exc:  # noqa: BLE001 — an unanswered promise is a reason to ask elsewhere
+        raise MediaError(
+            "no_stream",
+            f"Audius would not hand over that recording ({type(exc).__name__}).",
+            provider="audius",
+        ) from exc
+    if not kind.lower().startswith("audio/"):
+        raise MediaError(
+            "no_stream",
+            f"Audius answered with {kind or 'no content type'} rather than audio.",
+            provider="audius",
+        )
+    return Stream(
+        url=url,
+        is_opus=False,
+        ext="mp3",
+        codec="mp3",
+        duration=track.duration,
+        title=track.title,
+        webpage_url=track.webpage_url,
+    )
+
+
+def search(
+    text: str,
+    *,
+    limit: int = SEARCH_LIMIT,
+    provider: str | None = None,
+) -> list[Candidate]:
+    """Flat-search a phrase. Metadata only: no stream URL, so this is the fast half.
+
+    ``provider`` names the one to use; by default it is the first willing entry in
+    :func:`source_order`, so the caller does not have to know which platforms this
+    host can still reach. A provider that refuses this host is recorded and the
+    search returns nothing — the *caller* decides whether to move on, because only
+    it knows whether it has an answer already.
+    """
+    if provider is None:
+        order = source_order()
+        if not order:
+            return []
+        provider = order[0][0]
+    if provider == "audius":
+        # Not a yt-dlp search at all: no extractor, no player client, no check. The
+        # provider that exists for the hosts the other two refuse is asked directly.
+        return audius_search(text, limit=limit)
+    prefix = dict(SEARCH_PROVIDERS).get(provider)
+    if not prefix:
+        return []
+    target = f"{prefix}{limit}:{text}"
+    try:
+        info = ytdl_extract(_base_options(flat=True), target)
+    except Exception as exc:  # noqa: BLE001 — which provider failed is the caller's question
+        if is_blocked(exc):
+            note_refusal(provider)
+        raise
     if not info:
         return []
     entries = info.get("entries") if isinstance(info, dict) else None
@@ -834,6 +1179,10 @@ def stream(track: Track, *, target: str | None = None) -> Stream:
     search query unless there is nothing else, which is the difference between
     re-resolving a song and searching for one again.
     """
+    if track.provider == "audius" and not target:
+        # The one provider that does not go through the extractor, so there is no
+        # ladder to climb and nothing to negotiate: the id *is* the address.
+        return _audius_stream(track)
     address = target or watch_url(track) or track.title
     # ``require_url`` is the difference between "the provider replied" and "the
     # provider replied with something a player can open", and it is what makes the
@@ -905,10 +1254,6 @@ def apply_stream(track: Track, resolved: Stream) -> Track:
 # identified when it was queued, so this is a lookup for that recording rather
 # than another search.
 
-#: Every provider tried, in order, by :func:`rescue`. Named as extractor search
-#: prefixes because that is exactly what they are.
-RESCUE_PROVIDERS: tuple[str, ...] = ("scsearch",)
-
 #: The providers a track can be rescued *from*, which is the question the memo
 #: below is asked in reverse: a rescue means "find this on a provider other than
 #: the one that failed", so a track already on the only fallback has nowhere to go
@@ -923,20 +1268,21 @@ RESCUABLE_PROVIDERS: tuple[str, ...] = ("youtube",)
 RESCUE_TITLE_FLOOR = 0.6
 
 
-def _rescue_candidates(text: str, limit: int = SEARCH_LIMIT) -> list[Candidate]:
-    """A flat search of one phrase on every provider but the one that failed."""
+def _rescue_candidates(text: str, limit: int = SEARCH_LIMIT, *, exclude: str = "") -> list[Candidate]:
+    """A flat search of one phrase on every provider this host can still reach.
+
+    ``exclude`` is the provider that just failed — asking it again is the definition
+    of not trying something else.
+    """
     found: list[Candidate] = []
-    for provider in RESCUE_PROVIDERS:
-        try:
-            info = ytdl_extract(_base_options(flat=True), f"{provider}{limit}:{text}")
-        except Exception as exc:  # noqa: BLE001 — one provider refusing is not the end
-            print(f"[MUSIC] rescue search on {provider} failed: {type(exc).__name__}", flush=True)
+    for name, _prefix in source_order():
+        if name == exclude:
             continue
-        entries = (info or {}).get("entries") if isinstance(info, dict) else None
-        for entry in entries or []:
-            candidate = _candidate_from_entry(entry)
-            if candidate is not None:
-                found.append(candidate)
+        try:
+            found.extend(search(text, limit=limit, provider=name))
+        except Exception as exc:  # noqa: BLE001 — one provider refusing is not the end
+            print(f"[MUSIC] rescue search on {name} failed: {type(exc).__name__}", flush=True)
+            continue
     return found
 
 
@@ -993,7 +1339,7 @@ def rescue(track: Track, *, requester: str | None = None) -> Track | None:
     ).strip() or track.search_query
     if not text:
         return None
-    candidates = [c for c in _rescue_candidates(text) if c.provider != track.provider]
+    candidates = _rescue_candidates(text, exclude=track.provider)
     expected = float(track.duration or 0)
     agreeing = [c for c in candidates if _agrees_on_length(c, expected)]
     pool = agreeing
@@ -1034,6 +1380,97 @@ def rescue(track: Track, *, requester: str | None = None) -> Track | None:
     return alternative
 
 
+# --------------------------------------------------------------------------- #
+# The chain: search, and if this host cannot stream what was found, search again
+# --------------------------------------------------------------------------- #
+# A *search* has the same problem a rescue does and used to have no answer to it:
+# the order the providers are tried in was a constant, so a host YouTube refuses
+# found nothing, and the member was told the provider had refused *the host* — a
+# true sentence about the deployment shown to somebody who can do nothing with it.
+#
+# So the order is asked, not assumed (:func:`source_order`), and a provider that
+# cannot stream what it found is followed by the next one **for the same query**:
+# a member typing `Billie Eilish BITTERSUITE` gets the recording, from whichever
+# platform will hand it over. Which one that was is said on the card, in one clause,
+# and only when it is not the obvious answer.
+
+
+def _chain(text: str, *, requester: str, expected_sec: int = 0, artist: str | None = None):
+    """The query, resolved against the providers in turn. Returns ``(Resolution, provider)``.
+
+    Raises the *last* failure if every provider failed, so the message a member
+    reads is about the attempt that got furthest rather than the first one tried.
+    """
+    order = source_order()
+    if not order:
+        raise MediaError("extractor_missing", "This build knows of no source to search.")
+    last: Exception = MediaError("not_found", f"Nothing matched **{text}**.")
+    refusal: tuple[str, Exception] | None = None
+    for index, (provider, _prefix) in enumerate(order):
+        try:
+            candidates = search(text, provider=provider)
+        except Exception as exc:  # noqa: BLE001 — a provider that fails is a provider to skip
+            last = exc
+            if is_blocked(exc):
+                note_refusal(provider)
+                refusal = refusal or (provider, exc)
+            continue
+        if not candidates:
+            continue
+        resolution = pick(
+            candidates, text, expected_sec, artist, requester=requester, query=text
+        )
+        if resolution.track is None:
+            # A shortlist is a real answer: the member is being asked which of these,
+            # and there is nothing to stream yet, so the next provider is not asked.
+            return resolution, provider
+        if resolution.track.duration and resolution.track.duration < MIN_TRACK_SECONDS \
+                and not resolution.track.live:
+            last = MediaError(
+                "too_short",
+                f"The only matches for **{text}** are clips under {MIN_TRACK_SECONDS} seconds. "
+                "Try `Artist - Title`, or paste a link.",
+            )
+            continue
+        try:
+            apply_stream(resolution.track, stream(resolution.track))
+        except Exception as exc:  # noqa: BLE001 — the next provider is the answer to this
+            last = exc
+            if is_blocked(exc) or _looks_like_format_refusal(exc):
+                note_refusal(provider)
+            if is_blocked(exc):
+                refusal = refusal or (provider, exc)
+            continue
+        resolution.track.found_on = provider
+        resolution.track.moved = index > 0
+        note_source(provider)
+        return resolution, provider
+    # Which failure is the story, and why it is not simply "the last one".
+    #
+    # The order is a *preference*, so the provider tried last is the one this host
+    # likes least — the one whose failure is least representative of the search.
+    # And :func:`source_order` deliberately moves a refusing provider to the back,
+    # so "the last failure" is *usually* a refusal: a SoundCloud refusal would be
+    # reported as YouTube refusing, and the member's card would blame a platform
+    # that had not been asked yet. So a refusal is preferred when there is one — it
+    # is a fact about the deployment, which is the kind somebody can act on — and it
+    # is raised **named**, because "a provider refused this host" without saying
+    # which one is a sentence with no next step in it.
+    if refusal is not None:
+        provider, exc = refusal
+        label = PROVIDER_LABELS.get(provider, provider)
+        raise MediaError(
+            "blocked",
+            f"**{label}** is refusing this host's address right now",
+            provider=provider,
+        ) from exc
+    if isinstance(last, MediaError):
+        raise last
+    raise MediaError(
+        "no_stream", f"No source could hand over **{text}** ({type(last).__name__})."
+    )
+
+
 def _spotify_tracks(query: str) -> list[dict]:
     """Delegates to the Spotify resolver, which needs no API key.
 
@@ -1064,52 +1501,77 @@ def resolve(query: str, *, requester: str = "Someone") -> Resolution:
         return _resolve_spotify(query, requester=requester)
 
     if parsed.kind == "link":
-        info = ytdl_extract(_base_options(flat=False), parsed.text)
-        if not info:
-            raise MediaError("not_found", "That link could not be read — it may be private or gone.")
-        if isinstance(info, dict) and info.get("entries"):
-            entries = [entry for entry in info["entries"] if entry]
-            if not entries:
-                raise MediaError("not_found", "That link contains nothing to play.")
-            info = entries[0]
-        candidate = _candidate_from_entry(info if isinstance(info, dict) else {})
-        if candidate is None:
-            raise MediaError("not_found", "That link did not describe anything playable.")
-        if candidate.too_short and not candidate.live:
-            raise MediaError(
-                "too_short",
-                f"That is a **{candidate.duration}-second** recording, which is a clip rather than a song.",
-            )
-        track = to_track(candidate, requester=requester, query=query, confidence=999.0)
-        apply_stream(track, stream(track, target=parsed.text))
-        return Resolution(query=query, track=track)
+        return _resolve_link(parsed, query=query, requester=requester)
 
     if not parsed.text:
         raise MediaError("empty", "Give me something to search for.")
 
-    candidates = search(parsed.text)
-    if not candidates:
-        raise MediaError("not_found", f"Nothing matched **{parsed.text}**.")
-    resolution = pick(
-        candidates,
-        parsed.text,
-        artist=artist_from_query(parsed.text),
-        requester=requester,
-        query=parsed.text,
+    # The chain: the providers this host can still reach, in the order that is right
+    # for it, until one both *finds the recording* and can hand it over.
+    resolution, _provider = _chain(
+        parsed.text, requester=requester, artist=artist_from_query(parsed.text)
     )
     if resolution.track is None and not resolution.alternatives:
         raise MediaError("not_found", f"Nothing usable matched **{parsed.text}**.")
-    if resolution.track is not None:
-        # A plain-text search that came back clip-sized is reported before the
-        # stream is fetched, so the member is told rather than played a preview.
-        if resolution.track.duration and resolution.track.duration < MIN_TRACK_SECONDS and not resolution.track.live:
-            raise MediaError(
-                "too_short",
-                f"The only matches for **{parsed.text}** are clips under "
-                f"{MIN_TRACK_SECONDS} seconds. Try `Artist - Title`, or paste a link.",
-            )
-        apply_stream(resolution.track, stream(resolution.track))
     return resolution
+
+
+def _resolve_link(parsed: Parsed, *, query: str, requester: str) -> Resolution:
+    """An address as a track: one identity, and a second provider only if it must.
+
+    A link is the one case where the *first* provider is not a preference but a
+    fact — the member named a recording on a platform — so the identity comes from
+    the address and is not searched for. What is asked of another provider is the
+    *stream*: a YouTube link this host may not fetch is still one specific song, and
+    by the time the fetch fails its title and length are known, which is exactly
+    what :func:`rescue` needs.
+    """
+    try:
+        info = ytdl_extract(_base_options(flat=False), parsed.text)
+    except Exception as exc:  # noqa: BLE001 — a refusal here is a reason to ask elsewhere
+        if is_blocked(exc):
+            note_refusal(parsed.provider)
+        raise
+    if not info:
+        raise MediaError("not_found", "That link could not be read — it may be private or gone.")
+    if isinstance(info, dict) and info.get("entries"):
+        entries = [entry for entry in info["entries"] if entry]
+        if not entries:
+            raise MediaError("not_found", "That link contains nothing to play.")
+        info = entries[0]
+    candidate = _candidate_from_entry(info if isinstance(info, dict) else {})
+    if candidate is None:
+        raise MediaError("not_found", "That link did not describe anything playable.")
+    if candidate.too_short and not candidate.live:
+        raise MediaError(
+            "too_short",
+            f"That is a **{candidate.duration}-second** recording, which is a clip rather than a song.",
+        )
+    track = to_track(candidate, requester=requester, query=query, confidence=999.0)
+    try:
+        apply_stream(track, stream(track, target=parsed.text))
+        track.found_on = track.provider
+        note_source(track.provider)
+        return Resolution(query=query, track=track)
+    except Exception as exc:  # noqa: BLE001 — the identity is known, so another provider can be asked
+        print(
+            f"[MUSIC] {parsed.provider} would not stream this link "
+            f"({type(exc).__name__}); asking another provider",
+            flush=True,
+        )
+        if is_blocked(exc) or _looks_like_format_refusal(exc):
+            note_refusal(parsed.provider)
+    rescued = rescue(track, requester=requester)
+    if rescued is None:
+        # Nothing anywhere could play it, so the original failure is the answer —
+        # raising a "not found" here would blame the member's link for a refusal.
+        raise MediaError(
+            "no_stream",
+            "That recording could not be streamed from any source this host can reach.",
+        )
+    rescued.moved = True
+    note_source(rescued.provider)
+    return Resolution(query=query, track=rescued)
 
 
 def _resolve_spotify(query: str, *, requester: str) -> Resolution:
@@ -1124,11 +1586,12 @@ def _resolve_spotify(query: str, *, requester: str) -> Resolution:
     expected = int((first.get("duration_ms") or 0) / 1000)
     search_text = first.get("query") or first.get("title") or query
     artist = clean_artist(first.get("artist"))
-    candidates = search(search_text)
-    if not candidates:
-        raise MediaError("not_found", f"Nothing matched **{search_text}**.")
-    resolution = pick(
-        candidates, search_text, expected, artist, requester=requester, query=search_text
+    # The same chain a plain search uses, and for the same reason: Spotify hands over
+    # metadata and no audio, so *which* platform plays it is entirely this host's
+    # business — and a Spotify link is the one request that cannot be met by
+    # "try another link", because the member named a recording rather than a user.
+    resolution, _provider = _chain(
+        search_text, requester=requester, expected_sec=expected, artist=artist
     )
     # The card should say what was asked for, not what was found: the whole point
     # of resolving a Spotify link is that the member named a specific recording.
@@ -1137,7 +1600,6 @@ def _resolve_spotify(query: str, *, requester: str) -> Resolution:
         resolution.track.title = label
         if first.get("thumbnail"):
             resolution.track.thumbnail = first["thumbnail"]
-        apply_stream(resolution.track, stream(resolution.track))
     for alternative in resolution.alternatives:
         alternative.title = alternative.title or label
         if first.get("thumbnail"):
@@ -1224,6 +1686,73 @@ class Probe:
         head = "working" if self.healthy else f"**failed** — {self.reason}"
         tail = f" · `{self.version}`" if self.version else ""
         return f"{head}{tail}"
+
+
+#: How long a catalogue reading is reused. It is a fact about the network, and
+#: asking on every command would make the reading cost more than it tells.
+CATALOGUE_TTL = 300.0
+_catalogue_at: float = 0.0
+_catalogue_ok: bool = False
+
+
+def catalogue_reading() -> bool | None:
+    """The last catalogue reading, or ``None`` when there is no current one.
+
+    A stale reading is reported as *no reading* rather than as old news: the whole
+    value of this number is that it is about right now, and a console showing a
+    five-minute-old "reachable" on a host that has since lost its route is a panel
+    telling somebody the wrong thing.
+    """
+    if not _catalogue_at:
+        return None
+    if (time.monotonic() - _catalogue_at) >= CATALOGUE_TTL:
+        return None
+    return _catalogue_ok
+
+
+def sources_state() -> dict:
+    """Which providers this host will ask, and in what order — without asking one.
+
+    Process state only, so the console and ``/health`` can read it on a page that
+    polls. It is the reading that turns "the provider refused this host" into a
+    sentence an operator can act on: it says which doors are left, and which ones
+    are currently being knocked on last because they would not answer.
+    """
+    order = source_order()
+    return {
+        "order": [
+            {"name": name, "label": PROVIDER_LABELS.get(name, name)} for name, _prefix in order
+        ],
+        "refusing": [name for name, _prefix in order if _refusing(name)],
+        "preferred": _last_good_source,
+        "catalogue": catalogue_reading(),
+    }
+
+
+def catalogue_reachable(*, refresh: bool = False) -> bool:
+    """Whether the credential-free catalogue answers from this host.
+
+    The one source that needs no extractor and no account, so this is the question
+    that decides whether a refusal somewhere else leaves a member with silence or
+    with a song. Answered from a memo because it is a fact about the network rather
+    than about the request — and asked *before* it is needed, on the surfaces where
+    somebody can still act on it.
+    """
+    global _catalogue_at, _catalogue_ok
+    now = time.monotonic()
+    if not refresh and _catalogue_at and (now - _catalogue_at) < CATALOGUE_TTL:
+        return _catalogue_ok
+    try:
+        _audius_json("/tracks/search", {"query": "music", "limit": 1})
+        _catalogue_ok = True
+    except Exception as exc:  # noqa: BLE001 — the reading *is* whether it answered
+        _catalogue_ok = False
+        print(
+            f"[MUSIC] the open catalogue did not answer: {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+    _catalogue_at = now
+    return _catalogue_ok
 
 
 def probe_target() -> str:

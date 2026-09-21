@@ -304,6 +304,112 @@
                             </div>
                         </div>
                     </div>
+
+                    {#
+                        The four cards above are about the *deployment*. This is
+                        the part that is about the server, and it is the part an
+                        administrator opening this page actually wants: who is in
+                        a room, who is in one on their own, and what the player is
+                        doing. It reads the gateway, so it reports what it could
+                        read — a cold process says so in a sentence rather than
+                        painting a zero over a reading it never made.
+                    #}
+                    {% set live = overview_live|default({'read': False, 'why': 'Nothing was read for this render.', 'rooms': [], 'people': 0, 'alone': 0, 'music': none}) %}
+                    <div class="status-grid" style="margin-top:16px;" data-reveal data-reveal-y="10">
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">In voice right now</span>
+                                <span class="composer-hint">
+                                    {%- if live.read -%}
+                                    {{ live.people }} {{ 'person' if live.people == 1 else 'people' }}
+                                    {%- else -%}not read{%- endif -%}
+                                </span>
+                            </div>
+                            {% if not live.read %}
+                            <div class="status-empty">{{ live.why }}</div>
+                            {% elif not live.rooms %}
+                            <div class="status-empty">Nobody is in a voice channel. That is the reading, not a failure.</div>
+                            {% else %}
+                                {% for room in live.rooms %}
+                                <div class="status-row">
+                                    <span class="status-dot {{ 'paused' if room.alone else 'up' }}" aria-hidden="true"></span>
+                                    <div class="status-main">
+                                        <div class="status-name">{{ room.name }}</div>
+                                        <div class="status-url">
+                                            {{ room.people }} {{ 'person' if room.people == 1 else 'people' }}
+                                            {%- if room.alone %} — in there on their own{% endif %}
+                                            {%- if room.live %} · somebody is live{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% endif %}
+                            {% if live.read and live.alone %}
+                            <div class="composer-hint" style="margin-top:8px;">
+                                {{ live.alone }} {{ 'room' if live.alone == 1 else 'rooms' }} ha{{ 's' if live.alone == 1 else 've' }}
+                                one person in it, which is where the companion joins them.
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="panel-card">
+                            <div class="field-head">
+                                <span class="field-label">The player</span>
+                                <span class="composer-hint">Read at render time.</span>
+                            </div>
+                            {% set music = live.music|default(none) %}
+                            {% if not live.read %}
+                            <div class="status-empty">{{ live.why }}</div>
+                            {% elif not music or not music.player %}
+                            <div class="status-empty">Nobody has asked for a song since the last restart. `/music play` is where that starts — and `/music radio` never touches the extractor.</div>
+                            {% else %}
+                            <div class="status-row">
+                                <span class="status-dot {{ 'up' if music.player.playing else ('paused' if music.player.paused else 'paused') }}" aria-hidden="true"></span>
+                                <div class="status-main">
+                                    <div class="status-name">{{ music.player.current.title if music.player.current else 'Nothing loaded' }}</div>
+                                    <div class="status-url">
+                                        {%- if music.player.playing %}Playing{% elif music.player.paused %}Paused{% else %}Idle{% endif %}
+                                        {%- if music.player.channel %} in {{ music.player.channel }}{% endif %}
+                                        {%- if music.player.current %} · asked for by {{ music.player.current.requester }}{% endif %}
+                                    </div>
+                                </div>
+                                <div class="status-figures">
+                                    <span><b>{{ music.player.queue }}</b> queued</span>
+                                    <span><b>{{ (music.player.volume * 100)|round|int }}%</b> volume</span>
+                                </div>
+                            </div>
+                            {% if music.player.queue_preview|default([]) %}
+                            <div class="composer-hint" style="margin-top:8px;">
+                                Next: {{ music.player.queue_preview|join(' · ') }}
+                            </div>
+                            {% endif %}
+                            {% if music.extractor and music.extractor.sources|default(none) %}
+                            {# The reading that stops "the provider refused this host" from
+                               being the whole story: which doors are left, in the order
+                               this host will knock on them. #}
+                            <div class="composer-hint" style="margin-top:8px;">
+                                Sources, in order:
+                                {% for item in music.extractor.sources.order %}{{ item.label }}{% if not loop.last %} → {% endif %}{% endfor %}
+                                {%- if music.extractor.sources.refusing %}
+                                — {{ music.extractor.sources.refusing|join(', ') }} {{ 'is' if music.extractor.sources.refusing|length == 1 else 'are' }} being knocked on last, because {{ 'it' if music.extractor.sources.refusing|length == 1 else 'they' }} refused this host.
+                                {%- endif %}
+                            </div>
+                            {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="section-header" style="margin-top:26px;">
+                        <div>
+                            <span class="eyebrow">Do something</span>
+                            <h3 style="margin:2px 0 0;">The four things people come here for</h3>
+                        </div>
+                    </div>
+                    <div class="quick-actions">
+                        <a class="btn" href="/dashboard/members{{ guild_query }}">Members — warn, time out, kick, ban</a>
+                        <a class="btn" href="/dashboard/server{{ guild_query }}">The server — lockdown, slowmode</a>
+                        <a class="btn" href="/dashboard/composer{{ guild_query }}">Composer — write a message</a>
+                        <a class="btn" href="/dashboard/schedule{{ guild_query }}">Scheduled — post it later</a>
+                    </div>
                 </section>
                 {% endif %}
 
@@ -797,7 +903,7 @@
                     nothing in hand — hence the defaulted block below rather than
                     an assumption that a request happened.
                 #}
-                {% set mgmt = management|default({'page': '', 'read': False, 'why': 'Not read for this render.', 'roster': none, 'bans': [], 'control': none, 'query': '', 'recent': []}) %}
+                {% set mgmt = management|default({'page': '', 'read': False, 'why': 'Not read for this render.', 'roster': none, 'bans': [], 'control': none, 'query': '', 'recent': [], 'abilities': none}) %}
                 {% if page is not defined or page == 'members' %}
                 <!-- ── Members ──────────────────────────────────────────── -->
                 <section id="members" aria-labelledby="members-title">
@@ -1019,6 +1125,36 @@
                             <li class="member-row">
                                 <span class="member-name">#{{ channel.name }}</span>
                                 <span class="member-id">{{ channel.id }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    {#
+                        What the bot may actually do here.
+
+                        Every control on this page and the Members page depends on a
+                        permission this deployment may not hold — it was invited without
+                        *Manage Channels*, or its role sits below the one it is trying to
+                        change — and the failure that produces is the worst kind: a button
+                        that reports success and changes nothing. The reading is on the
+                        bot's own member object, which costs no request, and `none` means
+                        it could not be checked, which is a different sentence from "you
+                        cannot do this" and only one of them is actionable.
+                    #}
+                    {% if mgmt.abilities %}
+                    <div class="panel-card" style="margin-top:16px;">
+                        <div class="field-head">
+                            <span class="field-label">What the bot may do here</span>
+                            <span class="composer-hint">Read from the bot's own role, not guessed — these decide whether the controls on both management pages will work.</span>
+                        </div>
+                        <ul class="member-list">
+                            {% for ability in mgmt.abilities %}
+                            <li class="member-row">
+                                <span class="status-dot {{ 'up' if ability.ok else 'paused' }}" aria-hidden="true"></span>
+                                <span class="member-name">{{ ability.label }}</span>
+                                <span class="member-meta">{% if ability.ok %}held{% else %}missing — this blocks {{ ability.why }}{% endif %}</span>
                             </li>
                             {% endfor %}
                         </ul>
