@@ -497,6 +497,98 @@ class SecondInstance(OperatorLogCase):
         self.assertFalse(asyncio.run(run()))
 
 
+class DeadMedia(OperatorLogCase):
+    """The card for a picture that stopped existing.
+
+    Worth its own tests because this card *is* the detection: nothing in the
+    product reacts to a dead media link — Discord draws an empty box and says
+    nothing — so if this does not reach the operator, the weekly check reports to
+    nobody and the link rots exactly as it did before there was a check.
+    """
+
+    def _verdict(self):
+        from utils import media_health
+
+        return media_health.Verdict(
+            at=1000,
+            checked=23,
+            dead={
+                "cogs/social.py:293": "HTTP 404",
+                "action:poke": media_health.LEFT_EMPTY,
+            },
+            places={"cogs/social.py:293": "https://media.tenor.com/dead/wedding.gif"},
+            kinds={"cogs/social.py:293": "file", "action:poke": "action"},
+        )
+
+    def test_it_says_what_is_dead_where_it_is_written_and_what_came_back(self):
+        async def run():
+            await db.setup()
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id)
+            return await operator_log.media_alert(
+                self.bot, self._verdict(), "two of twenty-three targets are dead"
+            )
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertEqual(len(self.foreign.sent), 1)
+        text = _text_of(self.foreign.sent[0])
+        self.assertIn("cogs/social.py:293", text, "which target")
+        self.assertIn("https://media.tenor.com/dead/wedding.gif", text, "the link to change")
+        self.assertIn("HTTP 404", text, "what the probe actually got")
+        self.assertIn("action:poke", text, "a resolver that went empty is a different fix")
+        self.assertIn("resolver", text)
+
+    def test_it_counts_the_pass_rather_than_describing_it(self):
+        """The numbers are the only thing that says whether this is one link or
+        twenty, which is the difference between an edit and a migration."""
+        async def run():
+            await db.setup()
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id)
+            return await operator_log.media_alert(self.bot, self._verdict(), "headline")
+
+        asyncio.run(run())
+        text = _text_of(self.foreign.sent[0])
+        self.assertIn("23 targets checked", text)
+
+    def test_it_never_pings_anyone(self):
+        async def run():
+            await db.setup()
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), self.foreign.id)
+            return await operator_log.media_alert(self.bot, self._verdict(), "@everyone look")
+
+        asyncio.run(run())
+        self.assertEqual(self.foreign.sent[0].get("allowed_mentions"), style.NO_PINGS)
+
+    def test_with_nowhere_to_say_it_returns_false_instead_of_raising(self):
+        async def run():
+            await db.setup()
+            return await operator_log.media_alert(self.bot, self._verdict(), "headline")
+
+        self.assertFalse(asyncio.run(run()))
+
+    def test_it_goes_where_the_operator_bound_it_and_nowhere_else(self):
+        """Same rule as everything else here: with nothing bound, this is silent
+        rather than posted wherever was convenient."""
+        async def run():
+            await db.setup()
+            return await operator_log.media_alert(self.bot, self._verdict(), "headline")
+
+        self.assertFalse(asyncio.run(run()))
+        self.assertEqual(self.foreign.sent, [])
+
+    def test_a_broken_channel_cannot_break_the_check(self):
+        """The watch runs in a background loop; a failed card must not end it."""
+        async def run():
+            await db.setup()
+            failing = _FailingChannel(GUILDS_CHANNEL, "active-servers")
+            operator = _Guild(BOT_SERVER, "Development", [failing])
+            await db.set_setting(BOT_SERVER, bot_channels.setting_key("error"), GUILDS_CHANNEL)
+            return await operator_log.media_alert(
+                _Bot([operator, self.member]), self._verdict(), "headline"
+            )
+
+        self.assertFalse(asyncio.run(run()))
+
+
 class FailureRules(OperatorLogCase):
     def test_an_unbound_channel_reports_and_returns_false(self):
         """No binding: the entry is reported on the host, not raised."""

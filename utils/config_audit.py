@@ -558,6 +558,15 @@ SETTINGS: tuple[Setting, ...] = (
         "the default 5-minute interval is used.",
     ),
     Setting(
+        "MEDIA_CHECK_INTERVAL_HOURS", TUNING,
+        "how often every picture and sound the bot sends is probed for being "
+        "dead, which is what stops a rotted link being drawn as an empty box "
+        "forever",
+        "the default is a week. A dead link then sits in the operator's channel "
+        "for up to that long before anything says so — the failure it guards "
+        "against has no symptom in the product at all.",
+    ),
+    Setting(
         "UPTIME_FIRST_CHECK_SECONDS", TUNING,
         "how long after boot to read UptimeRobot for the first time",
         "the default 60-second delay is used.",

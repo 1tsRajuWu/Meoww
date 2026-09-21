@@ -290,7 +290,11 @@ class MarriageView(discord.ui.View):
             color=0xEB459E,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_image(url="https://media.tenor.com/E8w9k1nJ7W0AAAAC/anime-wedding.gif")
+        # Verified or absent: the hand-typed tenor link that used to be here
+        # answered 404, so the wedding card was drawn with a broken image.
+        wedding_gif = await gifs.action_gif("wedding")
+        if wedding_gif:
+            embed.set_image(url=wedding_gif)
         embed.set_footer(text="Meow Love & Marriage")
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -733,8 +737,16 @@ class Social(commands.Cog):
             color=0xEB459E,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_thumbnail(url="https://media.tenor.com/7Ie9b4Wc3zUAAAAC/ring-anime.gif")
+        # Same verified-or-absent rule as the actions: this was another dead
+        # tenor link. Full width rather than the thumbnail it used to be, because
+        # this is the card people screenshot and a 60px corner was the part of it
+        # nobody could see.
+        ring_gif = await gifs.action_gif("propose")
+        if ring_gif:
+            embed.set_image(url=ring_gif)
         view = MarriageView(interaction.user, member)
+        # A legacy send with the mention in ``content``, which is what actually
+        # notifies — the proposal is useless if the person proposed to misses it.
         await interaction.response.send_message(content=member.mention, embed=embed, view=view)
 
     @app_commands.command(name="divorce", description="Divorce your current spouse.")

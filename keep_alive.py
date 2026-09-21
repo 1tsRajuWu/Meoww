@@ -50,8 +50,8 @@ from flask import (
 )
 from utils import (
     command_publish, command_scope, config_audit, db, digest, discord_auth, features,
-    figures, guild_directory, hub, identity, meowfee, modules, plans, principal,
-    ratelimit, scheduled, sessions, site_guard, uptime_status, webdocs,
+    figures, guild_directory, hub, identity, media_health, meowfee, modules, plans,
+    principal, ratelimit, scheduled, sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1235,6 +1235,16 @@ def health():
         # Counts and one ratio, no names — this endpoint is unauthenticated, and
         # the rows (monitor names and their URLs) are behind `/api/uptime`.
         "uptime": uptime_status.health_json(),
+        # Whether the pictures and sounds this bot sends still exist. A fifth
+        # separate claim, and the one with the least visible failure of all: a
+        # dead link is not an error here, it is an empty box in somebody's chat
+        # that Discord draws without complaint — which is how every roleplay GIF
+        # in this tree answered 404 for who knows how long.
+        #
+        # Counts and no names, like the three above it: this endpoint is
+        # unauthenticated, and the card that names the dead links goes to the
+        # operator's own channel.
+        "media": media_health.health_json(),
         "timestamp": int(time.time()),
     })
 
@@ -6388,6 +6398,64 @@ def start_site_guard(bot):
         print("[SITE-GUARD] No event loop — the site will not be watched.", flush=True)
         return None
     return bot.loop.create_task(site_guard_loop())
+
+
+#: How long a media pass stays good for, and how long after boot the first one
+#: runs. Both come from the module that owns the interval, so the loop cannot
+#: disagree with what the check says it promises; the loop waits a while after a
+#: boot on purpose, because a boot is a deploy and the gateway, the database
+#: restore and the command sync all happen first.
+async def _run_media_check() -> None:
+    """One pass, but only if the last one is old enough to be worth repeating.
+
+    The *clock* is in the database rather than in this process, and that is the
+    whole reason this is weekly in practice: Render restarts this bot often
+    enough that an in-memory timer would mean a fresh sweep of forty URLs on
+    every deploy — which is how a check becomes load and then gets switched off.
+    """
+    if not await media_health.due():
+        print("[MEDIA] Last pass is still fresh — nothing to do.", flush=True)
+        return
+    verdict = await media_health.check()
+    media_health.record(verdict)
+    await media_health.mark_ran()
+    print(f"[MEDIA] {media_health.describe(verdict)}", flush=True)
+    message = media_health.note(verdict)
+    if message and BOT_INSTANCE is not None:
+        from utils import operator_log
+
+        await operator_log.media_alert(BOT_INSTANCE, verdict, message)
+
+
+async def media_health_loop():
+    """Probe every media URL this bot depends on, on a weekly clock.
+
+    Nothing in the product can notice this failure: a dead link is not raised,
+    logged or refused — it is a card with an empty box in it, and the only
+    repair is somebody seeing it. So the loop exists to be the thing that sees
+    it, and every branch is best-effort so that the loop outlives a bad response
+    from a CDN.
+    """
+    import asyncio
+
+    await asyncio.sleep(max(1, media_health.FIRST_CHECK_SECONDS))
+    while True:
+        try:
+            await _run_media_check()
+        except Exception as e:
+            print(f"[MEDIA] Loop error (will retry): {e}", flush=True)
+        # One hour is the floor even when a pass is not due: the question is
+        # cheap to ask, and a weekly sleep would make a boot the only time it is
+        # ever considered.
+        await asyncio.sleep(3600)
+
+
+def start_media_health(bot):
+    """Start the media watch on the bot's own event loop."""
+    if bot is None or getattr(bot, "loop", None) is None:
+        print("[MEDIA] No event loop — the pictures will not be watched.", flush=True)
+        return None
+    return bot.loop.create_task(media_health_loop())
 
 
 #: How often to re-read UptimeRobot. Five minutes is chosen against the source,

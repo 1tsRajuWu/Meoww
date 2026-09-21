@@ -47,6 +47,13 @@ Four rules, three of them learned from a failure this project already had:
   deploy reports success — so the alert is the whole detection, and a check that
   could not reach the site is reported as loudly as one that found a leak.
 
+* **And so is a picture that stopped existing** (:func:`media_alert`). Every
+  card's images and sounds are probed weekly (see :mod:`utils.media_health`),
+  because a dead link is the quietest failure this bot has: Discord accepts the
+  message, draws an empty box and reports nothing anywhere. The card therefore
+  names the dead target, where it is written, and what the probe actually got —
+  the one thing that turns "the bot looks broken" into a line to change.
+
 What is deliberately *not* recorded: the values typed into the command. Those are
 whatever a person chose to write — a `/bug` report, a `/pay` note, a `/purge`
 reason — and copying them into a second server is a privacy change, not a logging
@@ -363,6 +370,68 @@ async def site_guard_alert(bot, verdict) -> bool:
         return True
     except Exception as exc:
         print(f"[LOG] could not report the site check: {exc}", flush=True)
+        return False
+
+
+async def media_alert(bot, verdict, message: str) -> bool:
+    """Say that some of the media this bot sends no longer exists.
+
+    The failure this reports has no symptom in the product and never had one:
+    every roleplay GIF in the tree pointed at a ``media.tenor.com`` URL that
+    answered 404, and what a member saw was a card with an empty box in it while
+    nothing raised, logged or refused anything. That is why the probe is the
+    whole detection — and why the card carries the evidence rather than a
+    summary of it: *which* target, *where* it is written, and *what came back*
+    are the three things somebody needs to fix it in one edit.
+    """
+    from utils import media_health
+
+    embed = discord.Embed(
+        title="🖼️ Some of the bot's media is dead",
+        description=message,
+        color=style.DANGER,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(
+        name="Dead",
+        value=media_health.card_body(verdict) or "—",
+        inline=False,
+    )
+    counts = verdict.counts
+    embed.add_field(
+        name="This pass",
+        value=(
+            f"{counts['checked']} targets checked · {counts['ok']} fine · "
+            f"{counts['dead']} dead · {counts['unchecked']} not reachable"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="What to do",
+        value=(
+            "**A hardcoded link** (`cogs/…`, a template or a stylesheet) is the "
+            "one to change: put it through `utils/gifs`, which verifies a URL "
+            "before any card uses it. **`action:` / `pet:`** means the resolver "
+            "(or the provider it asked) came back empty, so the picture is "
+            "missing rather than the link being wrong — and it is sent as an "
+            "absent picture, never a broken one. The next pass runs on its own "
+            "interval, so this card does not repeat weekly about the same link."
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Meow · media watch · weekly")
+    target = None
+    for role in _INSTANCE_ROLES:
+        target = await _channel(bot, role)
+        if target is not None:
+            break
+    if target is None:
+        return False
+    try:
+        await style.send_card(target, embed=embed, timeout=None)
+        return True
+    except Exception as exc:
+        print(f"[LOG] could not report the dead media: {exc}", flush=True)
         return False
 
 

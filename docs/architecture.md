@@ -155,6 +155,36 @@ status ("Playing …") is Discord's, chosen by the activity *type*. A line writt
 as a headline renders as "Playing Meowing at the wall", so shipped lines read as
 continuations, and `custom` exists for a line with no verb at all.
 
+### The media watch (`utils/media_health.py`)
+
+"A picture has to exist" is checked at use time, which leaves the other half open:
+a hand-typed link in the tree can rot for as long as nobody looks at that card, and
+a dead link is the quietest failure in the product — Discord accepts the message,
+draws an empty box and reports nothing anywhere.
+
+`keep_alive.start_media_health` runs one pass on the bot's own loop, on a clock kept
+in the database (`MEDIA_CHECK_INTERVAL_HOURS`, a week by default) rather than in the
+process, because Render restarts this bot often enough that an in-memory timer would
+mean a sweep of every URL on every deploy — and a check that costs something on
+every boot is a check that gets switched off. A pass probes two kinds of target:
+
+- **hardcoded** media, *found* by scanning the files that may hold one rather than
+  listed by hand, skipping tests, docs and retired cogs (a deliberately broken URL
+  in a test is not a fault to report);
+- **resolved** media — one target per action and per pet, read off `utils/gifs`'s own
+tables, so an action added there is covered without anybody remembering this module.
+
+Three rules, all of which were learned from the failure this was built for: a `200`
+is not evidence (a body whose content type is not media is reported as *not media*),
+**a clean week is silence** (a weekly "everything is fine" is how a channel gets
+muted), and a pass **never raises** — a target that could not be asked lands in
+`unchecked`, kept apart from `dead`, because "this link is broken" and "I could not
+reach anybody" are different sentences and only the first one sends somebody to edit
+a URL. Findings go to the operator channel via `operator_log.media_alert`, naming the
+target, the file and line, and what the probe got; counts (never names) are on
+`/health` as its own `media` block; `scripts/check_media.py` runs the same pass by
+hand and exits non-zero on a dead link.
+
 ## Conventions that keep 600+ tests green
 
 - **Declare, don't duplicate.** Feature? → `features.py`. Audience? →

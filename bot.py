@@ -1075,6 +1075,16 @@ async def on_ready():
     except Exception as e:
         print(f"[UPTIME] Failed to start the monitor refresh: {e}", flush=True)
 
+    # Probe every picture and sound this bot sends, weekly. A dead media link is
+    # the quietest fault in the whole product — Discord draws an empty box and
+    # reports nothing — so the check exists to be the only thing that notices,
+    # and the card it sends names the link to change (see utils/media_health).
+    try:
+        from keep_alive import start_media_health
+        start_media_health(bot)
+    except Exception as e:
+        print(f"[MEDIA] Failed to start the media watch: {e}", flush=True)
+
     # Every server keeps its own house channels. A server nobody has configured
     # yet is bound by channel name here — once — so a server added today has
     # somewhere to log and announce without anyone running a command.

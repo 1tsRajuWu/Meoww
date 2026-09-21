@@ -75,6 +75,12 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "punch": (("otakugifs", "punch"), ("purrbot", "slap")),
     "bonk": (("otakugifs", "punch"), ("purrbot", "slap")),
     "feed": (("purrbot", "feed"),),
+    # Two social cards rather than reactions: the marriage proposal and the
+    # wedding. Neither provider draws a ring, and both of these were hand-typed
+    # `media.tenor.com` links that answered 404 — the same rot as the actions,
+    # found by the media watch built for exactly that (utils/media_health.py).
+    "propose": (("purrbot", "kiss"), ("otakugifs", "kiss")),
+    "wedding": (("otakugifs", "hug"), ("purrbot", "hug")),
 }
 
 #: Pet pictures, by the flavour that asked for them. ``cat`` is an *animated* gif
