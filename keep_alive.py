@@ -4198,10 +4198,27 @@ def _live_presence(guild):
     """Who is online, as counts — or ``None`` when nobody can say.
 
     Presence is the one reading here that needs a privileged intent, so it is the
-    one that is routinely unavailable: without it ``Member.status`` is not on the
-    object at all. ``None`` is the honest answer and the page draws the state it
-    is in rather than a confident zero.
+    one that is routinely unavailable — and **the intent is the only honest test
+    for that**, which is what this guard is for. The first version of this
+    function asked whether ``Member.status`` existed, on the theory that without
+    the intent the attribute would be missing. It is not: discord.py always has
+    it, and without the intent it is ``offline`` for every member. So the page
+    printed **1 online / 35 offline** for a server with people in it — the one
+    online being the bot, whose own presence this process sets and therefore
+    knows — and an operator reading five figures had no way to tell that four of
+    them were a fact about this deployment's configuration rather than about
+    anybody in the server. ``None`` is the honest answer, and the page draws the
+    dash and the reason instead of a measurement nobody took.
     """
+    bot = BOT_INSTANCE
+    intents = getattr(bot, "intents", None) if bot is not None else None
+    # Both, because Discord's own rule is that presences arrive for the members
+    # this client tracks: the Presence intent without the Members intent is a
+    # subscription to updates about a roster that is not being kept. "Did we ask
+    # for it" is still a different question from "did it work" — the counts
+    # below can only be as complete as the member list they walk.
+    if not (getattr(intents, "presences", False) and getattr(intents, "members", False)):
+        return None
     members = list(getattr(guild, "members", None) or ())
     if not members:
         return None
@@ -5150,12 +5167,20 @@ def api_toggle():
     # but a page whose stamp came from the publish it just asked for would wait
     # out its whole timeout and then report that Discord had never been reread.
     publish_before = _last_publish_at(guild_id)
-    _resync_commands(guild_id)
+    queued = _resync_commands(guild_id)
     _schedule_cloud_backup()
 
     return jsonify({
         "success": True,
-        "guild_id": guild_id,
+        # Text, like every other id this app hands the browser. A snowflake that
+        # crosses as a JSON number comes back as a different number (see
+        # ``_console_id``), and this route is called by the console, whose schema
+        # says string — so a raw int here fails the page's own payload check and
+        # the whole click lands in its catch: the switch springs back, the toast
+        # reads "the console and the bot are out of step", and the publish stamp
+        # below is never read. One type, or the switch looks broken while the
+        # server did exactly what it was asked.
+        "guild_id": _console_id(guild_id),
         "module": module_id,
         "enabled": enabled,
         "sync_latency_ms": 0,
@@ -5164,6 +5189,11 @@ def api_toggle():
         # republish this click asked for has finished. Read here rather than in
         # the page so the comparison is between two readings of one clock.
         "publish_at": publish_before,
+        # Whether the republish was actually asked for. A switch flips in the
+        # database either way, but the *picker* only changes if the bot was up to
+        # hear the request — and a click during a restart would otherwise look
+        # like a command that refused to appear with no cause anywhere.
+        "republish": queued,
     })
 
 
@@ -5257,20 +5287,24 @@ def api_toggle_all():
         return jsonify({
             "success": False,
             "error": f"Could not save: {', '.join(failed)}",
-            "guild_id": guild_id,
+            "guild_id": _console_id(guild_id),
             "enabled": enabled,
         }), 500
 
     publish_before = _last_publish_at(guild_id)
-    _resync_commands(guild_id)
+    queued = _resync_commands(guild_id)
     _schedule_cloud_backup()
 
     return jsonify({
         "success": True,
-        "guild_id": guild_id,
+        # Text, for the reason spelled out on ``/api/toggle`` above: the console
+        # reads these two answers through one schema, so one of them answering
+        # with a number is the same defect on the bulk switch.
+        "guild_id": _console_id(guild_id),
         "enabled": enabled,
         "sync_latency_ms": 0,
         "publish_at": publish_before,
+        "republish": queued,
     })
 
 
@@ -5483,7 +5517,7 @@ def api_identity():
 
     _schedule_cloud_backup()
     state = _identity_state(guild_id)
-    return jsonify({"success": True, "guild_id": guild_id, **state})
+    return jsonify({"success": True, "guild_id": _console_id(guild_id), **state})
 
 
 @app.route("/api/identity/image/<kind>")

@@ -61,6 +61,14 @@ if _env_flag("ENABLE_MESSAGE_CONTENT_INTENT"):
     intents.message_content = True
 if _env_flag("ENABLE_MEMBERS_INTENT"):
     intents.members = True
+# Presence is the one that decides whether the console can answer *who is
+# online*. Without it Discord reports every member as ``offline`` — there is no
+# error, no missing attribute and no other symptom — so the Live page used to
+# print "1 online, 35 offline" for a server with people in it, the one being the
+# bot. Off unless asked for, like the other two, and refused safely below if the
+# portal has not granted it.
+if _env_flag("ENABLE_PRESENCE_INTENT"):
+    intents.presences = True
 
 # Application flag *positions* Discord sets on the app itself once a privileged
 # intent has been enabled in the Developer Portal. The *_LIMITED bit is the one
@@ -69,12 +77,16 @@ if _env_flag("ENABLE_MEMBERS_INTENT"):
 # read as "Discord granted nothing" and silently drop even the members intent.
 _MEMBER_INTENT_BITS = (14, 15)
 _MESSAGE_CONTENT_BITS = (16, 17)
+# GATEWAY_PRESENCE and its "limited" twin, which is the one an unverified app
+# gets — every app under 100 servers.
+_PRESENCE_INTENT_BITS = (12, 13)
 
 
-def portal_intents(timeout: float = 10.0) -> tuple[bool, bool] | None:
+def portal_intents(timeout: float = 10.0) -> tuple[bool, bool, bool] | None:
     """Which privileged intents Discord has actually granted this app.
 
-    ``(members, message_content)``, or ``None`` when Discord cannot be asked.
+    ``(members, message_content, presences)``, or ``None`` when Discord cannot be
+    asked.
     """
     try:
         import json as _json
@@ -99,10 +111,11 @@ def portal_intents(timeout: float = 10.0) -> tuple[bool, bool] | None:
     return (
         any(flags & (1 << bit) for bit in _MEMBER_INTENT_BITS),
         any(flags & (1 << bit) for bit in _MESSAGE_CONTENT_BITS),
+        any(flags & (1 << bit) for bit in _PRESENCE_INTENT_BITS),
     )
 
 
-def drop_ungranted_intents(bot, granted: tuple[bool, bool] | None) -> list[str]:
+def drop_ungranted_intents(bot, granted: tuple[bool, bool, bool] | None) -> list[str]:
     """Stop asking for intents Discord would refuse, and name the ones dropped.
 
     Requesting a privileged intent the portal has not enabled makes Discord
@@ -116,7 +129,7 @@ def drop_ungranted_intents(bot, granted: tuple[bool, bool] | None) -> list[str]:
     """
     if granted is None:
         return []
-    members_granted, content_granted = granted
+    members_granted, content_granted, presence_granted = granted
     dropped: list[str] = []
     if getattr(bot.intents, "members", False) and not members_granted:
         bot.intents.members = False
@@ -124,6 +137,9 @@ def drop_ungranted_intents(bot, granted: tuple[bool, bool] | None) -> list[str]:
     if getattr(bot.intents, "message_content", False) and not content_granted:
         bot.intents.message_content = False
         dropped.append("Message Content (ENABLE_MESSAGE_CONTENT_INTENT)")
+    if getattr(bot.intents, "presences", False) and not presence_granted:
+        bot.intents.presences = False
+        dropped.append("Presence (ENABLE_PRESENCE_INTENT)")
     return dropped
 
 

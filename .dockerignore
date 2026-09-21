@@ -23,7 +23,6 @@ bot.db-*
 deploy_trigger.txt
 
 # Not needed in production image
-.freebuff
 deleted_features
 tests
 .github

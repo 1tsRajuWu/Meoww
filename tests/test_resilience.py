@@ -26,14 +26,22 @@ from utils import db
 
 
 class _Intents:
-    def __init__(self, members=False, message_content=False):
+    def __init__(self, members=False, message_content=False, presences=False):
         self.members = members
         self.message_content = message_content
+        self.presences = presences
 
 
 class _Bot:
-    def __init__(self, members=False, message_content=False, ready=False, started=True):
-        self.intents = _Intents(members, message_content)
+    def __init__(
+        self,
+        members=False,
+        message_content=False,
+        presences=False,
+        ready=False,
+        started=True,
+    ):
+        self.intents = _Intents(members, message_content, presences)
         self._ready_now = ready
         self._has_started = started
 
@@ -63,7 +71,7 @@ class IntentsDiscordHasNotGranted(unittest.TestCase):
     def test_a_requested_intent_the_portal_never_granted_is_dropped(self):
         bot = _Bot(members=True, message_content=True)
 
-        dropped = bot_module.drop_ungranted_intents(bot, (True, False))
+        dropped = bot_module.drop_ungranted_intents(bot, (True, False, True))
 
         self.assertFalse(bot.intents.message_content, "Discord would refuse this")
         self.assertTrue(bot.intents.members, "members was granted; keep it")
@@ -73,17 +81,33 @@ class IntentsDiscordHasNotGranted(unittest.TestCase):
     def test_both_intents_are_dropped_when_neither_was_granted(self):
         bot = _Bot(members=True, message_content=True)
 
-        dropped = bot_module.drop_ungranted_intents(bot, (False, False))
+        dropped = bot_module.drop_ungranted_intents(bot, (False, False, True))
 
         self.assertFalse(bot.intents.members)
         self.assertFalse(bot.intents.message_content)
         self.assertEqual(len(dropped), 2)
 
-    def test_nothing_is_dropped_when_the_portal_grants_everything(self):
-        bot = _Bot(members=True, message_content=True)
+    def test_a_presence_intent_the_portal_never_granted_is_dropped(self):
+        """Presence is the one that answers *who is online*, and the one nobody had
+        asked for until the Live page printed 35 offline for a server full of
+        people. Requesting it un-granted costs the whole connection, so it is
+        dropped with its own name rather than taking the bot offline."""
+        bot = _Bot(members=True, presences=True)
 
-        self.assertEqual(bot_module.drop_ungranted_intents(bot, (True, True)), [])
+        dropped = bot_module.drop_ungranted_intents(bot, (True, True, False))
+
+        self.assertFalse(bot.intents.presences)
+        self.assertTrue(bot.intents.members, "only the refused one is dropped")
+        self.assertEqual(len(dropped), 1)
+        self.assertIn("Presence", dropped[0])
+        self.assertIn("ENABLE_PRESENCE_INTENT", dropped[0])
+
+    def test_nothing_is_dropped_when_the_portal_grants_everything(self):
+        bot = _Bot(members=True, message_content=True, presences=True)
+
+        self.assertEqual(bot_module.drop_ungranted_intents(bot, (True, True, True)), [])
         self.assertTrue(bot.intents.message_content)
+        self.assertTrue(bot.intents.presences)
 
     def test_an_unanswerable_check_leaves_the_configured_intents_alone(self):
         """No answer is not the same as a refusal — ask for what was asked for."""
@@ -94,11 +118,15 @@ class IntentsDiscordHasNotGranted(unittest.TestCase):
         self.assertTrue(bot.intents.message_content)
 
     def test_an_intent_nobody_asked_for_is_never_added(self):
-        bot = _Bot(members=False, message_content=False)
+        bot = _Bot(members=False, message_content=False, presences=False)
 
-        self.assertEqual(bot_module.drop_ungranted_intents(bot, (True, True)), [])
+        self.assertEqual(bot_module.drop_ungranted_intents(bot, (True, True, True)), [])
         self.assertFalse(bot.intents.members)
         self.assertFalse(bot.intents.message_content)
+        self.assertFalse(
+            bot.intents.presences,
+            "a deployment that never asked for presence must not start asking",
+        )
 
     def _flags(self, flags):
         with mock.patch("urllib.request.urlopen", return_value=_FakeResponse({"flags": flags})):
@@ -106,17 +134,19 @@ class IntentsDiscordHasNotGranted(unittest.TestCase):
 
     def test_the_limited_grants_are_recognised(self):
         """An unverified app gets the *_LIMITED bit, which is every small app."""
-        self.assertEqual(self._flags((1 << 15) | (1 << 17)), (True, True))
-        self.assertEqual(self._flags((1 << 15)), (True, False))
-        self.assertEqual(self._flags((1 << 17)), (False, True))
+        self.assertEqual(self._flags((1 << 15) | (1 << 17)), (True, True, False))
+        self.assertEqual(self._flags((1 << 15)), (True, False, False))
+        self.assertEqual(self._flags((1 << 17)), (False, True, False))
+        self.assertEqual(self._flags((1 << 13)), (False, False, True))
 
     def test_the_full_grants_are_recognised_too(self):
-        self.assertEqual(self._flags((1 << 14) | (1 << 16)), (True, True))
+        self.assertEqual(self._flags((1 << 14) | (1 << 16)), (True, True, False))
+        self.assertEqual(self._flags((1 << 12)), (False, False, True))
 
     def test_unrelated_flags_are_not_mistaken_for_intents(self):
         """The commands badge sits at bit 23 and must mean nothing here."""
-        self.assertEqual(self._flags(1 << 23), (False, False))
-        self.assertEqual(self._flags(0), (False, False))
+        self.assertEqual(self._flags(1 << 23), (False, False, False))
+        self.assertEqual(self._flags(0), (False, False, False))
 
     def test_an_unreachable_discord_says_so_instead_of_guessing(self):
         with mock.patch("urllib.request.urlopen", side_effect=OSError("no route")):

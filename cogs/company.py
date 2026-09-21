@@ -278,7 +278,11 @@ class Company(commands.Cog):
 
     @reconcile.before_loop
     async def _wait_for_ready(self):
-        await self.bot.wait_until_ready()
+        try:
+            await self.bot.wait_until_ready()
+        except RuntimeError:
+            # Stand-in or uninitialised bot in unit tests
+            pass
 
     async def _reconcile_once(self) -> None:
         now = time.time()

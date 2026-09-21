@@ -896,6 +896,9 @@ class TheLivePage(_DashboardFixture):
             ghost: _VoiceState(ghost, room, self_mute=True),
         }
         bot = _Bot([guild])
+        # The shape a real deployment has: the roster always, presence only when
+        # it was asked for and granted (see the two tests below).
+        bot.intents = SimpleNamespace(members=True, presences=statuses)
         bot.latency = 0.05
         return bot, guild, room
 
@@ -943,14 +946,37 @@ class TheLivePage(_DashboardFixture):
         self.assertIsInstance(data["server"]["id"], str)
 
     def test_presence_is_absent_rather_than_zero_when_nobody_can_say(self):
-        """The intent is privileged, so this is the *normal* state — and a page
-        that painted it as "0 online, 3 offline" would be inventing a reading."""
+        """The intent is privileged, so this is the *normal* state.
+
+        This is the bug that shipped, and it is why the guard is the **intent**
+        rather than the attribute: without the Presence intent Discord does not
+        leave ``Member.status`` off the object, it answers ``offline`` for every
+        member — so the first version of this page printed "1 online, 35 offline"
+        for a server with people in it, the one online being the bot, whose
+        presence its own process sets. Five figures, none of them a reading.
+        """
         without, _guild, _room = self.payload()
         self.assertIsNone(without["presence"])
         self.assertIs(without["read"]["presence"], False)
+        # And the rest of the page is unaffected: the voice roster comes from
+        # voice states, which need no privileged intent at all.
+        self.assertEqual(without["totals"]["in_voice"], 2)
+        self.assertEqual(without["read"]["voice"], True)
 
         with_status, _guild, _room = self.payload(statuses=True)
         self.assertEqual(with_status["read"]["presence"], True)
+        self.assertEqual(with_status["presence"]["online"], 1)
+        self.assertEqual(with_status["presence"]["dnd"], 1)
+        self.assertEqual(with_status["presence"]["total"], 2)
+
+    def test_presence_also_needs_the_members_intent(self):
+        """Discord's own rule: presences arrive for the members being tracked."""
+        bot, _guild, _room = self.gateway(statuses=True)
+        bot.intents = SimpleNamespace(members=False, presences=True)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            data = self.get("/api/console/live")
+        self.assertIsNone(data["presence"], "presence without members is not a reading")
+        self.assertIs(data["read"]["presence"], False)
         self.assertEqual(with_status["presence"]["online"], 1)
         self.assertEqual(with_status["presence"]["dnd"], 1)
         self.assertEqual(with_status["presence"]["offline"], 0)

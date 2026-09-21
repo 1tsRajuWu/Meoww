@@ -48,7 +48,7 @@ const GAPS: { key: keyof LivePayload["read"]; said: string }[] = [
   },
   {
     key: "presence",
-    said: "Presence is off on this deployment (the Presence intent), so nobody can say who is online. The voice roster below is unaffected: it comes from voice states, which need no such intent.",
+    said: "Presence is off on this deployment (the Presence intent), so nobody can say who is online — and the counts are absent rather than zero on purpose. Without the intent Discord reports every member as offline, so a card of figures would say \"1 online, 35 offline\" for a server full of people, the one being the bot. To turn it on: Discord Developer Portal → your app → Bot → Privileged Gateway Intents → Presence Intent, then set ENABLE_PRESENCE_INTENT=1 on this service. The voice roster below is unaffected: it comes from voice states, which need no such intent.",
   },
   {
     key: "tracker",
@@ -227,7 +227,7 @@ export function Live() {
           ) : (
             <Empty
               title="Presence is off"
-              body="Discord only reports who is online when the bot is granted the Presence intent, so this deployment counts nobody rather than everybody as offline."
+              body={'Discord only reports who is online when the bot is granted the Presence intent, and this deployment does not ask for it — so the honest answer is nothing, not "everybody is offline". Enable Presence Intent in the Discord Developer Portal, set ENABLE_PRESENCE_INTENT=1, and these five lines fill in.'}
             />
           )}
         </Card>

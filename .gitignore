@@ -20,7 +20,6 @@ bot.db-shm
 # Logs & local noise
 *.log
 deploy_trigger.txt
-.freebuff/
 
 # The static site built for GitHub Pages (scripts/build_site.py). Generated
 # output: the pages come from templates/ and static/, so a committed copy would

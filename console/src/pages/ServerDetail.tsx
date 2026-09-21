@@ -56,8 +56,18 @@ export function ServerDetail({
       current ? current.map((s) => (s.id === target.id ? { ...s, enabled: next } : s)) : current,
     );
     try {
-      await api.toggle(guildId, target.id, next);
-      onGone(`${target.name} ${next ? "on" : "off"} in ${live.data?.server.name ?? "this server"}.`, "good");
+      const answer = await api.toggle(guildId, target.id, next);
+      if (answer.republish) {
+        onGone(`${target.name} ${next ? "on" : "off"} in ${live.data?.server.name ?? "this server"}.`, "good");
+      } else {
+        // The switch saved; the *picker* did not change. Saying "on" here would
+        // be the wrong claim twice over — the module is on in this console and
+        // its commands are still whatever Discord was last told.
+        onGone(
+          `${target.name} saved, but the command list was not republished — the bot may be restarting. Discord still holds the old list; try the switch again in a moment.`,
+          "warn",
+        );
+      }
       // Read what Discord now holds, so the publish line is a measurement rather
       // than an assumption.
       try {
@@ -87,8 +97,13 @@ export function ServerDetail({
     const before = systems;
     setSystems(systems.map((s) => ({ ...s, enabled: enabled && s.allowed })));
     try {
-      await api.toggleAll(guildId, enabled);
-      onGone(`Every available system ${enabled ? "on" : "off"}. Discord will republish shortly.`, "good");
+      const answer = await api.toggleAll(guildId, enabled);
+      onGone(
+        answer.republish
+          ? `Every available system ${enabled ? "on" : "off"}. Discord is republishing this server's command list.`
+          : `Every available system ${enabled ? "on" : "off"}, but the command list was not republished — the bot may be restarting, so Discord still holds the old list.`,
+        answer.republish ? "good" : "warn",
+      );
       live.refresh();
     } catch (exc) {
       setSystems(before);
@@ -141,8 +156,8 @@ export function ServerDetail({
         title={`Systems · ${onCount} of ${systems?.length ?? 0} on`}
         hint={
           publishStamp
-            ? `Discord's copy was last queued ${ago(publishStamp)}. A switch republishes it.`
-            : "A switch republishes this server's command list."
+            ? `Discord's copy was last queued ${ago(publishStamp)}. A switch republishes it — and Discord's own client caches the list, so a command that is newly on here can take a minute (or a reload of Discord) to appear in the picker.`
+            : "A switch republishes this server's command list; Discord's own client may hold the old one for a minute after that."
         }
         action={
           <div className="segmented">

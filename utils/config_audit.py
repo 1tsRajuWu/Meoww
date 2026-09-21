@@ -176,6 +176,18 @@ SETTINGS: tuple[Setting, ...] = (
         "member join/leave events never arrive, so welcome/goodbye messages and "
         "anything counting members are silent. Same portal caveat as above.",
     ),
+    Setting(
+        "ENABLE_PRESENCE_INTENT",
+        CAPABILITY,
+        "the Presence intent, which is what makes \u201cwho is online\u201d answerable "
+        "at all",
+        "the owner console's Live page reports no presence figures \u2014 and reports "
+        "them as *not read*, not as zero, because Discord answers \u201coffline\u201d for "
+        "every member without it. Voice rosters, who is alone and who is streaming "
+        "keep working: those come from voice states and need no privileged intent. "
+        "Same portal caveat as above \u2014 enable Presence Intent in the portal, then "
+        "set this.",
+    ),
 
     # --- the invite link, and Discord sign-in ------------------------------ #
     Setting(

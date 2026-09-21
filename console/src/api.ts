@@ -207,9 +207,20 @@ export const api = {
       },
     ),
 
-  /** One system on one server. The endpoint the dashboard itself uses. */
+  /** One system on one server. The endpoint the dashboard itself uses.
+   *
+   * `republish` is whether the bot was *asked* to re-send this server's command
+   * list, which is the half that actually changes a picker: a switch saves in the
+   * database either way, but a click during a restart flips a module whose
+   * commands never leave or arrive. Without it the page could only say
+   * "republishing" and be wrong. */
   toggle: (guildId: string, module: string, enabled: boolean) =>
-    request<{ success: true; guild_id: string; publish_at: number | null }>("/api/toggle", {
+    request<{
+      success: true;
+      guild_id: string;
+      publish_at: number | null;
+      republish: boolean;
+    }>("/api/toggle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guild_id: guildId, module, enabled }),
@@ -217,7 +228,12 @@ export const api = {
 
   /** Every system on one server at once. */
   toggleAll: (guildId: string, enabled: boolean) =>
-    request<{ success: true; guild_id: string; publish_at: number | null }>("/api/toggle-all", {
+    request<{
+      success: true;
+      guild_id: string;
+      publish_at: number | null;
+      republish: boolean;
+    }>("/api/toggle-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guild_id: guildId, enabled }),

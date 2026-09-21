@@ -429,7 +429,7 @@ class TheSignInRoutes(_DashboardFixture):
             session["admin_guild_ids"] = [GUILD_ID]
         response = self.api("POST", "/api/toggle", {"module": "leveling", "enabled": False})
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
-        self.assertEqual(response.get_json()["guild_id"], GUILD_ID)
+        self.assertEqual(str(response.get_json()["guild_id"]), str(GUILD_ID))
 
     def test_the_picker_refuses_a_form_naming_somebody_elses_server(self):
         self.sign_in(guild_id=GUILD_ID, scope="user")

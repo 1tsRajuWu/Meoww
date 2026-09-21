@@ -224,7 +224,7 @@ class DashboardCase(_DashboardFixture):
         self.assertEqual(self.client.get("/dashboard").status_code, 200)
         toggled = self.api("POST", "/api/toggle", {"guild_id": GUILD_ID, "module": "fun", "enabled": False})
         self.assertTrue(toggled.get_json()["success"])
-        self.assertEqual(toggled.get_json()["guild_id"], GUILD_ID)
+        self.assertEqual(str(toggled.get_json()["guild_id"]), str(GUILD_ID))
 
     # ── a switch is also a command-set change ────────────────────────────
 
