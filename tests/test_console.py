@@ -60,6 +60,14 @@ CONSOLE_ROUTES = (
 CONSOLE_WRITE_ROUTES = (
     "/api/console/economy/adjust",
     "/api/console/access/revoke",
+    # The operator's controls over a server as a whole, and the one that has to be
+    # on this list rather than merely tested somewhere: **leaving a server is not
+    # reversible from here** — an invite is the only way back, and a `block` even
+    # refuses that — so the assertion that a server-scoped sign-in cannot reach it
+    # is the assertion that a link minted for one server cannot make the bot
+    # abandon it. It was left off when the route was added, which is the shape of
+    # gap this tuple exists to make loud.
+    "/api/console/server-action",
 )
 
 
