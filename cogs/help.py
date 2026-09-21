@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils import bot_channels, features as feature_registry
-from utils.style import send_panel, ACCENT, avatar_url, guild_banner
+from utils.style import send_panel, ACCENT, DANGER, accent_for, avatar_url, guild_banner
 
 HELP_MODULES = {
     "moderation": {
@@ -275,7 +275,10 @@ class HelpSelectMenu(discord.ui.Select):
             body.content = data["desc"]
         for child in self.view.children:
             if isinstance(child, discord.ui.Container):
-                child.accent_color = data["color"]
+                # Through the palette like every other card: a category may name a
+                # colour, and the only thing it may end up as is the accent or a
+                # state — twelve decorative hues were twelve accents on one screen.
+                child.accent_color = accent_for(data["color"])
         await interaction.response.edit_message(view=self.view)
 
 
@@ -348,7 +351,7 @@ class BugReportModal(discord.ui.Modal, title="Report a bug"):
         embed = discord.Embed(
             title="🐞 Bug report",
             description=report[:4000] or "*(no description given)*",
-            color=0xE74C3C,
+            color=DANGER,
             timestamp=discord.utils.utcnow(),
         )
         embed.add_field(name="Reported by", value=interaction.user.mention, inline=True)
@@ -592,7 +595,7 @@ class Help(commands.Cog):
                 embed = discord.Embed(
                     title="🔍 No Commands Found",
                     description=f"No commands matching **{search}** were found. Use `/help` to browse all categories.",
-                    color=0xED4245,
+                    color=DANGER,
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 return

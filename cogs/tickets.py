@@ -7,7 +7,9 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils import db
-from utils.style import Panel, send_panel, ACCENT, guild_icon, guild_banner, avatar_url, send_card
+from utils.style import (
+    Panel, send_panel, send_card, ACCENT, DANGER, WARN, guild_icon, guild_banner, avatar_url,
+)
 
 TICKET_CATEGORIES = {
     "general": {
@@ -682,7 +684,7 @@ class TicketControlsView(discord.ui.View):
                 "Feedback has been requested — this channel deletes as soon as the "
                 f"rating is in, or **{FEEDBACK_GRACE_SECONDS} seconds** from now."
             ),
-            accent=0xED4245,
+            accent=DANGER,
             thumbnail=avatar_url(interaction.user),
             footer="Thanks for reaching out",
             timeout=None,
@@ -728,7 +730,7 @@ class TicketControlsView(discord.ui.View):
         view = Panel(
             title="Ticket claimed",
             body=f"{interaction.user.mention} is handling this request.",
-            accent=0xF1C40F,
+            accent=WARN,
             thumbnail=avatar_url(interaction.user),
             timeout=None,
         )

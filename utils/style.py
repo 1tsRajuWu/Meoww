@@ -40,18 +40,77 @@ import discord
 NO_PINGS = discord.AllowedMentions.none()
 
 # --------------------------------------------------------------------------- #
-# Palette
+# Palette — one accent, four states, and nothing else
 # --------------------------------------------------------------------------- #
+# A card has one accent, and the accent is the colour of the bar down its left
+# edge. This table used to hold nine colours, five of them decorative and four of
+# them states, and none of the decorative five was used anywhere in the product —
+# while the cogs picked their own hex instead (251 literals across `cogs/`, not
+# one of which consulted this table). So the bar was a different colour from one
+# command to the next and two cards side by side argued about which product they
+# belonged to.
+#
+# A state is a claim rather than a decoration — *this worked*, *this is a
+# warning*, *this failed*, *this is information* — so those four stay, and
+# :data:`ACCENT_ALIASES` is the only place a colour becomes a state. Everything
+# else that reaches a card becomes :data:`ACCENT`, which is the whole rule.
 ACCENT = 0x5865F2
-PINK = 0xEB459E
 SUCCESS = 0x23A55A
-DANGER = 0xF23F43
-GOLD = 0xF1C40F
-MUSIC = 0x1DB954
-NIGHT = 0x111827
-INFO = 0x3B82F6
 WARN = 0xF59E0B
-NEUTRAL = 0x95A5A6
+DANGER = 0xF23F43
+INFO = 0x3B82F6
+
+#: The only colours a card's chrome may take, by role name.
+ACCENTS: dict[str, int] = {
+    "accent": ACCENT,
+    "success": SUCCESS,
+    "warn": WARN,
+    "danger": DANGER,
+    "info": INFO,
+}
+
+#: Values a cog is likely to have written by hand, and the state each of them
+#: means. Discord's own palette (`0x57F287` green, `0xED4245` red, `0xFEE75C`
+#: yellow, `0x5865F2` blurple) is here, plus the colours the cogs and the help
+#: panel have used for years. A value **absent from this table is not a state**:
+#: it becomes the accent, so a card cannot invent a sixth colour by writing a hex
+#: literal.
+ACCENT_ALIASES: dict[int, int] = {
+    # green — a success, however it was spelled
+    0x57F287: SUCCESS, 0x2ECC71: SUCCESS, 0x23A55A: SUCCESS, 0x1DB954: SUCCESS,
+    # red — a failure or a destructive thing, however it was spelled
+    0xED4245: DANGER, 0xE74C3C: DANGER, 0xF23F43: DANGER, 0xFF0000: DANGER,
+    # amber — a warning, however it was spelled
+    0xFEE75C: WARN, 0xF1C40F: WARN, 0xF39C12: WARN, 0xF59E0B: WARN, 0xE67E22: WARN,
+    # blue — information, however it was spelled
+    0x3498DB: INFO, 0x3B82F6: INFO,
+    # the product's own accent, including the shade every bot used before it
+    0x5865F2: ACCENT, 0x7289DA: ACCENT, 0x5B5EF0: ACCENT,
+}
+
+
+def accent_for(value, *, default: int = ACCENT) -> int:
+    """The one accent a card may take, from whatever colour a caller passed.
+
+    Accepts an embed's colour, a palette constant or a bare ``0x`` literal and
+    answers a role colour: the value itself when it is already one of the five,
+    the state it means when :data:`ACCENT_ALIASES` knows it, and the product
+    accent for anything else — including ``None``, a string, and a number that is
+    not a colour, so a malformed payload cannot paint a card a colour that does
+    not exist.
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    if not 0 <= number <= 0xFFFFFF:
+        return default
+    if number in ACCENTS.values():
+        return number
+    return ACCENT_ALIASES.get(number, default)
+
 
 # Discord hard limits for a Components V2 message.
 MAX_V2_COMPONENTS = 40
@@ -135,24 +194,160 @@ def _clamp(text: str, limit: int = MAX_V2_CHARS) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
-def heading(text: str, *, url: str | None = None) -> str:
-    """A level-2 markdown heading, optionally linked."""
+# --------------------------------------------------------------------------- #
+# The type scale
+# --------------------------------------------------------------------------- #
+# Discord draws four sizes and one hairline, and a card that uses them without a
+# rule is a title, five bold labels, a caption and a footer all shouting at the
+# same volume — which is what a card built out of an embed looked like: an embed's
+# field *names* were as loud as the thing they labelled, so nothing was the
+# subject and everything was. There is one rung per job now, and the helpers
+# below are the only places the markers are written:
+#
+#   `title()`    the subject, ``##``. One per card, enforced in ``_build_children``.
+#   `section()`  a group inside a card, ``###``.
+#   body         the words themselves, no marker at all.
+#   `label()`    what a value *is*, and every caption: ``-#``, Discord's small text.
+#   `subtext()`  the footer, same small rung, the last thing on the card.
+def title(text: str, *, url: str | None = None) -> str:
+    """The subject of a card: a level-2 heading, optionally linked."""
     if not text:
         return ""
     return f"## [{text}]({url})" if url else f"## {text}"
 
 
-def subtext(text: str) -> str:
-    """Discord's small '-#' footer style."""
+#: Kept because cogs import it by the old name; it is the title rung.
+heading = title
+
+
+def section(text: str) -> str:
+    """A group heading inside a card — one rung below the title."""
+    return f"### {text}" if text else ""
+
+
+def label(text: str) -> str:
+    """Small muted text: what a value is, a caption, an eyebrow above a title.
+
+    Discord's ``-#`` marker, which is the only way to say "this line is quieter
+    than the one below it" in a card, and therefore the whole of the field
+    hierarchy: a field's *name* is a label and its *value* is body text, so the
+    value is visibly the thing being read.
+    """
     return f"-# {text}" if text else ""
 
 
+subtext = label
+
+
 def separator(*, visible: bool = True, large: bool = False):
+    """One hairline, or one gap, with the scale the builders below use.
+
+    ``visible`` draws the hairline; ``large`` doubles the space around it. The
+    named levels in :data:`GAP`–:data:`RULE_LARGE` are what a card should reach
+    for, because a separator placed by hand is how a card gets two rules in a row
+    or a rule under its own title.
+    """
     kwargs = {"visible": visible}
     spacing_cls = getattr(discord, "SeparatorSpacing", None) or getattr(discord.ui, "SeparatorSpacing", None)
     if spacing_cls is not None:
         kwargs["spacing"] = getattr(spacing_cls, "large" if large else "small")
     return Separator(**kwargs)
+
+
+# --------------------------------------------------------------------------- #
+# The spacing scale
+# --------------------------------------------------------------------------- #
+# Two gaps and two rules, and nothing in between: a card that spaces things *by
+# hand* is a card whose sections drift apart one edit at a time. A gap is air, a
+# rule is a boundary, and ``GAP``/``BREAK`` are unequal on purpose so that "these
+# lines belong together" and "this is a new group" do not look the same.
+GAP = separator(visible=False, large=False)
+BREAK = separator(visible=False, large=True)
+RULE = separator(visible=True, large=False)
+RULE_LARGE = separator(visible=True, large=True)
+
+#: The vertical order the levels rank in, so a card that has been given a gap and
+#: then a rule keeps the rule: a hairline is a stronger statement than air.
+_SPACER_RANK = {(False, False): 1, (False, True): 2, (True, False): 3, (True, True): 4}
+
+
+def _spacer_shape(node):
+    """``(visible, large)`` for a Separator, or ``None`` for anything else.
+
+    Reads both a live component and a serialized one, because the same rule is
+    applied to an assembled card and to the JSON the preview renderer walks.
+    """
+    if isinstance(node, dict):
+        if node.get("type") != 14:
+            return None
+        return (bool(node.get("divider", True)), int(node.get("spacing", 1) or 1) == 2)
+    if not isinstance(node, Separator):
+        return None
+    spacing = getattr(node, "spacing", 1)
+    return (bool(getattr(node, "visible", True)), getattr(spacing, "value", spacing) == 2)
+
+
+# --------------------------------------------------------------------------- #
+# Text hygiene
+# --------------------------------------------------------------------------- #
+# A card is assembled from strings written across a dozen cogs, so the same three
+# mistakes arrive over and over: a body that ends in a newline (which becomes a
+# blank line *and* the container's own gap), a body that opens with one (which
+# pushes the title off the top of the card), and a hand-drawn rule — a line of
+# dashes or box characters meant as a divider, which lands directly above the
+# card's own hairline and reads as a double rule with nothing between them.
+#: Characters a divider is drawn out of, none of which carries meaning on its own.
+_RULE_CHARS = "-–—_=~─━═▬*•·."
+
+
+def _is_rule_line(line: str) -> bool:
+    """True for a line that is nothing but divider characters.
+
+    Three or more of them, so an em dash used as punctuation or a single ``-``
+    bullet is left alone; a line of only whitespace is not a rule either. What
+    this catches is somebody drawing their own ``━━━━`` between two halves of a
+    card, which lands directly above the hairline the container already draws.
+    """
+    stripped = line.strip()
+    if sum(1 for ch in stripped if ch in _RULE_CHARS) < 3:
+        return False
+    return all(ch in _RULE_CHARS or ch.isspace() for ch in stripped)
+
+
+def clean_text(text) -> str:
+    """Normalise a card string: no stray edges, one blank line, no drawn rules.
+
+    Returns ``""`` for anything that is only whitespace or only rule characters,
+    which is what lets the builders treat "empty" and "looks empty" the same way.
+    """
+    lines = [line.rstrip() for line in str(text or "").splitlines()]
+    kept: list[str] = []
+    for line in lines:
+        if _is_rule_line(line):
+            continue  # a hand-drawn divider; the card draws its own
+        if not line.strip():
+            if not kept or not kept[-1].strip():
+                continue  # collapse a run of blank lines into one
+        kept.append(line)
+    while kept and not kept[0].strip():
+        kept.pop(0)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return "\n".join(kept)
+
+
+def _demote_headings(text: str) -> str:
+    """Push a body's own ``##`` headings down a rung.
+
+    A card has one subject, and it is the one in the title. A body that carried a
+    second level-2 heading made the card argue with itself about what the subject
+    was — the shape an embed's ``title`` plus a body starting with ``## `` arrives
+    in — so the body's headings become groups instead.
+    """
+    return "\n".join(
+        ("###" + line[2:]) if line.startswith("## ") else line
+        for line in str(text or "").splitlines()
+    )
 
 
 def thumbnail(url: str | None):
@@ -178,17 +373,66 @@ def progress_bar(current: float, total: float, *, width: int = 12) -> str:
 
 
 def field_text(fields: list[tuple[str, str]] | None) -> str:
-    """Render embed-style (name, value) pairs into one compact text block."""
+    """Render (name, value) pairs as a label above its value.
+
+    The pair used to be ``**name**`` on one line and the value under it, which
+    put the label and the value at the same weight — so a card of eight fields
+    was eight bold labels and eight plain values, with nothing saying which of
+    them was the subject. The name is now a label (``-#``, Discord's small text)
+    and the value is body text, which is the entire hierarchy a card of fields
+    needs: read down the quiet lines to find the field, read across to get it.
+
+    A field with a name and no value keeps its label rather than being dropped —
+    an empty field in an embed usually means "not applicable", and the label is
+    what says which thing is not applicable.
+    """
     if not fields:
         return ""
     blocks = []
     for name, value in fields:
-        name = str(name or "").strip()
-        value = str(value or "").strip()
+        name = clean_text(name)
+        value = clean_text(value)
         if not name and not value:
             continue
-        blocks.append(f"**{name}**\n{value}" if name else value)
+        blocks.append(f"{label(name)}\n{value}" if name and value else (label(name) or value))
     return "\n\n".join(blocks)
+
+
+def _place(children: list, node) -> None:
+    """Append one child, holding the spacing invariants.
+
+    Three rules, all of them about what a card *looks* like rather than what it
+    contains, and the first version of this builder broke every one of them:
+
+    * a spacer is never the first child (air under the top edge of the card) or
+      the last (air above the bottom edge, which reads as a missing section);
+    * two spacers never sit side by side — the stronger one wins, so a gap
+      followed by a rule is just the rule, and the card cannot drift apart one
+      edit at a time;
+    * a rule is never placed where it separates nothing, which is what a hand-
+      drawn divider in a body used to leave above it.
+    """
+    shape = _spacer_shape(node)
+    if shape is None:
+        children.append(node)
+        return
+    if not children:
+        return  # leading air: there is nothing above it to separate from
+    previous = _spacer_shape(children[-1])
+    if previous is None:
+        children.append(node)
+        return
+    if _SPACER_RANK[shape] > _SPACER_RANK[previous]:
+        children[-1] = node  # keep the one that says more
+
+
+def _close(children: list) -> list:
+    """Finish a card: no trailing air, at least one component, under the cap."""
+    while children and _spacer_shape(children[-1]) is not None:
+        children.pop()
+    if not children:
+        children.append(TextDisplay("​"))
+    return children[:MAX_V2_COMPONENTS]
 
 
 def _build_children(
@@ -201,13 +445,27 @@ def _build_children(
     fields: list[tuple[str, str]] | None = None,
     extra: list | None = None,
     attachments: list | None = None,
-) -> list:
-    """Assemble the ordered children of a card, respecting the text budget."""
+) -> tuple[list, int | None]:
+    """Assemble the children of a card, and say where its footer begins.
+
+    The order is the hierarchy, top to bottom: the subject, what it says, the
+    groups of facts, the picture, then the quiet line that says who and when. The
+    footer's index comes back with the list because everything appended to a card
+    *after* it is built — a merged embed's later fields, a route's extra content —
+    has to land above the closing rule, or the rule ends up in the middle of the
+    card separating something from nothing. That was the shape of the bug: a card
+    with its footer line, then another paragraph under it.
+    """
     children: list = []
-    head = heading(title) if title else ""
-    body_text = str(body or "").strip()
+    title_text = clean_text(title)
+    body_text = clean_text(body)
+    if title_text and body_text:
+        # One subject per card, so a body's own level-2 heading becomes a group.
+        body_text = _demote_headings(body_text)
+    head = heading(title_text) if title_text else ""
     field_block = field_text(fields)
-    footer_text = subtext(footer) if footer else ""
+    footer_clean = clean_text(footer)
+    footer_text = subtext(footer_clean) if footer_clean else ""
 
     # Every text component shares Discord's 4000-char budget for a V2 message.
     budget = MAX_V2_CHARS - len(footer_text)
@@ -219,42 +477,51 @@ def _build_children(
     remaining = max(0, budget - len(main))
     if field_block and len(field_block) > remaining:
         field_block = _clamp(field_block, remaining)
+
     thumb = thumbnail(thumbnail_url)
     if main and thumb is not None:
-        children.append(Section(TextDisplay(main), accessory=thumb))
+        _place(children, Section(TextDisplay(main), accessory=thumb))
     elif main:
-        children.append(TextDisplay(main))
+        _place(children, TextDisplay(main))
 
     if field_block:
-        children.append(TextDisplay(field_block))
+        _place(children, BREAK)
+        _place(children, TextDisplay(field_block))
 
     media = gallery(*(image_urls or []))
     if media is not None:
-        children.append(separator(visible=False))
-        children.append(media)
+        _place(children, BREAK)
+        _place(children, media)
 
     # Attachments are referenced here, which is the only thing that makes Discord
     # draw them on a V2 message at all (see ``FileDisplay``).
-    children.extend(file_components(attachments))
+    for node in file_components(attachments):
+        _place(children, node)
 
-    if extra:
-        children.extend(extra)
+    for node in (extra or []):
+        _place(children, node)
 
+    footer_at = None
     if footer_text:
-        children.append(separator(visible=True))
-        children.append(TextDisplay(footer_text))
+        _place(children, RULE)
+        footer_at = len(children)
+        _place(children, TextDisplay(footer_text))
 
-    if not children:
-        children.append(TextDisplay("​"))
-
-    return children[:MAX_V2_COMPONENTS]
+    return _close(children), footer_at
 
 
 # --------------------------------------------------------------------------- #
 # Panel — the main card builder
 # --------------------------------------------------------------------------- #
 class Panel(LayoutView):
-    """A premium Components V2 card with optional media, fields and action rows."""
+    """A premium Components V2 card with optional media, fields and action rows.
+
+    Two things it guarantees, both of them properties of the card rather than of
+    the caller: **one accent** — whatever colour came in, :func:`accent_for` has
+    already reduced it to one of the five the product uses — and **one place for
+    new content**, :meth:`append`, which puts it above the closing rule so the
+    footer stays the last thing a reader sees.
+    """
 
     def __init__(
         self,
@@ -270,8 +537,8 @@ class Panel(LayoutView):
         attachments: list | None = None,
     ):
         super().__init__(timeout=timeout)
-        self._accent = accent
-        children = _build_children(
+        self._accent = accent_for(accent)
+        children, footer_at = _build_children(
             title=title,
             body=body,
             thumbnail_url=thumbnail,
@@ -280,11 +547,82 @@ class Panel(LayoutView):
             fields=fields,
             attachments=attachments,
         )
-        self.container = Container(*children, accent_color=accent)
+        self._footer_at = footer_at
+        self.container = Container(*children, accent_color=self._accent)
         self.add_item(self.container)
 
+    @property
+    def accent(self) -> int:
+        """The one colour this card's chrome takes."""
+        return self._accent
+
+    def _child_list(self) -> list:
+        """The container's current children.
+
+        Read from ``_children`` because ``Container.children`` hands back a
+        *copy* — a splice into that copy changed nothing at all, which is how the
+        first version of :meth:`append` silently did nothing. Not named
+        ``_children`` either: ``View`` keeps its own item list under that name, so
+        a method called that is shadowed by the attribute the base class set, and
+        the shadowing surfaces as a ``TypeError`` on the first append.
+        """
+        listed = getattr(self.container, "_children", None)
+        if isinstance(listed, list):
+            return listed
+        listed = getattr(self.container, "children", None)
+        return listed if isinstance(listed, list) else []
+
+    def append(self, node) -> None:
+        """Add a component to the card, above the footer rather than after it.
+
+        This exists because two callers used to reach into ``container.add_item``
+        directly: a merged embed's later fields and a route's extra content both
+        ended up *below* the footer's hairline, which left the rule separating the
+        footer from whatever arrived next. Going through here applies the spacing
+        invariants too, and refuses to go over Discord's component cap.
+        """
+        children = list(self._child_list())
+        if len(children) >= MAX_V2_COMPONENTS:
+            return
+        index = len(children) if self._footer_at is None else min(self._footer_at, len(children))
+        head = children[:index]
+        placed = len(head)
+        _place(head, node)
+        upgraded = len(head) == placed and head and head[-1] is not children[placed - 1]
+        if len(head) == placed and not upgraded:
+            return  # a spacer with nothing to separate, or a weaker one than the last
+        ordered = head + children[index:]
+        if len(ordered) == len(children) + 1 and index == len(children):
+            self.container.add_item(node)  # a plain append: the public path
+            return
+        # Otherwise the component has to go *in* rather than on the end, and the
+        # public API only appends — so the container is rebuilt and swapped, which
+        # keeps ``add_item``'s own wiring (a hand-spliced child would be a
+        # component the library does not know it has).
+        previous = self.container
+        try:
+            replacement = Container(*ordered, accent_color=self._accent)
+            self.remove_item(previous)
+            self.container = replacement
+            self.add_item(replacement)
+        except Exception:
+            # A view that will not take the rebuild still gets the content — at the
+            # bottom, which is a footer in the wrong place rather than a lost
+            # component, and never an exception inside a command.
+            self.container = previous
+            previous.add_item(node)
+        else:
+            if self._footer_at is not None:
+                self._footer_at = index + (len(head) - placed)
+
     def add_row(self, *items: discord.ui.Item):
-        """Append an ActionRow (buttons/selects) inside the card."""
+        """Append an ActionRow (buttons/selects) inside the card, at the bottom.
+
+        Deliberately *below* the footer: a row is a control strip rather than
+        content, and putting the footer under the buttons would make the quiet
+        line the last thing on an interactive card instead of the last thing
+        said.
+        """
         row = ActionRow()
         for item in items:
             row.add_item(item)
@@ -389,6 +727,13 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180, attach
 
     Returns ``None`` when there is nothing safe to render, so callers can fall
     back to sending the embed unchanged.
+
+    The conversion is where the type scale earns its keep, because an embed has
+    no scale to copy: its ``author`` becomes the eyebrow above the title, its
+    ``description`` the body, and its ``fields`` label-and-value pairs. The
+    embed's colour goes through :func:`accent_for` like every other colour, so the
+    hundreds of ``0x`` literals in the cogs no longer each paint a card their own
+    colour — only the ones that mean a state do.
     """
     if embed is None:
         return None
@@ -404,7 +749,10 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180, attach
     if header:
         parts.append(header)
     if embed.description:
-        parts.append(str(embed.description))
+        description = str(embed.description)
+        # An embed with a title *and* a description that opens with its own
+        # level-2 heading is two subjects in one card; the body's becomes a group.
+        parts.append(_demote_headings(description) if title else description)
 
     body = "\n".join(parts).strip()
 
@@ -415,7 +763,8 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180, attach
     if getattr(embed, "timestamp", None):
         stamp = embed.timestamp
         if isinstance(stamp, datetime.datetime):
-            footer = f"{footer} • {stamp.strftime('%Y-%m-%d %H:%M UTC')}" if footer else stamp.strftime("%Y-%m-%d %H:%M UTC")
+            when = stamp.strftime("%Y-%m-%d %H:%M UTC")
+            footer = f"{footer} · {when}" if footer else when
 
     fields = [(f.name, f.value) for f in (embed.fields or [])]
 
@@ -444,7 +793,7 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180, attach
     return Panel(
         title="",
         body=body,
-        accent=embed.colour.value if getattr(embed, "colour", None) else ACCENT,
+        accent=accent_for(getattr(getattr(embed, "colour", None), "value", None)),
         thumbnail=thumb_url,
         gallery=image_urls or None,
         footer=footer,
@@ -474,7 +823,7 @@ def embeds_to_layout(
             return None
         return Panel(title="", body="", fields=extra_fields, timeout=timeout, attachments=attachments)
     if extra_fields:
-        base.container.add_item(TextDisplay(field_text(extra_fields)))
+        base.append(TextDisplay(field_text(extra_fields)))
     return base
 
 
@@ -522,12 +871,12 @@ def _layout_from(
         if embed is not None:
             layout = embed_to_layout(embed, timeout=timeout, attachments=attachments)
             if layout is not None and content:
-                layout.container.add_item(TextDisplay(str(content)))
+                layout.append(TextDisplay(clean_text(content)))
             return layout
         if embeds:
             layout = embeds_to_layout(list(embeds), timeout=timeout, attachments=attachments)
             if layout is not None and content:
-                layout.container.add_item(TextDisplay(str(content)))
+                layout.append(TextDisplay(clean_text(content)))
             return layout
         if content or attachments:
             return card(body=str(content or ""), timeout=timeout, attachments=attachments)
