@@ -74,6 +74,11 @@
     --violet: #5b5ef0;
     --pink: #5b5ef0;
 
+    --cursor-accent: var(--accent);
+    --cursor-accent-rgb: var(--accent-rgb);
+    --cursor-glow: rgba(var(--accent-rgb), 0.6);
+    --cursor-grad: linear-gradient(135deg, var(--accent), var(--accent-text));
+
     --green: #23a55a;
     --red: #f23f43;
     --gold: #f0b232;
@@ -178,6 +183,64 @@
    gets it, and so does one whose stored choice no longer exists. */
 
 /* --------------------------------------------------------------------------
+   Cursor Color & Multi-Stop Gradient Overrides
+   -------------------------------------------------------------------------- */
+html[data-cursor-color="theme"] {
+    --cursor-accent: var(--accent);
+    --cursor-accent-rgb: var(--accent-rgb);
+    --cursor-glow: rgba(var(--accent-rgb), 0.6);
+    --cursor-grad: linear-gradient(135deg, var(--accent), var(--accent-text));
+}
+html[data-cursor-color="cyan"] {
+    --cursor-accent: #00f0ff;
+    --cursor-accent-rgb: 0, 240, 255;
+    --cursor-glow: rgba(0, 240, 255, 0.7);
+    --cursor-grad: linear-gradient(135deg, #00f0ff, #0080ff);
+}
+html[data-cursor-color="magenta"] {
+    --cursor-accent: #ff007f;
+    --cursor-accent-rgb: 255, 0, 127;
+    --cursor-glow: rgba(255, 0, 127, 0.7);
+    --cursor-grad: linear-gradient(135deg, #ff007f, #b300ff);
+}
+html[data-cursor-color="lime"] {
+    --cursor-accent: #00ff66;
+    --cursor-accent-rgb: 0, 255, 102;
+    --cursor-glow: rgba(0, 255, 102, 0.7);
+    --cursor-grad: linear-gradient(135deg, #00ff66, #00c853);
+}
+html[data-cursor-color="gold"] {
+    --cursor-accent: #ffd000;
+    --cursor-accent-rgb: 255, 208, 0;
+    --cursor-glow: rgba(255, 208, 0, 0.7);
+    --cursor-grad: linear-gradient(135deg, #ffd000, #ff8800);
+}
+html[data-cursor-color="gradient-sunset"] {
+    --cursor-accent: #ff416c;
+    --cursor-accent-rgb: 255, 65, 108;
+    --cursor-glow: rgba(255, 75, 43, 0.75);
+    --cursor-grad: linear-gradient(135deg, #ff416c, #ff4b2b, #ffaa00);
+}
+html[data-cursor-color="gradient-plasma"] {
+    --cursor-accent: #e94057;
+    --cursor-accent-rgb: 233, 64, 87;
+    --cursor-glow: rgba(138, 35, 135, 0.75);
+    --cursor-grad: linear-gradient(135deg, #8a2387, #e94057, #f27121);
+}
+html[data-cursor-color="gradient-aurora"] {
+    --cursor-accent: #00f260;
+    --cursor-accent-rgb: 0, 242, 96;
+    --cursor-glow: rgba(5, 117, 230, 0.75);
+    --cursor-grad: linear-gradient(135deg, #00f260, #0575e6);
+}
+html[data-cursor-color="gradient-cosmic"] {
+    --cursor-accent: #ff0080;
+    --cursor-accent-rgb: 255, 0, 128;
+    --cursor-glow: rgba(121, 40, 202, 0.75);
+    --cursor-grad: linear-gradient(135deg, #7928ca, #ff0080, #00dfd8);
+}
+
+/* --------------------------------------------------------------------------
    The theme picker
    -------------------------------------------------------------------------- */
 
@@ -235,7 +298,10 @@
     z-index: 30;
     top: calc(100% + 8px);
     right: 0;
-    min-width: 186px;
+    min-width: 210px;
+    max-height: min(480px, 85vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--space-2);
     border: 1px solid var(--border-active);
     border-radius: var(--radius-md);
@@ -348,48 +414,65 @@
     flex-shrink: 0;
 }
 
-.cursor-preview.preview-halo {
-    border: 1.5px solid var(--accent);
+.cursor-preview.preview-crosshair {
+    border: 1px solid var(--cursor-accent);
     border-radius: 50%;
 }
-.cursor-preview.preview-halo::after {
+.cursor-preview.preview-crosshair::before,
+.cursor-preview.preview-crosshair::after {
     content: '';
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--accent);
+    position: absolute;
+    background: var(--cursor-accent);
+}
+.cursor-preview.preview-crosshair::before {
+    width: 1px;
+    height: 100%;
+}
+.cursor-preview.preview-crosshair::after {
+    width: 100%;
+    height: 1px;
 }
 
-.cursor-preview.preview-reticle {
-    border: 1.5px dashed var(--accent);
-    border-radius: 3px;
-}
-.cursor-preview.preview-reticle::after {
-    content: '';
-    width: 3px;
-    height: 3px;
-    background: var(--accent);
+.cursor-preview.preview-blade {
+    width: 14px;
+    height: 14px;
+    background: var(--cursor-grad);
+    clip-path: polygon(50% 0%, 100% 85%, 50% 65%, 0% 85%);
+    filter: drop-shadow(0 0 3px var(--cursor-glow));
 }
 
-.cursor-preview.preview-nova {
-    border-radius: 50%;
-    background: radial-gradient(circle, #ffffff 25%, var(--accent) 70%, transparent 100%);
-    box-shadow: 0 0 6px var(--accent);
-}
-
-.cursor-preview.preview-bubble {
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1.5px solid rgba(255, 255, 255, 0.7);
-    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.5);
-}
-
-.cursor-preview.preview-stealth {
+.cursor-preview.preview-diamond {
     width: 10px;
     height: 10px;
-    border: 1.5px solid var(--accent);
     transform: rotate(45deg);
-    background: rgba(var(--accent-rgb), 0.25);
+    border: 1.5px solid var(--cursor-accent);
+    background: rgba(var(--cursor-accent-rgb), 0.25);
+    box-shadow: 0 0 4px var(--cursor-glow);
+}
+
+.cursor-preview.preview-orbit {
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--cursor-accent);
+    border-radius: 50% / 35%;
+    transform: rotate(-30deg);
+}
+.cursor-preview.preview-orbit::after {
+    content: '';
+    width: 3.5px;
+    height: 3.5px;
+    border-radius: 50%;
+    background: var(--cursor-accent);
+    box-shadow: 0 0 5px var(--cursor-accent);
+}
+
+.cursor-preview.preview-comet {
+    width: 12px;
+    height: 12px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    background: var(--cursor-grad);
+    box-shadow: 0 0 6px var(--cursor-glow);
 }
 
 .cursor-preview.preview-system {
@@ -406,6 +489,93 @@
 }
 
 .cursor-option[aria-pressed="true"] .cursor-tick {
+    opacity: 1;
+}
+
+/* Cursor Color Options in Menu */
+.cursor-color-options {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cursor-color-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 7px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.cursor-color-option:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.cursor-color-option[aria-pressed="true"] {
+    background: var(--accent-quiet);
+    color: var(--text-primary);
+}
+
+.color-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.color-swatch.swatch-theme {
+    background: var(--accent);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px rgba(var(--accent-rgb), 0.7);
+}
+.color-swatch.swatch-cyan {
+    background: #00f0ff;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #00f0ff;
+}
+.color-swatch.swatch-magenta {
+    background: #ff007f;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #ff007f;
+}
+.color-swatch.swatch-lime {
+    background: #00ff66;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #00ff66;
+}
+.color-swatch.swatch-gold {
+    background: #ffd000;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #ffd000;
+}
+.color-swatch.swatch-sunset {
+    background: linear-gradient(135deg, #ff416c, #ff4b2b, #ffaa00);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #ff4b2b;
+}
+.color-swatch.swatch-plasma {
+    background: linear-gradient(135deg, #8a2387, #e94057, #f27121);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #e94057;
+}
+.color-swatch.swatch-aurora {
+    background: linear-gradient(135deg, #00f260, #0575e6);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #00f260;
+}
+.color-swatch.swatch-cosmic {
+    background: linear-gradient(135deg, #7928ca, #ff0080, #00dfd8);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 8px #ff0080;
+}
+
+.cursor-color-option .cursor-tick {
+    margin-left: auto;
+    color: var(--accent-text);
+    opacity: 0;
+}
+
+.cursor-color-option[aria-pressed="true"] .cursor-tick {
     opacity: 1;
 }
 
@@ -3366,243 +3536,320 @@ body.landing:has([data-menu].is-open) {
 }
 
 /* --------------------------------------------------------------------------
-   Style 1: Halo Ring (Default) — Smooth luminous magnetic ring + core pip
+   Style 1: Crosshair Scope (Default) — Orthogonal precision reticle with target pip
    -------------------------------------------------------------------------- */
 .meow-cursor:not([class*="cursor-style-"]) .meow-cursor-dot,
-.meow-cursor.cursor-style-halo .meow-cursor-dot {
-    left: -3px;
-    top: -3px;
-    width: 6px;
-    height: 6px;
-    border-radius: var(--radius-pill);
-    background: var(--accent-text);
-    box-shadow: 0 0 10px rgba(var(--accent-text-rgb), 0.75);
-    opacity: 0;
-    transition: opacity 0.25s var(--ease);
-}
-
-.meow-cursor:not([class*="cursor-style-"]) .meow-cursor-ring,
-.meow-cursor.cursor-style-halo .meow-cursor-ring {
-    left: -16px;
-    top: -16px;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-pill);
-    border: 1.5px solid rgba(var(--accent-text-rgb), 0.6);
-    opacity: 0;
-    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
-                background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
-}
-
-.meow-cursor:not([class*="cursor-style-"]).is-on .meow-cursor-dot,
-.meow-cursor:not([class*="cursor-style-"]).is-on .meow-cursor-ring,
-.meow-cursor.cursor-style-halo.is-on .meow-cursor-dot,
-.meow-cursor.cursor-style-halo.is-on .meow-cursor-ring { opacity: 1; }
-
-.meow-cursor:not([class*="cursor-style-"]).is-link .meow-cursor-ring,
-.meow-cursor.cursor-style-halo.is-link .meow-cursor-ring {
-    border-color: var(--accent);
-    background-color: var(--accent-quiet);
-    box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.35);
-}
-
-.meow-cursor:not([class*="cursor-style-"]).is-text .meow-cursor-ring,
-.meow-cursor.cursor-style-halo.is-text .meow-cursor-ring {
-    border-color: rgba(244, 242, 239, 0.45);
-    border-style: dashed;
-}
-
-/* --------------------------------------------------------------------------
-   Style 2: Cyber Reticle — Tactical HUD target brackets with rotating lock-on
-   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-crosshair .meow-cursor-dot,
+.meow-cursor.cursor-style-halo .meow-cursor-dot,
 .meow-cursor.cursor-style-reticle .meow-cursor-dot {
     left: -2px;
     top: -2px;
     width: 4px;
     height: 4px;
-    border-radius: 1px;
-    background: #38bdf8;
-    box-shadow: 0 0 8px #38bdf8;
+    border-radius: 50%;
+    background: var(--cursor-accent);
+    box-shadow: 0 0 8px var(--cursor-accent);
     opacity: 0;
     transition: opacity 0.25s var(--ease);
 }
 
+.meow-cursor:not([class*="cursor-style-"]) .meow-cursor-ring,
+.meow-cursor.cursor-style-crosshair .meow-cursor-ring,
+.meow-cursor.cursor-style-halo .meow-cursor-ring,
 .meow-cursor.cursor-style-reticle .meow-cursor-ring {
-    left: -16px;
-    top: -16px;
-    width: 32px;
-    height: 32px;
-    border-radius: 4px;
-    border: 1.5px solid transparent;
-    background:
-        linear-gradient(var(--accent), var(--accent)) top left / 7px 1.5px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) top left / 1.5px 7px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) top right / 7px 1.5px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) top right / 1.5px 7px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) bottom left / 7px 1.5px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) bottom left / 1.5px 7px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) bottom right / 7px 1.5px no-repeat,
-        linear-gradient(var(--accent), var(--accent)) bottom right / 1.5px 7px no-repeat;
-    opacity: 0;
-    box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.3);
-    transition: opacity 0.25s var(--ease), box-shadow 0.25s var(--ease);
-}
-
-.meow-cursor.cursor-style-reticle.is-on .meow-cursor-dot,
-.meow-cursor.cursor-style-reticle.is-on .meow-cursor-ring { opacity: 1; }
-
-.meow-cursor.cursor-style-reticle.is-link .meow-cursor-ring {
-    box-shadow: 0 0 22px rgba(var(--accent-rgb), 0.7);
-    filter: brightness(1.25);
-}
-
-.meow-cursor.cursor-style-reticle.is-text .meow-cursor-ring {
-    width: 14px;
-    left: -7px;
-    border-left: 1.5px solid var(--accent);
-    border-right: 1.5px solid var(--accent);
-    background: none;
-}
-
-/* --------------------------------------------------------------------------
-   Style 3: Cosmic Nova — Radiant starburst flare with nebula aura
-   -------------------------------------------------------------------------- */
-.meow-cursor.cursor-style-nova .meow-cursor-dot {
-    left: -4px;
-    top: -4px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #ffffff;
-    box-shadow: 0 0 8px #ffffff, 0 0 16px var(--accent-text), 0 0 24px var(--accent);
-    opacity: 0;
-    transition: opacity 0.25s var(--ease);
-}
-
-.meow-cursor.cursor-style-nova .meow-cursor-ring {
-    left: -20px;
-    top: -20px;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid rgba(var(--accent-text-rgb), 0.4);
-    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.28) 0%, rgba(var(--accent-rgb), 0) 70%);
-    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.4);
-    opacity: 0;
-    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
-}
-
-.meow-cursor.cursor-style-nova.is-on .meow-cursor-dot,
-.meow-cursor.cursor-style-nova.is-on .meow-cursor-ring { opacity: 1; }
-
-.meow-cursor.cursor-style-nova.is-link .meow-cursor-ring {
-    border-color: rgba(255, 255, 255, 0.75);
-    box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.7), 0 0 14px rgba(255, 255, 255, 0.6);
-}
-
-/* --------------------------------------------------------------------------
-   Style 4: Jelly Bubble — Frosted liquid glass droplet with inner refraction
-   -------------------------------------------------------------------------- */
-.meow-cursor.cursor-style-bubble .meow-cursor-dot {
-    left: -2px;
-    top: -2px;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
-    opacity: 0;
-    transition: opacity 0.25s var(--ease);
-}
-
-.meow-cursor.cursor-style-bubble .meow-cursor-ring {
     left: -18px;
     top: -18px;
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1.5px solid rgba(255, 255, 255, 0.4);
-    box-shadow:
-        inset 0 2px 4px rgba(255, 255, 255, 0.45),
-        inset 0 -2px 4px rgba(0, 0, 0, 0.25),
-        0 8px 20px rgba(0, 0, 0, 0.2),
-        0 0 16px rgba(var(--accent-rgb), 0.3);
+    border: 1px solid rgba(var(--cursor-accent-rgb), 0.4);
+    background:
+        linear-gradient(var(--cursor-accent), var(--cursor-accent)) center top / 1.5px 8px no-repeat,
+        linear-gradient(var(--cursor-accent), var(--cursor-accent)) center bottom / 1.5px 8px no-repeat,
+        linear-gradient(var(--cursor-accent), var(--cursor-accent)) left center / 8px 1.5px no-repeat,
+        linear-gradient(var(--cursor-accent), var(--cursor-accent)) right center / 8px 1.5px no-repeat;
+    box-shadow: 0 0 12px var(--cursor-glow);
     opacity: 0;
-    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
-                background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+    transition: opacity 0.25s var(--ease), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s var(--ease), border-color 0.25s var(--ease);
 }
 
-.meow-cursor.cursor-style-bubble.is-on .meow-cursor-dot,
-.meow-cursor.cursor-style-bubble.is-on .meow-cursor-ring { opacity: 1; }
+.meow-cursor:not([class*="cursor-style-"]).is-on .meow-cursor-dot,
+.meow-cursor:not([class*="cursor-style-"]).is-on .meow-cursor-ring,
+.meow-cursor.cursor-style-crosshair.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-crosshair.is-on .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-halo.is-on .meow-cursor-ring,
+.meow-cursor.cursor-style-reticle.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-reticle.is-on .meow-cursor-ring { opacity: 1; }
 
-.meow-cursor.cursor-style-bubble.is-link .meow-cursor-ring {
-    border-color: rgba(255, 255, 255, 0.7);
-    background: rgba(var(--accent-rgb), 0.18);
-    box-shadow:
-        inset 0 2px 6px rgba(255, 255, 255, 0.65),
-        0 8px 24px rgba(0, 0, 0, 0.25),
-        0 0 24px rgba(var(--accent-rgb), 0.55);
+.meow-cursor:not([class*="cursor-style-"]).is-link .meow-cursor-ring,
+.meow-cursor.cursor-style-crosshair.is-link .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-link .meow-cursor-ring,
+.meow-cursor.cursor-style-reticle.is-link .meow-cursor-ring {
+    transform: rotate(45deg);
+    border-color: var(--cursor-accent);
+    box-shadow: 0 0 20px var(--cursor-accent), inset 0 0 8px var(--cursor-glow);
+}
+
+.meow-cursor:not([class*="cursor-style-"]).is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-crosshair.is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-reticle.is-text .meow-cursor-ring {
+    width: 14px;
+    left: -7px;
+    border-left: 1.5px solid var(--cursor-accent);
+    border-right: 1.5px solid var(--cursor-accent);
+    border-top: none;
+    border-bottom: none;
+    background: none;
+    border-radius: 0;
 }
 
 /* --------------------------------------------------------------------------
-   Style 5: Stealth Dart — Precision minimalist geometric diamond
+   Style 2: Cyber Blade — Supersonic stealth delta arrow with kinetic trail
    -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-blade .meow-cursor-dot,
 .meow-cursor.cursor-style-stealth .meow-cursor-dot {
-    left: -2.5px;
-    top: -2.5px;
-    width: 5px;
-    height: 5px;
+    left: -2px;
+    top: -2px;
+    width: 4px;
+    height: 4px;
     border-radius: 1px;
-    background: var(--accent-text);
-    transform: rotate(45deg);
-    box-shadow: 0 0 8px rgba(var(--accent-text-rgb), 0.85);
+    background: #ffffff;
+    box-shadow: 0 0 10px #ffffff, 0 0 16px var(--cursor-accent);
     opacity: 0;
     transition: opacity 0.25s var(--ease);
 }
 
+.meow-cursor.cursor-style-blade .meow-cursor-ring,
 .meow-cursor.cursor-style-stealth .meow-cursor-ring {
-    left: -12px;
-    top: -12px;
-    width: 24px;
-    height: 24px;
-    border-radius: 2px;
-    border: 1.5px solid var(--accent);
-    transform: rotate(45deg);
-    background: rgba(var(--accent-rgb), 0.08);
+    left: -14px;
+    top: -16px;
+    width: 28px;
+    height: 32px;
+    background: var(--cursor-grad);
+    clip-path: polygon(50% 0%, 100% 85%, 50% 68%, 0% 85%);
+    filter: drop-shadow(0 0 10px var(--cursor-glow));
     opacity: 0;
-    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease),
-                background-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+    transition: opacity 0.25s var(--ease), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s var(--ease);
 }
 
+.meow-cursor.cursor-style-blade.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-blade.is-on .meow-cursor-ring,
 .meow-cursor.cursor-style-stealth.is-on .meow-cursor-dot,
 .meow-cursor.cursor-style-stealth.is-on .meow-cursor-ring { opacity: 1; }
 
+.meow-cursor.cursor-style-blade.is-link .meow-cursor-ring,
 .meow-cursor.cursor-style-stealth.is-link .meow-cursor-ring {
-    border-color: var(--accent-text);
-    background: rgba(var(--accent-rgb), 0.22);
-    box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.55);
+    transform: scale(1.35) translateY(-3px);
+    filter: drop-shadow(0 0 18px var(--cursor-accent)) brightness(1.25);
+}
+
+.meow-cursor.cursor-style-blade.is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-stealth.is-text .meow-cursor-ring {
+    transform: scaleY(1.4) scaleX(0.6);
+    filter: drop-shadow(0 0 6px var(--cursor-glow));
+}
+
+/* --------------------------------------------------------------------------
+   Style 3: Prism Diamond — 45-degree faceted gemstone with inner refraction
+   -------------------------------------------------------------------------- */
+.meow-cursor.cursor-style-diamond .meow-cursor-dot {
+    left: -3px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    transform: rotate(45deg);
+    background: #ffffff;
+    box-shadow: 0 0 8px #ffffff, 0 0 14px var(--cursor-accent);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-diamond .meow-cursor-ring {
+    left: -13px;
+    top: -13px;
+    width: 26px;
+    height: 26px;
+    transform: rotate(45deg);
+    border: 1.5px solid var(--cursor-accent);
+    background: rgba(var(--cursor-accent-rgb), 0.12);
+    box-shadow: inset 0 0 8px rgba(var(--cursor-accent-rgb), 0.4), 0 0 14px var(--cursor-glow);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s var(--ease), border-color 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-diamond .meow-cursor-ring::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border: 1px dashed rgba(255, 255, 255, 0.6);
+}
+
+.meow-cursor.cursor-style-diamond.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-diamond.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-diamond.is-link .meow-cursor-ring {
+    transform: rotate(135deg) scale(1.3);
+    border-color: #ffffff;
+    box-shadow: inset 0 0 14px rgba(255, 255, 255, 0.5), 0 0 24px var(--cursor-accent);
+}
+
+.meow-cursor.cursor-style-diamond.is-text .meow-cursor-ring {
+    transform: rotate(45deg) scaleX(0.5) scaleY(1.3);
+}
+
+/* --------------------------------------------------------------------------
+   Style 4: Orbital Gyro — Continuous spinning quantum orbit with electron
+   -------------------------------------------------------------------------- */
+@keyframes meow-orbit-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.meow-cursor.cursor-style-orbit .meow-cursor-dot,
+.meow-cursor.cursor-style-nova .meow-cursor-dot {
+    left: -3px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cursor-accent);
+    box-shadow: 0 0 10px var(--cursor-accent);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-orbit .meow-cursor-ring,
+.meow-cursor.cursor-style-nova .meow-cursor-ring {
+    left: -17px;
+    top: -17px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(var(--cursor-accent-rgb), 0.45);
+    border-top-color: var(--cursor-accent);
+    box-shadow: 0 0 12px var(--cursor-glow);
+    opacity: 0;
+    animation: meow-orbit-spin 3.5s linear infinite;
+    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-orbit .meow-cursor-ring::after,
+.meow-cursor.cursor-style-nova .meow-cursor-ring::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: calc(50% - 3px);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 0 8px var(--cursor-accent);
+}
+
+.meow-cursor.cursor-style-orbit.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-orbit.is-on .meow-cursor-ring,
+.meow-cursor.cursor-style-nova.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-nova.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-orbit.is-link .meow-cursor-ring,
+.meow-cursor.cursor-style-nova.is-link .meow-cursor-ring {
+    animation-duration: 1.2s;
+    border-color: var(--cursor-accent);
+    box-shadow: 0 0 24px var(--cursor-accent);
+}
+
+.meow-cursor.cursor-style-orbit.is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-nova.is-text .meow-cursor-ring {
+    border-radius: 30%;
+    animation-duration: 6s;
+}
+
+/* --------------------------------------------------------------------------
+   Style 5: Ghost Comet — Organic morphing fluid plasma aura with teardrop
+   -------------------------------------------------------------------------- */
+@keyframes meow-comet-morph {
+    0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+    50%      { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+}
+
+.meow-cursor.cursor-style-comet .meow-cursor-dot,
+.meow-cursor.cursor-style-bubble .meow-cursor-dot {
+    left: -4px;
+    top: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    background: var(--cursor-grad);
+    box-shadow: 0 0 10px var(--cursor-glow);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-comet .meow-cursor-ring,
+.meow-cursor.cursor-style-bubble .meow-cursor-ring {
+    left: -19px;
+    top: -19px;
+    width: 38px;
+    height: 38px;
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+    background: radial-gradient(circle, rgba(var(--cursor-accent-rgb), 0.25) 0%, rgba(var(--cursor-accent-rgb), 0.04) 65%, transparent 100%);
+    border: 1.5px solid rgba(var(--cursor-accent-rgb), 0.6);
+    box-shadow: 0 0 20px var(--cursor-glow);
+    opacity: 0;
+    animation: meow-comet-morph 5s ease-in-out infinite alternate;
+    transition: opacity 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.meow-cursor.cursor-style-comet.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-comet.is-on .meow-cursor-ring,
+.meow-cursor.cursor-style-bubble.is-on .meow-cursor-dot,
+.meow-cursor.cursor-style-bubble.is-on .meow-cursor-ring { opacity: 1; }
+
+.meow-cursor.cursor-style-comet.is-link .meow-cursor-ring,
+.meow-cursor.cursor-style-bubble.is-link .meow-cursor-ring {
+    border-color: #ffffff;
+    background: radial-gradient(circle, rgba(var(--cursor-accent-rgb), 0.45) 0%, transparent 80%);
+    box-shadow: 0 0 28px var(--cursor-accent);
+    transform: scale(1.35);
+}
+
+.meow-cursor.cursor-style-comet.is-text .meow-cursor-ring,
+.meow-cursor.cursor-style-bubble.is-text .meow-cursor-ring {
+    transform: scaleX(0.7) scaleY(1.3);
 }
 
 /* Active tactile click feedback when pointer is pressed */
 .meow-cursor.is-down .meow-cursor-ring {
-    border-color: var(--accent-text);
-    box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.6);
+    border-color: var(--cursor-accent);
+    box-shadow: 0 0 18px var(--cursor-glow);
 }
+.meow-cursor.cursor-style-crosshair.is-down .meow-cursor-ring,
+.meow-cursor.cursor-style-halo.is-down .meow-cursor-ring,
 .meow-cursor.cursor-style-reticle.is-down .meow-cursor-ring {
-    box-shadow: 0 0 24px var(--accent);
-    filter: brightness(1.35);
+    transform: scale(0.85);
+    box-shadow: 0 0 24px var(--cursor-accent);
 }
-.meow-cursor.cursor-style-nova.is-down .meow-cursor-dot {
-    box-shadow: 0 0 16px #ffffff, 0 0 28px var(--accent-text);
-}
-.meow-cursor.cursor-style-bubble.is-down .meow-cursor-ring {
-    box-shadow: inset 0 3px 8px rgba(255, 255, 255, 0.75), 0 0 22px rgba(var(--accent-rgb), 0.55);
-}
+.meow-cursor.cursor-style-blade.is-down .meow-cursor-ring,
 .meow-cursor.cursor-style-stealth.is-down .meow-cursor-ring {
-    box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.8);
+    transform: scale(0.9);
+    filter: drop-shadow(0 0 22px var(--cursor-accent)) brightness(1.4);
+}
+.meow-cursor.cursor-style-diamond.is-down .meow-cursor-ring {
+    transform: rotate(90deg) scale(0.85);
+    box-shadow: 0 0 22px var(--cursor-accent);
+}
+.meow-cursor.cursor-style-orbit.is-down .meow-cursor-ring,
+.meow-cursor.cursor-style-nova.is-down .meow-cursor-ring {
+    animation-duration: 0.6s;
+    transform: scale(0.8);
+}
+.meow-cursor.cursor-style-comet.is-down .meow-cursor-ring,
+.meow-cursor.cursor-style-bubble.is-down .meow-cursor-ring {
+    transform: scale(0.85);
+    box-shadow: 0 0 26px var(--cursor-accent);
 }
 
 /* --------------------------------------------------------------------------
@@ -3624,8 +3871,9 @@ html[data-cursor-style="system"] .meow-glow {
     pointer-events: none;
     z-index: 100001;
     border-radius: 50%;
-    border: 1.5px solid var(--accent);
-    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.38) 0%, transparent 75%);
+    border: 1.5px solid var(--cursor-accent);
+    background: radial-gradient(circle, rgba(var(--cursor-accent-rgb), 0.38) 0%, transparent 75%);
+    box-shadow: 0 0 12px var(--cursor-glow);
     animation: meow-click-ripple 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -3643,7 +3891,7 @@ html[data-cursor-style="system"] .meow-glow {
     height: 620px;
     margin: -310px 0 0 -310px;
     border-radius: var(--radius-pill);
-    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.14), rgba(var(--accent-rgb), 0) 62%);
+    background: radial-gradient(circle, rgba(var(--cursor-accent-rgb), 0.14), rgba(var(--cursor-accent-rgb), 0) 62%);
     opacity: 0;
     pointer-events: none;
     z-index: 0;

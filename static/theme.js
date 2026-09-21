@@ -123,11 +123,20 @@
     (function () {
         try {
             var c = window.localStorage.getItem("meow-cursor-style");
-            if (c === "ring") c = "halo";
-            var valid = ["halo", "reticle", "nova", "bubble", "stealth", "system"];
-            var choice = (valid.indexOf(c) !== -1) ? c : "halo";
+            if (c === "ring" || c === "halo" || c === "reticle") c = "crosshair";
+            if (c === "stealth") c = "blade";
+            if (c === "nova") c = "orbit";
+            if (c === "bubble") c = "comet";
+            var valid = ["crosshair", "blade", "diamond", "orbit", "comet", "system"];
+            var choice = (valid.indexOf(c) !== -1) ? c : "crosshair";
             document.documentElement.setAttribute("data-cursor-style", choice);
-        } catch (e) {}
+        } catch (error) {}
+        try {
+            var col = window.localStorage.getItem("meow-cursor-color");
+            var validColors = ["theme", "cyan", "magenta", "lime", "gold", "gradient-sunset", "gradient-plasma", "gradient-aurora", "gradient-cosmic"];
+            var choiceColor = (validColors.indexOf(col) !== -1) ? col : "theme";
+            document.documentElement.setAttribute("data-cursor-color", choiceColor);
+        } catch (error) {}
     })();
 
     /* ---- 2. the picker ---------------------------------------------------- */
@@ -159,11 +168,14 @@
                         );
                     }
                 );
-                var activeCursor = "halo";
+                var activeCursor = "crosshair";
                 try {
                     var c = window.localStorage.getItem("meow-cursor-style");
-                    if (c === "ring") c = "halo";
-                    if (["halo", "reticle", "nova", "bubble", "stealth", "system"].indexOf(c) !== -1) activeCursor = c;
+                    if (c === "ring" || c === "halo" || c === "reticle") c = "crosshair";
+                    if (c === "stealth") c = "blade";
+                    if (c === "nova") c = "orbit";
+                    if (c === "bubble") c = "comet";
+                    if (["crosshair", "blade", "diamond", "orbit", "comet", "system"].indexOf(c) !== -1) activeCursor = c;
                 } catch (error) {}
                 Array.prototype.forEach.call(
                     picker.querySelectorAll("[data-cursor-value]"),
@@ -171,6 +183,22 @@
                         option.setAttribute(
                             "aria-pressed",
                             option.getAttribute("data-cursor-value") === activeCursor ? "true" : "false",
+                        );
+                    }
+                );
+                var activeColor = "theme";
+                try {
+                    var col = window.localStorage.getItem("meow-cursor-color");
+                    if (["theme", "cyan", "magenta", "lime", "gold", "gradient-sunset", "gradient-plasma", "gradient-aurora", "gradient-cosmic"].indexOf(col) !== -1) {
+                        activeColor = col;
+                    }
+                } catch (error) {}
+                Array.prototype.forEach.call(
+                    picker.querySelectorAll("[data-cursor-color-value]"),
+                    function (option) {
+                        option.setAttribute(
+                            "aria-pressed",
+                            option.getAttribute("data-cursor-color-value") === activeColor ? "true" : "false",
                         );
                     }
                 );
@@ -234,6 +262,25 @@
                     }
                     Array.prototype.forEach.call(document.querySelectorAll("[data-cursor-value]"), function (btn) {
                         btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-value") === chosen ? "true" : "false");
+                    });
+                    close(picker);
+                    trigger.focus();
+                });
+            });
+
+            Array.prototype.forEach.call(picker.querySelectorAll("[data-cursor-color-value]"), function (option) {
+                option.addEventListener("click", function (event) {
+                    event.stopPropagation();
+                    var chosenColor = option.getAttribute("data-cursor-color-value");
+                    try {
+                        window.localStorage.setItem("meow-cursor-color", chosenColor);
+                    } catch (error) {}
+                    document.documentElement.setAttribute("data-cursor-color", chosenColor);
+                    if (window.setCursorColor) {
+                        window.setCursorColor(chosenColor);
+                    }
+                    Array.prototype.forEach.call(document.querySelectorAll("[data-cursor-color-value]"), function (btn) {
+                        btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-color-value") === chosenColor ? "true" : "false");
                     });
                     close(picker);
                     trigger.focus();

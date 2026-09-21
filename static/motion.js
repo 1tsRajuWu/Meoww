@@ -461,28 +461,62 @@
        itself as soon as the ring has caught up, so an idle page costs nothing
        and a page whose pointer never moves costs nothing either. */
     var CURSOR_KEY = "meow-cursor-style";
-    var CURSOR_STYLES = ["halo", "reticle", "nova", "bubble", "stealth", "system"];
-    var DEFAULT_CURSOR = "halo";
+    var CURSOR_COLOR_KEY = "meow-cursor-color";
+    var CURSOR_STYLES = ["crosshair", "blade", "diamond", "orbit", "comet", "system"];
+    var CURSOR_COLORS = ["theme", "cyan", "magenta", "lime", "gold", "gradient-sunset", "gradient-plasma", "gradient-aurora", "gradient-cosmic"];
+    var DEFAULT_CURSOR = "crosshair";
+    var DEFAULT_CURSOR_COLOR = "theme";
     var activeCursorStyleHandler = null;
+    var activeCursorColorHandler = null;
+
+    function normalizeCursorStyle(val) {
+        if (!val) return DEFAULT_CURSOR;
+        if (val === "ring" || val === "halo" || val === "reticle") return "crosshair";
+        if (val === "stealth") return "blade";
+        if (val === "nova") return "orbit";
+        if (val === "bubble") return "comet";
+        return CURSOR_STYLES.indexOf(val) === -1 ? DEFAULT_CURSOR : val;
+    }
 
     window.setCursorStyle = function (style) {
+        var s = normalizeCursorStyle(style);
         if (activeCursorStyleHandler) {
-            activeCursorStyleHandler(style);
+            activeCursorStyleHandler(s);
         } else {
-            if (CURSOR_STYLES.indexOf(style) === -1) style = DEFAULT_CURSOR;
-            try { window.localStorage.setItem(CURSOR_KEY, style); } catch (e) {}
-            document.documentElement.setAttribute("data-cursor-style", style);
+            try { window.localStorage.setItem(CURSOR_KEY, s); } catch (e) {}
+            document.documentElement.setAttribute("data-cursor-style", s);
             var buttons = document.querySelectorAll("[data-cursor-value]");
             Array.prototype.forEach.call(buttons, function (btn) {
-                btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-value") === style ? "true" : "false");
+                btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-value") === s ? "true" : "false");
             });
         }
     };
     window.cycleCursorStyle = function () {
-        var current = document.documentElement.getAttribute("data-cursor-style") || DEFAULT_CURSOR;
+        var current = normalizeCursorStyle(document.documentElement.getAttribute("data-cursor-style") || DEFAULT_CURSOR);
         var idx = CURSOR_STYLES.indexOf(current);
         var next = CURSOR_STYLES[(idx + 1) % CURSOR_STYLES.length];
         window.setCursorStyle(next);
+        return next;
+    };
+
+    window.setCursorColor = function (color) {
+        var c = CURSOR_COLORS.indexOf(color) === -1 ? DEFAULT_CURSOR_COLOR : color;
+        if (activeCursorColorHandler) {
+            activeCursorColorHandler(c);
+        } else {
+            try { window.localStorage.setItem(CURSOR_COLOR_KEY, c); } catch (e) {}
+            document.documentElement.setAttribute("data-cursor-color", c);
+            var buttons = document.querySelectorAll("[data-cursor-color-value]");
+            Array.prototype.forEach.call(buttons, function (btn) {
+                btn.setAttribute("aria-pressed", btn.getAttribute("data-cursor-color-value") === c ? "true" : "false");
+            });
+        }
+    };
+    window.cycleCursorColor = function () {
+        var current = document.documentElement.getAttribute("data-cursor-color") || DEFAULT_CURSOR_COLOR;
+        var idx = CURSOR_COLORS.indexOf(current);
+        var next = CURSOR_COLORS[(idx + 1) % CURSOR_COLORS.length];
+        window.setCursorColor(next);
         return next;
     };
 
@@ -493,14 +527,22 @@
         function getStoredCursor() {
             try {
                 var val = window.localStorage.getItem(CURSOR_KEY);
-                if (val === "ring") return "halo";
-                return CURSOR_STYLES.indexOf(val) === -1 ? DEFAULT_CURSOR : val;
+                return normalizeCursorStyle(val);
             } catch (e) {
                 return DEFAULT_CURSOR;
             }
         }
+        function getStoredCursorColor() {
+            try {
+                var col = window.localStorage.getItem(CURSOR_COLOR_KEY);
+                return CURSOR_COLORS.indexOf(col) === -1 ? DEFAULT_CURSOR_COLOR : col;
+            } catch (e) {
+                return DEFAULT_CURSOR_COLOR;
+            }
+        }
 
         var currentCursor = getStoredCursor();
+        var currentCursorColor = getStoredCursorColor();
 
         var host = document.createElement("div");
         host.className = "meow-cursor cursor-style-" + currentCursor;
@@ -525,6 +567,7 @@
             glow.style.display = "none";
         }
         document.documentElement.setAttribute("data-cursor-style", currentCursor);
+        document.documentElement.setAttribute("data-cursor-color", currentCursorColor);
 
         function updateCursorButtons(style) {
             var buttons = document.querySelectorAll("[data-cursor-value]");
@@ -534,8 +577,16 @@
             });
         }
 
+        function updateCursorColorButtons(color) {
+            var buttons = document.querySelectorAll("[data-cursor-color-value]");
+            Array.prototype.forEach.call(buttons, function (btn) {
+                var val = btn.getAttribute("data-cursor-color-value");
+                btn.setAttribute("aria-pressed", val === color ? "true" : "false");
+            });
+        }
+
         function applyCursorStyle(style) {
-            if (CURSOR_STYLES.indexOf(style) === -1) style = DEFAULT_CURSOR;
+            style = normalizeCursorStyle(style);
             currentCursor = style;
             try { window.localStorage.setItem(CURSOR_KEY, style); } catch (e) {}
             document.documentElement.setAttribute("data-cursor-style", style);
@@ -557,17 +608,35 @@
             updateCursorButtons(style);
         }
 
+        function applyCursorColor(color) {
+            if (CURSOR_COLORS.indexOf(color) === -1) color = DEFAULT_CURSOR_COLOR;
+            currentCursorColor = color;
+            try { window.localStorage.setItem(CURSOR_COLOR_KEY, color); } catch (e) {}
+            document.documentElement.setAttribute("data-cursor-color", color);
+            updateCursorColorButtons(color);
+        }
+
         activeCursorStyleHandler = applyCursorStyle;
+        activeCursorColorHandler = applyCursorColor;
+
         window.cycleCursorStyle = function () {
             var idx = CURSOR_STYLES.indexOf(currentCursor);
             var next = CURSOR_STYLES[(idx + 1) % CURSOR_STYLES.length];
             applyCursorStyle(next);
             return next;
         };
+        window.cycleCursorColor = function () {
+            var idx = CURSOR_COLORS.indexOf(currentCursorColor);
+            var next = CURSOR_COLORS[(idx + 1) % CURSOR_COLORS.length];
+            applyCursorColor(next);
+            return next;
+        };
 
         window.addEventListener("keydown", function (event) {
-            if (event.altKey && (event.key === "c" || event.key === "C")) {
+            if (event.altKey && !event.shiftKey && (event.key === "c" || event.key === "C")) {
                 window.cycleCursorStyle();
+            } else if (event.altKey && event.shiftKey && (event.key === "c" || event.key === "C")) {
+                window.cycleCursorColor();
             }
         });
 
@@ -581,19 +650,33 @@
                     }
                 });
             });
+            var colorButtons = document.querySelectorAll("[data-cursor-color-value]");
+            Array.prototype.forEach.call(colorButtons, function (btn) {
+                btn.addEventListener("click", function () {
+                    var chosenColor = btn.getAttribute("data-cursor-color-value");
+                    if (chosenColor) {
+                        applyCursorColor(chosenColor);
+                    }
+                });
+            });
         }
         wireCursorButtons();
 
         document.addEventListener("click", function (event) {
             var btn = event.target && event.target.closest ? event.target.closest("[data-cursor-value]") : null;
-            if (!btn) return;
-            var chosen = btn.getAttribute("data-cursor-value");
-            if (chosen) {
-                applyCursorStyle(chosen);
+            if (btn) {
+                var chosen = btn.getAttribute("data-cursor-value");
+                if (chosen) applyCursorStyle(chosen);
+            }
+            var colorBtn = event.target && event.target.closest ? event.target.closest("[data-cursor-color-value]") : null;
+            if (colorBtn) {
+                var chosenColor = colorBtn.getAttribute("data-cursor-color-value");
+                if (chosenColor) applyCursorColor(chosenColor);
             }
         }, true);
 
         updateCursorButtons(currentCursor);
+        updateCursorColorButtons(currentCursorColor);
 
         var x = window.innerWidth / 2;
         var y = window.innerHeight / 2;
