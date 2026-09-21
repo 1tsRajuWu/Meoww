@@ -246,6 +246,28 @@ class AttachmentsOnACard(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("file", target.calls[0])
         self.assertNotIn(self.FILE_COMPONENT, _component_types(target.calls[0]["view"]))
 
+    async def test_an_image_the_embed_already_shows_is_not_drawn_twice(self):
+        """``/market chart`` sets its picture as ``attachment://chart.png``, which
+        the MediaGallery references. Referencing it again as a file would show the
+        same chart twice."""
+        target = _SendTarget()
+        embed = discord.Embed(title="BTC", description="chart")
+        embed.set_image(url="attachment://chart.png")
+        attachment = discord.File("assets/fonts/Roboto-Regular.ttf", filename="chart.png")
+        await style.send_card(target, embed=embed, file=attachment)
+        payload = target.calls[0]
+        self.assertIn("attachment://chart.png", str(payload["view"].to_components()))
+        self.assertNotIn(self.FILE_COMPONENT, _component_types(payload["view"]))
+        self.assertIs(payload["file"], attachment, "the upload still travels")
+
+    def test_only_unreferenced_uploads_are_listed(self):
+        referenced = discord.File("assets/fonts/Roboto-Regular.ttf", filename="chart.png")
+        loose = discord.File("assets/sounds/purr.ogg", filename="purr.ogg")
+        kept = style.unreferenced_files([referenced, loose], ["attachment://chart.png"])
+        self.assertEqual(kept, [loose])
+        self.assertEqual(style.unreferenced_files([loose], None), [loose])
+        self.assertEqual(style.unreferenced_files(None, ["attachment://x.png"]), [])
+
     def test_a_file_component_is_skipped_rather_than_guessed_at(self):
         self.assertEqual(style.file_components(["not a file"]), [])
         self.assertEqual(style.file_components(None), [])

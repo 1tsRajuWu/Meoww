@@ -322,6 +322,24 @@ def card(
     )
 
 
+def unreferenced_files(attachments, media_urls) -> list:
+    """The uploads no component already draws.
+
+    ``embed.set_image(url="attachment://chart.png")`` becomes a MediaGallery item
+    that *does* reference the upload, so that one is already visible — adding a
+    File component for it as well would draw the same picture twice. Anything the
+    media does not mention is the case this exists for: an audio clip, a
+    transcript, a text file, which a V2 message would otherwise swallow.
+    """
+    if not attachments:
+        return []
+    referenced = set()
+    for url in media_urls or ():
+        if isinstance(url, str) and "attachment://" in url:
+            referenced.add(url.split("attachment://", 1)[1])
+    return [f for f in attachments if getattr(f, "filename", None) not in referenced]
+
+
 def file_components(attachments) -> list:
     """Display components for uploaded files, or ``[]`` when there are none.
 
@@ -432,7 +450,7 @@ def embed_to_layout(embed: discord.Embed, *, timeout: float | None = 180, attach
         footer=footer,
         fields=fields,
         timeout=timeout,
-        attachments=attachments,
+        attachments=unreferenced_files(attachments, [*image_urls, thumb_url]),
     )
 
 
