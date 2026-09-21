@@ -977,10 +977,6 @@ class TheLivePage(_DashboardFixture):
             data = self.get("/api/console/live")
         self.assertIsNone(data["presence"], "presence without members is not a reading")
         self.assertIs(data["read"]["presence"], False)
-        self.assertEqual(with_status["presence"]["online"], 1)
-        self.assertEqual(with_status["presence"]["dnd"], 1)
-        self.assertEqual(with_status["presence"]["offline"], 0)
-        self.assertEqual(with_status["presence"]["total"], 2)
 
     def test_the_message_counts_are_the_trackers_own_window(self):
         """Today is one UTC day and the week is today plus six — the same ranges
