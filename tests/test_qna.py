@@ -33,7 +33,7 @@ from unittest import mock
 
 from cogs import qna as qna_cog
 from tests.support import TempDatabaseMixin
-from utils import admin_limits, db, qna, style
+from utils import admin_limits, bot_channels, db, qna, style
 
 GUILD_ID = 4242
 GUILD_NAME = "Test Server"
@@ -63,6 +63,12 @@ def card_text(view) -> str:
 # --------------------------------------------------------------------------- #
 # Stand-ins
 # --------------------------------------------------------------------------- #
+#: A role the deployment reads as a **Dev** one. The id is the module's own, so
+#: this stands in for the real role without a copy of the number in a test — the
+#: one place a copied id would be wrong is the place it matters.
+DEV_ROLE = SimpleNamespace(id=bot_channels.DEV_ROLE_ID, name="Dev", is_default=lambda: False)
+
+
 class _User:
     def __init__(self, uid: int, name: str):
         self.id = uid
@@ -70,6 +76,7 @@ class _User:
         self.display_name = name
         self.global_name = name
         self.mention = f"<@{uid}>"
+        self.roles = []
         self.dms = []
         self.dm_error = None
 
@@ -108,12 +115,26 @@ class _Followup:
 
 
 class _Interaction:
-    """Only what the cog's callbacks actually read."""
+    """Only what the cog's callbacks actually read.
 
-    def __init__(self, *, user, guild=True, message_id=0, bot=None, module_on=True):
+    ``roles`` is both halves of the Dev gate at once — the roles the *member*
+    holds and the roles the *guild* has — because a gate that read one and not the
+    other would pass a test that handed it the same list twice.
+    """
+
+    def __init__(self, *, user, guild=True, message_id=0, bot=None, module_on=True, roles=()):
+        held = list(roles)
         self.user = user
+        user.roles = held
         self.guild = (
-            SimpleNamespace(id=GUILD_ID, name=GUILD_NAME) if guild else None
+            SimpleNamespace(
+                id=GUILD_ID,
+                name=GUILD_NAME,
+                roles=held,
+                get_role=lambda rid: next((r for r in held if r.id == rid), None),
+            )
+            if guild
+            else None
         )
         self.guild_id = GUILD_ID if guild else None
         self.message = SimpleNamespace(id=message_id)
@@ -576,7 +597,13 @@ class TheOperatorScreen(TempDatabaseMixin, unittest.TestCase):
 # The command, end to end
 # --------------------------------------------------------------------------- #
 class _QnaCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
-    """The real callbacks, a throwaway database, and one patched webhook."""
+    """The real callbacks, a throwaway database, and one patched webhook.
+
+    ``GUILD_ID`` is declared as *the bot's own server* for the whole class, since
+    that is where the operator's side of the box lives and every surface it reaches
+    is a surface that refuses anywhere else. The refusal itself is the subject of
+    :class:`TheOperatorsSideIsOneServer`, which patches it away.
+    """
 
     async def asyncSetUp(self):
         self.use_temp_database("qna_cog.db")
@@ -586,7 +613,12 @@ class _QnaCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.bot = _Bot(users=(self.asker, self.owner))
         self.cog = qna_cog.Qna(self.bot)
         self.environ = mock.patch.dict(
-            os.environ, {"OWNER_USER_ID": str(OWNER_ID), "QNA_WEBHOOK_URL": WEBHOOK}
+            os.environ,
+            {
+                "OWNER_USER_ID": str(OWNER_ID),
+                "QNA_WEBHOOK_URL": WEBHOOK,
+                "BOT_SERVER_GUILD_ID": str(GUILD_ID),
+            },
         )
         self.environ.start()
         self.addCleanup(self.environ.stop)
@@ -921,8 +953,11 @@ class TheOwnersSurfaces(_QnaCase):
         self.assertEqual(interaction.response.modals[0].question_id, newest["id"])
 
     async def test_asking_opens_the_form_and_never_posts_it(self):
-        interaction = _Interaction(user=self.asker, bot=self.bot)
-        await self.cog.qna_ask.callback(self.cog, interaction)
+        # In a server that is *not* the bot's own, which is the only place the
+        # command opens a form at all — see ``TheOperatorsSideIsOneServer``.
+        with mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": "999999"}):
+            interaction = _Interaction(user=self.asker, bot=self.bot)
+            await self.cog.qna_ask.callback(self.cog, interaction)
         self.assertEqual(len(interaction.response.modals), 1)
         modal = interaction.response.modals[0]
         self.assertIsNotNone(modal.question)
@@ -950,6 +985,113 @@ class TheOwnersSurfaces(_QnaCase):
         self.assertEqual(
             [item.custom_id for item in view.children], [qna_cog.REPLY_BUTTON_ID]
         )
+
+
+class TheOperatorsSideIsOneServer(_QnaCase):
+    """Who may answer, *where*, and the one command that moves the other way.
+
+    The box is anonymous because two different people see two different halves: the
+    server reads the question, the operator reads who asked. Both of these refusals
+    are that sentence taken seriously rather than a permission setting — asked in
+    the operator's own server there is nobody the name is hidden *from*, and
+    answered anywhere else the answer is written by somebody the deployment cannot
+    vouch for while the asker believes it came from the bot's owner.
+    """
+
+    async def test_asking_is_refused_in_the_bots_own_server(self):
+        interaction = _Interaction(user=self.asker, bot=self.bot)
+        await self.cog.qna_ask.callback(self.cog, interaction)
+
+        self.assertEqual(interaction.response.modals, [], "the form opened here")
+        self.assertIn("bot's own server", interaction.answered[-1]["content"])
+
+    async def test_asking_still_works_in_any_other_server(self):
+        # The half that must not become collateral damage: the command is for the
+        # servers the bot is a visitor in, which is all of them but one.
+        with mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": "999999"}):
+            interaction = _Interaction(user=self.asker, bot=self.bot)
+            await self.cog.qna_ask.callback(self.cog, interaction)
+        self.assertEqual(len(interaction.response.modals), 1)
+
+    async def test_the_inbox_is_refused_in_any_other_server(self):
+        with mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": "999999"}):
+            interaction = _Interaction(user=self.owner, bot=self.bot)
+            await self.cog.qna_inbox.callback(self.cog, interaction)
+
+        self.assertIn("only runs in the bot's own server", interaction.answered[-1]["content"])
+        # Refused for the *place*, not for the person: the owner is who this
+        # message is written for, and it has to say what would work instead.
+        self.assertIn("/qna ask", interaction.answered[-1]["content"])
+
+    async def test_the_reply_is_refused_in_any_other_server(self):
+        with mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": "999999"}):
+            interaction = _Interaction(user=self.owner, bot=self.bot)
+            await self.cog.qna_reply.callback(self.cog, interaction, None)
+        self.assertEqual(interaction.response.modals, [])
+
+    async def test_a_member_without_the_dev_role_cannot_read_the_inbox(self):
+        member = _User(559, "Member")
+        interaction = _Interaction(user=member, bot=_Bot(users=(member,)))
+        await self.cog.qna_inbox.callback(self.cog, interaction)
+
+        self.assertNotIn("view", interaction.answered[-1])
+        self.assertIn("Dev", interaction.answered[-1]["content"])
+
+    async def test_a_member_with_the_dev_role_may_read_the_inbox(self):
+        dev = _User(560, "Operator")
+        interaction = _Interaction(user=dev, bot=_Bot(users=(dev,)), roles=(DEV_ROLE,))
+        await self.cog.qna_inbox.callback(self.cog, interaction)
+
+        self.assertIn("No questions", interaction.answered[-1]["content"])
+
+    async def test_a_dev_answers_a_question_end_to_end(self):
+        """Not the owner, and the asker still hears back.
+
+        The whole promise is that the answer arrives; a Dev let into the inbox but
+        refused at the last step would look exactly like this working.
+        """
+        record = await qna.record(
+            guild_id=GUILD_ID, guild_name=GUILD_NAME, user_id=ASKER_ID,
+            user_name=ASKER_NAME, question="who answers this?",
+        )
+        dev = _User(560, "Operator")
+        interaction = _Interaction(user=dev, bot=_Bot(users=(dev, self.asker)), roles=(DEV_ROLE,))
+        await qna_cog.deliver_reply(interaction, record["id"], "a Dev does")
+
+        self.assertEqual(len(self.asker.dms), 1)
+        self.assertIn("a Dev does", card_text(self.asker.dms[0]["view"]))
+        self.assertEqual((await qna.get(record["id"]))["status"], qna.ANSWERED)
+
+    async def test_a_member_without_the_dev_role_cannot_answer_through_the_form(self):
+        record = await qna.record(
+            guild_id=GUILD_ID, guild_name=GUILD_NAME, user_id=ASKER_ID,
+            user_name=ASKER_NAME, question="who answers this?",
+        )
+        member = _User(561, "Member")
+        interaction = _Interaction(user=member, bot=_Bot(users=(member,)))
+        await qna_cog.deliver_reply(interaction, record["id"], "not me")
+        self.assertEqual(self.asker.dms, [])
+        self.assertEqual((await qna.get(record["id"]))["status"], qna.OPEN)
+
+    async def test_the_form_on_the_owners_card_is_the_owners_alone(self):
+        """A DM has no roles to read, so the owner is the only answer there.
+
+        A Dev reaching the same modal through ``/qna reply`` and reaching it through
+        the owner's private card are *not* the same act: the card was sent to one
+        person, and handing it to a role would hand that person's DM to them.
+        """
+        owner_card = _Interaction(user=self.owner, guild=False, bot=self.bot)
+        self.assertTrue(await qna_cog._is_owner(owner_card))
+        dev = _User(560, "Operator")
+        dev_card = _Interaction(user=dev, guild=False, bot=self.bot, roles=(DEV_ROLE,))
+        record = await qna.record(
+            guild_id=GUILD_ID, guild_name=GUILD_NAME, user_id=ASKER_ID,
+            user_name=ASKER_NAME, question="from the card",
+        )
+        await qna.attach_owner_message(record["id"], 424242)
+        dev_card.message = SimpleNamespace(id=424242)
+        await qna_cog.open_reply_modal(dev_card)
+        self.assertEqual(dev_card.response.modals, [])
 
 
 if __name__ == "__main__":

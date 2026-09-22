@@ -48,6 +48,16 @@ ADMIN = "administrator"
 #: "owner" permission bit. Declared as administrator so the picker hides it from
 #: everyone who cannot pass it — a guild owner is always an administrator.
 OWNER = "owner"
+#: The **operator's own surfaces that a second person may reach**: the bot's owner,
+#: or somebody holding the deployment's Dev role in the bot's own server. Discord
+#: cannot express "this role, in that server" — a role is per guild and a
+#: permission bit is not a membership — so this is a body check like OWNER, and the
+#: one thing that separates it from OWNER is *who comes back true*: a Dev is not
+#: necessarily an administrator, and an administrator elsewhere is not an operator
+#: here. Both commands that declare it also refuse to run outside that server, which
+#: is a second body check and is stated at the call site rather than modelled here,
+#: because "which server" is not an audience.
+DEV = "dev"
 #: Whoever submitted the record (a custom quote), or staff. Also a body check.
 SUBMITTER = "submitter"
 #: The market's own role gate, checked in the cog's ``interaction_check``.
@@ -69,6 +79,13 @@ PICKER_VISIBILITY: dict[str, discord.Permissions | None] = {
     GUILD: discord.Permissions(manage_guild=True),
     ADMIN: discord.Permissions(administrator=True),
     OWNER: discord.Permissions(administrator=True),
+    # Deliberately OWNER's visibility, and deliberately not a bit of its own: an
+    # operator is usually an administrator in the server the inbox lives in, and
+    # showing the command to *everybody* so that a Dev who is not one can see it
+    # would advertise the operator's inbox in every server the bot is in. A Dev who
+    # cannot see it can be given the role that shows it, which is a decision; a
+    # member reading a name they may not have is a leak.
+    DEV: discord.Permissions(administrator=True),
     SUBMITTER: None,
     MARKET: None,
 }
@@ -91,6 +108,7 @@ PERMISSION_CHECK: dict[str, discord.Permissions] = {
 #: The body check each non-permission audience must show in its callback source.
 SOURCE_MARKER: dict[str, str] = {
     OWNER: "owner",
+    DEV: "_is_operator",
     SUBMITTER: "creator_id",
     MARKET: "interaction_check",
 }
@@ -184,13 +202,14 @@ COMMAND_ACCESS: dict[str, str] = {
     # Asking is for everyone — that is the feature — and so is receiving the
     # answer, which arrives as a DM the bot sends rather than as a command.
     "qna ask": EVERYONE,
-    # The inbox and the reply are the bot **owner's**, not the server's: the
-    # whole promise is that one person can see who asked, and that person is the
-    # operator of the deployment rather than any administrator holding a
-    # permission bit. Checked in the callback, because Discord has no permission
-    # that means "this one account".
-    "qna inbox": OWNER,
-    "qna reply": OWNER,
+    # The inbox and the reply are the **operator's**, not the server's: the whole
+    # promise is that the people who answer can be counted, and that they are the
+    # people running the deployment rather than any administrator holding a
+    # permission bit in some server. Checked in the callback — Discord has no
+    # permission that means "this one account", and none that means "the Dev role
+    # of *that* server" — and both also refuse outside the bot's own server.
+    "qna inbox": DEV,
+    "qna reply": DEV,
 
     # -- Music: everyone plays, the server owner keeps the seat ---------------- #
     # Playback control is deliberately open to any member: it is a shared room,

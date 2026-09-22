@@ -269,14 +269,16 @@ FEATURES: tuple[Feature, ...] = (
         category="Community",
         description=(
             "An anonymous question box: a member's question is relayed into the "
-            "channel by a webhook, the asker's name is shown only to the bot's "
-            "owner, and the answer is DMed back to whoever asked."
+            "channel by a webhook, the asker's name is shown only to the people "
+            "who run the bot, and the answer is DMed back to whoever asked. Asking "
+            "works in every server the bot is in; the inbox and the reply run in "
+            "the bot's own server, where its owner and its Dev role read them."
         ),
         gate_commands=("qna",),
         commands=(
-            "/qna ask — Ask something with nobody's name on it",
-            "/qna inbox — The questions waiting for an answer (owner)",
-            "/qna reply — Answer one, by DM (owner)",
+            "/qna ask — Ask something with nobody's name on it, in any server",
+            "/qna inbox — The questions waiting for an answer (bot's own server)",
+            "/qna reply — Answer one, by DM (bot's own server)",
         ),
         cog="cogs.qna",
         help_key="qna",

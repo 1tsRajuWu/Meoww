@@ -175,6 +175,55 @@ class NotifyRole(unittest.TestCase):
         self.assertEqual(bot_channels.notify_role(guild, None).id, 8)
 
 
+class TheOperatorRole(unittest.TestCase):
+    """Who counts as an operator of *this* bot, which is not the same question as
+    who should be told about a release. A ping may fall back to whatever a server
+    calls its staff; a gate on reading who asked an anonymous question may not."""
+
+    def test_the_role_the_bot_has_always_pinged_is_the_operator_role(self):
+        guild = _RoleGuild([_Role(1, "@everyone", default=True), _Role(5, "Staff")])
+        guild.roles.append(_Role(bot_channels.DEV_ROLE_ID, "Renamed"))
+        self.assertEqual(bot_channels.dev_role(guild).id, bot_channels.DEV_ROLE_ID)
+
+    def test_a_server_that_renamed_it_is_still_asked_by_name(self):
+        guild = _RoleGuild([_Role(1, "@everyone", default=True), _Role(7, "bot-dev")])
+        self.assertEqual(bot_channels.dev_role(guild).id, 7)
+
+    def test_the_highest_holder_of_the_name_is_the_one(self):
+        guild = _RoleGuild([_Role(3, "dev"), _Role(8, "Dev")])
+        self.assertEqual(bot_channels.dev_role(guild).id, 8)
+
+    def test_a_server_without_the_role_has_no_operator_rather_than_a_guess(self):
+        """The whole reason this is not :func:`notify_role`: falling back the way a
+        ping does would make every administrator of every server an operator of
+        one, which is the leak this gate exists to prevent."""
+        guild = _RoleGuild([_Role(1, "@everyone", default=True), _Role(9, "Admin")])
+        self.assertIsNone(bot_channels.dev_role(guild))
+        self.assertNotIn("admin", bot_channels.DEV_ROLE_NAMES)
+
+    def test_everyone_is_never_an_operator(self):
+        guild = _RoleGuild([_Role(1, "dev", default=True)])
+        self.assertIsNone(bot_channels.dev_role(guild))
+
+    def test_a_dm_has_no_roles_to_read(self):
+        self.assertIsNone(bot_channels.dev_role(None))
+
+
+class TheOperatorIdHasOneHome(unittest.TestCase):
+    """The id is what a release note pings and what lets somebody answer an
+    anonymous question, so two copies of it is one rename away from a gate and a
+    ping that disagree about who is an operator."""
+
+    def test_bot_py_reads_it_rather_than_writing_it_down_again(self):
+        source = BOT_PY.read_text(encoding="utf-8")
+        self.assertIn("bot_channels.DEV_ROLE_ID", source)
+        self.assertNotIn(
+            str(bot_channels.DEV_ROLE_ID),
+            source,
+            "the Dev role id is written down in bot.py as well as bot_channels.py",
+        )
+
+
 class Binding(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.use_temp_database("channels.db")

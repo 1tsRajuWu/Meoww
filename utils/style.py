@@ -22,9 +22,22 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import io
+import subprocess
 import time
 
 import discord
+
+# ``discord.http.handle_message_parameters`` is the function that turns keyword
+# arguments into the multipart payload ``POST /channels/{id}/messages`` takes, and
+# it is the *only* way to put a flag on a message: ``Messageable.send`` and
+# ``Webhook.send`` both build their own flags and neither accepts one. Imported
+# defensively — it is discord.py's own internal builder rather than a documented
+# API — so a library that renames it costs the voice message and not the command.
+try:  # pragma: no cover - exercised by the fallback test either way
+    from discord.http import handle_message_parameters as _message_parameters
+except Exception:  # pragma: no cover
+    _message_parameters = None
 
 # Components V2 turns card text into ``TextDisplay`` components, and — unlike
 # legacy embeds, where mentions never notified — *mentions inside TextDisplay do
@@ -126,6 +139,49 @@ MediaGalleryItem = discord.MediaGalleryItem
 Container = discord.ui.Container
 ActionRow = discord.ui.ActionRow
 LayoutView = discord.ui.LayoutView
+#: Discord's *voice message* flag (``IS_VOICE_MESSAGE``, ``1 << 13``). A message
+#: carrying it and one Ogg/Opus attachment is drawn as a **player** — a waveform
+#: with a play button — where the same bytes attached to a Components V2 message
+#: are drawn as a file row with a download arrow. That difference is the whole of
+#: ``/meowsound``'s *"why is there download, I don't wanna download, I wanna
+#: hear"*: the clip was visible and playable-nowhere.
+#:
+#: Built through the enum's own constructor rather than read off the class, which
+#: is the whole trap: ``discord.MessageFlags.voice`` on the *class* is a
+#: ``flag_value`` **descriptor**, so ``getattr`` answers with an object that has no
+#: ``value`` at all and ``handle_message_parameters`` raises on it. That raise lands
+#: in ``send_voice_clip``'s catch-all — which exists for a library or a host that
+#: cannot do this — so the first version of this shipped as *always* the fallback:
+#: every clip went out as a download row, silently, which is the complaint the
+#: voice message was written to answer. ``tests/test_style.py`` pins the value, so
+#: the descriptor cannot come back.
+#:
+#: ``None`` if this library has no such flag (it is Discord's, added in 2024, and
+#: discord.py grew it later): the caller then sends the clip as a plain message,
+#: which the client draws with its own player.
+try:  # pragma: no cover - which branch runs depends on the installed library
+    VOICE_MESSAGE = discord.MessageFlags(voice=True)
+except Exception:  # pragma: no cover
+    VOICE_MESSAGE = None
+
+#: The name Discord shows for a voice message. Discord's own client always uploads
+#: under it, and the two-step upload flow documented for voice messages asks for it
+#: by this exact name — so it is a constant here rather than each caller's guess.
+VOICE_FILENAME = "voice-message.ogg"
+
+#: What Discord accepts as a voice message, all four of which are why the clips
+#: cannot go out as they are: Ogg, **Opus** and not Vorbis (the soundboard's files
+#: are Vorbis, and Discord's own guidance says a Vorbis one "may not play back on
+#: mobile"), exactly one attachment, and no content, embed or second attachment
+#: beside it. So every clip is re-encoded on the way out, and the encode is the
+#: only reason ``send_voice_clip`` can fail in a way the caller has to handle.
+VOICE_BITRATE = "48k"
+
+#: How long one transcode may take before it is treated as a failure. A 3-minute
+#: clip encodes in about a second on the host this was measured on; this is the
+#: ceiling that stops a wedged ffmpeg from holding a command open.
+VOICE_ENCODE_TIMEOUT = 30
+
 #: The File display component (discord.py 2.6+). A Components V2 message
 #: **does not show an attachment unless a component references it** — the file is
 #: uploaded, Discord accepts the message, and the attachment is simply never
@@ -133,6 +189,85 @@ LayoutView = discord.ui.LayoutView
 #: this is unavailable (an older library) attachments are sent as their own
 #: follow-up message instead, which is the only other way to make one visible.
 FileDisplay = getattr(discord.ui, "File", None)
+
+
+def _opus_clip(path) -> bytes | None:
+    """``path`` re-encoded to the Ogg/Opus a voice message requires, or ``None``.
+
+    Synchronous on purpose: it is called through ``asyncio.to_thread`` so a slow
+    encode cannot block the event loop that is serving every other interaction.
+    """
+    from . import voice_caps  # local: the import cycle is real
+
+    executable, _where = voice_caps.ffmpeg_path()
+    if not executable:
+        return None
+    command = [
+        executable, "-hide_banner", "-nostdin", "-v", "error",
+        "-i", str(path), "-vn", "-c:a", "libopus", "-b:a", VOICE_BITRATE,
+        "-ar", "48000", "-ac", "1", "-f", "ogg", "-",
+    ]
+    try:
+        done = subprocess.run(command, capture_output=True, timeout=VOICE_ENCODE_TIMEOUT)
+    except Exception:
+        return None
+    if done.returncode != 0 or not done.stdout:
+        return None
+    return done.stdout
+
+
+async def send_plain(target, *, content=None, **extras):
+    """Send a payload with **no card** — the client's own rendering of it.
+
+    Everything else in this module routes through ``send_card``, which is right for
+    text and wrong for exactly one thing: an audio attachment. A Components V2
+    layout turns a sound file into a **file row with a download arrow**, because
+    the layout is what draws the message and a File component has no player; the
+    same bytes on a plain message are drawn by the client, with a play button. So
+    this exists for the fallback in ``/meowsound`` — the one payload whose whole
+    point is that somebody can hear it without downloading anything first.
+    """
+    return await _dispatch_send(target, {"content": content, **extras}, False)
+
+
+async def send_voice_clip(target, *, path, filename: str = VOICE_FILENAME) -> bool:
+    """Post an audio clip as a Discord **voice message**. Returns whether it landed.
+
+    The one shape Discord draws as a player with a play button, which is what a
+    clip is for — a file row asks the reader to download it first, and Discord's
+    renderer decides that from the *message*, not from the audio.
+
+    Three things it will not do, each because Discord refuses it rather than
+    because it is a preference: nothing but the one attachment goes with the
+    message (no content, no embed, no card), so the card is a separate message;
+    the file is always re-encoded to Opus; and it answers ``False`` rather than
+    raising, because the caller's fallback — send the clip as a file — must run on
+    every path a library upgrade or a missing ffmpeg can produce. A ``False`` is
+    not an error to report to a member, it is a different message to send.
+    """
+    client = getattr(target, "client", None)
+    channel_id = getattr(target, "channel_id", None)
+    if client is None or channel_id is None:
+        return False
+    if VOICE_MESSAGE is None or _message_parameters is None:
+        return False
+
+    payload = await asyncio.to_thread(_opus_clip, path)
+    if not payload:
+        return False
+
+    clip = discord.File(io.BytesIO(payload), filename=filename)
+    try:
+        with _message_parameters(file=clip, flags=VOICE_MESSAGE) as params:
+            await client.http.send_message(int(channel_id), params=params)
+    except Exception as exc:
+        print(
+            f"[STYLE] a voice message was refused ({type(exc).__name__}: {exc}) — "
+            "the caller sends the clip as a file instead",
+            flush=True,
+        )
+        return False
+    return True
 
 
 def v2_ready() -> bool:

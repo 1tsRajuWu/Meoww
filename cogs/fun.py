@@ -4,7 +4,7 @@ from discord.ext import commands
 import random
 import aiohttp
 import aiosqlite
-from utils import db, loans, gifs, flavor
+from utils import db, loans, gifs, flavor, style
 from utils.style import send_card, display_name, pings
 
 DB_PATH = db.DB_PATH
@@ -321,12 +321,32 @@ class Fun(commands.Cog):
             if picture:
                 embed.set_image(url=picture)
 
-        # The attachment is referenced by a File component inside the card, which
-        # is the only way Discord draws an attachment on a Components V2 message.
-        # Before this, the clip was uploaded and then silently never shown, which
-        # is why the soundboard had "no sound" and still looked like it worked.
-        file = discord.File(file_path, filename=sound_file)
-        await send_card(interaction, embed=embed, file=file)
+        # Two messages, because that is what Discord requires rather than a
+        # preference: a **voice message** may carry nothing beside its one
+        # attachment, so the clip cannot ride on the card.
+        #
+        # The card used to carry the clip as a File component, which was the fix
+        # for the *previous* complaint about this command ("no sound") and is the
+        # cause of this one: on a Components V2 message Discord draws an attachment
+        # as a file row with a download arrow, so the clip was visible and
+        # playable nowhere — "why is there download, I don't wanna download, I
+        # wanna hear". A voice message is the shape Discord draws as a player, and
+        # the transcode it needs (Ogg/**Opus**, not the Vorbis these files are) is
+        # in ``utils/style.send_voice_clip``. The fallback for a host that cannot
+        # post one is a plain message in the same place, never a card.
+        await send_card(interaction, embed=embed)
+        if not await style.send_voice_clip(interaction, path=file_path):
+            # Nothing playable could be posted that way — a host without ffmpeg, or a
+            # library that moved the flag's only door — so the clip goes out as a
+            # **plain** message rather than on a card: a card is what turns an audio
+            # attachment into a file row, and the client's own renderer has a player.
+            # A download row is a poor thing to hand somebody, and it is not nothing,
+            # which is what silence would be.
+            await style.send_plain(
+                interaction,
+                content=f"🔊 **{sound_title}** — {sound_caption}",
+                file=discord.File(file_path, filename=sound_file),
+            )
 
     @app_commands.command(name="flavor", description="Choose how the fun commands look in this server (per-server).")
     @app_commands.describe(style="Cat, Dog, or Neutral — what the fun cards show")

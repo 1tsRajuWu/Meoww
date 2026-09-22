@@ -73,6 +73,47 @@ NOTIFY_ROLE_NAMES: tuple[str, ...] = (
     "owner",
 )
 
+#: The role that marks somebody who **operates this bot**, as opposed to somebody
+#: who should be told about a release. Deliberately a shorter list than
+#: :data:`NOTIFY_ROLE_NAMES`: a ping is a courtesy and falling back to *admin* on a
+#: server with a different role naming is helpful, while a gate that fell back the
+#: same way would make every administrator of every server an operator of this one.
+DEV_ROLE_NAMES: tuple[str, ...] = ("bot-dev", "dev", "developer")
+
+#: The Dev role in the bot's own server, by id. This is the role ``bot.py`` has
+#: always pinged when a release note lands, so the id is what the server that has
+#: it keeps working through a rename — the same reason ``notify_role`` takes one.
+#: It lives here rather than in ``bot.py`` because this module is what owns "who is
+#: an operator", and two copies of an id is how the gate and the ping drift apart.
+DEV_ROLE_ID = 1548948461301534791
+
+
+def dev_role(guild):
+    """The role that marks an operator *in this server*, or ``None``.
+
+    Resolved the way the release-note ping resolves its role — the known id first,
+    then the server's own roles by name, highest first — so a server that renamed
+    ``Dev`` still gets an operator and a server with two roles called ``Dev``
+    answers with the one that carries the permissions. What it deliberately does
+    **not** do is invent one: a server with no such role has nobody who may answer
+    an anonymous question, and that is the correct answer rather than a fallback.
+    """
+    if guild is None:
+        return None
+    by_id = getattr(guild, "get_role", lambda _id: None)(DEV_ROLE_ID)
+    if by_id is not None:
+        return by_id
+    by_name: dict[str, object] = {}
+    for role in reversed(list(getattr(guild, "roles", []) or [])):
+        name = (getattr(role, "name", "") or "").strip().lower()
+        if name:
+            by_name.setdefault(name, role)
+    for name in DEV_ROLE_NAMES:
+        role = by_name.get(name)
+        if role is not None and not getattr(role, "is_default", lambda: False)():
+            return role
+    return None
+
 #: Matched in order, most specific first, so ``#bug-report`` wins over ``#bug``
 #: and a server that names its channel exactly gets it. No name appears under two
 #: roles: an ambiguous name can only ever bind one thing, and guessing which is

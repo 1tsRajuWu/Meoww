@@ -27,8 +27,8 @@ load_dotenv()
 
 from keep_alive import keep_alive  # noqa: E402
 from utils import (  # noqa: E402
-    alert_webhook, command_publish, command_scope, commands_sync, config_audit, db,
-    features, guild_directory, modules, operator_log, permissions,
+    alert_webhook, bot_channels, command_publish, command_scope, commands_sync,
+    config_audit, db, features, guild_directory, modules, operator_log, permissions,
 )
 
 # Force real-time unbuffered log streaming to Render / cloud console
@@ -1517,7 +1517,10 @@ async def on_guild_remove(guild: discord.Guild):
 # where it wanted them. Still honoured for the server that owns it, so nothing
 # changes for the one that has been reading them all along.
 LEGACY_UPDATE_CHANNEL_ID = 1548948620600942632
-DEV_ROLE_ID = 1548948461301534791
+#: The Dev role of this server, read from the module that owns "who is an
+#: operator" rather than written down twice: the same id decides who may answer an
+#: anonymous question, and two copies would be one rename away from disagreeing.
+DEV_ROLE_ID = bot_channels.DEV_ROLE_ID
 
 
 def _home_guild():

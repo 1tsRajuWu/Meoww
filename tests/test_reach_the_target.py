@@ -7,9 +7,10 @@ through the real command callbacks:
 
 * ``/action``, ``/rizz`` and ``/roast`` pass an ``allowed_mentions`` set naming the
   target, and name nobody else;
-* the soundboard hands its card a ``discord.File``, which the card references with
-  a File component — an attachment nothing references is an attachment Discord
-  silently drops;
+* the soundboard sends the clip as a **voice message** and the card beside it as
+  text, because a voice message may carry nothing but its one attachment — the
+  card used to carry the clip as a File component, which is what made Discord draw
+  it as a download row;
 * a picture that could not be verified is simply absent, never a broken box.
 
 ``cogs.fun`` and ``cogs.social`` import ``send_card`` into their own namespace, so
@@ -171,27 +172,48 @@ class TheFunCommands(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         await db.setup()
         self.cog = fun_module.Fun(bot=None)
         self.card = _Recorder()
+        self.plain = _Recorder()
+        self.voice = mock.AsyncMock(return_value=True)
         self.interaction = _FakeInteraction()
 
     async def asyncTearDown(self):
         self.release_temp_database()
 
-    async def _meowsound(self, picture="https://cataas.com/cat/gif"):
+    async def _meowsound(self, picture="https://cataas.com/cat/gif", voice=True):
+        """Run the command with the card, the clip and any fallback recorded."""
+        self.voice = mock.AsyncMock(return_value=voice)
         with mock.patch.object(fun_module, "send_card", new=self.card), \
+             mock.patch.object(fun_module.style, "send_voice_clip", new=self.voice), \
+             mock.patch.object(fun_module.style, "send_plain", new=self.plain), \
              mock.patch.object(fun_module.gifs, "pet_picture", new=mock.AsyncMock(return_value=picture)):
             await fun_module.Fun.meowsound.callback(self.cog, self.interaction)
 
-    async def test_the_sound_clip_travels_with_the_card(self):
-        """The bug: the file was uploaded and Discord never drew it, because a
-        Components V2 message shows an attachment only when a component
-        references it. The fix is the ``file`` keyword plus a File component,
-        which ``utils.style`` builds and ``tests/test_style.py`` pins."""
+    async def test_the_clip_is_a_voice_message_and_not_an_attachment_on_the_card(self):
+        """The bug: the card carried the clip and Discord drew a file row with a
+        download arrow — *"why is there download, I don't wanna download, I wanna
+        hear"*. A voice message is the shape Discord draws as a player, and it may
+        carry nothing beside its one attachment, so the clip is its own message."""
         await self._meowsound()
-        attachment = self.card.last.get("file")
-        self.assertIsInstance(attachment, discord.File, "no audio was attached")
-        self.assertTrue(
-            attachment.filename.endswith((".ogg", ".mp3")), attachment.filename
-        )
+        self.voice.assert_awaited_once()
+        self.assertEqual(self.voice.await_args.args[0], self.interaction)
+        # The soundboard ships Ogg and one MP3; the encoder reads both, so the test
+        # pins that the clip went to *a real file* rather than that it is Ogg.
+        self.assertTrue(self.voice.await_args.kwargs["path"].endswith((".ogg", ".mp3")))
+        self.assertNotIn("file", self.card.last, "the card must not carry the clip")
+        self.assertNotIn("files", self.card.last)
+        self.assertEqual(self.plain.calls, [], "nothing had to fall back")
+
+    async def test_a_clip_that_cannot_be_a_voice_message_is_sent_plain_not_on_a_card(self):
+        """A host without ffmpeg, or a library that moved the flag's only door, still
+        has to be *heard*. The fallback is deliberately not a card, because the V2
+        layout is what turns the clip back into a download row."""
+        await self._meowsound(voice=False)
+        payload = self.plain.last
+        self.assertIsInstance(payload.get("file"), discord.File)
+        self.assertTrue(payload["file"].filename.endswith((".ogg", ".mp3")))
+        caption = self.card.last["embed"].title.removeprefix("🔊 ")
+        self.assertIn(caption, payload["content"], "the fallback names the same clip")
+        self.assertEqual(len(self.card.calls), 1, "the fallback is not a second card")
 
     async def test_the_soundboard_shows_an_actual_picture(self):
         await self._meowsound(picture="https://cataas.com/cat/gif")
@@ -199,7 +221,8 @@ class TheFunCommands(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     async def test_the_soundboard_still_plays_when_no_picture_is_available(self):
         await self._meowsound(picture=None)
-        self.assertIsInstance(self.card.last.get("file"), discord.File)
+        self.assertIsNone(getattr(self.card.last["embed"].image, "url", None) or None)
+        self.voice.assert_awaited_once()
 
     async def test_the_soundboard_speaks_this_servers_flavour(self):
         cat = await self._meowsound()
@@ -212,6 +235,7 @@ class TheFunCommands(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def test_the_neutral_flavour_looks_for_no_animal_at_all(self):
         await flavor.set_flavor(GUILD, "neutral")
         with mock.patch.object(fun_module, "send_card", new=self.card), \
+             mock.patch.object(fun_module.style, "send_voice_clip", new=self.voice), \
              mock.patch.object(fun_module.gifs, "pet_picture", new=mock.AsyncMock()) as pet:
             await fun_module.Fun.meowsound.callback(self.cog, self.interaction)
         pet.assert_not_called()

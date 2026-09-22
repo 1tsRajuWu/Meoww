@@ -16,7 +16,16 @@ Where the "who asked" fact lives, and why it is safe there:
 
 * it is written once, in ``qna_questions``, beside the question text;
 * it is rendered in exactly two places — the owner's DM and ``/qna inbox`` — and
-  both refuse anyone who is not the owner;
+  neither renders it anywhere else. **Who may read it is the operator's side of
+  the box, and that is two people rather than one**: the bot's owner anywhere, and
+  somebody holding the **Dev** role *in the bot's own server*, which is the same
+  role a release note pings and the same server the inbox lives in. ``/qna
+  inbox`` and ``/qna reply`` refuse to run outside that server at all — a
+  question is asked *in* a server and answered from the operator's, and a command
+  that answers anonymously from the wrong one is a command that looks like it
+  works while the answer goes to nobody; and ``/qna ask`` is refused *inside* that
+  server, because a question asked where the person answering is already reading
+  is not anonymous to anybody;
 * the *public* message is not built from that row at all. It is built by
   ``utils/qna.relay_payload``, which reads three fields — the question's id, its
   text and the time — and none of them is a person, and the test that pins it
@@ -46,7 +55,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import admin_limits, config_audit, qna, style
+from utils import admin_limits, bot_channels, config_audit, qna, style
 
 #: The one button the owner's card carries. Deliberately does **not** contain the
 #: question id: a fixed ``custom_id`` is what lets a single registered view answer
@@ -104,6 +113,52 @@ async def _is_owner(interaction: discord.Interaction) -> bool:
         return bool(await check(user))
     except Exception:
         return False
+
+
+#: What somebody is told when they reach the operator's side of the box from the
+#: wrong server. The distinction the message has to make is between *wrong place*
+#: and *wrong person*, because they are fixed by different things.
+OPERATOR_SERVER_ONLY = (
+    "❌ This is the operator's side of the anonymous box, and it only runs in the "
+    "bot's own server — the one its owner answers from. `/qna ask` works in every "
+    "other server, including this one's members."
+)
+
+#: And what they are told from the right server with the wrong roles.
+OPERATOR_ONLY = (
+    "❌ Only the bot's owner, or somebody with the **Dev** role in this server, "
+    "answers anonymous questions."
+)
+
+
+def _in_home_server(interaction: discord.Interaction) -> bool:
+    """Whether this happened in the bot's own server.
+
+    One reader of ``bot_channels.bot_server_guild_id`` so the three answers this
+    file gives — where the inbox lives, who may open it and who may answer — can
+    never disagree about which server that is. A DM is not it: an interaction
+    without a guild is the owner's card, which the owner answers from anywhere.
+    """
+    return getattr(interaction, "guild_id", None) == bot_channels.bot_server_guild_id()
+
+
+async def _is_operator(interaction: discord.Interaction) -> bool:
+    """Whether this person may read a question's asker and answer for them.
+
+    Two ways in and no third: the **owner**, whose DM the question arrives in, and
+    a member holding the **Dev** role *in the bot's own server*. Read through
+    ``bot_channels`` rather than by name here, so a server that renamed its role —
+    or the deployment that has the role's id — keeps working, and so the ping a
+    release note carries and the gate on this command cannot drift apart.
+    """
+    if not _in_home_server(interaction):
+        return False
+    if await _is_owner(interaction):
+        return True
+    guild = getattr(interaction, "guild", None)
+    role = bot_channels.dev_role(guild)
+    member = getattr(interaction, "user", None)
+    return role is not None and role in (getattr(member, "roles", None) or [])
 
 
 def _owner_id() -> int:
@@ -322,7 +377,13 @@ class ReplyModal(discord.ui.Modal):
 
 
 async def open_reply_modal(interaction: discord.Interaction) -> None:
-    """Open the answer form for the question this card is about."""
+    """Open the answer form for the question this card is about.
+
+    The card is a DM — it is DMed to the owner and to nobody else — so this is the
+    owner's own button and the rule here is the owner's alone. ``/qna reply``, the
+    other way to this form, is where a Dev is let in, and that command checks the
+    server and the role before it ever gets here.
+    """
     if not await _is_owner(interaction):
         return await _reply(
             interaction, "❌ Only the bot's owner answers anonymous questions."
@@ -475,13 +536,20 @@ async def deliver_reply(
 ) -> None:
     """The same delivery, from a slash command or the button on the owner's card.
 
-    Only two things are this function's own: the owner check (Discord is the only
-    place a caller could be somebody else) and the wording's ``inbox``.
+    Only two things are this function's own: the check on who is answering (Discord
+    is the only place a caller could be somebody else) and the wording's ``inbox``.
+    Two shapes of caller reach here, which is why the check is not simply the
+    owner: the modal opened from ``/qna reply`` in the bot's own server, where a
+    **Dev** answers too, and the modal opened from the owner's own card in a DM,
+    where there are no roles to read and the owner is the only person who has it.
     """
-    if not await _is_owner(interaction):
-        return await _reply(
-            interaction, "❌ Only the bot's owner answers anonymous questions."
-        )
+    if getattr(interaction, "guild", None) is None:
+        if not await _is_owner(interaction):
+            return await _reply(
+                interaction, "❌ Only the bot's owner answers anonymous questions."
+            )
+    elif not await _is_operator(interaction):
+        return await _reply(interaction, OPERATOR_ONLY)
     result = await deliver_answer(interaction.client, question_id, answer)
     return await _reply(interaction, answer_sentence(result))
 
@@ -522,11 +590,30 @@ class Qna(commands.Cog):
         description="Ask a question with nobody's name on it.",
     )
     async def qna_ask(self, interaction: discord.Interaction):
+        """Ask here; answered from the bot's own server by its owner or a Dev.
+
+        Refused in that server on purpose: the relay posts the question into the
+        channel it happens in, and the channel the person answering reads is the
+        one place the name being hidden is the name of the only reader.
+        """
         if getattr(interaction, "guild", None) is None:
             return await _reply(
                 interaction,
                 "❓ Use `/qna` in a server — a question is posted to that server's "
                 "anonymous box, and the answer comes back here.",
+            )
+        if _in_home_server(interaction):
+            # The bot's own server is where these are *answered*, and a question
+            # asked there is a question with nowhere to go: the relay posts it into
+            # that server, which is the one channel the person answering is already
+            # reading. Somebody with something to say to the operator writes to the
+            # operator; the box is for the servers the bot is a visitor in.
+            return await _reply(
+                interaction,
+                "❌ `/qna ask` is for the servers the bot is in — it is anonymous "
+                "because the *server* reads the question and one person reads who "
+                "asked it, and in the bot's own server those are the same person. "
+                "Use it somewhere else, or write to the operator directly.",
             )
         if not qna.configured():
             return await _reply(
@@ -538,12 +625,15 @@ class Qna(commands.Cog):
 
     @qna_group.command(
         name="inbox",
-        description="The questions still waiting for an answer (owner only).",
+        description="The questions still waiting for an answer (bot's own server only).",
     )
     @app_commands.describe(limit="How many to show.")
     async def qna_inbox(self, interaction: discord.Interaction, limit: int = INBOX_DEFAULT):
-        if not await _is_owner(interaction):
-            return await _reply(interaction, "❌ This is the bot's owner's inbox.")
+        """The waiting questions and who asked them — the owner, or a Dev here."""
+        if not _in_home_server(interaction):
+            return await _reply(interaction, OPERATOR_SERVER_ONLY)
+        if not await _is_operator(interaction):
+            return await _reply(interaction, OPERATOR_ONLY)
         wanted = max(1, min(int(limit or INBOX_DEFAULT), INBOX_MAX))
         rows = await qna.open_questions(limit=wanted)
         if not rows:
@@ -576,14 +666,17 @@ class Qna(commands.Cog):
 
     @qna_group.command(
         name="reply",
-        description="Answer a question — the answer is DMed to them (owner only).",
+        description="Answer a question — the answer is DMed to them (bot's own server).",
     )
     @app_commands.describe(question="The question's id, from /qna inbox. Defaults to the newest.")
     async def qna_reply(
         self, interaction: discord.Interaction, question: int | None = None
     ):
-        if not await _is_owner(interaction):
-            return await _reply(interaction, "❌ Only the bot's owner answers anonymous questions.")
+        """Open the answer form for a waiting question. Owner or Dev, here only."""
+        if not _in_home_server(interaction):
+            return await _reply(interaction, OPERATOR_SERVER_ONLY)
+        if not await _is_operator(interaction):
+            return await _reply(interaction, OPERATOR_ONLY)
         if question is None:
             waiting = await qna.open_questions(limit=1)
             if not waiting:

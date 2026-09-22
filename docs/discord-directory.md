@@ -90,7 +90,7 @@ Everything is switched on and off per server from a web dashboard that signs in 
 ### Key Systems & Commands
 - **Moderation & Automod**: `/warn`, `/mute`, `/kick`, `/ban`, `/appeal`, `/lockdown`, `/cases`, anti-invite and link filters — every automatic action is written to a moderation log, and the member it hit can run `/appeal` for a human review.
 - **Support Tickets**: Transcripts, ratings, and ticket claiming via buttons and modals.
-- **Anonymous Q&A**: `/qna ask` posts a question through the bot's own webhook with nobody's name on it; the asker is shown only to the bot's owner, and the answer is DMed back.
+- **Anonymous Q&A**: `/qna ask` posts a question through the bot's own webhook with nobody's name on it — in any server the bot is in, since the bot's own server is where the operator answering already reads everything; the asker is shown only to the bot's owner and, in that server, its Dev role, and the answer is DMed back.
 - **Leveling & Activity**: XP rewards for text and voice, level-roles, and a 365-day per-channel tracker (`/activity me`, `/rank`).
 - **Economy & Market**: `/balance`, `/daily`, `/pay`, shop, loans, and real-time public market quotes (`/market board`, `/market buy`, `/market chart`).
 - **Dashboard & Composer**: Web-based module toggles and scheduled announcement composer (`/help` -> Open Dashboard).
