@@ -92,8 +92,15 @@ USER_AGENT = "MeowMediaWatch/1.0 (+checks that the bot's pictures still exist)"
 #: in it is something this bot would put in a card or an attachment.
 MEDIA_EXTENSIONS: tuple[str, ...] = (
     ".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif",
-    ".mp4", ".webm", ".mov", ".mp3", ".ogg", ".oga", ".wav", ".m4a",
+    ".mp4", ".webm", ".mov", ".mp3", ".aac", ".ogg", ".oga", ".wav", ".m4a",
 )
+#: ``.aac`` is here because the note on :data:`STREAM_HOSTS` below has claimed it
+#: since that list was written — *"the extension test saw the 31 ending in
+#: ``.mp3``/``.aac``"* — while this tuple did not contain it. The prose and the
+#: code disagreed, and the code won quietly: an AAC stream written down as a
+#: station was not recognised as media, so the weekly check would never ask about
+#: it. Found by adding one (LOS40, in the per-language pass) and watching
+#: ``tests/test_radio.py`` name it as unprobed.
 #: Hosts that serve media at extension-less paths. Asking for a URL on one of
 #: these is worth it even when the path has no dot in it.
 CDN_HOSTS: tuple[str, ...] = (
@@ -124,13 +131,21 @@ MEDIA_PREFIXES: tuple[str, ...] = ("image/", "audio/", "video/", "application/og
 STREAM_HOSTS: tuple[str, ...] = (
     "admin.stream.rinse.fm",  # Kool FM London
     "drive.uber.radio",  # the Hindi chart stations
+    "glzwizzlv.bynetcdn.com",  # Galei Tzahal, Israel
     "ice1.somafm.com",  # the SomaFM catalogue
+    "icecast.omroep.nl",  # NPO Radio 1 and 2, Dutch public radio
     "icecast.radiofrance.fr",  # France Musique's opera channel
+    "jenny.torontocast.com:2000",  # J1 HITS, Japan (and :2020 above is another)
     "kpophits.stream.laut.fm",
     "listen.moe",  # J-Pop and K-Pop
+    "live1.sr.se",  # Sveriges Radio P1
+    "lyd.nrk.no",  # NRK P1, Norway
     "maggie.torontocast.com:2020",
     "manager7.streamradio.fr:1435",
+    "radiostreaming.ert.gr",  # ERT Kosmos, Greek public radio
     "radio.plaza.one",
+    "rmfstream.pl",  # RMF FM, Poland — the subdomain rotates (rs6-krk2, rs7-…),
+                     # so the *domain* is declared and every rotation is covered
     "stream-143.zeno.fm",
     "stream-37.zeno.fm",
     "stream.brokenbeats.net",
@@ -140,6 +155,7 @@ STREAM_HOSTS: tuple[str, ...] = (
     "stream.srg-ssr.ch",  # Swiss Jazz/Classic/Pop and SRF 3
     "stream.zeno.fm",
     "stream0.wfmu.org",
+    "stream4.srr.ro:8443",  # Radio România Actualități — the port is part of it
     "uk2.streamingpulse.com",
     "www.ukbassradio.com",
 )

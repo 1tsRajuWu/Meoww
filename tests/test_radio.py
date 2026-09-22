@@ -65,8 +65,37 @@ class TheCatalogue(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(music_cog.RADIO_STATIONS), 50)
         self.assertGreaterEqual(len(genres), 20)
-        self.assertGreaterEqual(len(languages), 8)
+        # Raised from 8 in the pass that added one flagship per language. The
+        # number is a floor rather than a target: it is what stops the catalogue
+        # quietly shrinking back to the languages the maintainer happens to speak.
+        self.assertGreaterEqual(len(languages), 20)
         self.assertGreaterEqual(len(instrumental), 25)
+
+    def test_every_declared_language_can_actually_be_searched(self):
+        """A `lang` the search cannot match is a station nobody can reach.
+
+        The catalogue grew by *genre* first, which left the one search somebody
+        whose language is not this bot's has to be able to make — `/music stations
+        Spanish`. A station that exists, carries the tag and does not come back
+        from the search is the same experience as a station that is not there, so
+        the tag and the ranking are checked against each other rather than
+        trusted.
+        """
+        owners: dict[str, set[str]] = {}
+        for key, station in music_cog.RADIO_STATIONS.items():
+            if station["lang"]:
+                owners.setdefault(station["lang"], set()).add(key)
+        for language, keys in sorted(owners.items()):
+            found = {
+                key
+                for key, _station in music_cog.search_stations(language, limit=200)
+            }
+            with self.subTest(language=language):
+                self.assertTrue(
+                    keys <= found,
+                    f"{language} is declared on {sorted(keys)} but not everyone is "
+                    f"findable by it: {sorted(keys - found)}",
+                )
 
     def test_no_mood_outside_the_vocabulary(self):
         """Free-text tags are how a filter quietly stops matching anything.
