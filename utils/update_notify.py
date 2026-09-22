@@ -10,16 +10,19 @@ from __future__ import annotations
 
 import discord
 
-from utils import config_audit
+from utils import bot_channels, config_audit
 
-# The channel where update messages are posted.
+# The channel where update messages are posted, and the role that gets pinged.
+#
+# Both defaults were written down here *and* in ``bot.py``, which is how a ping and
+# the gate on the operator's side of ``/qna`` — the two things these two ids decide
+# — could disagree about who is an operator and where the bot's own server is. They
+# read the module that owns that question instead, so there is one copy of each.
 UPDATE_CHANNEL_ID: int = int(
-    config_audit.get("UPDATE_CHANNEL_ID", "1548948620600942632")
+    config_audit.get("UPDATE_CHANNEL_ID", str(bot_channels.LEGACY_UPDATE_CHANNEL_ID))
 )
-
-# The role that gets pinged on updates.
 UPDATE_ROLE_ID: int = int(
-    config_audit.get("UPDATE_ROLE_ID", "1548948461301534791")
+    config_audit.get("UPDATE_ROLE_ID", str(bot_channels.DEV_ROLE_ID))
 )
 
 

@@ -40,6 +40,18 @@ class _Guild:
         return next((c for c in self.text_channels if c.id == cid), None)
 
 
+class _ChannelGuild:
+    """Just enough guild for the own-server question, which reads an id and looks
+    one channel up by id."""
+
+    def __init__(self, gid, channels):
+        self.id = gid
+        self.text_channels = list(channels)
+
+    def get_channel(self, cid):
+        return next((c for c in self.text_channels if c.id == cid), None)
+
+
 class _Role:
     def __init__(self, rid, name, default=False):
         self.id = rid
@@ -209,19 +221,80 @@ class TheOperatorRole(unittest.TestCase):
         self.assertIsNone(bot_channels.dev_role(None))
 
 
-class TheOperatorIdHasOneHome(unittest.TestCase):
-    """The id is what a release note pings and what lets somebody answer an
-    anonymous question, so two copies of it is one rename away from a gate and a
-    ping that disagree about who is an operator."""
+class WhichServersAreTheBotsOwn(unittest.TestCase):
+    """There are two, and a gate that names one refuses in the other.
 
-    def test_bot_py_reads_it_rather_than_writing_it_down_again(self):
+    ``BOT_SERVER_GUILD_ID`` names the server the bot's own output lands in today;
+    the legacy update channel lives in the server its release notes were hardcoded
+    to *first*, which is where the Dev role the ping has always tagged was created.
+    The operator is in both, so "only in the bot's own server" has to mean both —
+    and this was wrong in the first version of that gate, which refused the command
+    in the server its owner was sitting in.
+    """
+
+    def test_the_server_the_bot_reports_from_is_its_own(self):
+        guild = _ChannelGuild(bot_channels.bot_server_guild_id(), [])
+        self.assertTrue(bot_channels.is_own_server(guild))
+
+    def test_the_server_holding_the_legacy_update_channel_is_its_own_too(self):
+        legacy = _Channel(bot_channels.LEGACY_UPDATE_CHANNEL_ID, "meow-bot-update")
+        guild = _ChannelGuild(4242, [legacy])
+        self.assertTrue(bot_channels.is_own_server(guild))
+
+    def test_a_server_with_neither_id_is_one_the_bot_is_a_visitor_in(self):
+        """Whatever its channels are called: a name is not an id, and 9999 is not
+        either server."""
+        guild = _ChannelGuild(9999, [_Channel(7000, "meow-bot-update")])
+        self.assertFalse(bot_channels.is_own_server(guild))
+
+    def test_a_dm_is_not_a_server_at_all(self):
+        self.assertFalse(bot_channels.is_own_server(None))
+
+    def test_a_guild_with_no_channel_lookup_is_not_assumed_to_be_one(self):
+        self.assertFalse(bot_channels.is_own_server(_RoleGuild([])))
+
+
+class TheOperatorIdHasOneHome(unittest.TestCase):
+    """Two ids decide who operates this bot and where they do it: the Dev role a
+    release note pings, and the legacy update channel that tells the server its
+    notes were hardcoded to from every other one. Each is read by more than one
+    feature — the ping, the release-note channel and the gate on the operator's
+    side of ``/qna`` — so a second copy of either is a rename away from two
+    features disagreeing about who is an operator and where they are.
+    """
+
+    #: Files that are allowed to hold the digits themselves: the module that owns
+    #: the question. Everything else, including this test, says the name instead.
+    HOME = Path("utils") / "bot_channels.py"
+
+    def _files_holding(self, needle: str) -> list[str]:
+        """Every hand-written Python file that contains *needle*, except the owner's."""
+        root = Path(__file__).resolve().parent.parent
+        home = (root / self.HOME).resolve()
+        skip = {".venv", "deleted_features", "node_modules", "__pycache__"}
+        found = []
+        for path in root.rglob("*.py"):
+            if set(path.parts) & skip or path.name.startswith("test_"):
+                continue
+            if path.resolve() == home:
+                continue
+            if needle in path.read_text(encoding="utf-8", errors="ignore"):
+                found.append(str(path.relative_to(root)))
+        return found
+
+    def test_the_dev_role_id_is_written_down_once(self):
+        self.assertTrue(bot_channels.DEV_ROLE_ID, "the module declares no Dev role")
+        strays = self._files_holding(str(bot_channels.DEV_ROLE_ID))
+        self.assertEqual(strays, [], f"the Dev role id is copied into {strays}")
+
+    def test_the_legacy_update_channel_id_is_written_down_once(self):
+        strays = self._files_holding(str(bot_channels.LEGACY_UPDATE_CHANNEL_ID))
+        self.assertEqual(strays, [], f"the legacy update channel id is copied into {strays}")
+
+    def test_bot_py_reads_both_rather_than_writing_them_down_again(self):
         source = BOT_PY.read_text(encoding="utf-8")
         self.assertIn("bot_channels.DEV_ROLE_ID", source)
-        self.assertNotIn(
-            str(bot_channels.DEV_ROLE_ID),
-            source,
-            "the Dev role id is written down in bot.py as well as bot_channels.py",
-        )
+        self.assertIn("bot_channels.LEGACY_UPDATE_CHANNEL_ID", source)
 
 
 class Binding(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):

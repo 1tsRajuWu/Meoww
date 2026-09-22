@@ -1515,8 +1515,12 @@ async def on_guild_remove(guild: discord.Guild):
 
 # The update channel these notes were hardcoded to before a server could say
 # where it wanted them. Still honoured for the server that owns it, so nothing
-# changes for the one that has been reading them all along.
-LEGACY_UPDATE_CHANNEL_ID = 1548948620600942632
+# changes for the one that has been reading them all along — and the *server* that
+# holds it is the second one this bot treats as its own, which is the question
+# ``bot_channels.is_own_server`` answers. One copy of the id, because a gate on the
+# operator's side of ``/qna`` reads it too and two copies is one drift away from a
+# gate that refuses where the operator actually is.
+LEGACY_UPDATE_CHANNEL_ID = bot_channels.LEGACY_UPDATE_CHANNEL_ID
 #: The Dev role of this server, read from the module that owns "who is an
 #: operator" rather than written down twice: the same id decides who may answer an
 #: anonymous question, and two copies would be one rename away from disagreeing.

@@ -122,8 +122,9 @@ class _Interaction:
     other would pass a test that handed it the same list twice.
     """
 
-    def __init__(self, *, user, guild=True, message_id=0, bot=None, module_on=True, roles=()):
+    def __init__(self, *, user, guild=True, message_id=0, bot=None, module_on=True, roles=(), channels=()):
         held = list(roles)
+        listed = list(channels)
         self.user = user
         user.roles = held
         self.guild = (
@@ -132,6 +133,13 @@ class _Interaction:
                 name=GUILD_NAME,
                 roles=held,
                 get_role=lambda rid: next((r for r in held if r.id == rid), None),
+                # ``channels`` exists for the one question that is about *which*
+                # server this is: a server is the bot's own either because
+                # ``BOT_SERVER_GUILD_ID`` names it or because it holds the legacy
+                # update channel, and only the second of those needs a lookup.
+                get_channel=lambda cid: next(
+                    (c for c in listed if getattr(c, "id", None) == cid), None
+                ),
             )
             if guild
             else None
@@ -1028,6 +1036,36 @@ class TheOperatorsSideIsOneServer(_QnaCase):
             interaction = _Interaction(user=self.owner, bot=self.bot)
             await self.cog.qna_reply.callback(self.cog, interaction, None)
         self.assertEqual(interaction.response.modals, [])
+
+    async def test_the_older_of_the_bots_two_servers_answers_too(self):
+        """The first version of this gate named one server and refused in the other.
+
+        ``BOT_SERVER_GUILD_ID`` names where the bot's own output lands today; the
+        legacy update channel lives in the server its notes were hardcoded to
+        *first*, which is where the Dev role the ping has always tagged was made.
+        Both are the operator's, and a command that works in one and is refused in
+        the other is a command that looks broken wherever they happen to be.
+        """
+        legacy = SimpleNamespace(
+            id=bot_channels.LEGACY_UPDATE_CHANNEL_ID, name="meow-bot-update"
+        )
+        interaction = _Interaction(user=self.owner, bot=self.bot, channels=(legacy,))
+        with mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": "999999"}):
+            await self.cog.qna_inbox.callback(self.cog, interaction)
+
+        self.assertIn("No questions", interaction.answered[-1]["content"])
+
+    async def test_asking_is_refused_there_as_well(self):
+        """The other half of the same sentence: if two servers are the bot's own,
+        then the question box is for the servers that are *not*."""
+        legacy = SimpleNamespace(
+            id=bot_channels.LEGACY_UPDATE_CHANNEL_ID, name="meow-bot-update"
+        )
+        interaction = _Interaction(user=self.asker, bot=self.bot, channels=(legacy,))
+        with mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": "999999"}):
+            await self.cog.qna_ask.callback(self.cog, interaction)
+
+        self.assertEqual(interaction.response.modals, [], "the form opened here")
 
     async def test_a_member_without_the_dev_role_cannot_read_the_inbox(self):
         member = _User(559, "Member")

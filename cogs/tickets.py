@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import db
+from utils import bot_channels, db
 from utils.style import (
     Panel, send_panel, send_card, ACCENT, DANGER, WARN, guild_icon, guild_banner, avatar_url,
 )
@@ -570,8 +570,12 @@ class TicketQuestionModal(discord.ui.Modal):
 
         # Staff ping — always include the dev role
         staff_pings = []
-        # Dev role (always tagged on every ticket)
-        dev_role = guild.get_role(1548948461301534791)
+        # Dev role (always tagged on every ticket). Read through the module that
+        # owns "who operates this bot" rather than by id here: the same role decides
+        # who may answer an anonymous question, and a copy of the number is one
+        # rename away from a ticket that pings nobody and a gate that admits
+        # somebody. It also answers for a server that renamed the role.
+        dev_role = bot_channels.dev_role(guild)
         if dev_role:
             staff_pings.append(dev_role.mention)
         for role_name in ("Staff", "Moderator", "Admin", "Support"):

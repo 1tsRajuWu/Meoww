@@ -87,6 +87,44 @@ DEV_ROLE_NAMES: tuple[str, ...] = ("bot-dev", "dev", "developer")
 #: an operator", and two copies of an id is how the gate and the ping drift apart.
 DEV_ROLE_ID = 1548948461301534791
 
+#: The update channel this bot's release notes were hardcoded to before a server
+#: could say where it wanted them. It is still honoured for the server that owns it,
+#: so nothing changes for the one that has been reading them all along — and its
+#: *server* is the second answer to "which server is this bot's own", which is why
+#: the id lives here rather than in ``bot.py``: two readers now ask.
+LEGACY_UPDATE_CHANNEL_ID = 1548948620600942632
+
+
+def is_own_server(guild) -> bool:
+    """Whether this guild is a server the bot considers **its own**.
+
+    There are two, and that is the fact this function exists to fix. The one
+    ``BOT_SERVER_GUILD_ID`` names is where the bot's own output lands today —
+    ``#bot-error``, ``#bug-report``, ``#active-servers``, ``#real-time-cmd-data`` —
+    and the one that holds :data:`LEGACY_UPDATE_CHANNEL_ID` is the server the notes
+    were hardcoded to *first*, which is also where the Dev role the release-note
+    ping has always tagged was created. Naming one of them and not the other is a
+    gate that refuses in the server the person answering is sitting in, which is
+    the wrong answer to the only question it is asked.
+
+    Both are ids a member cannot forge: neither ``BOT_SERVER_GUILD_ID`` nor the
+    legacy channel id is anything a server can acquire by naming a channel. A guild
+    that holds neither is a server the bot is a **visitor** in, whatever its
+    channels are called.
+    """
+    if guild is None:
+        return False
+    guild_id = getattr(guild, "id", None)
+    try:
+        if guild_id is not None and int(guild_id) == bot_server_guild_id():
+            return True
+    except (TypeError, ValueError):
+        pass
+    holder = getattr(guild, "get_channel", None)
+    if holder is None:
+        return False
+    return holder(LEGACY_UPDATE_CHANNEL_ID) is not None
+
 
 def dev_role(guild):
     """The role that marks an operator *in this server*, or ``None``.

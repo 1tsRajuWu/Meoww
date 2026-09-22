@@ -120,8 +120,8 @@ async def _is_owner(interaction: discord.Interaction) -> bool:
 #: and *wrong person*, because they are fixed by different things.
 OPERATOR_SERVER_ONLY = (
     "❌ This is the operator's side of the anonymous box, and it only runs in the "
-    "bot's own server — the one its owner answers from. `/qna ask` works in every "
-    "other server, including this one's members."
+    "bot's own servers — the ones its owner answers from. `/qna ask` works in "
+    "every other server, including this one's members."
 )
 
 #: And what they are told from the right server with the wrong roles.
@@ -132,14 +132,20 @@ OPERATOR_ONLY = (
 
 
 def _in_home_server(interaction: discord.Interaction) -> bool:
-    """Whether this happened in the bot's own server.
+    """Whether this happened in a server the bot treats as its own.
 
-    One reader of ``bot_channels.bot_server_guild_id`` so the three answers this
-    file gives — where the inbox lives, who may open it and who may answer — can
-    never disagree about which server that is. A DM is not it: an interaction
-    without a guild is the owner's card, which the owner answers from anywhere.
+    One reader of ``bot_channels.is_own_server``, so the three answers this file
+    gives — where the inbox lives, who may open it and who may answer — can never
+    disagree about where that is. It is **two servers**, which is the part that is
+    easy to get wrong and was: this bot is in the one it now reports from *and* the
+    one its release notes were hardcoded to first, the Dev role the ping has always
+    tagged was created in the second, and a gate naming only the first refused in
+    the server the operator was sitting in.
+
+    A DM is not either of them: an interaction without a guild is the owner's card,
+    which the owner answers from anywhere.
     """
-    return getattr(interaction, "guild_id", None) == bot_channels.bot_server_guild_id()
+    return bot_channels.is_own_server(getattr(interaction, "guild", None))
 
 
 async def _is_operator(interaction: discord.Interaction) -> bool:
@@ -603,7 +609,7 @@ class Qna(commands.Cog):
                 "anonymous box, and the answer comes back here.",
             )
         if _in_home_server(interaction):
-            # The bot's own server is where these are *answered*, and a question
+            # The bot's own servers are where these are *answered*, and a question
             # asked there is a question with nowhere to go: the relay posts it into
             # that server, which is the one channel the person answering is already
             # reading. Somebody with something to say to the operator writes to the
@@ -612,7 +618,7 @@ class Qna(commands.Cog):
                 interaction,
                 "❌ `/qna ask` is for the servers the bot is in — it is anonymous "
                 "because the *server* reads the question and one person reads who "
-                "asked it, and in the bot's own server those are the same person. "
+                "asked it, and in the bot's own servers those are the same person. "
                 "Use it somewhere else, or write to the operator directly.",
             )
         if not qna.configured():
