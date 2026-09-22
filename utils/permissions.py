@@ -210,6 +210,11 @@ COMMAND_ACCESS: dict[str, str] = {
     "music filter": EVERYONE,
     # The readout names the host's own paths and libraries, which is the
     # operator's business rather than a member's.
+    # A content preference for the whole server rather than a resource decision:
+    # `/music 247` keeps the bot in a channel indefinitely and is the owner's, while
+    # this one changes what a member hears and belongs to whoever configures the
+    # bot. It can refuse a station a member names, which is why it is not EVERYONE.
+    "music ads": GUILD,
     "music doctor": ADMIN,
     "music 247": OWNER,
     "customquote add": EVERYONE,

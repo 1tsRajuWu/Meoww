@@ -300,7 +300,8 @@ FEATURES: tuple[Feature, ...] = (
             "/music stations — browse the catalogue by genre, language or mood",
             "/music queue", "/music nowplaying", "/music skip", "/music pause",
             "/music resume", "/music stop", "/music volume", "/music filter",
-            "/music 247", "/music doctor",
+            "/music 247", "/music ads — how this server's radio treats stations that "
+            "carry advertising", "/music doctor",
         ),
         cog="cogs.music",
         help_key="music",

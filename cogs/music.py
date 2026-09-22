@@ -1630,11 +1630,48 @@ def catalogue_index() -> CatalogueIndex:
     )
 
 
+#: What ``/music ads`` can be set to, and what each one does to the radio. Three
+#: modes rather than a switch, because *no advertising* is two different requests:
+#: one is *"do not put ads in front of me when you choose"* and the other is *"never,
+#: even if I ask for that station by name"* — and the second one has to be able to
+#: say no to a member, which is a thing a server has to opt into deliberately.
+#:
+#: ``any`` is the default, and it has to be: a setting that changes what plays must
+#: not arrive switched on for servers that never asked for it.
+RADIO_ADS_MODES: dict[str, str] = {
+    "any": "play anything — advertising is not filtered at all",
+    "prefer": "when nobody names a station, pick one that carries no advertising",
+    "only": "never start a station that carries advertising",
+}
+
+
+def is_ad_free(station: dict) -> bool:
+    """Whether the station's own site says it carries no advertising.
+
+    One reader for one field, because this is a claim rather than a genre: the tag
+    is only ever applied where the station made it (see :data:`RADIO_TAGS`), and
+    three call sites each deciding for themselves what counts is how a tag and its
+    rule drift apart.
+    """
+    return "ad-free" in (station.get("tags") or ())
+
+
+def ad_free_stations() -> list[tuple[str, dict]]:
+    """The catalogue's ad-free entries, in catalogue order."""
+    return [(key, station) for key, station in RADIO_STATIONS.items() if is_ad_free(station)]
+
+
 def station_option_label(key: str, station: dict) -> str:
     """What one suggestion looks like, inside Discord's 100-character label cap."""
     label = f"{station['icon']} {station['name']} · {station['genre']}"
     if station.get("lang"):
         label += f" · {station['lang']}"
+    # The claim is on the label as well as on the card, because the moment somebody
+    # is choosing is the only moment it can change their mind. Only ever the
+    # positive direction: a station whose site did not say is left unmarked rather
+    # than marked *ads*, which would be this bot asserting something it never read.
+    if is_ad_free(station):
+        label += " · ad-free"
     return label[:100]
 
 
@@ -1913,6 +1950,7 @@ class Music(commands.Cog):
         if blocked:
             return await style.send_card(interaction, content=blocked, ephemeral=True)
 
+        ads = await db.get_radio_ads(interaction.guild_id)
         chosen = station_for(station or "")
         if chosen is None and (station or "").strip():
             return await style.send_card(
@@ -1920,6 +1958,23 @@ class Music(commands.Cog):
                 content=(
                     f"❌ I don't have a station called **{station}**.\n"
                     "-# `/music stations` shows every genre and language I do have."
+                ),
+                ephemeral=True,
+            )
+        if chosen is not None and ads == "only" and not is_ad_free(chosen[1]):
+            # The one refusal a *member* can meet, and it is the point of `only`:
+            # a server that asked for no advertising gets to say no to a named
+            # station rather than leaving the choice to whoever types first. The
+            # card names the setting and how to change it, because a refusal that
+            # does not say who decided reads as the bot being broken.
+            return await style.send_card(
+                interaction,
+                content=(
+                    f"🚫 **{chosen[1]['name']}** carries advertising, and this server is "
+                    "set to play only stations that do not.\n"
+                    f"-# {len(ad_free_stations())} stations qualify — `/music stations "
+                    "ad-free` lists them — and an administrator can change the setting "
+                    "with `/music ads`."
                 ),
                 ephemeral=True,
             )
@@ -1931,8 +1986,19 @@ class Music(commands.Cog):
             # time there is nothing to remember, so it picks one and says that it did,
             # rather than pretending the choice was the member's.
             chosen = station_for(remembered)
+            if chosen is not None and ads == "only" and not is_ad_free(chosen[1]):
+                # Remembered before the setting existed, or before it changed. `prefer`
+                # still plays it — it is this server's own earlier choice, and a
+                # preference is not a rule — while `only` is a rule, so the memory is
+                # set aside and the pick below starts from the stations that qualify.
+                chosen = None
         if chosen is None:
-            chosen = random.choice(list(RADIO_STATIONS.items()))
+            pool = list(RADIO_STATIONS.items())
+            if ads in ("only", "prefer"):
+                qualifying = ad_free_stations()
+                if qualifying:
+                    pool = qualifying
+            chosen = random.choice(pool)
         key, chosen = chosen
 
         await interaction.response.defer()
@@ -2273,6 +2339,48 @@ class Music(commands.Cog):
                 f"👑 **24/7 mode is on** — I'll stay in {target.mention} through restarts.\n"
                 f"-# set by {interaction.user.display_name} · auto-disconnect disabled"
             ),
+        )
+
+    @music.command(
+        name="ads",
+        description="How radio should treat stations that carry advertising (administrator).",
+    )
+    @app_commands.describe(mode="What to do about stations that run commercials")
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name=f"{value} — {how}", value=value)
+            for value, how in RADIO_ADS_MODES.items()
+        ]
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def ads(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
+        """The setting that makes the catalogue's one *claim* do something.
+
+        A station URL is somebody else's programming and nothing on this side can
+        take an ad break out of it — so the only honest thing a bot can offer is to
+        choose differently, and choosing differently is a decision about *this
+        server* rather than about the bot. Hence a stored setting with three answers
+        instead of a filter: ``any`` leaves everything alone, ``prefer`` biases the
+        pick when nobody named a station, and ``only`` refuses a station that
+        carries advertising even when a member names it — which is the one that has
+        to be opted into, because it means the bot says no to a person.
+
+        The card answers the question the setting raises and does not answer itself:
+        *how many stations qualify?* A server that switches to ``only`` and finds
+        the catalogue unusable has not been told the size of what it just agreed to.
+        """
+        await db.set_radio_ads(interaction.guild_id, mode.value)
+        qualifying = ad_free_stations()
+        await style.send_card(
+            interaction,
+            content=(
+                f"📻 Advertising: **{mode.value}**\n"
+                f"-# {RADIO_ADS_MODES[mode.value].capitalize()}.\n"
+                f"-# **{len(qualifying)} of {len(RADIO_STATIONS)} stations** carry none, "
+                "and only because their own sites say so — `/music stations ad-free` "
+                "lists them."
+            ),
+            ephemeral=True,
         )
 
     @music.command(name="doctor", description="What this host can and cannot do for voice (administrator).")

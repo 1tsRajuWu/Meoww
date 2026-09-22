@@ -369,7 +369,7 @@ class TheStationCard(unittest.TestCase):
 class TheRadioCommand(unittest.TestCase):
     """The memory in use: the same station back, and a random one that says so."""
 
-    def _run(self, station_argument, remembered):
+    def _run(self, station_argument, remembered, mode="any"):
         from types import SimpleNamespace
 
         cog = music_cog.Music.__new__(music_cog.Music)
@@ -430,6 +430,7 @@ class TheRadioCommand(unittest.TestCase):
             mock.patch.object(music_cog, "ControlsView", return_value=None),
             mock.patch.object(db, "get_radio_station", mock.AsyncMock(return_value=remembered)),
             mock.patch.object(db, "set_radio_station", set_mock),
+            mock.patch.object(db, "get_radio_ads", mock.AsyncMock(return_value=mode)),
             mock.patch.object(db, "get_247_setting", mock.AsyncMock(return_value=(False, 0))),
         ]
         import asyncio
@@ -489,6 +490,141 @@ class TheRadioCommand(unittest.TestCase):
             asyncio.run(cog.radio.callback(cog, interaction, "qqzzxx"))
         self.assertIn("don't have a station called", sent[0])
         self.assertNotIn("<deferred>", sent, "it started a station anyway")
+
+
+class TheAdsSettingChangesWhatPlays(unittest.TestCase):
+    """The catalogue's one *claim*, made to do something.
+
+    Nothing on this side can take an ad break out of somebody else's stream, so the
+    only honest thing a bot can offer is to choose differently — and choosing
+    differently is a decision about a server rather than about the bot. Three modes,
+    and the two that act are deliberately different in kind: ``prefer`` biases the
+    pick when nobody named a station, while ``only`` says no to a member, which is
+    why a server has to ask for it.
+    """
+
+    def setUp(self):
+        self.command = TheRadioCommand("test_no_argument_replays_what_this_server_chose_last")
+        self.ads_free = music_cog.ad_free_stations()
+        self.ad_carrying = [
+            key for key, station in music_cog.RADIO_STATIONS.items() if not music_cog.is_ad_free(station)
+        ]
+
+    def test_only_refuses_a_station_a_member_names_and_says_who_decided(self):
+        """The refusal is the point, and a refusal that does not name the setting
+        reads as the bot being broken."""
+        with self.subTest("refused"):
+            sent, played, remembered = self.command._run(self.ad_carrying[0], "", mode="only")
+            self.assertIn("carries advertising", sent[0])
+            self.assertIn("/music ads", sent[0])
+            self.assertEqual(played, [], "it played the station it just refused")
+            self.assertEqual(remembered.await_count, 0, "it remembered a station it refused")
+
+    def test_only_still_plays_a_station_that_carries_none(self):
+        key, station = self.ads_free[0]
+        sent, _played, remembered = self.command._run(key, "", mode="only")
+        self.assertIn(station["name"], sent[0])
+        remembered.assert_awaited_with(5, key)
+
+    def test_only_ignores_a_remembered_station_that_carries_advertising(self):
+        """A rule, not a preference: the memory was this server's own earlier choice
+        and it still must not decide for a server that has since asked for none."""
+        sent, _played, remembered = self.command._run(None, self.ad_carrying[0], mode="only")
+        picked = remembered.await_args.args[1]
+        self.assertNotEqual(picked, self.ad_carrying[0])
+        self.assertTrue(music_cog.is_ad_free(music_cog.RADIO_STATIONS[picked]))
+        self.assertIn(music_cog.RADIO_STATIONS[picked]["name"], sent[0])
+
+    def test_prefer_keeps_a_remembered_station_even_if_it_carries_ads(self):
+        """A preference is not a rule: the server chose that station on purpose, and
+        *prefer* is about the picks nobody made."""
+        sent, _played, remembered = self.command._run(None, self.ad_carrying[0], mode="prefer")
+        self.assertIn(music_cog.RADIO_STATIONS[self.ad_carrying[0]]["name"], sent[0])
+        remembered.assert_awaited_with(5, self.ad_carrying[0])
+
+    def test_prefer_and_only_both_pick_from_the_ad_free_stations(self):
+        """A fresh server with no memory, under each acting mode, twenty times."""
+        for mode in ("prefer", "only"):
+            for _attempt in range(20):
+                _sent, _played, remembered = self.command._run(None, "", mode=mode)
+                picked = remembered.await_args.args[1]
+                with self.subTest(mode=mode, station=picked):
+                    self.assertTrue(
+                        music_cog.is_ad_free(music_cog.RADIO_STATIONS[picked]),
+                        f"{picked} carries advertising and {mode!r} picked it anyway",
+                    )
+
+    def test_any_leaves_everything_alone(self):
+        """The default has to be the old behaviour, or the setting arrives switched on
+        for every server that never asked for it."""
+        sent, _played, remembered = self.command._run(None, self.ad_carrying[0])
+        self.assertIn(music_cog.RADIO_STATIONS[self.ad_carrying[0]]["name"], sent[0])
+        remembered.assert_awaited_with(5, self.ad_carrying[0])
+
+    def test_a_station_with_ads_is_playable_when_the_server_never_chose_a_mode(self):
+        self.assertEqual(
+            self.command._run(self.ad_carrying[0], "")[2].await_args.args[1], self.ad_carrying[0]
+        )
+
+
+class TheAdsSettingIsStoredAndReadSafely(unittest.IsolatedAsyncioTestCase):
+    """A stored preference is read by a command that must never refuse to play."""
+
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self._original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.temp.name, "radio-ads.db")
+        await db.setup()
+
+    async def asyncTearDown(self):
+        db.DB_PATH = self._original
+        self.temp.cleanup()
+
+    async def test_a_server_that_never_chose_reads_as_any(self):
+        self.assertEqual(await db.get_radio_ads(4242), "any")
+
+    async def test_the_three_modes_round_trip(self):
+        for mode in db.RADIO_ADS_MODES:
+            with self.subTest(mode=mode):
+                await db.set_radio_ads(99, mode)
+                self.assertEqual(await db.get_radio_ads(99), mode)
+        self.assertEqual(await db.get_radio_ads(100), "any", "one server read another's setting")
+
+    async def test_a_value_from_the_future_reads_as_any_rather_than_refusing(self):
+        """A restored or hand-edited database must not be able to silence radio."""
+        from utils import db as db_module
+
+        await db_module.set_setting(99, db_module.RADIO_ADS_KEY, "strictest")
+        self.assertEqual(await db.get_radio_ads(99), "any")
+
+    async def test_a_mode_that_is_not_one_of_the_three_is_refused_at_the_door(self):
+        with self.assertRaises(ValueError):
+            await db.set_radio_ads(99, "no-ads-please")
+
+
+class ThePickerMarksWhatCarriesNoAdvertising(unittest.TestCase):
+    """The moment somebody is choosing is the only moment the claim can help them."""
+
+    def test_an_ad_free_station_says_so_on_the_label(self):
+        key, station = music_cog.ad_free_stations()[0]
+        self.assertIn("ad-free", music_cog.station_option_label(key, station))
+
+    def test_a_station_whose_site_did_not_say_is_not_marked_at_all(self):
+        """Silence, not the opposite claim — this bot has not read that station's
+        site, and *ads* on a label would be an assertion it cannot back."""
+        key, station = next(
+            (key, station)
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if not music_cog.is_ad_free(station)
+        )
+        label = music_cog.station_option_label(key, station)
+        self.assertNotIn("ad-free", label)
+        self.assertNotIn("ads", label)
+
+    def test_every_ad_free_label_still_fits_in_discords_cap(self):
+        for key, station in music_cog.ad_free_stations():
+            with self.subTest(station=key):
+                self.assertLessEqual(len(music_cog.station_option_label(key, station)), 100)
 
 
 class TheBrowseCommand(unittest.TestCase):

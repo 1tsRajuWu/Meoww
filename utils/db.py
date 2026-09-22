@@ -1241,6 +1241,42 @@ async def set_radio_station(guild_id: int, station: str):
             (guild_id, station, time.time()))
         await db.commit()
 
+
+#: The key this setting lives under, and the only place it is spelled. It sits in
+#: the generic ``guild_settings`` table rather than in ``music_radio`` on purpose:
+#: that row is *what this server last played*, which is written on every start, and
+#: a preference sharing a row with it would be rewritten by the very thing it
+#: governs. This one changes when somebody asks it to and never otherwise.
+RADIO_ADS_KEY = "music_radio_ads"
+
+#: The three answers, and the reason the default is the first one: a setting that
+#: changes what plays must not arrive switched on for servers that never asked.
+RADIO_ADS_MODES = ("any", "prefer", "only")
+
+
+async def get_radio_ads(guild_id: int) -> str:
+    """How this server wants advertising handled: ``any``, ``prefer`` or ``only``.
+
+    Anything unrecognised reads as ``any``, which is what makes a hand-edited
+    database and a value from a future version of this file both mean *do what you
+    did before* rather than *refuse to play anything*.
+    """
+    value = str(await get_setting(guild_id, RADIO_ADS_KEY, "any") or "")
+    return value if value in RADIO_ADS_MODES else "any"
+
+
+async def set_radio_ads(guild_id: int, mode: str):
+    """Store the mode, refusing anything that is not one of the three.
+
+    The caller is a slash command with fixed choices, so this cannot be reached
+    with a bad value through Discord — it exists for the *other* callers (a test, a
+    restore, a future panel) where "store whatever string arrived" would put a
+    value in the table that only the reader's fallback understands.
+    """
+    if mode not in RADIO_ADS_MODES:
+        raise ValueError(f"{mode!r} is not one of {RADIO_ADS_MODES}")
+    await set_setting(guild_id, RADIO_ADS_KEY, mode)
+
 # ── Warnings ─────────────────────────────────────────────────────────────────
 # Three helpers where the commands used to hold the SQL directly. The website
 # became a second caller, and a second copy of "what a warning is" is how a panel
