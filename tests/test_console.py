@@ -604,19 +604,26 @@ class TheConsoleApi(_DashboardFixture):
                 self.assertIn("ConfigAttention", source)
 
     def test_the_reticle_is_an_instrument_that_follows_rather_than_a_second_pointer(self):
-        """The paw that used to be drawn *on* the point is gone.
+        """Nothing is drawn *on* the point, in the sheet or in the script.
 
         Two pointers at one coordinate is not a flourish, it is a smear: the
         browser's arrow owns the point (it is what decides what a click hits), and
-        a decoration centred there lands half over it. What is left is a hairline
-        ring that trails on a spring and stretches along its own direction of
-        travel, so speed reads as weight instead of as a second cursor.
+        a decoration centred there lands half over it. The paw went first; the dot
+        and the ring that replaced it went when this pass counted what they cost —
+        the sheet hid both in every style the picker offers, neither was ever
+        given a width or a height, and the loop still wrote their position every
+        frame. What a reader sees is the chosen entity, and the weight of a move
+        is carried by the layers that trail on a spring beside it.
         """
         css = (CONSOLE / "src" / "styles.css").read_text(encoding="utf-8")
-        self.assertNotIn("cursor__paw", css, "something is drawn on the point again")
-        self.assertIn("cursor__ring", css)
+        for gone in ("cursor__paw", "meow-cursor-dot", "meow-cursor-ring"):
+            with self.subTest(part=gone):
+                self.assertNotIn(gone, css, f"{gone} is back on the point")
         source = (CONSOLE / "src" / "app" / "Cursor.tsx").read_text(encoding="utf-8")
-        self.assertIn("STRETCH", source, "the ring no longer reacts to how fast it is moving")
+        for gone in ("meow-cursor-dot", "meow-cursor-ring", "cursor__ring"):
+            with self.subTest(part=gone):
+                self.assertNotIn(gone, source, f"{gone} is built again")
+        self.assertIn("blobStretch", source, "the layer no longer reacts to how fast it is moving")
         self.assertIn("Math.atan2", source, "the stretch is not aligned with the direction of travel")
         # The loop has to be able to stop: a settled page must not hold a frame
         # per animation tick for the life of the session.

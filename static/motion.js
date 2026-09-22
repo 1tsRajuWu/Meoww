@@ -443,12 +443,20 @@
        --------------------------------------------------------------------- */
     /* Two enhancements, both opt-in by capability and both purely additive.
 
-       * **The cursor.** A dot on the pointer's exact position and a ring that
-         chases it, easing in as it goes, so a move reads as having weight. The
-         native cursor is hidden only **after** this layer exists and only on a
-         device with a fine pointer — `cursor: none` with a script that then
-         fails is a page with no pointer at all, which is a far worse trade than
-         never having a custom one. A click prints a paw where it landed.
+       * **The cursor.** The chosen entity and nothing else: one of the six
+         shapes below, each trailing on its own spring so a move reads as having
+         weight. What follows the pointer is the *style*, and the only mark on
+         the point itself is the one the style draws. A dot pinned to the point
+         and a ring chasing it used to be built here, under the entity — both are
+         gone, and the reason is the same one this file keeps relearning: no
+         sheet ever showed them (`meow.css` hides both in every style, and
+         `cursor-style-sparkle` says "zero center dot, zero ring" and means it),
+         neither had a width or a height, so the two nodes were 0x0 boxes
+         positioned every frame, and a second mark on the point is a second
+         cursor rather than an improvement. The native cursor is hidden only
+         **after** this layer exists and only on a device with a fine pointer —
+         `cursor: none` with a script that then fails is a page with no pointer at
+         all, which is a far worse trade than never having a custom one.
 
          **Position goes in `translate`, shape goes in `transform`, and the
          split is load-bearing.** This used to write `style.transform =
@@ -472,7 +480,7 @@
        once and removed (see `tests/test_shared_system.py`, which pins the
        absence of the old particle canvas): 45 shapes redrawn every frame behind
        content that never moved. This one starts on a pointer move and stops
-       itself as soon as the ring has caught up, so an idle page costs nothing
+       itself as soon as every layer has caught up, so an idle page costs nothing
        and a page whose pointer never moves costs nothing either. */
     var CURSOR_KEY = "meow-cursor-style";
     var CURSOR_COLOR_KEY = "meow-cursor-color";
@@ -637,14 +645,6 @@
         vortexContainer.appendChild(vortexOuter);
         host.appendChild(vortexContainer);
 
-        // Fallback elements kept for legacy selectors
-        var ring = document.createElement("span");
-        ring.className = "meow-cursor-ring";
-        var dot = document.createElement("span");
-        dot.className = "meow-cursor-dot";
-        host.appendChild(ring);
-        host.appendChild(dot);
-
         var glow = document.createElement("div");
         glow.className = "meow-glow";
         glow.setAttribute("aria-hidden", "true");
@@ -771,8 +771,6 @@
 
         var x = -100;
         var y = -100;
-        var ringX = -100;
-        var ringY = -100;
         var glowX = -100;
         var glowY = -100;
         var blobX = -100;
@@ -788,8 +786,6 @@
         var running = false;
 
         function frame() {
-            ringX += (x - ringX) * 0.18;
-            ringY += (y - ringY) * 0.18;
             glowX += (x - glowX) * 0.05;
             glowY += (y - glowY) * 0.05;
             scale += (scaleTo - scale) * 0.16;
@@ -833,23 +829,20 @@
             vortexY += (y - vortexY) * 0.20;
             vortexContainer.style.translate = vortexX.toFixed(2) + "px " + vortexY.toFixed(2) + "px";
 
-            // Glow and fallback ring
-            ring.style.translate = ringX.toFixed(2) + "px " + ringY.toFixed(2) + "px";
-            ring.style.scale = scale.toFixed(3);
             glow.style.translate = glowX.toFixed(2) + "px " + glowY.toFixed(2) + "px";
 
             // The swarm trails the pointer by design (each particle eases in at
             // its own lag), so the loop is not finished until the particles have
             // caught up as well. Leaving them out of this test stopped the loop
-            // the moment the ring settled — a handful of frames — and left the
-            // six of them strung out along the path of a fast flick.
+            // the moment the springs settled — a handful of frames — and left
+            // the six of them strung out along the path of a fast flick.
             var swarmSettled = true;
             for (var sj = 0; sj < sparkleParticles.length; sj++) {
                 if (Math.abs(x - sparkleParticles[sj].x) > 0.3 || Math.abs(y - sparkleParticles[sj].y) > 0.3) {
                     swarmSettled = false;
                 }
             }
-            running = !swarmSettled || Math.abs(x - ringX) > 0.3 || Math.abs(y - ringY) > 0.3 ||
+            running = !swarmSettled ||
                 Math.abs(x - blobX) > 0.3 || Math.abs(y - blobY) > 0.3 ||
                 Math.abs(x - radarX) > 0.3 || Math.abs(y - radarY) > 0.3 ||
                 Math.abs(x - vortexX) > 0.3 || Math.abs(y - vortexY) > 0.3 ||
@@ -873,10 +866,7 @@
             host.classList.add("is-on");
             glow.classList.add("is-on");
             x = event.clientX;
-            y = event.clientY;
-            if (first) {
-                ringX = x;
-                ringY = y;
+            y = event.clientY;            if (first) {
                 glowX = x;
                 glowY = y;
                 blobX = x;
@@ -892,7 +882,6 @@
                     sparkleParticles[si].y = y;
                 }
             }
-            dot.style.translate = x + "px " + y + "px";
             wake();
         }, { passive: true });
 

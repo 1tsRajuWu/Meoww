@@ -1625,11 +1625,18 @@ class ThePointerIsMovedByOneThing(unittest.TestCase):
     has to appear in both scripts as the class they create, so a rename cannot
     leave this law watching an element that no longer exists.
 
+    Two elements left this list rather than being covered by it: `meow-cursor-dot`
+    and `meow-cursor-ring`, the pair the scripts used to build under the chosen
+    entity. Both were removed from the scripts and both sheets, because no style
+    showed them and neither had a size — a per-frame write for a 0x0 box. A law
+    about where an element is positioned has nothing to say about an element that
+    is not carried.
+
     What this cannot see, said plainly: the radar's four brackets and the
     vortex's outer ring are *children* of a moved element, so their `transform`
-    rules are outside the list. The ring's warp is stated with `scale` for the
-    same reason the rules here are — its spin owns `transform` — and nothing
-    checks it.
+    rules are outside the list. The blob's squash stretches with `scale` for the
+    same reason the rules here are stated with `translate` — its `transform` is
+    free — and nothing checks it.
     '''
 
     #: What the pointer layer moves: every one of these is positioned by
@@ -1640,13 +1647,11 @@ class ThePointerIsMovedByOneThing(unittest.TestCase):
         'radar-hud',
         'blob-drop',
         'vortex-container',
-        'meow-cursor-ring',
-        'meow-cursor-dot',
         'meow-glow',
     )
 
-    #: Where each script writes the position: the loop, and the handler that has
-    #: to park the dot on the way in.
+    #: Where each script writes the position: the move handler and the loop it
+    #: wakes.
     PAINT = {
         'static/motion.js': ('function frame()', 'function wake()'),
         'console/src/app/Cursor.tsx': ('const paint = () =>', 'const frame = () =>'),
@@ -1754,19 +1759,24 @@ class ThePointerIsMovedByOneThing(unittest.TestCase):
                     'animates `transform` — an animation outranks an inline '
                     'declaration, so the position is what gets dropped',
                 )
-        # The dot is positioned in the move handler rather than in the loop, so
-        # the region above does not reach it.
+        # The dot and the ring used to be positioned outside the loop — the dot in
+        # the move handler, the ring from a spring inside it. Neither is carried
+        # any more (see the class docstring), so `translate` must not come back
+        # under either name: a script that rebuilds one would be writing a
+        # position for an element no sheet shows.
         motion = read(os.path.join(ROOT, 'static/motion.js'))
-        self.assertIn('dot.style.translate', motion)
-        self.assertNotIn('dot.style.transform', motion)
+        for gone in ('meow-cursor-dot', 'meow-cursor-ring'):
+            with self.subTest(part=gone):
+                self.assertNotIn(gone, motion)
 
     def test_the_swarm_starts_where_the_pointer_does_and_the_loop_waits_for_it(self):
         '''A trailing layer is two promises: it starts here, and it catches up.
 
-        The particles ease in at a lag of 0.14-0.34 per frame while the ring
-        settles in a handful, so a loop that stops when the *ring* is done leaves
-        the swarm strung out along the path of a fast flick — and on the first
-        move, strung out from (-100, -100), which is the corner of the viewport.
+        The particles ease in at a lag of 0.14-0.34 per frame while the springs
+        settle in a handful, so a loop that stops when the *springs* are done
+        leaves the swarm strung out along the path of a fast flick — and on the
+        first move, strung out from (-100, -100), which is the corner of the
+        viewport.
         '''
         console = read(os.path.join(ROOT, 'console/src/app/Cursor.tsx'))
         self.assertIn('p.x = targetX', console, 'the console swarm is released from where it was built')

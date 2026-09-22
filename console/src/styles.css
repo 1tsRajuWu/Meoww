@@ -1857,24 +1857,11 @@ a {
   filter: brightness(0.7) saturate(0.6);
 }
 
-.meow-cursor-dot {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-  border-radius: 50%;
-  will-change: transform;
-}
-
-.cursor__ring,
-.meow-cursor-ring {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-  will-change: transform;
-  transition: border-color var(--duration-quick) ease, background var(--duration-quick) ease, box-shadow var(--duration-quick) ease;
-}
+/* No centre dot and no trailing ring. `Cursor.tsx` used to build the pair under
+   the chosen entity, this sheet hid both in every style the picker offers, and
+   neither was ever given a width or a height — so the two cost a node and a
+   write a frame to paint nothing at 0x0. Removing them is the judgement
+   `cursor-style-sparkle` already states: "zero center dot, zero ring". */
 
 /* Ambient glow trailing layer */
 .meow-glow {
@@ -1916,8 +1903,6 @@ a {
 }
 
 /* All custom cursor shape entities are hidden by default; only the active cursor style displays */
-.meow-cursor .meow-cursor-dot,
-.meow-cursor .meow-cursor-ring,
 .meow-cursor .sparkle-cluster,
 .meow-cursor .sparkle-particle,
 .meow-cursor .sword-entity,

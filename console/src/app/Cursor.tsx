@@ -2,11 +2,15 @@
  *
  * Designed to preserve precision:
  * - Native pointer is preserved when system style is active.
- * - Dot and ring are the legacy fallback layer, and `styles.css` hides both in
- *   every style the picker offers (`cursor-style-sparkle` says "zero center dot,
- *   zero ring" and means it), so what a reader sees is always the chosen
- *   entity. They are positioned anyway, because a stylesheet that starts
- *   showing one should get it on the pointer rather than in the corner.
+ * - What a reader sees is always the chosen entity, and there is nothing under
+ *   it. A dot pinned to the point and a ring trailing on a spring used to be
+ *   drawn below the entity; both are gone. `styles.css` hid them in every style
+ *   the picker offers (`cursor-style-sparkle` says "zero center dot, zero ring"
+ *   and means it) and neither carried a size, so the pair was two 0x0 boxes
+ *   positioned sixty times a second for nobody — and a second mark on the point
+ *   is a second cursor, which is the complaint this layer exists to answer
+ *   rather than to make. The spring they carried still runs: it is what the glow,
+ *   the blob, the radar and the vortex trail on.
  * - Glow layer renders soft ambient light.
  * - Reduced motion shuts off custom layers cleanly.
  *
@@ -25,19 +29,15 @@
 import { useEffect, useRef } from "react";
 import { currentCursorStyle, type CursorStyleId } from "../lib/theme";
 
-/** How hard the ring is pulled toward the pointer, and how much it drags. */
+/** How hard the trailing layers are pulled toward the pointer, and how much
+ *  they drag — the lead the glow, the blob, the radar and the vortex follow. */
 const PULL = 0.2;
 const DRAG = 0.72;
-/** Per-pixel-of-travel stretch, and the ceiling on it. */
-const STRETCH = 0.055;
-const STRETCH_MAX = 0.26;
-/** Below this the ring is treated as settled. */
+/** Below this a trailing layer is treated as settled. */
 const REST = 0.12;
 
 export function Cursor() {
   const shell = useRef<HTMLDivElement | null>(null);
-  const ring = useRef<HTMLSpanElement | null>(null);
-  const dot = useRef<HTMLSpanElement | null>(null);
   const glow = useRef<HTMLDivElement | null>(null);
   const sparkleCluster = useRef<HTMLDivElement | null>(null);
   const swordEntity = useRef<HTMLDivElement | null>(null);
@@ -51,8 +51,6 @@ export function Cursor() {
     if (!fine || quiet) return;
 
     const shellNode = shell.current;
-    const ringNode = ring.current;
-    const dotNode = dot.current;
     const glowNode = glow.current;
     const sparkleNode = sparkleCluster.current;
     const swordNode = swordEntity.current;
@@ -60,7 +58,7 @@ export function Cursor() {
     const blobNode = blobDrop.current;
     const vortexNode = vortexContainer.current;
 
-    if (!shellNode || !ringNode || !dotNode || !glowNode || !sparkleNode || !swordNode || !radarNode || !blobNode || !vortexNode) return;
+    if (!shellNode || !glowNode || !sparkleNode || !swordNode || !radarNode || !blobNode || !vortexNode) return;
 
     const particleEls = sparkleNode.querySelectorAll<HTMLSpanElement>(".sparkle-particle");
     const sparkles = Array.from(particleEls).map((el, i) => ({
@@ -91,8 +89,8 @@ export function Cursor() {
 
     // No `has-meow-cursor` on the document element. That flag exists so a sheet
     // can put `cursor: none` on the page while a drawn cursor is in charge, and
-    // this console decided the opposite — the ring is a *companion* to the
-    // pointer, not a replacement for it, so the real one stays (there is a test
+    // this console decided the opposite — the drawn layers are *companions* to
+    // the pointer, not a replacement for it, so the real one stays (there is a test
     // that pins exactly that, and `styles.css` says so where the cursor's rules
     // live). Setting the flag here was a promise to a rule this bundle's sheet
     // has never had, and a class no selector answers is not a harmless one: it
@@ -133,11 +131,7 @@ export function Cursor() {
 
     const paint = () => {
       const speed = Math.hypot(vx, vy);
-      const stretch = Math.min(STRETCH_MAX, speed * STRETCH);
       const angle = speed > 0.02 ? (Math.atan2(vy, vx) * 180) / Math.PI : 0;
-
-      // Pin dot directly to pointer coordinates
-      dotNode.style.translate = `${targetX.toFixed(2)}px ${targetY.toFixed(2)}px`;
 
       // 1. Sparkle swarm particles with orbital float
       for (const p of sparkles) {
@@ -165,12 +159,6 @@ export function Cursor() {
       // 5. Quantum Sacred Vortex
       vortexNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
 
-      // Trailing spring ring (fallback)
-      ringNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
-      ringNode.style.rotate = `${angle.toFixed(1)}deg`;
-      ringNode.style.scale =
-        `${(scale * (1 + stretch)).toFixed(3)} ${(scale * (1 - stretch * 0.6)).toFixed(3)}`;
-
       // Ambient glow
       glowNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
     };
@@ -191,7 +179,7 @@ export function Cursor() {
       // The swarm trails the pointer by design, so the loop is not finished
       // until the *particles* have caught up as well. Leaving them out was a
       // second way for the cursor to end up somewhere other than the pointer:
-      // they converge with a lag of 0.14–0.34 per frame while the ring settles
+      // they converge with a lag of 0.14–0.34 per frame while the springs settle
       // in a handful, so a fast move stopped the loop with the swarm still
       // strung out behind it — and on the very first move it was strung out
       // from (-100, -100), which is the top-left corner of the viewport.
@@ -342,8 +330,6 @@ export function Cursor() {
             <span className="vortex-tachyon t3" />
           </span>
         </div>
-        <span className="cursor__ring meow-cursor-ring" ref={ring} />
-        <span className="meow-cursor-dot" ref={dot} />
       </div>
       <div className="meow-glow" ref={glow} aria-hidden="true" />
     </>

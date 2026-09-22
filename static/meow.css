@@ -3604,20 +3604,17 @@ body.landing:has([data-menu].is-open) {
     filter: brightness(0.7) saturate(0.6);
 }
 
-.meow-cursor-dot,
-.meow-cursor-ring {
-    position: absolute;
-    pointer-events: none;
-    will-change: transform;
-}
+/* No centre dot and no trailing ring. `motion.js` used to build the pair under
+   the chosen entity, this sheet hid both in every style, and neither was ever
+   given a width or a height — a node positioned every frame to paint nothing at
+   0x0. Removed, which is what `cursor-style-sparkle`'s "zero center dot, zero
+   ring" already said. */
 
 /* --------------------------------------------------------------------------
    Radical Cursors: 6 completely distinct concepts with 0% overlap
    -------------------------------------------------------------------------- */
 
 /* All custom cursor shape entities are hidden by default; only the active cursor style displays */
-.meow-cursor .meow-cursor-dot,
-.meow-cursor .meow-cursor-ring,
 .meow-cursor .sparkle-cluster,
 .meow-cursor .sparkle-particle,
 .meow-cursor .sword-entity,
