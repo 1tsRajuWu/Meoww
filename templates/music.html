@@ -135,8 +135,7 @@
                         </span>
                     </div>
                     <div class="lp-panel-body">
-                        <ul class="lp-rows">
-                            {#
+                        <ul class="lp-rows">                                {#
                                 Each row carries what the station *is* — the genre,
                                 and the language when one is declared — because the
                                 question this list has to be able to answer is
@@ -146,12 +145,18 @@
                                 stations whose words are whatever the music is in
                                 deliberately declare nothing, and inventing a tag
                                 for them would be the lookup table lying again.
+                                "ad-free" is shown for the same reason a listener
+                                would ask for it: a station that breaks a
+                                conversation to sell something is the one failure a
+                                background radio cannot design away, and only the
+                                stations whose own site says they carry no
+                                advertising are marked.
                             #}
                             {% for station in stations %}
                             <li class="lp-row">
                                 <span>
                                     {{ station.icon }} <strong>{{ station.name }}</strong>
-                                    <span class="dim">{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}</span>
+                                    <span class="dim">{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}{% if "ad-free" in station.tags %} · ad-free{% endif %}</span>
                                 </span>
                                 <span class="dim">{{ station.desc }}</span>
                             </li>

@@ -102,6 +102,54 @@ class TheCatalogue(unittest.TestCase):
                     f"findable by it: {sorted(keys - found)}",
                 )
 
+    def test_the_ad_free_tag_is_only_on_stations_that_said_so(self):
+        """The one tag here that is a claim rather than a description, and its rule.
+
+        A commercial break is the worst thing a background radio can do, so *no
+        ads* is a property people choose on — and the tag may only be applied where
+        the station's own site says it carries no advertising, which is the same bar
+        the URL list is held to. Two sources met it: SomaFM, whose support page says
+        *commercial-free* and *we don't run ads*, and WFMU, whose about page says
+        *listener-supported, non-commercial*. Every SomaFM channel carries it,
+        because the claim is about the operator and not about the channel.
+
+        Deliberately *not* tagged, and the reason is the point of the rule: Yle,
+        NRK, DR, Sveriges Radio, RTP, NPO and Radio France are all funded in ways
+        that do not want advertising and none of their own pages stated it in words
+        this pass could read — and KEXP's page says only *listener-supported*, which
+        a station can say while still running sponsor spots.
+        """
+        claimed = [
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if "ad-free" in station["tags"]
+        ]
+        self.assertGreaterEqual(len(claimed), 20, "the catalogued set shrank")
+        for key in claimed:
+            with self.subTest(station=key):
+                url = music_cog.RADIO_STATIONS[key]["url"]
+                self.assertTrue(
+                    "somafm" in url or "wfmu" in url,
+                    f"{key} claims to carry no advertising and no source was recorded for it",
+                )
+
+    def test_a_person_asking_for_no_ads_finds_those_stations(self):
+        """Nobody types the tag, so the words they do type have to reach it."""
+        expected = {
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if "ad-free" in station["tags"]
+        }
+        self.assertTrue(expected)
+        for query in ("ad-free", "ad free", "no ads", "ads", "commercials"):
+            with self.subTest(query=query):
+                found = {key for key, _station in music_cog.search_stations(query, limit=200)}
+                self.assertLessEqual(
+                    expected,
+                    found,
+                    f"{query!r} did not reach every ad-free station: {sorted(expected - found)}",
+                )
+
     def test_no_mood_outside_the_vocabulary(self):
         """Free-text tags are how a filter quietly stops matching anything.
 
@@ -560,6 +608,22 @@ class TheBrowseCommand(unittest.TestCase):
         self.assertEqual(index.wordless, len(wordless))
         self.assertEqual(index.unlabelled, len(unlabelled))
 
+    def test_the_index_reports_how_many_carry_no_advertising(self):
+        """A number nobody prints is a number nobody can ask for."""
+        captured = self._run(None)
+        embed: discord.Embed = captured["embed"]
+        index = music_cog.catalogue_index()
+        self.assertEqual(
+            index.ad_free,
+            sum(
+                1
+                for station in music_cog.RADIO_STATIONS.values()
+                if "ad-free" in station["tags"]
+            ),
+        )
+        self.assertGreater(index.ad_free, 0, "this test stopped covering anything")
+        self.assertIn(f"{index.ad_free} carry no advertising", embed.description)
+
     def test_every_language_in_the_index_can_be_searched_for_by_name(self):
         """Reading the list and then being unable to use it is the defect itself."""
         for language, _count in music_cog.catalogue_index().languages:
@@ -626,6 +690,11 @@ class ThePublicCataloguePage(unittest.TestCase):
 
     def test_a_row_carries_the_genre_that_was_only_in_the_data_before(self):
         self.assertIn(music_cog.RADIO_STATIONS["groovesalad"]["genre"], self.body)
+
+    def test_an_ad_free_station_says_so_on_the_page(self):
+        """A visitor choosing a station to leave on wants to know before it starts."""
+        self.assertIn("ad-free", self.body)
+        self.assertIn(music_cog.RADIO_STATIONS["groovesalad"]["name"], self.body)
 
 
 class TheConsoleReadsTheCatalogueToo(unittest.TestCase):

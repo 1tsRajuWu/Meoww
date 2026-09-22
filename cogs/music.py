@@ -91,6 +91,31 @@ RADIO_TAGS: dict[str, str] = {
     "energetic": "loud and fast by design",
     "oldies": "the catalogue is from before 2000",
     "seasonal": "in season or not, and obvious about which",
+    # The one entry here that is a *claim the station makes about itself* rather
+    # than a description of the music, and it earns its place from what an ad does
+    # to this bot's only real use case: a station plays under a conversation, and a
+    # commercial break is the worst thing a background radio can do — it is loud,
+    # it is in a register people listen to, and it is not what anybody chose.
+    #
+    # **It may only be applied where the station's own site says so**, which is the
+    # same rule the URL list follows and for the same reason: a tag nobody can check
+    # is a promise the bot cannot keep. Two sources met that bar — SomaFM's support
+    # page ("a commercial-free, listener supported radio station … We don't run ads
+    # because that would mean giving up our independence") and WFMU's about page
+    # ("a listener-supported, non-commercial radio station"). Every one of SomaFM's
+    # channels carries it, because the claim is about the operator rather than about
+    # the channel, and WFMU is the other one.
+    #
+    # **The public broadcasters that most likely qualify are deliberately not
+    # tagged.** Yle, NRK, DR, Sveriges Radio, RTP, NPO and Radio France are all
+    # funded in a way that does not want advertising, and *none of their own pages
+    # stated it* in words this pass could read — so the honest entry is silence, not
+    # a plausible tag. This table has one documented case of a directory's label
+    # being confidently wrong (the *baroque* entry that was a Bee Gees station), and
+    # a rule that only writes down what it read is the fix for that, not a
+    # formality. KEXP's page says "listener-supported" and no more; a station can be
+    # listener-supported and still run sponsor spots, so it stays untagged too.
+    "ad-free": "no advertising — the station's own site says so",
 }
 
 RADIO_STATIONS: dict[str, dict] = {
@@ -102,7 +127,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🥗",
         "genre": "Chill",
         "lang": "",
-        "tags": ("instrumental", "focus", "chill"),
+        "tags": ("instrumental", "focus", "chill", "ad-free"),
     },
     "beatblender": {
         "name": "Beat Blender",
@@ -111,7 +136,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🌙",
         "genre": "Chill",
         "lang": "",
-        "tags": ("instrumental", "focus", "chill"),
+        "tags": ("instrumental", "focus", "chill", "ad-free"),
     },
     "lofi": {
         "name": "Lo-Fi Beats",
@@ -174,7 +199,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🛰️",
         "genre": "Ambient",
         "lang": "",
-        "tags": ("instrumental", "focus", "chill"),
+        "tags": ("instrumental", "focus", "chill", "ad-free"),
     },
     "deepspace": {
         "name": "Deep Space One",
@@ -183,7 +208,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🌌",
         "genre": "Ambient",
         "lang": "",
-        "tags": ("instrumental", "focus", "chill"),
+        "tags": ("instrumental", "focus", "chill", "ad-free"),
     },
     "spacestation": {
         "name": "Space Station Soma",
@@ -192,7 +217,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🚀",
         "genre": "Ambient",
         "lang": "",
-        "tags": ("instrumental", "focus", "chill"),
+        "tags": ("instrumental", "focus", "chill", "ad-free"),
     },
     "fluid": {
         "name": "Fluid",
@@ -201,7 +226,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "💧",
         "genre": "Instrumental",
         "lang": "",
-        "tags": ("instrumental", "focus"),
+        "tags": ("instrumental", "focus", "ad-free"),
     },
     "instrumental": {
         "name": "Instrumental",
@@ -219,7 +244,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🌾",
         "genre": "Folk",
         "lang": "",
-        "tags": ("chill", "oldies"),
+        "tags": ("chill", "oldies", "ad-free"),
     },
     # ── Jazz, soul, funk and lounge ──────────────────────────────────────── #
     "jazz": {
@@ -256,7 +281,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🪐",
         "genre": "Jazz",
         "lang": "",
-        "tags": ("instrumental",),
+        "tags": ("instrumental", "ad-free"),
     },
     "lounge": {
         "name": "Lounge",
@@ -274,7 +299,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🕶️",
         "genre": "Lounge",
         "lang": "",
-        "tags": ("instrumental", "chill", "oldies"),
+        "tags": ("instrumental", "chill", "oldies", "ad-free"),
     },
     "secretagent": {
         "name": "Secret Agent",
@@ -283,7 +308,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🕵️",
         "genre": "Lounge",
         "lang": "",
-        "tags": ("instrumental", "oldies"),
+        "tags": ("instrumental", "oldies", "ad-free"),
     },
     "swing": {
         "name": "Swing",
@@ -501,7 +526,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🔊",
         "genre": "Dubstep",
         "lang": "",
-        "tags": ("instrumental", "energetic"),
+        "tags": ("instrumental", "energetic", "ad-free"),
     },
     "idm": {
         "name": "Cliqhop IDM",
@@ -510,7 +535,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🧠",
         "genre": "IDM",
         "lang": "",
-        "tags": ("instrumental", "focus"),
+        "tags": ("instrumental", "focus", "ad-free"),
     },
     "defcon": {
         "name": "DEF CON Radio",
@@ -519,7 +544,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "👾",
         "genre": "Electro",
         "lang": "",
-        "tags": ("instrumental", "focus"),
+        "tags": ("instrumental", "focus", "ad-free"),
     },
     "fipelectro": {
         "name": "FIP Électro",
@@ -692,7 +717,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🤘",
         "genre": "Metal",
         "lang": "",
-        "tags": ("energetic",),
+        "tags": ("energetic", "ad-free"),
     },
     "heavymetal": {
         "name": "Radio Heavy Metal",
@@ -728,7 +753,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🌼",
         "genre": "Indie",
         "lang": "",
-        "tags": (),
+        "tags": ("ad-free",),
     },
     "kexp": {
         "name": "KEXP 90.3 FM",
@@ -746,7 +771,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🗽",
         "genre": "Eclectic",
         "lang": "",
-        "tags": (),
+        "tags": ("ad-free",),
     },
     "radioparadise": {
         "name": "Radio Paradise",
@@ -809,7 +834,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🍂",
         "genre": "Folk",
         "lang": "",
-        "tags": ("chill",),
+        "tags": ("chill", "ad-free"),
     },
     "celtic": {
         "name": "Thistle Radio",
@@ -818,7 +843,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🍀",
         "genre": "Celtic",
         "lang": "",
-        "tags": ("instrumental",),
+        "tags": ("instrumental", "ad-free"),
     },
     "covers": {
         "name": "Covers",
@@ -827,7 +852,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🎭",
         "genre": "Eclectic",
         "lang": "",
-        "tags": (),
+        "tags": ("ad-free",),
     },
     # ── Decades ──────────────────────────────────────────────────────────── #
     "eighties": {
@@ -846,7 +871,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🕳️",
         "genre": "80s",
         "lang": "",
-        "tags": ("oldies", "energetic"),
+        "tags": ("oldies", "energetic", "ad-free"),
     },
     "nineties": {
         "name": "90s Radio",
@@ -864,7 +889,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "⛵",
         "genre": "Oldies",
         "lang": "",
-        "tags": ("oldies", "chill"),
+        "tags": ("oldies", "chill", "ad-free"),
     },
     "oldies": {
         "name": "Oldies",
@@ -1083,7 +1108,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🇯🇲",
         "genre": "Reggae",
         "lang": "",
-        "tags": ("chill",),
+        "tags": ("chill", "ad-free"),
     },
     "reggaefm": {
         "name": "Reggae Chill Cafe",
@@ -1155,7 +1180,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "👩‍🚀",
         "genre": "Ambient",
         "lang": "",
-        "tags": ("instrumental", "focus"),
+        "tags": ("instrumental", "focus", "ad-free"),
     },
     "poptron": {
         "name": "PopTron",
@@ -1164,7 +1189,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🎹",
         "genre": "Pop",
         "lang": "",
-        "tags": ("energetic",),
+        "tags": ("energetic", "ad-free"),
     },
     "bootliquor": {
         "name": "Boot Liquor",
@@ -1173,7 +1198,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🤠",
         "genre": "Country",
         "lang": "",
-        "tags": ("oldies",),
+        "tags": ("oldies", "ad-free"),
     },
     "brfm": {
         "name": "Black Rock FM",
@@ -1182,7 +1207,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🖤",
         "genre": "Eclectic",
         "lang": "",
-        "tags": (),
+        "tags": ("ad-free",),
     },
     "lush": {
         "name": "Lush",
@@ -1191,7 +1216,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🌺",
         "genre": "Chill",
         "lang": "",
-        "tags": ("chill",),
+        "tags": ("chill", "ad-free"),
     },
     "thetrip": {
         "name": "The Trip",
@@ -1200,7 +1225,7 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🛣️",
         "genre": "House",
         "lang": "",
-        "tags": ("instrumental", "focus"),
+        "tags": ("instrumental", "focus", "ad-free"),
     },
     # ── One flagship per language ─────────────────────────────────────────── #
     #: The catalogue grew by genre first, which left the thing radio is *for*
@@ -1448,6 +1473,18 @@ SEARCH_SYNONYMS: dict[str, tuple[str, ...]] = {
     "gym": ("energetic",),
     "retro": ("oldies",),
     "nostalgia": ("oldies",),
+    # The tag is ``ad-free`` and nobody types it: what a person asks for is *no ads*,
+    # and a search for those two words is "ad" and "free" — neither of which appears
+    # in the tag once the hyphen is stripped for matching. So the words people
+    # actually use are mapped to it, and the tag itself is what the index and the
+    # card print.
+    "ad": ("ad-free",),
+    "ads": ("ad-free",),
+    "advert": ("ad-free",),
+    "adverts": ("ad-free",),
+    "advertising": ("ad-free",),
+    "commercial": ("ad-free",),
+    "commercials": ("ad-free",),
 }
 
 
@@ -1539,6 +1576,11 @@ class CatalogueIndex(NamedTuple):
     #: No language tag and no reason recorded on the entry: the words are whatever
     #: the music is in, and this table has not established which.
     unlabelled: int
+    #: Stations whose own site says they carry no advertising. Counted here because
+    #: it is the one property in this table a listener *chooses on* rather than
+    #: browses with — an ad under a conversation is worse than a track nobody
+    #: wanted — and a number nobody prints is a number nobody can ask for.
+    ad_free: int
 
 
 def catalogue_index() -> CatalogueIndex:
@@ -1567,8 +1609,11 @@ def catalogue_index() -> CatalogueIndex:
     by_language: dict[str, int] = {}
     wordless = 0
     unlabelled = 0
+    ad_free = 0
     for station in RADIO_STATIONS.values():
         by_genre[station["genre"]] = by_genre.get(station["genre"], 0) + 1
+        if "ad-free" in (station.get("tags") or ()):
+            ad_free += 1
         language = station.get("lang") or ""
         if language:
             by_language[language] = by_language.get(language, 0) + 1
@@ -1581,6 +1626,7 @@ def catalogue_index() -> CatalogueIndex:
         languages=sorted(by_language.items()),
         wordless=wordless,
         unlabelled=unlabelled,
+        ad_free=ad_free,
     )
 
 
@@ -2003,6 +2049,12 @@ class Music(commands.Cog):
                     "the music is in — which this table has not established rather than "
                     "decided. Search those by genre or mood, or by `instrumental` if you "
                     "want the first lot."
+                )
+            if index.ad_free:
+                description += (
+                    f"\n\n-# **{index.ad_free} carry no advertising** — the station's own "
+                    "site says so, which is the only way this table records it. "
+                    "Search `ad-free` (or `no ads`) for those."
                 )
             description += (
                 "\n\n-# Run this again with a word — a **language**, a genre or a mood — "
