@@ -8,7 +8,7 @@ operator's) plus the markup that consumes them.
 
 That is exactly why this file exists. A design system is not the sheet; it is the
 sheet *plus something that fails when a rule stops being true*. Every check below
-is one of seven sentences a reviewer would otherwise have to remember:
+is one of eight sentences a reviewer would otherwise have to remember:
 
 * **Contrast.** Text is at least 4.5:1 against the surface it is drawn on, and a
   graphic (a border, a focus ring, a fill) at least 3:1. The tokens are what get
@@ -31,6 +31,10 @@ is one of seven sentences a reviewer would otherwise have to remember:
   test could see them — and the same law has a second half, for the sheets that
   are deliberately *not* self-contained: a page's token contract is the whole
   document, in load order, not one file.
+* **A theme overrides; it never owns.** The palette lives on the base block and
+  each theme redefines the values that make it a theme — never the other way
+  round, where a name exists only while one theme is selected and every other
+  theme silently drops it.
 
 The point of writing these as tests rather than as a paragraph in a README is the
 one this project keeps rediscovering: a rule nobody can check turns out to be a
@@ -58,6 +62,11 @@ HUB_SHEET = os.path.join(ROOT, "hub", "static", "hub.css")
 CONSOLE_SHEET = os.path.join(ROOT, "console", "src", "styles.css")
 CONSOLE_SRC = os.path.join(ROOT, "console", "src")
 TEMPLATES = os.path.join(ROOT, "templates")
+
+#: The sheets that carry a themed palette — a base block, and themes that
+#: override parts of it. The dashboard's sheet is not one of them: its three
+#: declarations are the shell's own measurements, and it has no theme blocks.
+THEMED_SHEETS = (PUBLIC_SHEET, HUB_SHEET, CONSOLE_SHEET)
 
 #: The smallest type anybody may be asked to read. Fine print is included, and
 #: that is not a small point: the laws name it because the fine print is exactly
@@ -605,6 +614,128 @@ class EverySheetIsSatisfiedByItsPage(unittest.TestCase):
             "these pages load a sheet that reads a custom property nothing before it "
             "declares, so the browser drops the declaration and draws nothing:\n"
             + "\n".join(gaps),
+        )
+
+
+class EveryThemeOverridesTheBase(unittest.TestCase):
+    """A theme may *override* a name. It may never be the only home of one.
+
+    Every themed sheet in this project works the same way, and deliberately:
+    ``:root`` (or the block that carries it, ``:root, [data-theme="midnight"]``)
+    declares the whole palette, and each theme redefines the handful of values
+    that make it a theme — thirteen names in the console, six in the public sheet
+    (its themes change the hue and nothing else), twenty-two in the hub. Asking a
+    theme to re-declare the other fifty would be a second copy of the palette to
+    keep in step, which is the thing this arrangement exists to avoid.
+
+    The arrangement has one failure mode, and nothing else here can see it: a
+    name declared *inside* a theme block and nowhere else exists only while that
+    theme is selected. Every other theme drops the declaration and paints
+    nothing — the silent drop ``EveryTokenIsDefined`` is about, except that the
+    name *is* declared somewhere, so a sweep for undeclared names passes. A page
+    that is perfect on one theme and broken on the other eight is exactly the
+    shape of bug this file exists for.
+
+    So the first law is one direction and stated as a subset: **(names a theme
+    block declares) ⊆ (names the base block declares)** — nothing may exist only
+    under one theme. The second is the other half, and it is the hub's existing
+    check made general: **the themes declare the same names as each other**, so a
+    theme cannot quietly drop an override and render that token in the base's
+    colours. Equality rather than "at least what the others have", which is how
+    this was written first and which could never fail — an intersection of the
+    theme sets is by definition a subset of every one of them, so a theme that
+    drops an override shrinks the intersection and passes it. The mutation is
+    what caught that, and it is why the check reads this way now.
+
+    What is deliberately out of scope: a component that declares its own
+    properties where it reads them (``.btn { --btn-text: … }``, the landing
+    page's ``--lp-*``, ``.app { --rail: … }``) and a theme-scoped descendant rule
+    (``[data-theme="light"] .aurora``). Those are declarations next to their own
+    reads rather than palette, and ``EveryTokenIsDefined`` is what covers them.
+    """
+
+    def _palette(self, path: str) -> tuple[set[str], dict[str, set[str]]]:
+        """One sheet as ``(base names, {theme: names})``.
+
+        A *theme* is a block whose selectors are all theme selectors and nothing
+        else — which includes the duplicated media-query form the hub uses
+        (``@media (prefers-color-scheme: light) { :root:not([data-theme="dark"])``
+        ``{ … } }``), since that is the same theme written for a browser with no
+        preference set. A rule *under* a theme selector has a space in it and is
+        not one.
+        """
+        base: set[str] = set()
+        themes: dict[str, set[str]] = {}
+        for selector, body in blocks(read(path)):
+            declared = set(re.findall(r"--([a-z0-9-]+)\s*:", body))
+            if not declared:
+                continue
+            parts = [part.strip() for part in selector.split(",")]
+            if any(part == ":root" for part in parts):
+                base |= declared
+                continue
+            if parts and all(" " not in part and "[data-theme" in part for part in parts):
+                for part in parts:
+                    themes.setdefault(part, set()).update(declared)
+        return base, themes
+
+    def test_the_palettes_were_parsed(self):
+        """A check that finds no themes cannot fail for the right reason."""
+        for path in THEMED_SHEETS:
+            with self.subTest(sheet=os.path.relpath(path, ROOT)):
+                base, themes = self._palette(path)
+                self.assertGreater(len(base), 30, f"{path}: no base token block found")
+                self.assertGreaterEqual(len(themes), 1, f"{path}: no theme blocks found")
+                for theme, declared in themes.items():
+                    self.assertLess(
+                        len(declared),
+                        len(base),
+                        f"{theme} re-declares the whole palette, so this sheet no longer "
+                        "has the base-plus-overrides shape the law below is written for",
+                    )
+
+    def test_no_theme_block_declares_a_name_the_base_does_not(self):
+        offenders = []
+        for path in THEMED_SHEETS:
+            base, themes = self._palette(path)
+            for theme, declared in sorted(themes.items()):
+                only_here = sorted(declared - base)
+                if only_here:
+                    names = ", ".join(f"--{name}" for name in only_here)
+                    offenders.append(f"{os.path.relpath(path, ROOT)}: {theme} declares {names}")
+        self.assertEqual(
+            offenders,
+            [],
+            "these names are declared inside a theme block and nowhere else, so every "
+            "other theme drops them and paints nothing — declare them on the base "
+            "block, and let the theme override the value:\n" + "\n".join(offenders),
+        )
+
+    def test_every_theme_declares_the_same_overrides(self):
+        """A theme that forgets one renders that token in the base's colours.
+
+        Equality, not "at least the others'": a name read from the union catches
+        both halves of a disagreement — the theme that dropped an override, and the
+        theme that is the only one carrying one — because a name only one theme
+        declares is missing from every other theme by definition, which the first
+        law above has already refused.
+        """
+        offenders = []
+        for path in THEMED_SHEETS:
+            _base, themes = self._palette(path)
+            if len(themes) < 2:
+                continue  # one theme cannot disagree with itself
+            everywhere = set().union(*themes.values())
+            for theme, declared in sorted(themes.items()):
+                missing = sorted(everywhere - declared)
+                if missing:
+                    names = ", ".join(f"--{name}" for name in missing)
+                    offenders.append(f"{os.path.relpath(path, ROOT)}: {theme} is missing {names}")
+        self.assertEqual(
+            offenders,
+            [],
+            "every theme on a sheet has to override the same names, or the ones it "
+            "skips render in the base's colours:\n" + "\n".join(offenders),
         )
 
 
