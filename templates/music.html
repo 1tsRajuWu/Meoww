@@ -158,12 +158,16 @@
                                     {{ station.icon }} <strong>{{ station.name }}</strong>
                                     {# On its own line rather than trailing the name: the
                                        line arrives at "Groove Salad Chill · ad-free" when
-                                       it is inline, wraps inside the narrow name column,
-                                       and breaks the tag itself across two lines
-                                       ("ad-" / "free"). Ruled in `.lp-row-kind`. #}
+                                       it is inline and reads as part of the name. On its
+                                       own line it needs the column to be wide enough for
+                                       it — that is what `.lp-rows li.lp-row` in
+                                       `static/meow.css` is for — and the tag itself is in
+                                       `.lp-tag` so that the hyphen in "ad-free" cannot
+                                       be the place it wraps, which is the one wrap that
+                                       says the opposite of what the tag means. #}
                                     <span
                                         class="dim lp-row-kind"
-                                    >{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}{% if "ad-free" in station.tags %} · ad-free{% endif %}</span>
+                                    >{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}{% if "ad-free" in station.tags %} · <span class="lp-tag">ad-free</span>{% endif %}</span>
                                 </span>
                                 <span class="dim">{{ station.desc }}</span>
                             </li>

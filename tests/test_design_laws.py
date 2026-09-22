@@ -38,6 +38,12 @@ is one of nine sentences a reviewer would otherwise have to remember:
 * **Markup and the sheet agree.** A class name the app writes is a treatment it
   expects, so either the sheet rules it or the name is not written — and a layout
   is the sheet's business rather than a `style={{ … }}` the sheet cannot see.
+* **A label column keeps its room.** A row of two columns — a name and the
+  sentence about it — that states no width for either is sized by its content,
+  so the longer column takes the row and the shorter one collapses to its
+  longest word. Fifty-five pixels of a 285px row is not a narrow column but a
+  column nobody chose, and it split the station tag across two lines at the
+  hyphen in "ad-free".
 * **The pointer is moved by one thing.** The drawn cursor is positioned every
   frame by script and shaped by the sheet, and the two only compose if they use
   different properties: an animation of `transform` does not add to an inline
@@ -1818,6 +1824,114 @@ class ThePointerIsMovedByOneThing(unittest.TestCase):
                         'element\'s animation, so the animation wins and the state '
                         'is never drawn'
                     )
+
+
+class ALabelColumnKeepsItsRoom(unittest.TestCase):
+    """A row of two columns has to give the first one a width.
+
+    Two lists on the public site are a name and the sentence about it — the
+    station catalogue and the command list — and neither column was given a
+    width. That is not the same as an even split: a flex item with no basis is
+    sized by its content, so the longer column (the sentence) takes the whole
+    remainder and the shorter one is held at its *min-content* width, which is
+    the longest word in it and no more. Measured on the built page, the name
+    column of a station row came out at **55px of a 285px row** on a phone and
+    **117px of a 651px row** on a desktop, and 82 of the catalogue's 146 rows
+    paid for it: the tag broke across two lines at its own hyphen, so a reader
+    looking for an ad-free station read ``Chill · ad-`` and then ``free``. The
+    command list did the same to ``/music radio``.
+
+    So the law is that these rows state their columns: a basis for each one, a
+    floor for the label, ``wrap`` on the row so a phone moves the sentence
+    *below* the name rather than squeezing it, and ``white-space: nowrap`` on
+    the tag, because a hyphen is where a line breaker is allowed to break and
+    “ad-free” split in half says the opposite of what it is there to say.
+    """
+
+    #: The row shape this law was written for, and the columns inside it. The
+    #: selectors are the sheet's own: ``li`` because the div-shaped rows of the
+    #: same class are one column of prose and have nothing to split.
+    ROW = ".lp-rows li.lp-row"
+    LABEL = ".lp-rows li.lp-row > :first-child"
+    SENTENCE = ".lp-rows li.lp-row > :last-child"
+
+    #: The label column's floor, in rem. 15rem is 240px: the widest station name
+    #: beside its icon is 206px ("Radio Paradise Mellow Mix") and the widest tag
+    #: line under it is 134px ("Classical · Portuguese"), so this is that width
+    #: rather than a preference — and the number stays in the sheet, where the
+    #: comment says which measurements it came from.
+    LABEL_FLOOR_REM = 14.0
+
+    def _declarations(self, css: str, selector: str) -> dict[str, str]:
+        """What one selector declares, as written."""
+        wanted = " ".join(selector.split())
+        found: dict[str, str] = {}
+        for rule, body in blocks(css):
+            if rule != wanted:
+                continue
+            for line in body.split(";"):
+                name, _, value = line.partition(":")
+                if value:
+                    found[name.strip()] = value.strip()
+        return found
+
+    def _basis(self, value: str | None) -> float | None:
+        """The basis of a ``flex`` shorthand, in rem, or ``None`` for a content."""
+        parts = (value or "").split()
+        if len(parts) < 3 or not parts[2].endswith("rem"):
+            return None
+        try:
+            return float(parts[2][:-3])
+        except ValueError:
+            return None
+
+    def test_the_rows_share_their_width_rather_than_letting_one_take_it(self):
+        css = read(PUBLIC_SHEET)
+        row = self._declarations(css, self.ROW)
+        self.assertEqual(
+            row.get("flex-wrap"), "wrap",
+            f"{self.ROW} has to wrap: without it a phone squeezes the label "
+            "column to its longest word instead of moving the sentence down",
+        )
+        label = self._basis(self._declarations(css, self.LABEL).get("flex"))
+        self.assertIsNotNone(
+            label,
+            f"{self.LABEL} states no flex basis, so the label is sized by "
+            "whatever its longest word is",
+        )
+        self.assertGreaterEqual(
+            label, self.LABEL_FLOOR_REM,
+            f"{self.LABEL} is given {label}rem; the widest name and tag line "
+            f"measured on the page need {self.LABEL_FLOOR_REM}rem",
+        )
+        sentence = self._declarations(css, self.SENTENCE)
+        self.assertIsNotNone(
+            self._basis(sentence.get("flex")),
+            f"{self.SENTENCE} states no flex basis, so the sentence takes the "
+            "row and the label is what is left over",
+        )
+        self.assertEqual(
+            sentence.get("min-width"), "0",
+            f"{self.SENTENCE} keeps ``min-width: auto``, so a long sentence "
+            "pushes the row wider than the page instead of wrapping in it",
+        )
+
+    def test_the_tag_cannot_be_broken_at_its_own_hyphen(self):
+        css = read(PUBLIC_SHEET)
+        self.assertEqual(
+            self._declarations(css, ".lp-tag").get("white-space"), "nowrap",
+            ".lp-tag is what holds \"ad-free\" together: a hyphen is a break "
+            "opportunity to a line breaker",
+        )
+        # Asserted as a search rather than with ``assertIn``: a failure here
+        # would otherwise print the whole template, which is 20KB of prose about
+        # the music feature and not one line of it about the tag.
+        template = read(os.path.join(TEMPLATES, "music.html"))
+        self.assertTrue(
+            re.search(r'<span class="lp-tag">ad-free</span>', template),
+            "the template writes \"ad-free\" without lp-tag, so the rule above "
+            "guards nothing and the tag breaks after its hyphen",
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

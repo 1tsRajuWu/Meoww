@@ -2913,18 +2913,49 @@ body.landing:has([data-menu].is-open) {
     color: var(--lp-on-paper-soft);
 }
 
+/* The two-column list rows — the station catalogue and the command list — where
+   the first column is a name and the second is the sentence about it. Neither
+   column was given a width, and none is not a share: the sentence is the longer
+   of the two, so it took the whole remainder and the name was left at its
+   *min-content* width — the longest word in it. Measured on the built page that
+   was 55px of a 285px row on a phone and 117px of a 651px row on a desktop,
+   which is where the tag broke: at 55px "Chill · ad-free" splits after the
+   hyphen, so a reader looking for an ad-free station reads "Chill · ad-" and
+   "free" on the next line. A basis per column and `wrap` on the row is the
+   whole fix. 15rem is the widest name the catalogue has beside its icon
+   ("Radio Paradise Mellow Mix", 206px) and the widest tag line under it
+   ("Classical · Portuguese", 134px), both measured rather than guessed, so the
+   first column holds either one line and the row's extra width goes to the
+   sentence; and when a row is narrower than both columns together — a phone —
+   the sentence moves *below* the name instead of squeezing it. */
+.lp-rows li.lp-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.lp-rows li.lp-row > :first-child { flex: 0 1 15rem; }
+
+.lp-rows li.lp-row > :last-child {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
 /* The genre · language · ad-free line on a station row, and the reason it is a
    block rather than something trailing the name: inline, it arrives as
-   "Groove Salad Chill · ad-free", wraps inside the narrow name column, and
-   breaks the tag itself across two lines — a reader sees "ad-" then "free".
-   On its own line it has the column's whole width, so the only wrap that can
-   happen is at one of the separators. */
+   "Groove Salad Chill · ad-free" and reads as part of the name. On its own line
+   under the name the column's width is the line's, so a wrap can only land on
+   one of the separators — and the tag may not wrap at all, which is what
+   `lp-tag` is for: "ad-free" has a hyphen in it, a hyphen is a break
+   opportunity to a line breaker, and the one thing this line must never do is
+   tell somebody about ad-free stations in two halves. */
 .lp-row-kind {
     display: block;
     margin-top: 0.35rem;
     font-size: 0.8125rem;
     line-height: 1.5;
 }
+
+.lp-tag { white-space: nowrap; }
 
 .lp-row-commands {
     display: flex;
