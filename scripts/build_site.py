@@ -371,7 +371,17 @@ const DYNAMIC_PREFIXES = [
   "/servers",
   "/api",
   "/market",
-  "/health"
+  "/health",
+  /* The agreement gate: where every sign-in is sent before it gets anywhere,
+     and the one page of the flow that is only ever rendered by Flask. This
+     build writes `/terms`, `/privacy` and `/ai` as static pages, so they are
+     correctly *not* here — but `/agree` has no static twin, and without this
+     line it was served from the CDN, where no such file exists. A member who
+     signed in with Discord was therefore redirected to a 404 at the exact
+     moment they were first asked to accept the terms, and nothing else could
+     ever ask them: the gate is at the door by design, on purpose, so missing
+     this path made the clickwrap a page nobody could reach. */
+  "/agree"
 ];
 
 export default {{
@@ -438,7 +448,19 @@ export default {{
 
 
 def _routes_file() -> str:
-    """Cloudflare Pages _routes.json defining which paths trigger the Worker."""
+    """Cloudflare Pages _routes.json defining which paths trigger the Worker.
+
+    This file is the *first* of the two gates a dynamic path has to pass, and it
+    is the easier one to forget: Cloudflare decides from this list whether the
+    worker runs at all, so a prefix that is in the worker's own
+    ``DYNAMIC_PREFIXES`` but missing here never reaches the code that would have
+    proxied it — the request is answered from the published directory instead,
+    and a path with no published file is a 404 with nothing in any log to say
+    why. That is what ``/agree`` did: the clickwrap every sign-in is redirected
+    to was proxied by the worker and unreachable anyway, because this list had
+    never heard of it. ``tests/test_pages_site.py`` now compares the two lists
+    rather than trusting them to match.
+    """
     return """{
   "version": 1,
   "include": [
@@ -454,7 +476,8 @@ def _routes_file() -> str:
     "/api/*",
     "/market",
     "/market/*",
-    "/health"
+    "/health",
+    "/agree"
   ],
   "exclude": [
     "/static/*"

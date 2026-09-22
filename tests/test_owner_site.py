@@ -30,9 +30,13 @@ import re
 import shutil
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
+from flask import session
+
+import keep_alive
 import scripts.build_owner as build_owner
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -148,6 +152,101 @@ class TheBuiltDirectoryIsTheSite(unittest.TestCase):
             build_owner.build(str(ROOT), build_owner.DEFAULT_LIVE_APP)
 
 
+class TheSignInPageWorksOnAPhone(unittest.TestCase):
+    """The operator's front door, at the height a phone actually leaves it.
+
+    Signing in from a phone means the keyboard is up, and the keyboard takes
+    about half the viewport. Measured at 360x380 — a small phone with the
+    keyboard showing — the sign-in card is 507px tall, its Unlock button ended at
+    381px, one pixel below the fold, and the link back to the public site was off
+    the page entirely. Neither could be scrolled to, because the template's own
+    `body { overflow: hidden }` made the document unscrollable: measured, the
+    largest scroll position was **0** against a document 555px tall.
+
+    The rule was there to stop the tilted card from producing a scrollbar, which
+    is a horizontal problem — `overflow-x: hidden` is what that guard wanted, and
+    it still holds. The height is the other half: `100vh` on a phone is the
+    height the page would have with the browser's own chrome hidden, so a card
+    centred in it sits partly under the address bar.
+    """
+
+    def setUp(self):
+        self.page = (TEMPLATES / "owner_login.html").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _declarations(block: str) -> str:
+        """A declaration block with its comments taken out.
+
+        Not a convenience: this template explains what it used to do, in the
+        place it used to do it — "`overflow: hidden` here was a guard against
+        the tilted card" — so a check that read comments would fail on the
+        explanation of its own fix.
+        """
+        return re.sub(r"/\*.*?\*/", "", block, flags=re.S)
+
+    def _body_rule(self) -> str:
+        """The template's own `body { … }` block, not the sheet's."""
+        match = re.search(r"\n        body \{(.*?)\n        \}", self.page, flags=re.S)
+        self.assertIsNotNone(match, "owner_login.html no longer styles its own body")
+        return self._declarations(match.group(1))
+
+    def test_the_page_can_reach_its_own_controls(self):
+        body = self._body_rule()
+        self.assertNotIn(
+            "overflow: hidden",
+            body,
+            "the sign-in page hides its own vertical overflow, so on a phone the "
+            "Unlock button and the way back to the public site cannot be reached",
+        )
+        self.assertIn(
+            "overflow-x: hidden",
+            body,
+            "nothing stops the tilted card from producing a sideways scrollbar",
+        )
+
+    def test_the_card_is_centred_in_the_height_the_phone_shows(self):
+        self.assertIn("min-height: 100vh;", self.page)
+        self.assertIn(
+            "min-height: 100dvh;",
+            self.page,
+            "the card is centred in the height a phone would have with its "
+            "address bar hidden, so it sits under it",
+        )
+
+    def test_the_passkey_field_is_the_size_the_sheet_gives_it(self):
+        """A field below 16px is the page zooming when it takes focus, on iOS.
+
+        Nothing here has to say 16px: `static/meow.css` sets
+        `input[type="password"] { font-size: var(--text-body) }`, which is 16px
+        and which *wins* any single class — so a `font-size` on `.holo-input` is
+        a declaration that never applies, and the 15px that used to be written
+        there was exactly that. What is pinned is that the field does not name a
+        size of its own, because the sheet's is the one that is read.
+        """
+        field = re.search(r"\.holo-input \{(.*?)\n        \}", self.page, flags=re.S)
+        self.assertIsNotNone(field, "the passkey field's own rule is gone")
+        body = self._declarations(field.group(1))
+        self.assertNotIn(
+            "font-size",
+            body,
+            "the field states a size the sheet overrides, so what it says is not "
+            "what a phone reads",
+        )
+        sheet = self._declarations((ROOT / "static" / "meow.css").read_text(encoding="utf-8"))
+        sized = [
+            body
+            for selector, body in re.findall(r"([^{}]*)\{([^{}]*)\}", sheet, flags=re.S)
+            if 'input[type="password"]' in selector and "font-size" in body
+        ]
+        self.assertEqual(
+            len(sized),
+            1,
+            "no rule sizes a password field any more, so what a phone gets is "
+            "whatever the field or the browser picks",
+        )
+        self.assertIn("font-size: var(--text-body)", sized[0])
+
+
 class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
     """The shape of the host, asserted on what the console actually calls.
 
@@ -205,6 +304,41 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
             [],
             "the bundled console calls paths this host redirects away, so those "
             f"actions would leave the console: {uncovered}",
+        )
+
+    def test_the_sign_in_flow_has_nowhere_to_dead_end(self):
+        """The door is a `Location` header, so no scan of the console can see it.
+
+        `_door_target` is the clickwrap at the door: every route that signs
+        somebody in answers a redirect to `/agree?next=…` before it answers
+        anything else, and that string exists in exactly one place — the
+        backend's own header. Nothing in `console/src/` names it and no template
+        names it, which is why `test_every_path_the_console_calls_is_one_this_host_serves`
+        was green while the operator's passkey dead-ended: they were signed in
+        *on this host*, sent to `/agree` here, and this worker's answer to a path
+        it does not recognise is a 301 to the public site — a host that had never
+        heard of them, at a page offering no passkey field.
+
+        The session is signed in on purpose: the door is only the agreement for a
+        session that has not agreed, so read anonymously this asks about
+        `/dashboard` and asserts nothing about the clickwrap.
+        """
+        with keep_alive.app.test_request_context():
+            session["authenticated"] = True
+            door = urllib.parse.urlsplit(keep_alive._door_target("/owner")).path
+        self.assertEqual(
+            door,
+            "/agree",
+            "a signed-in session is no longer sent to the clickwrap first, so this "
+            "test is asserting about the wrong path",
+        )
+        prefixes = self.worker_prefixes()
+        self.assertTrue(
+            any(door == prefix or door.startswith(prefix + "/") for prefix in prefixes),
+            f"a fresh sign-in is redirected to {door!r} and this host answers that "
+            "path with a 301 to the public site, so the operator enters the right "
+            "passkey and lands on another host, signed out, at a page with no "
+            "passkey field on it",
         )
 
     def test_the_member_facing_sign_in_page_is_not_served_here(self):

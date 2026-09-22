@@ -73,6 +73,20 @@ CONSOLE_PREFIXES = (
     "/api/voice-debug",
     "/login/discord",
     "/logout",
+    # The agreement, and the reason this list is checked against the *server's*
+    # redirects as well as the bundle's own calls.
+    #
+    # `_door_target` sends a freshly signed-in session to `/agree?next=…` before
+    # anything else — the clickwrap is at the door by design — and on this host
+    # that path was not served: the post-passkey redirect went to `/agree` here,
+    # the worker did not recognise it, and its answer to anything it does not
+    # recognise is a 301 to the public site. So the operator entered the right
+    # passkey, was signed in on this host, and arrived on *another host* that had
+    # never heard of them, at a page offering no passkey field. Found by driving
+    # the real sign-in form, not by reading the list: nothing in `console/src/`
+    # names `/agree`, because it is the backend that puts it in a `Location`
+    # header. See the flow test in `tests/test_owner_site.py`.
+    "/agree",
 )
 
 #: Every file under ``static/`` that a page *this host serves* asks for by name.
@@ -176,8 +190,9 @@ const OWNER_PROXY_SECRET = {_js_string(proxy_secret)};
 // backend owns the routes and this file should not have to be edited every time
 // one is added inside the console — but a *short* list, because the value of the
 // list is what is missing from it. `tests/test_owner_site.py` derives the paths
-// the bundled console actually calls out of `console/src/` and fails if one of
-// them is not covered here.
+// the bundled console actually calls out of `console/src/`, and the *sign-in
+// flow* out of the backend's own redirects, and fails if one of them is not
+// covered here.
 const CONSOLE_PREFIXES = [
   "/owner",
   "/api/console",
@@ -198,7 +213,17 @@ const CONSOLE_PREFIXES = [
   // `/login` itself is deliberately *not* here: that is the member-facing
   // passkey form, and proxying it is how this domain grew a second door.
   "/login/discord",
-  "/logout"
+  "/logout",
+  // The agreement, and the one entry here that the console's own sources cannot
+  // name: it is the backend that puts `/agree?next=…` in a `Location` header
+  // (`_door_target`), so it appears in no `.ts`/`.tsx` file and in no template.
+  // Without it the sign-in flow dead-ended — the passkey was accepted, the
+  // browser was sent to `/agree` *on this host*, this worker did not recognise
+  // it, and its answer to anything it does not recognise is a 301 to the public
+  // site: the operator landed on another host, signed out, at a page offering no
+  // passkey field. The flow test in `tests/test_owner_site.py` derives this from
+  // `keep_alive._door_target` so the next door is covered by existing.
+  "/agree"
 ];
 
 export default {{

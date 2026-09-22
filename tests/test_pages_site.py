@@ -29,6 +29,8 @@ import urllib.parse
 from pathlib import Path
 from unittest import mock
 
+from flask import session
+
 import keep_alive
 from scripts import build_site
 from utils import discord_auth, features
@@ -667,6 +669,108 @@ class TheStaticCopyIsProtectedLikeTheLiveOne(unittest.TestCase):
         self.assertEqual(build_site.rewrite_url("/servers", LIVE, proxy_mode=True), "/servers")
         # Static files and assets still rewrite properly
         self.assertEqual(build_site.rewrite_url("/pricing", LIVE, proxy_mode=True), "pricing.html")
+
+
+class TheWorkerAndTheRoutesAgreeAboutWhatIsDynamic(unittest.TestCase):
+    """Two lists in one build, and a path has to be on both to be proxied.
+
+    `_routes.json` is the first gate: Cloudflare decides from it whether the
+    worker runs **at all**, so a prefix that is in the worker's own
+    ``DYNAMIC_PREFIXES`` but missing there is answered from the published
+    directory instead — a 404 for anything this site does not publish, with
+    nothing in any log to say why, while the worker that would have proxied it
+    sits unreachable beside it.
+
+    That is the state `/agree` was in. It is the clickwrap at the door: every
+    route that signs somebody in answers a redirect to it before anything else,
+    and no page of this site is it — so with the path missing from this list the
+    agreement was a page nobody could reach, on a host where the worker had been
+    taught to proxy it and never got the chance.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = tempfile.mkdtemp(prefix="meow-site-routes-")
+        build_site.build(cls.out, LIVE, proxy_mode=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)
+
+    def _worker_prefixes(self) -> list[str]:
+        worker = (Path(self.out) / "_worker.js").read_text(encoding="utf-8")
+        block = re.search(r"const DYNAMIC_PREFIXES = \[(.*?)\];", worker, flags=re.S)
+        self.assertIsNotNone(block, "the worker no longer declares what it proxies")
+        return re.findall(r'"([^"]+)"', block.group(1))
+
+    def _routes_include(self) -> list[str]:
+        import json
+
+        routes = json.loads((Path(self.out) / "_routes.json").read_text(encoding="utf-8"))
+        return routes["include"]
+
+    def test_every_dynamic_prefix_reaches_the_worker(self):
+        include = self._routes_include()
+        self.assertGreaterEqual(len(self._worker_prefixes()), 5, "the prefixes were not found")
+        for prefix in self._worker_prefixes():
+            with self.subTest(prefix=prefix):
+                self.assertTrue(
+                    prefix in include or prefix + "/*" in include,
+                    f"the worker proxies {prefix} and Cloudflare never runs the "
+                    "worker for that path, so its answer is never reached and the "
+                    "request is served from the published files instead",
+                )
+
+    def test_nothing_is_sent_to_the_worker_that_it_does_not_handle(self):
+        prefixes = self._worker_prefixes()
+        for entry in self._routes_include():
+            base = entry.rstrip("/*")
+            with self.subTest(route=entry):
+                self.assertTrue(
+                    any(base == p or base.startswith(p + "/") for p in prefixes),
+                    f"Cloudflare runs the worker for {entry} and the worker does "
+                    "not know that path, so it falls through to the CDN",
+                )
+
+    def test_the_clickwrap_is_proxied_rather_than_published(self):
+        """The one page of the sign-in flow that no build can render.
+
+        Derived from the backend's own redirect rather than named here: the path
+        is a `Location` header, so it is in no template and no page list, and the
+        next door added to the flow is covered by this test existing.
+
+        The session is signed in on purpose, and that is not decoration: the door
+        is only the agreement for a session that has not agreed — a visitor gets
+        the page they asked for — so reading it anonymously returns `/dashboard`
+        and every assertion below would be about the wrong path. (It was, in the
+        first draft of this test.)
+        """
+        with keep_alive.app.test_request_context():
+            session["authenticated"] = True
+            door = urllib.parse.urlsplit(keep_alive._door_target()).path
+        self.assertEqual(
+            door,
+            "/agree",
+            "a signed-in session that has not agreed is no longer sent to the "
+            "clickwrap, so this test is asserting about the wrong page",
+        )
+        self.assertNotIn(
+            door,
+            [route for route, _name in build_site.PAGES],
+            f"{door} is built as a page, and the agreement needs a session and a "
+            "CSRF token — a static copy of it would be a form nothing accepts",
+        )
+        self.assertFalse(
+            (Path(self.out) / (door.strip("/") + ".html")).exists(),
+            f"the build published {door} after all, so the CDN answers it and the "
+            "worker never sees the request",
+        )
+        prefixes = self._worker_prefixes()
+        self.assertTrue(
+            any(door == p or door.startswith(p + "/") for p in prefixes),
+            f"every sign-in is redirected to {door!r} and this site does not "
+            "proxy it, so the clickwrap 404s on the host that links to it",
+        )
 
 
 class TheLiveSiteIsNotAffected(unittest.TestCase):

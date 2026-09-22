@@ -449,6 +449,20 @@
          device with a fine pointer — `cursor: none` with a script that then
          fails is a page with no pointer at all, which is a far worse trade than
          never having a custom one. A click prints a paw where it landed.
+
+         **Position goes in `translate`, shape goes in `transform`, and the
+         split is load-bearing.** This used to write `style.transform =
+         translate3d(…)` while `meow.css` animates `transform` for the twinkle,
+         the bob and the slash — and an animation outranks an inline
+         declaration, so the animation did not compose with the position, it
+         *replaced* it. The default sparkle swarm sat spinning in the top-left
+         corner of the viewport, the blade bobbed there, and every hover and
+         press rule the sheet writes about their `transform` was dead too.
+         Measured on the served dashboard: the pointer at (700, 500), the
+         particles at (-10, -10) — on a page whose own rule is `cursor: none`,
+         so the visitor had no cursor on it at all. `translate` and `transform`
+         are separate properties that compose in that order, so this script
+         positions and the sheet shapes and neither can cancel the other.
        * **The glow.** One large, dim accent light drifting behind the content.
          It carries no information, so it is the first thing removed when motion
          is not wanted.
@@ -788,16 +802,16 @@
                 sp.angle += 0.04;
                 var fx = Math.cos(sp.angle) * sp.dist;
                 var fy = Math.sin(sp.angle) * sp.dist;
-                sp.el.style.transform = "translate3d(" + (sp.x + fx).toFixed(2) + "px," + (sp.y + fy).toFixed(2) + "px,0)";
+                sp.el.style.translate = (sp.x + fx).toFixed(2) + "px " + (sp.y + fy).toFixed(2) + "px";
             }
 
             // 2. Cyber Blade (Tip pinned directly to pointer)
-            swordEntity.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+            swordEntity.style.translate = x.toFixed(2) + "px " + y.toFixed(2) + "px";
 
             // 3. Tactical Radar HUD
             radarX += (x - radarX) * 0.25;
             radarY += (y - radarY) * 0.25;
-            radarHud.style.transform = "translate3d(" + radarX.toFixed(2) + "px," + radarY.toFixed(2) + "px,0)";
+            radarHud.style.translate = radarX.toFixed(2) + "px " + radarY.toFixed(2) + "px";
 
             // 4. Fluid Velocity Blob (Squash & stretch deformation)
             blobX += (x - blobX) * 0.22;
@@ -809,24 +823,33 @@
             var bspeed = Math.hypot(bvx, bvy);
             var bangle = bspeed > 0.05 ? (Math.atan2(bvy, bvx) * 180 / Math.PI) : 0;
             var bstretch = Math.min(0.65, bspeed * 0.05);
-            blobDrop.style.transform =
-                "translate3d(" + blobX.toFixed(2) + "px," + blobY.toFixed(2) + "px,0) " +
-                "rotate(" + bangle.toFixed(1) + "deg) " +
-                "scale(" + ((1 + bstretch) * scale).toFixed(3) + "," + ((1 / (1 + bstretch * 0.5)) * scale).toFixed(3) + ")";
+            blobDrop.style.translate = blobX.toFixed(2) + "px " + blobY.toFixed(2) + "px";
+            blobDrop.style.rotate = bangle.toFixed(1) + "deg";
+            blobDrop.style.scale =
+                ((1 + bstretch) * scale).toFixed(3) + " " + ((1 / (1 + bstretch * 0.5)) * scale).toFixed(3);
 
             // 5. Quantum Sacred Vortex
             vortexX += (x - vortexX) * 0.20;
             vortexY += (y - vortexY) * 0.20;
-            vortexContainer.style.transform = "translate3d(" + vortexX.toFixed(2) + "px," + vortexY.toFixed(2) + "px,0)";
+            vortexContainer.style.translate = vortexX.toFixed(2) + "px " + vortexY.toFixed(2) + "px";
 
             // Glow and fallback ring
-            ring.style.transform =
-                "translate3d(" + ringX.toFixed(2) + "px," + ringY.toFixed(2) + "px,0) " +
-                "scale(" + scale.toFixed(3) + ")";
-            glow.style.transform =
-                "translate3d(" + glowX.toFixed(2) + "px," + glowY.toFixed(2) + "px,0)";
+            ring.style.translate = ringX.toFixed(2) + "px " + ringY.toFixed(2) + "px";
+            ring.style.scale = scale.toFixed(3);
+            glow.style.translate = glowX.toFixed(2) + "px " + glowY.toFixed(2) + "px";
 
-            running = Math.abs(x - ringX) > 0.3 || Math.abs(y - ringY) > 0.3 ||
+            // The swarm trails the pointer by design (each particle eases in at
+            // its own lag), so the loop is not finished until the particles have
+            // caught up as well. Leaving them out of this test stopped the loop
+            // the moment the ring settled — a handful of frames — and left the
+            // six of them strung out along the path of a fast flick.
+            var swarmSettled = true;
+            for (var sj = 0; sj < sparkleParticles.length; sj++) {
+                if (Math.abs(x - sparkleParticles[sj].x) > 0.3 || Math.abs(y - sparkleParticles[sj].y) > 0.3) {
+                    swarmSettled = false;
+                }
+            }
+            running = !swarmSettled || Math.abs(x - ringX) > 0.3 || Math.abs(y - ringY) > 0.3 ||
                 Math.abs(x - blobX) > 0.3 || Math.abs(y - blobY) > 0.3 ||
                 Math.abs(x - radarX) > 0.3 || Math.abs(y - radarY) > 0.3 ||
                 Math.abs(x - vortexX) > 0.3 || Math.abs(y - vortexY) > 0.3 ||
@@ -869,7 +892,7 @@
                     sparkleParticles[si].y = y;
                 }
             }
-            dot.style.transform = "translate3d(" + x + "px," + y + "px,0)";
+            dot.style.translate = x + "px " + y + "px";
             wake();
         }, { passive: true });
 

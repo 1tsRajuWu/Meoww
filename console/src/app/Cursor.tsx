@@ -2,10 +2,24 @@
  *
  * Designed to preserve precision:
  * - Native pointer is preserved when system style is active.
- * - Dot is pinned to pointer tip with 0ms lag.
- * - Ring trails on a responsive physical spring.
+ * - Dot and ring are the legacy fallback layer, and `styles.css` hides both in
+ *   every style the picker offers (`cursor-style-sparkle` says "zero center dot,
+ *   zero ring" and means it), so what a reader sees is always the chosen
+ *   entity. They are positioned anyway, because a stylesheet that starts
+ *   showing one should get it on the pointer rather than in the corner.
  * - Glow layer renders soft ambient light.
  * - Reduced motion shuts off custom layers cleanly.
+ *
+ * **Position goes in `translate`, shape goes in `transform`, and the split is
+ * load-bearing.** This used to write `style.transform = translate3d(…)` while
+ * `styles.css` animates `transform` for the twinkle, the bob and the slash —
+ * and an animation outranks an inline declaration, so the animation did not
+ * compose with the position, it *replaced* it. The swarm sat spinning in the
+ * top-left corner of the viewport, the sword bobbed there, and every hover and
+ * press rule the sheet writes about their `transform` was dead as well. Measured
+ * on the served page: pointer at (600, 400), particles at (-9, -9). `translate`
+ * and `transform` are separate properties that compose in that order, so the
+ * script positions and the sheet shapes and neither can cancel the other.
  */
 
 import { useEffect, useRef } from "react";
@@ -91,8 +105,12 @@ export function Cursor() {
         shellNode.style.display = "";
         glowNode.style.display = "";
       }
+      // One name per state. `cursor--link` used to be written beside `is-link`
+      // as a second spelling of the same thing, and no selector anywhere
+      // answered it — a class that reads as a rule somebody forgot, next to the
+      // rule that was there.
       shellNode.className = `cursor meow-cursor cursor-style-${activeStyle}${
-        hovering ? " cursor--link is-link" : ""
+        hovering ? " is-link" : ""
       }${textHovering ? " is-text" : ""}${pressed ? " is-down" : ""}${
         shown ? " is-on" : ""
       }`;
@@ -119,7 +137,7 @@ export function Cursor() {
       const angle = speed > 0.02 ? (Math.atan2(vy, vx) * 180) / Math.PI : 0;
 
       // Pin dot directly to pointer coordinates
-      dotNode.style.transform = `translate3d(${targetX.toFixed(2)}px, ${targetY.toFixed(2)}px, 0)`;
+      dotNode.style.translate = `${targetX.toFixed(2)}px ${targetY.toFixed(2)}px`;
 
       // 1. Sparkle swarm particles with orbital float
       for (const p of sparkles) {
@@ -128,33 +146,33 @@ export function Cursor() {
         p.angle += 0.04;
         const fx = Math.cos(p.angle) * p.dist;
         const fy = Math.sin(p.angle) * p.dist;
-        p.el.style.transform = `translate3d(${(p.x + fx).toFixed(2)}px, ${(p.y + fy).toFixed(2)}px, 0)`;
+        p.el.style.translate = `${(p.x + fx).toFixed(2)}px ${(p.y + fy).toFixed(2)}px`;
       }
 
       // 2. Cyber blade tip pinned directly to pointer
-      swordNode.style.transform = `translate3d(${targetX.toFixed(2)}px, ${targetY.toFixed(2)}px, 0)`;
+      swordNode.style.translate = `${targetX.toFixed(2)}px ${targetY.toFixed(2)}px`;
 
       // 3. Tactical Radar HUD
-      radarNode.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+      radarNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
 
       // 4. Fluid velocity blob with dynamic squash & stretch
       const blobStretch = Math.min(0.65, speed * 0.05);
-      blobNode.style.transform =
-        `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) ` +
-        `rotate(${angle.toFixed(1)}deg) ` +
-        `scale(${((1 + blobStretch) * scale).toFixed(3)}, ${((1 / (1 + blobStretch * 0.5)) * scale).toFixed(3)})`;
+      blobNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
+      blobNode.style.rotate = `${angle.toFixed(1)}deg`;
+      blobNode.style.scale =
+        `${((1 + blobStretch) * scale).toFixed(3)} ${((1 / (1 + blobStretch * 0.5)) * scale).toFixed(3)}`;
 
       // 5. Quantum Sacred Vortex
-      vortexNode.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+      vortexNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
 
       // Trailing spring ring (fallback)
-      ringNode.style.transform =
-        `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) ` +
-        `rotate(${angle.toFixed(1)}deg) ` +
-        `scale(${(scale * (1 + stretch)).toFixed(3)}, ${(scale * (1 - stretch * 0.6)).toFixed(3)})`;
+      ringNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
+      ringNode.style.rotate = `${angle.toFixed(1)}deg`;
+      ringNode.style.scale =
+        `${(scale * (1 + stretch)).toFixed(3)} ${(scale * (1 - stretch * 0.6)).toFixed(3)}`;
 
       // Ambient glow
-      glowNode.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
+      glowNode.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
     };
 
     const frame = () => {
@@ -170,7 +188,17 @@ export function Cursor() {
         Math.abs(targetX - x) < REST &&
         Math.abs(targetY - y) < REST &&
         Math.abs(goal - scale) < 0.002;
-      running = !settled;
+      // The swarm trails the pointer by design, so the loop is not finished
+      // until the *particles* have caught up as well. Leaving them out was a
+      // second way for the cursor to end up somewhere other than the pointer:
+      // they converge with a lag of 0.14–0.34 per frame while the ring settles
+      // in a handful, so a fast move stopped the loop with the swarm still
+      // strung out behind it — and on the very first move it was strung out
+      // from (-100, -100), which is the top-left corner of the viewport.
+      const swarmSettled = sparkles.every(
+        (p) => Math.abs(targetX - p.x) < REST && Math.abs(targetY - p.y) < REST
+      );
+      running = !settled || !swarmSettled;
       if (running) handle = window.requestAnimationFrame(frame);
     };
 
@@ -197,6 +225,14 @@ export function Cursor() {
         x = targetX;
         y = targetY;
         vx = vy = 0;
+        // The swarm starts where the pointer does, not where it was built.
+        // `motion.js` has always done this; the console's copy of the loop did
+        // not, so the first move released six particles from (-100, -100) and
+        // they were still crossing the page when the ring had already settled.
+        for (const p of sparkles) {
+          p.x = targetX;
+          p.y = targetY;
+        }
         shellNode.style.opacity = "1";
         glowNode.classList.add("is-on");
         updateClasses();

@@ -1848,6 +1848,15 @@ a {
   transition: opacity var(--duration-quick) ease;
 }
 
+/* Over a field the layer steps back: the browser's own I-beam is on the point
+   already, saying precisely, and the script says so by putting `is-text` on the
+   host. `filter` rather than `opacity`, because the script reveals this layer by
+   writing `opacity` inline, and a rule that a second mechanism can cancel is the
+   defect the cursor block below is written to remove. */
+.cursor.is-text {
+  filter: brightness(0.7) saturate(0.6);
+}
+
 .meow-cursor-dot {
   position: absolute;
   top: 0;
@@ -1939,6 +1948,28 @@ a {
   display: block;
 }
 
+/* --------------------------------------------------------------------------
+   What moves the cursor, and what must never move it
+   --------------------------------------------------------------------------
+   The pointer layer is positioned by script and *shaped* by this sheet, and the
+   two have to be told apart by property, because they were not:
+   `Cursor.tsx` wrote `style.transform = translate3d(x, y, …)` and this sheet
+   animates `transform` too. An animation outranks an inline declaration and a
+   plain declaration loses to one, so the position was cancelled rather than
+   composed — `console-sparkle-twinkle` animated `transform`, and the swarm sat
+   twinkling in the top-left corner of the viewport instead of at the pointer.
+   Measured on the served page: the pointer at (600, 400), the particles at
+   (-9, -9). Every `.is-link`/`.is-down` rule that said `transform: scale(…)` was
+   dead for the same reason.
+
+   So the split is now explicit: **the script owns `translate`** (the pointer's
+   position) and **this sheet owns `transform`** (the shape, the spin, the bob).
+   They are separate properties, they compose in that order — position, then
+   shape, around the element's own origin — and neither can cancel the other.
+   `tests/test_design_laws.py` fails on a cursor rule that writes `translate` on
+   an element the pointer positions.
+   -------------------------------------------------------------------------- */
+
 /* 1. Magic Sparkle Swarm */
 .sparkle-particle {
   position: absolute;
@@ -1975,7 +2006,13 @@ a {
   from { transform: rotate(0deg) scale(1.4); }
   to   { transform: rotate(360deg) scale(1.4); }
 }
+/* `animation: none` first, and it is not decoration: the twinkle above animates
+   the very property this rule sets, and an animation outranks a normal
+   declaration — so the starburst below was written, shipped and never drawn
+   until the animation was cancelled here. Same shape as the position bug the
+   block above describes, one layer in. */
 .meow-cursor.cursor-style-sparkle.is-down .sparkle-particle {
+  animation: none;
   transform: scale(2.2) rotate(45deg);
   filter: drop-shadow(0 0 20px var(--text)) brightness(1.6);
 }
@@ -2016,6 +2053,7 @@ a {
   box-shadow: 0 0 6px var(--text);
 }
 .meow-cursor.cursor-style-sword.is-link .sword-entity {
+  animation: none;
   transform: scale(1.35) rotate(-15deg);
   filter: drop-shadow(0 0 16px var(--cursor-accent, var(--accent))) brightness(1.3);
 }
@@ -2177,9 +2215,13 @@ a {
   animation-duration: 0.7s;
   border-color: var(--text);
 }
+/* The ring is the one element here that spins on its own, so its warp is stated
+   with the individual `scale` property rather than `transform`: the spin is an
+   animation on `transform` and would outrank a normal declaration, which is how
+   this rule came to be written and never seen. */
 .meow-cursor.cursor-style-vortex.is-link .vortex-outer-ring {
   animation-duration: 1.1s;
-  transform: scale(1.35);
+  scale: 1.35;
   box-shadow: 0 0 28px var(--cursor-accent, var(--accent));
 }
 .meow-cursor.cursor-style-vortex.is-down .vortex-container {

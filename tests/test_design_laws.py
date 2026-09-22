@@ -8,7 +8,7 @@ operator's) plus the markup that consumes them.
 
 That is exactly why this file exists. A design system is not the sheet; it is the
 sheet *plus something that fails when a rule stops being true*. Every check below
-is one of eight sentences a reviewer would otherwise have to remember:
+is one of nine sentences a reviewer would otherwise have to remember:
 
 * **Contrast.** Text is at least 4.5:1 against the surface it is drawn on, and a
   graphic (a border, a focus ring, a fill) at least 3:1. The tokens are what get
@@ -38,6 +38,14 @@ is one of eight sentences a reviewer would otherwise have to remember:
 * **Markup and the sheet agree.** A class name the app writes is a treatment it
   expects, so either the sheet rules it or the name is not written — and a layout
   is the sheet's business rather than a `style={{ … }}` the sheet cannot see.
+* **The pointer is moved by one thing.** The drawn cursor is positioned every
+  frame by script and shaped by the sheet, and the two only compose if they use
+  different properties: an animation of `transform` does not add to an inline
+  `transform`, it replaces it. Both scripts wrote the position as
+  `style.transform = translate3d(…)` while the sheet animates `transform` for the
+  twinkle, the bob and the slash, so the default swarm sat spinning in the
+  top-left corner of the viewport — on sheets whose own rule is `cursor: none`,
+  which left the visitor with no cursor on the page at all.
 
 The point of writing these as tests rather than as a paragraph in a README is the
 one this project keeps rediscovering: a rule nobody can check turns out to be a
@@ -940,26 +948,44 @@ class MarkupAndSheetAgree(unittest.TestCase):
         )
 
     def test_the_names_this_law_was_written_for_are_gone(self):
-        """Named, because four of the five were invisible in their own diff.
+        """Named, because every one of them was invisible in its own diff.
 
         A modifier that stripped chrome the base never had, a row state nothing
         drew one line above the cells that did draw it, and a "where" set apart
         from its "when" by no rule at all — each rendered exactly as the sheet
         intended, which is to say as nothing. So did the pointer flag the cursor
         script set on ``<html>``, which is the one of the four that a reader would
-        most reasonably have taken for a working mechanism.
+        most reasonably have taken for a working mechanism, and ``cursor--link``,
+        which was written beside ``is-link`` as a second name for the same state:
+        the rule it looked like was right there under the other spelling, which is
+        why nothing ever read it. ``is-text`` was in that family too — set by both
+        cursor scripts, answered by neither sheet — and it is *kept* rather than
+        removed: both sheets state it now (the layer steps back over a field), so
+        it is asserted present in both.
 
-        ``card__foot`` is the one name of the five the law *keeps*: it is a real
+        ``card__foot`` is the one name of the set the law *keeps*: it is a real
         treatment — a caveat, held off by a hairline — whose rule was simply
         missing, so what is asserted here is that the Access page still names it
         and the sheet now answers.
         """
         sources = "".join(source for _path, source in self._sources())
-        for name in ("toolbar--bare", "cmds__row", "question__where", "has-meow-cursor"):
+        for name in ("toolbar--bare", "cmds__row", "question__where", "has-meow-cursor", "cursor--link"):
             with self.subTest(name=name):
                 self.assertNotIn(name, sources)
         self.assertIn("card__foot", sources)
         self.assertIn("card__foot", self._ruled())
+        # The two classes the cursor scripts write for their own states. Read off
+        # the *sheets*, not the sources: a name written and never answered is the
+        # defect above, and these are the pair that were in it.
+        client = read(os.path.join(CONSOLE_SRC, "app", "Cursor.tsx"))
+        meow_selectors = " ".join(selector for selector, _body in blocks(read(PUBLIC_SHEET)))
+        for name in ("is-link", "is-text", "is-down", "is-on"):
+            with self.subTest(name=name):
+                # The state as the script writes it, quoted, so a sentence about
+                # the name is not the same thing as the name being written.
+                self.assertIn('" ' + name + '"', client)
+                self.assertIn('.' + name, meow_selectors)
+                self.assertIn(name, self._ruled())
 
 
     def test_no_page_carries_a_static_style(self):
@@ -1569,6 +1595,219 @@ class FieldsAreNamed(unittest.TestCase):
                     line = text[: match.start()].count("\n") + 1
                     offenders.append(f"{name}:{line}")
         self.assertEqual(offenders, [], "unnamed console fields:\n" + "\n".join(offenders))
+
+
+class ThePointerIsMovedByOneThing(unittest.TestCase):
+    '''The position is the script's and the shape is the sheet's, by property.
+
+    `translate` and `transform` are separate properties that compose in that
+    order, and that is the whole law. A *rule* about `transform` composes with an
+    inline `translate`; an *animation* of `transform` cancels an inline
+    `transform`, because an animation outranks a normal declaration. Both scripts
+    wrote the pointer's position as `style.transform = translate3d(…)` while the
+    sheets animate `transform` for the sparkle twinkle, the sword bob and the
+    slash — so the animation replaced the position instead of composing with it.
+    Measured on the served pages with the pointer at (600, 400): the swarm's
+    particles at (-9, -9) and the blade at (0, 1), both in the top-left corner of
+    the viewport — on sheets whose own rule is `cursor: none`, which left the
+    visitor with no cursor on the page at all.
+
+    The same collision made a second, quieter defect: every `.is-link` and
+    `.is-down` rule that states a `transform` was dead the moment the script
+    wrote one inline, and the sparkle's starburst and the sword's charge stance
+    were dead *to their own element's animation* as well — a state that does not
+    cancel the animation it replaces is a state nobody ever sees. So the last
+    check here reads the keyframes: a state rule may not restate a property the
+    element's animation owns unless it also says what happens to that animation.
+
+    The elements are named rather than inferred, because a sheet cannot see which
+    nodes a script writes to. The list is checked instead of trusted: every name
+    has to appear in both scripts as the class they create, so a rename cannot
+    leave this law watching an element that no longer exists.
+
+    What this cannot see, said plainly: the radar's four brackets and the
+    vortex's outer ring are *children* of a moved element, so their `transform`
+    rules are outside the list. The ring's warp is stated with `scale` for the
+    same reason the rules here are — its spin owns `transform` — and nothing
+    checks it.
+    '''
+
+    #: What the pointer layer moves: every one of these is positioned by
+    #: `static/motion.js` and by `console/src/app/Cursor.tsx`.
+    MOVED = (
+        'sparkle-particle',
+        'sword-entity',
+        'radar-hud',
+        'blob-drop',
+        'vortex-container',
+        'meow-cursor-ring',
+        'meow-cursor-dot',
+        'meow-glow',
+    )
+
+    #: Where each script writes the position: the loop, and the handler that has
+    #: to park the dot on the way in.
+    PAINT = {
+        'static/motion.js': ('function frame()', 'function wake()'),
+        'console/src/app/Cursor.tsx': ('const paint = () =>', 'const frame = () =>'),
+    }
+
+    SCRIPTS = tuple(PAINT)
+
+    @staticmethod
+    def _subjects(selector: str) -> list[str]:
+        '''The compound each selector in a list actually applies to.'''
+        return [part.strip().split()[-1] for part in selector.split(',') if part.strip()]
+
+    @staticmethod
+    def _properties(body: str) -> set[str]:
+        '''The property names a declaration block writes.
+
+        A `@keyframes` body is not a flat list: it carries its own `50% { … }`
+        steps, so the part before the last brace is what has to be read — without
+        that cut the names came back as `0%   { transform` and matched nothing,
+        which made two of the checks below pass while the defect they are for was
+        written straight back into the sheet.
+        '''
+        found = set()
+        for declaration in body.split(';'):
+            before = declaration.partition(':')[0].rpartition('{')[2]
+            if re.fullmatch(r'[a-zA-Z-]+', before.strip()):
+                found.add(before.strip())
+        return found
+
+    @staticmethod
+    def _animations(body: str) -> set[str]:
+        '''The animation names a rule applies, from either spelling.'''
+        names: set[str] = set()
+        keywords = {
+            'none', 'linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out',
+            'infinite', 'alternate', 'alternate-reverse', 'forwards',
+            'backwards', 'both', 'normal', 'reverse', 'paused', 'running',
+        }
+        for declaration in body.split(';'):
+            prop, _, value = declaration.partition(':')
+            prop = prop.strip()
+            if prop not in ('animation', 'animation-name'):
+                continue
+            for token in value.replace(',', ' ').split():
+                if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', token) and token not in keywords:
+                    names.add(token)
+        return names
+
+    def _keyframes(self, css: str, name: str) -> str:
+        stripped = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
+        match = re.search(r'@keyframes\s+' + re.escape(name) + r'\s*\{(.*?)\n\}', stripped, flags=re.S)
+        return match.group(1) if match else ''
+
+    def _applies_to(self, selector: str, name: str) -> bool:
+        return any(
+            re.search(r'\.' + re.escape(name) + r'(?![\w-])', subject)
+            for subject in self._subjects(selector)
+        )
+
+    def test_the_scripts_name_every_element_this_law_watches(self):
+        '''A list of names nobody moves is a check on nothing.'''
+        for path in self.SCRIPTS:
+            source = read(os.path.join(ROOT, path))
+            for name in self.MOVED:
+                with self.subTest(script=path, element=name):
+                    self.assertRegex(
+                        source,
+                        r'(?<![\w-])' + re.escape(name) + r'(?![\w-])',
+                        f'{path} no longer names {name}, so this law is watching an '
+                        'element the pointer layer does not carry',
+                    )
+
+    def test_no_sheet_takes_the_position_from_the_script(self):
+        '''`translate` is the script's. A rule or keyframe that writes it wins.'''
+        for path in (PUBLIC_SHEET, CONSOLE_SHEET):
+            css = read(path)
+            for selector, body in blocks(css):
+                for name in self.MOVED:
+                    if not self._applies_to(selector, name):
+                        continue
+                    properties = self._properties(body)
+                    with self.subTest(sheet=os.path.basename(path), rule=selector):
+                        self.assertNotIn(
+                            'translate', properties,
+                            f'{selector} states the position in {os.path.basename(path)}, '
+                            'which the pointer layer writes every frame',
+                        )
+                        for animated in self._animations(body):
+                            self.assertNotIn(
+                                'translate', self._properties(self._keyframes(css, animated)),
+                                f'`{animated}` animates the position of {name}, so the '
+                                'cursor stops following the pointer while it runs',
+                            )
+
+    def test_the_position_is_written_as_translate_and_never_as_transform(self):
+        '''The other half, and the one that was actually broken.'''
+        for path, (start, end) in self.PAINT.items():
+            source = read(os.path.join(ROOT, path))
+            region = source.split(start, 1)[1].split(end, 1)[0]
+            with self.subTest(script=path):
+                self.assertIn('style.translate', region, f'{path} no longer positions the layer')
+                self.assertNotIn(
+                    'translate3d', region,
+                    f'{path} writes the position as `transform` again, and the sheet '
+                    'animates `transform` — an animation outranks an inline '
+                    'declaration, so the position is what gets dropped',
+                )
+        # The dot is positioned in the move handler rather than in the loop, so
+        # the region above does not reach it.
+        motion = read(os.path.join(ROOT, 'static/motion.js'))
+        self.assertIn('dot.style.translate', motion)
+        self.assertNotIn('dot.style.transform', motion)
+
+    def test_the_swarm_starts_where_the_pointer_does_and_the_loop_waits_for_it(self):
+        '''A trailing layer is two promises: it starts here, and it catches up.
+
+        The particles ease in at a lag of 0.14-0.34 per frame while the ring
+        settles in a handful, so a loop that stops when the *ring* is done leaves
+        the swarm strung out along the path of a fast flick — and on the first
+        move, strung out from (-100, -100), which is the corner of the viewport.
+        '''
+        console = read(os.path.join(ROOT, 'console/src/app/Cursor.tsx'))
+        self.assertIn('p.x = targetX', console, 'the console swarm is released from where it was built')
+        self.assertIn('swarmSettled', console, 'the console loop stops before the swarm arrives')
+        self.assertIn('running = !settled || !swarmSettled', console)
+        motion = read(os.path.join(ROOT, 'static/motion.js'))
+        self.assertIn('sparkleParticles[si].x = x', motion, 'the dashboard swarm is released from where it was built')
+        self.assertIn('swarmSettled', motion, 'the dashboard loop stops before the swarm arrives')
+
+    def test_a_state_that_restates_an_animation_owns_it(self):
+        '''A state rule cannot outrank the animation it is meant to replace.'''
+        for path in (PUBLIC_SHEET, CONSOLE_SHEET):
+            css = read(path)
+            # What each moved element's animations actually animate.
+            owned: dict[str, set[str]] = {name: set() for name in self.MOVED}
+            for selector, body in blocks(css):
+                for name in self.MOVED:
+                    if not self._applies_to(selector, name):
+                        continue
+                    for animated in self._animations(body):
+                        owned[name].update(self._properties(self._keyframes(css, animated)))
+            for selector, body in blocks(css):
+                # The state lives in the *first* compound —
+                # `.meow-cursor.cursor-style-sword.is-link .sword-entity` — while
+                # the element it applies to is the last, so this reads the whole
+                # selector and only the element test uses the subject.
+                if 'is-link' not in selector and 'is-down' not in selector:
+                    continue
+                properties = self._properties(body)
+                for name in self.MOVED:
+                    if not self._applies_to(selector, name):
+                        continue
+                    lost = properties & owned[name]
+                    if not lost or properties & {'animation', 'animation-name'}:
+                        continue
+                    self.fail(
+                        f'{selector} in {os.path.basename(path)} restates '
+                        f'{sorted(lost)} without saying what happens to the '
+                        'element\'s animation, so the animation wins and the state '
+                        'is never drawn'
+                    )
 
 
 if __name__ == "__main__":  # pragma: no cover

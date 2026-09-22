@@ -56,11 +56,23 @@ export function logoFor(id: ThemeId): string {
  * for: a variable called `KEY` assigned a string reads, to a scanner and to
  * somebody skimming, exactly like a credential. This is the name of a
  * `localStorage` entry — the theme this browser chose — and saying so in the
- * name is both more honest and one fewer false alarm drowning the real ones. */
-const STORAGE_KEY = "meow-console-theme";
+ * name is both more honest and one fewer false alarm drowning the real ones.
+ *
+ * **One name, and it is the public site's.** `static/theme.js` is loaded in
+ * `<head>` by every page the bot renders and reads `meow-theme`; this module
+ * said `meow-console-theme`, so the two never met — a theme chosen in the
+ * console was not the theme of the dashboard, the hub or the landing page you
+ * arrived from, and picking one there left the console on the old palette. The
+ * console was the only surface spelling it differently, so it is the one that
+ * moved.
+ *
+ * `LEGACY_KEY` is read and never written: somebody whose choice is sitting
+ * under the old name keeps it instead of being reset to midnight by this fix. */
+const STORAGE_KEY = "meow-theme";
+const LEGACY_KEY = "meow-console-theme";
 
 export function currentTheme(): ThemeId {
-  const saved = window.localStorage.getItem(STORAGE_KEY);
+  const saved = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_KEY);
   const found = THEMES.find((theme) => theme.id === saved);
   return found ? found.id : "midnight";
 }

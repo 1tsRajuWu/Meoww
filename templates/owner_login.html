@@ -23,8 +23,17 @@
             --holo-glow: rgba(250, 149, 92, 0.35);
         }
 
+        /* The page scrolls, and it has to. `overflow: hidden` here was a
+           guard against the tilted card's own overflow, and it took the card
+           with it: on a phone with the keyboard up the viewport is ~380px tall,
+           the sign-in card is ~510px, and the Unlock button and the way back to
+           the public site were both below the fold of a document that could not
+           be scrolled — measured, `maxScrollY` was 0 with the button's bottom at
+           381px. Overflowing sideways is still clipped, which is what the
+           guard was for; the tilt is a transform on the card and never moves
+           the layout. */
         body {
-            overflow: hidden;
+            overflow-x: hidden;
             background: #060709;
             perspective: 1000px;
         }
@@ -139,7 +148,13 @@
         .auth-container {
             position: relative;
             z-index: 2;
+            /* `dvh` after `vh` on purpose: on a phone, `100vh` is the height the
+               page would have with the browser's own chrome hidden, so a card
+               centred in it sits partly under the address bar. The second
+               declaration is the one a phone uses; the first is what a browser
+               with no `dvh` falls back to. */
             min-height: 100vh;
+            min-height: 100dvh;
             display: grid;
             place-items: center;
             padding: 24px 16px;
@@ -252,7 +267,12 @@
             border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 14px;
             color: #fff;
-            font-size: 15px;
+            /* No `font-size` here on purpose. `static/meow.css` sets
+               `input[type="password"] { font-size: var(--text-body) }`, which is
+               16px and which *wins* this rule — a type selector with an
+               attribute is more specific than one class — so the 15px that used
+               to be written here was never applied to anything. Below 16px is
+               also what makes iOS zoom the whole page when a field takes focus. */
             font-family: inherit;
             outline: none;
             transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);

@@ -27,6 +27,19 @@ ROOT = Path(__file__).resolve().parents[1]
 THEME_MODULE = ROOT / "console" / "src" / "lib" / "theme.ts"
 STATIC = ROOT / "static"
 SHELL = ROOT / "console" / "src" / "app" / "Shell.tsx"
+#: The script every other page loads in `<head>`, and the only other thing that
+#: remembers a theme choice.
+PUBLIC_THEME_SCRIPT = ROOT / "static" / "theme.js"
+
+
+def _storage_key(path: Path) -> str | None:
+    """The `localStorage` name a script remembers the theme under.
+
+    Read out of each file rather than restated here: two literals compared to
+    each other would have passed while they disagreed with these two.
+    """
+    match = re.search(r'STORAGE_KEY = "([^"]+)"', path.read_text(encoding="utf-8"))
+    return match.group(1) if match else None
 
 
 def _theme_ids() -> list[str]:
@@ -95,6 +108,39 @@ class TheBrandMarkCannotGoMissing(unittest.TestCase):
             "Shell.tsx builds a themed logo path itself; use logoFor() instead",
         )
         self.assertIn("logoFor(theme)", source)
+
+    def test_the_theme_is_remembered_under_one_name_on_every_surface(self):
+        """Two scripts, one entry in `localStorage`, and they never met.
+
+        `static/theme.js` is loaded in `<head>` — without `defer`, so the page
+        paints in the right palette — by every page the bot serves: the
+        dashboard, the hub, the landing page, the three documents and all four
+        sign-in forms. The console's bundle is loaded by one page. They read
+        different names: the bundle wrote `meow-console-theme` where every other
+        page read `meow-theme`, so a theme chosen in the console was not the
+        theme of the next page you opened, and picking one there left the console
+        on the old palette. The console was the only surface spelling it
+        differently, so it moved — and it still *reads* the old name, so nobody's
+        existing choice is reset to midnight by the fix.
+        """
+        public = _storage_key(PUBLIC_THEME_SCRIPT)
+        console = _storage_key(THEME_MODULE)
+        self.assertIsNotNone(public, "static/theme.js no longer names its storage key")
+        self.assertIsNotNone(console, "theme.ts no longer names its storage key")
+        self.assertEqual(
+            console,
+            public,
+            f"the console remembers the theme as {console!r} while every other "
+            f"page reads {public!r}, so the choice does not survive a page change",
+        )
+        source = THEME_MODULE.read_text(encoding="utf-8")
+        self.assertEqual(
+            source.count('"meow-console-theme"'),
+            1,
+            "the console's old storage name appears more than once, which means "
+            "it is written as well as read — and a write is the thing that would "
+            "put a choice back where nothing looks for it",
+        )
 
     def test_the_static_build_discovers_the_marks_rather_than_listing_them(self):
         """The other half of the promise, and the reason it can come back.
