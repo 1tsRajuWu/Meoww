@@ -592,6 +592,14 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "MEOW_WRANGLER", TUNING,
+        "the command `scripts/ship.py` uploads the built sites with",
+        "`npx --yes wrangler` is used, which is right for a machine without "
+        "wrangler installed. Set it to `wrangler` on one that has it, and "
+        "nothing reaches the network until the upload.",
+        scope=BUILD,
+    ),
+    Setting(
         "SITE_GUARD_INTERVAL_SECONDS", TUNING,
         "how often to check whether the public site is serving repository paths",
         "the default 6-hour interval is used.",
