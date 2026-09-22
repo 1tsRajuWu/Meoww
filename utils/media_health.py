@@ -132,6 +132,9 @@ STREAM_HOSTS: tuple[str, ...] = (
     "drive.uber.radio",  # the Hindi chart stations
     "glzwizzlv.bynetcdn.com",  # Galei Tzahal, Israel
     "ice1.somafm.com",  # the SomaFM catalogue
+    "icecast.live.yle.fi",  # Yle Radio 1, Finland — the path ends in
+                            # ``icecast.audio``, which is a server's word rather
+                            # than an extension, so the host is what names it
     "icecast.omroep.nl",  # NPO Radio 1 and 2, Dutch public radio
     "icecast.radiofrance.fr",  # France Musique's opera channel
     "jenny.torontocast.com:2000",  # J1 HITS, Japan (and :2020 above is another)
@@ -150,6 +153,7 @@ STREAM_HOSTS: tuple[str, ...] = (
     "stream.brokenbeats.net",
     "stream.cinz.net",
     "stream.laut.fm",  # the largest single group: one station per genre
+    "stream.radiojar.com",  # Trax Streaming, Jakarta — a Radiojar token path
     "stream.radioparadise.com",
     "stream.srg-ssr.ch",  # Swiss Jazz/Classic/Pop and SRF 3
     "stream.zeno.fm",

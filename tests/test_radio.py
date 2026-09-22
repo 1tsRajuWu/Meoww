@@ -68,10 +68,12 @@ class TheCatalogue(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(music_cog.RADIO_STATIONS), 50)
         self.assertGreaterEqual(len(genres), 20)
-        # Raised from 8 in the pass that added one flagship per language. The
-        # number is a floor rather than a target: it is what stops the catalogue
-        # quietly shrinking back to the languages the maintainer happens to speak.
-        self.assertGreaterEqual(len(languages), 20)
+        # Raised from 8, then 20, and now 25 in the pass that closed the Finnish
+        # and Indonesian gaps. The number is a floor rather than a target: it is
+        # what stops the catalogue quietly shrinking back to the languages the
+        # maintainer happens to speak — and a language is a *whole* answer to
+        # somebody, so dropping one is not a smaller loss than dropping a genre.
+        self.assertGreaterEqual(len(languages), 25)
         self.assertGreaterEqual(len(instrumental), 25)
 
     def test_every_declared_language_can_actually_be_searched(self):
@@ -467,6 +469,104 @@ class TheBrowseCommand(unittest.TestCase):
         self.assertIn(str(len(music_cog.RADIO_STATIONS)), embed.description)
         self.assertIn("**Chill**", embed.description)
 
+    def test_the_index_answers_about_languages_and_not_only_genres(self):
+        """The question a genre index cannot answer, on the one page that can.
+
+        `/music stations` is the only place a member can find out what is *in* the
+        catalogue, and it answered with genres alone — so somebody who does not read
+        this bot's language had to guess a language and hope the search box had been
+        given that word. The index now names every language the table declares, which
+        is what makes the search reachable for the person it was added for.
+        """
+        captured = self._run(None)
+        embed: discord.Embed = captured["embed"]
+        declared = {
+            station["lang"]
+            for station in music_cog.RADIO_STATIONS.values()
+            if station["lang"]
+        }
+        self.assertTrue(declared, "the catalogue declares no language at all")
+        for language in declared:
+            with self.subTest(language=language):
+                self.assertIn(language, embed.description)
+
+    def test_the_language_list_is_the_whole_table_and_not_a_sample(self):
+        """An index that agrees with itself is worth nothing; this one is counted.
+
+        Every station is either in a declared language or in the undeclared count,
+        and the languages are the table's own — not a hand-kept list beside it that
+        a new station can quietly miss.
+        """
+        index = music_cog.catalogue_index()
+        self.assertEqual(
+            [language for language, _count in index.languages],
+            sorted(
+                {
+                    station["lang"]
+                    for station in music_cog.RADIO_STATIONS.values()
+                    if station["lang"]
+                }
+            ),
+        )
+        self.assertEqual(
+            sum(count for _genre, count in index.genres), len(music_cog.RADIO_STATIONS)
+        )
+        self.assertEqual(
+            sum(count for _language, count in index.languages)
+            + index.wordless
+            + index.unlabelled,
+            len(music_cog.RADIO_STATIONS),
+        )
+
+    def test_the_stations_with_no_language_are_counted_rather_than_left_implied(self):
+        """*25 languages* must not read as *the other stations have none*.
+
+        The table's blanks are two different facts and the index says which is
+        which: an entry tagged ``instrumental`` has no words to be in a language,
+        and the rest play words in whatever the music is in, which is a thing this
+        catalogue has not established rather than one it has decided. Reporting one
+        number for both is what let a reader believe the second half was the whole
+        story.
+        """
+        captured = self._run(None)
+        embed: discord.Embed = captured["embed"]
+        index = music_cog.catalogue_index()
+        self.assertGreater(index.unlabelled, 0, "this test stopped covering anything")
+        self.assertGreater(index.wordless, 0, "this test stopped covering anything")
+        self.assertIn(
+            f"{index.wordless + index.unlabelled} more carry no language tag",
+            embed.description,
+        )
+        self.assertIn(f"{index.wordless} have no words to be in a language", embed.description)
+
+    def test_the_two_blank_counts_cannot_disagree_with_the_tags(self):
+        """The wordless count is the ``instrumental`` tag and must stay it.
+
+        A station counted as wordless that is not tagged that way, or a tagged one
+        counted as a gap, is an index that has started describing itself instead of
+        the catalogue.
+        """
+        wordless = [
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if not station.get("lang") and "instrumental" in station["tags"]
+        ]
+        unlabelled = [
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if not station.get("lang") and "instrumental" not in station["tags"]
+        ]
+        index = music_cog.catalogue_index()
+        self.assertEqual(index.wordless, len(wordless))
+        self.assertEqual(index.unlabelled, len(unlabelled))
+
+    def test_every_language_in_the_index_can_be_searched_for_by_name(self):
+        """Reading the list and then being unable to use it is the defect itself."""
+        for language, _count in music_cog.catalogue_index().languages:
+            with self.subTest(language=language):
+                found = music_cog.search_stations(language, limit=200)
+                self.assertTrue(found, f"{language} is listed and finds nothing")
+
     def test_with_a_word_it_lists_the_stations_that_word_means(self):
         captured = self._run("instrumental")
         embed: discord.Embed = captured["embed"]
@@ -476,6 +576,96 @@ class TheBrowseCommand(unittest.TestCase):
     def test_a_word_that_matches_nothing_says_so_without_inventing_a_result(self):
         captured = self._run("zzzznotastation")
         self.assertIn("Nothing in the catalogue matches", captured["content"])
+
+
+class ThePublicCataloguePage(unittest.TestCase):
+    """The page a stranger reads first, and the one row shape that could not answer.
+
+    A row carrying a name and a sentence says what a station is *called* and
+    nothing about what it *is*, so the one question a radio catalogue gets asked by
+    somebody who does not speak this bot's language — is there anything here in my
+    language? — had no answer on the page that exists to answer it. The genre and
+    the language are on the row now, and the width of the table is in the panel
+    head; both are checked by *rendering* the page rather than by reading the
+    template, because the defect this whole suite is built around is the difference
+    between the two.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import keep_alive  # noqa: PLC0415
+
+        response = keep_alive.app.test_client().get("/music")
+        cls.status = response.status_code
+        cls.body = response.get_data(as_text=True)
+
+    def test_it_renders_at_all(self):
+        self.assertEqual(self.status, 200, "the public music page did not render")
+
+    def test_every_declared_language_is_readable_on_the_page(self):
+        declared = sorted(
+            {
+                station["lang"]
+                for station in music_cog.RADIO_STATIONS.values()
+                if station["lang"]
+            }
+        )
+        self.assertTrue(declared)
+        for language in declared:
+            with self.subTest(language=language):
+                self.assertIn(language, self.body, f"{language} is not on the page")
+
+    def test_the_panel_says_how_wide_the_table_is(self):
+        declared = {
+            station["lang"]
+            for station in music_cog.RADIO_STATIONS.values()
+            if station["lang"]
+        }
+        self.assertIn(f"{len(music_cog.RADIO_STATIONS)} in", self.body)
+        self.assertIn(f"{len(declared)} languages", self.body)
+
+    def test_a_row_carries_the_genre_that_was_only_in_the_data_before(self):
+        self.assertIn(music_cog.RADIO_STATIONS["groovesalad"]["genre"], self.body)
+
+
+class TheConsoleReadsTheCatalogueToo(unittest.TestCase):
+    """The width of the table, on the surface an administrator actually watches.
+
+    *"Is there anything here in my language?"* is a question this bot gets asked
+    and had no answer to on either side — the table could grow a language or lose
+    one and nothing anywhere would say so, which is how a catalogue of twenty-six
+    languages still read as a catalogue with no languages in it. It is read from
+    the cog rather than declared, so it cannot drift from what plays.
+    """
+
+    def test_the_live_payload_carries_the_width_of_the_table(self):
+        import keep_alive  # noqa: PLC0415
+
+        index = music_cog.catalogue_index()
+        payload = keep_alive._live_music(0)
+        self.assertEqual(
+            payload["catalogue"],
+            {
+                "stations": len(music_cog.RADIO_STATIONS),
+                "languages": len(index.languages),
+                "wordless": index.wordless,
+                "unlabelled": index.unlabelled,
+            },
+        )
+
+    def test_every_language_counted_is_a_station_somebody_can_play(self):
+        """The number is a count of stations, not of tags written down hopefully."""
+        index = music_cog.catalogue_index()
+        playable = {
+            station["lang"] for station in music_cog.RADIO_STATIONS.values() if station["lang"]
+        }
+        self.assertEqual({language for language, _count in index.languages}, playable)
+        self.assertEqual(
+            sum(count for _language, count in index.languages)
+            + index.wordless
+            + index.unlabelled,
+            len(music_cog.RADIO_STATIONS),
+        )
 
 
 if __name__ == "__main__":

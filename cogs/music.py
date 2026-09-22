@@ -45,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from typing import NamedTuple
 
 import discord
 from discord import app_commands
@@ -1212,11 +1213,19 @@ RADIO_STATIONS: dict[str, dict] = {
     #:
     #: Every URL was fetched before it was written down (see the rules above),
     #: and the ones that did not answer are named here rather than left to be
-    #: rediscovered: **Mandarin, Indonesian, Vietnamese, Farsi, Finnish and
-    #: Ukrainian** all have broadcasters, and none of the addresses this host
-    #: could reach answered with audio — a 404, a DNS failure, a 503 and a
-    #: timeout respectively. A language with no station is a gap in this table,
-    #: not a language this bot has decided against.
+    #: rediscovered: **Mandarin, Vietnamese, Farsi and Ukrainian** all have
+    #: broadcasters, and none of the addresses this host could reach answered with
+    #: audio — a 404, a DNS failure, a 403 and a timeout respectively. A language
+    #: with no station is a gap in this table, not a language this bot has decided
+    #: against.
+    #:
+    #: Two of that list were closed the second time they were asked, and the reason
+    #: is worth keeping: the first pass guessed at host names (**Radio Suomi** and
+    #: **Prambors** are both real stations and neither of those addresses exists),
+    #: where the second asked each broadcaster's own platform. Yle publishes one
+    #: icecast path per channel and says its name in ``icy-name``; Jakarta's Trax is
+    #: carried by Radiojar, whose stream says *Trax Streaming*. Both were opened and
+    #: the first bytes read before either was written down.
     "los40": {
         "name": "LOS40",
         "url": "https://25453.live.streamtheworld.com/LOS40AAC.aac",
@@ -1379,6 +1388,24 @@ RADIO_STATIONS: dict[str, dict] = {
         "lang": "Thai",
         "tags": ("energetic",),
     },
+    "yleradio1": {
+        "name": "Yle Radio 1",
+        "url": "https://icecast.live.yle.fi/radio/YleRadio1/icecast.audio",
+        "desc": "Finland's public radio: news, current affairs and Finnish music.",
+        "icon": "🇫🇮",
+        "genre": "Eclectic",
+        "lang": "Finnish",
+        "tags": (),
+    },
+    "trax": {
+        "name": "Trax Streaming",
+        "url": "https://stream.radiojar.com/rrqf78p3bnzuv",
+        "desc": "Jakarta dance and pop — Trax FM, streaming under its own name.",
+        "icon": "🇮🇩",
+        "genre": "Dance",
+        "lang": "Indonesian",
+        "tags": ("energetic",),
+    },
 }
 
 def _mmss(seconds: float | int) -> str:
@@ -1497,6 +1524,64 @@ def search_stations(query: str, *, limit: int = STATION_SUGGESTIONS) -> list[tup
             ranked.append((best, index, key, station))
     ranked.sort(key=lambda row: (row[0], row[1]))
     return [(key, station) for _rank, _index, key, station in ranked[:limit]]
+
+
+class CatalogueIndex(NamedTuple):
+    """The catalogue counted four ways, and the last two are the honest ones."""
+
+    #: Most-populated genre first: this list is a browse.
+    genres: list[tuple[str, int]]
+    #: Alphabetically: this list is a lookup, and a lookup is done by scanning.
+    languages: list[tuple[str, int]]
+    #: No language tag **and** the entry says why — it carries the catalogue's own
+    #: ``instrumental`` mood, which means there are no words to be in a language.
+    wordless: int
+    #: No language tag and no reason recorded on the entry: the words are whatever
+    #: the music is in, and this table has not established which.
+    unlabelled: int
+
+
+def catalogue_index() -> CatalogueIndex:
+    """The catalogue counted four ways: by genre, by language, and by *neither*.
+
+    ``/music stations`` with no word is the only place a member can ask what is
+    there, and it used to answer with genres alone. That is the wrong axis for the
+    one question the catalogue exists to serve somebody whose language is not this
+    bot's — *is my language in it?* — because a genre index cannot answer it and
+    the search box can only be used by somebody who has already guessed a language
+    that happens to be declared. So languages are counted here and printed there.
+
+    The other two numbers are what keep that list honest, and they are counted
+    apart because they are two different facts about a station. A blank ``lang``
+    used to be one bucket, which read as *"these have no language"* — most of the
+    table's ambient and electronic entries genuinely have none, and the rest play
+    words in whatever the music is in, which is a thing this table has **not
+    established** rather than a thing it has decided. Splitting them is what lets
+    the index say both sentences instead of one that is true of half the rows.
+
+    Genres come back most-populated first (that list is a browse), languages
+    alphabetically (that list is a lookup), and both ties are broken by name so
+    two runs cannot print two different pages.
+    """
+    by_genre: dict[str, int] = {}
+    by_language: dict[str, int] = {}
+    wordless = 0
+    unlabelled = 0
+    for station in RADIO_STATIONS.values():
+        by_genre[station["genre"]] = by_genre.get(station["genre"], 0) + 1
+        language = station.get("lang") or ""
+        if language:
+            by_language[language] = by_language.get(language, 0) + 1
+        elif "instrumental" in (station.get("tags") or ()):
+            wordless += 1
+        else:
+            unlabelled += 1
+    return CatalogueIndex(
+        genres=sorted(by_genre.items(), key=lambda row: (-row[1], row[0])),
+        languages=sorted(by_language.items()),
+        wordless=wordless,
+        unlabelled=unlabelled,
+    )
 
 
 def station_option_label(key: str, station: dict) -> str:
@@ -1882,26 +1967,50 @@ class Music(commands.Cog):
         only once you know a word to type into it.
 
         With no argument it answers the question the search box cannot — *what is
-        there?* — as the genres and how many stations each holds. With one it lists
-        the matches, so that ``jazz`` or ``instrumental`` or ``Japanese`` is a
-        twenty-second answer rather than a guess at a station name.
+        there?* — as the **languages**, the genres, and how many stations each holds.
+        Both axes, because they are two different questions and only one of them used
+        to be answerable: *what shall I put on?* is a browse over genres, and *is
+        there anything here in my language?* is a lookup on this list, which is the
+        question somebody who does not read this bot's language has — and a genre
+        index answers neither them nor the search box, since the search box needs a
+        word they would have to guess. With one it lists the matches, so that ``jazz``
+        or ``instrumental`` or ``Japanese`` is a twenty-second answer rather than a
+        guess at a station name.
         """
         text = (query or "").strip()
         if not text:
-            by_genre: dict[str, int] = {}
-            for station in RADIO_STATIONS.values():
-                by_genre[station["genre"]] = by_genre.get(station["genre"], 0) + 1
-            listed = sorted(by_genre.items(), key=lambda row: (-row[1], row[0]))
+            index = catalogue_index()
+            description = (
+                f"**{len(RADIO_STATIONS)} stations · {len(index.languages)} languages · "
+                f"{len(index.genres)} genres** — every one of them a direct stream, so "
+                "none goes through a media platform and none stops working on a day "
+                "one refuses this host.\n\n"
+                "**Languages** — "
+                + " · ".join(
+                    f"{language} ({count})" for language, count in index.languages
+                )
+                + "\n\n"
+                + "\n".join(
+                    f"**{genre}** · {count}" for genre, count in index.genres
+                )
+            )
+            blanks = index.wordless + index.unlabelled
+            if blanks:
+                description += (
+                    f"\n\n-# {blanks} more carry no language tag, and they are not one "
+                    f"thing: {index.wordless} have no words to be in a language "
+                    f"(`instrumental`), and {index.unlabelled} play words in whatever "
+                    "the music is in — which this table has not established rather than "
+                    "decided. Search those by genre or mood, or by `instrumental` if you "
+                    "want the first lot."
+                )
+            description += (
+                "\n\n-# Run this again with a word — a **language**, a genre or a mood — "
+                "to list the stations in it, or start typing in `/music radio`."
+            )
             embed = discord.Embed(
                 title="📻 The radio catalogue",
-                description=(
-                    f"**{len(RADIO_STATIONS)} stations across {len(listed)} genres**, all direct "
-                    "streams — none of them goes through the audio extractor, so they keep "
-                    "working on days when the platforms will not serve this host.\n\n"
-                    + "\n".join(f"**{genre}** · {count}" for genre, count in listed)
-                    + "\n\n-# Run this again with a word — a genre, a language, a mood — to "
-                    "list the stations in it, or start typing in `/music radio`."
-                ),
+                description=description,
                 color=style.SUCCESS,
             )
             return await style.send_card(interaction, embed=embed, ephemeral=True)

@@ -129,13 +129,30 @@
                 <div class="lp-panel lp-panel-tilt-a">
                     <div class="lp-panel-head">
                         <span aria-hidden="true">📻</span>
-                        <span>Stations</span>
+                        <span>
+                            Stations — {{ stations|length }} in
+                            {{ languages|length }} languages
+                        </span>
                     </div>
                     <div class="lp-panel-body">
                         <ul class="lp-rows">
+                            {#
+                                Each row carries what the station *is* — the genre,
+                                and the language when one is declared — because the
+                                question this list has to be able to answer is
+                                "is there anything here in my language?", and a row
+                                of name-and-a-sentence cannot answer it. It says a
+                                language only where the catalogue has one: the
+                                stations whose words are whatever the music is in
+                                deliberately declare nothing, and inventing a tag
+                                for them would be the lookup table lying again.
+                            #}
                             {% for station in stations %}
                             <li class="lp-row">
-                                <span>{{ station.icon }} <strong>{{ station.name }}</strong></span>
+                                <span>
+                                    {{ station.icon }} <strong>{{ station.name }}</strong>
+                                    <span class="dim">{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}</span>
+                                </span>
                                 <span class="dim">{{ station.desc }}</span>
                             </li>
                             {% endfor %}

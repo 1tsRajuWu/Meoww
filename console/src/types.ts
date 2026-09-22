@@ -486,6 +486,29 @@ export type LivePayload = {
    */
   music: {
     read: { player: boolean; caps: boolean };
+    /**
+     * How wide the station table is: how many stations this bot can play, how many
+     * languages they can answer a search in, and how many carry no language tag at
+     * all.
+     *
+     * The only reading in this block that is about the *members* rather than about
+     * the host, and the reason it is carried: "is there anything here in my
+     * language?" is a question an administrator gets asked, and its answer — the
+     * number of languages — was previously a number nobody had, on either side of
+     * the bot. The two blank counts travel with it and are kept apart, because
+     * *these have no language* and *this table has not established which* are
+     * different facts about a station and only one of them is a gap. `null` when
+     * the cog could not be read, which is a third state and is drawn as one rather
+     * than as zero.
+     */
+    catalogue: {
+      stations: number;
+      languages: number;
+      /** No words at all — the entry carries the catalogue's own `instrumental` tag. */
+      wordless: number;
+      /** Words in whatever the music is in, which the table has not established. */
+      unlabelled: number;
+    } | null;
     stream: {
       /** `unreachable` is the one that is not a finding *about a stream*: this
        * host could not open the connection at all, which is a network fact rather

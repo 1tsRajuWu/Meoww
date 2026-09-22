@@ -2165,13 +2165,18 @@ def _music_page():
     """
     music = features.get("music")
     stations: list[dict] = []
+    languages: list[str] = []
     try:
         from cogs import music as music_cog  # noqa: PLC0415
 
-        stations = [
-            {"name": value["name"], "icon": value["icon"], "desc": value["desc"]}
-            for value in music_cog.RADIO_STATIONS.values()
-        ]
+        # The whole entry rather than three keys of it. Three keys was the version
+        # that made this page unable to answer the one question a visitor has about
+        # a radio catalogue — *is there anything here in my language?* — because a
+        # row carrying a name and a sentence says nothing about either axis. The
+        # template reads ``genre`` and ``lang`` off each one, and the language count
+        # is what lets the band say how wide the table actually is.
+        stations = list(music_cog.RADIO_STATIONS.values())
+        languages = sorted({value["lang"] for value in stations if value.get("lang")})
     except Exception as exc:
         print(f"[SITE] could not read the stations for /music: {exc}", flush=True)
 
@@ -2186,6 +2191,7 @@ def _music_page():
         ),
         music_commands=list(music.commands) if music else [],
         stations=stations,
+        languages=languages,
     )
 
 
@@ -5067,6 +5073,7 @@ def _live_music(guild_id) -> dict:
             "caps": None,
             "player": None,
             "stream": None,
+            "catalogue": None,
         }
 
     entry = None
@@ -5080,12 +5087,32 @@ def _live_music(guild_id) -> dict:
             entry = holder.status()
         except Exception as exc:
             entry = {"error": f"{type(exc).__name__}: {exc}"}
+    # The width of the station table, which is the one reading here that is about
+    # the *members* rather than about the host. It is also the only place the
+    # language coverage can be read without opening Discord: "is there anything
+    # here in my language" is a question a server's administrator gets asked, and
+    # the answer was previously a number nobody had — the table could grow a
+    # language or lose one and no surface would say so either way.
+    catalogue = None
+    try:
+        from cogs import music as music_cog  # noqa: PLC0415
+
+        index = music_cog.catalogue_index()
+        catalogue = {
+            "stations": len(music_cog.RADIO_STATIONS),
+            "languages": len(index.languages),
+            "wordless": index.wordless,
+            "unlabelled": index.unlabelled,
+        }
+    except Exception:
+        catalogue = None
     return {
         "read": {"player": holder is not None, "caps": True},
         "why": "" if caps.get("playable") else "; ".join(caps.get("missing") or []),
         "caps": caps,
         "player": entry,
         "stream": stream,
+        "catalogue": catalogue,
     }
 
 

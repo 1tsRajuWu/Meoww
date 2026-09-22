@@ -1074,6 +1074,7 @@ PREVIEW_LIVE: dict = {
         "read": {"player": True, "caps": True},
         "why": "",
         "caps": {"playable": True, "missing": []},
+        "catalogue": {"stations": 142, "languages": 25, "wordless": 41, "unlabelled": 53},
         "stream": {
             "status": "ok",
             "detail": "",

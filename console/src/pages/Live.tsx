@@ -407,6 +407,7 @@ function MusicPanel({ data }: { data: LivePayload }) {
   const caps = music?.caps ?? null;
   const player = music?.player ?? null;
   const stream = music?.stream ?? null;
+  const catalogue = music?.catalogue ?? null;
   const playable = caps?.playable ?? null;
   const asked = stream?.checked_seconds_ago;
 
@@ -463,6 +464,20 @@ function MusicPanel({ data }: { data: LivePayload }) {
           {caps?.dave
             ? `${caps.dave_version ?? "installed"} — required for any voice connection`
             : "missing — Discord refuses a voice connection without it"}
+        </dd>
+        <dt>Catalogue</dt>
+        <dd>
+          {catalogue === null ? (
+            "not reported by this backend"
+          ) : (
+            <>
+              {catalogue.stations} stations
+              <span className="chan__note">
+                {catalogue.languages} languages · {catalogue.wordless} wordless ·{" "}
+                {catalogue.unlabelled} with no language established
+              </span>
+            </>
+          )}
         </dd>
         <dt>Stations</dt>
         <dd>
