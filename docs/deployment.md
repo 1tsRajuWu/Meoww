@@ -34,6 +34,27 @@
   output but **cannot publish** — its token has `Pages Read` and not
   `Pages Write` — so the Git integration is what actually ships the site, and a
   failing `Site` run is not a failing deploy.
+- **A failing workflow is not a failing deploy, and the workflow is failing.**
+  Every run of `Site` *and* `tests` on this account stops before a job starts
+  (`recent account payments have failed or your spending limit needs to be
+  increased`), so nothing in Actions builds or publishes anything, and the red
+  mark on every push is about the account rather than about the commit. The Git
+  integration above is unaffected — it is Cloudflare's own build, off the
+  repository — and the deliberate path is now one command, which is what to use
+  when a push has to be *proved* to have landed:
+
+  ```bash
+  python scripts/ship.py                 # build, upload and verify both hosts
+  python scripts/ship.py --dry-run       # build both hosts, upload nothing
+  python scripts/ship.py --only meow-owner
+  ```
+
+  It refuses to build from a dirty tracked file or from a commit that is not on
+  `origin/main` — a deployment carries the commit it was built from, and both of
+  those produce a hash that does not name its contents — then uploads both
+  projects as production deployments of that commit and asks Cloudflare, and the
+  hosts themselves, whether it arrived. It is the local twin of `site.yml` for
+  the part of that workflow that has never once run here.
 - **Build command:** `pip install -r requirements.txt && python scripts/build_site.py --out _site --proxy`
 - **Build output directory:** `_site`
 
@@ -145,7 +166,15 @@ shortly after boot).
   are not showing": the console bundle here was built from `ed5dee8` while the
   repository was three commits further on.
 
-Deploy it deliberately, after `npm run build` inside `console/`:
+Deploy it deliberately, after `npm run build` inside `console/` — which
+`scripts/ship.py` does as one command, including the check that the host took it:
+
+```bash
+cd console && npm run build   # writes static/console/
+cd .. && python scripts/ship.py --only meow-owner
+```
+
+The three commands it replaces, for when one of them has to be run on its own:
 
 ```bash
 cd console && npm run build          # writes static/console/
