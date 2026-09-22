@@ -68,13 +68,29 @@ class TheCatalogue(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(music_cog.RADIO_STATIONS), 50)
         self.assertGreaterEqual(len(genres), 20)
-        # Raised from 8, then 20, and now 25 in the pass that closed the Finnish
-        # and Indonesian gaps. The number is a floor rather than a target: it is
-        # what stops the catalogue quietly shrinking back to the languages the
-        # maintainer happens to speak — and a language is a *whole* answer to
-        # somebody, so dropping one is not a smaller loss than dropping a genre.
-        self.assertGreaterEqual(len(languages), 25)
+        # Raised from 8, then 20, then 25, and now 29 with the four languages the
+        # gap list named — Mandarin, Vietnamese, Persian and Ukrainian — closed.
+        # The number is a floor rather than a target: it is what stops the
+        # catalogue quietly shrinking back to the languages the maintainer happens
+        # to speak, and a language is a *whole* answer to somebody, so dropping one
+        # is not a smaller loss than dropping a genre.
+        self.assertGreaterEqual(len(languages), 29)
         self.assertGreaterEqual(len(instrumental), 25)
+
+    def test_the_languages_the_gap_list_named_are_all_in_the_table(self):
+        """Four languages had broadcasters and no address this host could reach.
+
+        They were named in the catalogue's own comment as a gap — *"not a language
+        this bot has decided against"* — and all four closed on the second attempt,
+        because the first one had guessed host names and a guess that 404s says
+        nothing about whether a language can be covered. Naming them here is what
+        stops a language quietly leaving the list again: the paragraph that
+        explained the gap is gone now that it is shut.
+        """
+        declared = {language for language, _count in music_cog.catalogue_index().languages}
+        for language in ("Mandarin", "Persian", "Ukrainian", "Vietnamese"):
+            with self.subTest(language=language):
+                self.assertIn(language, declared)
 
     def test_every_declared_language_can_actually_be_searched(self):
         """A `lang` the search cannot match is a station nobody can reach.

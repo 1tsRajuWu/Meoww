@@ -1236,21 +1236,30 @@ RADIO_STATIONS: dict[str, dict] = {
     #: detail on it — `/music stations Spanish` is a search this table has to be
     #: able to answer.
     #:
-    #: Every URL was fetched before it was written down (see the rules above),
-    #: and the ones that did not answer are named here rather than left to be
-    #: rediscovered: **Mandarin, Vietnamese, Farsi and Ukrainian** all have
-    #: broadcasters, and none of the addresses this host could reach answered with
-    #: audio — a 404, a DNS failure, a 403 and a timeout respectively. A language
-    #: with no station is a gap in this table, not a language this bot has decided
-    #: against.
+    #: Every URL was fetched before it was written down (see the rules above), and
+    #: the ones that did not answer are named here rather than left to be
+    #: rediscovered. In the first pass that list was **Mandarin, Vietnamese, Farsi and
+    #: Ukrainian** — four languages with broadcasters and no address this host could
+    #: reach — and **all four are closed here**, which is the interesting part,
+    #: because the reason the first attempt failed was *the method*, not the
+    #: languages. It guessed at host names (**Radio Suomi** and **Prambors** are both
+    #: real stations and neither of those addresses exists), and a guess that 404s
+    #: says nothing about whether a language can be covered.
     #:
-    #: Two of that list were closed the second time they were asked, and the reason
-    #: is worth keeping: the first pass guessed at host names (**Radio Suomi** and
-    #: **Prambors** are both real stations and neither of those addresses exists),
-    #: where the second asked each broadcaster's own platform. Yle publishes one
-    #: icecast path per channel and says its name in ``icy-name``; Jakarta's Trax is
-    #: carried by Radiojar, whose stream says *Trax Streaming*. Both were opened and
-    #: the first bytes read before either was written down.
+    #: **So the second attempt did not guess: it asked a public directory for
+    #: candidates and then verified each one the way everything else in this table is
+    #: verified — by opening the stream and reading what the stream says about
+    #: itself.** The directory is a *starting point* and never a source of truth: it
+    #: supplied URLs, and every one of the four survived all three checks — https,
+    #: ffmpeg decoded three seconds of it, and ``icy-name`` gave a station name that
+    #: is written down instead of whatever the directory called it. **Where a
+    #: language could be checked further, it was**: Radio Donya's metadata prints a
+    #: Persian schedule, Vietnamese Youth Radio's prints ``Phạm Vỹ - Khó Có Thể``, and
+    #: 988 FM's prints ``龚芷葳 - 两个人的冰淇淋`` — the station's own words, in the
+    #: station's own script, which is as close to *"the words are in this language"*
+    #: as a probe that cannot listen can get. A language with no station is a gap in
+    #: this table, not a language this bot has decided against; and a gap that closes
+    #: when the searching is done properly is worth the paragraph it costs.
     "los40": {
         "name": "LOS40",
         "url": "https://25453.live.streamtheworld.com/LOS40AAC.aac",
@@ -1429,6 +1438,45 @@ RADIO_STATIONS: dict[str, dict] = {
         "icon": "🇮🇩",
         "genre": "Dance",
         "lang": "Indonesian",
+        "tags": ("energetic",),
+    },
+    # The four that closed the gap list above. Each one's name is the name its
+    # stream gives in ``icy-name`` — the rule this table has followed since a
+    # directory filed a Bee Gees station under *baroque*.
+    "roks": {
+        "name": "Radio ROKS",
+        "url": "https://online.radioroks.ua/RadioROKS_HD",
+        "desc": "Ukrainian rock from Kyiv, where the genre is a national argument.",
+        "icon": "🇺🇦",
+        "genre": "Rock",
+        "lang": "Ukrainian",
+        "tags": ("energetic",),
+    },
+    "donya": {
+        "name": "Radio Donya",
+        "url": "https://stream.zeno.fm/v5kxmagseg0uv",
+        "desc": "Persian pop and the old favourites, from the diaspora.",
+        "icon": "🇮🇷",
+        "genre": "Pop",
+        "lang": "Persian",
+        "tags": ("energetic",),
+    },
+    "vnyouth": {
+        "name": "Vietnamese Youth Radio",
+        "url": "https://stream.zeno.fm/umt5gqmg3reuv",
+        "desc": "Vietnamese pop for a younger crowd — and the words are the point.",
+        "icon": "🇻🇳",
+        "genre": "Pop",
+        "lang": "Vietnamese",
+        "tags": ("energetic",),
+    },
+    "fm988": {
+        "name": "988 FM",
+        "url": "https://28103.live.streamtheworld.com/988_FMAAC.aac",
+        "desc": "Malaysia's Mandarin pop station, streaming under its own name.",
+        "icon": "🀄",
+        "genre": "Pop",
+        "lang": "Mandarin",
         "tags": ("energetic",),
     },
 }

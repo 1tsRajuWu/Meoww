@@ -142,6 +142,8 @@ STREAM_HOSTS: tuple[str, ...] = (
     "listen.moe",  # J-Pop and K-Pop
     "live1.sr.se",  # Sveriges Radio P1
     "lyd.nrk.no",  # NRK P1, Norway
+    "online.radioroks.ua",  # Radio ROKS, Ukraine — an icecast path rather than a
+                            # file, so the host is what names it
     "maggie.torontocast.com:2020",
     "manager7.streamradio.fr:1435",
     "radiostreaming.ert.gr",  # ERT Kosmos, Greek public radio
