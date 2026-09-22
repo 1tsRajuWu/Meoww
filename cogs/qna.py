@@ -344,41 +344,68 @@ async def open_reply_modal(interaction: discord.Interaction) -> None:
     )
 
 
-async def deliver_reply(
-    interaction: discord.Interaction, question_id: int, answer: str
-) -> None:
+def _outcome(
+    outcome: str,
+    *,
+    ok: bool = False,
+    question_id: int = 0,
+    handle: str = "",
+    asker: str = "",
+    reason: str = "",
+) -> dict:
+    """One answer's result, in one shape — so a surface never reads a bare ``None``.
+
+    ``id`` travels with every outcome because the "I have no such question"
+    sentence names it: an operator who typed or picked an id is owed the number
+    back, not a remark about there being no question *like* it.
+    """
+    return {
+        "ok": ok,
+        "outcome": outcome,
+        "id": int(question_id or 0),
+        "handle": handle,
+        "asker": asker,
+        "reason": reason,
+    }
+
+
+async def deliver_answer(client, question_id: int, answer: str) -> dict:
     """DM the asker and close the question, or say why neither happened.
 
+    Every surface that can answer goes through this function — the button on the
+    owner's card, `/qna reply`, and the console's own Questions page. That is not
+    tidiness: the *ordering* below is the entire protection, and a second
+    implementation for the web would be a second place for it to be wrong.
+
     The question is **claimed before the DM is sent** — one conditional update, so
-    two clicks on an old card cannot DM somebody twice — and put back in the inbox
-    if the DM itself fails, which is the one case where claiming first would
-    otherwise cost the answer. Both halves are stated to the owner, because an
-    answer that did not arrive is exactly the thing they would assume worked.
+    two clicks on an old card, or a reply from the console and one from a phone,
+    cannot DM somebody twice — and **put back in the inbox** if the DM itself
+    fails, which is the one case where claiming first would otherwise cost the
+    answer. Nothing is thrown: a refused DM is an outcome to report, not a 500.
+
+    Returns ``{ok, outcome, id, handle, asker, reason}``, which
+    :func:`answer_sentence` turns into words — the same words on every surface,
+    because an answer that did not arrive is exactly the thing an operator would
+    assume worked.
     """
-    if not await _is_owner(interaction):
-        return await _reply(
-            interaction, "❌ Only the bot's owner answers anonymous questions."
-        )
     text = (answer or "").strip()
     if not text:
-        return await _reply(interaction, "❌ An empty answer is not an answer — nothing was sent.")
+        return _outcome("empty", question_id=question_id)
 
     record = await qna.get(question_id)
     if record is None:
-        return await _reply(interaction, f"❌ I have no question with the id `{question_id}`.")
+        return _outcome("unknown", question_id=question_id)
+
+    handle = qna.handle(record)
+    asker = str(record.get("user_name") or "they")
     if not await qna.mark_answered(question_id, text):
-        return await _reply(
-            interaction,
-            f"✅ {qna.handle(record)} already has an answer — nothing was sent twice.",
-        )
+        return _outcome("already", question_id=question_id, handle=handle, asker=asker)
 
     user = None
     reason = "I couldn't look their account up"
     asker_id = record.get("user_id")
     try:
-        user = interaction.client.get_user(asker_id) or await interaction.client.fetch_user(
-            asker_id
-        )
+        user = client.get_user(asker_id) or await client.fetch_user(asker_id)
     except Exception as exc:
         reason = f"Discord would not give me their account ({type(exc).__name__})"
         print(
@@ -405,17 +432,58 @@ async def deliver_reply(
             user = None
 
     if user is None:
+        # Given back, not lost: the answer is not DMed, so it has not been given.
         await qna.reopen(question_id)
-        return await _reply(
-            interaction,
-            f"❌ Not delivered — {reason}. It is back in `/qna inbox` and your answer "
-            "is still here, so nothing was lost.",
+        return _outcome(
+            "refused", question_id=question_id, handle=handle, asker=asker, reason=reason
         )
-    return await _reply(
-        interaction,
-        f"✅ Sent to **{record.get('user_name')}** as a DM, and {qna.handle(record)} "
-        "is closed. It was not posted anywhere.",
+    return _outcome("sent", ok=True, question_id=question_id, handle=handle, asker=asker)
+
+
+def answer_sentence(result: dict, *, inbox: str = "/qna inbox", bold: bool = True) -> str:
+    """One outcome, in words — the same words wherever the answer was typed.
+
+    Two things differ between the surfaces, and both are about *rendering* rather
+    than about what happened: on Discord the place a question goes back to is a
+    command and the asker's name is emphasised with markdown, and in the console
+    it is the list the reader is looking at and the name is plain text. Found by
+    reading the toast in a browser: `**Meow**` is the right sentence on a card and
+    four stray asterisks in HTML, where nothing renders them.
+    """
+    outcome = str((result or {}).get("outcome") or "")
+    handle = (result or {}).get("handle") or "the question"
+    if outcome == "sent":
+        asker = str((result or {}).get("asker") or "them")
+        return (
+            f"✅ Sent to {f'**{asker}**' if bold else asker} as a DM, and {handle} "
+            "is closed. It was not posted anywhere."
+        )
+    if outcome == "already":
+        return f"✅ {handle} already has an answer — nothing was sent twice."
+    if outcome == "empty":
+        return "❌ An empty answer is not an answer — nothing was sent."
+    if outcome == "unknown":
+        return f"❌ I have no question with the id `{(result or {}).get('id')}`."
+    return (
+        f"❌ Not delivered — {(result or {}).get('reason')}. It is back in {inbox} "
+        "and your answer is still here, so nothing was lost."
     )
+
+
+async def deliver_reply(
+    interaction: discord.Interaction, question_id: int, answer: str
+) -> None:
+    """The same delivery, from a slash command or the button on the owner's card.
+
+    Only two things are this function's own: the owner check (Discord is the only
+    place a caller could be somebody else) and the wording's ``inbox``.
+    """
+    if not await _is_owner(interaction):
+        return await _reply(
+            interaction, "❌ Only the bot's owner answers anonymous questions."
+        )
+    result = await deliver_answer(interaction.client, question_id, answer)
+    return await _reply(interaction, answer_sentence(result))
 
 
 # --------------------------------------------------------------------------- #

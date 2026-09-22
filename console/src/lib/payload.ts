@@ -106,6 +106,21 @@ export const SCHEMAS: Record<string, Record<string, Shape>> = {
     process: "object",
     read: "object",
   },
+  "/api/console/questions": {
+    success: "boolean",
+    questions: "array",
+    totals: "object",
+    relay: "object",
+    // The questions are the one reading here that can fail on its own: a host
+    // whose database will not open has an *unknown* inbox, not an empty one, and
+    // the page must not say "nothing is waiting" about a list it never read.
+    read: "object",
+    // The ceiling the reply box is capped to. Declared because the page *reads*
+    // it — an empty `maxLength` is not a refusal, it is a box the server can
+    // never accept, and the one sentence that would explain it is the one nobody
+    // sees until they have typed a thousand characters.
+    max_answer: "number",
+  },
   // The writes. Cheap to describe and worth it for the same reason as the reads:
   // a refresh landing mid-deploy is how a form ends up believing a failed toggle
   // succeeded.
@@ -123,6 +138,10 @@ export const SCHEMAS: Record<string, Record<string, Shape>> = {
     wallet: "number",
     bank: "number",
   },
+  // `sent` and the sentence are required but `handle`/`asker` are not: a refusal
+  // names neither (an empty box, an id that is gone), and the page reads whichever
+  // is there — the same shape the revoke route above uses.
+  "/api/console/questions/reply": { success: "boolean", sent: "boolean", said: "string" },
   "/api/toggle": { success: "boolean", guild_id: "string" },
   "/api/toggle-all": { success: "boolean", guild_id: "string" },
   // The dashboard's own endpoint, reused rather than reimplemented. `available`

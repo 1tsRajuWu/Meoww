@@ -25,6 +25,7 @@ import type {
   LivePayload,
   Ops,
   Overview,
+  QuestionsPayload,
   ServerAction,
   ServerDetail,
   SystemsMatrix,
@@ -202,6 +203,36 @@ export const api = {
     }),
   ops: () => request<Ops>("/api/console/ops"),
   changes: () => request<Changes>("/api/console/changes"),
+
+  /**
+   * The anonymous question box: what is waiting, and who asked each one.
+   *
+   * The one payload in this app that names a member beside something they were
+   * promised would not carry their name — which is the feature rather than a
+   * leak, and why the endpoint is operator-only on the server. Nothing about it
+   * reaches the channel: the public message is built by `utils/qna.relay_payload`
+   * from a closed field list.
+   */
+  questions: () => request<QuestionsPayload>("/api/console/questions"),
+
+  /**
+   * Answer one question. The DM is sent by the *bot*, not by this request: the
+   * route hands the answer to the same `deliver_answer` the Answer button uses,
+   * so the claim-then-DM-then-put-it-back order is the one implementation.
+   *
+   * A `sent: false` is a real answer from a working request — an empty box, a
+   * question already answered, a DM Discord refused — and `said` is the sentence
+   * for whichever it was, in the product's own words.
+   */
+  answerQuestion: (id: number, answer: string) =>
+    request<{ success: boolean; sent: boolean; said: string; handle: string; asker: string }>(
+      "/api/console/questions/reply",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, answer }),
+      },
+    ),
 
   /**
    * Who is signed in, and what the three guard windows are doing.

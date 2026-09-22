@@ -281,6 +281,42 @@ export type Changes = {
   total: number;
 };
 
+/**
+ * One anonymous question, as the operator's own screen shows it.
+ *
+ * `asker` and `asker_id` are the private half of the box's promise — the channel
+ * a question is relayed to carries neither, and the only two readers of them are
+ * this page and the DM the bot sends. `handle` is the public half: the id in hex,
+ * which is what the channel saw.
+ */
+export type QuestionRow = {
+  id: number;
+  /** `anon 4F2A` — what the question is called in the channel. */
+  handle: string;
+  question: string;
+  /** The asker's name, and their id as text (a snowflake is never a number). */
+  asker: string;
+  asker_id: string;
+  server: string;
+  /** When it arrived, in the operator's own clock: `22 Sep 2026, 03:33 IST`. */
+  asked: string;
+  asked_at: number;
+  /** Whether the relay webhook took it. A question the channel never saw is a
+   * different finding from one that is merely waiting. */
+  relayed: boolean;
+  relay_detail: string;
+};
+
+export type QuestionsPayload = {
+  success: true;
+  questions: QuestionRow[];
+  totals: { open: number; answered: number };
+  relay: { configured: boolean; setting: string };
+  read: { questions: { ok: boolean; because: string } };
+  /** The server's own cap, so the box cannot offer a length the DM would refuse. */
+  max_answer: number;
+};
+
 /** One person sitting in a voice channel, with the flags that matter from
  * outside the channel. `id` is text for the usual reason. */
 export type VoicePerson = {

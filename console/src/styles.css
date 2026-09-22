@@ -1551,6 +1551,134 @@ a {
   margin-top: 8px;
 }
 
+/* ------------------------------------------------------------- questions */
+
+/* The anonymous box, one row per question.
+ *
+ * A list rather than a card per question, because the page is read as a queue:
+ * the name is the first thing on each line (it is the reason the screen exists —
+ * the channel saw `anon 4F2A` and this is the only place that name appears), the
+ * question is the second, and the box to answer it is the third. Nothing here is
+ * a new palette value: the accent stripe is the same one `.alone__row` uses for
+ * "this is the thing being reported". */
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 55%, transparent);
+}
+
+/* Wraps, for the lesson `.card__head` already learned: the when-column beside a
+   long name crushes the name into a ribbon on a narrow window. */
+.question__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.question__handle {
+  display: block;
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--accent);
+}
+
+.question__who {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-meta);
+  color: var(--dim);
+}
+
+.question__who strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.question__when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--type-micro);
+  color: var(--dim);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.question__ask {
+  font-size: var(--type-body);
+  line-height: 1.6;
+  /* The same ceiling the prose elsewhere on this surface is held to: past about
+     seventy characters the eye loses its place on the way back. */
+  max-width: 72ch;
+  /* A question is typed by a person and can contain one long unbroken word — a
+     URL, a nickname. Without this it pushes the row wider than its own box. */
+  overflow-wrap: anywhere;
+}
+
+.question__relay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+  color: color-mix(in oklab, var(--warn) 78%, var(--text));
+}
+
+.question__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.question__label {
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--dim);
+}
+
+/* `flex: 0 0 auto` overrides `.input`'s `flex: 1`, which in this column would
+   make the box grow to fill the card instead of being a three-row box. */
+.question__answer {
+  flex: 0 0 auto;
+  min-width: 0;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.question__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.question__count {
+  font-size: var(--type-micro);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.question__tally {
+  display: flex;
+  gap: var(--space-2);
+}
+
 /* --------------------------------------------------------------- palette */
 
 .palette {

@@ -24,6 +24,7 @@ Three things are checked here and they are deliberately different kinds of claim
   old dashboard tests learned when a hard-coded "2 / 3" outlived its registry.
 """
 
+import asyncio
 import hashlib
 import io
 import json
@@ -38,6 +39,12 @@ import keep_alive
 from tests.support import agree_to_the_policies, agreed_next_url
 from tests.test_composer import CHANNEL_ID, GUILD_ID, _Bot, _Channel, _Guild, _Member, _VoiceChannel
 from tests.test_dashboard import CSRF, _DashboardFixture
+# The helper that flattens a Components V2 card is the one ``tests/test_qna.py``
+# already uses on the same object — the answer the button DMs and the answer this
+# page DMs are the same `Panel`, so reading it two ways would be two tests of one
+# card that could disagree.
+from tests.test_qna import card_text
+from utils import qna
 
 ROOT = Path(__file__).resolve().parents[1]
 CONSOLE = ROOT / "console"
@@ -51,6 +58,11 @@ CONSOLE_ROUTES = (
     "/api/console/commands",
     "/api/console/economy",
     "/api/console/ops",
+    # The one read in this app that crosses a member's anonymity: the channel gets
+    # the question with nobody's name on it, and this route hands the operator the
+    # same row *with* the name. Operator scope is what makes that the promise
+    # instead of a leak, so it belongs on this list rather than merely near it.
+    "/api/console/questions",
     "/api/console/access",
     "/api/console/changes",
 )
@@ -68,6 +80,9 @@ CONSOLE_WRITE_ROUTES = (
     # abandon it. It was left off when the route was added, which is the shape of
     # gap this tuple exists to make loud.
     "/api/console/server-action",
+    # Answering sends the DM the asker is waiting for, so a session that cannot
+    # read the console must not be able to write through it either.
+    "/api/console/questions/reply",
 )
 
 
@@ -334,6 +349,7 @@ class WhoMayOpenIt(_DashboardFixture):
             "/owner/systems",
             "/owner/commands",
             "/owner/ops",
+            "/owner/questions",
             "/owner/changes",
         ):
             with self.subTest(path=path):
@@ -1419,6 +1435,45 @@ class TheConsoleSchemaIsWhatTheServerAnswers(_DashboardFixture):
         self._assert_matches("/api/toggle-all", payload)
         self.assertIsInstance(payload["guild_id"], str)
 
+    def test_the_questions_reading_answers_what_its_schema_declares(self):
+        """The reading the page's `read.questions.ok` is built on.
+
+        A schema mismatch here does not merely blank a field: the questions list
+        is the one place a member's name is beside their question, so a payload
+        the boundary rejects is an operator staring at *"the console and the bot
+        are out of step"* instead of at the box they came to empty.
+        """
+        payload = self.client.get("/api/console/questions").get_json()
+        self._assert_matches("/api/console/questions", payload)
+        self.assertIsInstance(payload["totals"]["open"], int)
+        self.assertIsInstance(payload["relay"]["configured"], bool)
+        self.assertIsInstance(payload["read"]["questions"]["ok"], bool)
+
+    def test_the_reply_answers_what_its_schema_declares(self):
+        """Driven against the fixture's own gateway, which cannot resolve a user.
+
+        That is the *refusal* outcome — a working request whose answer is that
+        nothing was sent — and it is the shape the schema has to cover: `sent`
+        and the sentence are required, and the handle and name may be absent.
+        """
+        record = asyncio.run(
+            qna.record(
+                guild_id=GUILD_ID,
+                guild_name="Meow Server",
+                user_id=777001,
+                user_name="RajTheAsker",
+                question="why is the sky blue?",
+            )
+        )
+        payload = self.client.post(
+            "/api/console/questions/reply",
+            json={"id": record["id"], "answer": "Rayleigh scattering"},
+            headers={"X-CSRF-Token": "csrf-token"},
+        ).get_json()
+        self._assert_matches("/api/console/questions/reply", payload)
+        self.assertIs(payload["sent"], False)
+        self.assertTrue(payload["said"])
+
     def test_a_republish_nobody_could_hear_is_reported_as_such(self):
         """The switch saves either way; the *picker* only changes if the bot heard.
 
@@ -1437,6 +1492,319 @@ class TheConsoleSchemaIsWhatTheServerAnswers(_DashboardFixture):
         self.assertTrue(payload["success"])
         self.assertIs(payload["republish"], False)
         self.assertTrue(keep_alive.modules.is_enabled(GUILD_ID, module))
+
+
+class _DmTarget:
+    """The asker, as ``user.send`` reaches them: something that records the card."""
+
+    def __init__(self, bot, user_id):
+        self.bot = bot
+        self.id = int(user_id)
+        self.bot_flag = False
+
+    async def send(self, **kwargs):
+        self.bot.delivered.append(kwargs)
+        return None
+
+
+class _AnswerableBot(_Bot):
+    """A gateway the console can *answer through*, which the stock stub cannot be.
+
+    ``_Bot`` is what the dashboard's tests need and it has no ``get_user``, so
+    every reply driven through it ends in the honest-but-wrong refusal —
+    "Discord would not give me their account" — and the success path, which is
+    the one this page exists for, could never be exercised. This adds the two
+    lookups ``deliver_answer`` makes and nothing else.
+    """
+
+    def __init__(self, guilds, *, deliverable=True):
+        super().__init__(guilds)
+        self.delivered = []
+        self.deliverable = deliverable
+
+    def get_user(self, user_id):
+        return _DmTarget(self, user_id) if self.deliverable else None
+
+    async def fetch_user(self, user_id):
+        return self.get_user(user_id)
+
+
+class TheQuestionsPage(_DashboardFixture):
+    """The anonymous box, answered from the web instead of from a phone.
+
+    The feature's promise is *the channel sees the question, one person sees who
+    asked it, the asker gets a DM* — and this page is the third reader. What is
+    checked here is the part a page can silently break: that it shows the private
+    half only behind the operator gate, that a box it could not read is never
+    reported as empty, and that a reply leaves through the same delivery the
+    Answer button on the owner's DM uses rather than a second copy of it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in(scope="global")
+        with self.client.session_transaction() as session:
+            session["csrf_token"] = CSRF
+
+    def ask(self, question="why is the sky blue?", *, relayed=True, when=1000.0):
+        """A question in the table, written by the module that owns the table.
+
+        ``note_relay`` is called rather than a column being written: a question is
+        stored *before* the webhook is handed it — so the row exists even when the
+        relay fails, which is the whole point of the record — and the flag is the
+        second write the real command makes.
+        """
+        record = asyncio.run(
+            qna.record(
+                guild_id=GUILD_ID,
+                guild_name="Meow Server",
+                user_id=777001,
+                user_name="RajTheAsker",
+                question=question,
+                asked_at=when,
+            )
+        )
+        if relayed:
+            asyncio.run(qna.note_relay(record["id"], True))
+        return record
+
+    def reading(self, path="/api/console/questions"):
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200, path)
+        return response.get_json()
+
+    def reply(self, **body):
+        return self.client.post(
+            "/api/console/questions/reply", json=body, headers={"X-CSRF-Token": CSRF}
+        )
+
+    def test_the_page_shows_the_asker_beside_the_handle_the_channel_saw(self):
+        record = self.ask()
+        payload = self.reading()["questions"][0]
+        self.assertEqual(payload["asker"], "RajTheAsker")
+        self.assertEqual(payload["asker_id"], "777001")
+        # …and the name crosses as text, like every other snowflake in this app.
+        self.assertIsInstance(payload["asker_id"], str)
+        # The handle the channel saw is the question's id in hex, so the operator
+        # can match a card somebody quoted in the server against this list.
+        self.assertEqual(payload["handle"], qna.handle(record))
+        self.assertEqual(payload["question"], "why is the sky blue?")
+        self.assertTrue(payload["relayed"])
+
+    def test_the_counts_are_the_tables_own_and_not_what_the_list_shows(self):
+        for index in range(3):
+            self.ask(f"q{index}", when=1000.0 + index)
+        payload = self.reading("/api/console/questions?limit=1")
+        self.assertEqual(len(payload["questions"]), 1)
+        self.assertEqual(payload["totals"], {"open": 3, "answered": 0})
+        self.assertEqual(payload["questions"][0]["question"], "q2")
+
+    def test_a_box_that_could_not_be_read_is_not_an_empty_one(self):
+        """The one sentence this page must never say wrongly.
+
+        "Nothing is waiting" about a list nobody opened is the answer an operator
+        acts on by doing nothing, which is why the reading carries its own
+        ``ok``/``because`` rather than an empty array that means either.
+        """
+        # Patched on the module that *uses* it, not on ``utils.db`` itself: the
+        # session ledger writes through the same connection, so breaking it
+        # globally would refuse the request before the route ever read the box —
+        # and a 500 is not the state this test is about.
+        broken = SimpleNamespace(connect=mock.Mock(side_effect=RuntimeError("database is locked")))
+        with mock.patch.object(qna, "db", broken):
+            payload = self.reading()
+        self.assertFalse(payload["read"]["questions"]["ok"])
+        self.assertIn("unknown rather than empty", payload["read"]["questions"]["because"])
+        self.assertEqual(payload["questions"], [])
+        # …and the totals are not a confident zero either: the page has nothing
+        # honest to put there, so it puts nothing.
+        self.assertEqual(payload["totals"], {"open": 0, "answered": 0})
+
+    def test_the_page_never_spends_an_unread_box_on_an_empty_sentence(self):
+        """The app's half of the contract, checked where it is written.
+
+        The test above proves the payload says *unknown* rather than zero, and it
+        cannot see which branch the page takes. Found by reading the page against
+        its own band: the notice was drawn, and underneath it the card still said
+        **"Nothing is waiting"** with **"0 open · 0 answered"** beside it — the
+        one sentence above, in a smaller font, and the one an operator acts on by
+        doing nothing.
+        """
+        source = (CONSOLE / "src" / "pages" / "Questions.tsx").read_text(encoding="utf-8")
+        # The list is *replaced* when the box was not read, not merely preceded by
+        # a notice — the empty card is one branch of three, not the default.
+        self.assertRegex(source, r"\{\s*!read\.ok\s*\?\s*\(")
+        self.assertIn('title="Nobody can say"', source)
+        # …and no number from that payload reaches the screen unasked: every line
+        # drawing a total has to be guarded by the reading that produced it.
+        for number, line in enumerate(source.splitlines(), start=1):
+            if "data.totals." in line:
+                self.assertIn(
+                    "read.ok",
+                    line,
+                    f"Questions.tsx:{number} prints a count nobody read: {line.strip()}",
+                )
+        # The heading and the hint are the same claim in a larger font, so they
+        # branch on the reading too.
+        for prop in ("title={", "hint={"):
+            self.assertIn(
+                "read.ok",
+                source.split(prop, 1)[1][:200],
+                f"the questions card's {prop.strip('={')} does not ask whether the box was read",
+            )
+
+    def test_the_page_names_the_setting_that_closes_the_box(self):
+        with mock.patch.dict(os.environ, {"QNA_WEBHOOK_URL": ""}):
+            payload = self.reading()
+        self.assertFalse(payload["relay"]["configured"])
+        self.assertEqual(payload["relay"]["setting"], "QNA_WEBHOOK_URL")
+
+    def test_answering_dms_the_asker_and_closes_the_question(self):
+        record = self.ask()
+        bot = _AnswerableBot(self.bot.guilds)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            response = self.reply(id=record["id"], answer="Rayleigh scattering")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["success"], payload)
+        self.assertTrue(payload["sent"])
+        self.assertNotIn("**", payload["said"])
+        # The card went to the asker, in this app's own Panel, carrying both the
+        # answer and the question it answers.
+        self.assertEqual(len(bot.delivered), 1)
+        body = card_text(bot.delivered[0]["view"])
+        self.assertIn("Rayleigh scattering", body)
+        self.assertIn("why is the sky blue?", body)
+        stored = asyncio.run(qna.get(record["id"]))
+        self.assertEqual(stored["status"], qna.ANSWERED)
+        self.assertTrue(stored["answer"])
+        # The next read is an empty box, and the sentence says who it went to.
+        self.assertEqual(self.reading()["questions"], [])
+        self.assertEqual(self.reading()["totals"], {"open": 0, "answered": 1})
+
+    def test_answering_twice_from_two_tabs_does_not_dm_twice(self):
+        record = self.ask()
+        bot = _AnswerableBot(self.bot.guilds)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            first = self.reply(id=record["id"], answer="the first answer").get_json()
+            second = self.reply(id=record["id"], answer="the second answer").get_json()
+        self.assertTrue(first["sent"])
+        self.assertTrue(second["success"])
+        self.assertFalse(second["sent"])
+        self.assertIn("already has an answer", second["said"])
+        self.assertEqual(len(bot.delivered), 1)
+
+    def test_a_refused_dm_leaves_the_question_waiting_and_says_why(self):
+        """The stock stub has no ``get_user``, which is Discord saying no."""
+        record = self.ask()
+        payload = self.reply(id=record["id"], answer="hello?").get_json()
+        self.assertTrue(payload["success"])
+        self.assertFalse(payload["sent"])
+        self.assertIn("this list", payload["said"])
+        # Read in a browser and found showing as literal asterisks: the sentence is
+        # authored for a Discord card, and this surface has no markdown renderer.
+        self.assertNotIn("**", payload["said"])
+        stored = asyncio.run(qna.get(record["id"]))
+        self.assertEqual(stored["status"], qna.OPEN)
+        self.assertEqual(stored["answer"], "")
+        self.assertEqual(len(self.reading()["questions"]), 1)
+
+    def test_an_empty_answer_sends_nothing_and_stays_on_the_question(self):
+        record = self.ask()
+        bot = _AnswerableBot(self.bot.guilds)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            payload = self.reply(id=record["id"], answer="   ").get_json()
+        self.assertFalse(payload["sent"])
+        self.assertEqual(bot.delivered, [])
+        self.assertEqual(asyncio.run(qna.get(record["id"]))["status"], qna.OPEN)
+
+    def test_an_id_that_is_gone_is_named_rather_than_a_wall(self):
+        bot = _AnswerableBot(self.bot.guilds)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            payload = self.reply(id=987654, answer="hello?").get_json()
+        self.assertFalse(payload["sent"])
+        self.assertIn("987654", payload["said"])
+        self.assertEqual(bot.delivered, [])
+
+    def test_no_bot_in_this_process_refuses_instead_of_pretending(self):
+        """A save that went nowhere must not be reported as a delivery.
+
+        The console and the bot share a host but not a lifetime: during a restart
+        this process answers and has nobody to DM as, and the honest reply is that
+        the question is untouched rather than a green toast.
+        """
+        record = self.ask()
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", None):
+            response = self.reply(id=record["id"], answer="hello?")
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.get_json()["success"])
+        self.assertEqual(asyncio.run(qna.get(record["id"]))["status"], qna.OPEN)
+        self.assertEqual(len(self.reading()["questions"]), 1)
+
+    def test_which_question_is_a_400_rather_than_a_guess(self):
+        """No id, no answer: the route never guesses the newest one.
+
+        ``/qna reply`` with no id does answer the newest, because an operator
+        typed a command about nothing in particular; a page that submitted a
+        blank id is a bug, and answering a question it did not name is worse than
+        saying so.
+        """
+        self.ask()
+        bot = _AnswerableBot(self.bot.guilds)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            response = self.reply(answer="hello?")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(bot.delivered, [])
+        self.assertEqual(len(self.reading()["questions"]), 1)
+
+    def test_a_reply_without_the_token_is_refused(self):
+        record = self.ask()
+        bot = _AnswerableBot(self.bot.guilds)
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            response = self.client.post(
+                "/api/console/questions/reply", json={"id": record["id"], "answer": "hi"}
+            )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(bot.delivered, [])
+
+    def test_a_server_scoped_sign_in_cannot_read_the_names(self):
+        """Asserted on the *body*, not on the status.
+
+        A one-time link minted for one server reaches the console's own APIs by
+        scope, and the name of a member of a server that link was not minted for
+        is exactly what must not come back with the refusal.
+        """
+        self.ask()
+        self.sign_in(guild_id=GUILD_ID, scope="guild")
+        for path, response in (
+            ("/api/console/questions", self.client.get("/api/console/questions")),
+            ("/api/console/questions/reply", self.reply(id=1, answer="hello?")),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(response.status_code, 403, path)
+                self.assertNotIn("RajTheAsker", response.get_data(as_text=True))
+
+    def test_the_page_is_in_the_rail_and_has_an_address(self):
+        """A page nobody can reach is a page that does not exist.
+
+        Both halves are checked because both can be forgotten separately: the
+        alias is what the client-side router matches, and the nav entry is what a
+        person clicks — and the nav is built by the server, from this tuple.
+        """
+        self.assertIn(
+            ("questions", "Questions", "/owner/questions", "questions"),
+            keep_alive.OWNER_PAGES,
+        )
+        rail = keep_alive._page_nav(
+            keep_alive.OWNER_PAGES, "questions", groups=keep_alive.OWNER_GROUPS
+        )
+        entry = next(row for row in rail if row["id"] == "questions")
+        self.assertEqual(entry["url"], "/owner/questions")
+        self.assertTrue(entry["current"])
+        # …under a heading, rather than in the unheadered group the rail falls back
+        # to: a page nobody placed is the one that goes missing in a redesign.
+        self.assertEqual(entry["group"], "Work")
+        self.assertEqual(self.client.get("/owner/questions").status_code, 200)
 
 
 class ThePreviewHarnessShowsAConsole(_DashboardFixture):
@@ -1534,6 +1902,73 @@ class ThePreviewHarnessShowsAConsole(_DashboardFixture):
         first = module.seed_economy()
         self.assertEqual(first, len(module.GUILDS) * len(module.MEMBERS))
         self.assertEqual(module.seed_economy(), 0, "a second run re-wrote balances")
+
+    def test_the_seeded_questions_are_written_once_and_read_by_the_real_reader(self):
+        """A preview of an empty inbox teaches nothing about the inbox.
+
+        ``seed_questions`` writes the real table with the real columns, so the
+        rows are read back by ``qna.owner_inbox_sync`` — the same function
+        production's route calls — rather than by a stand-in that could agree with
+        a broken schema. The once-only half matters for the same reason the
+        economy's does: re-running the harness must not put back a question that
+        was answered through the console a minute earlier.
+        """
+        module = self.load()
+        saved = keep_alive.db.DB_PATH
+        try:
+            first = module.seed_questions()
+            self.assertGreater(first, 1)
+            self.assertEqual(module.seed_questions(), 0, "a second run re-wrote questions")
+            reading = qna.owner_inbox_sync()
+            self.assertTrue(reading["available"], reading["because"])
+            self.assertEqual(reading["open"], first)
+            row = reading["rows"][0]
+            # The name is in the reading, which is the entire reason the page is
+            # gated — and the handle the channel saw is beside it.
+            self.assertTrue(row["asker"])
+            self.assertEqual(row["handle"], qna.handle(row))
+            # One seeded question is deliberately unrelayed: a question the
+            # channel never saw is the state a hand-written mock never produces.
+            self.assertTrue([r for r in reading["rows"] if not r["relayed"]])
+        finally:
+            keep_alive.db.DB_PATH = saved
+
+    def test_the_harness_gateway_can_be_answered_through(self):
+        """The page's one write has to be drivable *in* the harness.
+
+        ``deliver_answer`` opens with a user lookup, and ``_PreviewBot`` had none
+        — so every reply in a preview would report a refusal the deployment it
+        stands in for would never have made, and the success toast this page
+        exists to show could not be drawn at all. Driven through the real route
+        rather than by calling the bot's lookup directly: the wiring between them
+        is what a preview is for.
+        """
+        module = self.load()
+        saved = keep_alive.db.DB_PATH
+        try:
+            module.seed_questions()
+            bot = module._PreviewBot()
+            module._PreviewUser.sent.clear()
+            row = qna.owner_inbox_sync()["rows"][0]
+            # The real route, signed in the way the harness signs itself in, so the
+            # gate is exercised rather than stepped around — the harness mounting
+            # `keep_alive`'s own views is the fact this leans on.
+            self.sign_in(scope="global")
+            with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+                response = self.client.post(
+                    "/api/console/questions/reply",
+                    json={"id": row["id"], "answer": "because of scattering"},
+                    headers={"X-CSRF-Token": CSRF},
+                )
+            self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:400])
+            answered = response.get_json()
+            self.assertTrue(answered["sent"], answered)
+            delivered = card_text(module._PreviewUser.sent[-1]["view"])
+            self.assertIn("because of scattering", delivered)
+            self.assertIn(row["question"], delivered)
+            self.assertEqual(asyncio.run(qna.get(row["id"]))["status"], qna.ANSWERED)
+        finally:
+            keep_alive.db.DB_PATH = saved
 
 
 class _no_bundle:

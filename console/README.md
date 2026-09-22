@@ -28,13 +28,15 @@ buildable with `scripts/build_hub.py` if it is ever wanted back.
 | `src/lib/useLive.ts` | the polling hook — the one place an interval is set |
 | `src/lib/theme.ts` | the four themes' names; the colours are in `styles.css` |
 | `src/ui.tsx` | the building blocks: card, switch, toast, skeleton, empty |
-| `src/pages/*` | one file per page, each fetching what it draws — Overview, Servers and a per-server drill-down, the Systems matrix, Commands, Economy, Ops, Changes |
+| `src/pages/*` | one file per page, each fetching what it draws — Overview, Servers and a per-server drill-down, the Systems matrix, Commands, Economy, Ops, Questions, Access, Changes |
 | `src/styles.css` | tokens, then layout, then components, in that order |
 
-The server side is `keep_alive.py`: the shell route (`owner_console`) and six
-`/api/console/*` routes that open with `_require_operator_api`. The API reuses
-the same helpers the old console used, so the app cannot disagree with the
-dashboard about a server's state.
+The server side is `keep_alive.py`: the shell route (`owner_console`) and every
+`/api/console/*` route, each of which opens with `_require_operator_api`. The API
+reuses the same helpers the old console used, so the app cannot disagree with the
+dashboard about a server's state — and a route that *writes* goes through the
+same function the Discord command does (`cogs/qna.deliver_answer` for the
+Questions page), so the console cannot disagree with the bot either.
 
 ## Building it
 

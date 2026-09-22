@@ -407,6 +407,113 @@ def owner_fields(record) -> list[tuple[str, str]]:
     ]
 
 
+def owner_row(record) -> dict:
+    """One question as an operator's *own* screen shows it: the private reading.
+
+    This is :func:`owner_fields` for a surface that renders in HTML rather than
+    on a Discord card, and it belongs in this module for the same reason the
+    fields do: the promise is "the server sees the question, one person sees who
+    asked it", so every function that reveals the asker lives here, next to the
+    one that must not — rather than in a route where it is a line somebody could
+    add to the wrong side later.
+
+    Nothing here is rendered publicly, and the closed field list on
+    :func:`relay_payload` is what makes that checkable: an id in this dict
+    travels to an operator's browser and nowhere else.
+
+    ``asked_at`` travels beside ``asked`` because the console sorts by the
+    moment rather than by the sentence about it, and parsing ``22 Sep 2026,
+    03:33 IST`` back into one would be an accident waiting to happen.
+    """
+    record = record or {}
+    try:
+        question_id = int(record.get("id") or 0)
+    except (TypeError, ValueError):
+        question_id = 0
+    return {
+        "id": question_id,
+        "handle": handle(record),
+        "question": question_text(record),
+        # The two fields the public relay can never carry, and the whole reason
+        # this reading is owner-only.
+        "asker": str(record.get("user_name") or "unknown"),
+        "asker_id": str(record.get("user_id") or 0),
+        "server": str(record.get("guild_name") or "unknown"),
+        "asked": ist_stamp(record.get("asked_at")),
+        "asked_at": float(record.get("asked_at") or 0.0),
+        # Whether the channel ever got it. A question nobody answered *and* the
+        # channel never saw is a different thing from one that is merely waiting,
+        # and the console is where that difference is visible.
+        "relayed": bool(record.get("relayed")),
+        "relay_detail": str(record.get("relay_detail") or ""),
+    }
+
+
+def owner_inbox_sync(*, limit: int = 20) -> dict:
+    """The same reading from a Flask thread, which has no event loop.
+
+    The console's reads are synchronous (``db.connect``) and must stay that way:
+    a page that could only be drawn while the bot's loop was running would show
+    nothing during exactly the deploys and restarts an operator opens it to
+    check on, and the questions are on disk either way.
+
+    Two doors to one table, so the *reading* is shared rather than rewritten:
+    the rows come from :func:`owner_row`, which is the only place the asker's
+    name is put into a dict, and the counts are the same two numbers the
+    asyncio path reports.
+    """
+    rows: list[dict] = []
+    open_count = answered = 0
+    try:
+        conn = db.connect()
+    except Exception as exc:  # noqa: BLE001 — an unreadable database is answered
+        print(f"[QNA] Could not open the question box for reading: {exc}", flush=True)
+        return {
+            "rows": [], "open": 0, "answered": 0, "shown": 0,
+            "configured": configured(), "setting": SETTING,
+            "available": False,
+            "because": "The database could not be opened, so this list is unknown rather than empty.",
+        }
+    try:
+        # The table is created at boot *and* here, for the same reason the
+        # asyncio path does it: a database restored from a backup taken before
+        # this feature existed would otherwise make the page an error instead of
+        # an empty list. `CREATE TABLE IF NOT EXISTS` is a no-op when it is there.
+        conn.execute(CREATE_TABLE)
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {', '.join(COLUMNS)} FROM {TABLE} WHERE status = ? {_ORDER} LIMIT ?",
+            (OPEN, max(1, min(int(limit or 20), 100))),
+        )
+        rows = [owner_row(row) for row in (_row(item) for item in cur.fetchall()) if row]
+        cur.execute(f"SELECT status, COUNT(*) FROM {TABLE} GROUP BY status")
+        for status, number in cur.fetchall():
+            if str(status) == OPEN:
+                open_count = int(number)
+            elif str(status) == ANSWERED:
+                answered = int(number)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[QNA] Could not read the question box: {exc}", flush=True)
+        return {
+            "rows": [], "open": 0, "answered": 0, "shown": 0,
+            "configured": configured(), "setting": SETTING,
+            "available": False,
+            "because": "The table could not be read, so this list is unknown rather than empty.",
+        }
+    finally:
+        conn.close()
+    return {
+        "rows": rows,
+        "open": open_count,
+        "answered": answered,
+        "shown": len(rows),
+        "configured": configured(),
+        "setting": SETTING,
+        "available": True,
+        "because": "",
+    }
+
+
 def answer_body(record, answer: str) -> str:
     """What the asker is DMed: the answer, and the question it answers.
 

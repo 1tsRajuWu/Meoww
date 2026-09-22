@@ -23,6 +23,7 @@ that sentence can quietly stop being true:
 Everything here runs against a throwaway database and the real callbacks; the
 webhook is the one thing patched, because there is no network in this suite.
 """
+import asyncio
 import json
 import os
 import unittest
@@ -257,6 +258,55 @@ class TheOwnerReading(unittest.TestCase):
         self.assertTrue(qna.ist_stamp(None).endswith("IST"))
         self.assertTrue(qna.ist_stamp("not a time").endswith("IST"))
 
+    def test_the_operators_row_carries_both_halves_of_the_promise(self):
+        """The name, and the handle the channel saw, in one dict — on purpose.
+
+        A console can only show an operator *whether* a question is worth a DM if
+        it can put the asker beside the question, so this reading has to carry
+        the name. What keeps that from being a leak is that it is not the reading
+        the channel gets: the same row through :func:`qna.relay_payload` — the
+        function that builds what leaves this process — is checked below for
+        every field this one adds.
+        """
+        row = qna.owner_row(_row())
+        self.assertEqual(row["asker"], ASKER_NAME)
+        self.assertEqual(row["asker_id"], str(ASKER_ID))
+        self.assertEqual(row["handle"], qna.handle(_row()))
+        self.assertEqual(row["server"], GUILD_NAME)
+        self.assertEqual(row["question"], "why is the sky blue?")
+        # The moment as well as the sentence about it: the console sorts by the
+        # first and prints the second, and re-parsing "01 Jan 2026, 05:30 IST"
+        # back into a number is exactly the kind of accident this avoids.
+        self.assertEqual(row["asked_at"], _row()["asked_at"])
+        self.assertIn("IST", row["asked"])
+        blob = json.dumps(qna.relay_payload(_row()))
+        for private in (row["asker"], row["asker_id"], row["server"]):
+            self.assertNotIn(private, blob)
+
+    def test_a_question_the_channel_never_saw_says_so(self):
+        """A row that is merely unanswered and one that never went out differ.
+
+        ``relayed`` is the only field that separates them, and the console is the
+        one surface where the difference is visible — so the delivery's own
+        reason travels with it rather than being reduced to a boolean.
+        """
+        missed = qna.owner_row(_row(relayed=False, relay_detail="HTTPError 404"))
+        self.assertFalse(missed["relayed"])
+        self.assertEqual(missed["relay_detail"], "HTTPError 404")
+        self.assertTrue(qna.owner_row(_row())["relayed"])
+
+    def test_a_row_a_backup_forgot_a_field_for_is_still_readable(self):
+        """The console is what an operator opens when something looks wrong.
+
+        A reading that raised on one odd row would be a page that shows nothing
+        at all — including for the fifty questions beside the odd one.
+        """
+        row = qna.owner_row({})
+        self.assertEqual(row["id"], 0)
+        self.assertEqual(row["asker"], "unknown")
+        self.assertEqual(row["question"], "*(the question arrived empty)*")
+        self.assertTrue(row["asked"].endswith("IST"))
+
 
 class TheAnswer(unittest.TestCase):
     def test_the_answer_quotes_the_question_it_answers(self):
@@ -431,6 +481,97 @@ class TheRecord(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(await qna.get(open_row["id"]))
 
 
+class TheOperatorScreen(TempDatabaseMixin, unittest.TestCase):
+    """The console's reading: the same rows, off a thread with no event loop.
+
+    `/api/console/questions` has to answer while the bot is restarting, which is
+    the one moment there is no loop to await on — so the reading is synchronous
+    and this is where that is proven, including the state the page must not get
+    wrong: a box that could not be read is *unknown*, never empty.
+    """
+
+    def setUp(self):
+        self.use_temp_database("qna_screen.db")
+        asyncio.run(db.setup())
+
+    def tearDown(self):
+        self.release_temp_database()
+
+    def ask(self, question="why is the sky blue?", *, relayed=True, when=1000.0):
+        return asyncio.run(
+            qna.record(
+                guild_id=GUILD_ID,
+                guild_name=GUILD_NAME,
+                user_id=ASKER_ID,
+                user_name=ASKER_NAME,
+                question=question,
+                asked_at=when,
+            )
+        )
+
+    def test_the_reading_names_the_asker_and_the_handle_the_channel_saw(self):
+        self.ask()
+        reading = qna.owner_inbox_sync()
+        self.assertTrue(reading["available"])
+        row = reading["rows"][0]
+        self.assertEqual(row["asker"], ASKER_NAME)
+        self.assertEqual(row["asker_id"], str(ASKER_ID))
+        self.assertEqual(row["handle"], qna.handle(row))
+        self.assertEqual(row["server"], GUILD_NAME)
+
+    def test_the_counts_are_the_tables_own_and_not_the_lists_length(self):
+        """A page that said "3 open" above a capped list of one would be wrong.
+
+        The list is always capped — the console asks for twenty — so the numbers
+        have to come from the table rather than from what fits on screen.
+        """
+        for index in range(3):
+            self.ask(f"q{index}", when=1000.0 + index)
+        answered = self.ask("answered")
+        asyncio.run(qna.mark_answered(answered["id"], "done"))
+        reading = qna.owner_inbox_sync(limit=1)
+        self.assertEqual(len(reading["rows"]), 1)
+        self.assertEqual(reading["shown"], 1)
+        self.assertEqual(reading["open"], 3)
+        self.assertEqual(reading["answered"], 1)
+        # Newest first, so the one row a capped list shows is the newest.
+        self.assertEqual(reading["rows"][0]["question"], "q2")
+
+    def test_the_box_that_is_not_configured_still_reads(self):
+        """The setting being absent is why nothing is *arriving*, not a reason
+        to hide what already arrived — and the page says which setting it is."""
+        self.ask()
+        with mock.patch.dict(os.environ, {"QNA_WEBHOOK_URL": ""}):
+            reading = qna.owner_inbox_sync()
+        self.assertFalse(reading["configured"])
+        self.assertEqual(reading["setting"], "QNA_WEBHOOK_URL")
+        self.assertEqual(len(reading["rows"]), 1)
+
+    def test_an_unreadable_box_is_unknown_rather_than_empty(self):
+        """The distinction the whole page is built on, checked at its source.
+
+        "Nothing is waiting" about a list nobody could open is the one sentence
+        an operator would act on by doing nothing at all.
+        """
+        with mock.patch.object(qna.db, "connect", side_effect=RuntimeError("no such table")):
+            reading = qna.owner_inbox_sync()
+        self.assertFalse(reading["available"])
+        self.assertEqual(reading["rows"], [])
+        self.assertIn("unknown rather than empty", reading["because"])
+
+    def test_the_reading_creates_the_table_a_restored_backup_forgot(self):
+        """A database restored from before this feature existed is the exact
+        case: the page must be an empty list, not an error and not a 500."""
+        conn = db.connect()
+        conn.execute(f"DROP TABLE IF EXISTS {qna.TABLE}")
+        conn.commit()
+        conn.close()
+        reading = qna.owner_inbox_sync()
+        self.assertTrue(reading["available"])
+        self.assertEqual(reading["rows"], [])
+        self.assertEqual(reading["open"], 0)
+
+
 # --------------------------------------------------------------------------- #
 # The command, end to end
 # --------------------------------------------------------------------------- #
@@ -600,6 +741,89 @@ class Answering(_QnaCase):
         interaction = _Interaction(user=self.owner, bot=self.bot)
         await qna_cog.deliver_reply(interaction, 987654, "hello?")
         self.assertIn("987654", interaction.answered[-1]["content"])
+
+    async def test_the_screen_and_the_button_share_one_delivery(self):
+        """The console calls ``deliver_answer`` itself, on the bot's own loop.
+
+        The order inside it — claim the question, *then* DM — is the whole
+        protection against an asker being DMed twice, and the console is a second
+        caller of it rather than a second implementation of it. Driven here the
+        way the route drives it (no interaction, just the client), because that
+        is the difference between the two surfaces and nothing else is.
+        """
+        record = await self._ask()
+        first = await qna_cog.deliver_answer(self.bot, record["id"], "from the web")
+        self.assertTrue(first["ok"], first)
+        self.assertEqual(first["outcome"], "sent")
+        self.assertEqual(first["handle"], qna.handle(record))
+        self.assertEqual(first["asker"], ASKER_NAME)
+        self.assertEqual(len(self.asker.dms), 1)
+        # …and the button on the card, clicked afterwards, DMs nobody a second
+        # time: the question is already claimed.
+        second = await qna_cog.deliver_answer(self.bot, record["id"], "from the card")
+        self.assertEqual(second["outcome"], "already")
+        self.assertEqual(len(self.asker.dms), 1)
+        self.assertEqual((await qna.get(record["id"]))["answer"], "from the web")
+
+    async def test_a_refused_dm_puts_the_question_back_for_every_surface(self):
+        record = await self._ask()
+        self.asker.dm_error = RuntimeError("50007 Cannot send messages to this user")
+        result = await qna_cog.deliver_answer(self.bot, record["id"], "hello?")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["outcome"], "refused")
+        # The reason names the *kind* of refusal, not the exception's text: a DM
+        # that failed because the asker closed their DMs and one that failed
+        # because Discord was down read the same to an operator, and the class
+        # name is the part that distinguishes "they will never get this".
+        self.assertIn("refused the DM", result["reason"])
+        self.assertIn("RuntimeError", result["reason"])
+        stored = await qna.get(record["id"])
+        self.assertEqual(stored["status"], qna.OPEN)
+        self.assertEqual(stored["answer"], "")
+
+    async def test_an_empty_answer_never_reaches_the_lookup(self):
+        """Checked before the question is read, so nothing is claimed for it."""
+        record = await self._ask()
+        result = await qna_cog.deliver_answer(self.bot, record["id"], "   ")
+        self.assertEqual(result["outcome"], "empty")
+        self.assertEqual(self.asker.dms, [])
+        self.assertEqual((await qna.get(record["id"]))["status"], qna.OPEN)
+
+    def test_one_outcome_is_worded_the_same_way_wherever_it_happened(self):
+        """The sentence is the product's, not the surface's.
+
+        The single difference is *where a question goes back to*: a command on
+        Discord, the list on a screen. Everything else — including the fact that
+        nobody was DMed twice — has to read the same, because an operator who
+        answered from the console and then from their phone should not be told
+        two different things about the same question.
+        """
+        sent = {"outcome": "sent", "handle": "anon 4F2A", "asker": ASKER_NAME}
+        self.assertEqual(
+            qna_cog.answer_sentence(sent),
+            qna_cog.answer_sentence(sent, inbox="this list"),
+        )
+        self.assertIn(ASKER_NAME, qna_cog.answer_sentence(sent))
+        # …and the emphasis is the surface's, because the console shows this
+        # sentence in HTML where nothing renders markdown: the two differ by the
+        # asterisks and by nothing else, which is the claim being pinned.
+        card = qna_cog.answer_sentence(sent)
+        web = qna_cog.answer_sentence(sent, bold=False)
+        self.assertIn(f"**{ASKER_NAME}**", card)
+        self.assertNotIn("**", web)
+        self.assertEqual(card.replace("**", ""), web)
+        already = {"outcome": "already", "handle": "anon 4F2A"}
+        self.assertEqual(
+            qna_cog.answer_sentence(already),
+            qna_cog.answer_sentence(already, inbox="this list"),
+        )
+        refused = {"outcome": "refused", "reason": "Discord said no"}
+        self.assertIn("back in /qna inbox", qna_cog.answer_sentence(refused))
+        self.assertIn("back in this list", qna_cog.answer_sentence(refused, inbox="this list"))
+        # The reason is carried through rather than replaced by a generic apology.
+        self.assertIn("Discord said no", qna_cog.answer_sentence(refused))
+        unknown = {"outcome": "unknown", "id": 987654}
+        self.assertIn("987654", qna_cog.answer_sentence(unknown))
 
 
 class TheOwnersSurfaces(_QnaCase):

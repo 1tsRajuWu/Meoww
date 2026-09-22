@@ -586,6 +586,41 @@ class _PreviewBot:
         """
         return self.get_guild(guild_id) is not None
 
+    def get_user(self, user_id):
+        """The member the Questions page is about to answer, as a DM target.
+
+        ``cogs.qna.deliver_answer`` opens with ``client.get_user(id)`` and falls
+        back to ``fetch_user``, then DMs whoever it got — and answers the operator
+        *"I couldn't look their account up"* when both come back empty. None of
+        that needs a gateway to be true, and without it the one write this page
+        has could never be driven in a preview: every reply would report a refusal
+        that the deployment it is standing in for would not have made.
+
+        **Synchronous, like Discord's own**: returning ``fetch_user``'s awaitable
+        here — which is what the first version of this did — hands
+        ``deliver_answer`` a *coroutine* where it expects a member, and the DM
+        then fails with ``coroutine.send() takes no keyword arguments``: a
+        refusal that looks like Discord's and is entirely the harness's.
+        """
+        return self._member(user_id)
+
+    async def fetch_user(self, user_id):
+        """The same lookup, for the path a cache miss takes."""
+        return self._member(user_id)
+
+    def _member(self, user_id):
+        """A stand-in member, whose ``send`` records what the bot would have sent."""
+        member = next(
+            (
+                entry
+                for guild in self.guilds
+                for entry in guild.members
+                if str(entry.id) == str(user_id)
+            ),
+            None,
+        )
+        return _PreviewUser(member, user_id)
+
     def get_cog(self, name):
         """The voice companion, as the Live page reads it.
 
@@ -607,6 +642,31 @@ class _PreviewBot:
         )
         person = first.members[1] if len(first.members) > 1 else None
         return _PreviewCompany(first, focus, person)
+
+
+class _PreviewUser:
+    """The asker, as the DM target ``cogs.qna.deliver_answer`` needs.
+
+    Only ``send`` matters: the delivery builds the card, hands it to ``send``, and
+    reads nothing back but the absence of an exception. Keeping what was sent
+    means the harness can say what *would* have gone out — which is the only way
+    the question "did that reply actually reach somebody" is answerable without
+    the answer being invented by the page.
+    """
+
+    #: Everything this process has "DMed", newest last. Read by nothing but the
+    #: preview itself; the deployment keeps no such list.
+    sent: list[dict] = []
+
+    def __init__(self, member, user_id):
+        self.id = int(user_id or 0)
+        self.name = getattr(member, "name", f"member {int(user_id or 0)}")
+        self.display_name = self.name
+        self.bot = False
+
+    async def send(self, **kwargs):
+        self.sent.append(kwargs)
+        return None
 
 
 def seed_activity() -> int:
@@ -691,6 +751,57 @@ def seed_economy() -> int:
                 "INSERT OR REPLACE INTO meow_bank (guild_id, coins) VALUES (?, ?)",
                 (guild["id"], 1_260),
             )
+        conn.commit()
+    finally:
+        conn.close()
+    return written
+
+
+def seed_questions() -> int:
+    """Give the Questions page something true to draw. Returns rows written.
+
+    Seeds the real table with the real columns, so what the page reads is the
+    deployment's own reader (``qna.owner_inbox_sync``) rather than a copy of it,
+    and only when the table is empty — re-running the harness must not resurrect
+    a question somebody answered through the console a minute earlier.
+
+    The names are the harness's own stand-in members, and one row is left
+    *unrelayed* on purpose: a question the channel never saw is the one state the
+    page can show that a hand-written mock never would, and it is the state an
+    operator most needs to notice.
+    """
+    from utils import qna as _qna
+
+    conn = _db.connect()
+    written = 0
+    try:
+        conn.execute(_qna.CREATE_TABLE)
+        existing = conn.execute(f"SELECT COUNT(*) FROM {_qna.TABLE}").fetchone()[0]
+        if existing:
+            return 0
+        guild = GUILDS[0]
+        for index, (text, relayed, age) in enumerate(
+            (
+                ("why does the level-up card say cat when the server is set to neutral?", True, 420),
+                ("could the starboard threshold be per-channel? half the server is memes", True, 3_900),
+                ("are you the same meow that was in the other server? asking for nobody", False, 7_500),
+            )
+        ):
+            member = MEMBERS[index % len(MEMBERS)]
+            conn.execute(
+                f"INSERT INTO {_qna.TABLE} "
+                "(guild_id, guild_name, user_id, user_name, question, asked_at, relayed, "
+                " relay_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    # ``label`` rather than ``sub``: the stored name is what the
+                    # owner's DM renders, and ``@raj`` is the harness's mention
+                    # form rather than a member's name.
+                    guild["id"], guild["name"], int(member["id"]), member["label"],
+                    text, time.time() - age, 1 if relayed else 0,
+                    "" if relayed else "the webhook did not accept it (HTTPError)",
+                ),
+            )
+            written += 1
         conn.commit()
     finally:
         conn.close()
@@ -2019,9 +2130,10 @@ if __name__ == "__main__":
     seeded = seed_economy()
     counted = seed_activity()
     signed_in = seed_sessions()
+    asked = seed_questions()
     print(
         f"[PREVIEW] gateway: {len(GUILDS)} servers; economy: {seeded} seeded row(s); "
-        f"activity: {counted} server(s); sessions: {signed_in}",
+        f"activity: {counted} server(s); sessions: {signed_in}; questions: {asked}",
         flush=True,
     )
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8099")))

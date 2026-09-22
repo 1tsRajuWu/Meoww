@@ -53,7 +53,8 @@ from utils import (
     ai_guard, alert_webhook, command_publish, command_scope, company, config_audit,
     consent, db, digest, discord_auth, features, figures, guild_directory, hub,
     identity, media_health, meowfee, moderation_actions, modules, plans, principal,
-    ratelimit, scheduled, server_control, sessions, site_guard, uptime_status, webdocs,
+    qna, ratelimit, scheduled, server_control, sessions, site_guard, uptime_status,
+    webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -4379,6 +4380,7 @@ OWNER_PAGES = (
     ("commands", "Commands", "/owner/commands", "commands"),
     ("economy", "Economy", "/owner/economy", "economy"),
     ("ops", "Ops", "/owner/ops", "ops"),
+    ("questions", "Questions", "/owner/questions", "questions"),
     ("access", "Access", "/owner/access", "access"),
     ("changes", "Changes", "/owner/changes", "changes"),
 )
@@ -4395,7 +4397,7 @@ OWNER_PAGES = (
 #: no page missing from the groups, and nothing named twice.
 OWNER_GROUPS = (
     ("Fleet", ("live", "servers", "systems")),
-    ("Work", ("commands", "economy", "ops")),
+    ("Work", ("commands", "economy", "ops", "questions")),
     ("Owner", ("access", "changes")),
 )
 
@@ -5925,6 +5927,120 @@ def api_console_changes():
         return denied
     entries, total = hub.read_changelog(HUB_CHANGELOG, limit=hub.CHANGES_SHOWN)
     return jsonify({"success": True, "entries": entries, "total": total})
+
+
+@app.route("/api/console/questions")
+def api_console_questions():
+    """The anonymous question box, on the one screen allowed to show a name.
+
+    This page puts a member's name beside something the member was promised would
+    never carry it, and that is the feature rather than a leak: what the box
+    promises is that **the channel** sees no name and that **one person** does.
+    The gate is ``_require_operator_api`` like every other console route, and the
+    public half is built by ``utils/qna.relay_payload`` from a closed field list,
+    which cannot carry a name no matter what this route returns — asserted in
+    ``tests/test_qna.py`` rather than intended here.
+
+    Read synchronously and off a connection of its own (``owner_inbox_sync``):
+    this has to answer while the bot is restarting, which is exactly when nobody's
+    event loop is available and when an operator opens the page.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    try:
+        limit = max(1, min(100, int(request.args.get("limit", 20))))
+    except (TypeError, ValueError):
+        limit = 20
+
+    reading = qna.owner_inbox_sync(limit=limit)
+    return jsonify({
+        "success": True,
+        "questions": reading["rows"],
+        "totals": {"open": reading["open"], "answered": reading["answered"]},
+        # Whether there is anywhere to relay *to*, which is the difference between
+        # a quiet box and a broken one — `/qna ask` refuses by naming this
+        # setting, and the page says the same sentence rather than leaving an
+        # operator to wonder why nothing is arriving.
+        "relay": {"configured": reading["configured"], "setting": reading["setting"]},
+        "read": {
+            "questions": {"ok": reading["available"], "because": reading["because"]},
+        },
+        "max_answer": qna.MAX_ANSWER,
+    })
+
+
+@app.route("/api/console/questions/reply", methods=["POST"])
+def api_console_questions_reply():
+    """Answer one question from the console — the same DM ``/qna reply`` sends.
+
+    The delivery is ``cogs.qna.deliver_answer``, called on the bot's own loop
+    rather than reimplemented: the order inside it (claim the question, then DM,
+    then put it back if Discord refuses the DM) is what stops an asker being DMed
+    twice and what stops an answer being lost, so a second copy here would be a
+    second place for that order to be wrong. All this route adds is the gate, the
+    parsing, and the console's word for where a question goes back to.
+
+    An outcome that changed nothing — an empty box, a question already answered,
+    a refused DM — is answered ``success: true`` with the sentence that says so,
+    the way the Access page reports a revocation that had already happened. A
+    *failure to ask the question* (the bot is not in this process, the loop did
+    not answer) is a refusal instead, because nothing was attempted.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    question_id = _int_or_none(data.get("id"))
+    if question_id is None:
+        return jsonify({"success": False, "error": "Which question?"}), 400
+    answer = str(data.get("answer") or "")
+
+    if BOT_INSTANCE is None:
+        return jsonify({
+            "success": False,
+            "error": (
+                "This process has no bot in it, so there is nobody to send the "
+                "DM as. Nothing was lost — the question is still waiting."
+            ),
+        }), 503
+
+    from cogs import qna as qna_cog  # noqa: PLC0415 — after the gate, by design
+
+    try:
+        result = _run_on_bot_loop(
+            qna_cog.deliver_answer(BOT_INSTANCE, question_id, answer), timeout=25
+        )
+    except Exception as exc:  # noqa: BLE001 — a refused request is an answer
+        # A timeout means *unknown*, never "did not happen" (see
+        # ``_run_on_bot_loop``), so the sentence does not claim nothing was sent.
+        print(f"[QNA] The console could not deliver an answer: {exc}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": (
+                "Discord did not answer in time, so this is unknown rather than "
+                "failed — reopen the page before sending it again."
+            ),
+        }), 500
+
+    # ``bold=False``: the sentence is authored for a Discord card, and this is the
+    # one surface where ``**Meow**`` would reach a person as four asterisks.
+    said = qna_cog.answer_sentence(result, inbox="this list", bold=False)
+    if result.get("ok"):
+        print(
+            f"[QNA] Answered {result.get('handle')} from the console — DMed, "
+            "nothing posted.",
+            flush=True,
+        )
+    return jsonify({
+        "success": True,
+        "sent": bool(result.get("ok")),
+        "said": said,
+        "handle": result.get("handle") or "",
+        "asker": result.get("asker") or "",
+    })
 
 
 @app.route("/api/toggle", methods=["POST"])

@@ -66,7 +66,7 @@ else is linked from the [table of contents](#contents).
 |---|---|---|
 | 🛡️ | **Moderation & Logs** | `/ban /kick /mute /warn /purge`, mod cases, `#logs` audit trail |
 | 🎟️ | **Support Tickets** | Button panel → private staff channels (`/ticket setup`) |
-| ❓ | **Anonymous Q&A** | `/qna ask` relays a question with no name on it; the owner answers by DM |
+| ❓ | **Anonymous Q&A** | `/qna ask` relays a question with no name on it; you answer from Discord or the console's **Questions** page, and the answer is DMed — never posted |
 | 🏆 | **Leveling & XP** | Message + voice XP, level-up cards, `/rank /leaderboard` |
 | 💰 | **Economy & Casino** | `/daily /work /rob /pay`, shop with 20 real perks, slots, blackjack… |
 | 📈 | **Market** | Trade 72 real crypto/stocks with coins at live prices |
