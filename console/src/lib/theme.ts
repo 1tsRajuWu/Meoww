@@ -212,12 +212,12 @@ export function applyCursorStyle(id: CursorStyleId): void {
   try {
     window.localStorage.setItem(CURSOR_STYLE_KEY, id);
   } catch {}
+  // The attribute is the whole contract: `styles.css` draws the chosen cursor
+  // from `[data-cursor-style]` and hides it again for "system". The
+  // `has-meow-cursor` class used to be toggled alongside it — the flag the
+  // *dashboard's* sheet answers with `cursor: none` — which this console's sheet
+  // deliberately never did, so it was a class set for nobody. See `Cursor.tsx`.
   document.documentElement.setAttribute("data-cursor-style", id);
-  if (id === "system") {
-    document.documentElement.classList.remove("has-meow-cursor");
-  } else {
-    document.documentElement.classList.add("has-meow-cursor");
-  }
 }
 
 export function currentCursorColor(): CursorColorId {

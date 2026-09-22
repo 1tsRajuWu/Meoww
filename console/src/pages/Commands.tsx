@@ -228,11 +228,15 @@ function CommandRowView({
   columns: { id: string; name: string }[];
 }) {
   return (
+    // No class on the row itself: what a row has to say about a command is said
+    // by its cells, and one per server at that. `cmds__row is-off` used to sit
+    // here — a name no rule in the sheet ever defined, asserting a state the row
+    // does not have (a command off in one server and on in another is not an off
+    // row), one line above the dots that report it exactly.
     <motion.tr
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 220, damping: 28 }}
-      className={row.off_in.length ? "cmds__row is-off" : "cmds__row"}
     >
       <th scope="row">
         <code>/{row.name}</code>

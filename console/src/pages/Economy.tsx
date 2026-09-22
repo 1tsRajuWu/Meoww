@@ -318,7 +318,7 @@ function AdjustPanel({
         </div>
       </div>
 
-      <div className="toolbar" style={{ marginTop: "12px" }}>
+      <div className="toolbar">
         {isSet ? (
           <>
             <input

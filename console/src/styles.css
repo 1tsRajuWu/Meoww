@@ -778,6 +778,21 @@ a {
   margin-top: 3px;
 }
 
+/* A caveat under a card's body: the sentence that qualifies everything above it.
+   Held off by a hairline and the scale's own rhythm, because it is a footnote to
+   the card and not one more line of it. This name came to the console unruled,
+   so the caveats rendered at body size and full brightness — the qualifier read
+   as the claim, which on the Access page is the difference between "this host
+   cannot write to the ledger" and a ledger that is simply empty. */
+.card__foot {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--hairline) solid var(--line);
+  color: var(--dim);
+  font-size: var(--type-meta);
+  line-height: 1.6;
+}
+
 .card__action {
   flex-shrink: 0;
 }
@@ -1229,6 +1244,13 @@ a {
 .toolbar__count {
   color: var(--dim);
   font-size: var(--type-micro);
+}
+
+/* A second toolbar in the same card sits under the first at the scale's own
+   rhythm. The one case of that in the app used to state the 12px in the markup,
+   which is a spacing decision the sheet could not see. */
+.toolbar + .toolbar {
+  margin-top: var(--space-3);
 }
 
 .quick {
@@ -2665,51 +2687,33 @@ html[data-cursor-style="system"] .meow-glow {
   stroke-dasharray: 4 4;
 }
 
-.telemetry-row {
+/* The trace itself. Its colour and width are attributes on the path, but the
+   corners are the sheet's business: the polyline is read at 2px and lands on a
+   baseline between two spikes, and a mitre join puts a spike's point out past
+   the line it turns on. Round joins, the cap `.gauge__val` already uses — one
+   reading of "the drawn line" rather than two. */
+.live-pulse__line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The pair of dials under the Overview's counters. It is a row that wraps: the
+   card is four columns wide and the two dials share it, dropping one per line
+   only when the window is too narrow for both.
+
+   It read `.telemetry-row` before — the class of a *column* of label/value/bar
+   rows, a component this app stopped rendering but whose rules were left behind
+   — and the row was laid out one dial under the other in a card with half its
+   width empty. The markup had said what it wanted in an inline style, including
+   a `flex-wrap` that only means anything in a row; the sheet said column, and
+   the sheet won. */
+.gauges {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
-}
-
-.telemetry-row:not(:last-child) {
-  border-bottom: 1px solid var(--hairline-faint);
-}
-
-.telemetry-row__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.telemetry-row__label {
-  font-size: var(--type-meta);
-  color: var(--dim);
-}
-
-.telemetry-row__val {
-  font-size: var(--type-meta);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.telemetry-row__bar-bg {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--hairline-soft);
-  overflow: hidden;
-}
-
-.telemetry-row__bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--accent),
-    color-mix(in oklab, var(--accent) 70%, var(--text))
-  );
-  box-shadow: 0 0 10px var(--accent);
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--hairline) solid var(--line);
 }
 
 /* ------------------------------------------------------------------ live */

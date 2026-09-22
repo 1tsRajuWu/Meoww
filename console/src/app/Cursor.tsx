@@ -75,15 +75,21 @@ export function Cursor() {
     let handle = 0;
     let activeStyle: CursorStyleId = currentCursorStyle();
 
+    // No `has-meow-cursor` on the document element. That flag exists so a sheet
+    // can put `cursor: none` on the page while a drawn cursor is in charge, and
+    // this console decided the opposite — the ring is a *companion* to the
+    // pointer, not a replacement for it, so the real one stays (there is a test
+    // that pins exactly that, and `styles.css` says so where the cursor's rules
+    // live). Setting the flag here was a promise to a rule this bundle's sheet
+    // has never had, and a class no selector answers is not a harmless one: it
+    // reads as "the pointer is hidden somewhere else".
     const updateClasses = () => {
       if (activeStyle === "system") {
         shellNode.style.display = "none";
         glowNode.style.display = "none";
-        document.documentElement.classList.remove("has-meow-cursor");
       } else {
         shellNode.style.display = "";
         glowNode.style.display = "";
-        document.documentElement.classList.add("has-meow-cursor");
       }
       shellNode.className = `cursor meow-cursor cursor-style-${activeStyle}${
         hovering ? " cursor--link is-link" : ""

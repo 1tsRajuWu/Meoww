@@ -35,6 +35,9 @@ is one of eight sentences a reviewer would otherwise have to remember:
   each theme redefines the values that make it a theme — never the other way
   round, where a name exists only while one theme is selected and every other
   theme silently drops it.
+* **Markup and the sheet agree.** A class name the app writes is a treatment it
+  expects, so either the sheet rules it or the name is not written — and a layout
+  is the sheet's business rather than a `style={{ … }}` the sheet cannot see.
 
 The point of writing these as tests rather than as a paragraph in a README is the
 one this project keeps rediscovering: a rule nobody can check turns out to be a
@@ -108,6 +111,49 @@ def blocks(css: str) -> list[tuple[str, str]]:
         for match in re.finditer(r"([^{}]*)\{([^{}]*)\}", without_comments)
         if match.group(1).strip()
     ]
+
+
+def _without_comments(source: str) -> str:
+    """A TypeScript source with ``//`` and ``/* */`` comments taken out.
+
+    Quote-aware rather than pattern-based, because the two things both look like
+    comments and are not: the ``//`` in ``https://…`` and the ``/*`` in a string.
+    A template literal counts as a quote here, so a ``${…}`` inside one is left
+    exactly as it was written.
+
+    An apostrophe is not a quote: this is JSX, so prose about "the command's own
+    name" and "Discord's copy" sits in the markup, and a scanner that read those
+    as the start of a string would stop seeing comments at the first one. The
+    codebase writes its strings with double quotes (and the one thing this could
+    have hidden — a URL in single quotes — appears nowhere in it).
+    """
+    out, quote, index = [], "", 0
+    while index < len(source):
+        char = source[index]
+        if quote:
+            if char == "\\":
+                out.append(source[index:index + 2])
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+            out.append(char)
+            index += 1
+        elif char in "\"`":
+            quote = char
+            out.append(char)
+            index += 1
+        elif source.startswith("//", index):
+            end = source.find("\n", index)
+            index = len(source) if end == -1 else end
+        elif source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            index = len(source) if end == -1 else end + 2
+            out.append(" ")
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
 
 
 def token_blocks(css: str) -> list[tuple[str, dict[str, str]]]:
@@ -737,6 +783,229 @@ class EveryThemeOverridesTheBase(unittest.TestCase):
             "every theme on a sheet has to override the same names, or the ones it "
             "skips render in the base's colours:\n" + "\n".join(offenders),
         )
+
+
+class MarkupAndSheetAgree(unittest.TestCase):
+    """A class name is a promise the sheet has to keep.
+
+    The console's markup and its stylesheet are two halves of one contract, and
+    nothing was holding either half to the other. Both directions of the break
+    were shipped and neither raised a thing:
+
+    * **A name with no rule.** ``card__foot`` was written three times on the
+      Access page and ruled nowhere, so the sentences that qualify a card — "this
+      host cannot write to the ledger", "the history these counts carry is no
+      longer than uptime" — printed at 16px and full brightness, which is exactly
+      the size and weight of the claim they are qualifying. ``toolbar--bare``,
+      ``cmds__row is-off`` and ``question__where`` were the same defect with a
+      quieter symptom: names asserting a treatment the sheet had never been told
+      about (a modifier that strips chrome the base never had, a row that says
+      "off" one line above cells that say on, a "where" set apart from a "when"
+      by nothing at all).
+    * **A rule losing to the markup.** The Overview's two dials sat one under the
+      other in a card with half its width empty, because the row borrowed
+      ``.telemetry-row`` — the class of a *column* of label/value/bar rows from a
+      component nothing renders any more — and then tried to state its real
+      layout in an inline style that forgot the one property it was fighting.
+      ``flex-wrap: wrap`` was written in that style, which only means anything in
+      a row; the sheet said ``column``, and the sheet won.
+    * **A flag set for nobody.** The third shape is the same promise made by
+      script instead of markup: ``Cursor.tsx`` and ``theme.ts`` put
+      ``has-meow-cursor`` on ``<html>`` so a sheet could hide the native pointer,
+      which is the rule the *dashboard's* sheet answers — and the console had
+      decided the opposite (its ring is a companion to the pointer, pinned by a
+      test in ``test_console.py`` that refuses ``cursor: none`` anywhere in the
+      sheet). The honest fix was not to give the console a rule it had argued
+      against, but to stop setting the flag.
+
+    So the law is written as those two halves, plus the third that has to hold for
+    either to mean something: **a layout is the sheet's business.** A static
+    ``style={{ … }}`` move the sheet cannot see is how the dials ended up in a
+    column the page never asked for, and how 12px of gap lived in a component.
+    What stays legal is what only the runtime knows: a computed position, a
+    colour chosen from the theme list, and the ``--custom-properties`` that
+    *are* values handed to the sheet.
+
+    What this cannot see, said plainly rather than left to be discovered: a class
+    name that arrives through a prop (``className={className}``, how ``Link``
+    forwards one) and the *modifiers* built inside an interpolation, whose strings
+    the scan does read but whose computed halves it cannot. A name that is cut off
+    where the interpolation began — ``pill--``, ``card--span-`` — is therefore
+    checked as a **prefix**: some rule has to complete it. Both allowances are
+    counted in the tests below, so growing them is a decision rather than a
+    quiet widening.
+    """
+
+    #: The vocabulary both sides use: a lowercase block, hyphens inside it, with
+    #: ``__element`` and ``--modifier`` suffixes. Also what stops the scan from
+    #: reading JavaScript as a class name.
+    CLASS_NAME = re.compile(r"^[a-z][a-z0-9-]*(?:__[a-z0-9-]+)*$")
+
+    #: A ``style={{ … }}`` attribute, opened at the brace. Nested braces are
+    #: matched by hand rather than by the pattern, because ``${…}`` inside a
+    #: template — ``{{ "--x": `${width}%` }}`` — is a brace inside a brace.
+    STYLE_ATTRIBUTE = re.compile(r"style=\{\{")
+
+    def _sources(self) -> list[tuple[str, str]]:
+        """Every TypeScript source under ``console/src``: (path, text).
+
+        Comments are removed first, and not as a convenience: this codebase names
+        the thing it removed — that is how the next reader learns why a name went
+        away — so a law that read comments would fail on the explanation of its
+        own fix. Only a quote ends a quote, so the ``//`` in a URL is a URL.
+        """
+        sources = []
+        for root, _dirs, files in os.walk(CONSOLE_SRC):
+            for entry in sorted(files):
+                if entry.endswith((".ts", ".tsx")):
+                    path = os.path.join(root, entry)
+                    sources.append((os.path.relpath(path, ROOT), _without_comments(read(path))))
+        return sources
+
+    def _ruled(self) -> set[str]:
+        """Every class name the console's sheet has a selector for."""
+        ruled: set[str] = set()
+        for selector, _body in blocks(read(CONSOLE_SHEET)):
+            ruled.update(re.findall(r"\.(-?[A-Za-z_][A-Za-z0-9_-]*)", selector))
+        return ruled
+
+    def _written(self, source: str) -> set[str]:
+        """Class names a file writes as literals — both spellings, plus DOM writes.
+
+        A ``className=`` expression is read for its quoted strings (the modifiers
+        of ``cond ? "a is-off" : "a"``) and for the text around each ``${…}``, so
+        a template's head and tail are read while whatever completes them keeps
+        its freedom. A body that is a bare identifier is skipped: the name is the
+        caller's, and a scan that guessed at it would report a page for its
+        neighbour's class.
+        """
+        written: set[str] = set()
+        for match in re.finditer(r'className="([^"]*)"', source):
+            written.update(match.group(1).split())
+        for match in re.finditer(r"className=\{", source):
+            body = self._balanced(source, match.end() - 1, "{", "}")
+            if re.fullmatch(r"[A-Za-z_$][\w$.]*", body.strip()):
+                continue  # a prop: `className={className}`
+            head = re.sub(r"\$\{[^{}]*\}", " ", body)
+            for chunk in (head, *re.findall(r'"([^"]*)"', body)):
+                written.update(chunk.replace("`", " ").split())
+        for match in re.finditer(r'documentElement\.classList\.add\("([^"]+)"\)', source):
+            written.update(match.group(1).split())
+        return {name for name in written if self.CLASS_NAME.match(name)}
+
+    @staticmethod
+    def _balanced(text: str, index: int, opening: str, closing: str) -> str:
+        """What sits between the ``opening`` at ``index`` and its match."""
+        depth = 0
+        for cursor in range(index, len(text)):
+            if text[cursor] == opening:
+                depth += 1
+            elif text[cursor] == closing:
+                depth -= 1
+                if depth == 0:
+                    return text[index + 1:cursor]
+        return text[index + 1:]
+
+    def test_every_class_the_console_writes_is_ruled(self):
+        ruled = self._ruled()
+        missing, cut_short = [], []
+        for path, source in self._sources():
+            for name in sorted(self._written(source)):
+                if name in ruled:
+                    continue
+                if name.endswith("-"):
+                    # The rest of the name is chosen at runtime: `pill--` is
+                    # written as `` `pill--${tone}` ``, so the sheet is asked to
+                    # complete the prefix rather than to define it.
+                    if any(selector.startswith(name) for selector in ruled):
+                        cut_short.append(name)
+                        continue
+                missing.append(f"{path}: .{name}")
+        self.assertEqual(
+            missing,
+            [],
+            "these class names are written by the app and ruled nowhere, so they "
+            "are silently the browser's defaults — give each one a rule, or stop "
+            "naming a treatment that does not exist:\n" + "\n".join(missing),
+        )
+        # The allowance above is real — `card--` and `card--span-`, `pill--`,
+        # `toast--`, `swatch--`, the five places a modifier is chosen at runtime
+        # — and it is that wide, not a door left open. Growth means a name is
+        # being composed further from its rule, which is worth a look rather
+        # than a silent pass.
+        self.assertLessEqual(
+            len(set(cut_short)),
+            5,
+            f"more class names are cut short than the known five: {sorted(set(cut_short))}",
+        )
+
+    def test_the_names_this_law_was_written_for_are_gone(self):
+        """Named, because four of the five were invisible in their own diff.
+
+        A modifier that stripped chrome the base never had, a row state nothing
+        drew one line above the cells that did draw it, and a "where" set apart
+        from its "when" by no rule at all — each rendered exactly as the sheet
+        intended, which is to say as nothing. So did the pointer flag the cursor
+        script set on ``<html>``, which is the one of the four that a reader would
+        most reasonably have taken for a working mechanism.
+
+        ``card__foot`` is the one name of the five the law *keeps*: it is a real
+        treatment — a caveat, held off by a hairline — whose rule was simply
+        missing, so what is asserted here is that the Access page still names it
+        and the sheet now answers.
+        """
+        sources = "".join(source for _path, source in self._sources())
+        for name in ("toolbar--bare", "cmds__row", "question__where", "has-meow-cursor"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, sources)
+        self.assertIn("card__foot", sources)
+        self.assertIn("card__foot", self._ruled())
+
+
+    def test_no_page_carries_a_static_style(self):
+        """A hand-written declaration is a layout the sheet cannot see.
+
+        Only the runtime's own values are allowed through: an expression is a
+        value this file could not have written down, which is the entire reason
+        for the attribute. A literal — ``"12px"``, ``"1px solid var(--line)"`` —
+        is a decision that belongs in the sheet, where the next person reading the
+        component can see it and the theme can reach it.
+        """
+        offenders = []
+        for path, source in self._sources():
+            for match in self.STYLE_ATTRIBUTE.finditer(source):
+                body = self._balanced(source, match.end() + 1, "{", "}")
+                for entry in self._entries(body):
+                    value = entry.split(":", 1)[1].strip() if ":" in entry else ""
+                    if value[:1] in ("\"", "'") or value[:1].isdigit():
+                        offenders.append(f"{path}: {entry.strip()}")
+        self.assertEqual(
+            offenders,
+            [],
+            "these components state their own spacing, colours or type instead of "
+            "naming them in the sheet:\n" + "\n".join(offenders),
+        )
+
+    @staticmethod
+    def _entries(body: str) -> list[str]:
+        """A style object's declarations, split on its own top-level commas."""
+        entries, depth, current, quote = [], 0, "", ""
+        for char in body:
+            if quote:
+                quote = "" if char == quote else quote
+            elif char in "\"'`":
+                quote = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == "," and depth == 0:
+                entries.append(current)
+                current = ""
+                continue
+            current += char
+        entries.append(current)
+        return [entry for entry in entries if ":" in entry]
 
 
 class OneHeadingPerPage(unittest.TestCase):

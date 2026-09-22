@@ -140,7 +140,7 @@ export function Access() {
         title="Signed in"
         hint="One row per sign-in. The id is masked: it is a credential, and this page's job is to name a row."
         action={
-          <div className="toolbar toolbar--bare">
+          <div className="toolbar">
             <span className="toolbar__count">
               {readSessions.ok ? `${compact(ledger.live)} live` : "— live"}
               {readSessions.ok && ledger.revoked ? ` · ${compact(ledger.revoked)} ended` : ""}

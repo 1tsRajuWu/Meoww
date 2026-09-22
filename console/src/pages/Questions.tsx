@@ -177,9 +177,15 @@ function Question({
             <strong>{question.asker}</strong> <code>{question.asker_id}</code>
           </span>
         </div>
+        {/* Two lines, and only the column needs saying: the when is the date and
+            the line under it is the server it came from, both read at the same
+            size and dimness the column states. This second line carried
+            `question__where`, a name the sheet never ruled — an intent to set
+            the two apart that was never written, so it is gone rather than
+            guessed at. */}
         <span className="question__when">
           {question.asked}
-          <span className="question__where">{question.server}</span>
+          <span>{question.server}</span>
         </span>
       </header>
 

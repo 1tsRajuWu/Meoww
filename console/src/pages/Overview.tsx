@@ -68,7 +68,7 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
           />
           <Stat value={compact(data.totals.commands)} label="commands" index={3} />
         </div>
-        <div className="telemetry-row" style={{ marginTop: "18px", display: "flex", gap: "24px", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: "14px" }}>
+        <div className="gauges">
           <RadialGauge
             value={data.totals.on}
             max={data.totals.slots || 1}
