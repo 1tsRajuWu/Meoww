@@ -385,7 +385,7 @@ class TheStationCard(unittest.TestCase):
 class TheRadioCommand(unittest.TestCase):
     """The memory in use: the same station back, and a random one that says so."""
 
-    def _run(self, station_argument, remembered, mode="any"):
+    def _run(self, station_argument, remembered, mode="any", language=""):
         from types import SimpleNamespace
 
         cog = music_cog.Music.__new__(music_cog.Music)
@@ -447,6 +447,7 @@ class TheRadioCommand(unittest.TestCase):
             mock.patch.object(db, "get_radio_station", mock.AsyncMock(return_value=remembered)),
             mock.patch.object(db, "set_radio_station", set_mock),
             mock.patch.object(db, "get_radio_ads", mock.AsyncMock(return_value=mode)),
+            mock.patch.object(db, "get_radio_language", mock.AsyncMock(return_value=language)),
             mock.patch.object(db, "get_247_setting", mock.AsyncMock(return_value=(False, 0))),
         ]
         import asyncio
@@ -581,6 +582,307 @@ class TheAdsSettingChangesWhatPlays(unittest.TestCase):
         self.assertEqual(
             self.command._run(self.ad_carrying[0], "")[2].await_args.args[1], self.ad_carrying[0]
         )
+
+
+class TheLanguageSettingChangesWhatPlays(unittest.TestCase):
+    """*Play us something in ours* — the question a language index cannot answer.
+
+    The tag, the index line and the search box were all in place and none of them
+    changed the pick: a server could only say which language it wanted by typing one
+    into the picker every single time, and a member who does not know what this table
+    calls their language could not say it at all. So the setting is a *preference for
+    the pick*, with two deliberate holes in it — a named station always plays, and a
+    language whose stations all carry advertising falls back rather than going
+    silent. Both are rules about what a setting may not do.
+    """
+
+    def setUp(self):
+        self.command = TheRadioCommand("test_no_argument_replays_what_this_server_chose_last")
+        #: A language with more than one station, so "it picked one of them" is a
+        #: claim rather than a coincidence.
+        self.language = next(
+            name
+            for name, count in music_cog.catalogue_index().languages
+            if count > 1 and name != "Multilingual"
+        )
+
+    def test_the_pick_stays_inside_the_language(self):
+        for _attempt in range(20):
+            _sent, _played, remembered = self.command._run(None, "", language=self.language)
+            picked = remembered.await_args.args[1]
+            with self.subTest(station=picked):
+                self.assertTrue(
+                    music_cog.station_matches_language(
+                        music_cog.RADIO_STATIONS[picked], self.language
+                    ),
+                    f"{picked} is not in {self.language}",
+                )
+
+    def test_a_named_station_in_another_language_still_plays(self):
+        """The setting is about the picks nobody made. A member asking for a station
+        is choosing right now, and a refusal here would be the bot saying no to a
+        request it can serve."""
+        outside = next(
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if not music_cog.station_matches_language(station, self.language)
+        )
+        sent, _played, remembered = self.command._run(outside, "", language=self.language)
+        self.assertIn(music_cog.RADIO_STATIONS[outside]["name"], sent[0])
+        remembered.assert_awaited_with(5, outside)
+
+    def test_a_remembered_station_in_another_language_is_set_aside(self):
+        """Otherwise the setting is inert on every server that has ever pressed
+        play, which is every server: the memory is always the more recent fact."""
+        outside = next(
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if not music_cog.station_matches_language(station, self.language)
+        )
+        sent, _played, remembered = self.command._run(None, outside, language=self.language)
+        picked = remembered.await_args.args[1]
+        self.assertNotEqual(picked, outside)
+        self.assertTrue(music_cog.station_matches_language(music_cog.RADIO_STATIONS[picked], self.language))
+        self.assertIn(music_cog.RADIO_STATIONS[picked]["name"], sent[0])
+
+    def test_a_remembered_station_inside_the_language_comes_back(self):
+        inside = music_cog.stations_in_language(self.language)[0][0]
+        sent, _played, remembered = self.command._run(None, inside, language=self.language)
+        self.assertIn(music_cog.RADIO_STATIONS[inside]["name"], sent[0])
+        self.assertIn("last station", sent[0])
+        remembered.assert_awaited_with(5, inside)
+
+    def test_the_card_never_claims_a_station_the_settings_set_aside(self):
+        """The card's own sentence, which is the one claim on it a reader cannot
+        check. It used to be derived from *anything remembered*, so a station the
+        settings had just refused was introduced as this server's last one."""
+        carrying_ads = [
+            key
+            for key, station in music_cog.RADIO_STATIONS.items()
+            if not music_cog.is_ad_free(station)
+        ][0]
+        sent, _played, remembered = self.command._run(None, carrying_ads, mode="only")
+        picked = remembered.await_args.args[1]
+        self.assertNotEqual(picked, carrying_ads)
+        self.assertNotIn(
+            "last station",
+            sent[0],
+            "a station this server never chose was introduced as its own earlier one",
+        )
+
+    def test_a_language_with_nothing_ad_free_falls_back_rather_than_going_silent(self):
+        """Two settings can conflict, and the one that must never win is *silence*."""
+        pool = music_cog.station_pool(ads="only", language="Finnish")
+        self.assertTrue(pool, "a conflicting setting left nothing to play")
+        for _attempt in range(10):
+            _sent, _played, remembered = self.command._run(
+                None, "", mode="only", language="Finnish"
+            )
+            picked = remembered.await_args.args[1]
+            self.assertTrue(music_cog.is_ad_free(music_cog.RADIO_STATIONS[picked]))
+
+    def test_a_language_the_catalogue_does_not_have_falls_back_to_the_table(self):
+        """A stale or hand-edited value is *no preference*, never a server whose radio
+        will not play."""
+        self.assertEqual(len(music_cog.station_pool(ads="any", language="Klingon")), len(music_cog.RADIO_STATIONS))
+
+    def test_every_language_in_the_catalogue_has_a_station_behind_it(self):
+        for language in music_cog.station_languages():
+            with self.subTest(language=language):
+                self.assertTrue(
+                    music_cog.stations_in_language(language),
+                    f"{language} is offered by the picker and holds nothing",
+                )
+
+    def test_a_language_name_that_is_typed_differently_still_resolves(self):
+        self.assertEqual(music_cog.language_for_name("  spanish  "), "Spanish")
+        self.assertEqual(music_cog.language_for_name("KLINGON"), "")
+
+
+class TheLanguageSettingIsReadable(unittest.TestCase):
+    """The catalogue's own index, and the one line on it that is this server's."""
+
+    def _index(self, language=""):
+        from types import SimpleNamespace
+
+        cog = music_cog.Music.__new__(music_cog.Music)
+        cog.bot = SimpleNamespace()
+        sent = []
+
+        async def _send_card(_interaction, content=None, embed=None, **_kwargs):
+            sent.append(embed or content or "")
+
+        interaction = SimpleNamespace(guild_id=5, user=SimpleNamespace(display_name="Raj"))
+        import asyncio
+
+        with mock.patch.object(style, "send_card", side_effect=_send_card), mock.patch.object(
+            db, "get_radio_language", mock.AsyncMock(return_value=language)
+        ):
+            asyncio.run(cog.stations.callback(cog, interaction, None))
+        return sent[0]
+
+    def test_the_index_says_which_language_this_server_asked_for(self):
+        embed = self._index("Finnish")
+        self.assertIn("set to **Finnish**", embed.description)
+        self.assertIn("/music language", embed.description)
+
+    def test_a_server_that_never_chose_has_no_line_about_it(self):
+        self.assertNotIn("set to **", self._index("").description)
+
+    def test_the_line_counts_the_same_thing_the_setting_picks_from(self):
+        """The line and the picker are two readers of one field, so the count on the
+        page has to be the size of the pool behind the command."""
+        embed = self._index("Japanese")
+        self.assertIn(str(len(music_cog.stations_in_language("Japanese"))), embed.description)
+
+
+class TheLanguageSettingIsStoredAndReadSafely(unittest.IsolatedAsyncioTestCase):
+    """A stored preference is read by a command that must never refuse to play."""
+
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self._original = db.DB_PATH
+        db.DB_PATH = os.path.join(self.temp.name, "radio-language.db")
+        await db.setup()
+
+    async def asyncTearDown(self):
+        db.DB_PATH = self._original
+        self.temp.cleanup()
+
+    async def test_a_server_that_never_chose_asked_for_nothing(self):
+        self.assertEqual(await db.get_radio_language(4242), "")
+
+    async def test_the_choice_round_trips_and_stays_on_its_own_server(self):
+        await db.set_radio_language(99, "Finnish")
+        self.assertEqual(await db.get_radio_language(99), "Finnish")
+        self.assertEqual(await db.get_radio_language(100), "", "one server read another's setting")
+
+    async def test_clearing_it_is_a_write_and_not_a_deletion(self):
+        await db.set_radio_language(99, "Finnish")
+        await db.set_radio_language(99, "")
+        self.assertEqual(await db.get_radio_language(99), "")
+
+    async def test_a_row_that_is_not_a_language_reads_as_no_preference(self):
+        """What a restore, a hand-edited database or a renamed language looks like —
+        and the picker falls back to the whole table, so nothing is silenced."""
+        await db.set_radio_language(99, "Klingon")
+        self.assertEqual(await db.get_radio_language(99), "Klingon")
+        self.assertEqual(
+            len(music_cog.station_pool(ads="any", language=await db.get_radio_language(99))),
+            len(music_cog.RADIO_STATIONS),
+        )
+
+    async def test_a_value_the_size_of_a_kilobyte_cannot_be_stored(self):
+        await db.set_radio_language(99, "x" * 5000)
+        self.assertLessEqual(len(await db.get_radio_language(99)), db.RADIO_LANGUAGE_MAX)
+
+
+class TheLanguageCommandRefusesWhatItCannotDo(unittest.TestCase):
+    """A name the catalogue does not hold is a refusal, not a stored typo."""
+
+    def _run(self, value):
+        from types import SimpleNamespace
+
+        cog = music_cog.Music.__new__(music_cog.Music)
+        cog.bot = SimpleNamespace()
+        sent = []
+
+        async def _send_card(_interaction, content=None, **_kwargs):
+            sent.append(content or "")
+
+        interaction = SimpleNamespace(guild_id=5, user=SimpleNamespace(display_name="Raj"))
+        setter = mock.AsyncMock()
+        import asyncio
+
+        with mock.patch.object(style, "send_card", side_effect=_send_card), mock.patch.object(
+            db, "set_radio_language", setter
+        ), mock.patch.object(db, "get_radio_ads", mock.AsyncMock(return_value="any")):
+            asyncio.run(cog.language.callback(cog, interaction, value))
+        return sent, setter
+
+    def test_a_typo_is_refused_and_the_real_languages_are_named(self):
+        sent, setter = self._run("Fininsh")
+        self.assertIn("no stations in", sent[0])
+        self.assertIn("Finnish", sent[0])
+        self.assertEqual(setter.await_count, 0, "a typo was stored as a preference")
+
+    def test_a_language_that_exists_is_stored_under_the_catalogues_spelling(self):
+        sent, setter = self._run("finnish")
+        setter.assert_awaited_with(5, "Finnish")
+        self.assertIn("**Finnish**", sent[0])
+
+    def test_any_clears_the_setting_with_a_word_a_person_can_be_told(self):
+        sent, setter = self._run("any")
+        setter.assert_awaited_with(5, "")
+        self.assertIn("**any**", sent[0])
+
+    def test_the_card_says_how_many_stations_the_choice_has(self):
+        sent, _setter = self._run("Japanese")
+        self.assertIn(str(len(music_cog.stations_in_language("Japanese"))), sent[0])
+
+    def _command(self):
+        """The `/music language` command, and its `language` option's callback.
+
+        Two different objects, and the difference is the point: the *parameter* is
+        what Discord renders (``choices``, ``required``, an autocomplete **flag**),
+        and the callback itself is hung on the command's own option. A test that
+        read the flag and stopped would pass on a command whose autocomplete was
+        never attached to anything.
+        """
+        group = next(
+            command
+            for command in music_cog.Music.__cog_app_commands__
+            if command.name == "music"
+        )
+        command = next(child for child in group.commands if child.name == "language")
+        parameter = next(p for p in command.parameters if p.name == "language")
+        return parameter, command._params["language"].autocomplete
+
+    def _choices(self, callback, typed: str):
+        import asyncio
+        from types import SimpleNamespace
+
+        # The callback is the plain function off the class body, so it is called
+        # with a cog and an interaction the way Discord calls it. Nothing in it
+        # touches either, which is why a fresh instance is enough.
+        cog = music_cog.Music.__new__(music_cog.Music)
+        return asyncio.run(callback(cog, SimpleNamespace(), typed))
+
+    def test_the_language_option_is_autocompleted_and_not_a_fixed_menu(self):
+        """The same reason the station picker is a search: the catalogue decides how
+        many languages there are, and Discord caps a fixed list at twenty-five."""
+        parameter, callback = self._command()
+        self.assertEqual(parameter.choices, [], "a fixed list cannot hold the catalogue")
+        self.assertTrue(parameter.autocomplete, "the language option has no autocomplete")
+        self.assertIn(
+            "any",
+            [choice.value for choice in self._choices(callback, "")],
+            "there is no way to stop asking for a language",
+        )
+
+    def test_the_autocomplete_offers_the_catalogue_and_the_way_out(self):
+        _parameter, callback = self._command()
+        values = [choice.value for choice in self._choices(callback, "fin")]
+        self.assertIn("Finnish", values)
+        self.assertNotIn("Spanish", values, "the filter did not filter")
+        self.assertLessEqual(len(values), 25, "more choices than Discord will show")
+
+        every = [choice.value for choice in self._choices(callback, "")]
+        self.assertEqual(every[0], music_cog.LANGUAGE_ANY, "the way out is not offered first")
+        self.assertLessEqual(len(every), 25, "more choices than Discord will show")
+        for choice in self._choices(callback, ""):
+            with self.subTest(choice=choice.name):
+                self.assertLessEqual(len(choice.name), 100)
+
+    def test_every_language_can_be_reached_by_typing_its_own_letters(self):
+        """Twenty-nine languages do not fit in the twenty-five options Discord
+        renders, which is why the *typing* is the guarantee rather than the list:
+        a language no query can reach is a language the setting cannot be set to."""
+        _parameter, callback = self._command()
+        for language in music_cog.station_languages():
+            with self.subTest(language=language):
+                offered = [c.value for c in self._choices(callback, language[:3])]
+                self.assertIn(language, offered)
 
 
 class TheAdsSettingIsStoredAndReadSafely(unittest.IsolatedAsyncioTestCase):

@@ -65,6 +65,27 @@ MAX_QUEUE = 200
 EARLY_EOF_FLOOR = 25
 EARLY_EOF_FRACTION = 0.6
 
+#: What happens when a station closes the connection, which is the one thing a
+#: live stream can do that a song cannot: it can be *cut*, and the cut is usually
+#: somewhere between this host and the station rather than the station being
+#: gone. Both stations this bot has reported to a room (*"the station went quiet
+#: after 0:18"*, *"…after 5:00"*) are the same host, and a 75-second read of each
+#: from this machine delivered every second of it — so the ending is the
+#: connection, not the music, and the honest answer is to ask again rather than
+#: to move on.
+#:
+#: Three numbers, and the policy is all of them. A source that played at least
+#: ``LIVE_RETRY_AFTER`` seconds before it stopped was healthy, so the budget is
+#: restored and a station that closes every five minutes plays all night — which
+#: is what a radio is. ``LIVE_RETRY_LIMIT`` attempts *inside* that window is
+#: where "reconnect" stops being plausible and becomes news, so the card is for
+#: a station that cannot hold a socket, not for one that dropped once.
+#: ``LIVE_RETRY_PAUSE`` is the gap, short because the room is listening to
+#: silence while it runs.
+LIVE_RETRY_AFTER = 60.0
+LIVE_RETRY_LIMIT = 4
+LIVE_RETRY_PAUSE = 1.5
+
 AVERAGE_FRAME = 20
 
 #: Every live player, by guild. Module-level because two cogs have to agree about
@@ -248,6 +269,8 @@ class GuildPlayer:
 
         self._generation = 0
         self._play_lock = asyncio.Lock()
+        #: Attempts spent on the station playing now — see ``LIVE_RETRY_LIMIT``.
+        self._live_retries = 0
         self._started_at = 0.0
         self._expected = 0.0
         PLAYERS[self.guild_id] = self
@@ -347,6 +370,13 @@ class GuildPlayer:
                     )
                 )
             elif truncated:
+                # A station is not a song: it cannot end, so a clean ending is a
+                # cut, and a cut is worth reconnecting while the budget lasts.
+                # This is the difference between a radio that plays all evening
+                # and one that stops every few minutes and says so.
+                if self._live_and_worth_another_attempt(played):
+                    asyncio.run_coroutine_threadsafe(self._reconnect_live(played), self.bot.loop)
+                    return
                 self._report(
                     Fault(
                         kind="truncated",
@@ -381,13 +411,83 @@ class GuildPlayer:
             return False
         return played < expected * EARLY_EOF_FRACTION
 
+    def _live_and_worth_another_attempt(self, played: float) -> bool:
+        """Whether this ending should be reconnected instead of reported.
+
+        Deliberately not a question about the *station*: whether a cut was the
+        station going away or the network in between closing the socket looks
+        identical from here, and it is answered by whether the next attempt
+        plays. So the budget is spent first and asked about later.
+        """
+        if not getattr(self.current, "live", False):
+            return False
+        if played >= LIVE_RETRY_AFTER:
+            # It played a real stretch before it stopped, so this is a connection
+            # that ended rather than a station that will not hold one.
+            self._live_retries = 0
+        if self._live_retries >= LIVE_RETRY_LIMIT:
+            return False
+        self._live_retries += 1
+        return True
+
+    async def _reconnect_live(self, played: float) -> None:
+        """Try the same station again, and tell the room nothing unless it fails.
+
+        The room hears a gap of ``LIVE_RETRY_PAUSE`` and then, usually, the music
+        again — no card, because a station that dropped once and came back is not
+        news, and a card every time is what teaches a room to ignore them.
+        ``played`` is carried so the card, when there is one, still says how much
+        of the station the room actually heard.
+        """
+        await asyncio.sleep(LIVE_RETRY_PAUSE)
+        async with self._play_lock:
+            if self.manual_stop or self.current is None:
+                return
+            track = self.current
+            if self.voice_client is None or not self.voice_client.is_connected():
+                return
+            started, why = self._start(track)
+        if started:
+            print(
+                f"[MUSIC] ⟳ reconnected {track.title!r} in guild {self.guild_id} "
+                f"(attempt {self._live_retries}/{LIVE_RETRY_LIMIT})",
+                flush=True,
+            )
+            return
+        # It would not come back. Now it is news — said once, and the queue moves
+        # on, which is where this ended before the retries existed. ``current`` is
+        # cleared here for the same reason ``play_next`` clears it: a station that
+        # is not playing must not read as one that is, and the timers only start
+        # leaving a room once there is genuinely nothing left to hear.
+        self._report(
+            Fault(
+                kind="truncated",
+                detail=self._cut_detail(played),
+                title=getattr(track, "title", ""),
+                played=played,
+                expected=self._expected,
+                engine=self.engine,
+            )
+        )
+        if self.voice_client and self.voice_client.is_connected() and self.queue:
+            self.bot.loop.create_task(self.play_next())
+            return
+        self.current = None
+        self.start_inactivity_timer()
+
     def _cut_detail(self, played: float) -> str:
         """Why the source ended, in the words the thing that ended deserves."""
         if getattr(self.current, "live", False):
-            return (
+            detail = (
                 f"the station went quiet after **{_mmss(played)}** — a live stream has no "
                 "end, so that is a dropped connection rather than a finished song"
             )
+            if self._live_retries:
+                detail += (
+                    f". It would not come back after {LIVE_RETRY_LIMIT} attempts, so this "
+                    "is the station for now rather than a blip"
+                )
+            return detail
         return (
             f"the stream ended after **{_mmss(played)}** when it was meant to run "
             f"**{_mmss(self._expected)}** — that is a cut-off stream, not a short song"
@@ -440,35 +540,55 @@ class GuildPlayer:
                 )
                 return
 
-            self.current = track
-            bitrate_kbps = channel_bitrate_kbps(vc)
-
-            try:
-                source, engine = self._build_source(track.stream_url, bitrate_kbps)
-            except Exception as exc:
+            started, why = self._start(track)
+            if not started:
                 self.current = None
-                await self._advance_after_failure(track, f"The audio engine refused to start ({type(exc).__name__}).")
+                await self._advance_after_failure(track, why)
                 return
 
-            if vc.is_playing() or vc.is_paused():
-                self._generation += 1
-                vc.stop()
+    def _start(self, track) -> tuple[bool, str]:
+        """Build the source for ``track`` and hand it to Discord.
+
+        Returns ``(started, why_not)``, and it exists as one method because two
+        things start a source now — the queue advancing, and a live station that
+        was cut and is being asked again. Those two want the same eight lines and
+        must not drift; the alternative was the reconnect path quietly missing
+        the generation bump or the start clock, which is how a resumed station
+        ends up with no fault detection at all.
+        """
+        vc = self.voice_client
+        if vc is None or not vc.is_connected():
+            return False, "The voice connection went away."
+        if self.current is not track:
+            # The budget belongs to the station that spent it. A reconnect passes
+            # the *same* track back in, so it keeps its count — a server that
+            # switches station must not inherit a spent one, or the new station's
+            # first drop is reported as a failure that never happened to it.
+            self._live_retries = 0
+        self.current = track
+        try:
+            source, engine = self._build_source(track.stream_url, channel_bitrate_kbps(vc))
+        except Exception as exc:
+            return False, f"The audio engine refused to start ({type(exc).__name__})."
+
+        if vc.is_playing() or vc.is_paused():
             self._generation += 1
-            self.engine = engine
-            self.source = source
-            self._started_at = time.monotonic()
-            self._expected = float(track.duration or 0)
-            try:
-                vc.play(source, after=self._after_for(self._generation))
-            except Exception as exc:
-                self.current = None
-                self.source = None
-                await self._advance_after_failure(track, f"Discord refused the stream ({type(exc).__name__}).")
-                return
-            print(
-                f"[MUSIC] ▶ {track.title!r} via {engine} in guild {self.guild_id}",
-                flush=True,
-            )
+            vc.stop()
+        self._generation += 1
+        self.engine = engine
+        self.source = source
+        self._started_at = time.monotonic()
+        self._expected = float(track.duration or 0)
+        try:
+            vc.play(source, after=self._after_for(self._generation))
+        except Exception as exc:
+            self.source = None
+            return False, f"Discord refused the stream ({type(exc).__name__})."
+        print(
+            f"[MUSIC] ▶ {track.title!r} via {engine} in guild {self.guild_id}",
+            flush=True,
+        )
+        return True, ""
 
     async def _advance_after_failure(self, track, reason: str) -> None:
         """Say what went wrong, then keep the queue moving."""

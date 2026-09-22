@@ -215,6 +215,10 @@ COMMAND_ACCESS: dict[str, str] = {
     # this one changes what a member hears and belongs to whoever configures the
     # bot. It can refuse a station a member names, which is why it is not EVERYONE.
     "music ads": GUILD,
+    # The sibling of the line above, and the same audience for the same reason:
+    # it changes what every member hears without gating any one of them out of
+    # speaking to the bot, so the server's configurers set it and members do not.
+    "music language": GUILD,
     "music doctor": ADMIN,
     "music 247": OWNER,
     "customquote add": EVERYONE,

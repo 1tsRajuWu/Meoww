@@ -1277,6 +1277,38 @@ async def set_radio_ads(guild_id: int, mode: str):
         raise ValueError(f"{mode!r} is not one of {RADIO_ADS_MODES}")
     await set_setting(guild_id, RADIO_ADS_KEY, mode)
 
+
+#: The language this server's radio should be in. A **preference**, unlike the mode
+#: above: it decides which station the bot picks when nobody names one, and a
+#: member who names a station still gets that station. Nothing about it can refuse
+#: anybody, which is why there is no table of allowed values here — the vocabulary
+#: is the catalogue's, and the catalogue lives in the cog that plays it.
+RADIO_LANGUAGE_KEY = "music_radio_language"
+
+#: How long a stored language name may be. The longest name in the catalogue is
+#: thirteen characters (*Mandarin Chinese*); this is room to spell it differently
+#: without being room for a hand-edited row to hold a kilobyte.
+RADIO_LANGUAGE_MAX = 40
+
+
+async def get_radio_language(guild_id: int) -> str:
+    """The language this server asked its radio to be in, or ``''`` for any.
+
+    Not validated against the catalogue, deliberately: the picker that reads this
+    falls back to the whole table for a name the catalogue has never heard of, so a
+    value from a future version of the catalogue, a restore, or a hand-edited row
+    is *no preference* rather than a server whose radio has stopped playing.
+    """
+    value = str(await get_setting(guild_id, RADIO_LANGUAGE_KEY, "") or "").strip()
+    return value[:RADIO_LANGUAGE_MAX]
+
+
+async def set_radio_language(guild_id: int, language: str):
+    """Store the language, or clear the preference with an empty string."""
+    await set_setting(
+        guild_id, RADIO_LANGUAGE_KEY, str(language or "").strip()[:RADIO_LANGUAGE_MAX]
+    )
+
 # ── Warnings ─────────────────────────────────────────────────────────────────
 # Three helpers where the commands used to hold the SQL directly. The website
 # became a second caller, and a second copy of "what a warning is" is how a panel

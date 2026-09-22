@@ -357,10 +357,119 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
             any("/login" == p or "/login".startswith(p + "/") for p in prefixes)
         )
 
+    def test_the_root_is_the_console_and_not_a_redirect(self):
+        """The door the accept button comes back through.
+
+        Every way in on this host ends at the clickwrap, and the clickwrap's own
+        answer is a redirect *back to this host's root* — ``Location: /owner``,
+        which the worker rewrites to ``/``. So the last step of signing in is a
+        request for ``/``, and until this was checked nothing could see what that
+        request was answered with: the worker *explained* that the root is the
+        console in a comment sitting **below** the guard that redirects anything
+        not in ``CONSOLE_PREFIXES`` to the public site, and ``/`` is not a prefix,
+        so the code was unreachable and the operator — passkey accepted, terms
+        accepted — was handed to the marketing page, signed out.
+
+        A text search cannot see the order, which is why this drives the built
+        worker in a real JS engine instead: every path below is asked of the
+        worker itself, and the answer is the *decision* (proxied, its own file, or
+        a 301 off this host) rather than the presence of a line of source.
+        """
+        import json
+        import shutil
+        import subprocess
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+
+        out = Path(tempfile.mkdtemp(prefix="meow-owner-routes-"))
+        try:
+            build_owner.build(str(out), "backend.test", "public.test")
+            worker_js = out / "_worker.js"
+            harness = out / "routes.mjs"
+            harness.write_text(
+                "const worker = (await import('./_worker.js')).default;\n"
+                "const seen = [];\n"
+                "globalThis.fetch = async (url) => {\n"
+                "  seen.push(url instanceof Request ? url.url : String(url));\n"
+                "  return new Response('backend', { status: 200 });\n"
+                "};\n"
+                "const env = { ASSETS: { fetch: async () =>\n"
+                "  new Response('asset', { status: 200 }) } };\n"
+                "const paths = JSON.parse(process.argv[2]);\n"
+                "const out = [];\n"
+                "for (const path of paths) {\n"
+                "  seen.length = 0;\n"
+                "  const res = await worker.fetch(new Request('https://owner.test' + path), env);\n"
+                "  out.push({ path, status: res.status,\n"
+                "    location: res.headers.get('Location'), asked: seen[0] || null });\n"
+                "}\n"
+                "console.log(JSON.stringify(out));\n",
+                encoding="utf-8",
+            )
+            paths = ["/", "/index.html", "/owner", "/agree?next=/owner", "/static/console/app.js"]
+            result = subprocess.run(
+                [node, str(harness), json.dumps(paths)],
+                capture_output=True,
+                text=True,
+                cwd=str(out),
+                timeout=60,
+            )
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr[:800])
+        routed = {item["path"]: item for item in json.loads(result.stdout)}
+
+        # The two roots: answered by the console, and rewritten to it.
+        for path in ("/", "/index.html"):
+            with self.subTest(path=path):
+                self.assertEqual(routed[path]["status"], 200)
+                self.assertIsNone(routed[path]["location"])
+                self.assertEqual(
+                    urllib.parse.urlsplit(routed[path]["asked"]).path,
+                    "/owner",
+                    "the root of this host is not the console",
+                )
+
+        # The rest of the console, unchanged, and the one door that must stay
+        # shut: a path this host does not serve still leaves for the public site.
+        for path in ("/owner", "/agree?next=/owner"):
+            with self.subTest(path=path):
+                self.assertEqual(routed[path]["status"], 200)
+                self.assertIsNone(routed[path]["location"])
+        self.assertIsNone(routed["/static/console/app.js"]["asked"], "an asset went to the backend")
+
+    def test_the_build_refuses_to_serve_a_path_it_also_redirects(self):
+        """The invariant behind the test above, checkable without a JS engine.
+
+        Every list this worker consults before it decides is compared with the
+        guard itself: a path a host *serves* must not be a path its catch-all
+        redirect answers, and the redirect is named once so the two cannot
+        drift the way they did — the root was handled below it and therefore
+        never handled at all.
+        """
+        worker = build_owner._worker_file("backend.test", "", "public.test")
+        roots = re.search(r"const ROOT_PATHS = \[(.*?)\];", worker, flags=re.DOTALL)
+        self.assertIsNotNone(roots, "the worker no longer names the paths it roots")
+        self.assertEqual(re.findall(r'"([^"]+)"', roots.group(1)), ["/", "/index.html"])
+        self.assertIn(
+            "if (!isConsole && !isRoot) {",
+            worker,
+            "the catch-all redirect ignores the root paths, so a request for the "
+            "root leaves this host",
+        )
+        self.assertLess(
+            worker.index("const isRoot = ROOT_PATHS.includes"),
+            worker.index("status: 301"),
+            "the root is worked out after the redirect that has to respect it",
+        )
+
     def test_everything_else_is_redirected_to_the_public_site(self):
         worker = build_owner._worker_file("backend.test", "", "public.test")
         self.assertIn('const PUBLIC_SITE_HOST = "public.test";', worker)
-        self.assertIn("if (!isConsole) {", worker)
+        self.assertIn("if (!isConsole && !isRoot) {", worker)
         self.assertIn("status: 301", worker)
         self.assertIn("target.hostname = PUBLIC_SITE_HOST", worker)
         # Not a proxy: a 301 answers without asking the backend anything, which is

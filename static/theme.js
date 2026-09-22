@@ -33,6 +33,18 @@
      * `localStorage` entry holding the reader's theme choice. */
     var STORAGE_KEY = "meow-theme";
 
+    /* The themes that have a mark of their own in `static/` — `logo-<theme>.svg`
+     * and `favicon-<theme>.svg` are drawn for these three and for no other theme
+     * in `THEMES`. The menu grew from four themes to nine while the marks stayed
+     * at four, and this script built `logo-<theme>.svg` out of whatever the
+     * visitor had chosen, so five themes asked for a file nobody drew: the
+     * browser's broken-image glyph next to the bot's own name, on every page,
+     * with nothing raised anywhere. The console answers the question the same way
+     * (`THEMED_LOGOS` in `console/src/lib/theme.ts`) and a test holds the two
+     * lists to each other, because they draw the same files. A theme without a
+     * mark of its own gets the default one. */
+    var THEMED_MARKS = ["sakura", "forest", "ember"];
+
     /* Enough to label the trigger. The swatch colours themselves are in the
      * stylesheet, next to the tokens they belong to — a colour written down
      * twice is the defect this whole project keeps finding, and a private copy
@@ -92,7 +104,7 @@
 
     function updateThemedAssets(name) {
         var themeName = (name && THEMES.indexOf(name) !== -1) ? name : DEFAULT;
-        var suffix = themeName === DEFAULT ? "" : "-" + themeName;
+        var suffix = THEMED_MARKS.indexOf(themeName) === -1 ? "" : "-" + themeName;
 
         var logos = document.querySelectorAll("img[src*='logo']");
         for (var i = 0; i < logos.length; i++) {

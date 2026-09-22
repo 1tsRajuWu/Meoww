@@ -56,7 +56,21 @@ def _themed_logos() -> list[str]:
     return re.findall(r'"([a-z0-9-]+)"', block)
 
 
-class TheBrandMarkCannotGoMissing(unittest.TestCase):
+def _public_theme_ids() -> list[str]:
+    """The theme vocabulary as ``static/theme.js`` writes it."""
+    source = PUBLIC_THEME_SCRIPT.read_text(encoding="utf-8")
+    block = source.split("var THEMES = [", 1)[1].split("];", 1)[0]
+    return re.findall(r'"([a-z0-9-]+)"', block)
+
+
+def _public_themed_marks() -> list[str]:
+    """The themes ``static/theme.js`` declares a mark for."""
+    source = PUBLIC_THEME_SCRIPT.read_text(encoding="utf-8")
+    block = source.split("var THEMED_MARKS = [", 1)[1].split("];", 1)[0]
+    return re.findall(r'"([a-z0-9-]+)"', block)
+
+
+class TheConsoleAsksForAMarkThatWasDrawn(unittest.TestCase):
     def test_the_theme_vocabulary_was_actually_found(self):
         """A parse that returns nothing would make every law below vacuous.
 
@@ -142,6 +156,68 @@ class TheBrandMarkCannotGoMissing(unittest.TestCase):
             "put a choice back where nothing looks for it",
         )
 
+
+class ThePublicPagesAskForAMarkThatWasDrawn(unittest.TestCase):
+    """The same promise, on the surface that did not keep it.
+
+    The console was fixed and the public script was not: it built
+    ``logo-<theme>.svg`` from whatever the visitor chose, so picking Sunset
+    Flare, Cyber Plasma, Aurora Borealis, Cosmic Nebula or Synthwave put a 404 in
+    the header's ``<img>`` — reproduced on the live site by clicking through the
+    picker and reading ``naturalWidth``: 64 on the four that exist, **0 on the
+    five that do not**. And it was the same defect the console had already
+    answered, one file away.
+    """
+
+    def test_the_vocabulary_was_actually_found(self):
+        self.assertGreaterEqual(len(_public_theme_ids()), 4, "no themes were parsed")
+        self.assertTrue(_public_themed_marks(), "the script names no themed mark")
+
+    def test_every_theme_resolves_to_files_that_exist(self):
+        """Both directions, for the mark and for the favicon.
+
+        A theme whose art is on disk but unnamed loses it; a theme named with no
+        art asks for a 404. The favicon is checked in the same breath because it
+        is the same three files and the same rewrite — a theme with a mark and no
+        icon is the bug half-fixed.
+        """
+        named = set(_public_themed_marks())
+        for theme in _public_theme_ids():
+            for kind, name in (("logo", f"logo-{theme}.svg"),
+                               ("favicon", f"favicon-{theme}.svg")):
+                with self.subTest(theme=theme, kind=kind):
+                    drawn = (STATIC / name).exists()
+                    self.assertEqual(
+                        drawn,
+                        theme in named,
+                        f"{theme}: {name} exists={drawn}, named in THEMED_MARKS="
+                        f"{theme in named}",
+                    )
+
+    def test_the_two_surfaces_name_the_same_marks(self):
+        """They draw from one directory, so a difference is one of them wrong."""
+        self.assertEqual(
+            sorted(_public_themed_marks()),
+            sorted(_themed_logos()),
+            "static/theme.js and console/src/lib/theme.ts disagree about which "
+            "themes have a mark of their own",
+        )
+
+    def test_the_script_asks_the_list_rather_than_the_chosen_name(self):
+        """The mechanism, not just the outcome: a path built from the visitor's
+        choice is what put a 404 in the header, so the choice is passed through a
+        list of what was drawn."""
+        source = PUBLIC_THEME_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("THEMED_MARKS.indexOf(themeName)", source)
+        self.assertNotIn(
+            'themeName === DEFAULT ? "" : "-" + themeName',
+            source,
+            "the suffix is built from the chosen theme again, so the next theme "
+            "added to the menu breaks the logo",
+        )
+
+
+class TheBrandMarkCannotGoMissing(unittest.TestCase):
     def test_the_static_build_discovers_the_marks_rather_than_listing_them(self):
         """The other half of the promise, and the reason it can come back.
 

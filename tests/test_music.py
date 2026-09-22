@@ -141,7 +141,10 @@ class FilterRestartKeepsTheQueue(_PlayerCase):
         self.assertEqual(self.vc.stop_calls, 1)
 
     async def test_the_replacement_source_still_advances_when_it_really_ends(self):
-        self.player.current = _track("Now Playing")
+        # A recording with a declared length, so *what ended* is decidable: a
+        # station may not reach here, because a live source that reports itself
+        # finished was cut and is asked again instead of being moved past.
+        self.player.current = _track("Now Playing", duration=200, live=False)
         self.player.queue = [_track("Queued Song")]
         self.vc.play(object(), after=self.player._after_for(self.player._generation))
         calls = self._recorder()
@@ -150,7 +153,10 @@ class FilterRestartKeepsTheQueue(_PlayerCase):
         await asyncio.sleep(0)
         self.assertEqual(calls, [])
 
-        self.vc.after(None)          # the re-rendered track finishes for real
+        # The re-rendered track runs its whole length, which is what "ended"
+        # means — the source is judged against the clock it was given.
+        self.player._started_at = player_module.time.monotonic() - self.player._expected
+        self.vc.after(None)
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
@@ -274,19 +280,6 @@ class AStreamThatStopsIsToldApartFromOneThatEnds(_PlayerCase):
         faults = await self._run_source(played_seconds=10, duration=20)
         self.assertEqual(faults, [])
 
-    async def test_a_station_that_reports_itself_finished_was_cut(self):
-        """A live stream has no end, so *any* clean ending is a dropped connection.
-
-        This is the radio shape of the bug that produced the whole guard: the
-        station closes the socket, ffmpeg exits 0, and without this the room hears
-        silence and the queue moves on as though the song had finished.
-        """
-        faults = await self._run_source(played_seconds=90, duration=0, live=True)
-
-        self.assertEqual([f.kind for f in faults], ["truncated"])
-        self.assertIn("went quiet", faults[0].detail)
-        self.assertIn("dropped connection", faults[0].detail)
-
     async def test_a_source_that_declares_no_length_and_is_not_live_is_not_judged(self):
         # Nothing to judge it against, and guessing from elapsed time alone would
         # make the card cry wolf on every short file.
@@ -310,6 +303,130 @@ class AStreamThatStopsIsToldApartFromOneThatEnds(_PlayerCase):
 
         self.assertEqual([f.kind for f in faults], ["source_error"])
         self.assertIn("pipe broken", faults[0].detail)
+
+
+class ACutStationIsAskedAgainBeforeItIsNews(_PlayerCase):
+    """A live stream has no end, so a clean ending is a socket that closed.
+
+    Two things close it, and from inside the player they are the same event: the
+    station going away, and everything between this host and the station giving
+    up. Nothing in the *ending* says which — a dropped connection and a
+    rate-limited one both look like ffmpeg exiting — so the question is answered
+    by asking again, and the card is kept for the station that cannot hold a
+    socket. The numbers are in ``utils/player``: a station that played
+    ``LIVE_RETRY_AFTER`` seconds forgives its whole budget, which is why a
+    station that closes every few minutes plays all evening as a *radio* rather
+    than as a room being told about it.
+    """
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.faults = []
+
+        async def collect(fault):
+            self.faults.append(fault)
+
+        self.player.on_fault = collect
+        pause = mock.patch.object(player_module, "LIVE_RETRY_PAUSE", 0)
+        pause.start()
+        self.addCleanup(pause.stop)
+
+    def _cut(self, played_seconds: float) -> None:
+        """Play a station, then let its socket close ``played_seconds`` later."""
+        self.player.current = _track("Ambient Radio", duration=0, live=True)
+        self.player._expected = 0.0
+        self.player._started_at = player_module.time.monotonic() - played_seconds
+        self.player._generation = 5
+        self.vc.play(object(), after=self.player._after_for(5))
+        self.vc.after(None)
+
+    async def _settle(self, turns: int = 12) -> None:
+        """Let the scheduled reconnect actually run."""
+        for _ in range(turns):
+            await asyncio.sleep(0)
+
+    async def test_a_cut_station_is_asked_again_rather_than_reported(self):
+        self._cut(30)
+        await self._settle()
+
+        self.assertEqual(self.faults, [], "a single drop was announced as news")
+        self.assertEqual(len(self.vc.played), 2, "the station was not asked again")
+        self.assertEqual(self.player.current.title, "Ambient Radio")
+        self.assertEqual(self.player._live_retries, 1)
+
+    async def test_a_long_stretch_forgives_the_whole_budget(self):
+        # 90 seconds of music is a connection that ended, not a station that
+        # cannot hold one — so the next drop starts from a full budget again and
+        # an all-night station never spends it.
+        self.player._live_retries = player_module.LIVE_RETRY_LIMIT
+        self._cut(90)
+        await self._settle()
+
+        self.assertEqual(self.faults, [])
+        self.assertEqual(self.player._live_retries, 1, "the budget was not restored")
+
+    async def test_the_room_is_told_once_the_station_will_not_hold_a_socket(self):
+        self.player._live_retries = player_module.LIVE_RETRY_LIMIT
+        self.player._start = mock.Mock(return_value=(False, "the voice connection went away."))
+        self._cut(30)
+        await self._settle()
+
+        self.assertEqual([f.kind for f in self.faults], ["truncated"])
+        self.assertIn("went quiet", self.faults[0].detail)
+        self.assertIn("dropped connection", self.faults[0].detail)
+        self.assertIn("would not come back", self.faults[0].detail)
+        self.assertIsNone(self.player.current, "a station that is not playing stayed current")
+        if self.player.inactivity_task:
+            self.player.inactivity_task.cancel()
+
+    async def test_a_new_station_does_not_inherit_a_spent_budget(self):
+        """The budget belongs to the station that spent it.
+
+        Otherwise a server that had a bad minute on one station carries that
+        station's failures into the next one, whose first drop — often its first
+        *ever* — is reported to the room as a station that will not hold a socket.
+        A reconnect hands the same track back in, so it keeps its own count; only
+        a different track starts clean.
+        """
+        self.player._live_retries = player_module.LIVE_RETRY_LIMIT
+        self.player.current = _track("The Old Station", duration=0, live=True)
+
+        started, why = self.player._start(_track("A New Station", duration=0, live=True))
+
+        self.assertTrue(started, why)
+        self.assertEqual(self.player._live_retries, 0)
+
+    async def test_a_reconnect_keeps_the_count_it_has(self):
+        # The other half of the line above, and the half that would make the
+        # budget infinite if it were dropped.
+        self.player._live_retries = 2
+        self.player.current = _track("Ambient Radio", duration=0, live=True)
+
+        started, why = self.player._start(self.player.current)
+
+        self.assertTrue(started, why)
+        self.assertEqual(self.player._live_retries, 2)
+
+    async def test_a_finished_song_is_never_asked_again(self):
+        # Nothing about a recording is a socket: it ended, and a retry would be
+        # the player refusing to move on.
+        faults = []
+
+        async def collect(fault):
+            faults.append(fault)
+
+        self.player.on_fault = collect
+        self.player.current = _track("A Song", duration=200, live=False)
+        self.player._expected = 200.0
+        self.player._started_at = player_module.time.monotonic() - 12
+        self.player._generation = 5
+        self.player.play_next = mock.AsyncMock()
+        self.vc.play(object(), after=self.player._after_for(5))
+        self.vc.after(None)
+        await self._settle()
+
+        self.assertEqual([f.kind for f in faults], ["truncated"])
+        self.assertEqual(len(self.vc.played), 1, "a recording was reconnected")
 
 
 class SourceSelection(unittest.TestCase):

@@ -226,6 +226,21 @@ const CONSOLE_PREFIXES = [
   "/agree"
 ];
 
+// The two paths that *are* the console without saying so. They are not prefixes
+// and deliberately not in the list above: `/` as a prefix would mean "this host
+// proxies everything, including the paths it exists to stop answering", which is
+// one careless simplification of the check below away from happening.
+//
+// And they are the reason the sign-in flow dead-ended a second time. The passkey
+// was accepted, the clickwrap was pressed, and the backend answered `Location:
+// /owner` — so the browser came back to this host's root, which was not in the
+// list, which this worker's answer is a 301 to the public site. The operator
+// typed the right passkey, agreed to the terms, and landed on the marketing page
+// signed out; the comment further down explaining that the root is the console
+// had been sitting under a redirect that made it unreachable, so nothing could
+// see the contradiction.
+const ROOT_PATHS = ["/", "/index.html"];
+
 export default {{
   async fetch(request, env) {{
     const url = new URL(request.url);
@@ -238,6 +253,7 @@ export default {{
     const isConsole = CONSOLE_PREFIXES.some(
       (prefix) => url.pathname === prefix || url.pathname.startsWith(prefix + "/")
     );
+    const isRoot = ROOT_PATHS.includes(url.pathname);
 
     // The two files a host has to answer for itself. Everything else here is
     // redirected to the public site, and that is right — but a crawler asking
@@ -248,7 +264,7 @@ export default {{
       return env.ASSETS.fetch(request);
     }}
 
-    if (!isConsole) {{
+    if (!isConsole && !isRoot) {{
       // Not ours. Send it to the site it belongs to rather than to the backend
       // with this host's missing assets — a 301 and not a proxy, because the
       // other host is the one that can render it.
@@ -272,9 +288,9 @@ export default {{
     backendUrl.port = "";
 
     // The root of this host is the console, so a bookmark to it lands on the
-    // fleet rather than on a redirect. `/index.html` too: that is what a
-    // bookmark saved from the old site is.
-    if (url.pathname === "/" || url.pathname === "/index.html") {{
+    // fleet rather than on a redirect — which is what the guard above this line
+    // used to answer it with, because the root was not in any list it consulted.
+    if (isRoot) {{
       backendUrl.pathname = "/owner";
     }}
 

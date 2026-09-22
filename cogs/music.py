@@ -156,15 +156,30 @@ RADIO_STATIONS: dict[str, dict] = {
         "lang": "",
         "tags": ("instrumental", "focus", "chill"),
     },
-    "lofihiphop": {
-        "name": "Lofi Hip Hop Radio",
-        "url": "https://stream.zeno.fm/0r0xa792kwzuv",
-        "desc": "The 24/7 lo-fi hip hop stream people leave on for hours.",
-        "icon": "📻",
-        "genre": "Lo-Fi",
-        "lang": "",
-        "tags": ("instrumental", "focus", "chill"),
-    },
+    # ── A station that was cut, and what it cost to find out why ─────────── #
+    #
+    # *Lofi Hip Hop Radio* (`stream.zeno.fm/0r0xa792kwzuv`) stood here, and it is
+    # gone because it cannot do the one thing the catalogue exists to promise:
+    # **deliver audio at the rate it is played**. Every station in this table has
+    # now been read for a full window with the player's own ffmpeg command line,
+    # and this one is the only address that failed — a plain GET answers in two
+    # seconds, then the mount hands over about ten seconds of audio and stalls,
+    # which the read measured at **0.29× realtime**: ffmpeg reaches `time=00:00:09.92`
+    # and stops there while the wall clock runs out. `-reconnect` reaches a live
+    # stream but it cannot make one arrive, so the room would have heard ten
+    # seconds of lo-fi and then nothing, with no fault raised anywhere, because a
+    # source that never ends never fires the callback that reports one. Deleting
+    # it is the fix; padding the count with a station added to keep a number
+    # would be the failure this file keeps recording. **The measurement that
+    # condemned it is also what cleared the rest, and it is the finding worth
+    # keeping**: all 38 Laut.FM entries delivered a full minute at **1.12–1.26×**,
+    # all 28 stations this table calls `ad-free` delivered 45 seconds at
+    # **1.05–1.49×** (WFMU the slowest at 1.05, still above the floor), and the
+    # two stations the bot was actually reported as *"cut off"* on held a six and
+    # a half minute read each from this machine. So the cut is **not** a station in
+    # this table refusing to send — which leaves the host's own route out as the
+    # remaining suspect, and that is the one thing a probe on a developer's laptop
+    # cannot measure.
     "chillout": {
         "name": "Chillout",
         "url": "https://stream.laut.fm/chillout",
@@ -1709,6 +1724,86 @@ def ad_free_stations() -> list[tuple[str, dict]]:
     return [(key, station) for key, station in RADIO_STATIONS.items() if is_ad_free(station)]
 
 
+#: What ``/music language any`` stores: no preference at all. A word rather than
+#: the empty string at the command's edge, because *any* is a thing a person can be
+#: told and ``''`` is not — the storage keeps the empty string and the card never
+#: has to show it.
+LANGUAGE_ANY = "any"
+
+
+def station_languages() -> list[str]:
+    """Every language the catalogue holds stations in, alphabetically.
+
+    The same list ``/music stations`` prints, from the same reader, so the picker
+    can never offer a language the index does not count.
+    """
+    return [language for language, _count in catalogue_index().languages]
+
+
+def language_for_name(value: str) -> str:
+    """The catalogue's spelling of a language somebody typed, or ``''``.
+
+    Forgiving about case and spacing because this is autocompleted *and* typable,
+    and exact about everything else: a name the catalogue does not hold is ``''``,
+    which every caller turns into a refusal naming the real list rather than a
+    stored value nothing can satisfy.
+    """
+    wanted = _flat(value)
+    if not wanted:
+        return ""
+    for language in station_languages():
+        if _flat(language) == wanted:
+            return language
+    return ""
+
+
+def station_matches_language(station: dict, language: str) -> bool:
+    """Whether this station is in that language — the one reader of the field."""
+    wanted = _flat(language)
+    return bool(wanted) and _flat(station.get("lang") or "") == wanted
+
+
+def stations_in_language(language: str) -> list[tuple[str, dict]]:
+    """The catalogue's entries in one language, in catalogue order."""
+    if not _flat(language):
+        return []
+    return [
+        (key, station)
+        for key, station in RADIO_STATIONS.items()
+        if station_matches_language(station, language)
+    ]
+
+
+def station_pool(*, ads: str, language: str = "") -> list[tuple[str, dict]]:
+    """What this server's own settings leave in play when nobody names a station.
+
+    Two settings, one table, and an order that is not arbitrary. The **table** is
+    everything, because neither setting may ever leave a room with nothing to play.
+    The **ads mode** narrows it next — ``only`` and ``prefer`` are answers to *what
+    may play here* — and the **language** narrows what is left, because it is an
+    answer to *which of them to choose*, which is a question about a smaller set.
+
+    The two fallbacks are the point of the function being a function. A language
+    whose stations are all advertising-carrying keeps the ad pool rather than
+    emptying the room, and a language the catalogue has never heard of keeps the
+    whole table — so the failure mode of a stale setting is always *the pick before
+    the setting existed*, never silence, and never a ValueError inside a command a
+    member is watching.
+    """
+    pool = list(RADIO_STATIONS.items())
+    if ads in ("only", "prefer"):
+        qualifying = ad_free_stations()
+        if qualifying:
+            pool = qualifying
+    in_language = stations_in_language(language)
+    if in_language:
+        keys = {key for key, _station in pool}
+        narrowed = [pair for pair in in_language if pair[0] in keys]
+        if narrowed:
+            return narrowed
+    return pool
+
+
 def station_option_label(key: str, station: dict) -> str:
     """What one suggestion looks like, inside Discord's 100-character label cap."""
     label = f"{station['icon']} {station['name']} · {station['genre']}"
@@ -1999,6 +2094,7 @@ class Music(commands.Cog):
             return await style.send_card(interaction, content=blocked, ephemeral=True)
 
         ads = await db.get_radio_ads(interaction.guild_id)
+        language = await db.get_radio_language(interaction.guild_id)
         chosen = station_for(station or "")
         if chosen is None and (station or "").strip():
             return await style.send_card(
@@ -2027,7 +2123,13 @@ class Music(commands.Cog):
                 ephemeral=True,
             )
         remembered = await db.get_radio_station(interaction.guild_id)
-        chose_it = chosen is not None
+        #: Whether what plays is the station *this server* chose before, as opposed
+        #: to one picked for it. Tracked rather than derived from ``remembered``,
+        #: which is a truthy value that survives the memory being set aside below —
+        #: the card used to say "this server's last station" about a station the
+        #: settings had just refused to play, which is the one claim on that card a
+        #: reader cannot check for themselves.
+        from_memory = False
         if chosen is None:
             # No argument, so this is "put the last one back on" — which is what a
             # server does when the queue dies and everybody has come back. The first
@@ -2040,13 +2142,18 @@ class Music(commands.Cog):
                 # preference is not a rule — while `only` is a rule, so the memory is
                 # set aside and the pick below starts from the stations that qualify.
                 chosen = None
+            elif chosen is not None and language and not station_matches_language(chosen[1], language):
+                # The same reasoning one setting over. `/music language finnish` is a
+                # server saying what its radio *is*; a station it happened to play
+                # before that is not it would make the setting inert on every server
+                # that has ever pressed play, which is every server. A station a
+                # member *names* is untouched by this — that is somebody choosing
+                # now, not the server's standing choice.
+                chosen = None
+            else:
+                from_memory = chosen is not None and bool(remembered)
         if chosen is None:
-            pool = list(RADIO_STATIONS.items())
-            if ads in ("only", "prefer"):
-                qualifying = ad_free_stations()
-                if qualifying:
-                    pool = qualifying
-            chosen = random.choice(pool)
+            chosen = random.choice(station_pool(ads=ads, language=language))
         key, chosen = chosen
 
         await interaction.response.defer()
@@ -2096,7 +2203,7 @@ class Music(commands.Cog):
                 chosen,
                 vc.channel.mention,
                 interaction.user.display_name,
-                from_memory=bool(remembered) and not chose_it,
+                from_memory=from_memory,
             ),
             view=ControlsView(self, player),
             timeout=None,
@@ -2138,6 +2245,7 @@ class Music(commands.Cog):
         guess at a station name.
         """
         text = (query or "").strip()
+        asked_for = await db.get_radio_language(interaction.guild_id)
         if not text:
             index = catalogue_index()
             description = (
@@ -2169,6 +2277,16 @@ class Music(commands.Cog):
                     f"\n\n-# **{index.ad_free} carry no advertising** — the station's own "
                     "site says so, which is the only way this table records it. "
                     "Search `ad-free` (or `no ads`) for those."
+                )
+            if asked_for:
+                # The catalogue's width, and then this server's own answer to it. A
+                # language line is a *lookup* — the one a member scans for their own
+                # — so the index is also where a server that has already chosen one
+                # should be able to see that it did.
+                description += (
+                    f"\n\n-# This server's radio is set to **{asked_for}** "
+                    f"({len(stations_in_language(asked_for))} stations) — `/music language` "
+                    "changes it."
                 )
             description += (
                 "\n\n-# Run this again with a word — a **language**, a genre or a mood — "
@@ -2430,6 +2548,114 @@ class Music(commands.Cog):
             ),
             ephemeral=True,
         )
+
+    @music.command(
+        name="language",
+        description="Which language this server's radio should be in (administrator).",
+    )
+    @app_commands.describe(
+        language="A language the catalogue has stations in, or 'any' to stop asking for one"
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def language(self, interaction: discord.Interaction, language: str):
+        """The other half of *the radio has no language*: what the pick is in.
+
+        The catalogue grew a language tag on every entry, the index grew a
+        language line and the picker grew language search — and none of it changed
+        the question a server is actually asking, which is *play us something in
+        ours*. Search answers that only for somebody who types a language every
+        time, and the search box cannot answer it at all for a member who does not
+        know what this table calls their language.
+
+        Three rules, and two of them are about what this setting may **not** do:
+
+        * a **named** station always plays, whatever language it is in — somebody
+          asking for Berlin techno in a Spanish server is choosing right now;
+        * the **remembered** station plays only while it is in that language, or the
+          setting would be inert on every server that has ever pressed play;
+        * a language whose stations all carry advertising falls back to the ad
+          pool rather than refusing to play, because a setting must not be able to
+          leave a room with nothing.
+        """
+        wanted = (language or "").strip()
+        if _flat(wanted) in ("", LANGUAGE_ANY, "none", "off", "clear"):
+            await db.set_radio_language(interaction.guild_id, "")
+            return await style.send_card(
+                interaction,
+                content=(
+                    "\U0001f5e3\ufe0f Radio language: **any**\n"
+                    f"-# I pick from all {len(RADIO_STATIONS)} stations, in whatever "
+                    "language they are in. A station you name always plays either way."
+                ),
+                ephemeral=True,
+            )
+
+        resolved = language_for_name(wanted)
+        if not resolved:
+            # Named, not stored: a typo would otherwise become a preference nothing
+            # can satisfy, which reads as the bot ignoring the setting.
+            return await style.send_card(
+                interaction,
+                content=(
+                    f"\u274c The catalogue has no stations in **{wanted}**.\n"
+                    f"-# It has {len(station_languages())} languages: "
+                    + ", ".join(station_languages())
+                    + ". `/music stations` counts them."
+                ),
+                ephemeral=True,
+            )
+
+        await db.set_radio_language(interaction.guild_id, resolved)
+        ads = await db.get_radio_ads(interaction.guild_id)
+        # What the setting will actually pick from, read back through the same
+        # function the command uses rather than described: a server that switches to
+        # `only` next week gets a *different* pool, and the number here says so. The
+        # count is printed because the alternative is a person discovering the size
+        # of what they just asked for by playing it.
+        pool = station_pool(ads=ads, language=resolved)
+        in_language = len(stations_in_language(resolved))
+        count = f"{in_language} station{'s' if in_language != 1 else ''} in {resolved}"
+        if len(pool) == in_language:
+            # The common case: the language and the advertising setting agree, so the
+            # pick is what the server asked for and the number says how big it is.
+            note = "I pick from those when nobody names a station."
+        else:
+            # A real conflict, and it can only happen one way: the ad mode is the
+            # narrower setting here and the language has nothing inside it. Said out
+            # loud, because the alternative — a server that set Finnish and hears
+            # SomaFM — reads as the setting being ignored.
+            note = (
+                f"none of them carry no advertising, so with `/music ads {ads}` the "
+                f"pick stays on the {len(pool)} stations elsewhere that do. "
+                f"`/music ads any` would let {resolved} back in."
+            )
+        await style.send_card(
+            interaction,
+            content=(
+                f"\U0001f5e3\ufe0f Radio language: **{resolved}**\n"
+                f"-# {count}, and {note} "
+                "A station somebody names still plays, whatever language it is in."
+            ),
+            ephemeral=True,
+        )
+
+    @language.autocomplete("language")
+    async def _radio_language_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Every language the catalogue holds, plus the way to stop asking.
+
+        Autocomplete for the same reason the station picker uses it: this list is
+        twenty-nine entries and growing on the catalogue's schedule, not on
+        Discord's twenty-five-choice ceiling.
+        """
+        typed = (current or "").strip()
+        choices = [
+            app_commands.Choice(name=f"\U0001f5e3\ufe0f {name}", value=name)
+            for name in station_languages()
+            if not typed or typed.lower() in name.lower()
+        ]
+        if not typed or LANGUAGE_ANY.startswith(typed.lower()):
+            choices.insert(0, app_commands.Choice(name="\u2796 any language", value=LANGUAGE_ANY))
+        return choices[:25]
 
     @music.command(name="doctor", description="What this host can and cannot do for voice (administrator).")
     @app_commands.checks.has_permissions(administrator=True)
