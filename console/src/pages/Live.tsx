@@ -443,8 +443,16 @@ function MusicPanel({ data }: { data: LivePayload }) {
         <dt>ffmpeg</dt>
         <dd>
           {caps?.ffmpeg ? (
+            /* The file, not the road to it: this value is an absolute path
+               through the host's own home directory, which printed the operator's
+               username in a definition list and wrapped to three lines of
+               uppercase. What the line answers is *which build* — the directory
+               is one hover away for anyone who needs it. */
             <>
-              {caps.ffmpeg_source ?? "found"} <span className="chan__note">{caps.ffmpeg}</span>
+              {caps.ffmpeg_source ?? "found"}{" "}
+              <span className="chan__note" title={caps.ffmpeg}>
+                {caps.ffmpeg.split(/[\\/]/).pop()}
+              </span>
             </>
           ) : (
             "missing — nothing can be decoded"

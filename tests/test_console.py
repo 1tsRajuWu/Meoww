@@ -1486,6 +1486,49 @@ class ThePreviewHarnessShowsAConsole(_DashboardFixture):
         module = self.load()
         self.assertIs(module.keep_alive.BOT_INSTANCE, self.bot)
 
+    def test_a_switch_in_a_preview_hears_the_republish_it_asks_for(self):
+        """The harness gateway must answer the hook the real gateway answers.
+
+        Found by flipping a system in a preview: every switch came back with
+        *"saved, but the command list was not republished — the bot may be
+        restarting"*, because ``_PreviewBot`` had no ``resync_commands`` and
+        ``keep_alive`` reads a missing hook as a process nobody can hear. That is
+        the honest answer during a boot and a lie about this harness — and it hid
+        the success path, which is the whole reason the harness exists.
+        """
+        module = self.load()
+        bot = module._PreviewBot()
+        guild_id = module.GUILDS[0]["id"]
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            self.assertTrue(keep_alive._resync_commands(guild_id))
+        # …and a server the gateway does not hold still reads as unhearable,
+        # rather than the hook claiming every id it is handed.
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", bot):
+            self.assertFalse(keep_alive._resync_commands(0))
+
+    def test_a_switch_in_a_preview_answers_the_fields_the_page_reads(self):
+        """The harness's own ``/api/toggle`` carries `republish` and `publish_at`.
+
+        The console types that answer as having both, and words its toast off the
+        first one: absent, every switch in a preview said *"saved, but the command
+        list was not republished — the bot may be restarting"*, which is the
+        warning path reported by a gateway that has never restarted.
+        """
+        module = self.load()
+        payload = {
+            "guild_id": module.GUILDS[0]["id"],
+            "module": module.MODULES[0]["id"],
+            "enabled": True,
+        }
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", module._PreviewBot()):
+            with keep_alive.app.test_request_context(
+                "/api/toggle", method="POST", json=payload
+            ):
+                answered = module.api_toggle().get_json()
+        self.assertTrue(answered["success"], answered)
+        self.assertIs(answered["republish"], True, answered)
+        self.assertIn("publish_at", answered)
+
     def test_the_seeded_economy_is_written_once(self):
         module = self.load()
         first = module.seed_economy()

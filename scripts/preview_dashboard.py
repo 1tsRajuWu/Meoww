@@ -572,6 +572,20 @@ class _PreviewBot:
     def is_ready(self) -> bool:
         return bool(self._connected)
 
+    def resync_commands(self, guild_id):
+        """The gateway's republish hook, as ``bot.resync_commands`` answers it.
+
+        ``keep_alive._resync_commands`` looks for this attribute and reports
+        ``republish: false`` when it is missing — the honest answer for a process
+        that is still booting, and a lie about this one: without the hook every
+        switch in a preview answers *"saved, but the command list was not
+        republished — the bot may be restarting"*, so the success toast, which is
+        the state this harness exists to make lookable-at, is the one thing it
+        could never draw. Answered the way the real hook answers: the gateway has
+        that server, so the request can be queued.
+        """
+        return self.get_guild(guild_id) is not None
+
     def get_cog(self, name):
         """The voice companion, as the Live page reads it.
 
@@ -1502,12 +1516,21 @@ def api_toggle():
     _sync_module_cards(payload["guild_id"])
     LAST_TOGGLE.clear()
     LAST_TOGGLE.update({"module": module_id, "enabled": enabled})
+    # The two fields the console reads back, computed the way the real route
+    # computes them. Omitted until a playtest flipped a switch here: the page
+    # types this answer as carrying `republish`, so an answer without it made
+    # every preview toggle warn *"saved, but the command list was not
+    # republished — the bot may be restarting"* — the warning path, from a
+    # gateway that never restarts, on the one screen this harness exists to show.
+    guild = int(payload["guild_id"])
     return jsonify({
         "success": True,
         "guild_id": payload.get("guild_id"),
         "module": module_id,
         "enabled": enabled,
         "sync_latency_ms": 0,
+        "publish_at": keep_alive._last_publish_at(guild),
+        "republish": keep_alive._resync_commands(guild),
     })
 
 
@@ -1537,11 +1560,17 @@ def api_toggle_all():
     _sync_module_cards(payload["guild_id"])
     LAST_TOGGLE.clear()
     LAST_TOGGLE.update({"module": "*", "enabled": enabled})
+    # Same pair as the single switch above, for the same reason: the bulk action
+    # words its own toast off `republish`, so a payload without it reports every
+    # "all on" as a command list Discord was never told about.
+    guild = int(payload["guild_id"])
     return jsonify({
         "success": True,
         "guild_id": payload.get("guild_id"),
         "enabled": enabled,
         "sync_latency_ms": 0,
+        "publish_at": keep_alive._last_publish_at(guild),
+        "republish": keep_alive._resync_commands(guild),
     })
 
 

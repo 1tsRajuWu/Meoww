@@ -58,7 +58,12 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
           <Stat value={compact(data.totals.members)} label="people reached" index={1} />
           <Stat
             value={`${data.totals.on}/${data.totals.slots}`}
-            label="systems on"
+            /* These are switches summed over every server, not systems — the
+               registry's own count is on the Gateway card beside it, and one
+               screen calling two different numbers "systems" is how an operator
+               ends up asking which one is broken. */
+            label="switches on"
+            sub={`across ${data.totals.servers} server${data.totals.servers === 1 ? "" : "s"}`}
             index={2}
           />
           <Stat value={compact(data.totals.commands)} label="commands" index={3} />
@@ -67,8 +72,8 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
           <RadialGauge
             value={data.totals.on}
             max={data.totals.slots || 1}
-            label="Active Modules"
-            sublabel={`${data.totals.on} of ${data.totals.slots} online`}
+            label="Module switches"
+            sublabel={`${data.totals.on} of ${data.totals.slots} on`}
           />
           <RadialGauge
             value={data.totals.servers}

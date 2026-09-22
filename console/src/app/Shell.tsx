@@ -162,11 +162,19 @@ export function Shell({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
+        return;
+      }
+      // Escape is the drawer's second way out. Held until the two overlays that
+      // claim the same key have had it first — the palette closes itself on
+      // Escape, and so does the appearance panel — so one press dismisses one
+      // thing rather than emptying the screen.
+      if (event.key === "Escape" && !paletteOpen && !customizerOpen) {
+        setMenuOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [customizerOpen, paletteOpen]);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -187,6 +195,13 @@ export function Shell({
 
   return (
     <div className="shell">
+      {/* The drawer's other half: something to tap to get out. The Menu button
+          that opens this panel sits underneath it once it is open, so without a
+          scrim the only exit left is to pick a page — a reader who opened the
+          menu by mistake is stranded behind a panel they cannot put down. */}
+      {menuOpen && (
+        <div className="rail__scrim" onClick={() => setMenuOpen(false)} aria-hidden="true" />
+      )}
       <aside className={`rail${menuOpen ? " rail--open" : ""}`}>
         <div className="rail__brand">
           <img

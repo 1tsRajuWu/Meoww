@@ -377,6 +377,17 @@ a {
   flex: 0 0 auto;
 }
 
+/* The scrim under the drawer, which only exists below the width where the rail
+   becomes a drawer (see the media query at the foot of this file): on a wide
+   screen the rail is a column of the page and there is nothing to dismiss. */
+.rail__scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: var(--scrim-soft);
+}
+
 .rail__brand {
   display: flex;
   align-items: center;
@@ -741,6 +752,17 @@ a {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 14px;
+  /* Sized, not squeezed: with no basis the text column gave way to the action
+     beside it, and on a phone the hint wrapped into a one-word-per-line ribbon
+     about 180px wide. A basis of 18rem makes the pair wrap when they cannot
+     share a line — the action drops below the title — and lets the text take
+     the rest of the row when they can. */
+  flex-wrap: wrap;
+}
+
+.card__head > :first-child {
+  flex: 1 1 18rem;
+  min-width: 0;
 }
 
 .card__title {
@@ -1508,9 +1530,25 @@ a {
   margin-top: 8px;
   color: var(--dim);
   font-size: var(--type-meta);
-  max-height: 220px;
-  overflow: auto;
   white-space: pre-wrap;
+  /* A window onto the notes, not a scroll box of their own. `overflow: auto`
+     used to sit here, which put forty inner scrolling areas inside the page's
+     one: the wheel stopped at the entry under the pointer and the page would
+     not move, with no visible scrollbar to say why. Clipped instead, and the
+     button below opens the rest. */
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.change__body.is-open {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.change__more {
+  margin-top: 8px;
 }
 
 /* --------------------------------------------------------------- palette */
@@ -2847,6 +2885,8 @@ html[data-cursor-style="system"] .meow-glow {
   }
 
   .rail--open { transform: none; }
+
+  .rail__scrim { display: block; }
 
   .topbar__menu { display: inline-flex; }
 }
