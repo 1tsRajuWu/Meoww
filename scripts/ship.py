@@ -39,10 +39,24 @@ Nothing here pushes: commit and push first, or use the push flow, because an
 upload stamped with a hash that is not on the remote is the failure the refusals
 above exist to prevent. ``--dry-run`` builds both hosts and stops.
 
+**One of the two projects publishes without this script, and that is why
+``--verify-only`` exists.** ``meow-bot`` is connected to the repository through
+Cloudflare's own Git integration, so a push to ``main`` is built and published
+by Cloudflare within seconds, off the repository rather than off this machine —
+measured, not assumed: nine seconds after one push the production deployment
+already carried it. ``meow-owner`` has no Git integration at all, so it changes
+only when somebody deploys it. An upload of ``meow-bot`` from here is therefore a
+second, deliberate copy of the same commit, which is worth having when the point
+is to publish *this* tree rather than to wait — and worth skipping when the point
+is only to know whether the push arrived, which is the usual case:
+
+    python scripts/ship.py --verify-only
+
 Usage::
 
     python scripts/ship.py                 # build, upload and verify both hosts
     python scripts/ship.py --dry-run       # build both hosts, upload nothing
+    python scripts/ship.py --verify-only   # upload nothing; check the push landed
     python scripts/ship.py --only meow-bot # one host, when only it changed
 """
 from __future__ import annotations
@@ -193,17 +207,23 @@ def upstream() -> tuple[str, int]:
     return name.stdout.strip(), int(ahead.stdout.strip() or 0)
 
 
-def preflight(*, require_push: bool = True) -> str:
-    """Everything that has to be true before a byte is uploaded, and the sha."""
+def preflight(*, require_clean: bool = True, require_push: bool = True) -> str:
+    """Everything that has to be true before a byte is uploaded, and the sha.
+
+    ``require_clean`` is off for a verification-only run, which uploads nothing
+    and therefore stamps nothing: which files happen to be open in an editor has
+    no bearing on whether a host is serving a commit that is already published.
+    """
     sha = head()
-    dirty = dirty_tracked()
-    if dirty:
-        shown = ", ".join(dirty[:5]) + (" …" if len(dirty) > 5 else "")
-        raise Refused(
-            f"{len(dirty)} tracked file(s) differ from {sha[:7]} ({shown}). A build "
-            "from this tree would be uploaded under a hash that does not contain "
-            "it. Commit them, or stash them, then run this again."
-        )
+    if require_clean:
+        dirty = dirty_tracked()
+        if dirty:
+            shown = ", ".join(dirty[:5]) + (" …" if len(dirty) > 5 else "")
+            raise Refused(
+                f"{len(dirty)} tracked file(s) differ from {sha[:7]} ({shown}). A "
+                "build from this tree would be uploaded under a hash that does not "
+                "contain it. Commit them, or stash them, then run this again."
+            )
     if not require_push:
         return sha
     name, ahead = upstream()
@@ -344,9 +364,20 @@ def verify(host: Host, sha: str) -> tuple[bool, str]:
     return True, f"production is {landed} · {note}"
 
 
-def ship(hosts: tuple[Host, ...], *, dry_run: bool = False) -> int:
+def ship(
+    hosts: tuple[Host, ...],
+    *,
+    dry_run: bool = False,
+    verify_only: bool = False,
+) -> int:
     """Build, upload and verify. Returns the exit code."""
-    sha = preflight(require_push=not dry_run)
+    sha = preflight(require_clean=not verify_only, require_push=not dry_run)
+    if verify_only:
+        print(
+            f"Verifying {sha[:7]} on {', '.join(host.project for host in hosts)}\n"
+            "(nothing will be built or uploaded)\n"
+        )
+        return report(hosts, sha, wait=False)
     print(f"Shipping {sha[:7]} ({', '.join(host.project for host in hosts)})\n")
 
     try:
@@ -363,20 +394,23 @@ def ship(hosts: tuple[Host, ...], *, dry_run: bool = False) -> int:
         return 2
 
     print()
-    return report(hosts, sha)
+    return report(hosts, sha, wait=True)
 
 
-def report(hosts: tuple[Host, ...], sha: str) -> int:
-    """Wait for each host to answer with this build, and say what it answered.
+def report(hosts: tuple[Host, ...], sha: str, *, wait: bool) -> int:
+    """Ask each host what commit it serves, and whether it serves this build.
 
-    Retried rather than asked once, because the two facts arrive from different
-    places: the alias moves when the deployment finishes, and the byte check goes
-    through a cache. A verification that runs a half-second after the upload and
-    fails is worse than no verification, because it teaches the operator to
-    ignore it.
+    ``wait`` is the difference between the two runs and it is not a detail. After
+    an upload there are two facts in flight — the alias moves when the deployment
+    finishes, and the byte check goes through a cache — so the question is asked
+    again for half a minute before it is read as an answer; a verification that
+    fails a half-second after an upload teaches the operator to ignore it. A
+    ``--verify-only`` run has nothing in flight: nothing will change while it
+    sleeps, so it asks once and reports what it found.
     """
+    attempts = ATTEMPTS if wait else 1
     unmet: list[str] = []
-    for attempt in range(1, ATTEMPTS + 1):
+    for attempt in range(1, attempts + 1):
         unmet = []
         for host in hosts:
             ok, note = verify(host, sha)
@@ -385,18 +419,33 @@ def report(hosts: tuple[Host, ...], sha: str) -> int:
             if not ok:
                 unmet.append(f"{host.project}: {note}")
         if not unmet:
-            print(f"\nShipped {sha[:7]} to {len(hosts)} host(s), and every one confirmed it.")
+            verb = "Shipped" if wait else "Confirmed"
+            print(f"\n{verb} {sha[:7]} on {len(hosts)} host(s), and every one answered.")
             return 0
-        if attempt < ATTEMPTS:
-            print(f"    … not yet ({attempt}/{ATTEMPTS}); asking again in {PAUSE_SECONDS}s\n")
+        if attempt < attempts:
+            print(f"    … not yet ({attempt}/{attempts}); asking again in {PAUSE_SECONDS}s\n")
             time.sleep(PAUSE_SECONDS)
 
+    if wait:
+        advice = (
+            "\n\nThis is the gap between an accepted upload and a published site, and it"
+            "\nmeans the live address is still an older commit. Check the deployment in"
+            "\nthe Cloudflare dashboard before trusting the URL."
+        )
+    else:
+        # Nothing was uploaded here, so *unpublished* is the ordinary reading
+        # rather than an alarm: `meow-owner` has no Git integration, so it changes
+        # only when somebody deploys it, and the public host's build is
+        # Cloudflare's rather than this machine's.
+        advice = (
+            "\n\nNothing in this run uploaded anything, so this is the state of the"
+            "\nhosts rather than a failed publish. A host that is behind has simply not"
+            "\nbeen deployed for this commit: `python scripts/ship.py --only <project>`."
+        )
     print(
-        "\n✗ The upload was accepted and the hosts are not serving it:\n  "
+        "\n✗ Not every host is serving this commit:\n  "
         + "\n  ".join(unmet)
-        + "\n\nThis is the gap between an accepted upload and a published site, and it"
-        "\nmeans the live address is still an older commit. Check the deployment in"
-        "\nthe Cloudflare dashboard before trusting the URL.",
+        + advice,
         file=sys.stderr,
     )
     return 1
@@ -428,10 +477,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="build both hosts and stop; upload nothing and verify nothing",
     )
+    parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="upload nothing; check that the hosts already serve the pushed commit",
+    )
     args = parser.parse_args(argv)
     try:
         hosts = selected(args.only)
-        return ship(hosts, dry_run=args.dry_run)
+        return ship(hosts, dry_run=args.dry_run, verify_only=args.verify_only)
     except Refused as refusal:
         print(f"✗ {refusal}", file=sys.stderr)
         return 2

@@ -46,8 +46,15 @@
   ```bash
   python scripts/ship.py                 # build, upload and verify both hosts
   python scripts/ship.py --dry-run       # build both hosts, upload nothing
+  python scripts/ship.py --verify-only   # upload nothing; did the push arrive?
   python scripts/ship.py --only meow-owner
   ```
+
+  `--verify-only` reports what each host serves, and a host that is *behind* is
+  the honest answer rather than a failure of the check: `meow-bot` publishes
+  itself on push within seconds, while `meow-owner` (no Git integration, below)
+  stays where it was last deployed — so a docs-only commit legitimately leaves it
+  a commit behind, and `--only meow-owner` is the fix when the console changed.
 
   It refuses to build from a dirty tracked file or from a commit that is not on
   `origin/main` — a deployment carries the commit it was built from, and both of

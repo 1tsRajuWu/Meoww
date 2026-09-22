@@ -118,6 +118,14 @@ class TheHashOnTheDeploymentMeansSomething(unittest.TestCase):
              mock.patch.object(ship, "upstream", side_effect=AssertionError("asked")):
             self.assertEqual(ship.preflight(require_push=False), SHA)
 
+    def test_a_verification_does_not_need_a_clean_tree(self):
+        """Nothing is built or stamped, so which files are open in an editor has
+        no bearing on whether a published commit is being served."""
+        with mock.patch.object(ship, "head", return_value=SHA), \
+             mock.patch.object(ship, "dirty_tracked", side_effect=AssertionError("asked")), \
+             mock.patch.object(ship, "upstream", return_value=("origin/main", 0)):
+            self.assertEqual(ship.preflight(require_clean=False), SHA)
+
     def test_a_refusal_uploads_nothing(self):
         """Driven through ``main`` rather than ``ship``: the refusal has to reach
         the exit code, and the exit code is what a shell decides on."""
@@ -197,6 +205,58 @@ class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
     def test_wrangler_failing_to_list_is_not_a_pass(self):
         code, _wrangler, _hosts = self._ship(list_fails=True)
         self.assertEqual(code, 1)
+
+    def test_a_verification_builds_nothing_and_uploads_nothing(self):
+        """The public host publishes on push by itself, so the common case is one
+        command that only asks whether the push arrived."""
+        wrangler = _Wrangler()
+        with mock.patch.object(ship, "head", return_value=SHA), \
+             mock.patch.object(ship, "dirty_tracked", return_value=["scripts/ship.py"]), \
+             mock.patch.object(ship, "upstream", return_value=("origin/main", 0)), \
+             mock.patch.object(ship, "run", wrangler), \
+             mock.patch.object(ship, "asset_matches_build",
+                               return_value=(True, "static/meow.css is this build's (0c595c784ac5)")), \
+             mock.patch.object(ship, "ATTEMPTS", 2), \
+             mock.patch.object(ship, "PAUSE_SECONDS", 0):
+            code = ship.ship(ship.HOSTS, verify_only=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(wrangler.deploys(), [])
+        self.assertEqual([cmd for cmd in wrangler.calls
+                          if any(part.endswith(".py") for part in cmd)], [])
+
+    def test_a_verification_asks_once_rather_than_waiting(self):
+        """Nothing is in flight in a verification run, so a retry is a delay and
+        then the same answer — and a warning that arrives thirty seconds late is
+        one the operator learns to ignore."""
+        wrangler = _Wrangler(production="f21cff6")
+        with mock.patch.object(ship, "head", return_value=SHA), \
+             mock.patch.object(ship, "dirty_tracked", return_value=[]), \
+             mock.patch.object(ship, "upstream", return_value=("origin/main", 0)), \
+             mock.patch.object(ship, "run", wrangler), \
+             mock.patch.object(ship, "ATTEMPTS", 4), \
+             mock.patch.object(ship, "PAUSE_SECONDS", 30), \
+             contextlib.redirect_stderr(io.StringIO()) as complaints:
+            code = ship.ship(ship.HOSTS, verify_only=True)
+        self.assertEqual(code, 1)
+        asks = [cmd for cmd in wrangler.calls if "list" in cmd]
+        self.assertEqual(len(asks), len(ship.HOSTS), "a verification run waited and asked again")
+        self.assertIn("has simply not", complaints.getvalue())
+        self.assertNotIn("accepted upload", complaints.getvalue(),
+                         "a verification reported an upload that never happened")
+
+    def test_a_verification_still_needs_the_commit_on_the_remote(self):
+        """A commit nobody else has cannot have been published by anybody."""
+        wrangler = _Wrangler()
+        with mock.patch.object(ship, "head", return_value=SHA), \
+             mock.patch.object(ship, "dirty_tracked", return_value=[]), \
+             mock.patch.object(ship, "upstream", return_value=("origin/main", 1)), \
+             mock.patch.object(ship, "run", wrangler), \
+             contextlib.redirect_stderr(io.StringIO()) as complaints:
+            code = ship.main(["--verify-only"])
+        self.assertEqual(code, 2)
+        self.assertIn("Push first", complaints.getvalue())
+        self.assertEqual(wrangler.deploys(), [])
+        self.assertEqual(wrangler.calls, [], "a refused verification asked the API anyway")
 
     def test_a_dry_run_builds_both_hosts_and_uploads_neither(self):
         wrangler = _Wrangler()
