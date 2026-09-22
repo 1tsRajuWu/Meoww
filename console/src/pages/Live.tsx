@@ -395,19 +395,20 @@ export function Live() {
  * `/music doctor` and `/api/voice-debug` read — and every *missing* reason is
  * printed rather than summarised, because each one is a different fix.
  *
- * The extractor is the third reading and the one that cannot be inferred from the
- * other two: every capability present, every other link healthy, and every search
- * answering with a bot check. It carries the age of the reading because it comes
- * from the weekly pass rather than from a request this page made — the honest
- * thing to draw for "asked two days ago" is two days ago.
+ * The stream path is the third reading and the one that cannot be inferred from
+ * the other two: every capability present, every station URL in the catalogue
+ * healthy, and this host firewalled off from the outside world. It carries the age
+ * of the reading because it comes from the weekly pass rather than from a request
+ * this page made — the honest thing to draw for "asked two days ago" is two days
+ * ago.
  */
 function MusicPanel({ data }: { data: LivePayload }) {
   const music = data.music;
   const caps = music?.caps ?? null;
   const player = music?.player ?? null;
-  const extractor = music?.extractor ?? null;
+  const stream = music?.stream ?? null;
   const playable = caps?.playable ?? null;
-  const asked = extractor?.checked_seconds_ago;
+  const asked = stream?.checked_seconds_ago;
 
   return (
     <Card
@@ -424,18 +425,11 @@ function MusicPanel({ data }: { data: LivePayload }) {
           ) : (
             <Pill tone="warn">cannot play</Pill>
           )}
-          {extractor && extractor.status === "climbing" && (
-            /* Working, and on a fallback: the pill says so rather than saying
-             * nothing, because "still resolves a recording" is exactly what a host
-             * about to stop resolving one looks like. */
-            <Pill tone="warn">on a fallback client</Pill>
+          {stream && stream.status !== "ok" && stream.status !== "unknown" && (
+            <Pill tone={stream.status === "unreachable" ? "warn" : "danger"}>
+              {stream.status === "unreachable" ? "no route out" : "cannot reach a station"}
+            </Pill>
           )}
-          {extractor && extractor.status !== "ok" && extractor.status !== "unknown" &&
-            extractor.status !== "climbing" && (
-              <Pill tone={extractor.status === "unreachable" ? "warn" : "danger"}>
-                finds nothing
-              </Pill>
-            )}
         </>
       }
     >
@@ -470,35 +464,33 @@ function MusicPanel({ data }: { data: LivePayload }) {
             ? `${caps.dave_version ?? "installed"} — required for any voice connection`
             : "missing — Discord refuses a voice connection without it"}
         </dd>
-        <dt>Extractor</dt>
+        <dt>Stations</dt>
         <dd>
-          {extractor === null ? (
+          {stream === null ? (
             "not reported by this backend"
-          ) : extractor.status === "ok" ? (
+          ) : stream.status === "ok" ? (
             <>
-              still resolves a recording
+              this host can open a stream
               {asked !== null && asked !== undefined ? (
-                <span className="chan__note"> asked {duration(asked)} ago</span>
+                <span className="chan__note"> opened one {duration(asked)} ago</span>
               ) : null}
             </>
-          ) : extractor.status === "unknown" ? (
+          ) : stream.status === "unknown" ? (
             <>
-              not asked since this process started{" "}
+              none opened since this process started{" "}
               <span className="chan__note">
-                the weekly pass asks, and <code>/music doctor</code> asks now
+                the weekly pass opens one, and <code>/music doctor</code> opens one now
               </span>
             </>
-          ) : extractor.status === "unreachable" ? (
-            `could not be asked — ${extractor.detail}`
-          ) : extractor.status === "climbing" ? (
+          ) : stream.status === "unreachable" ? (
             <>
-              resolves a recording — through a fallback
+              could not be opened — {stream.detail}
               <span className="chan__note">
-                {extractor.detail} — <code>/music doctor</code> names the client
+                this is the host's own network rather than one station
               </span>
             </>
           ) : (
-            <>cannot resolve anything now — {extractor.detail}</>
+            <>a station would not open — {stream.detail}</>
           )}
         </dd>
       </dl>
@@ -520,7 +512,7 @@ function MusicPanel({ data }: { data: LivePayload }) {
                   player.playing ? (player.paused ? "paused" : "playing") : "idle"
                 }`
               : "connected nowhere right now"
-            : "no player yet — nobody has asked for a song since the last restart"}
+            : "no player yet — nobody has asked for a station since the last restart"}
         </dd>
         {player?.current && (
           <>
@@ -536,17 +528,18 @@ function MusicPanel({ data }: { data: LivePayload }) {
               {player.queue} track{player.queue === 1 ? "" : "s"}
               {player.queue_preview?.length ? ` — next: ${player.queue_preview[0]}` : ""}
             </dd>
-            <dt>Volume · filter · loop</dt>
+            <dt>Volume · filter</dt>
             <dd>
-              {Math.round(player.volume * 100)}% · {player.filter} · {player.loop}
+              {Math.round(player.volume * 100)}% · {player.filter}
             </dd>
           </>
         )}
       </dl>
       <p className="alone__foot">
-        A stream that is cut off mid-song is reported rather than skipped: the bot sends a card naming
-        how much of the track played, and the operator log gets one entry per reason — so "the music
-        was short" can be told apart from "the provider cut this host off".
+        A station that goes quiet is reported rather than skipped: the bot sends a card naming how long
+        it played, and the operator log gets one entry per reason — so "one station is down" can be
+        told apart from "this host lost its route out", which is the difference the stream row above
+        is drawn for.
       </p>
     </Card>
   );

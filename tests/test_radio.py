@@ -1,6 +1,10 @@
 """The radio catalogue, the search over it, and the memory of what a server chose.
 
-Four things are pinned here, and the first is the one this project keeps re-learning:
+Radio is the whole of playback now, which makes this the suite for the feature
+rather than for its fallback — ``tests/test_music.py`` covers the player and
+``tests/test_media_health.py`` covers the weekly check over these URLs.
+
+Three things are pinned here, and the first is the one this project keeps re-learning:
 
 * **A catalogue is a set of promises about URLs.** Every station is a stream somebody
   will pick, so a station whose URL is dead is a broken feature discovered by a
@@ -13,9 +17,11 @@ Four things are pinned here, and the first is the one this project keeps re-lear
   the command ever goes back to ``app_commands.choices``, this catalogue cannot grow.
 * **A word a person actually types must find the thing it means.** Nobody searches
   for "focus"; they search for "study".
-* **A failure has to name the cause that is true.** A refusal outranking a catalogue
-  miss is how a member was told YouTube was refusing this host about a request that
-  had three remixes and no recording.
+
+The refusal sentences this file used to pin — a provider's refusal outranking a
+catalogue miss, and the "the radio still works" hint under it — are archived in
+``deleted_features/tests/test_radio_refusals.py``, because both halves went with
+the extractor: there is no provider left to refuse anything.
 """
 from __future__ import annotations
 
@@ -29,9 +35,6 @@ import discord
 from cogs import music as music_cog
 from utils import db, media_health, media_source as M
 from utils import style
-
-BLOCKED = "Sign in to confirm you're not a bot"
-
 
 class TheCatalogue(unittest.TestCase):
     """Every station is a promise, and a promise is checkable."""
@@ -311,138 +314,6 @@ class TheStationCard(unittest.TestCase):
         fresh = music_cog._station_card(music_cog.RADIO_STATIONS["lofi"], "<#1>", "Raj")
         self.assertNotEqual(from_memory, fresh)
         self.assertIn("last station", from_memory.lower())
-
-
-class TheFailureNamesTheRightCause(unittest.TestCase):
-    """A refusal is a fact about the deployment — and not always the whole story.
-
-    The member's card said *"YouTube is refusing this host's address right now"* over
-    a request whose real answer was three remixes and no recording. True sentence,
-    wrong problem: nothing was wrong with this host's reach, there was simply nothing
-    playable to reach.
-    """
-
-    def setUp(self):
-        # The refusal cooldown is process state on purpose — it is how the source
-        # order *learns* — so a test that provokes a refusal has to put it back, or
-        # it becomes a finding in whatever test runs next. Learned the hard way: this
-        # make-believe YouTube refusal was reported as a real one by the media-health
-        # suite's "the verdict carries the doors that are left".
-        self._refusals = dict(M._refused_at)
-
-    def tearDown(self):
-        M._refused_at.clear()
-        M._refused_at.update(self._refusals)
-
-    def _candidate(self, provider, title="Song", duration=240, video_id="x"):
-        return M.Candidate(
-            provider=provider,
-            video_id=f"https://example.invalid/{video_id}",
-            title=title,
-            duration=duration,
-            webpage_url=f"https://example.invalid/{video_id}",
-        )
-
-    def _order(self, *providers):
-        return [(name, None) for name in providers]
-
-    def test_a_catalogue_of_edits_is_said_out_loud(self):
-        def search(_text, provider=None, **_kwargs):
-            if provider == "youtube":
-                return [self._candidate("youtube", "Song")]
-            if provider == "soundcloud":
-                # The shape SoundCloud actually answered a mainstream single with:
-                # nothing but versions of it, none of them the recording.
-                return [
-                    self._candidate("soundcloud", "Song (Slowed)"),
-                    self._candidate("soundcloud", "Song (Mashup)"),
-                ]
-            return []
-
-        def stream(track, **_kwargs):
-            raise M.MediaError("blocked", BLOCKED, provider=track.provider)
-
-        with mock.patch.object(M, "source_order", return_value=self._order("youtube", "soundcloud", "audius")), \
-                mock.patch.object(M, "search", side_effect=search), \
-                mock.patch.object(M, "stream", side_effect=stream):
-            with self.assertRaises(M.MediaError) as caught:
-                M._chain("Song", requester="Raj")
-
-        message = str(caught.exception)
-        self.assertEqual(caught.exception.kind, "blocked")
-        self.assertIn("refusing this host's address right now", message)
-        self.assertIn("nothing but edits, covers or remixes", message)
-
-    def test_sources_that_simply_do_not_have_it_say_so(self):
-        def search(_text, provider=None, **_kwargs):
-            return [self._candidate("youtube", "Song")] if provider == "youtube" else []
-
-        def stream(track, **_kwargs):
-            raise M.MediaError("blocked", BLOCKED, provider=track.provider)
-
-        with mock.patch.object(M, "source_order", return_value=self._order("youtube", "soundcloud", "audius")), \
-                mock.patch.object(M, "search", side_effect=search), \
-                mock.patch.object(M, "stream", side_effect=stream):
-            with self.assertRaises(M.MediaError) as caught:
-                M._chain("Song", requester="Raj")
-
-        self.assertIn("the other sources do not have it", str(caught.exception))
-
-    def test_a_refusal_with_no_second_opinion_claims_nothing_about_the_others(self):
-        """The clause is a claim, and a claim this code cannot support is worse than
-        a shorter sentence. One provider, one refusal, one fact."""
-
-        def search(_text, provider=None, **_kwargs):
-            return [self._candidate("youtube", "Song")]
-
-        def stream(track, **_kwargs):
-            raise M.MediaError("blocked", BLOCKED, provider=track.provider)
-
-        with mock.patch.object(M, "source_order", return_value=self._order("youtube")), \
-                mock.patch.object(M, "search", side_effect=search), \
-                mock.patch.object(M, "stream", side_effect=stream):
-            with self.assertRaises(M.MediaError) as caught:
-                M._chain("Song", requester="Raj")
-
-        message = str(caught.exception)
-        self.assertIn("refusing this host's address right now", message)
-        self.assertNotIn("other sources", message)
-
-    def test_a_provider_that_had_the_recording_and_failed_elsewhere_adds_no_clause(self):
-        """Found it and could not hand it over is a different story, and saying
-        *"the others do not have it"* about it would be false."""
-
-        def search(_text, provider=None, **_kwargs):
-            return [self._candidate(provider or "youtube", "Song")]
-
-        def stream(track, **_kwargs):
-            if track.provider == "youtube":
-                raise M.MediaError("blocked", BLOCKED, provider=track.provider)
-            raise M.MediaError("no_stream", "that provider gave up", provider=track.provider)
-
-        with mock.patch.object(M, "source_order", return_value=self._order("youtube", "soundcloud")), \
-                mock.patch.object(M, "search", side_effect=search), \
-                mock.patch.object(M, "stream", side_effect=stream):
-            with self.assertRaises(M.MediaError) as caught:
-                M._chain("Song", requester="Raj")
-
-        message = str(caught.exception)
-        self.assertIn("refusing this host's address right now", message)
-        self.assertNotIn("do not have it", message)
-
-
-class TheWayOutIsOffered(unittest.TestCase):
-    """A wall with a door in it, because radio needs no provider at all."""
-
-    def test_the_blocked_reason_points_at_the_thing_that_still_plays(self):
-        hint = music_cog._unplayable_hint(M.MediaError("blocked", BLOCKED))
-        self.assertIn("/music radio", hint)
-        self.assertIn("/music stations", hint)
-
-    def test_every_other_failure_is_left_alone(self):
-        for kind in ("not_found", "too_short", "no_stream", "wrong_version"):
-            with self.subTest(kind=kind):
-                self.assertEqual(music_cog._unplayable_hint(M.MediaError(kind, "x")), "")
 
 
 class TheRadioCommand(unittest.TestCase):

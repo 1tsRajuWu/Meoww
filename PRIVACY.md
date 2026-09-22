@@ -133,23 +133,13 @@ these services and cannot see what they do with what they receive.
   Yahoo Finance — the ticker symbol only, for example `BTC`.
 * **Fun content:** Reddit and meme-api (memes), Tenor (GIFs), TheCatAPI (cat
   pictures), and Spotify's public oEmbed endpoint, which receives the pasted link.
-* **Music:** YouTube and SoundCloud receive **the words somebody typed** as a
-  search, or the link they pasted, from this host's address — and the audio then
-  streams from that platform into the voice channel, never through the operator.
-  Where the operator has configured an **outbound proxy** for these providers —
-  which is one of the ways a platform that has decided a datacenter address is a
-  bot gets answered — the search and the audio fetch both leave from that proxy's
-  address instead, so the operator's proxy provider sees that same query and that
-  same audio request in place of this host, and handles it under its own policy.
-  What is sent does not change with it: the same words, the same link, no account
-  and no identifier, and a proxy is a technical relay rather than a party to
-  anything. A search is a query and not an account: the bot has no profile on either
-  platform, and nothing links a request to a person. `/music songinfo` sends a
-  title, or an artist and title, to Apple's iTunes search API, `/music lyrics`
-  sends the same pair to `api.lyrics.ovh`, and a radio station (SomaFM, 
-  ilovemusic, plaza.one, listen.moe, zeno.fm and whatever else a deployment 
-  configures) sees the request for its stream — which is this host's address and 
-  nothing about anybody in the channel.
+* **Music:** a radio station (SomaFM, ilovemusic, plaza.one, listen.moe, zeno.fm
+  and whatever else a deployment configures) sees the request for its stream —
+  which is this host's address and nothing about anybody in the channel. There is
+  no search and no lookup: nothing anyone types is sent anywhere, no media platform
+  is asked for a recording, and the audio arrives at this host and is relayed into
+  the voice channel. What reaches the station is the stream request itself, which
+  carries no account, no identifier and nothing about who asked for it.
 * **The market chart page:** the visitor's browser loads the chart library from
   **unpkg.com**, falling back to **cdn.jsdelivr.net**, so those hosts see the
   visitor's IP and browser.
@@ -270,10 +260,7 @@ default, and as easy to decline as to accept.
 
 The Bot's host and the Supabase bucket holding the backups are the operator's
 chosen providers and may be in a different country from you; Cloudflare's network
-serves the public site from wherever is nearest to the visitor. Where the operator
-has configured an outbound proxy for the media providers (section 5), that relay is
-an operator-chosen processor as well and may be in a further country, under the same
-safeguards. Where personal
+serves the public site from wherever is nearest to the visitor. Where personal
 data moves out of the European Economic Area, the United Kingdom or India, the
 transfer relies on the provider's own safeguards — standard contractual clauses,
 an adequacy decision, or the equivalent — and the operator will say which one

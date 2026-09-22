@@ -6,7 +6,8 @@ aiohttp>=3.9.0
 pynacl>=1.5.0
 davey>=0.1.0
 Pillow>=10.2.0
-# Music & Radio (cogs/music.py): yt-dlp extracts the stream, imageio-ffmpeg ships a
-# self-contained ffmpeg binary for hosts that have none on PATH.
-yt-dlp>=2024.0.0
+# Music & Radio (cogs/music.py): ffmpeg is what plays a radio stream — it decodes
+# MP3/AAC from the station and encodes Opus for Discord — and imageio-ffmpeg ships
+# a self-contained binary for hosts that have none on PATH. yt-dlp is gone with
+# the extractor: radio is a direct stream and nothing here resolves anything.
 imageio-ffmpeg>=0.5.1

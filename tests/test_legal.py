@@ -132,6 +132,32 @@ class TestLegalDocuments(unittest.TestCase):
             self.assertIn(host, self.privacy.lower(), f"{host} is not disclosed")
         self.assertNotIn("github", self.privacy.lower(), "the source is not served to anyone")
 
+    def test_a_company_nothing_talks_to_is_not_disclosed_as_receiving_data(self):
+        """The list has to shrink as well as grow, and it is a *disclosure*.
+
+        The policy described music as a search: YouTube and SoundCloud receiving
+        the words somebody typed, Apple's iTunes search getting a title for
+        `/music songinfo` and `api.lyrics.ovh` getting the same pair for
+        `/music lyrics`. Radio is the whole of playback now — a station URL that
+        asks no platform anything — so all four are gone from the code, and a
+        policy that goes on naming them is telling every member that a search
+        they can no longer run sends their words to four companies.
+
+        **Over-disclosure is the failure here, not a leak**, and it is the same
+        defect as the retired features this tree keeps finding described on pages
+        that still load: the sentence outlived the mechanism, and the document a
+        person is agreeing to is the one place that cannot be allowed to be
+        approximate. Spotify stays, and is deliberately absent from this list: its
+        public oEmbed endpoint still receives a *link somebody pasted*, which is
+        the fun-content row and not the music row.
+        """
+        for gone in ("youtube", "soundcloud", "itunes", "lyrics.ovh"):
+            self.assertNotIn(
+                gone,
+                self.privacy,
+                f"PRIVACY.md still discloses {gone}, which nothing in the tree talks to",
+            )
+
     def test_the_commands_are_registered_and_still_gated_as_everyone(self):
         """One `/legal` command now shows both documents — they must stay open to
         every member, and both must still be reachable."""

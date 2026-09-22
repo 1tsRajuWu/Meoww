@@ -1,4 +1,4 @@
-"""Music, tested without a Discord connection: the player's two silent failures.
+"""Radio, tested without a Discord connection: the player's two silent failures.
 
 Both of these were *shipped* bugs, and neither had a symptom that pointed at
 itself.
@@ -10,14 +10,16 @@ track. A generation counter fixes it: every source's callback is tagged with the
 generation it belongs to, and a callback only advances the queue while its
 generation is current.
 
-**A stream that dies is not a short song.** ffmpeg exiting early arrives as
-``err=None``, exactly like a track finishing — which is what "the music is
-short" was. The player knows how long the source should have run, and a source
-that ends far short of that is reported as a fault.
+**A stream that stops is not a stream that ended.** ffmpeg reporting an exit
+arrives as ``err=None``, exactly like a track finishing, and a *clean* EOF looks
+even more like one — which is what "the music is short" was. A station has no
+end, so a live source that reports itself finished was cut; a source that
+declares a length is judged against it.
 
-ffmpeg and yt-dlp are never invoked here: the source classes are mocked, the
-resolver is never called, and ``play_next``'s network half is replaced with a
-recorder.
+ffmpeg is never invoked here: the source classes are mocked and ``play_next``'s
+network half is replaced with a recorder. Nothing resolves anything any more, so
+nothing is stubbed for a resolver — the archived suite
+(``deleted_features/tests/test_music_matching.py``) has that half.
 """
 import asyncio
 import os
@@ -33,14 +35,18 @@ GUILD = 321
 
 
 def _track(title: str, **kwargs) -> Track:
-    """A track with sensible defaults; ``kwargs`` wins, including ``duration``."""
+    """A track with sensible defaults; ``kwargs`` wins, including ``duration``.
+
+    Live by default, because that is what a station is: no end, and therefore
+    judged differently from something that declares a length.
+    """
     fields = {
         "title": title,
-        "provider": "youtube",
-        "video_id": "abc123",
+        "provider": "radio",
         "stream_url": "http://example.invalid/stream",
-        "duration": 180,
+        "duration": 0,
         "requester": "Raj",
+        "live": True,
     }
     fields.update(kwargs)
     return Track(**fields)
@@ -175,16 +181,14 @@ class FilterRestartKeepsTheQueue(_PlayerCase):
         self.assertFalse(self.player.restart_current())
 
 
-class ARefusedStreamIsLookedForElsewhere(_PlayerCase):
-    """*"I want something that doesn't die."*
+class AStationWithNoAddressIsNamedRatherThanSkipped(_PlayerCase):
+    """The one way a radio track can still be unplayable, and what it says.
 
-    The production report in one screenshot: a track was found, the provider refused
-    this host (``DownloadError``), and the room was told the stream had died while
-    the queue moved on. The provider that *found* a track is not the only one that
-    can play it, so the player now asks another one before it gives up — and this
-    pins the three outcomes, because each is a way that can be wrong: the rescue
-    plays, the rescue is *announced* rather than silent, and a rescue that finds
-    nothing still reports the original failure rather than swallowing it.
+    There is nothing left to resolve an address *with*: the extractor that turned
+    words into one is archived, and a station arrives with its own. So a track in
+    the queue without one is a defect in whatever queued it rather than a refused
+    provider — and either way, skipping it in silence is the thing this player
+    exists not to do.
     """
 
     def _faults(self) -> list:
@@ -212,72 +216,27 @@ class ARefusedStreamIsLookedForElsewhere(_PlayerCase):
             await asyncio.sleep(0.005)
         self.fail(f"only {len(self.faults)} fault(s) arrived, expected {count}")
 
-    async def test_a_track_the_provider_refuses_is_played_from_another_one(self):
-        import utils.media_source as M
-
-        track = _track("Refused", stream_url="")
-        self.player.queue = [track]
-        rescued = M.Track(
-            title="Refused", provider="soundcloud", video_id="https://soundcloud.com/a/b",
-            stream_url="http://example.invalid/rescued", duration=180,
-        )
+    async def test_a_track_with_no_address_is_reported_as_unplayable(self):
+        self.player.queue = [_track("Nameless", stream_url="")]
         faults = self._faults()
 
-        # A *plain* function: the player calls the resolver through
-        # ``run_in_executor``, so an ``async def`` stub would be handed back as an
-        # un-awaited coroutine and fail as a ``TypeError`` instead — which is the
-        # real code path being exercised, only for the wrong reason.
-        def no_stream(*_args, **_kwargs):
-            raise M.MediaError("no_stream", "The provider gave no playable stream.")
-
-        async def found(_track):
-            return rescued
-
-        with mock.patch.object(player_module.media_source, "stream", no_stream), \
-                mock.patch.object(self.player, "_rescue", found):
-            await self.player.play_next()
-            await self._settle()
-
-        self.assertIs(self.player.current, rescued, "the queue did not play the rescued track")
-        self.assertEqual(len(self.vc.played), 1, "nothing was handed to the voice client")
-        self.assertEqual([f.kind for f in faults], ["rescued"])
-        self.assertIn("soundcloud", faults[0].detail)
-
-    async def test_a_rescue_that_finds_nothing_still_reports_the_original_failure(self):
-        import utils.media_source as M
-
-        self.player.queue = [_track("Gone", stream_url="")]
-        faults = self._faults()
-
-        def no_stream(*_args, **_kwargs):
-            raise M.MediaError("no_stream", "Nothing matched that recording.")
-
-        async def nothing(_track):
-            return None
-
-        with mock.patch.object(player_module.media_source, "stream", no_stream), \
-                mock.patch.object(self.player, "_rescue", nothing):
-            await self.player.play_next()
-            await self._settle()
+        await self.player.play_next()
+        await self._settle()
 
         self.assertIsNone(self.player.current)
         self.assertEqual([f.kind for f in faults], ["unplayable"])
-        self.assertIn("Nothing matched that recording", faults[0].detail)
+        self.assertIn("no address", faults[0].detail)
+        self.assertEqual(self.vc.played, [], "nothing should have reached the voice client")
 
-    async def test_a_stream_that_is_already_resolved_is_not_rescued(self):
-        """The common path must not pay for the rare one."""
+    async def test_a_station_is_not_sent_looking_for_anything(self):
+        """The common path must not pay for the rare one, and cannot: nothing resolves."""
         self.player.queue = [_track("Fine")]
-
-        async def forbidden(_track):
-            raise AssertionError("a fresh stream was sent looking for a duplicate")
-
-        with mock.patch.object(self.player, "_rescue", forbidden):
-            await self.player.play_next()
-
+        await self.player.play_next()
         self.assertIsNotNone(self.player.current)
+        self.assertEqual(len(self.vc.played), 1)
 
 
-class ATruncatedStreamIsToldApartFromAFinishedOne(_PlayerCase):
+class AStreamThatStopsIsToldApartFromOneThatEnds(_PlayerCase):
     """The "short music" bug, pinned from both directions."""
 
     async def _run_source(self, played_seconds: float, duration: int = 200, live: bool = False):
@@ -315,8 +274,23 @@ class ATruncatedStreamIsToldApartFromAFinishedOne(_PlayerCase):
         faults = await self._run_source(played_seconds=10, duration=20)
         self.assertEqual(faults, [])
 
-    async def test_a_live_stream_is_never_truncated(self):
-        faults = await self._run_source(played_seconds=30, duration=600, live=True)
+    async def test_a_station_that_reports_itself_finished_was_cut(self):
+        """A live stream has no end, so *any* clean ending is a dropped connection.
+
+        This is the radio shape of the bug that produced the whole guard: the
+        station closes the socket, ffmpeg exits 0, and without this the room hears
+        silence and the queue moves on as though the song had finished.
+        """
+        faults = await self._run_source(played_seconds=90, duration=0, live=True)
+
+        self.assertEqual([f.kind for f in faults], ["truncated"])
+        self.assertIn("went quiet", faults[0].detail)
+        self.assertIn("dropped connection", faults[0].detail)
+
+    async def test_a_source_that_declares_no_length_and_is_not_live_is_not_judged(self):
+        # Nothing to judge it against, and guessing from elapsed time alone would
+        # make the card cry wolf on every short file.
+        faults = await self._run_source(played_seconds=10, duration=0, live=False)
         self.assertEqual(faults, [])
 
     async def test_an_engine_error_is_reported_with_its_own_kind(self):
@@ -485,10 +459,14 @@ class SourceSelection(unittest.TestCase):
         self.assertIn(player_module.FILTER_BY_KEY["nightcore"].args, options)
         self.assertIn("volume=0.5", options)
 
-    def test_the_fetch_carries_the_proxy_when_one_is_configured(self):
-        """The extraction and the fetch have to leave by the same address: a
-        provider signs its stream URL for whoever asked for it, so a proxy applied
-        to only one half resolves a stream and then plays silence."""
+    def test_a_station_is_never_sent_through_a_proxy(self):
+        """A station URL is public and needs no proxy, so ffmpeg gets none.
+
+        The proxy existed because a *provider* signed its stream URL for the
+        address that asked for it. Radio is the thing that never needed one, and
+        it is now the only thing there is — so nothing here may acquire a way to
+        fail that only a deployment with an outbound proxy can reach.
+        """
         self._current(opus=True, abr=131.0)
         self.player.volume = 1.0
         with mock.patch.dict(os.environ, {"YTDL_PROXY": "http://proxy.test:8080"}, clear=False), \
@@ -496,73 +474,10 @@ class SourceSelection(unittest.TestCase):
             _source, _engine = self.player._build_source("http://example.invalid/a", 64)
 
         before = opus_cls.call_args.kwargs["before_options"]
-        self.assertIn("-http_proxy http://proxy.test:8080", before)
-        # ``before_options`` is the half that lands before ``-i``, which is where an
-        # input option belongs — and the pass-through path still *reads* the URL, so
-        # the reconnect flags it needs are alongside rather than replaced.
+        self.assertNotIn("-http_proxy", before)
+        # The reconnect flags are the ones a station *does* need: an interrupted
+        # icecast connection should be retried rather than treated as over.
         self.assertIn("-reconnect", before)
-
-    def test_a_radio_stream_is_not_sent_through_the_proxy(self):
-        self._current(opus=True, abr=131.0)
-        self.player.current.provider = "radio"
-        self.player.current.is_radio = True
-        self.player.volume = 1.0
-        with mock.patch.dict(os.environ, {"YTDL_PROXY": "http://proxy.test:8080"}, clear=False), \
-             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
-            self.player._build_source("http://example.invalid/a", 64)
-
-        self.assertNotIn("-http_proxy", opus_cls.call_args.kwargs["before_options"])
-
-
-class SeekRestartsInPlace(_PlayerCase):
-    async def test_a_seek_sets_the_offset_and_re_renders(self):
-        self.player.current = _track("Song", duration=200)
-        self.player._expected = 200.0
-        self.vc._playing = True
-        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
-            applied, position = self.player.seek(90)
-
-        self.assertTrue(applied)
-        self.assertEqual(position, 90.0)
-        self.assertEqual(self.player.seek_offset, 90.0)
-
-    async def test_a_seek_past_the_end_is_refused(self):
-        self.player.current = _track("Song", duration=100)
-        self.vc._playing = True
-        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
-            applied, position = self.player.seek(500)
-
-        self.assertFalse(applied)
-        self.assertEqual(position, 0.0)
-        self.assertEqual(self.player.seek_offset, 0.0)
-
-
-class LoopDoesNotEatTheQueue(_PlayerCase):
-    async def test_loop_track_puts_the_current_track_back(self):
-        first = _track("Repeat me")
-        self.player.current = first
-        self.player.queue = []
-        self.player.loop = "track"
-        self.player._expected = 5.0
-        self.vc._playing = True
-
-        started = []
-        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
-            self.vc.play = lambda source, after=None: started.append(source)
-            await self.player.play_next()
-
-        self.assertIs(self.player.current, first, "the looped track was lost")
-
-    async def test_loop_off_moves_on(self):
-        self.player.current = _track("First")
-        self.player.queue = [_track("Second")]
-        self.player.loop = "off"
-        with mock.patch.object(self.player, "_build_source", return_value=(object(), "engine")):
-            self.vc.play = lambda source, after=None: None
-            await self.player.play_next()
-
-        self.assertEqual(self.player.current.title, "Second")
-        self.assertEqual(self.player.queue, [])
 
 
 class FormatDuration(unittest.TestCase):
@@ -580,14 +495,17 @@ class FormatDuration(unittest.TestCase):
 class TheCommandSurfaceFitsDiscord(unittest.TestCase):
     """Discord allows 100 top-level commands; this bot publishes most of them."""
 
-    def test_the_tree_publishes_the_two_roots_the_registry_declares(self):
+    def test_the_tree_publishes_the_one_root_the_registry_declares(self):
         from utils import features
 
-        self.assertIn("play", features.MODULE_COMMAND_MAP)
         self.assertIn("music", features.MODULE_COMMAND_MAP)
         self.assertEqual(
-            features.MODULE_COMMAND_MAP["play"], ("music",),
-            "/play must be gated by the music feature and nothing else",
+            features.MODULE_COMMAND_MAP["music"], ("music",),
+            "/music is gated by the music feature and nothing else",
+        )
+        self.assertNotIn(
+            "play", features.MODULE_COMMAND_MAP,
+            "/play was removed with the extractor, so nothing may be gated by it",
         )
 
     def test_the_count_is_under_the_ceiling(self):
@@ -599,13 +517,13 @@ class TheCommandSurfaceFitsDiscord(unittest.TestCase):
             "the archived cog's twelve roots would have blown through",
         )
 
-    def test_the_cog_declares_one_group_and_one_play_command(self):
+    def test_the_cog_declares_one_root_and_no_play_command(self):
         import cogs.music as music_cog
 
         names = {command.name for command in music_cog.Music.__cog_app_commands__}
-        # Exactly two, and that is the decision this pins: the archived cog had
-        # twelve top-level commands, which would not fit Discord's ceiling.
-        self.assertEqual(names, {"play", "music"})
+        # One root, and that is the decision this pins: the cog had two, and the
+        # root it gave up is the one whose whole surface is archived.
+        self.assertEqual(names, {"music"})
 
     def test_the_group_holds_every_other_command(self):
         import cogs.music as music_cog
@@ -643,10 +561,12 @@ class TheFaultCardSaysWhatActuallyHappened(unittest.TestCase):
     had named the kinds all along; the card is what ignored it.
     """
 
-    #: Every kind the player can raise, plus the substitution notice. Named here so
-    #: a new `Fault` kind is caught by this test rather than by a card that quietly
-    #: falls back to the generic one — which is how the original defect existed.
-    KINDS = ("truncated", "unplayable", "blocked", "source_error", "opus_missing", "rescued")
+    #: Every kind the player can raise. Named here so a new `Fault` kind is caught
+    #: by this test rather than by a card that quietly falls back to the generic one
+    #: — which is how the original defect existed. The two kinds that are gone with
+    #: the extractor (``blocked`` and ``rescued``) are asserted *absent* below, so a
+    #: card that outlives its mechanism fails here rather than shipping.
+    KINDS = ("truncated", "unplayable", "source_error", "opus_missing")
 
     def _cards(self):
         import cogs.music as music_cog
@@ -674,7 +594,7 @@ class TheFaultCardSaysWhatActuallyHappened(unittest.TestCase):
         headlines = [cards[kind][0] for kind in self.KINDS]
         self.assertEqual(len(set(headlines)), len(headlines))
 
-    def test_a_provider_refusal_does_not_claim_a_stream_was_cut_off(self):
+    def test_a_station_that_will_not_open_does_not_claim_a_stream_was_cut_off(self):
         cards = self._cards()
 
         cut_off, _, cut_off_advice = cards["truncated"]
@@ -685,11 +605,109 @@ class TheFaultCardSaysWhatActuallyHappened(unittest.TestCase):
         self.assertNotEqual(cut_off_advice, refused_advice)
         self.assertIn("host", refused_advice.lower())
 
-    def test_the_substitution_card_is_informational_and_not_a_warning(self):
-        from utils import style
+    def test_the_extractor_s_own_kinds_are_gone(self):
+        """Two cards outlived their mechanism for a whole pass once already.
 
-        _, colour, _ = self._cards()["rescued"]
-        self.assertEqual(colour, style.INFO, "good news drawn as a warning")
+        ``blocked`` was "the provider refused this host" and ``rescued`` was a
+        substituted upload — neither can be raised now that nothing resolves
+        anything, and a card for a fault that cannot happen is a sentence somebody
+        reads while looking for a provider this bot does not have.
+        """
+        import utils.player as player_module
+
+        for kind in ("blocked", "rescued"):
+            self.assertNotIn(kind, self._cards())
+            self.assertEqual(
+                player_module.Fault(kind=kind, detail="").headline, kind,
+                "a retired kind must not keep a hand-written headline",
+            )
+
+
+class NothingLiveStillSellsTheExtractor(unittest.TestCase):
+    """The removal is only finished when nothing live still *offers* the extractor.
+
+    This project's recurring defect is prose that outlives its mechanism — a help
+    panel naming a command that does not exist, a landing page describing a search
+    that was deleted, a note on a constant claiming an extension the code does not
+    have — so the surfaces are checked by name rather than left to a reviewer.
+
+    **The rule has a second half, and it is the one that makes it implementable:
+    naming the package where its removal is explained is not the defect.** The
+    archive README has to keep naming `yt-dlp` or a restore becomes a guess, the
+    changelog has to or the removal has no record, and three docstrings say where
+    the resolver went. What may not happen is a *capability*: a command, a help
+    line, a registry entry, a public page or an installed requirement.
+    """
+
+    #: Files whose text a **member or a server's administrator** reads as text.
+    USER_FACING = (
+        "cogs/help.py",
+        "utils/features.py",
+        "utils/permissions.py",
+        "templates/music.html",
+    )
+
+    def test_no_user_facing_page_offers_it(self):
+        for path in self.USER_FACING:
+            with self.subTest(path=path):
+                source = pathlib.Path(path).read_text(encoding="utf-8").lower()
+                for word in ("yt-dlp", "yt_dlp", "/play", "songinfo"):
+                    self.assertNotIn(word, source, f"{path} still offers {word}")
+
+    def test_nothing_live_imports_it(self):
+        for path in (
+            "cogs/music.py",
+            "utils/media_source.py",
+            "utils/media_health.py",
+            "utils/player.py",
+            "keep_alive.py",
+            "bot.py",
+        ):
+            with self.subTest(path=path):
+                source = pathlib.Path(path).read_text(encoding="utf-8")
+                self.assertNotIn("import yt_dlp", source)
+                self.assertNotIn("from yt_dlp", source)
+
+    def test_the_doctor_card_reads_the_stream_instead(self):
+        """The one card an operator reads about this, checked where it is written.
+
+        It is a *string* in the command body, so nothing else in the suite would
+        notice a line about a package that is no longer installed.
+        """
+        source = pathlib.Path("cogs/music.py").read_text(encoding="utf-8")
+        self.assertIn("**Streams**", source)
+        for gone in ("**Extractor**", "**yt-dlp**", "**Client**", "**Sources**"):
+            self.assertNotIn(gone, source, f"the doctor card still prints {gone}")
+
+    def test_requirements_no_longer_installs_it(self):
+        """A comment may explain the removal; a line may not install the package.
+
+        And `imageio-ffmpeg` must stay: ffmpeg decodes a station's MP3/AAC and
+        encodes Opus for Discord, so it is the *player* rather than the extractor,
+        and a host without it has a bot that joins a channel and says nothing.
+        """
+        lines = [line.strip() for line in pathlib.Path("requirements.txt").read_text(encoding="utf-8").splitlines()]
+        requirements = [line for line in lines if line and not line.startswith("#")]
+        self.assertFalse(
+            [line for line in requirements if line.lower().startswith("yt-dlp")],
+            "yt-dlp is still installed as a requirement",
+        )
+        self.assertTrue(
+            [line for line in requirements if line.lower().startswith("imageio-ffmpeg")],
+            "ffmpeg was removed with the extractor, and it is what plays a station",
+        )
+
+    def test_the_archive_still_says_how_to_restore_it(self):
+        """The other half: what may not be forgotten is how to put it back."""
+        readme = pathlib.Path("deleted_features/README.md").read_text(encoding="utf-8")
+        self.assertIn("yt-dlp", readme)
+        for name in (
+            "deleted_features/utils/media_source.py",
+            "deleted_features/tests/test_music_matching.py",
+            "deleted_features/tests/test_music_playback.py",
+        ):
+            self.assertTrue(pathlib.Path(name).exists(), f"the archive is missing {name}")
+            self.assertIn(pathlib.Path(name).name, readme, f"the README does not mention {name}")
 
 
 class MusicCardsDoNotPing(unittest.TestCase):

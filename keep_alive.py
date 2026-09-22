@@ -1648,22 +1648,22 @@ def api_voice_debug():
         caps = voice_caps.probe(refresh=True).to_dict()
     except Exception as exc:
         caps = {"playable": None, "why": f"probe failed ({type(exc).__name__})"}
-    # The one reading a version string cannot give: whether the extractor can
-    # still resolve a recording. It is asked here rather than read from the weekly
+    # The one reading a capability probe cannot give: whether this host can
+    # actually open a station. It is asked here rather than read from the weekly
     # pass's last verdict because this endpoint's whole job is to answer for the
     # host *now* — and it reports the kind of failure, not just the fact of one.
     try:
         from utils import media_source  # noqa: PLC0415
 
-        extractor = media_source.self_check().to_dict()
+        stream = media_source.self_check().to_dict()
     except Exception as exc:  # noqa: BLE001 — a diagnostic that 500s is not a diagnostic
-        extractor = {"healthy": None, "reason": f"the check could not run ({type(exc).__name__})"}
+        stream = {"healthy": None, "reason": f"the check could not run ({type(exc).__name__})"}
 
     return jsonify({
         "bot_ready": started,
         "gateway": _gateway_label(started, connected),
         "caps": caps,
-        "extractor": extractor,
+        "stream": stream,
         "opus_finder": opus_finder,
         "opus_loaded": is_opus_loaded,
         "system_ffmpeg": shutil.which("ffmpeg"),
@@ -5048,25 +5048,25 @@ def _live_music(guild_id) -> dict:
     different sentence from "a player that is idle" — the first means nobody has
     asked for a song since the last restart.
 
-    The third half is the extractor, and it is the one that cannot be inferred
-    from either of the others: every capability can be present and every link
-    healthy on the day every search starts answering with a bot check. It is read
-    from the **weekly pass's own verdict** rather than asked live, because this is
-    a page that polls and an extraction is a network round trip — so the panel
-    says when the extractor was last asked rather than pretending to have asked.
+    The third half is the stream path, and it is the one that cannot be inferred
+    from either of the others: every capability can be present, every station URL
+    healthy and the host firewalled off from the outside world. It is read from the
+    **weekly pass's own verdict** rather than asked live, because this is a page
+    that polls and opening a station is a network round trip — so the panel says
+    when it was last asked rather than pretending to have asked.
     """
     try:
         from utils import media_health, player as player_module, voice_caps  # noqa: PLC0415
 
         caps = voice_caps.probe().to_dict()
-        extractor = media_health.extractor_state()
+        stream = media_health.stream_state()
     except Exception as exc:
         return {
             "read": {"player": False, "caps": False},
             "why": f"the music modules could not be read ({type(exc).__name__})",
             "caps": None,
             "player": None,
-            "extractor": None,
+            "stream": None,
         }
 
     entry = None
@@ -5085,7 +5085,7 @@ def _live_music(guild_id) -> dict:
         "why": "" if caps.get("playable") else "; ".join(caps.get("missing") or []),
         "caps": caps,
         "player": entry,
-        "extractor": extractor,
+        "stream": stream,
     }
 
 

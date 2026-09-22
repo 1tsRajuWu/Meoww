@@ -1,30 +1,42 @@
-"""Music & radio: `/play`, one `/music` group, and no guesses about what was asked for.
+"""Radio: one `/music` group, a catalogue, and nothing that can be refused.
 
-The command surface is deliberate, and it is the reason this is a rebuild rather
-than a restoration. Discord allows an application **100 top-level commands per
-scope** and this bot already publishes most of that budget, so the archived cog's
-twelve roots — `/play`, `/skip`, `/pause`, `/resume`, `/stop`, `/queue`,
-`/nowplaying`, `/volume`, `/filter`, `/radio`, `/247`, `/songinfo`, `/lyrics` —
-would not fit. `/play` keeps its own slot because it is the one name people type
-from memory; everything else lives under `/music`, which costs **one** slot.
+**Radio is the whole of playback**, and that is a decision rather than what is
+left over. This cog used to hold `/play` and the machinery behind it — yt-dlp, a
+ladder of player clients, three providers, a second-provider rescue, a Spotify
+half — plus `/music songinfo`, `/lyrics`, `/seek`, `/loop` and `/shuffle` around
+it. All of it is gone, and the archive says why better than a summary can: every
+one of those commands ended at a *platform*, and a platform that has decided a
+datacenter address is a bot is not something any amount of code on this side can
+change. A station URL is different in kind. It is fetched by hand and verified
+before it is written down, it asks for no account, and it plays from any address
+— which is why the fallback was always the thing that worked, and why it is now
+the thing that exists.
 
-All the logic is in two modules — :mod:`utils.media_source` turns words into one
-specific recording, :mod:`utils.player` plays it — so this file is commands,
-cards and the two Discord-only jobs (the voice-state listener and the 24/7
-reconnect). The distinction matters for a feature that was retired once for being
-untestable: everything except the gateway half is exercised without one.
+The extractor and its suite are archived in ``deleted_features/``
+(``utils/media_source.py``, ``tests/test_music_matching.py``, and the resolver
+half of the player's suite): restoring a resolver means restoring those files and
+the ``yt-dlp`` line in ``requirements.txt``, and nothing here has to move for it.
 
-Three things it says out loud instead of failing quietly, because each of them
-was a real complaint about the archived version:
+All the playback logic is in two modules — :mod:`utils.media_source` holds the
+stream and the host check, :mod:`utils.player` plays it — so this file is
+commands, cards, the catalogue, and the two Discord-only jobs (the voice-state
+listener and the 24/7 reconnect). The distinction matters for a feature that was
+retired once for being untestable: everything except the gateway half is
+exercised without one.
 
-* **"The music is short."** A stream that dies reaches the player as a finished
-  track, so the queue used to move on mid-song with nothing said. A truncated
-  stream now posts a card naming the track, how much of it played and what the
-  provider claimed — and it goes to the operator as well, because a provider
-  cutting this host off is a fact about the deployment.
-* **"It plays a different song."** When the resolver cannot separate two results
-  it returns both, and the member is asked with a menu instead of being given a
-  confident wrong answer.
+The command surface is arithmetic rather than taste: Discord allows an
+application **100 top-level commands per scope** and this bot already publishes
+most of that budget, so every command here lives under `/music` — one slot — and
+removing `/play` gave back the only root this cog ever had.
+
+Two things it says out loud instead of failing quietly, because each of them was
+a real complaint about the archived version:
+
+* **"The music is short."** A station that drops reaches the player looking like
+  a finished track — a closed connection is a clean EOF to everything downstream
+  — so the queue used to move on in silence. A cut stream now posts a card naming
+  the station, how long it played and what the engine said, and it goes to the
+  operator as well, because a stream that keeps dying is a fact about the host.
 * **"Music is broken here."** Every command checks whether this host can play at
   all *before* joining a channel, and names the missing piece when it cannot.
 """
@@ -34,7 +46,6 @@ import asyncio
 import random
 import time
 
-import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -43,15 +54,15 @@ from utils import db, media_source, operator_log, style, voice_caps
 from utils import player as player_module
 from utils.card import generate_now_playing_card
 
-#: The stations. Direct streams, so a radio session never touches the extractor
-#: and keeps working on a host the media platforms have blocked — which is the
-#: one thing that still works when everything else is having a bad day.
+#: The stations. Direct streams, so a radio session touches no platform, no
+#: account and no extractor — there is none left to touch — and it plays from an
+#: address everything else on this host may be refused from.
 #:
-#: **Six was the first version, and it made the fallback a formality.** Radio is the
-#: answer to *"the platforms will not serve this host"*, and a six-item answer is not
-#: an answer: somebody who wants Turkish pop, baroque, chiptune or a language they
-#: actually speak was still told no. This is the catalogue that makes the fallback
-#: real, and it is why the command searches rather than offering a menu of six.
+#: **Six was the first version, and it made the catalogue a formality.** Radio is
+#: the whole of playback now, and a six-item answer is not an answer: somebody who
+#: wants Turkish pop, baroque, chiptune or a language they actually speak would be
+#: told no. This is the catalogue that makes the feature real, and it is why the
+#: command searches rather than offering a menu of six.
 #:
 #: Two rules govern what may be added, and both come from a failure this project has
 #: already had:
@@ -1370,20 +1381,6 @@ RADIO_STATIONS: dict[str, dict] = {
     },
 }
 
-#: How long a member has to answer "which one did you mean?" before the question
-#: is abandoned. Long enough to read three titles, short enough that a stale menu
-#: is not sitting in a channel an hour later.
-CHOICE_TIMEOUT = 90.0
-
-#: One search at a time per guild: two simultaneous extractions on a free host is
-#: how a five-second search becomes a thirty-second one.
-_GUILD_LOCKS: dict[int, asyncio.Lock] = {}
-
-
-def _lock(guild_id: int) -> asyncio.Lock:
-    return _GUILD_LOCKS.setdefault(int(guild_id), asyncio.Lock())
-
-
 def _mmss(seconds: float | int) -> str:
     return player_module.format_duration(int(seconds or 0))
 
@@ -1527,24 +1524,6 @@ def station_for(value: str) -> tuple[str, dict] | None:
     return found[0] if found else None
 
 
-def _unplayable_hint(exc: object) -> str:
-    """What to do about a failure the member can act on, appended to its reason.
-
-    A platform refusing a datacenter address is the one failure this feature cannot
-    design away, and it is the one where naming the cause is worth less than naming
-    what still works. The radio catalogue is direct streams: it touches no extractor
-    and no provider, so it plays on exactly the days nothing else does — which makes
-    *"the radio still works"* the only useful sentence to put under that error, and
-    the only reason it is here rather than in the message itself.
-    """
-    if getattr(exc, "kind", "") != "blocked":
-        return ""
-    return (
-        "\n-# The radio needs no provider and still plays: `/music stations` to browse "
-        "it, `/music radio` to start one."
-    )
-
-
 def _station_card(
     station: dict, channel: str, requester: str, *, from_memory: bool = False
 ) -> str:
@@ -1683,20 +1662,15 @@ class Music(commands.Cog):
         "truncated": (
             "✂️ That stream was cut off",
             style.WARN,
-            "The queue carried on. If it keeps happening, it is the provider cutting "
-            "this host off rather than one bad link.",
+            "The queue carried on. A station has no end, so a stream that stops is "
+            "the connection dropping rather than the song finishing — if it keeps "
+            "happening, that station is the problem and not this server.",
         ),
         "unplayable": (
-            "⚠️ That track could not be played",
+            "⚠️ That station could not be played",
             style.WARN,
-            "The queue carried on. Nothing was cut off — the provider would not hand "
-            "over a stream at all, which is usually the host rather than the link.",
-        ),
-        "blocked": (
-            "🚫 The provider refused this host",
-            style.DANGER,
-            "This is a host-level refusal rather than a bad link, so it will affect "
-            "other tracks too. `/music doctor` says what the extractor can reach.",
+            "The queue carried on. Nothing was cut off — the address would not open "
+            "at all, which is usually the station being down or refusing this host.",
         ),
         "source_error": (
             "🔇 The audio engine failed",
@@ -1710,34 +1684,16 @@ class Music(commands.Cog):
             "The capability probe names the missing piece; nothing will play until "
             "it is there.",
         ),
-        # The good news one, and the only entry here that is not a failure: it is
-        # an informational card so that a *substituted* upload is never a silent
-        # surprise — a different recording arriving unexplained is the wrong-song
-        # bug wearing a different hat.
-        "rescued": (
-            "🔄 Playing the same track from another provider",
-            style.INFO,
-            "The provider that found it would not stream it, so it is playing from "
-            "the other one. Nothing to do — this is the bot working around a host "
-            "refusal rather than a broken request.",
-        ),
     }
 
     async def _on_fault(self, fault: player_module.Fault) -> None:
-        """A track that died is news for the room *and* for the operator.
-
-        A *substitution* is news for the room only, and it is not a fault: the
-        operator's music alert is about things that went wrong, and a track that
-        is playing is not one of them.
-        """
+        """A stream that died is news for the room *and* for the operator."""
         player = self.players.get(int(getattr(fault, "guild_id", 0) or 0)) or None
         channel = getattr(player, "text_channel", None) if player else None
         emoji_headline, colour, advice = self.FAULT_CARDS.get(
             fault.kind,
             (f"⚠️ {fault.headline.capitalize()}", style.WARN, "The queue carried on."),
         )
-        if fault.kind == "rescued":
-            emoji_headline = "🔄 Playing the same track from another provider"
         if channel is not None:
             try:
                 await style.send_card(
@@ -1754,60 +1710,7 @@ class Music(commands.Cog):
                 )
             except Exception as exc:
                 print(f"[MUSIC] could not report a fault in the channel: {exc}", flush=True)
-        if fault.kind == "rescued":
-            return
         await operator_log.music_alert(self.bot, fault, player=player)
-
-    async def _resolve_in_executor(self, guild_id, query: str, requester: str):
-        """Search off the event loop, one search at a time per guild.
-
-        Two simultaneous extractions on a free host is how a five-second search
-        becomes a thirty-second one, and it is the sort of load that gets an
-        address noticed in the first place.
-        """
-        async with _lock(guild_id or 0):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, lambda: media_source.resolve(query, requester=requester)
-            )
-
-    async def _enqueue_and_play(self, interaction, player, track, *, announce: bool = True):
-        """Put a track in the queue, start it if nothing is playing, and say so."""
-        if len(player.queue) >= player_module.MAX_QUEUE:
-            return await style.send_card(
-                interaction,
-                content=f"📚 The queue is full ({player_module.MAX_QUEUE} tracks).",
-                ephemeral=True,
-            )
-        player.text_channel = interaction.channel
-        player.queue.append(track)
-        playing = bool(
-            player.voice_client
-            and (player.voice_client.is_playing() or player.voice_client.is_paused())
-        )
-        if not playing:
-            await player.play_next()
-            if announce:
-                await self._send_now_playing(interaction, player)
-        elif announce:
-            position = len(player.queue) + (1 if player.current else 0)
-            # The substitution, when there is one, in the member's own words — and
-            # nothing at all otherwise, because "played from the place you expect"
-            # is not news. `Track.source_note` is the one place that decides it.
-            note = getattr(track, "source_note", "")
-            embed = discord.Embed(
-                title="➕ Queued",
-                description=(
-                    f"**{track.title}**\n"
-                    f"-# {_mmss(track.duration)} · {interaction.user.display_name} · "
-                    f"position #{position}"
-                    + (f"\n-# {note}" if note else "")
-                ),
-                color=style.SUCCESS,
-            )
-            if track.thumbnail:
-                embed.set_thumbnail(url=track.thumbnail)
-            await style.send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------------- cards #
     async def _now_playing_embed(self, player) -> tuple[discord.Embed, object | None]:
@@ -1867,94 +1770,8 @@ class Music(commands.Cog):
         except Exception as exc:
             print(f"[MUSIC] the now-playing card failed to send: {exc}", flush=True)
 
-    # ---------------------------------------------------------------- /play #
-    @app_commands.command(name="play", description="Play a song, an album, or a link — I'll search and queue it.")
-    @app_commands.describe(query="A song title, an artist, or a link (YouTube, SoundCloud, Spotify)")
-    async def play(self, interaction: discord.Interaction, query: str):
-        blocked = self._unplayable()
-        if blocked:
-            return await style.send_card(interaction, content=blocked, ephemeral=True)
-        await interaction.response.defer()
-        vc = await self._ensure_voice(interaction)
-        if vc is None:
-            return
-        player = self.get_player(interaction.guild_id)
-        player.voice_client = vc
-
-        try:
-            resolution = await self._resolve_in_executor(
-                interaction.guild_id, query, interaction.user.display_name
-            )
-        except media_source.MediaError as exc:
-            return await style.send_card(
-                interaction, content=f"❌ {exc.message}" + _unplayable_hint(exc), ephemeral=False
-            )
-        except Exception as exc:
-            print(f"[MUSIC] resolve failed for {query!r}: {type(exc).__name__}: {exc}", flush=True)
-            if media_source.is_blocked(exc):
-                await operator_log.music_alert(
-                    self.bot,
-                    player_module.Fault(
-                        kind="blocked",
-                        # Named, because `_chain` now refuses to report a refusal as
-                        # "a provider": the platform is the whole content of the
-                        # sentence, and it is what tells the operator which .env
-                        # line or cookie this deployment is short of.
-                        detail=(
-                            f"{media_source.PROVIDER_LABELS.get(getattr(exc, 'provider', ''), 'a provider')} "
-                            "refused this host's address, and the other sources had nothing to play"
-                        ),
-                        title=query,
-                        guild_id=int(interaction.guild_id or 0),
-                    ),
-                    player=player,
-                )
-                # Written for the member who typed the search, because that is who
-                # reads a public card. It used to hand them two environment-variable
-                # names and an operator's remedy: a deployment detail addressed to
-                # somebody who has no way to act on it. The remedy is already on its
-                # own way to the operator (`music_alert` above), so all this card owes
-                # its reader is what they can still do.
-                return await style.send_card(
-                    interaction,
-                    content=(
-                        "🎧 **That one didn't make it, and it isn't your fault.**\n"
-                        "I tried every source I know for it and they all turned me "
-                        "away just now — nothing was wrong with what you typed.\n"
-                        "-# Nothing to change on your end: paste a direct link and it "
-                        "usually plays, and `/music radio` always does — it never "
-                        "touches any of this."
-                    ),
-                )
-            return await style.send_card(interaction, content="❌ That search failed. Try a direct link.")
-
-        if resolution.alternatives and resolution.track is None:
-            return await style.send_card(
-                interaction,
-                content=(
-                    "🤔 **I'm not sure which of these you meant** — pick one and I'll play it."
-                ),
-                view=TrackChoiceView(self, resolution, requester=interaction.user.display_name),
-            )
-        if resolution.track is None:
-            return await style.send_card(
-                interaction, content=f"❌ Nothing usable matched **{query}**.", ephemeral=False
-            )
-        track = resolution.track
-
-        # An album or a playlist link queues the rest of itself, matched when each
-        # track's turn comes rather than all at search time.
-        if media_source.is_spotify(query):
-            try:
-                for extra in media_source.queued_from_spotify(query, requester=interaction.user.display_name)[:49]:
-                    player.queue.append(extra)
-            except Exception as exc:
-                print(f"[MUSIC] could not queue the rest of the playlist: {exc}", flush=True)
-
-        await self._enqueue_and_play(interaction, player, track)
-
     # ------------------------------------------------------------- /music 📻 #
-    music = app_commands.Group(name="music", description="Everything else the music player does.")
+    music = app_commands.Group(name="music", description="Radio: cafés, ambient, jazz, and a station in your language.")
 
     @music.command(name="radio", description="Stream a 24/7 radio station — no search, no provider, just music.")
     @app_commands.describe(
@@ -1998,19 +1815,17 @@ class Music(commands.Cog):
         player.is_247 = is_247
 
         player.queue.clear()
+        # The address is the station, so the track is playable the moment it is
+        # queued: there is no search to run, no provider to ask and nothing that
+        # can refuse this host. That is the whole of why radio is what plays.
         track = media_source.Track(
             title=f"{chosen['icon']} {chosen['name']}",
             provider="radio",
-            is_radio=True,
             duration=0,
             requester=interaction.user.display_name,
+            stream_url=chosen["url"],
+            resolved_at=time.monotonic(),
         )
-        # The stream URL is known already, so it is recorded as resolved *now*:
-        # a radio entry never needs the extractor, which is what keeps it working
-        # when the media platforms are refusing this host.
-        track.stream_url = chosen["url"]
-        track.resolved_at = time.monotonic()
-        track.is_opus = False
         player.queue.append(track)
 
         # What this server last chose, so `/music radio` with no argument is the one
@@ -2180,9 +1995,7 @@ class Music(commands.Cog):
             title="📜 Queue",
             body="\n".join(lines),
             accent=style.ACCENT,
-            footer=(
-                f"{len(player.queue)} queued · loop {player.loop} · volume {int(player.volume * 100)}%"
-            ),
+            footer=f"{len(player.queue)} queued · volume {int(player.volume * 100)}%",
             timeout=None,
         )
         await style.send_panel(interaction, panel)
@@ -2231,41 +2044,6 @@ class Music(commands.Cog):
             interaction,
             content=f"{chosen.emoji} **{chosen.name}** applied.\n-# {chosen.description}{note}",
         )
-
-    @music.command(name="loop", description="Repeat the track, the queue, or nothing.")
-    @app_commands.describe(mode="What to repeat")
-    @app_commands.choices(
-        mode=[
-            app_commands.Choice(name="Off", value="off"),
-            app_commands.Choice(name="This track", value="track"),
-            app_commands.Choice(name="The whole queue", value="queue"),
-        ]
-    )
-    async def loop(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
-        player = self.get_player(interaction.guild_id)
-        player.loop = mode.value
-        await style.send_card(interaction, content=f"🔁 Loop is **{mode.name}**.", ephemeral=True)
-
-    @music.command(name="shuffle", description="Shuffle the queue.")
-    async def shuffle(self, interaction: discord.Interaction):
-        player = self.get_player(interaction.guild_id)
-        if len(player.queue) < 2:
-            return await style.send_card(interaction, content="📭 Nothing to shuffle.", ephemeral=True)
-        random.shuffle(player.queue)
-        await style.send_card(
-            interaction, content=f"🔀 Shuffled **{len(player.queue)}** tracks.", ephemeral=True
-        )
-
-    @music.command(name="seek", description="Jump to a position in the current track.")
-    @app_commands.describe(seconds="How many seconds in")
-    async def seek(self, interaction: discord.Interaction, seconds: int):
-        player = self.get_player(interaction.guild_id)
-        applied, position = player.seek(seconds)
-        if not applied:
-            return await style.send_card(
-                interaction, content="❌ There is nothing to seek, or that is past the end.", ephemeral=True
-            )
-        await style.send_card(interaction, content=f"⏩ Jumped to **{_mmss(position)}**.", ephemeral=True)
 
     @music.command(name="247", description="Keep the bot in this voice channel permanently (server owner).")
     @app_commands.describe(channel="Channel to stay in (defaults to the current one)")
@@ -2336,112 +2114,38 @@ class Music(commands.Cog):
             ),
         )
 
-    @music.command(name="songinfo", description="Look up a track's artwork, album, genre and release date.")
-    @app_commands.describe(query="Song title or artist")
-    async def songinfo(self, interaction: discord.Interaction, query: str):
-        await interaction.response.defer()
-        payload = await self._itunes(query)
-        if not payload:
-            return await style.send_card(
-                interaction, content=f"❌ No tracks found for **{query}**.", ephemeral=True
-            )
-        embed = discord.Embed(
-            title=f"🎵 {payload.get('trackName', 'Unknown')}",
-            url=payload.get("trackViewUrl"),
-            color=style.ACCENT,
-        )
-        artwork = (payload.get("artworkUrl100") or "").replace("100x100bb.jpg", "600x600bb.jpg")
-        if artwork:
-            embed.set_thumbnail(url=artwork)
-        embed.add_field(name="Artist", value=f"`{payload.get('artistName', '—')}`", inline=True)
-        embed.add_field(name="Album", value=f"`{payload.get('collectionName', '—')}`", inline=True)
-        embed.add_field(name="Genre", value=f"`{payload.get('primaryGenreName', '—')}`", inline=True)
-        if payload.get("previewUrl"):
-            embed.add_field(name="Preview", value=f"[▶️ 30-second clip]({payload['previewUrl']})", inline=False)
-        embed.set_footer(text="Meow · song info")
-        await style.send_card(interaction, embed=embed)
-
-    @music.command(name="lyrics", description="Look up the words to a song.")
-    @app_commands.describe(title="Song title", artist="Artist (optional but it helps)")
-    async def lyrics(self, interaction: discord.Interaction, title: str, artist: str | None = None):
-        await interaction.response.defer()
-        found_artist = (artist or "").strip()
-        found_title = title.strip()
-        if not found_artist:
-            payload = await self._itunes(found_title)
-            if payload:
-                found_artist = payload.get("artistName", "")
-                found_title = payload.get("trackName", found_title)
-
-        text = await self._lyrics(found_artist, found_title)
-        if not text:
-            return await style.send_card(
-                interaction,
-                content=(
-                    f"❌ No lyrics found for **{title}**"
-                    + (f" by **{artist}**" if artist else "")
-                    + ".\n-# Try both a title and an artist: `/music lyrics title:… artist:…`"
-                ),
-                ephemeral=True,
-            )
-        if len(text) > 3500:
-            text = text[:3500] + "\n\n… truncated"
-        embed = discord.Embed(
-            title=f"📜 {found_title}",
-            description=f"-# {found_artist or 'unknown artist'}\n\n{text}",
-            color=style.ACCENT,
-        )
-        embed.set_footer(text="Meow · lyrics")
-        await style.send_card(interaction, embed=embed)
-
     @music.command(name="doctor", description="What this host can and cannot do for voice (administrator).")
     @app_commands.checks.has_permissions(administrator=True)
     async def doctor(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         caps = voice_caps.probe(refresh=True)
         ok, why = voice_caps.build_source(caps)
-        # The one line that cannot be read off an installed version: a version
-        # string is not evidence, because a stale extractor stays installed,
-        # importable, and reporting itself happily while answering every search
-        # with a bot check. So the command asks for a recording, the same question
-        # the weekly pass asks.
+        # The one question a capability probe cannot answer and a version string
+        # never could: whether this host can *open* a stream. ffmpeg installed,
+        # libopus loaded and every URL in the tree healthy is all true on a box
+        # with no route to the outside world. So the command opens a real station,
+        # the same question the weekly pass asks.
         probe = await asyncio.to_thread(media_source.self_check)
         lines = [
             f"**Playback** · {'yes' if caps.playable else 'no'}",
             f"**ffmpeg** · `{caps.ffmpeg or 'missing'}` ({caps.ffmpeg_source})",
             f"**libopus** · `{caps.opus_source}` — {'live volume' if caps.live_volume else 'volume is baked into the stream'}",
             f"**DAVE** · `{caps.dave_version or 'missing'}`",
-            f"**yt-dlp** · `{probe.version or 'missing'}`",
-            f"**Extractor** · {probe.sentence()}",
-            f"**Client** · `{probe.client or 'default'}`",
-            # The doors this host can actually knock on, in the order it will knock.
-            # A refusal is only a dead end when there is nowhere behind it, and this
-            # is the line that says whether there is: a host YouTube has flagged is
-            # answered by the open catalogue on its own, so "the provider refused"
-            # stops being the whole story.
-            "**Sources** · "
-            + " → ".join(
-                media_source.PROVIDER_LABELS.get(name, name)
-                for name, _prefix in media_source.source_order()
-            ),
-            "**Catalogue** · "
-            + (
-                "reachable"
-                if media_source.catalogue_reachable(refresh=True)
-                else "**not answering** — this host has one fewer door than it should"
-            ),
+            f"**Streams** · {probe.sentence()}",
+            f"**Stations** · {len(RADIO_STATIONS)} in the catalogue over "
+            f"{len({station['genre'] for station in RADIO_STATIONS.values()})} genres",
+            "**Provider** · none — a station is a direct stream and asks nobody for anything",
         ]
         if probe.detail:
-            lines.append(f"-# asked for {probe.detail}")
-        if probe.note:
-            # The reading that turns "working today" into a ticket worth opening:
-            # a host answering on a fallback client is one provider change away
-            # from answering nothing at all.
-            lines.append(f"\n⚠️ {probe.note}")
-        if not probe.healthy and not probe.unreachable:
+            lines.append(f"-# opened `{probe.target}` — {probe.detail}")
+        if not probe.healthy:
+            # The remedy differs by *kind*, which is why the two are not folded
+            # into one sentence: no route out is an operator's problem at the
+            # network layer, and a station refusing the request is not.
             lines.append(
-                "\n-# `/music radio` keeps working either way — a radio station never "
-                "touches the extractor."
+                "\n-# Every station plays over the same path, so this is the host rather "
+                "than the station." if probe.unreachable else
+                "\n-# This one station refused the request; another may still play."
             )
         if why:
             lines.append(f"\n{why}")
@@ -2507,86 +2211,10 @@ class Music(commands.Cog):
             except Exception as exc:
                 print(f"[MUSIC] could not reclaim 24/7 in {guild.name}: {exc}", flush=True)
 
-    # ------------------------------------------------------------- providers #
-    async def _itunes(self, query: str) -> dict | None:
-        """One iTunes lookup. No key, no dependency, and honest about failing."""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "https://itunes.apple.com/search",
-                    params={"term": query, "entity": "song", "limit": 1},
-                    timeout=aiohttp.ClientTimeout(total=6),
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    payload = await response.json(content_type=None)
-        except Exception as exc:
-            print(f"[MUSIC] iTunes lookup failed: {exc}", flush=True)
-            return None
-        results = (payload or {}).get("results") or []
-        return results[0] if results else None
-
-    async def _lyrics(self, artist: str, title: str) -> str | None:
-        """Lyrics, by artist and title. Empty means empty, not broken."""
-        if not artist or not title:
-            return None
-        clean_artist = artist.split("feat.")[0].split("&")[0].strip()
-        clean_title = title.split("(feat.")[0].split(" - ")[0].strip()
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"https://api.lyrics.ovh/v1/{clean_artist}/{clean_title}",
-                    timeout=aiohttp.ClientTimeout(total=8),
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    payload = await response.json(content_type=None)
-        except Exception as exc:
-            print(f"[MUSIC] lyrics lookup failed: {exc}", flush=True)
-            return None
-        text = (payload or {}).get("lyrics")
-        return text.strip() if text else None
-
 
 # --------------------------------------------------------------------------- #
-# The two views
+# The view
 # --------------------------------------------------------------------------- #
-class TrackChoiceView(discord.ui.View):
-    """Ask which recording was meant, instead of picking one and hoping.
-
-    The whole point of the resolver's confidence margin is this menu: when two
-    results are genuinely close, a person knows in a glance which one they wanted
-    and a scorer cannot. Three options, because that is what a select renders
-    without becoming another search.
-    """
-
-    def __init__(self, cog: Music, resolution: media_source.Resolution, *, requester: str):
-        super().__init__(timeout=CHOICE_TIMEOUT)
-        self.cog = cog
-        self.requester = requester
-        options = []
-        for index, track in enumerate(resolution.alternatives[:3]):
-            options.append(
-                discord.SelectOption(
-                    label=(track.title or "unknown")[:100],
-                    value=str(index),
-                    description=(f"{_mmss(track.duration)} · {track.provider}")[:100],
-                )
-            )
-        select = discord.ui.Select(placeholder="Which one did you mean?", options=options)
-        select.callback = self._chosen
-        self.add_item(select)
-        self._tracks = resolution.alternatives[:3]
-
-    async def _chosen(self, interaction: discord.Interaction):
-        choice = int(interaction.data["values"][0])
-        track = self._tracks[choice]
-        player = self.cog.get_player(interaction.guild_id)
-        await interaction.response.defer()
-        await self.cog._enqueue_and_play(interaction, player, track)
-        self.stop()
-
-
 class ControlsView(discord.ui.View):
     """Buttons under a playing card. The same actions the commands offer.
 
@@ -2638,7 +2266,7 @@ class ControlsView(discord.ui.View):
             title="📜 Queue",
             body="\n".join(lines),
             accent=style.ACCENT,
-            footer=f"{len(player.queue)} queued · loop {player.loop}",
+            footer=f"{len(player.queue)} queued",
             timeout=None,
         )
         await style.send_panel(interaction, panel, ephemeral=True)

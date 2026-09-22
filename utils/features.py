@@ -287,23 +287,20 @@ FEATURES: tuple[Feature, ...] = (
         icon="🎵",
         category="Voice",
         description=(
-            "Playback from a search or a link with a live queue, filters and volume, "
-            "24/7 radio stations, and an honest readout of what this host can play."
+            "24/7 radio stations in any genre or language, with a queue, filters "
+            "and volume, plus an honest readout of what this host can play."
         ),
-        # Two roots, not fifteen: Discord allows an application 100 top-level
-        # commands and this bot has already spent most of that budget, so the
-        # whole surface lives under one `/music` group with `/play` kept as the
-        # one name people type from memory. Both are declared here because both
-        # are what the gate sees — Discord reports the group for a subcommand.
-        gate_commands=("play", "music"),
+        # One root: Discord allows an application 100 top-level commands and this
+        # bot has already spent most of that budget, so every command lives under
+        # the `/music` group — which the gate sees, since Discord reports the
+        # group for a subcommand.
+        gate_commands=("music",),
         commands=(
-            "/play — search, or paste a link (YouTube, SoundCloud, Spotify)",
-            "/music radio — 24/7 stations that never touch the extractor",
+            "/music radio — a station by name, genre, language or mood",
             "/music stations — browse the catalogue by genre, language or mood",
             "/music queue", "/music nowplaying", "/music skip", "/music pause",
             "/music resume", "/music stop", "/music volume", "/music filter",
-            "/music loop", "/music shuffle", "/music seek", "/music 247",
-            "/music lyrics", "/music songinfo", "/music doctor",
+            "/music 247", "/music doctor",
         ),
         cog="cogs.music",
         help_key="music",

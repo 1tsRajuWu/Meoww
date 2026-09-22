@@ -8,12 +8,13 @@ the tree that may hold a link and skips the places that deliberately hold broken
 ones, that a probe distinguishes "dead" from "could not ask", and that a clean
 week is silence while a dead link is said exactly once.
 
-The fourth thing joined later and is a different kind of finding: the extractor.
-Every link in the tree can be healthy on the day music stops working, because the
-fault is in the *machine that finds* media — so one target asks it for a known
-recording, and the tests keep that target honest: it is the last one, it is only
-one, it names no URL to blame, and its recording is a setting rather than a
-constant.
+The fourth thing joined later and is a different kind of finding: the **stream
+path**. Every URL in the tree — every station in the catalogue included — can be
+healthy on the day music stops working, because the fault is that this host cannot
+open a connection at all. So one target opens a known station end to end, and the
+tests keep that target honest: it is the last one, it is only one, it names the URL
+it opened, its station is a setting rather than a constant, and the station it opens
+is not asked about twice by the scan that finds the same URL in the catalogue.
 """
 import asyncio
 import json
@@ -112,25 +113,44 @@ class WhatIsDeclared(unittest.TestCase):
 
     def test_targets_is_everything_that_is_written_and_everything_that_is_made(self):
         everything = media_health.targets(ROOT)
-        self.assertEqual(len(everything), len(media_health.declared()) + len(media_health.scan_source(ROOT)))
+        declared_targets = media_health.declared()
+        claimed = {target.url for target in declared_targets if target.url}
+        scanned = [t for t in media_health.scan_source(ROOT) if t.url not in claimed]
+        self.assertEqual(len(everything), len(declared_targets) + len(scanned))
 
-    def test_the_extractor_itself_is_the_last_target_and_only_one(self):
+    def test_the_stream_path_is_the_last_target_and_only_one(self):
         everything = media_health.targets(ROOT)
-        extractors = [t for t in everything if t.kind == "extractor"]
-        self.assertEqual(len(extractors), 1)
-        self.assertEqual(extractors[0].name, "extractor:yt-dlp")
-        self.assertEqual(extractors[0].url, media_source.probe_target())
-        self.assertEqual(extractors[0].source, "utils/media_source.py")
+        streams = [t for t in everything if t.kind == "stream"]
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0].name, "stream:radio")
+        self.assertEqual(streams[0].url, media_source.probe_target())
+        self.assertEqual(streams[0].source, "utils/media_source.py")
+        # Declared first, scanned after: the *made* targets are the ones a reader
+        # can act on, and the stream target is the last of them.
+        self.assertIs(everything[len(media_health.declared()) - 1], streams[0])
+        self.assertEqual(streams[0].kind, everything[len(media_health.declared()) - 1].kind)
 
-    def test_the_probe_recording_is_a_setting_and_has_a_default(self):
-        """An operator whose network a provider has flagged can point the check at a
-        mirror without a release — and with nothing set, it asks for the default."""
+    def test_the_station_it_opens_is_claimed_rather_than_probed_twice(self):
+        """The probe station is *in the catalogue*, so the scan finds it too.
+
+        A declared target wins the name for a URL it already names: two probes of one
+        address is a wasted request and a count that overstates how much of the
+        catalogue was checked — and the name it keeps is the one that says *what*
+        broke rather than where the URL happens to be written.
+        """
+        urls = [target.url for target in media_health.targets(ROOT) if target.url]
+        self.assertEqual(len(urls), len(set(urls)), "one URL, one probe")
+        self.assertIn(media_source.probe_target(), urls)
+
+    def test_the_probe_station_is_a_setting_and_has_a_default(self):
+        """An operator whose network a station cannot reach can point the check at
+        another one without a release — and with nothing set, it opens the default."""
         self.assertEqual(media_source.probe_target(), media_source.DEFAULT_PROBE_TARGET)
-        with mock.patch.object(config_audit, "get", lambda key, *a: "https://example.test/v/1"):
-            self.assertEqual(media_source.probe_target(), "https://example.test/v/1",)
+        with mock.patch.object(config_audit, "get", lambda key, *a: "https://example.test/stream"):
+            self.assertEqual(media_source.probe_target(), "https://example.test/stream",)
             self.assertEqual(
-                [t.url for t in media_health.declared() if t.kind == "extractor"],
-                ["https://example.test/v/1"],
+                [t.url for t in media_health.declared() if t.kind == "stream"],
+                ["https://example.test/stream"],
             )
         self.assertEqual(
             media_source.probe_target(),
@@ -143,8 +163,8 @@ def _image(status=200, content_type="image/gif"):
     return {"status": status, "content_type": content_type}
 
 
-async def _extract_ok():
-    """The extractor as a healthy one answers, for the cases about links."""
+async def _stream_ok():
+    """The stream path as a working one answers, for the cases about links."""
     return True, ""
 
 
@@ -187,7 +207,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         media_health.reset()
 
-    async def _check(self, urls, *, live=True, resolved=None, extract=None):
+    async def _check(self, urls, *, live=True, resolved=None, stream=None):
         """One pass over a tree of made-up links, with the resolver stubbed.
 
         ``live`` says whether the links written into that tree answer with media
@@ -195,10 +215,10 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         should be something other than healthy, and a value of ``None`` there
         means it produced nothing at all.
 
-        The extractor is stubbed for the same reason the resolver is: the real
-        one is a network call to a video platform, and a test that needs YouTube
-        to be reachable is a test that fails for reasons that are not this code.
-        ``extract`` is the reason to report instead, when a case wants one.
+        The stream path is stubbed for the same reason the resolver is: the real
+        one opens a station over the network, and a test that needs an icecast
+        server to be reachable is a test that fails for reasons that are not this
+        code. ``stream`` is the reason to report instead, when a case wants one.
         """
         with tempfile.TemporaryDirectory() as folder:
             os.makedirs(os.path.join(folder, "cogs"))
@@ -212,14 +232,14 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
                     return answer, ("" if answer else media_health.LEFT_EMPTY)
                 return RESOLVED_OK, ""
 
-            async def fake_extract():
-                return (False, extract) if extract else (True, "")
+            async def fake_open_stream():
+                return (False, stream) if stream else (True, "")
 
             routes = {url: _image() for url in urls} if live else {}
             routes[RESOLVED_OK] = _image()
             session = _Session(routes)
             with mock.patch.object(media_health, "_resolve", new=fake_resolve), \
-                    mock.patch.object(media_health, "_extract", new=fake_extract):
+                    mock.patch.object(media_health, "_open_stream", new=fake_open_stream):
                 return await media_health.check(session=session, root=folder, now=1000)
 
     async def test_a_healthy_tree_is_clean(self):
@@ -250,7 +270,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
                 return RESOLVED_OK, ""
 
             with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                    mock.patch.object(media_health, "_extract", new=_extract_ok):
+                    mock.patch.object(media_health, "_open_stream", new=_stream_ok):
                 verdict = await media_health.check(session=_Wrong({}), root=folder, now=1000)
         self.assertIn("not media", verdict.dead["cogs/card.py:1"])
 
@@ -270,7 +290,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
                 return RESOLVED_OK, ""
 
             with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                    mock.patch.object(media_health, "_extract", new=_extract_ok):
+                    mock.patch.object(media_health, "_open_stream", new=_stream_ok):
                 verdict = await media_health.check(session=_Dead({}), root=folder, now=1000)
         self.assertEqual(verdict.dead, {})
         self.assertIn("no answer", verdict.unchecked["cogs/card.py:1"])
@@ -288,136 +308,102 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("pet:cat", verdict.dead)
         self.assertNotIn("pet:cat", verdict.kinds)
 
-    async def test_a_stale_extractor_is_a_finding_about_no_url_at_all(self):
-        """The extractor is the one target with nothing to blame and nothing to
-        edit: every picture it was checked beside is healthy, and the reason is the
-        machine that finds them."""
-        verdict = await self._check(
-            ["https://i.imgur.com/ok.gif"],
-            extract="the extractor answered nothing (Sign in to confirm you're not a bot) (yt-dlp `2026.01.01`)",
-        )
-        self.assertEqual(list(verdict.names), ["extractor:yt-dlp"])
-        self.assertIn("yt-dlp `2026.01.01`", verdict.dead["extractor:yt-dlp"])
-        self.assertEqual(verdict.kinds["extractor:yt-dlp"], "extractor")
-        self.assertIsNone(verdict.places.get("extractor:yt-dlp"), "there is no URL to name")
-        self.assertFalse(verdict.healthy)
-        # And it reaches the operator as a sentence about the extractor, not as a
-        # broken picture.
-        self.assertIn("extractor:yt-dlp", media_health.describe(verdict))
-        self.assertIn("extractor:yt-dlp", media_health.card_body(verdict))
+    async def test_a_stream_path_that_will_not_open_is_a_finding_about_a_station(self):
+        """The one target that is not a link, on a day every link is healthy.
 
-    async def test_a_working_extractor_is_not_a_finding(self):
-        verdict = await self._check([])
-        self.assertNotIn("extractor:yt-dlp", verdict.dead)
-        self.assertNotIn("extractor:yt-dlp", verdict.kinds)
-
-    async def test_an_extractor_answering_through_a_fallback_is_a_note(self):
-        """The third bucket, and the reason it is a third one.
-
-        The extractor is **working** — it resolved a recording and handed back a
-        stream — but only because a fallback player client answered for the default
-        one. Filing that as dead sends somebody to fix a link that resolves; filing
-        it as unchecked says it was never asked. Both would be a lie about a host
-        that is one provider change away from silence.
+        Nothing else in this pass would notice: the catalogue's own URLs are probed
+        as URLs and answer, and no picture or sound in the tree has moved. What is
+        broken is the *path* — this host cannot open a station it always could — and
+        the finding names it as such rather than as a dead picture.
         """
         verdict = await self._check(
             ["https://i.imgur.com/ok.gif"],
-            extract=f"{media_health.EXTRACTOR_CLIMBING} (`android_vr`)",
+            stream="the station answered HTTP 403",
         )
-        self.assertIn("extractor:yt-dlp", verdict.noted)
-        self.assertNotIn("extractor:yt-dlp", verdict.dead, "a working extractor is not a dead one")
-        self.assertNotIn("extractor:yt-dlp", verdict.unchecked, "it was asked and it answered")
-        self.assertTrue(verdict.healthy, "nothing here stopped working")
-        self.assertEqual(verdict.kinds["extractor:yt-dlp"], "extractor")
-        self.assertEqual(verdict.counts["noted"], 1)
-        self.assertIn("extractor:yt-dlp", media_health.describe(verdict))
-        self.assertIn("extractor:yt-dlp", media_health.card_body(verdict))
-        # …and the pass stays silent about it: a weekly card about something that
-        # works is how a channel gets muted.
-        self.assertIsNone(media_health.note(verdict))
+        self.assertEqual(list(verdict.names), ["stream:radio"])
+        self.assertEqual(verdict.dead["stream:radio"], "the station answered HTTP 403")
+        self.assertEqual(verdict.kinds["stream:radio"], "stream")
+        # It *does* name a URL, unlike the extractor it replaced: the station is a
+        # link, so there is something for a reader to open and see for themselves.
+        self.assertEqual(verdict.places["stream:radio"], media_source.probe_target())
+        self.assertFalse(verdict.healthy)
+        self.assertIn("stream:radio", media_health.describe(verdict))
+        self.assertIn("stream:radio", media_health.card_body(verdict))
 
-    async def test_the_climbing_note_reads_as_its_own_state_not_as_ok(self):
-        """`ok` on a host being refused by the default client is the wrong reading."""
-        verdict = await self._check(
-            [], extract=f"{media_health.EXTRACTOR_CLIMBING} (`android_vr`)"
-        )
+    async def test_a_working_stream_path_is_not_a_finding(self):
+        verdict = await self._check([])
+        self.assertNotIn("stream:radio", verdict.dead)
+        self.assertNotIn("stream:radio", verdict.kinds)
+
+    async def test_the_stream_state_a_console_reads_comes_from_that_verdict(self):
+        """No second probe, and an honest state when there is no verdict yet.
+
+        The console polls and ``/health`` is unauthenticated, so neither may open a
+        station: both read the last pass. *Not asked since this process started* is a
+        state a reader can act on (``/music doctor`` asks now), which is why it is its
+        own status rather than being folded into "broken".
+        """
+        media_health.reset()
+        self.assertEqual(media_health.stream_state()["status"], "unknown")
+        self.assertIsNone(media_health.stream_state()["checked_seconds_ago"])
+
+        healthy = await self._check([])
+        media_health.record(healthy)
+        state = media_health.stream_state()
+        self.assertEqual(state["status"], "ok")
+        self.assertEqual(state["detail"], "")
+        self.assertIsNotNone(state["checked_seconds_ago"])
+
+    async def test_a_station_refusing_the_request_is_a_failure_not_an_unknown(self):
+        """`unreachable` is about *this host's* network and nothing else.
+
+        A station that answers 403 has answered, and calling that "could not ask"
+        would hide the one failure an operator can go and see for themselves.
+        """
+        verdict = await self._check([], stream="the station answered HTTP 403")
         media_health.record(verdict)
-        state = media_health.extractor_state()
-        self.assertEqual(state["status"], "climbing")
-        self.assertIn("android_vr", state["detail"])
+        state = media_health.stream_state()
+        self.assertEqual(state["status"], "failed")
+        self.assertIn("403", state["detail"])
 
-    async def test_the_verdict_carries_the_doors_that_are_left(self):
-        """"The provider refused this host" is only the whole story when there is
-        nowhere behind it, so the state a console reads has to say what is behind.
-        That is the difference between a member hearing silence and a song, and it is
-        process state — no network call, on a page that polls."""
-        verdict = await self._check([], extract="Big Buck Bunny · 10:35")
-        media_health.record(verdict)
-        state = media_health.extractor_state()
-        order = [row["name"] for row in state["sources"]["order"]]
-        # A permutation, not a fixed list: the order is *learned* (a provider that
-        # answered moves to the front, one that refused moves to the back), which is
-        # the whole point of carrying it — so this asserts the doors, not the queue.
-        self.assertEqual(sorted(order), sorted(name for name, _ in media_source.SEARCH_PROVIDERS))
-        self.assertEqual(state["sources"]["refusing"], [])
-        self.assertTrue(all(row["label"] for row in state["sources"]["order"]))
-        self.assertIn("sources", state)
-
-    async def test_a_probe_that_climbed_is_reported_as_climbing_not_as_healthy(self):
-        """The half of this that lives in ``_extract`` rather than in the pass."""
-        probe = media_source.Probe(
-            healthy=True,
-            detail="Big Buck Bunny · 10:35",
-            version="2026.08.19",
-            target=media_source.DEFAULT_PROBE_TARGET,
-            client="android_vr",
-            climbed=True,
-            at=1000.0,
-        )
-        self.assertTrue(probe.note, "a climbing probe has something to say")
-        with mock.patch.object(media_source, "self_check", lambda *a, **k: probe):
-            healthy, reason = await media_health._extract()
-        self.assertFalse(healthy)
-        self.assertIn(media_health.EXTRACTOR_CLIMBING, reason)
-        self.assertIn("android_vr", reason)
-
-        # And the ordinary healthy case says nothing at all.
-        plain = media_source.Probe(healthy=True, client="default", climbed=False, at=1000.0)
-        self.assertEqual(plain.note, "")
-        with mock.patch.object(media_source, "self_check", lambda *a, **k: plain):
-            self.assertEqual(await media_health._extract(), (True, ""))
-
-    async def test_a_network_that_cannot_reach_the_provider_is_not_a_finding(self):
-        """The contract between ``_extract`` and the pass, and it is worth a test of
-        its own: a blocked extractor is a *finding* (the provider answered), and a
-        host with no route out is *unchecked*. Only one of those is worth waking
-        somebody for, and the pass tells them apart by the reason's own shape."""
+    async def test_a_network_that_cannot_reach_any_station_is_not_a_finding(self):
+        """The contract between ``_open_stream`` and the pass: a station refusing
+        the request is a *finding*, and a host with no route out is *unchecked*.
+        Only one of those is worth waking somebody for, and the pass tells them
+        apart by the reason's own shape — a host with no network is not a booking
+        about a stream."""
         probe = media_source.Probe(
             healthy=False,
-            reason="this host could not reach the provider (DownloadError)",
-            version="2026.08.19",
-            target="https://example.test/v/1",
+            reason="this host could not open the station (URLError)",
+            target="https://example.test/stream",
             unreachable=True,
             at=1000.0,
         )
         with mock.patch.object(media_source, "self_check", lambda *a, **k: probe):
-            healthy, reason = await media_health._extract()
+            healthy, reason = await media_health._open_stream()
         self.assertFalse(healthy)
         self.assertTrue(reason.startswith("no answer"), reason)
 
-        blocked = media_source.Probe(
+        refused = media_source.Probe(
             healthy=False,
-            reason="the provider is refusing this host rather than answering",
-            version="2026.08.19",
-            target="https://example.test/v/1",
-            blocked=True,
+            reason="the station answered HTTP 404",
+            target="https://example.test/stream",
+            unreachable=False,
             at=1000.0,
         )
-        with mock.patch.object(media_source, "self_check", lambda *a, **k: blocked):
-            healthy, reason = await media_health._extract()
+        with mock.patch.object(media_source, "self_check", lambda *a, **k: refused):
+            healthy, reason = await media_health._open_stream()
         self.assertFalse(healthy)
         self.assertFalse(reason.startswith("no answer"), reason)
-        self.assertIn("yt-dlp `2026.08.19`", reason, "the version travels with the finding")
+        self.assertIn("404", reason, "the answer travels with the finding")
+
+    async def test_a_probe_that_could_say_nothing_still_names_the_mechanism(self):
+        """A probe with an empty reason must not report an empty finding."""
+        blank = media_source.Probe(healthy=False, reason="", target="", at=1000.0)
+        with mock.patch.object(media_source, "self_check", lambda *a, **k: blank):
+            healthy, reason = await media_health._open_stream()
+        self.assertFalse(healthy)
+        self.assertEqual(reason, media_health.STREAM_FAILED)
 
     async def test_the_counts_add_up(self):
         verdict = await self._check([], resolved={"pet:cat": None})
@@ -436,7 +422,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
             return RESOLVED_OK, ""
 
         with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                mock.patch.object(media_health, "_extract", new=_extract_ok):
+                mock.patch.object(media_health, "_open_stream", new=_stream_ok):
             verdict = await media_health.check(session=_Exploding(), root=ROOT, now=1000)
         self.assertGreater(verdict.checked, 0)
         self.assertTrue(verdict.unchecked)
@@ -716,9 +702,9 @@ class ItNeverBlocksTheBot(unittest.IsolatedAsyncioTestCase):
         """One pass with no network at all: every target must land in ``unchecked``
         rather than raising, because this runs inside the bot's own loop.
 
-        The extractor is stubbed *as offline* rather than left real: two of the
-        findings here are about a network that is not there, and a pass that
-        reached YouTube would be testing the opposite of what it claims.
+        The stream check is stubbed *as offline* rather than left real: two of the
+        findings here are about a network that is not there, and a pass that opened
+        a real station would be testing the opposite of what it claims.
         """
         class _Offline:
             async def get(self, *args, **kwargs):
@@ -727,12 +713,12 @@ class ItNeverBlocksTheBot(unittest.IsolatedAsyncioTestCase):
         async def healthy_resolve(_target):
             return RESOLVED_OK, ""
 
-        async def offline_extract():
-            return False, "no answer (this host could not reach the provider)"
+        async def offline_stream():
+            return False, "no answer (this host could not open the station)"
 
         media_health.reset()
         with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                mock.patch.object(media_health, "_extract", new=offline_extract):
+                mock.patch.object(media_health, "_open_stream", new=offline_stream):
             verdict = await media_health.check(session=_Offline(), root=ROOT, now=1000)
         self.assertGreater(verdict.checked, 10)
         self.assertEqual(verdict.dead, {})

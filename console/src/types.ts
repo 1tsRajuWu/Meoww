@@ -471,27 +471,26 @@ export type LivePayload = {
     paused: boolean;
   }[];
   /**
-   * What the music player is doing here, whether this host can play at all, and
-   * whether the extractor can still find anything.
+   * What the radio player is doing here, whether this host can play at all, and
+   * whether it can open a station.
    *
-   * All three in one block because "nobody has asked for a song", "music cannot
-   * play on this host" and "music cannot find the song" used to look identical on
-   * this page — and the second and third are the faults an operator can actually
-   * fix, in different ways. `caps.playable` is `null` when the probe could not be
-   * run at all, which is a third state and is drawn as one.
+   * All three in one block because "nobody has asked for a station", "music cannot
+   * play on this host" and "this host cannot reach a station" used to look
+   * identical on this page — and the second and third are the faults an operator
+   * can actually fix, in different ways. `caps.playable` is `null` when the probe
+   * could not be run at all, which is a third state and is drawn as one.
    *
-   * `extractor` is read from the weekly pass rather than asked live (an
-   * extraction is a network round trip and this page polls), so it carries the
-   * age of the reading and an `unknown` state for a process that has not run one.
+   * `stream` is read from the weekly pass rather than asked live (opening a
+   * station is a network round trip and this page polls), so it carries the age of
+   * the reading and an `unknown` state for a process that has not run one.
    */
   music: {
     read: { player: boolean; caps: boolean };
-    extractor: {
-      /** `climbing` is the one that is not a verdict: the extractor answers, and
-       * it answers through a fallback player client because the default one is
-       * being refused. A host in that state works today and is one provider
-       * change from working not at all, so it is neither `ok` nor a failure. */
-      status: "ok" | "climbing" | "failed" | "unreachable" | "unknown";
+    stream: {
+      /** `unreachable` is the one that is not a finding *about a stream*: this
+       * host could not open the connection at all, which is a network fact rather
+       * than a station going dark. Both are drawn, and drawn differently. */
+      status: "ok" | "failed" | "unreachable" | "unknown";
       detail: string;
       checked_seconds_ago: number | null;
     } | null;
@@ -520,13 +519,11 @@ export type LivePayload = {
         provider: string;
         duration: number;
         requester: string;
-        identity: string;
       } | null;
       engine: string;
       position: number;
       volume: number;
       filter: string;
-      loop: string;
       queue: number;
       queue_preview: string[];
       is_247: boolean;

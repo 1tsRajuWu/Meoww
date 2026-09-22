@@ -1,21 +1,22 @@
 {#
-  Music, as a page.
+  Radio, as a page.
 
   This is the one surface of the music feature that is not inside Discord, and it
   exists because the feature's failures are *quiet*: a bot that is connected, a
   card that says "playing", and silence. Everything a visitor would otherwise
-  discover by being disappointed is on this page instead — what it does when it
-  cannot tell two recordings apart, what it says when a stream dies, and the one
-  thing it genuinely cannot fix (a media platform deciding a datacenter address
-  is a bot).
+  discover by being disappointed is on this page instead — that there is no song
+  search any more and why, what it says when a station dies, and the one thing it
+  genuinely cannot fix (a host with no route to the outside world).
 
   The command list is ``music_commands``, read out of the feature registry by the
-  route, so this page cannot advertise a command the bot does not publish.
+  route, so this page cannot advertise a command the bot does not publish — which
+  matters more here than anywhere: the commands people remember from other bots
+  are the ones this one deliberately does not have.
 #}
 {% extends "site_base.html" %}
 
-{% block title %}Music — {{ bot_name }}{% endblock %}
-{% block description %}Playback, a live queue with real-time audio effects, 24/7 radio — and what the bot tells you when a stream dies instead of moving on quietly.{% endblock %}
+{% block title %}Radio — {{ bot_name }}{% endblock %}
+{% block description %}Radio stations in any genre or language, a live queue with real-time audio effects and 24/7 mode — and what the bot says when a station goes quiet.{% endblock %}
 
 {% block skip_target %}music{% endblock %}
 {% block skip_label %}Skip to what music does{% endblock %}
@@ -44,9 +45,9 @@
 
             <div class="lp-hero-bottom">
                 <p class="lp-lede">
-                    Search for a song, paste a link, or tune a station. It plays in
-                    your voice channel — and when something goes wrong, it says
-                    which thing.
+                    Name a station — a genre, a language, a mood — and it plays in
+                    your voice channel. Nothing to search, nothing to link, and when
+                    something goes wrong it says which thing.
                 </p>
             </div>
         </section>
@@ -63,42 +64,44 @@
             <div class="lp-rows">
                 <div class="lp-row">
                     <div>
-                        <h3 class="lp-h2">It plays the song you asked for</h3>
+                        <h3 class="lp-h2">There is nothing to guess about</h3>
                         <p class="dim">
-                            Every track keeps the provider's own id for that recording,
-                            so a link that expires is re-resolved by asking for the
-                            <em>same</em> recording rather than searching again — a second
-                            search is a second set of results, which is how a bot ends
-                            up playing a different upload than the one on its card.
-                            When two results are genuinely too close to call, it asks
-                            which one you meant instead of guessing.
+                            A station <em>is</em> its address, so there is no search, no
+                            match to get wrong and no link to expire. The bot used to
+                            resolve songs from media platforms and gave that up: a
+                            platform that has decided a datacenter address is a robot
+                            cannot be argued with from this side, and "it played a
+                            different upload" is what a search that half-worked looks
+                            like. Every station here was fetched and listened to before
+                            it was written down.
                         </p>
                     </div>
                 </div>
 
                 <div class="lp-row">
                     <div>
-                        <h3 class="lp-h2">A cut-off stream is reported, not skipped</h3>
+                        <h3 class="lp-h2">A station that goes quiet is reported, not skipped</h3>
                         <p class="dim">
-                            A stream that dies reaches the player looking exactly like
-                            a track that finished, so the queue used to move on
-                            mid-song and nobody was told. A stream that ends far short
-                            of its own length now posts a card naming the track, how
-                            much of it played, and what the provider claimed.
+                            A dropped connection reaches the player looking exactly
+                            like a track that finished, so the queue used to move on in
+                            silence and nobody was told. A live stream has no end, so
+                            an ended one is now a card naming the station, how long it
+                            played and what the engine said — to the room, and to
+                            whoever runs the bot.
                         </p>
                     </div>
                 </div>
 
                 <div class="lp-row">
                     <div>
-                        <h3 class="lp-h2">The audio is the provider's, not a re-encode</h3>
+                        <h3 class="lp-h2">ffmpeg does the work, and it says so</h3>
                         <p class="dim">
-                            It asks for audio-only Opus and passes those packets
-                            through untouched whenever they already fit the channel —
-                            no decode, no re-encode, no loss. Volume starts at 100%
-                            precisely because anything else forfeits that path.
-                            Effects and volume changes are the one case that re-renders
-                            the stream, and they tell you which of the two happened.
+                            A station sends MP3 or AAC; Discord wants Opus, so the bot
+                            decodes and re-encodes — at the source's own quality rather
+                            than the channel's much lower default, in one command line
+                            written in one place. Effects and volume changes re-render
+                            the stream and tell you so, and a station that ever serves
+                            Opus directly would be passed through untouched instead.
                         </p>
                     </div>
                 </div>
@@ -111,11 +114,14 @@
         <section class="lp-band lp-deep lp-section lp-inner">
             <header class="lp-paper-head">
                 <p class="lp-eyebrow on-dark">Always available</p>
-                <h2 class="lp-h2 on-dark">Radio, which needs no search</h2>
+                <h2 class="lp-h2 on-dark">Radio, which needs nobody's permission</h2>
                 <p class="dim">
-                    Six stations are direct streams. Nothing about them goes through
-                    the extractor, so they keep working on a day when the media
-                    platforms are refusing the host entirely.
+                    Every station is a direct stream, and every one was fetched
+                    before it was written down. Nothing here asks a media platform
+                    for anything, so there is no platform left to refuse the host —
+                    and the list is long on purpose: a fallback with six answers in
+                    it is a fallback in name only, so it is searchable by genre,
+                    language and mood instead of being a menu.
                 </p>
             </header>
 
@@ -148,18 +154,22 @@
                     </div>
                     <div class="lp-panel-body">
                         <p class="dim">
-                            <strong>A provider refused this host.</strong> Said as
-                            that, because it is a fact about where the bot runs and
-                            not about your search. An operator can give it cookies or
-                            a token to fix it; radio works meanwhile.
+                            <strong>That station went quiet.</strong> Said with how long
+                            it played, because a live stream that ends is a dropped
+                            connection rather than a song finishing — one station doing
+                            it is that station, all of them is the host.
                         </p>
                         <p class="dim">
-                            <strong>Nothing was found.</strong> Said with what was
-                            searched, rather than a skip that looks like a bug.
+                            <strong>That station would not open.</strong> Said instead of
+                            a skip that looks like a bug, and a different card from the
+                            one above, because "it stopped" and "it never started" are
+                            fixed differently.
                         </p>
                         <p class="dim">
-                            <strong>Nobody is asked to guess.</strong> When the search
-                            is ambiguous the bot offers the candidates as buttons.
+                            <strong>No station by that name.</strong> Said with the
+                            catalogue to browse, rather than silence — the search
+                            forgives spelling and understands genres, moods and
+                            languages as well as names.
                         </p>
                     </div>
                     <p class="lp-panel-caption">
@@ -179,9 +189,11 @@
                 <h2 class="lp-h2">One group, because Discord counts</h2>
                 <p class="dim">
                     Discord allows an application 100 top-level commands in total,
-                    and this bot publishes a lot of them. So <span class="mono">/play</span>
-                    keeps its own slot — it is the one name people type from memory —
-                    and everything else lives under <span class="mono">/music</span>.
+                    and this bot publishes a lot of them. So every one of these lives
+                    under <span class="mono">/music</span> — one slot for the whole
+                    feature, and the list below is read out of the bot's own registry
+                    rather than written here, so the page cannot describe a command
+                    that does not exist.
                 </p>
             </header>
 
@@ -219,13 +231,16 @@
 
                 <div class="lp-row">
                     <div>
-                        <h3 class="lp-h2 on-dark">It depends on a platform that would rather not</h3>
+                        <h3 class="lp-h2 on-dark">It will not play a song by name</h3>
                         <p class="dim">
-                            Playback resolves recordings from third-party services, and
-                            those services can refuse a host that looks like a datacenter.
-                            That is a fact about the deployment, not a bug in your
-                            search, and the bot says so at the moment it happens. The
-                            radio stations and the lyrics lookups do not depend on it.
+                            That used to be the headline feature, and it was given up on
+                            purpose rather than fixed: resolving a named song means
+                            asking a media platform, and a platform that has decided a
+                            datacenter address is a robot answers every request with a
+                            check instead of a stream. Cookies and proxies paper over it
+                            until the next change. A station needs none of that, so the
+                            honest thing to offer is a catalogue rather than a search
+                            box that fails a third of the time.
                         </p>
                     </div>
                 </div>
@@ -236,9 +251,10 @@
                         <p class="dim">
                             A host needs an audio decoder and Discord's own encryption
                             library before a single frame can be sent. If either is
-                            missing, every music command answers with what is missing
-                            and how to fix it, instead of joining your channel and
-                            playing silence.
+                            missing — or if the host simply cannot reach a station from
+                            where it runs — every music command answers with what is
+                            wrong and how to fix it, instead of joining your channel
+                            and playing silence.
                         </p>
                     </div>
                 </div>

@@ -67,6 +67,39 @@ benefit, since nothing reads them while the cogs are archived. The
 `upload_channel_id` guild setting is kept for the same reason — no live code
 reads it now.
 
+---
+
+Archived on 2026-09-22, at the owner's request: **the music resolver**, and the
+commands that were only ever a front end for it. `/play` turned words into one
+specific recording through `yt-dlp`, a ladder of player clients, three providers
+(YouTube, SoundCloud, Audius), a second-provider rescue and a Spotify half, with
+an outbound proxy and a cookie/PO-token pair as the answers to a platform
+refusing the host. Every path in it ended at a media platform, and a platform
+that has decided a datacenter address is a robot cannot be argued with from this
+side — so the cookies and the token were maintenance with an expiry date rather
+than a fix, and the honest feature was the one that never needed them.
+
+| Feature | File | Notes |
+|---|---|---|
+| The resolver | `utils/media_source.py` | The file as it stood, whole. The **live** `utils/media_source.py` is the stream half of the same name and nothing else — `Track` and the probe (`Probe`, `probe_target`, `self_check`) — because radio still plays. Everything that existed only to turn words into a recording went with the extractor, `Stream` and the ffmpeg proxy helper included: a `Stream` was what a *provider* handed back and the proxy was what carried a signed fetch, and there is neither a provider nor a signature left. Restoring a resolver means restoring *this* file over the live one. |
+| Its suite | `tests/test_music_matching.py` | ~87 tests: matching the right recording, the client ladder, the two-phase search, the rescue, the catalogue, the proxy. Verbatim. |
+| The resolver half of the player's suite | `tests/test_music_playback.py` | The file as it stood: the rescue cases, seek, loop, the proxy-on-the-fetch case and the `/play` command-surface assertions. The live `tests/test_music.py` keeps what survives (the generation counter, the cut-stream guard, source selection, the permission audit). |
+| The refusal sentences | `tests/test_radio_refusals.py` | The two classes that lived in `tests/test_radio.py`: which cause a failure names, and the "the radio still works anyway" hint. Kept because telling a member *"nothing is wrong with your search"* instead of *"the platform refused this host"* over a request that simply had no recording in it is a distinction any future resolver will have to make again. |
+
+Removed from the live tree with them: `/play`, `/music songinfo`, `/music lyrics`,
+`/music seek`, `/music loop`, `/music shuffle`; the `blocked` and `rescued` fault
+kinds and their cards; the command-surface tests that counted two `/music` roots;
+and the seven `YTDL_*` settings in `utils/config_audit.py` (`COOKIES`,
+`COOKIES_B64`, `PO_TOKEN`, `VISITOR_DATA`, `SOURCE_ORDER`, `PROXY`,
+`PROBE_TARGET` — the last replaced by `STREAM_PROBE_TARGET`, which names a
+station). `requirements.txt` lost `yt-dlp`; **`imageio-ffmpeg` stayed**, because
+ffmpeg is what decodes a station's MP3/AAC and encodes Opus for Discord — it is
+the radio player, not the extractor.
+
+**Nothing needs moving to restore it beyond the four files above**: `yt-dlp` is
+already listed in `requirements-archived.txt`, and `utils/spotify.py` and
+`utils/card.py` were left live on purpose (the now-playing card still draws).
+
 ## How to restore a feature
 
 1. Move the file back: `mv deleted_features/cogs/<name>.py cogs/`
@@ -74,9 +107,13 @@ reads it now.
 3. Re-add its command names to `MODULE_COMMAND_MAP` in `bot.py`.
 4. Re-add the dashboard card to `AVAILABLE_MODULES` in `keep_alive.py`.
 5. Re-add its help category in `cogs/help.py` (and the home-body bullet).
-6. For **music** only: `pip install yt-dlp imageio-ffmpeg` (+ a system
-   `ffmpeg` binary). `utils/spotify.py` + `utils/card.py` were left live on
-   purpose, so nothing needs moving for them.
+6. For **radio** (the archived `cogs/music.py`, the pre-rebuild one):
+   `pip install yt-dlp imageio-ffmpeg` (+ a system `ffmpeg` binary).
+   `utils/spotify.py` + `utils/card.py` were left live on purpose, so nothing
+   needs moving for them. For the **resolver** specifically, move
+   `deleted_features/utils/media_source.py` over `utils/media_source.py` (it
+   carries the whole module as it was) and move the three test files back, then
+   re-add `yt-dlp` to `requirements.txt`.
 7. For **uploads** only: move `catbox.py`, `file_kiwi.py`, `filehost.py` and
    `streamable.py` back into `utils/`, move
    `deleted_features/tests/test_uploads.py` back into `tests/`, re-add the

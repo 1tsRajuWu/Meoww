@@ -638,66 +638,11 @@ SETTINGS: tuple[Setting, ...] = (
         "the default 60-second delay is used.",
     ),
     # --- music -----------------------------------------------------------------
-    # Four names, and every one of them is optional: playback does not depend on
-    # any of them. They are the *answer* to the one failure a media feature
-    # cannot design away (a platform deciding a datacenter address is a bot),
-    # which is why they are declared rather than left as an undocumented escape
-    # hatch — an operator who needs them has to be able to find them.
-    Setting(
-        "YTDL_COOKIES", TUNING,
-        "a path to a cookies file for the media providers, which is one of the two "
-        "ways to answer a provider that has started refusing this host",
-        "the extractor runs anonymously. A datacenter address is refused by "
-        "YouTube often enough that this is the first thing to reach for when "
-        "/play stops resolving and radio still works.",
-    ),
-    Setting(
-        "YTDL_COOKIES_B64", TUNING,
-        "the same cookies file, base64-encoded, for a host whose disk does not "
-        "survive a deploy",
-        "nothing is written and the extractor runs anonymously, exactly as if "
-        "YTDL_COOKIES were unset.",
-    ),
-    Setting(
-        "YTDL_PO_TOKEN", TUNING,
-        "a proof-of-origin token (``<client>+<token>``) for the providers that ask "
-        "for one, which is the other way to answer a provider refusing this host",
-        "the extractor asks for none, which is what a fresh deployment does.",
-    ),
-    Setting(
-        "YTDL_VISITOR_DATA", TUNING,
-        "the visitor data a proof-of-origin token must be paired with",
-        "no visitor data is sent. A token without it is usually rejected, which is "
-        "why the two are declared next to each other.",
-    ),
-    Setting(
-        "YTDL_SOURCE_ORDER", TUNING,
-        "the provider order this host asks, comma-separated, which is how a "
-        "deployment whose network one platform refuses says so once instead of "
-        "paying for the discovery on every song",
-        "the built-in order is used and adapts on its own: whatever last answered "
-        "moves up, and a provider that refuses this host moves to the back for a "
-        "while. Declared late because it was, until now, read through a constant "
-        "that the config audit's own search could not see — so an operator reading "
-        "the report was never told this setting existed at all.",
-    ),
-    Setting(
-        "YTDL_PROXY", TUNING,
-        "an outbound proxy (``http://user:password@host:port``) that every media "
-        "extraction **and** every media fetch is sent through — the third way to "
-        "answer a provider that has decided a datacenter address is a bot, and the "
-        "only one that needs nothing from an account",
-        "the extractor and the player go out from this host's own address, so a "
-        "provider refusing it stays refused. Cookies (``YTDL_COOKIES``) and a PO "
-        "token (``YTDL_PO_TOKEN``) are the other two answers; a proxy is the one "
-        "that asks for no login. It is applied to the media download as well as to "
-        "the extraction, because a provider's stream URL is signed for the address "
-        "that asked for it — a proxy on one half of the pair resolves a stream that "
-        "then never plays. A ``socks://`` URL is declined with that reason printed "
-        "rather than half-honoured, since ffmpeg cannot fetch through one. Never "
-        "shown: it carries a credential.",
-        secret=True,
-    ),
+    # Two names, and both are optional: playback does not depend on either. The
+    # extractor's own settings (cookies, PO token, visitor data, source order and
+    # an outbound proxy) are gone with it — they were the answers to a provider
+    # deciding a datacenter address is a bot, and nothing left in this bot asks a
+    # provider anything. Radio is a URL and ffmpeg.
     Setting(
         "MEOW_FFMPEG", TUNING,
         "an explicit ffmpeg binary for the music player, for a host whose ffmpeg "
@@ -707,15 +652,15 @@ SETTINGS: tuple[Setting, ...] = (
         "*override* a working default.",
     ),
     Setting(
-        "YTDL_PROBE_TARGET", TUNING,
-        "the recording the weekly self-check asks the extractor for, which is how a "
-        "stale extractor reports itself instead of every /play failing quietly one "
-        "at a time",
-        "Blender's own *Big Buck Bunny* upload is used: a recording meant to stay "
-        "up, owned by nobody's catalogue and carrying no age gate. Set this only "
-        "when the default cannot be reached from where this runs — a probe "
-        "recording that gets taken down would report the extractor as broken, "
-        "which is the check becoming the fault it exists to find.",
+        "STREAM_PROBE_TARGET", TUNING,
+        "the station the weekly self-check opens and the console's stream row reads, "
+        "which is how a host that can no longer reach *any* stream reports itself "
+        "instead of every `/music radio` failing quietly one at a time",
+        "SomaFM's Groove Salad is used: an icecast stream that has been up for "
+        "years, owned by nobody's catalogue and needing no account. Set this only "
+        "when the default cannot be reached from where this runs — a probe station "
+        "that goes off the air would report the host as broken, which is the check "
+        "becoming the fault it exists to find.",
     ),
 )
 

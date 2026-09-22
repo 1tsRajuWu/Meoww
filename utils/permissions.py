@@ -198,7 +198,6 @@ COMMAND_ACCESS: dict[str, str] = {
     # people have used lets them skip. What is *not* open is a permanent
     # connection — that is the server's decision, so 24/7 is the guild owner's
     # (with the bot's own owner allowed alongside, checked in the callback).
-    "play": EVERYONE,
     "music radio": EVERYONE,
     "music stations": EVERYONE,
     "music skip": EVERYONE,
@@ -209,11 +208,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "music nowplaying": EVERYONE,
     "music volume": EVERYONE,
     "music filter": EVERYONE,
-    "music loop": EVERYONE,
-    "music shuffle": EVERYONE,
-    "music seek": EVERYONE,
-    "music lyrics": EVERYONE,
-    "music songinfo": EVERYONE,
     # The readout names the host's own paths and libraries, which is the
     # operator's business rather than a member's.
     "music doctor": ADMIN,

@@ -19,15 +19,14 @@ stops". Two kinds of thing are probed, because the bot sends two kinds:
   fetched at use time and verified before they are sent (:mod:`utils.gifs`). The
   question here is whether the *resolver* still produces something: a provider
   that quietly changed its payload shape fails this while answering ``200``.
-* **The extractor itself** — one recording asked for the whole way to a stream
-  URL (:func:`utils.media_source.self_check`). This is the only target that is
-  not media at all: it is the *machine that finds* media, and it fails in a way
-  no link can. yt-dlp stays installed, importable and reporting a version while
-  answering *"Sign in to confirm you're not a bot"* to every search, because a
-  provider changed how it signs a stream and the extractor is one release behind
-  — and every picture and sound in this module would still be healthy on that
-  day. Asking for one known recording weekly is what turns "music is broken" into
-  a sentence naming the fix.
+* **The stream path itself** — one station opened all the way to bytes
+  (:func:`utils.media_source.self_check`). This is the only target that is not a
+  *link*: it is the host's ability to play music, and it fails in a way no URL can.
+  Every station URL below can be perfectly healthy while the deployment has no
+  route to the outside world, or a proxy that used to work has stopped, and
+  nothing else in this module would notice — the difference between one broken
+  link and a host that cannot play anything is exactly the difference this target
+  exists to draw.
 
 Three rules, all learned from what went wrong:
 
@@ -281,13 +280,13 @@ def _walk(path: str) -> tuple[str, ...]:
 
 def declared() -> tuple[Target, ...]:
     """The media this bot *makes*: one target per action, one per pet — plus the
-    extractor, which makes the media possible.
+    stream path, which is what makes the music playable.
 
     Read off the resolver's own tables, so an action added there is checked
     without anybody remembering to add it here — and a test fails if the two ever
-    drift apart. The extractor target is the same idea one level up: its probe
-    target is read from :func:`utils.media_source.probe_target`, so a deployment
-    that overrides ``YTDL_PROBE_TARGET`` is checked against what it configured.
+    drift apart. The stream target is the same idea one level up: its probe target
+    is read from :func:`utils.media_source.probe_target`, so a deployment that
+    overrides ``STREAM_PROBE_TARGET`` is checked against what it configured.
     """
     targets = [
         Target(name=f"action:{action}", kind="action", source="utils/gifs.py")
@@ -299,8 +298,8 @@ def declared() -> tuple[Target, ...]:
     ]
     targets.append(
         Target(
-            name=EXTRACTOR_TARGET,
-            kind="extractor",
+            name=STREAM_TARGET,
+            kind="stream",
             url=media_source.probe_target(),
             source="utils/media_source.py",
         )
@@ -308,15 +307,27 @@ def declared() -> tuple[Target, ...]:
     return tuple(targets)
 
 
-#: The extractor's own target, named once because three places read it: the
-#: target list, the console's music panel and this module's own reading of the
-#: last pass.
-EXTRACTOR_TARGET = "extractor:yt-dlp"
+#: The stream target, named once because three places read it: the target list,
+#: the console's music panel and this module's own reading of the last pass.
+STREAM_TARGET = "stream:radio"
 
 
 def targets(root: str | None = None) -> tuple[Target, ...]:
-    """Everything one pass asks about: what is written down, and what is made."""
-    return declared() + scan_source(root)
+    """Everything one pass asks about: what is written down, and what is made.
+
+    A URL a *declared* target names is not asked about twice. The stream target is
+    the reason: its whole job is to open one real station, and the station it opens
+    is also in the catalogue — so the scan finds the same URL in ``cogs/music.py``
+    and the pass would report 151 checks over 150 addresses. Two probes of one URL
+    is a wasted request and a count that overstates how much of the catalogue was
+    checked, which is the one number this module exists to report honestly. The
+    declared target wins the name, because it is the one that says *what* broke.
+    """
+    declared_targets = declared()
+    claimed = {target.url for target in declared_targets if target.url}
+    return declared_targets + tuple(
+        target for target in scan_source(root) if target.url not in claimed
+    )
 
 
 @dataclass(frozen=True)
@@ -337,16 +348,10 @@ class Verdict:
     #: Which kind each failure was, so the card can say "a hardcoded link" or "the
     #: resolver, not a link".
     kinds: dict[str, str] = field(default_factory=dict)
-    #: ``target -> what is worth knowing``, for the things that are **not failures**.
-    #: A third bucket because the first two would both lie about this one: it is not
-    #: dead (it answered) and it is not unchecked (it was asked). What lives here is
-    #: the extractor working *through a fallback client* — true, working today, and
-    #: one provider change away from being neither.
-    noted: dict[str, str] = field(default_factory=dict)
 
     @property
     def ok(self) -> int:
-        return max(0, self.checked - len(self.dead) - len(self.unchecked) - len(self.noted))
+        return max(0, self.checked - len(self.dead) - len(self.unchecked))
 
     @property
     def healthy(self) -> bool:
@@ -363,7 +368,6 @@ class Verdict:
             "ok": self.ok,
             "dead": len(self.dead),
             "unchecked": len(self.unchecked),
-            "noted": len(self.noted),
         }
 
 
@@ -413,53 +417,33 @@ async def _probe(session, url: str) -> tuple[bool, str]:
 LEFT_EMPTY = "the resolver produced nothing (provider or file)"
 
 
-#: One reason per way the extractor can be unable to do its job. Asserted on,
-#: like :data:`LEFT_EMPTY`: the card's whole value is that the *kind* of failure
-#: is legible, because "upgrade the package" and "this host needs cookies" are
-#: different afternoons.
-EXTRACTOR_FAILED = "the extractor could not resolve a recording it should always be able to"
+#: The reason a stream target carries when the probe can say nothing better. It
+#: is an assertion target, like :data:`LEFT_EMPTY`: the card's whole value is that
+#: the *kind* of failure is legible, because "this host has no route out" and
+#: "the station refused the request" are different afternoons.
+STREAM_FAILED = "this host could not open a station it has always been able to open"
 
 
-#: Filed when the extractor answers, but only because a *fallback* player client
-#: did. Not a dead link and not yet an outage: it is the reading that says the
-#: default client has been refused, which is one provider change away from the
-#: extractor answering nothing at all. It rides in ``unchecked`` rather than in
-#: ``dead`` for the same reason a transport failure does — there is nothing to
-#: blame and nothing to fix *today*, and the card's job is to be legible about which
-#: of those it is.
-EXTRACTOR_CLIMBING = "a fallback player client is answering for the default one"
+async def _open_stream() -> tuple[bool, str]:
+    """Open one station, off the event loop.
 
-
-async def _extract() -> tuple[bool, str]:
-    """Ask the extractor for one recording, off the event loop.
-
-    ``self_check`` is synchronous yt-dlp work (a network call inside a package
-    that does its own retrying), so it goes to a thread rather than blocking the
-    pass — a check that stutters the gateway while it runs is a check that gets
-    switched off.
+    ``self_check`` is synchronous network work with a timeout of its own, so it
+    goes to a thread rather than blocking the pass — a check that stutters the
+    gateway while it runs is a check that gets switched off.
     """
     try:
         probe = await asyncio.to_thread(media_source.self_check)
     except Exception as exc:  # noqa: BLE001 — the pass must not raise
-        return False, f"the extractor check itself failed ({type(exc).__name__})"
+        return False, f"the stream check itself failed ({type(exc).__name__})"
     if probe.healthy:
-        if probe.climbed:
-            # The early warning, and the only one this pass can give before songs
-            # start dying: the extractor is working *through a fallback*, which is
-            # what a host being refused by the default client looks like from here.
-            return False, f"{EXTRACTOR_CLIMBING} (`{probe.client}`) ({probe.note})" if probe.note \
-                else f"{EXTRACTOR_CLIMBING} (`{probe.client}`)"
         return True, ""
     if probe.unreachable:
         # Deliberately shaped like the link probe's own transport failure, so the
-        # pass files it as ``unchecked``: a host that cannot reach the provider is
-        # not a finding about the extractor, and the two must not be told apart by
-        # a reader of the card.
+        # pass files it as ``unchecked``: a host that could not open a connection
+        # is not a finding about a stream, and a reader of the card must not have
+        # to tell those apart.
         return False, f"no answer ({probe.reason})"
-    # The version is part of the finding: "one release behind" is the common case
-    # and it is invisible without it.
-    suffix = f" (yt-dlp `{probe.version}`)" if probe.version else ""
-    return False, f"{probe.reason or EXTRACTOR_FAILED}{suffix}"
+    return False, probe.reason or STREAM_FAILED
 
 
 async def _resolve(target: Target) -> tuple[str | None, str]:
@@ -493,7 +477,6 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
         session = aiohttp.ClientSession()
     dead: dict[str, str] = {}
     unchecked: dict[str, str] = {}
-    noted: dict[str, str] = {}
     places: dict[str, str] = {}
     kinds: dict[str, str] = {}
     try:
@@ -501,9 +484,9 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
             if target.kind == "file":
                 healthy, reason = await _probe(session, target.url)
                 url = target.url
-            elif target.kind == "extractor":
-                healthy, reason = await _extract()
-                url = ""
+            elif target.kind == "stream":
+                healthy, reason = await _open_stream()
+                url = target.url
             else:
                 url, reason = await _resolve(target)
                 healthy = bool(url)
@@ -514,11 +497,6 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
             kinds[target.name] = target.kind
             if str(reason).startswith("no answer"):
                 unchecked[target.name] = reason
-            elif reason == EXTRACTOR_CLIMBING or str(reason).startswith(EXTRACTOR_CLIMBING):
-                # Working, and saying so: a *note* rather than a finding, because
-                # filing it as dead would send somebody to fix a link that resolves
-                # and filing it as unchecked would say the extractor was never asked.
-                noted[target.name] = reason
             else:
                 dead[target.name] = reason
     finally:
@@ -534,7 +512,6 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
         places=places,
         unchecked=unchecked,
         kinds=kinds,
-        noted=noted,
     )
 
 
@@ -550,11 +527,6 @@ def describe(verdict: Verdict) -> str:
         return (
             f"media check could not ask about {counts['unchecked']}/{counts['checked']} "
             f"targets: {', '.join(sorted(verdict.unchecked))}"
-        )
-    if verdict.noted:
-        return (
-            f"media check clean, with {counts['noted']} note(s): "
-            + ", ".join(f"{name} ({verdict.noted[name]})" for name in sorted(verdict.noted))
         )
     return f"clean — {counts['ok']}/{counts['checked']} media targets answered with real media"
 
@@ -589,12 +561,11 @@ def note(verdict: Verdict) -> str | None:
     the loop may be woken by a restart or a manual call, and the same four dead
     links should not produce four cards.
 
-    A pass whose only finding is a *note* is also silent, deliberately. A note
-    means the target **answered** — the extractor working through a fallback client
-    is the one it can raise — and a weekly card about something that works is how a
-    channel gets muted. The note is discoverable where somebody is already looking:
-    ``/health``, the console's extractor panel and ``/music doctor`` all read it,
-    and the moment it stops answering the *dead* alert fires with the full story.
+    A pass that could not ask about everything is silent too, deliberately: "I
+    could not reach anybody" is not a finding about a link, and a weekly card
+    saying so is how a channel gets muted. It is still *recorded* — ``/health``
+    and the console read the last verdict — and the moment something answers
+    badly the dead alert fires with the full story.
     """
     if not verdict.dead:
         return None
@@ -617,12 +588,6 @@ def _sentence(verdict: Verdict) -> str:
             f"**{len(verdict.unchecked)}** of {verdict.checked} targets could not "
             "be asked about, so this pass proves nothing about them."
         )
-    if verdict.noted:
-        return (
-            f"Every target answered, and **{len(verdict.noted)}** has something worth "
-            "knowing: the extractor is working *through a fallback*, which is what a "
-            "host being refused by the default player client looks like from here."
-        )
     return f"All {verdict.checked} media targets answered with real media."
 
 
@@ -634,8 +599,6 @@ def card_body(verdict: Verdict) -> str:
         lines.append(f"**`{name}`** — {verdict.dead[name]}" + (f"\n{place}" if place else ""))
     for name in sorted(verdict.unchecked):
         lines.append(f"**`{name}`** — could not be asked: {verdict.unchecked[name]}")
-    for name in sorted(verdict.noted):
-        lines.append(f"**`{name}`** — working, worth knowing: {verdict.noted[name]}")
     return "\n\n".join(lines)[:MAX_CARD_CHARS]
 
 
@@ -643,8 +606,8 @@ def card_body(verdict: Verdict) -> str:
 MAX_CARD_CHARS = 3800
 
 
-def extractor_state() -> dict:
-    """What the last pass found about the extractor, without asking again.
+def stream_state() -> dict:
+    """What the last pass found about the stream path, without asking again.
 
     The console panel and ``/health`` both want this, and neither may trigger a
     network call: one is a page that polls, the other is unauthenticated. So it
@@ -652,48 +615,24 @@ def extractor_state() -> dict:
     checked* is a state a reader can act on (``/music doctor`` asks now), and it
     is the honest answer for a process that has just restarted.
 
-    The verdict is merged with the **provider order** because the two answer one
-    question between them. "The provider refused this host" is only the whole story
-    when there is nowhere behind it, and the sources say whether there is: a host
-    refused by YouTube may still have an open catalogue to fall through to, and that
-    is the difference between a member hearing silence and hearing a song.
+    Read off the same verdict the link findings come from, because it *is* the same
+    pass: the check opens a real station, so a host with no route out reports here
+    once and shows up on the console without a second probe.
     """
-    verdict = _extractor_verdict()
-    try:
-        from . import media_source  # noqa: PLC0415
-
-        verdict["sources"] = media_source.sources_state()
-    except Exception:  # noqa: BLE001 — a panel without the source list is still a panel
-        pass
-    return verdict
-
-
-def _extractor_verdict() -> dict:
-    """The extractor's last verdict on its own, before the provider order is added."""
     verdict = _state["last"]
     if verdict is None:
         return {
             "status": "unknown",
-            "detail": "the extractor has not been asked in this process yet",
+            "detail": "no station has been opened in this process yet",
             "checked_seconds_ago": None,
         }
     age = max(0, int(time.time()) - verdict.at)
-    if EXTRACTOR_TARGET in verdict.dead:
-        return {"status": "failed", "detail": verdict.dead[EXTRACTOR_TARGET], "checked_seconds_ago": age}
-    if EXTRACTOR_TARGET in verdict.unchecked:
+    if STREAM_TARGET in verdict.dead:
+        return {"status": "failed", "detail": verdict.dead[STREAM_TARGET], "checked_seconds_ago": age}
+    if STREAM_TARGET in verdict.unchecked:
         return {
             "status": "unreachable",
-            "detail": verdict.unchecked[EXTRACTOR_TARGET],
-            "checked_seconds_ago": age,
-        }
-    if EXTRACTOR_TARGET in verdict.noted:
-        # Its own status rather than `ok`, because it is not one: the extractor
-        # answers, and it answers through a fallback. A reader who sees `ok` on a
-        # host that is being refused by the default client has been told the wrong
-        # thing about a deployment that is one provider change from silence.
-        return {
-            "status": "climbing",
-            "detail": verdict.noted[EXTRACTOR_TARGET],
+            "detail": verdict.unchecked[STREAM_TARGET],
             "checked_seconds_ago": age,
         }
     return {"status": "ok", "detail": "", "checked_seconds_ago": age}

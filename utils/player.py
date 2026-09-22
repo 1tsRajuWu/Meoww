@@ -12,13 +12,15 @@ current. The same counter is what makes ``restart_current`` safe, and what stops
 ``/radio`` from advancing twice and then wiping ``current`` while the new stream
 was playing.
 
-**A stream that dies is not a song that ended.** ``ffmpeg`` exiting early — a
-blocked connection, a provider cutting a datacenter IP, a bad flag — reaches the
-after-callback as ``err=None``, exactly like a track finishing. So the player
-knows how long the source *should* have run, and a source that ends far short of
-that is reported as a fault: it names the track, how much of it played, and what
-the engine was. The archived cog could not tell the two apart, which is what
-"the music is short" was.
+**A stream that dies is not a song that ended.** ``ffmpeg`` reporting an exit —
+a dropped connection, a bad flag, the station going down — reaches the
+after-callback looking like a finished track, and a *clean* EOF looks even more
+like one. So the player judges what ended: a **live** source (a station, which
+has no end) that reports itself finished at all was cut, and a source that
+declares a length and stops far short of it was cut too. Either way the room is
+told — it names the track, how much of it played, and what the engine was —
+because the archived cog could not tell the two apart, and that silence was
+"the music is short".
 
 **A black box is not a diagnosis.** The ffmpeg command line is built in exactly
 one place (:meth:`GuildPlayer._build_source`) and it is deliberately short. The
@@ -56,8 +58,10 @@ INACTIVE_SECONDS = 300
 MAX_QUEUE = 200
 
 #: How a track can end early and be *reported* rather than silently skipped.
-#: Anything shorter than the floor is not judged (intros, stingers, live joins),
-#: and the fraction is generous because a provider's own duration is approximate.
+#: Anything shorter than the floor is not judged (a station that is simply off
+#: the air answers the socket and closes it, and a five-second silence is not
+#: worth a card), and the fraction is generous because a declared duration is
+#: approximate even when somebody did declare one.
 EARLY_EOF_FLOOR = 25
 EARLY_EOF_FRACTION = 0.6
 
@@ -94,13 +98,6 @@ def holds_voice(guild_id) -> bool:
         return False
 
 
-def _seek_prefix(seconds: float) -> str:
-    """``-ss`` before ``-i`` seeks the input, which is what makes it cheap."""
-    if not seconds or seconds <= 0.5:
-        return ""
-    return f"-ss {seconds:.2f} "
-
-
 @dataclass(frozen=True)
 class Filter:
     """One real-time audio preset: the words, and the ffmpeg that does it."""
@@ -124,9 +121,6 @@ FILTERS: tuple[Filter, ...] = (
 )
 
 FILTER_BY_KEY: dict[str, Filter] = {item.key: item for item in FILTERS}
-
-#: Loop modes, in the order the command offers them.
-LOOP_MODES: tuple[str, ...] = ("off", "track", "queue")
 
 
 def filter_for(key: str) -> Filter:
@@ -218,13 +212,8 @@ class Fault:
         names = {
             "truncated": "a stream was cut off",
             "source_error": "the audio engine failed",
-            "unplayable": "a track could not be played",
-            "blocked": "the provider refused this host",
+            "unplayable": "a station could not be played",
             "opus_missing": "this host cannot encode audio",
-            # Not a failure, and that is the point of giving it a name here: the
-            # song is playing, just from the other provider, and the room is told
-            # so that a *different* upload is never a silent surprise.
-            "rescued": "the track was picked up from another provider",
         }
         return names.get(self.kind, self.kind.replace("_", " "))
 
@@ -252,14 +241,10 @@ class GuildPlayer:
         # one by default.
         self.volume = 1.0
         self.filter_name = "normal"
-        self.loop = "off"
         self.is_247 = False
         self.manual_stop = False
         self.source: discord.AudioSource | None = None
         self.engine = ""
-        #: Where in the current track playback should begin, in seconds. Set by
-        #: ``seek`` and cleared when a new track starts.
-        self.seek_offset = 0.0
 
         self._generation = 0
         self._play_lock = asyncio.Lock()
@@ -349,7 +334,7 @@ class GuildPlayer:
                 # not a track ending and must not advance the queue.
                 return
             played = max(0.0, time.monotonic() - self._started_at)
-            truncated = self._looks_truncated(played, error)
+            truncated = self._ended_early(played, error)
             if error:
                 self._report(
                     Fault(
@@ -365,11 +350,7 @@ class GuildPlayer:
                 self._report(
                     Fault(
                         kind="truncated",
-                        detail=(
-                            f"the stream ended after **{_mmss(played)}** when the "
-                            f"provider said it ran **{_mmss(self._expected)}** — that is a cut-off "
-                            "stream, not a short song"
-                        ),
+                        detail=self._cut_detail(played),
                         title=getattr(self.current, "title", ""),
                         played=played,
                         expected=self._expected,
@@ -380,14 +361,37 @@ class GuildPlayer:
 
         return _after
 
-    def _looks_truncated(self, played: float, error) -> bool:
-        """Whether a source that ended without an error ended *early*."""
+    def _ended_early(self, played: float, error) -> bool:
+        """Whether a source that ended without an error ended *early*.
+
+        Two shapes, because there are two things that can end here. A **station
+        has no end**, so a live source that reports itself finished was cut — and
+        that is the case the room used to hear nothing about, since a closed
+        connection is a clean EOF to everything downstream. A source that
+        *declares* a length (which no station does; ``Track`` still carries one)
+        is judged against it, with a floor so an intro is not a fault and a
+        generous fraction because the declared number is approximate.
+        """
         if error or not self.current:
             return False
+        if getattr(self.current, "live", False):
+            return True
         expected = self._expected
-        if expected < EARLY_EOF_FLOOR or getattr(self.current, "live", False):
+        if expected < EARLY_EOF_FLOOR:
             return False
         return played < expected * EARLY_EOF_FRACTION
+
+    def _cut_detail(self, played: float) -> str:
+        """Why the source ended, in the words the thing that ended deserves."""
+        if getattr(self.current, "live", False):
+            return (
+                f"the station went quiet after **{_mmss(played)}** — a live stream has no "
+                "end, so that is a dropped connection rather than a finished song"
+            )
+        return (
+            f"the stream ended after **{_mmss(played)}** when it was meant to run "
+            f"**{_mmss(self._expected)}** — that is a cut-off stream, not a short song"
+        )
 
     def _report(self, fault: Fault) -> None:
         """Hand a fault to whoever is listening, and never raise into the audio thread."""
@@ -404,7 +408,7 @@ class GuildPlayer:
             print(f"[MUSIC] could not report a fault: {exc}", flush=True)
 
     async def play_next(self, error=None) -> None:
-        """Advance: resolve if needed, build the source, start it. One lock."""
+        """Advance: take the next station, build the source, start it. One lock."""
         async with self._play_lock:
             if error:
                 print(f"[MUSIC] playback error in guild {self.guild_id}: {error}", flush=True)
@@ -414,12 +418,6 @@ class GuildPlayer:
                 self.current = None
                 return
 
-            # A loop is decided before the queue is touched, because a track on
-            # repeat must not consume the next entry.
-            if self.current is not None and self.loop == "track" and not self.manual_stop:
-                self.queue.insert(0, self.current)
-            elif self.current is not None and self.loop == "queue" and not self.manual_stop:
-                self.queue.append(self.current)
             self.manual_stop = False
 
             if not self.queue:
@@ -429,51 +427,20 @@ class GuildPlayer:
 
             self.cancel_inactivity_timer()
             track = self.queue.pop(0)
-            resolve_error = ""
-
-            if not track.is_radio and not track.fresh:
-                try:
-                    resolution = await asyncio.get_running_loop().run_in_executor(
-                        None, media_source.stream, track
-                    )
-                    media_source.apply_stream(track, resolution)
-                except media_source.MediaError as exc:
-                    resolve_error = exc.message
-                except Exception as exc:  # a provider that answered with a shape we do not know
-                    resolve_error = f"The provider could not be read ({type(exc).__name__})."
 
             if not track.stream_url:
-                # **Before giving up, ask a different provider.** One host's network
-                # being refused by one platform is the failure nobody can see from
-                # a laptop, and it used to be the end of the song: the room was
-                # told the stream died and the queue moved on. The same artist and
-                # title are looked for somewhere that will answer, and *only if that
-                # also fails* is the track reported as unplayable.
-                rescued = await self._rescue(track)
-                if rescued is not None:
-                    self._report(
-                        Fault(
-                            kind="rescued",
-                            detail=(
-                                f"{track.provider} would not stream it"
-                                + (f" ({resolve_error})" if resolve_error else "")
-                                + f", so this is the {rescued.provider} copy."
-                            ),
-                            title=track.title,
-                            engine=self.engine,
-                        )
-                    )
-                    track = rescued
-                else:
-                    # Naming the reason beats skipping in silence: "it skipped my
-                    # song" is indistinguishable from a bug, and this is the
-                    # message the member can act on.
-                    self.current = None
-                    await self._advance_after_failure(track, resolve_error or "No playable stream was found.")
-                    return
+                # Nothing to resolve it with: a station arrives with its own
+                # address, and the extractor that could turn *words* into one is
+                # archived. A track here without an address is a defect in
+                # whatever queued it rather than a refused provider, so it is
+                # named rather than skipped in silence.
+                self.current = None
+                await self._advance_after_failure(
+                    track, "That station has no address to play — it was queued without one."
+                )
+                return
 
             self.current = track
-            self.seek_offset = 0.0
             bitrate_kbps = channel_bitrate_kbps(vc)
 
             try:
@@ -503,21 +470,6 @@ class GuildPlayer:
                 flush=True,
             )
 
-    async def _rescue(self, track):
-        """The same song from another provider, or ``None``. Off the event loop.
-
-        Off the loop for the same reason a search is: a second provider's search
-        plus its own extraction is seconds of blocking network work, and doing it
-        inline would freeze every other guild's playback.
-        """
-        try:
-            return await asyncio.get_running_loop().run_in_executor(
-                None, media_source.rescue, track
-            )
-        except Exception as exc:  # noqa: BLE001 — a rescue that breaks is a rescue that failed
-            print(f"[MUSIC] rescue failed for {track.title!r}: {exc}", flush=True)
-            return None
-
     async def _advance_after_failure(self, track, reason: str) -> None:
         """Say what went wrong, then keep the queue moving."""
         self._report(
@@ -534,15 +486,19 @@ class GuildPlayer:
     def _build_source(self, stream_url: str, bitrate_kbps: int = 128):
         """The one place an ffmpeg command line is written. Returns ``(source, engine)``.
 
-        Three paths, in order of how much they touch the audio, and each chosen for
-        a reason that is measured rather than hoped:
+        A station arrives decoded and re-encoded: icecast serves MP3 or AAC, and
+        Discord wants Opus, so ffmpeg is doing the work on every stream this bot
+        plays. Three paths exist in order of how much they touch the audio, and
+        each was chosen for a reason that is measured rather than hoped:
 
         * **pass-through** — nothing to reshape, volume at 100%, the source already
-          Opus: the packets go out untouched, which keeps the provider's own ~130
+          Opus: the packets go out untouched, which keeps the source's own ~130
           kbps instead of re-encoding it down, and skips an entire encode pass.
           This is also the path that needs **no libopus at all**
           (``FFmpegOpusAudio.is_opus()`` is ``True``, so ``discord.py`` never
-          builds an encoder).
+          builds an encoder). No station in the catalogue declares itself Opus
+          yet, so nothing takes this path today; it is one flag on a station away
+          from being the best-sounding one.
 
           It used to *also* require the source to be no louder than the channel,
           and that one clause is the quality report: a channel's bitrate is where
@@ -562,21 +518,7 @@ class GuildPlayer:
         chosen = filter_for(self.filter_name)
         track = self.current
         executable = caps.ffmpeg or "ffmpeg"
-        # The proxy, when one is configured and this stream is one that needs it.
-        # It has to be here and not only in the extractor: a provider's stream URL
-        # is signed for the address that asked for it, so a proxy that only ran the
-        # extraction hands back a URL this host cannot open — the card says what is
-        # playing and then nothing is heard. `-http_proxy` is an input option, so it
-        # belongs before `-i` alongside the reconnect flags.
-        before = " ".join(
-            part
-            for part in (
-                _seek_prefix(self.seek_offset).strip(),
-                media_source.ffmpeg_proxy_args(track),
-                BEFORE_OPTIONS,
-            )
-            if part
-        )
+        before = BEFORE_OPTIONS
 
         copy_ok = (
             not chosen.args
@@ -669,28 +611,6 @@ class GuildPlayer:
         vc.play(source, after=self._after_for(self._generation))
         return True
 
-    def seek(self, seconds: float) -> tuple[bool, float]:
-        """Start the current track from ``seconds`` in. Returns what it really did.
-
-        A seek is a re-render, so it takes the same generation-bumping path a
-        filter does — and it is refused when there is nothing to seek or when the
-        position is past the end, rather than restarting at zero to look busy.
-        """
-        track = self.current
-        if track is None or not track.stream_url:
-            return False, 0.0
-        position = max(0.0, float(seconds))
-        if track.duration and position >= track.duration - 1:
-            return False, 0.0
-        self.seek_offset = position
-        applied = self.restart_current()
-        if applied:
-            # What is left of the track is what the early-EOF check must compare
-            # against, or every seek would look like a truncated stream.
-            self._expected = max(0.0, float(track.duration or 0) - position)
-            self._started_at = time.monotonic()
-        return applied, position
-
     def skip(self) -> bool:
         """Stop the current source so the queue advances."""
         vc = self.voice_client
@@ -766,7 +686,6 @@ class GuildPlayer:
                     "provider": self.current.provider,
                     "duration": self.current.duration,
                     "requester": self.current.requester,
-                    "identity": self.current.identity,
                 }
                 if self.current
                 else None
@@ -775,7 +694,6 @@ class GuildPlayer:
             "position": round(max(0.0, time.monotonic() - self._started_at), 1) if self.current else 0.0,
             "volume": round(self.volume, 3),
             "filter": self.filter_name,
-            "loop": self.loop,
             "queue": len(self.queue),
             "queue_preview": [track.title for track in self.queue[:5]],
             "is_247": self.is_247,

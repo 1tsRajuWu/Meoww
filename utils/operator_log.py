@@ -444,31 +444,20 @@ _music_reported: dict[str, int] = {}
 
 #: What to do about each kind, in the words of somebody who has to fix it.
 _MUSIC_REMEDIES: dict[str, str] = {
-    "blocked": (
-        "Every source that was asked has decided this host is a bot and answered "
-        "with a check instead of a stream. Nothing in the search is wrong, and the "
-        "card names **which** platform refused, because that is the part with a "
-        "next step in it. A credential is the only thing that changes the answer "
-        "for YouTube: `YTDL_COOKIES` (or `YTDL_COOKIES_B64`) from a throwaway "
-        "account, or `YTDL_PO_TOKEN` from a token provider. Until then the search "
-        "falls through to the open catalogue on its own, which needs no "
-        "credential — so a card here means every door was shut at once, and "
-        "`/music radio` keeps working regardless, because a radio station never "
-        "touches an extractor."
-    ),
     "truncated": (
-        "The stream was cut short mid-track, which is not the same as a short song. "
-        "If the card names a **different engine** each time, the host is being "
-        "throttled rather than the link being bad."
+        "The station stopped mid-stream, which is not the same as a song ending — a "
+        "live stream has no end, so ffmpeg reporting one means the connection went. "
+        "One station doing this is that station; every station doing it is this "
+        "host's route to the outside, and `/music doctor` opens one to prove which."
     ),
     "source_error": (
         "The audio engine (ffmpeg) exited with an error. The card names what it "
         "said; `-err_detect ignore_err` used to hide exactly this."
     ),
     "unplayable": (
-        "A queued track could not be turned into a stream. A single one is usually "
-        "a dead or region-locked upload; every track is the extractor being stale "
-        "(`pip install -U yt-dlp` is the fix, and it is refreshed on every image build)."
+        "A queued station could not be opened at all. A single one is usually a "
+        "station that is down; every station is this host's ffmpeg or voice "
+        "connection, and `/music doctor` tells the two apart."
     ),
     "opus_missing": (
         "Not a fault: without libopus the volume is baked into the stream instead "
