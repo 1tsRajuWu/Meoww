@@ -4675,7 +4675,7 @@ def api_console_server(guild_id: int):
 
     row = next((entry for entry in _fleet_rows() if entry["id"] == int(guild_id)), None)
     if row is None:
-        return jsonify({"success": False, "error": "No such server"}), 404
+        return _console_no_server()
 
     systems, known = _console_systems_for(guild_id)
     # Whether this server is on the blocklist, read through the same bridge every
@@ -5317,7 +5317,7 @@ def api_console_live():
 
     row = _console_economy_server(request.args.get("guild_id"))
     if row is None:
-        return jsonify({"success": False, "error": "No such server"}), 404
+        return _console_no_server()
 
     guild = BOT_INSTANCE.get_guild(row["id"]) if BOT_INSTANCE else None
     fleet = _fleet_rows()
@@ -5484,6 +5484,36 @@ def _console_economy_server(requested):
     return fleet[0]
 
 
+def _console_no_server():
+    """The refusal for a console request that named no readable server.
+
+    Two different situations reach this and they are fixed by different things,
+    so they are not answered with one sentence. A *named* server the bot is not
+    in is a wrong address, and ``404 No such server`` is exactly right. But a
+    deployment that cannot see a single server is not missing one: nothing has
+    answered Discord yet and nothing has been written down yet, which is the
+    first seconds of every restart and the whole life of a fresh database.
+
+    Driving the console in that state — a process with no bot and an empty
+    directory — is how this showed up: ``/owner/live`` answered **"That reading
+    failed. No such server"** for a server that was in Discord the whole time,
+    while the Fleet page drew the same emptiness as an empty list. The status is
+    ``503`` because that is what this file already answers elsewhere when there
+    is nobody to act as (see the questions reply route), and a page has to be
+    able to tell "come back in a moment" from "that address is wrong".
+    """
+    if not _known_guilds():
+        return jsonify({
+            "success": False,
+            "error": (
+                "No server can be read yet: the bot has not answered Discord, and "
+                "none have been written down yet either, so there is nothing to "
+                "read from. This fills in by itself once the handshake finishes."
+            ),
+        }), 503
+    return jsonify({"success": False, "error": "No such server"}), 404
+
+
 def _fee_enabled_for(guild_id) -> bool:
     """Whether this server charges the Meow Fee, without an event loop.
 
@@ -5518,7 +5548,7 @@ def api_console_economy():
 
     row = _console_economy_server(request.args.get("guild_id"))
     if row is None:
-        return jsonify({"success": False, "error": "No such server"}), 404
+        return _console_no_server()
 
     try:
         limit = max(1, min(100, int(request.args.get("limit", 25))))
@@ -5602,7 +5632,7 @@ def api_console_economy_adjust():
     data = request.get_json(silent=True) or {}
     row = _console_economy_server(data.get("guild_id"))
     if row is None:
-        return jsonify({"success": False, "error": "No such server"}), 404
+        return _console_no_server()
 
     user_id = _int_or_none(data.get("user_id"))
     if user_id is None or user_id <= 0:

@@ -12,6 +12,11 @@
  *
  * The shell is still drawn around this, so the rail is the way out and the button
  * repeats it for anyone who does not think to look left.
+ *
+ * The sentence under the heading used to end *"There are five pages, all in the
+ * rail"*, and the rail has ten: a count written beside a list is the one claim in
+ * it a reader cannot check and the one that goes stale in silence, so it is gone
+ * rather than updated. `tests/test_console.py` holds the sentence to that.
  */
 
 import { Link } from "../lib/router";
@@ -29,7 +34,7 @@ export function Missing({ path }: { path: string }) {
       <Card span={6} index={0}>
         <Empty
           title={`/owner${path} is not one of this console's pages`}
-          body="A mistyped address, or a link to something that has been renamed. There are five pages, all in the rail."
+          body="A mistyped address, or a link to something that has been renamed. Every page this console has is in the rail."
           action={
             <Link className="btn btn--primary" to="/">
               Open the Overview

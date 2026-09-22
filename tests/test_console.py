@@ -499,6 +499,32 @@ class TheShellItServes(_DashboardFixture):
         self.assertIn("Console not built", page)
         self.assertNotIn("/static/console/app.js", page)
 
+    def test_the_missing_page_does_not_count_the_rail(self):
+        """A count written beside a list is the one claim nobody can check.
+
+        The words on the not-a-page screen said *"There are five pages, all in
+        the rail"* — written when the rail had five and left alone while it grew
+        to ten. The sentence says where the pages are now instead of how many
+        there are, so there is nothing left in it to go stale.
+        """
+        source = (CONSOLE / "src" / "pages" / "Missing.tsx").read_text(encoding="utf-8")
+        # The copy a reader is shown, not the file: the docstring above quotes
+        # the old sentence on purpose, and a law that a comment can break would
+        # push the history out of the file that explains it.
+        shown = re.findall(r'body="([^"]*)"', source)
+        self.assertTrue(shown, "the missing page has no body copy to read")
+        for said in shown:
+            with self.subTest(said=said[:48]):
+                self.assertNotRegex(
+                    said,
+                    r"\b(one|two|three|four|five|six|seven|eight|nine|ten)\s+pages?\b",
+                    "a page count in prose is a count that drifts",
+                )
+        self.assertIn("the rail", source)
+        # And the rail it points at is the one the shell draws, from the server's
+        # own list rather than from a copy kept in the app.
+        self.assertGreater(len(keep_alive.OWNER_PAGES), 5)
+
 
 class TheConsoleApi(_DashboardFixture):
     """The data the app draws, checked against the functions that produce it."""
@@ -741,6 +767,19 @@ class TheConsoleApi(_DashboardFixture):
         response = self.client.get("/api/console/server/999999999")
         self.assertEqual(response.status_code, 404)
         self.assertFalse(response.get_json()["success"])
+
+    def test_a_servers_page_on_a_deployment_that_can_see_none_says_which(self):
+        """A deep link into a console that has no servers is not a wrong address.
+
+        The rail's `Servers` page draws an empty fleet as an empty list, so a
+        link to one row of it cannot answer "No such server" — there is no list
+        for the id to be missing from yet.
+        """
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", None):
+            with mock.patch.object(keep_alive.guild_directory, "read_all", return_value=[]):
+                response = self.client.get(f"/api/console/server/{GUILD_ID}")
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Discord", response.get_json()["error"])
 
     def test_the_matrix_covers_every_server_and_system(self):
         payload = self.get("/api/console/systems")
@@ -1070,6 +1109,24 @@ class TheLivePage(_DashboardFixture):
         response = self.client.get("/api/console/live?guild_id=999999999")
         self.assertEqual(response.status_code, 404)
         self.assertFalse(response.get_json()["success"])
+
+    def test_a_deployment_that_can_see_no_server_says_that_rather_than_404(self):
+        """The defect a playtest hit: ``No such server`` about the *deployment*.
+
+        A process with no bot in it and no directory written yet answered
+        "That reading failed. No such server" for this page — a claim about a
+        server that was in Discord the whole time — while the Fleet page drew the
+        same emptiness as an empty list. Two surfaces, one state, two answers:
+        the page gets the gateway's own sentence now, and a status that says
+        *come back in a moment* rather than *that address is wrong*.
+        """
+        with mock.patch.object(keep_alive, "BOT_INSTANCE", None):
+            with mock.patch.object(keep_alive.guild_directory, "read_all", return_value=[]):
+                response = self.client.get("/api/console/live")
+        self.assertEqual(response.status_code, 503)
+        said = response.get_json()["error"]
+        self.assertIn("Discord", said)
+        self.assertNotIn("No such server", said)
 
     def test_the_listing_cap_counts_what_it_does_not_list(self):
         """A big server must not turn into a megabyte of JSON, and the page has
