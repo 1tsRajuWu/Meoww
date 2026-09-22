@@ -66,6 +66,7 @@ else is linked from the [table of contents](#contents).
 |---|---|---|
 | 🛡️ | **Moderation & Logs** | `/ban /kick /mute /warn /purge`, mod cases, `#logs` audit trail |
 | 🎟️ | **Support Tickets** | Button panel → private staff channels (`/ticket setup`) |
+| ❓ | **Anonymous Q&A** | `/qna ask` relays a question with no name on it; the owner answers by DM |
 | 🏆 | **Leveling & XP** | Message + voice XP, level-up cards, `/rank /leaderboard` |
 | 💰 | **Economy & Casino** | `/daily /work /rob /pay`, shop with 20 real perks, slots, blackjack… |
 | 📈 | **Market** | Trade 72 real crypto/stocks with coins at live prices |
@@ -338,7 +339,7 @@ skip — a suite that quietly stops collecting tests cannot pass as green.
 | No slash commands at all | Re-invite with the `applications.commands` scope |
 | "Missing Permissions" on ban/kick/mute | Drag the bot's role **above** the target roles |
 | Ticket button creates nothing | Bot needs `Manage Channels` — see below |
-| Free host sleeps/stops | Expected on free tiers — see `docs/deployment.md` |
+| Free host sleeps/stops | Expected on free tiers: something **outside** the host has to knock on `/health` (see *Free, and online without you* in `docs/deployment.md`) — nothing inside the container can stop Render's idle timer |
 
 Voice rewards misbehaving? → [`docs/voice-debug.md`](docs/voice-debug.md).
 

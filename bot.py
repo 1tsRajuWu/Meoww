@@ -1145,8 +1145,14 @@ async def on_ready():
     await report_duplicate_instance()
 
     # Auto-announce updates to each server's own update channel on every deploy
-    # with changes.
+    # with changes. Outside the quiet window this prints when the note is due and
+    # sends nothing; the loop started below is what actually posts it then.
     await _announce_release_notes()
+    try:
+        from keep_alive import start_release_window
+        start_release_window(bot)
+    except Exception as e:
+        print(f"[UPDATE] Failed to start the quiet-window loop: {e}", flush=True)
 
     # The number behind "not everyone is in the tag list": without the intent the
     # cache holds only the members the bot has happened to see.
@@ -1452,9 +1458,12 @@ async def on_guild_join(guild: discord.Guild):
     except Exception as exc:
         print(f"[CHANNELS] could not bind channels for {guild.name}: {exc}", flush=True)
     try:
-        outcome = await announce_release_notes_to_guild(guild)
-        print(f"[UPDATE] "
-              f"{guild.name}: {outcome}", flush=True)
+        if _release_notes_are_silenced():
+            print(f"[UPDATE] {guild.name}: automatic release notes are off", flush=True)
+        else:
+            outcome = await announce_release_notes_to_guild(guild)
+            print(f"[UPDATE] "
+                  f"{guild.name}: {outcome}", flush=True)
     except Exception as exc:
         print(f"[UPDATE] could not announce to {guild.name}: {exc}", flush=True)
     await operator_log.guild_joined(bot, guild)
@@ -1615,6 +1624,26 @@ async def announce_release_notes_to_guild(guild, current_hash: str | None = None
             pass
 
 
+def _release_notes_are_silenced() -> bool:
+    """Whether this deploy keeps its release notes to itself.
+
+    ``SILENT_UPDATES=1`` turns off the *automatic* half of the release notes —
+    the note on every boot that changed ``CHANGELOG.md``, and the one a server
+    gets the moment it adds the bot — and nothing else. ``/bot push`` still posts
+    one on demand, because an operator asking is not what is being silenced.
+
+    It exists because a bound update channel has no way to say no. Clearing the
+    binding means "not chosen yet" rather than "not wanted", so the next boot
+    binds the channel by name again (``bot_channels.ensure_bound``) and the notes
+    resume; and a changelog entry is written on every deploy, so "forever, and
+    without being asked" is exactly what a server that does not want them gets.
+
+    This is the *entirely* silent switch. The usual answer to "these arrive at a
+    bad hour" is ``UPDATE_WINDOW_IST``, which keeps the notes and moves them.
+    """
+    return _env_flag("SILENT_UPDATES")
+
+
 async def _announce_release_notes() -> None:
     """Tell every server that asked for release notes about this deploy.
 
@@ -1623,7 +1652,30 @@ async def _announce_release_notes() -> None:
     retries by itself instead of dragging the others into a re-announcement it
     already showed them. A server that has bound no update channel is skipped
     entirely rather than being sent somewhere it never asked for.
+
+    And a boot outside the quiet window sends nothing either — but it does not
+    *forget*: nothing is recorded, so the note is still owed, and the loop this
+    handshake starts (``keep_alive.start_release_window``) posts it when the
+    window opens. That is the difference between a delay and a loss, and it is
+    why this function is safe to call from both places.
     """
+    from utils import version
+
+    if _release_notes_are_silenced():
+        print(
+            "[UPDATE] automatic release notes are off (SILENT_UPDATES=1) — "
+            "`/bot push` still posts one on demand.",
+            flush=True,
+        )
+        return
+    if not version.window_is_open():
+        print(
+            f"[UPDATE] Holding this deploy's release notes for "
+            f"{version.describe_next()} — nothing is lost, the note is a digest "
+            "of everything since each server's last one.",
+            flush=True,
+        )
+        return
     for guild in bot.guilds:
         await announce_release_notes_to_guild(guild)
 
@@ -1632,6 +1684,10 @@ async def _announce_release_notes() -> None:
 # in production ``bot.py`` *is* ``__main__``, so importing it by name would build a
 # second bot. The same handshake the sync publisher uses.
 bot.announce_release_notes_to_guild = announce_release_notes_to_guild
+# The whole release-note path, for the quiet-window loop: it must run the same
+# silence check and the same per-server records a boot runs, or the loop becomes
+# a second way to announce that the first one cannot see.
+bot.announce_release_notes = _announce_release_notes
 
 
 #: One broken command hit by fifty people is one bug, not fifty cards. A repeat

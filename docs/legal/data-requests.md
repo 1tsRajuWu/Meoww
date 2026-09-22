@@ -19,6 +19,11 @@ For the member's own view, the Bot already answers most of it: `/rank`,
 `/warnings`. For a formal request, copy the live database off the host and query
 it read-only:
 
+An anonymous question is keyed to the asker (`qna_questions.user_id` and
+`qna_questions.user_name`) — the `id` in that table is the *question*, not the
+person. Deleting those rows deletes the question and the record of who asked
+it, including any answer already sent.
+
 ```bash
 sqlite3 bot.db ".mode insert" \
   "SELECT * FROM user_levels WHERE guild_id=:guild AND user_id=:member;"
@@ -30,7 +35,7 @@ The tables keyed to one member (`user_id`, unless noted): `activity_messages`,
 `warnings`, `tempvoice_channels` (`owner_id`), `giveaway_entries`,
 `scheduled_messages` (`created_by`), `marriages` (`user1_id` / `user2_id`),
 `mod_cases` (`user_id` and `moderator_id`), `ticket_feedback` (`author_id` and
-`claimed_by`).
+`claimed_by`), `qna_questions` (`user_id` and `user_name`).
 
 ## 2. Delete one member's data
 
@@ -56,6 +61,7 @@ DELETE FROM marriages         WHERE guild_id=:guild AND (user1_id=:member OR use
 DELETE FROM scheduled_messages WHERE guild_id=:guild AND created_by=:member;
 DELETE FROM ticket_feedback    WHERE guild_id=:guild AND (author_id=:member OR claimed_by=:member);
 DELETE FROM mod_cases          WHERE guild_id=:guild AND user_id=:member;
+DELETE FROM qna_questions      WHERE guild_id=:guild AND user_id=:member;
 ```
 
 Decide `mod_cases` deliberately: a case is the server's moderation record, and
@@ -77,7 +83,8 @@ Everything keyed by `guild_id` (`activity_*`, `economy`, `user_levels`,
 `warnings`, `mod_cases`, `tickets`, `scheduled_messages`, `starboard_posts`,
 `marriages`, `user_animals`, `market_*`, `guild_settings`, `guild_modules`,
 `level_roles`, `level_settings`, `shop`, `starboard_settings`, `tempvoice_*`,
-`reaction_roles`, `giveaways`, `giveaway_entries`, `music_247`), then the
+`reaction_roles`, `giveaways`, `giveaway_entries`, `music_247`,
+`qna_questions`), then the
 snapshot step above. Removing the Bot from the server stops new collection
 immediately but does **not** delete what already exists — only this does.
 

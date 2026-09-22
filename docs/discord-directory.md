@@ -19,7 +19,7 @@ security, and policy requirements:
 |---|---|---|
 | **Privacy Policy URL** | ✅ Ready at `/privacy` | Served by `keep_alive.py` and `scripts/build_site.py` from `PRIVACY.md` |
 | **Terms of Service URL** | ✅ Ready at `/terms` | Served from `TERMS.md` through the same renderer |
-| **Global Slash Commands** | ✅ 95 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
+| **Global Slash Commands** | ✅ 96 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
 | **Command Descriptions** | ✅ Every command documented | Provided via `@app_commands.describe` and docstrings across `cogs/*.py` |
 | **No Mandatory Privileged Intents** | ✅ Default off | Bot operates fully without privileged gateway intents (`bot.py`) |
 | **No User Bots / Self-Bots** | ✅ Compliant | Built on discord.py as an official application |
@@ -83,13 +83,14 @@ A community bot for moderation, tickets with transcripts, leveling, an economy w
 
 ### Detailed Description
 ```markdown
-Meow is a moderation and community bot that stays out of your way. It brings 14 systems and 95 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, a live market, a starboard, social roleplay, fun commands and mini-games, music playback with a live queue and 24/7 radio, a voice companion that sits with somebody alone in a voice channel, and a per-channel activity tracker keeping a 365-day window.
+Meow is a moderation and community bot that stays out of your way. It brings 15 systems and 96 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, a live market, a starboard, social roleplay, fun commands and mini-games, an anonymous question box that relays what you ask without your name and DMs the answer back, music playback with a live queue and 24/7 radio, a voice companion that sits with somebody alone in a voice channel, and a per-channel activity tracker keeping a 365-day window.
 
 Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
 
 ### Key Systems & Commands
 - **Moderation & Automod**: `/warn`, `/mute`, `/kick`, `/ban`, `/appeal`, `/lockdown`, `/cases`, anti-invite and link filters — every automatic action is written to a moderation log, and the member it hit can run `/appeal` for a human review.
 - **Support Tickets**: Transcripts, ratings, and ticket claiming via buttons and modals.
+- **Anonymous Q&A**: `/qna ask` posts a question through the bot's own webhook with nobody's name on it; the asker is shown only to the bot's owner, and the answer is DMed back.
 - **Leveling & Activity**: XP rewards for text and voice, level-roles, and a 365-day per-channel tracker (`/activity me`, `/rank`).
 - **Economy & Market**: `/balance`, `/daily`, `/pay`, shop, loans, and real-time public market quotes (`/market board`, `/market buy`, `/market chart`).
 - **Dashboard & Composer**: Web-based module toggles and scheduled announcement composer (`/help` -> Open Dashboard).

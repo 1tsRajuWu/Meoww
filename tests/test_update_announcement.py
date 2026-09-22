@@ -13,12 +13,16 @@ digest itself: it stays inside the limit, it names the newest entries, and it
 drops the markdown that means nothing outside the file.
 """
 import ast
+import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from utils import version
+import bot as bot_module
+from utils import config_audit, version
 
 BOT_PY = Path(__file__).resolve().parent.parent / "bot.py"
+PUSH_COG = Path(__file__).resolve().parent.parent / "cogs" / "bot_config.py"
 
 
 def _calls(node, name):
@@ -240,6 +244,98 @@ class TestSummaryShape(unittest.TestCase):
         summary = version.summarize_changelog(text)
         self.assertLess(len(summary), 4096)
         self.assertIn("•", summary)
+
+
+class TestSilencingTheAutomaticNotes(unittest.IsolatedAsyncioTestCase):
+    """A deploy may keep its release notes to itself.
+
+    ``SILENT_UPDATES=1`` stops the notes that fire without being asked — the
+    boot, and the server that has just added the bot — because a bound update
+    channel had no way to say no: clearing the binding reads as "not chosen yet",
+    so the next boot binds the channel by name again and the notes resume. Only
+    the automatic half is silenced. ``/bot push`` is an operator asking for a
+    note, which is a different thing from a deploy talking, and it must still
+    work — so one test below pins that it was not gated by the same switch.
+    """
+
+    def setUp(self):
+        self.sent = mock.AsyncMock()
+        self.fake_bot = mock.Mock(guilds=[mock.Mock(name="guild")])
+
+    async def _boot(self):
+        with mock.patch.object(bot_module, "bot", self.fake_bot), mock.patch.object(
+            bot_module, "announce_release_notes_to_guild", self.sent
+        ):
+            await bot_module._announce_release_notes()
+
+    def _with_switch(self, value):
+        """The environment as the host would hand it to the bot.
+
+        The quiet window is pinned wide open here on purpose: this class is about
+        the silence switch, and with the clock left alone its answer would depend
+        on the hour the suite happens to run, which is the one thing a test about
+        a time-of-day feature must not do. ``tests/test_update_window.py`` is
+        where the clock itself is driven, by handing it moments.
+        """
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ["UPDATE_WINDOW_IST"] = "always"
+        if value is None:
+            os.environ.pop("SILENT_UPDATES", None)
+        else:
+            os.environ["SILENT_UPDATES"] = value
+
+    async def test_unset_announces_exactly_as_before(self):
+        self._with_switch(None)
+        await self._boot()
+        self.assertEqual(self.sent.await_count, 1)
+
+    async def test_a_silenced_boot_sends_nothing(self):
+        self._with_switch("1")
+        await self._boot()
+        self.sent.assert_not_awaited()
+
+    async def test_another_value_is_not_a_yes(self):
+        """Only 1/true/yes/on switch it on, the same set every other flag uses."""
+        self._with_switch("maybe")
+        await self._boot()
+        self.assertEqual(self.sent.await_count, 1)
+
+    def test_a_new_server_is_silenced_by_the_same_switch(self):
+        """Both automatic call sites read it, not just the boot.
+
+        Asserted on the source rather than by driving ``on_guild_join``, which
+        needs a guild, a join event and the whole channel-binding pass to say
+        anything at all; the property under test is that this call site consults
+        the same helper, and that is visible in the tree.
+        """
+        tree = ast.parse(BOT_PY.read_text())
+        joins = [
+            node for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "on_guild_join"
+        ]
+        self.assertEqual(len(joins), 1)
+        called = _named_calls(joins[0], "_release_notes_are_silenced")
+        self.assertTrue(called, "on_guild_join announces a new server without asking")
+
+    def test_the_on_demand_push_is_not_gated(self):
+        """``/bot push`` is a person asking, so the switch may not reach it."""
+        source = PUSH_COG.read_text()
+        self.assertIn("announce_release_notes_to_guild", source)
+        self.assertNotIn("_release_notes_are_silenced", source)
+
+    def test_the_switch_defaults_to_sending(self):
+        """Absent means the notes still go out — this is an opt-in silence."""
+        self._with_switch(None)
+        self.assertFalse(config_audit.flag("SILENT_UPDATES"))
+
+    def test_the_switch_is_declared_as_tuning(self):
+        """Declared, and not as a fault: its absence is the working default."""
+        setting = next(s for s in config_audit.SETTINGS if s.name == "SILENT_UPDATES")
+        self.assertEqual(setting.kind, config_audit.TUNING)
+        self.assertFalse(setting.notable)
 
 
 if __name__ == "__main__":

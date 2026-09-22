@@ -529,6 +529,14 @@ class DeploymentConfig(unittest.TestCase):
         "PLAN_CHECKOUT",
         "PLAN_ENFORCEMENT",
         "OWNER_DISCORD_ELEVATION",
+        # ``SILENT_UPDATES`` and ``UPDATE_WINDOW_IST`` join them as a switch and a
+        # clock rather than credentials, and for the same reason: what they hold
+        # *is* the state this deployment was asked to be in — quiet, at 03:33 IST
+        # — and a prompt is where a behaviour gets answered differently on two
+        # hosts, one of which would then announce every deploy into a channel at
+        # whatever hour somebody pushed.
+        "SILENT_UPDATES",
+        "UPDATE_WINDOW_IST",
     })
 
     def committed_secrets(self, manifest: str) -> list:

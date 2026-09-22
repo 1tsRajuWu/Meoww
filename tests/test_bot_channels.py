@@ -384,10 +384,17 @@ class TheDigestReachesEveryServer(TempDatabaseMixin, unittest.IsolatedAsyncioTes
         self.release_temp_database()
 
     async def _boot(self):
-        """Exactly what on_ready does, in the order it does it."""
+        """Exactly what on_ready does, in the order it does it.
+
+        The quiet window is held open: with the clock left to itself a boot
+        outside 03:33–05:14 IST would post nothing at all and every assertion
+        below would fail for a reason that has nothing to do with channels.
+        """
         for guild in self.bot.guilds:
             await bot_channels.ensure_bound(guild)
-        with mock.patch.object(bot_module, "bot", self.bot):
+        with mock.patch.object(bot_module, "bot", self.bot), mock.patch.object(
+            version, "window_is_open", return_value=True
+        ):
             await bot_module._announce_release_notes()
 
     async def test_each_server_gets_the_note_in_its_own_channel(self):

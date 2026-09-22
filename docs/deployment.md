@@ -216,6 +216,52 @@ not a substitute for either — and the Render host deliberately keeps serving
 `/owner` with only the passkey, so that a mistake in an edge policy cannot lock
 the operator out of their own console.
 
+## Free, and online without you
+
+This deployment is a free Render web service plus a free Supabase project, and
+"will it still be up if I stop touching it" has three parts — one of which is not
+in this repository at all, and that is the one that matters most.
+
+**1. Something outside the host has to knock on it.** A free Render instance is
+stopped after fifteen minutes without an inbound request, and nothing inside the
+container can prevent that: the timer is on Render's side. An external monitor is
+what keeps it awake, and this deployment already reads one — UptimeRobot's free
+plan is fifty monitors at five-minute intervals, and the same read-only key
+(`UPTIMEROBOT_API_KEY`) is what turns the dashboard's status panel from *not read
+this process* into the history this host actually has. Add one HTTP(s) monitor
+pointing at `{DASHBOARD_BASE_URL}/health`: that endpoint is public on purpose and
+answers `200` with counts and no names, so it is safe to hand to a third party.
+Expect 30–60 seconds of cold-start latency on the first request after a nap.
+
+Nothing is broken without a monitor — the bot is simply offline between requests
+and comes back on the next one — but **an update window the process slept through
+is still owed**, because nothing is recorded as announced until Discord accepted
+the message. A nap delays that morning's release note; it does not lose it.
+
+**2. The hours are a budget, and one always-on service spends nearly all of it.**
+Render's free plan allows 750 instance hours per account per month, and a service
+that never sleeps uses 730–744 of them (24 × 30, or 24 × 31). This bot may be the
+**only** free service on the account: a second one running the same way pushes the
+total over the allowance and both are suspended — the failure looks like "the bot
+died" and has nothing to do with the bot. The public site and the owner console
+are on Cloudflare Pages, which has no such budget, so there is nothing to add
+there and nothing to keep awake.
+
+**3. Assume the disk is temporary, because it is.** Render's filesystem is wiped
+on every deploy, and the database is a SQLite file on it. What makes that
+survivable is `utils/cloud_sync.py`: the database is restored from Supabase
+Storage at boot, snapshotted on a timer (`SNAPSHOT_INTERVAL`, one hour), and —
+the part that matters for a host that sleeps — **flushed on `SIGTERM`**, which is
+the signal Render sends before it stops an idle instance. A shutdown is therefore
+a save rather than a loss, and the shrunken-database guard
+(`SHRINK_GRACE_TICKS`, `CLOUD_SYNC_ALLOW_SHRINK`) is what stops a wiped local file
+from being mistaken for the truth and uploaded over the good copy.
+
+What this does *not* cover: anything written in the last moments before a hard
+kill with no warning, and any deployment where `SUPABASE_URL` /
+`SUPABASE_SERVICE_KEY` were never set — without them there is no backup at all,
+which `/dbstatus` and the dashboard's Cloud card both say out loud.
+
 ## Environment Variables Required
 
 ### Discord Bot
@@ -238,6 +284,21 @@ the operator out of their own console.
   to show for it, which is the omission this manifest has been caught by before
 - `UPTIMEROBOT_STATUS_PAGE`: a public UptimeRobot status page to link from that
   panel for visitors who are not signed in
+- `UPDATE_WINDOW_IST`: the times of day, in IST, when a deploy's release notes
+  may go out in each server's own update channel. Defaults to
+  `03:33,04:00,04:44` — the small hours, three times a few minutes apart so a
+  free host that was asleep at the first still lands in the second or third. A
+  boot outside the window sends nothing and records nothing, so the note is still
+  owed and goes out complete when the window opens: it is a digest of everything
+  since that server's last one, so a delay is a delay and never a gap. Set it to
+  `always` to post the moment a deploy boots (the behaviour before this existed),
+  and `SILENT_UPDATES=1` for the other end, which posts no automatic note at all.
+  `/bot push` posts one on demand whatever either says, because a person asking
+  is not what is being silenced
+- `SILENT_UPDATES=1`: stop the automatic release notes entirely — the one on a
+  boot that changed `CHANGELOG.md`, and the one a server gets the moment it adds
+  the bot. Only automated notes: `/bot push` still works. This is the *mute*
+  switch, not the *quiet* one; the quiet one is `UPDATE_WINDOW_IST`
 - `DASHBOARD_HTTPS=1`: force the dashboard's session cookie to `Secure`. Render
   and Railway are detected automatically; set this when you terminate TLS
   yourself (the server binds `0.0.0.0`, so without it a plaintext request to the
@@ -344,6 +405,12 @@ The bot includes automatic cloud sync:
 - `[UPTIME]`: one line per refresh with UptimeRobot's own status and detail —
   the line that says `Not connected` when `UPTIMEROBOT_API_KEY` is unset, so an
   integration that is off is never mistaken for one that is broken
+- `[UPDATE]`: where the release notes are. At boot, either `Posted update
+  announcement to #...`, `Holding this deploy's release notes for 03:33 IST
+  tomorrow (...)`, `automatic release notes are off (SILENT_UPDATES=1)`, or the
+  one line that says which servers have no update channel to post them in. The
+  windowed line is what tells you a deploy is *waiting* rather than broken, and
+  it names the exact moment the note will go out
 
 ### Health Checks
 - Bot online status

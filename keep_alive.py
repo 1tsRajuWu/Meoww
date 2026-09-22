@@ -7787,6 +7787,129 @@ def start_site_guard(bot):
     return bot.loop.create_task(site_guard_loop())
 
 
+#: How often the quiet-window loop looks at the clock. Half a minute, against a
+#: window thirty minutes wide: the tick is what makes "03:33" mean a minute
+#: rather than "some time after the next restart", and anything faster would be
+#: asking a question whose answer changes once a day.
+RELEASE_WINDOW_TICK_SECONDS = 30
+
+#: How long to wait after a window's own attempt did not land everywhere. A note
+#: that failed is still owed (nothing is recorded as announced), so it is retried
+#: — inside the open window, because that is the hour the server agreed to hear
+#: from the bot — and this is what stops sixty attempts in thirty minutes from
+#: becoming the thing the channel remembers about the deploy.
+RELEASE_WINDOW_RETRY_SECONDS = 300
+
+
+async def release_window_loop():
+    """Post each deploy's release notes inside the server's quiet window.
+
+    A boot is a deploy and deploys happen whenever somebody pushes, so the note
+    about a change made at noon used to arrive at noon — in the channel of every
+    server that had bound one. The fix is a clock: between the windows the bot
+    says nothing about itself, and inside one it says the same thing it always
+    said, to the same places, through the same per-server records.
+
+    Every branch is best-effort, like the loops beside it: this one is allowed to
+    do nothing for hours at a time by design, so a single exception that ended it
+    would be indistinguishable from a quiet night until somebody noticed the
+    notes had stopped.
+    """
+    import asyncio
+
+    from utils import version
+
+    if not version.windows():
+        # ``UPDATE_WINDOW_IST=always``: the boot has already announced, and there
+        # is nothing for a clock to do. Said out loud rather than silently not
+        # running, because "why did this loop not start" is a question a log has
+        # to be able to answer.
+        print(
+            "[UPDATE] No quiet window configured — release notes go out when a "
+            "deploy boots.",
+            flush=True,
+        )
+        return None
+    print(
+        f"[UPDATE] Next release note: {version.describe_next()} "
+        f"(windows: {version.WINDOW_ENV}={','.join(f'{t:%H:%M}' for t in version.windows())}).",
+        flush=True,
+    )
+    while True:
+        try:
+            if version.window_is_open():
+                if await _post_owed_release_notes():
+                    await asyncio.sleep(RELEASE_WINDOW_RETRY_SECONDS)
+                    continue
+            await asyncio.sleep(RELEASE_WINDOW_TICK_SECONDS)
+        except Exception as e:
+            print(f"[UPDATE] Quiet-window loop error (will retry): {e}", flush=True)
+            await asyncio.sleep(60)
+
+
+async def _post_owed_release_notes() -> bool:
+    """One pass through every server, and whether another attempt is worth making.
+
+    True means "a server's record did not move", which is the trigger for a
+    slower retry rather than a pause — either a note is still owed somewhere (so
+    "nothing to do" would be wrong) or there was nothing owed at all (so asking
+    again in half a minute would be pointless).
+
+    Through the client's own handshake rather than this module's own copy of it:
+    ``bot.py`` owns the silence check, the per-server "already told" records and
+    the legacy update channel, and a loop with a second copy of those would drift
+    from the boot that shares them.
+    """
+    announce = getattr(BOT_INSTANCE, "announce_release_notes", None)
+    if announce is None:
+        print(
+            "[UPDATE] No release-note handshake on the client — nothing will be "
+            "posted by the quiet window.",
+            flush=True,
+        )
+        return False
+    before = _announced_state()
+    await announce()
+    return _announced_state() == before
+
+
+def _announced_state() -> dict:
+    """Every server's recorded last-announced hash, for a before/after comparison.
+
+    Cheap enough to do twice a minute in a window: one indexed read of a table
+    with one row per server. Read straight from the database rather than from a
+    count kept in this loop, because the writer is on the other side of a
+    handshake and this side must not be able to claim a note landed that did not.
+    """
+    from utils import version
+
+    try:
+        conn = db.connect()
+    except Exception as e:
+        print(f"[UPDATE] Could not read the announcement records: {e}", flush=True)
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT key, value FROM kv_store WHERE key LIKE 'changelog_hash%'"
+        ).fetchall()
+        return {str(key): str(value) for key, value in rows}
+    except Exception:
+        return {}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def start_release_window(bot):
+    """Start the quiet-window loop on the bot's own event loop."""
+    if bot is None or getattr(bot, "loop", None) is None:
+        print("[UPDATE] No event loop — release notes will not be windowed.", flush=True)
+        return None
+    return bot.loop.create_task(release_window_loop())
+
+
 #: How long a media pass stays good for, and how long after boot the first one
 #: runs. Both come from the module that owns the interval, so the loop cannot
 #: disagree with what the check says it promises; the loop waits a while after a

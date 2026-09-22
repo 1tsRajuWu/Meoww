@@ -99,6 +99,24 @@ services:
       # signed in. No value, no link.
       - key: UPTIMEROBOT_STATUS_PAGE
         sync: false
+      # When a deploy announces itself. This is a switch plus a clock, and the
+      # pair is the answer to the same complaint: the notes are the bot talking
+      # about itself in a channel it is in, and a note that arrives at 14:20
+      # arrives in a working day. `UPDATE_WINDOW_IST` keeps the notes and moves
+      # them to the small hours (three times a few minutes apart, because a free
+      # instance can be asleep at the first); a boot outside the window records
+      # nothing, so the note is still owed and goes out complete.
+      #
+      # `SILENT_UPDATES=0` is the other half of that pair, not its absence: with
+      # the window in place the notes are quiet, so the switch is left off — set
+      # it to 1 to stop them *entirely*, which is the only setting that leaves a
+      # server's update channel permanently empty. `/bot push` posts a note on
+      # demand either way, because a person asking is not what is being
+      # silenced.
+      - key: UPDATE_WINDOW_IST
+        value: "03:33,04:00,04:44"
+      - key: SILENT_UPDATES
+        value: "0"
       # --- music -----------------------------------------------------------------
       # Nothing here is required for playback. ``imageio-ffmpeg`` (a dependency)
       # ships a static ffmpeg so a host that cannot apt-get anything can still
@@ -121,6 +139,14 @@ services:
       - key: YTDL_PO_TOKEN
         sync: false
       - key: YTDL_VISITOR_DATA
+        sync: false
+      # --- the anonymous question box --------------------------------------------
+      # The webhook `/qna ask` posts through, so a question lands in a channel
+      # with nobody's name on it. Optional — with no URL, `/qna ask` says so in a
+      # sentence naming the setting rather than doing nothing — and a credential,
+      # so it is a prompt and never a value. The asker's name is never posted with
+      # the question: it is stored beside it and DM'd only to OWNER_USER_ID.
+      - key: QNA_WEBHOOK_URL
         sync: false
       # --- out-of-band alerts ----------------------------------------------------
       # A second webhook, for the events a channel *inside a server* cannot

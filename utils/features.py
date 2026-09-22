@@ -263,6 +263,25 @@ FEATURES: tuple[Feature, ...] = (
         help_key="company",
     ),
     Feature(
+        id="qna",
+        name="Anonymous Q&A",
+        icon="❓",
+        category="Community",
+        description=(
+            "An anonymous question box: a member's question is relayed into the "
+            "channel by a webhook, the asker's name is shown only to the bot's "
+            "owner, and the answer is DMed back to whoever asked."
+        ),
+        gate_commands=("qna",),
+        commands=(
+            "/qna ask — Ask something with nobody's name on it",
+            "/qna inbox — The questions waiting for an answer (owner)",
+            "/qna reply — Answer one, by DM (owner)",
+        ),
+        cog="cogs.qna",
+        help_key="qna",
+    ),
+    Feature(
         id="music",
         name="Music & Radio",
         icon="🎵",
@@ -369,6 +388,11 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
 # raised AttributeError and answered with "An unexpected error occurred".
 DM_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     "help", "legal", "uwu", "8ball",
+    # The owner answers questions from a DM — the card's button is answered in
+    # one, and ``/qna reply`` has to be reachable from the same place or the
+    # feature is discoverable only by whoever remembers it. ``/qna ask`` checks
+    # for a server itself and says so, since a question is posted *somewhere*.
+    "qna",
 })
 
 

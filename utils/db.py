@@ -717,6 +717,21 @@ async def setup():
             'CREATE INDEX IF NOT EXISTS idx_web_actions_guild ON web_actions(guild_id, at)'
         )
 
+        # ── The anonymous question box ───────────────────────────────────────
+        # The one table whose *contents* are a promise rather than a record: the
+        # question and the asker are in the same row and the feature only works
+        # if the two readings of that row cannot be confused — the public half is
+        # built from a closed field list in ``utils/qna``, and the name is
+        # rendered only in the owner's own DM and inbox.
+        #
+        # The schema is defined beside those rules and imported here rather than
+        # copied, so a column added there cannot be missing from a database that
+        # boots. Imported inside the function on purpose: ``utils/qna`` reads
+        # this module, and a module-level import here would be a cycle.
+        from utils import qna as _qna  # noqa: PLC0415
+
+        await db.execute(_qna.CREATE_TABLE)
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):

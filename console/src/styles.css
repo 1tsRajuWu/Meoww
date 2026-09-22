@@ -2032,11 +2032,14 @@ html[data-cursor-style="system"] .meow-glow {
   background: color-mix(in oklab, var(--panel-2) 90%, transparent);
 }
 
+/* Rendered in a portal on `document.body` (see `Shell.tsx`) and *placed* from the
+   Cursor button's rect, so `left` / `bottom` / `width` arrive as inline styles.
+   They have to: the panel opens beside the rail, the rail clips
+   (`.rail { overflow: hidden }`), and a positioned descendant of a clipping box
+   is a descendant that gets clipped. `position: fixed` plus a body-level parent
+   is the only arrangement where "beside the rail" means what it says. */
 .customizer-popover {
-  position: absolute;
-  left: calc(100% + 12px);
-  bottom: 12px;
-  width: 310px;
+  position: fixed;
   max-height: min(580px, calc(100vh - 36px));
   overflow-y: auto;
   background: var(--panel);
@@ -2048,15 +2051,6 @@ html[data-cursor-style="system"] .meow-glow {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-@media (max-width: 860px) {
-  .customizer-popover {
-    left: 12px;
-    right: 12px;
-    bottom: calc(100% + 12px);
-    width: auto;
-  }
 }
 
 .customizer-head {

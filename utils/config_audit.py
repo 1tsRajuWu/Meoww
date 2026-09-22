@@ -362,6 +362,18 @@ SETTINGS: tuple[Setting, ...] = (
         secret=True,
     ),
     Setting(
+        "QNA_WEBHOOK_URL",
+        CAPABILITY,
+        "the webhook `/qna` posts anonymous questions through — the channel that "
+        "takes questions with nobody's name on them",
+        "`/qna ask` refuses and says which setting is missing, because a question "
+        "box with nowhere to post to is indistinguishable from a broken one. The "
+        "webhook is a credential: anybody holding the URL can post into that "
+        "channel as the box, which is why it lives in the environment and no "
+        "command or dashboard page can set it.",
+        secret=True,
+    ),
+    Setting(
         "BOT_SERVER_GUILD_ID",
         CAPABILITY,
         "which server is the bot's home, for bug reports filed where the server "
@@ -383,6 +395,35 @@ SETTINGS: tuple[Setting, ...] = (
         "the role the update announcement pings",
         "the compiled default role is pinged, which exists in the bot's home "
         "server only.",
+    ),
+    Setting(
+        "SILENT_UPDATES",
+        TUNING,
+        "whether a deploy announces itself at all: a release note in each "
+        "server's own update channel, and one to a server the moment it adds "
+        "the bot",
+        "every server with a bound update channel hears about every deploy, "
+        "which is the intended default. Set it to 1 to stop the automatic notes "
+        "*entirely* \u2014 `/bot push` still posts one when an operator asks for "
+        "it. It could not be asked for before: clearing the binding reads as "
+        "\"not chosen yet\" rather than \"not wanted\", so the next boot bound "
+        "the update channel by name again and the notes resumed. For \"stop the "
+        "notes arriving at a bad hour\" the answer is UPDATE_WINDOW_IST, which "
+        "keeps them and moves them.",
+    ),
+    Setting(
+        "UPDATE_WINDOW_IST",
+        TUNING,
+        "the times of day, in IST, when a deploy's release notes may go out in "
+        "each server's own update channel",
+        "defaults to `03:33,04:00,04:44` \u2014 the small hours, three times a few "
+        "minutes apart so a free host that was asleep at the first still lands in "
+        "the second or third. A boot outside the window sends nothing and records "
+        "nothing, so the note is still owed and goes out complete when the window "
+        "opens: it is a digest of everything since that server's last one, so a "
+        "delay is a delay and never a gap. Set it to `always` to post the moment "
+        "a deploy boots, which is what every deployment did before this existed; "
+        "SILENT_UPDATES=1 is the other end, which posts nothing at all.",
     ),
     Setting(
         "RENDER_DEPLOY_HOOK_URL",

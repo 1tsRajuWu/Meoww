@@ -28,6 +28,20 @@ answers for it, and using a server that runs the Bot is agreement to it.
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who
   queued them.
+* **Anonymous Q&A:** the question text, the answer given to it, and — written
+  beside them — **who asked**, as their Discord id and display name. The
+  question itself is posted to the server's chosen channel by a webhook, so no
+  member's name, mention or profile is on it: the channel sees the question and
+  the asker sees that it was received. The name is rendered in exactly two
+  places, both of which refuse anyone who is not the bot's owner — the one
+  account this deployment is configured with, which is the operator rather than
+  any administrator holding a permission: a DM to that account, and the
+  `/qna inbox` list. The name of the setting that points at it belongs in the
+  operator's own configuration reference rather than here, because this page is
+  public. The answer
+  is delivered to the asker by DM and is never posted. There is no expiry on
+  these rows — a question is kept until it is deleted, because an unanswered one
+  is the feature.
 * **What was done through the website, and by whom:** one row per action taken
   from the dashboard or the operator's console — the scope, the person's Discord
   id and username, the server, the action, who or what it was aimed at, whether

@@ -7,11 +7,171 @@ entries are posted to the upload channel.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 from pathlib import Path
 
+from utils import config_audit
+
 ROOT = Path(__file__).resolve().parent.parent
 CHANGELOG = ROOT / "CHANGELOG.md"
+
+#: The clock the release notes are sent on.
+#:
+#: A fixed +05:30 rather than ``zoneinfo``: a slim container has no tzdata, and a
+#: lookup that raises is a quiet window computed in the host's own time — which
+#: is UTC on the deploy, i.e. every note half a day away from where it was
+#: aimed. India has had exactly one offset since 1945, so this is not an
+#: approximation of IST, it is IST.
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30), "IST")
+
+#: The times of day (IST) a deploy's release notes are *allowed* to go out.
+#:
+#: Three of them, minutes apart, and the reason is the host: a free instance can
+#: be asleep at the first one, so a process woken at 03:34 by the monitor that
+#: keeps it awake still has 04:00 and 04:44 to land in. Nothing is lost when all
+#: three pass — the note is a digest of everything announced since a server's own
+#: last one, so it waits and arrives complete.
+DEFAULT_WINDOWS: tuple[str, ...] = ("03:33", "04:00", "04:44")
+
+#: The setting that replaces them, comma-separated ``HH:MM`` IST. The word
+#: ``always`` is honoured as "no quiet window": notes go out the moment a deploy
+#: boots, which is what this did before the window existed.
+#: 
+#: Named rather than typed at the call site, and named this way round on purpose:
+#: a constant whose name ends in ``ENV`` holding the *name* of a setting is one of
+#: the two indirections the config audit's own search is built to see (the other
+#: is a literal handed to ``config_audit.get``). A setting read through an
+#: arbitrary constant is invisible to that report, which is how ``YTDL_SOURCE_ORDER``
+#: came to be readable, undeclared and unfindable all at once.
+WINDOW_ENV = "UPDATE_WINDOW_IST"
+NO_WINDOW = ("always", "any", "none", "off")
+
+#: How long a window stays open once it arrives, in minutes. Not a deadline —
+#: every state of the clock either sends or waits — but the width of "this is the
+#: moment", which is what makes a slow boot inside the window count as in time.
+WINDOW_OPEN_MINUTES = 30
+
+
+def _parse_hhmm(text: str) -> datetime.time | None:
+    """``"03:33"`` as a time, or ``None`` if that is not what it is.
+
+    Anything unparseable is dropped rather than guessed at: a typo must not turn
+    into a note posted at the wrong hour, and it must not silently become
+    "no window" either — see ``windows``.
+    """
+    parts = str(text or "").strip().split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return datetime.time(hour, minute)
+
+
+def windows() -> tuple[datetime.time, ...]:
+    """When a release note may be sent, sorted, or ``()`` for "no window".
+
+    An unset setting is the windowed default rather than "post at boot": every
+    deployment that wanted the old behaviour can say ``always``, and a deployment
+    that never heard of this setting gets the quiet one, because a note to a
+    server's own channel at 3:33 am is what nobody complains about while the
+    same note during a working day is what this exists to stop.
+
+    A setting that is *set but unreadable* falls back to the default times as
+    well — an unreadable quiet window must not mean "send whenever".
+    """
+    raw = (config_audit.get(WINDOW_ENV) or "").strip()
+    if not raw:
+        return tuple(sorted(_parse_hhmm(t) for t in DEFAULT_WINDOWS))
+    if raw.lower() in NO_WINDOW:
+        return ()
+    parsed = [t for t in (_parse_hhmm(part) for part in raw.split(",")) if t]
+    if not parsed:
+        return tuple(sorted(_parse_hhmm(t) for t in DEFAULT_WINDOWS))
+    return tuple(sorted(set(parsed)))
+
+
+def ist_now(now: datetime.datetime | float | None = None) -> datetime.datetime:
+    """The operator's own clock, whatever the host believes the time is."""
+    if isinstance(now, datetime.datetime):
+        moment = now if now.tzinfo else now.replace(tzinfo=datetime.timezone.utc)
+        return moment.astimezone(IST)
+    if isinstance(now, (int, float)):
+        return datetime.datetime.fromtimestamp(float(now), tz=IST)
+    return datetime.datetime.now(tz=IST)
+
+
+def window_is_open(now: datetime.datetime | float | None = None) -> bool:
+    """Whether a release note may be sent at this moment.
+
+    True inside a window and for ``WINDOW_OPEN_MINUTES`` after it opens, and True
+    always when no window is configured. Deliberately *not* a check of whether
+    anything is owed: the per-server record already answers that, and this is a
+    question about the clock alone so the loop and the boot can share one answer.
+    """
+    times = windows()
+    if not times:
+        return True
+    local = ist_now(now).time()
+    for opening in times:
+        # A window that opens near midnight is still open after it: the two
+        # minutes of arithmetic below are done in minutes-of-day rather than in
+        # ``datetime.time``, which cannot do it.
+        start = opening.hour * 60 + opening.minute
+        minute = local.hour * 60 + local.minute
+        if 0 <= minute - start < WINDOW_OPEN_MINUTES:
+            return True
+        if start + WINDOW_OPEN_MINUTES > 24 * 60 and minute < start + WINDOW_OPEN_MINUTES - 24 * 60:
+            return True
+    return False
+
+
+def next_window(now: datetime.datetime | float | None = None) -> datetime.datetime | None:
+    """When the next window opens, as an aware IST moment — or ``None``.
+
+    The window currently open counts as this one: "when will the notes go out"
+    has the answer "now" while a window is open, and a caller that wanted the
+    following one would be asking a different question.
+    """
+    times = windows()
+    if not times:
+        return None
+    local = ist_now(now)
+    if window_is_open(local):
+        return local
+    for opening in times:
+        candidate = local.replace(
+            hour=opening.hour, minute=opening.minute, second=0, microsecond=0
+        )
+        if candidate > local:
+            return candidate
+    first = times[0]
+    tomorrow = local + datetime.timedelta(days=1)
+    return tomorrow.replace(hour=first.hour, minute=first.minute, second=0, microsecond=0)
+
+
+def describe_next(now: datetime.datetime | float | None = None) -> str:
+    """``03:33 IST tomorrow (in 19h 28m)`` — the sentence the boot log prints."""
+    if not windows():
+        return "no quiet window — a release note goes out the moment a deploy boots"
+    local = ist_now(now)
+    if window_is_open(local):
+        return f"now ({local:%H:%M} IST, inside the window)"
+    target = next_window(local)
+    remaining = target - local
+    minutes = int(remaining.total_seconds() // 60)
+    hours, minutes = divmod(minutes, 60)
+    day = "today" if target.date() == local.date() else "tomorrow"
+    return f"{target:%H:%M} IST {day} (in {hours}h {minutes:02d}m)"
+
+
+def stamp(moment: datetime.datetime | float | None = None) -> str:
+    """A moment as ``22 Sep 2026, 03:33 IST`` — the operator's own clock."""
+    return ist_now(moment).strftime("%d %b %Y, %H:%M IST")
 
 # The announcement channel used to be spelled out here as well as in bot.py and
 # the (now removed) uploads cog — three copies of one id, which is how the

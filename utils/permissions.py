@@ -180,6 +180,18 @@ COMMAND_ACCESS: dict[str, str] = {
     "trivia": EVERYONE,
     "uwu": EVERYONE,
     "zoo": EVERYONE,
+    # -- Anonymous Q&A ------------------------------------------------------ #
+    # Asking is for everyone — that is the feature — and so is receiving the
+    # answer, which arrives as a DM the bot sends rather than as a command.
+    "qna ask": EVERYONE,
+    # The inbox and the reply are the bot **owner's**, not the server's: the
+    # whole promise is that one person can see who asked, and that person is the
+    # operator of the deployment rather than any administrator holding a
+    # permission bit. Checked in the callback, because Discord has no permission
+    # that means "this one account".
+    "qna inbox": OWNER,
+    "qna reply": OWNER,
+
     # -- Music: everyone plays, the server owner keeps the seat ---------------- #
     # Playback control is deliberately open to any member: it is a shared room,
     # the person who queued nothing is still in it, and every other music bot

@@ -246,6 +246,21 @@ HELP_MODULES = {
         ),
         "color": 0x95A5A6,
         "emoji": "⚙️"
+    },
+    "qna": {
+        "title": "❓ Anonymous Q&A",
+        "desc": (
+            "A question box with nobody's name on it. What you ask is posted to "
+            "the server's anonymous channel by the bot's own webhook, and the "
+            "answer comes back to you as a DM.\n\n"
+            "> `/qna ask` — Ask something anonymously\n\n"
+            "Who asked is written down beside the question and shown to **one** "
+            "person — the bot's owner, who answers it. Nobody in the server sees "
+            "a name, a mention or a profile: the question arrives as the box, not "
+            "as a member."
+        ),
+        "color": 0x5865F2,
+        "emoji": "❓"
     }
 }
 
@@ -262,7 +277,8 @@ HELP_HOME_BODY = (
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
     "- 🎵 **Music & Radio** — playback, a live queue, 24/7 radio, audio filters\n"
     "- 🎫 **Tickets** — private staff support\n"
-    "- 📊 **Activity Tracker** — per-channel msg & voice stats"
+    "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
+    "- ❓ **Anonymous Q&A** — ask with no name on it, answer by DM"
 )
 
 # The category *structure* comes from the feature registry; the prose below
