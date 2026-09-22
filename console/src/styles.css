@@ -806,7 +806,7 @@ a {
    the reason. The em dash is the whole mark — a `0` in this position is the
    defect this exists to prevent. */
 .stat--unread .stat__value {
-  color: var(--muted);
+  color: var(--dim);
   font-weight: 500;
 }
 
@@ -849,6 +849,12 @@ a {
   gap: var(--space-2);
 }
 
+/* The list-row treatment the Live page's `.alone__row` already uses, token for
+   token: a panel-2 glass row at `--radius-sm`, because these are rows *inside* a
+   card rather than cards of their own. They read `--radius-2` and `--surface-2`
+   for a while — Discord's palette names, from the markup this replaced — which
+   this sheet has never defined, so the radius was ignored and the row had no
+   background at all: two declarations that were valid CSS and did nothing. */
 .session {
   display: flex;
   align-items: center;
@@ -856,8 +862,8 @@ a {
   gap: var(--space-3);
   padding: var(--space-3) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius-2);
-  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
 }
 
 /* The one row that is this browser. A hairline on the left rather than a
@@ -885,8 +891,8 @@ a {
 }
 
 .session__meta {
-  color: var(--muted);
-  font-size: var(--type-small);
+  color: var(--dim);
+  font-size: var(--type-meta);
   font-variant-numeric: tabular-nums;
   /* An agent string is attacker-controlled text: one line, and clipped rather
      than wrapped — a 4 KB User-Agent must not be able to reshape the page. */
@@ -928,15 +934,15 @@ a {
 }
 
 .window__hint {
-  color: var(--muted);
-  font-size: var(--type-small);
+  color: var(--dim);
+  font-size: var(--type-meta);
 }
 
 .window__blocked {
   margin: 0;
   padding-left: 1rem;
   color: var(--danger);
-  font-size: var(--type-small);
+  font-size: var(--type-meta);
   font-variant-numeric: tabular-nums;
 }
 

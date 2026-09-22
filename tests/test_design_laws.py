@@ -8,7 +8,7 @@ operator's) plus the markup that consumes them.
 
 That is exactly why this file exists. A design system is not the sheet; it is the
 sheet *plus something that fails when a rule stops being true*. Every check below
-is one of five sentences a reviewer would otherwise have to remember:
+is one of six sentences a reviewer would otherwise have to remember:
 
 * **Contrast.** Text is at least 4.5:1 against the surface it is drawn on, and a
   graphic (a border, a focus ring, a fill) at least 3:1. The tokens are what get
@@ -24,6 +24,11 @@ is one of five sentences a reviewer would otherwise have to remember:
 * **Chunked, not endless.** The owner console has nine destinations, which is
   past the seven a person scans without counting — so its rail is grouped, and
   the arithmetic of that grouping is asserted here instead of trusted.
+* **Nothing reads a token that does not exist.** A ``var()`` with no definition
+  and no fallback is valid CSS that draws *nothing*: the declaration is dropped,
+  so a colour paints what it inherited, a font size changes nothing, and an SVG
+  ``stroke`` is not painted at all. Five such names lived in the console for nine
+  releases and no test could see them.
 
 The point of writing these as tests rather than as a paragraph in a README is the
 one this project keeps rediscovering: a rule nobody can check turns out to be a
@@ -370,6 +375,93 @@ class TheTypeScale(unittest.TestCase):
             "these rules set a font size by hand instead of from the scale:\n"
             + "\n".join(offenders),
         )
+
+
+class EveryTokenIsDefined(unittest.TestCase):
+    """A ``var()`` nobody defined renders *nothing* — and passes every other check.
+
+    This is the quietest failure in the whole sheet, which is why it is a law.
+    ``color: var(--muted)`` is valid CSS that paints the inherited colour;
+    ``font-size: var(--type-small)`` is valid CSS that changes nothing at all;
+    an undefined name in an SVG ``stroke`` resolves to ``none``, so the element
+    is not painted. Nothing errors, nothing is logged, and the diff that added it
+    looks exactly like the diff that works.
+
+    Found by reading the served pages rather than the source: five names —
+    ``--muted``, ``--radius-2``, ``--surface-2``, ``--type-small`` (Discord's
+    palette, carried in with the markup this console replaced) and
+    ``--pill-good-text`` — were read by rules the browser had been discarding for
+    as long as they had existed, so the Access page's session rows had no
+    background and body-sized metadata, and the Overview's Fleet Reach gauge was
+    an empty ring with "40%" written in the middle of it.
+
+    A name is satisfied two ways: declared somewhere in the console's own sources
+    (the sheet's token blocks, or a ``setProperty`` call from ``theme.ts``, which
+    is where the cursor's four live), or given a fallback — ``var(--x, …)`` —
+    which is exactly what the runtime-set ones do.
+    """
+
+    def _declared(self) -> set[str]:
+        declared: set[str] = set()
+        for root, _dirs, files in os.walk(CONSOLE_SRC):
+            for entry in files:
+                if not entry.endswith((".css", ".ts", ".tsx")):
+                    continue
+                source = read(os.path.join(root, entry))
+                declared.update(re.findall(r"--([a-z0-9-]+)\s*:", source))
+                declared.update(
+                    re.findall(r"setProperty\(\s*[\"']--([a-z0-9-]+)", source)
+                )
+        return declared
+
+    def _reads(self) -> list[tuple[str, str]]:
+        """Every ``var(--name)`` with no fallback: (name, where) for each."""
+        naked = []
+        for root, _dirs, files in os.walk(CONSOLE_SRC):
+            for entry in sorted(files):
+                if not entry.endswith((".css", ".ts", ".tsx")):
+                    continue
+                source = read(os.path.join(root, entry))
+                for match in re.finditer(r"var\(\s*--([a-z0-9-]+)\s*([,)])", source):
+                    if match.group(2) == ")":
+                        naked.append((match.group(1), f"{entry}:{match.group(0)}"))
+        return naked
+
+    def test_the_table_was_found(self):
+        """A check that reads nothing proves nothing."""
+        declared = self._declared()
+        self.assertGreater(len(declared), 30, "no custom properties were parsed")
+        self.assertGreater(len(self._reads()), 40, "no var() reads were parsed")
+
+    def test_every_property_a_console_rule_reads_exists(self):
+        declared = self._declared()
+        missing = sorted(
+            f"--{name} (read by {where})"
+            for name, where in self._reads()
+            if name not in declared
+        )
+        self.assertEqual(
+            missing,
+            [],
+            "these rules read a custom property nothing defines, so the browser "
+            "drops the declaration and draws nothing — declare it, or give the "
+            "read a fallback:\n" + "\n".join(missing),
+        )
+
+    def test_the_five_names_this_law_was_written_for_are_gone(self):
+        """Named rather than left to the sweep above, because these five were
+        *invisible*: a reviewer reading either diff would have seen a colour and a
+        radius where the browser saw neither."""
+        sources = "".join(
+            read(os.path.join(root, entry))
+            for root, _dirs, files in os.walk(CONSOLE_SRC)
+            for entry in files
+            if entry.endswith((".css", ".ts", ".tsx"))
+        )
+        for name in ("muted", "radius-2", "surface-2", "type-small", "pill-good-text"):
+            with self.subTest(name=name):
+                self.assertNotIn(f"var(--{name})", sources)
+                self.assertNotIn(f"var(--{name},", sources)
 
 
 class OneHeadingPerPage(unittest.TestCase):

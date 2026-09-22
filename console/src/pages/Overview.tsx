@@ -75,12 +75,20 @@ export function Overview({ boot, servers }: { boot: BootData; servers: ServerRow
             label="Module switches"
             sublabel={`${data.totals.on} of ${data.totals.slots} on`}
           />
+          {/* `--good`, not a token of its own: this gauge is the one arc that
+              means "reaching everything", and `--good` is the colour the pill
+              beside it is drawn with, so the two cannot disagree about what
+              green means. It read `--pill-good-text` before, a name this
+              stylesheet has never had — and an undefined `var()` in a `stroke`
+              resolves to `none`, so this arc was not drawn at all: the browser
+              was looked at and the gauge was an empty ring with "40%" in the
+              middle of it, beside a Module switches gauge drawing normally. */}
           <RadialGauge
             value={data.totals.servers}
             max={Math.max(data.totals.servers, 5)}
             label="Fleet Reach"
             sublabel={`${data.totals.servers} connected`}
-            color="var(--pill-good-text)"
+            color="var(--good)"
           />
         </div>
       </Card>
