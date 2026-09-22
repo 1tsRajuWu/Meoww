@@ -156,7 +156,14 @@
                             <li class="lp-row">
                                 <span>
                                     {{ station.icon }} <strong>{{ station.name }}</strong>
-                                    <span class="dim">{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}{% if "ad-free" in station.tags %} · ad-free{% endif %}</span>
+                                    {# On its own line rather than trailing the name: the
+                                       line arrives at "Groove Salad Chill · ad-free" when
+                                       it is inline, wraps inside the narrow name column,
+                                       and breaks the tag itself across two lines
+                                       ("ad-" / "free"). Ruled in `.lp-row-kind`. #}
+                                    <span
+                                        class="dim lp-row-kind"
+                                    >{{ station.genre }}{% if station.lang %} · {{ station.lang }}{% endif %}{% if "ad-free" in station.tags %} · ad-free{% endif %}</span>
                                 </span>
                                 <span class="dim">{{ station.desc }}</span>
                             </li>

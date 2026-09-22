@@ -118,28 +118,31 @@ services:
       - key: SILENT_UPDATES
         value: "0"
       # --- music -----------------------------------------------------------------
-      # Nothing here is required for playback. ``imageio-ffmpeg`` (a dependency)
-      # ships a static ffmpeg so a host that cannot apt-get anything can still
-      # decode, and an Opus stream needs no encoder from discord.py — which is
-      # why music works on this runtime and the Dockerfile next to it is the
-      # *upgrade* (a real ffmpeg and libopus0, i.e. volume that changes mid-track
-      # instead of re-rendering the stream) rather than a precondition.
+      # Nothing here is required, because nothing here is set. Radio is a URL and
+      # ffmpeg: ``imageio-ffmpeg`` (a dependency) ships a static ffmpeg so a host
+      # that cannot apt-get anything can still decode, and an Opus stream needs no
+      # encoder from discord.py — which is why music works on this runtime and the
+      # Dockerfile next to it is the *upgrade* (a real ffmpeg and libopus0, i.e.
+      # volume that changes mid-track instead of re-rendering the stream) rather
+      # than a precondition. ``/music doctor`` and the owner console print exactly
+      # which of the two this deployment is, so turning that upgrade on is a
+      # decision somebody can read rather than guess at.
       #
-      # ``/music doctor`` and the owner console print exactly which of the two
-      # this deployment is, so turning that upgrade on is a decision somebody can
-      # read rather than guess at. Without these variables the extractor runs
-      # anonymously; with them owned by nobody.
-      #
-      # A media platform refusing a datacenter address is the one failure that
-      # cannot be designed away, and these two are the answer to it: cookies from
-      # a throwaway account, or a PO token. Both are credentials, so they are
-      # prompts and never values.
-      - key: YTDL_COOKIES_B64
-        sync: false
-      - key: YTDL_PO_TOKEN
-        sync: false
-      - key: YTDL_VISITOR_DATA
-        sync: false
+      # This block used to prompt for three credentials — a cookie jar, a PO token
+      # and visitor data — because a media platform refusing a datacenter address
+      # was the one failure that could not be designed away. The extractor they
+      # were the answer to is gone (see ``deleted_features/README.md``), and a
+      # manifest that still asks for them is worse than clutter: an operator who
+      # fills them in has configured nothing, and no run of the bot will ever read
+      # them. The two settings music *does* read — ``MEOW_FFMPEG`` and
+      # ``STREAM_PROBE_TARGET`` — are deliberately not declared here. Both exist to
+      # override a default that is already right on this host (ffmpeg from
+      # ``imageio-ffmpeg``, SomaFM's Groove Salad as the probe), and a prompt is
+      # where a default gets overwritten by somebody answering a question they had
+      # no reason to be asked. Both are declared in ``utils/config_audit.py`` — the
+      # one list of what this bot reads — and reported by ``/api/config``, so the
+      # host where the default *is* wrong can set either as an ordinary
+      # environment variable without a prompt standing in the way.
       # --- the anonymous question box --------------------------------------------
       # The webhook `/qna ask` posts through, so a question lands in a channel
       # with nobody's name on it. Optional — with no URL, `/qna ask` says so in a

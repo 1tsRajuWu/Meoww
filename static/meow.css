@@ -2913,6 +2913,19 @@ body.landing:has([data-menu].is-open) {
     color: var(--lp-on-paper-soft);
 }
 
+/* The genre · language · ad-free line on a station row, and the reason it is a
+   block rather than something trailing the name: inline, it arrives as
+   "Groove Salad Chill · ad-free", wraps inside the narrow name column, and
+   breaks the tag itself across two lines — a reader sees "ad-" then "free".
+   On its own line it has the column's whole width, so the only wrap that can
+   happen is at one of the separators. */
+.lp-row-kind {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
 .lp-row-commands {
     display: flex;
     flex-wrap: wrap;

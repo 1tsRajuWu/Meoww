@@ -26,7 +26,7 @@ from unittest import mock
 
 import keep_alive
 from tests.support import TempDatabaseMixin
-from utils import figures
+from utils import config_audit, figures
 from tests.test_composer import (
     CHANNEL_ID,
     GUILD_ID,
@@ -575,6 +575,38 @@ class DeploymentConfig(unittest.TestCase):
                 any(word in upper for word in ("SECRET", "TOKEN", "KEY", "PASSKEY")),
                 f"{key} is allow-listed as a public value but its name says otherwise",
             )
+
+    def test_every_declared_key_is_a_setting_this_bot_reads(self):
+        """The manifest may not ask for anything the code has stopped reading.
+
+        The omission this class is named for runs one way — a setting the code
+        reads that the deploy never offers, so the feature is off on the host
+        with nothing to show for it. This is the other way, and it is the one
+        that just happened: the extractor and its three credentials
+        (``YTDL_COOKIES_B64``, ``YTDL_PO_TOKEN``, ``YTDL_VISITOR_DATA``) were
+        deleted, the registry they were declared in was corrected, and
+        ``render.yaml`` went on prompting the operator for all three — with a
+        paragraph explaining what the extractor would do with them.
+
+        That is worse than clutter. An operator who fills them in has configured
+        nothing, no run of the bot will read them, and the manifest reads as
+        though music still needs a media platform's cookies to play a station.
+        The registry already refuses a setting nothing reads; the manifest was
+        never held to the same rule because the only check on it was the one
+        asserting the *required* keys are present.
+
+        ``utils.config_audit.SETTINGS`` is the one list of what this bot reads,
+        so it is the list this compares against — not a second copy kept here,
+        which would be the same drift one file over.
+        """
+        declared = {setting.name for setting in config_audit.SETTINGS}
+        keys = re.findall(r"- key: (\S+)", self.manifest)
+        self.assertTrue(keys, "render.yaml should declare env vars")
+        self.assertEqual(
+            [key for key in keys if key not in declared],
+            [],
+            "render.yaml prompts for settings nothing in this bot reads",
+        )
 
     def test_a_committed_credential_is_still_refused(self):
         """The allow-list above is precise, not a blanket relaxation.

@@ -22,12 +22,12 @@ nothing is stubbed for a resolver — the archived suite
 (``deleted_features/tests/test_music_matching.py``) has that half.
 """
 import asyncio
-import os
 import pathlib
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from utils import config_audit
 from utils import player as player_module
 from utils.media_source import Track
 
@@ -466,11 +466,18 @@ class SourceSelection(unittest.TestCase):
         address that asked for it. Radio is the thing that never needed one, and
         it is now the only thing there is — so nothing here may acquire a way to
         fail that only a deployment with an outbound proxy can reach.
+
+        This test used to set ``YTDL_PROXY`` before building the source. That
+        variable is deleted, so setting it proved nothing: the assertion held
+        because nothing reads the name any more, not because the flag was
+        refused. What is left here is the half that still bites — no proxy flag
+        is passed to ffmpeg however the environment is arranged — and the other
+        half lives in ``NothingLiveStillSellsTheExtractor``, where the machinery
+        itself is ruled out of the module.
         """
         self._current(opus=True, abr=131.0)
         self.player.volume = 1.0
-        with mock.patch.dict(os.environ, {"YTDL_PROXY": "http://proxy.test:8080"}, clear=False), \
-             mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
+        with mock.patch.object(player_module.discord, "FFmpegOpusAudio") as opus_cls:
             _source, _engine = self.player._build_source("http://example.invalid/a", 64)
 
         before = opus_cls.call_args.kwargs["before_options"]
@@ -695,6 +702,28 @@ class NothingLiveStillSellsTheExtractor(unittest.TestCase):
         self.assertTrue(
             [line for line in requirements if line.lower().startswith("imageio-ffmpeg")],
             "ffmpeg was removed with the extractor, and it is what plays a station",
+        )
+
+    def test_the_outbound_proxy_went_with_the_extractor(self):
+        """The proxy is deleted rather than unused, and that is checkable.
+
+        The two halves are the pair that makes the removal real: the *player* may
+        not mention a proxy at all — a module that still knows the word is one
+        commit away from using it again — and the setting may not be declared, so
+        a deployment cannot be configured back into needing one. The suite had a
+        test that set ``YTDL_PROXY`` and then asserted no proxy flag was passed,
+        which is exactly the shape of a test that passes after the mechanism it
+        guards has been deleted: it was asserting the absence of something
+        nothing could have produced.
+        """
+        source = pathlib.Path("utils/player.py").read_text(encoding="utf-8").lower()
+        self.assertNotIn("proxy", source, "the player still knows about a proxy")
+
+        names = {setting.name for setting in config_audit.SETTINGS}
+        self.assertNotIn(
+            "YTDL_PROXY",
+            names,
+            "the extractor's proxy is declared again, so a host can be configured into needing one",
         )
 
     def test_the_archive_still_says_how_to_restore_it(self):
