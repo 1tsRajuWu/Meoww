@@ -1,0 +1,295 @@
+/* ==========================================================================
+   pages.css — the sheet the inner public pages share.
+
+   Loaded after `meow.css` by /systems, /start, /radio, /pricing, the policies
+   and the four doors (sign-in, one-time link, server picker, agreement). It adds
+   the handful of components those pages need and nothing page-specific: a page
+   with a chart of its own would say so in its own sheet.
+
+   Everything here is drawn with the shared tokens, so a palette change stays a
+   one-line change in one file.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   A page's opening: a micro-label, a big line, a sentence.
+   -------------------------------------------------------------------------- */
+
+.page-head { padding-block: var(--space-8) var(--space-6); }
+.page-head h1 { max-width: 26ch; }
+.page-head .lede { margin-top: var(--space-5); }
+
+/* --------------------------------------------------------------------------
+   Metrics and tiles
+   -------------------------------------------------------------------------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line);
+}
+
+.tile { display: flex; flex-direction: column; gap: 2px; }
+
+.tile__value {
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile__label {
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   A list of rows: name, one fact, an optional control. Hairlines, never cards.
+   -------------------------------------------------------------------------- */
+
+.list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+
+.list__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, auto);
+  gap: var(--space-4);
+  align-items: baseline;
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.list__key { font-weight: 550; }
+.list__note { color: var(--text-secondary); }
+.list__meta { font-size: var(--text-small); color: var(--text-muted); white-space: nowrap; }
+
+.list--pair .list__row { grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); }
+
+@media (max-width: 760px) {
+  .list__row { grid-template-columns: minmax(0, 1fr) auto; }
+  .list__note { grid-column: 1 / -1; }
+}
+
+/* --------------------------------------------------------------------------
+   A bar chart that is a measurement rather than decoration
+   -------------------------------------------------------------------------- */
+
+.bars { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+
+.bar {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr) 3.5rem;
+  gap: var(--space-4);
+  align-items: center;
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar__name { font-size: 0.9375rem; }
+.bar__track { height: 6px; background: var(--surface-sunken); border-radius: 3px; overflow: hidden; }
+
+.bar__fill {
+  display: block;
+  height: 100%;
+  width: var(--bar, 0%);
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.bar__value { font-size: var(--text-small); color: var(--text-muted); text-align: right; }
+
+/* --------------------------------------------------------------------------
+   Steps
+   -------------------------------------------------------------------------- */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-6);
+}
+
+.step { border-top: 1px solid var(--line); padding-top: var(--space-4); }
+
+.step__number {
+  display: block;
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  color: var(--accent);
+  margin-bottom: var(--space-3);
+}
+
+.step__title { margin-bottom: var(--space-2); }
+.step__body { color: var(--text-secondary); max-width: 44ch; }
+
+/* --------------------------------------------------------------------------
+   Prices
+   -------------------------------------------------------------------------- */
+
+.tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.tier {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+  background: var(--surface-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.tier--lead { border-color: var(--accent); }
+
+.tier__name { font-size: var(--text-h3); }
+.tier__price { font-size: 2rem; font-weight: 600; letter-spacing: -0.03em; }
+.tier__price small { font-size: var(--text-small); font-weight: 400; color: var(--text-muted); }
+.tier__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); color: var(--text-secondary); }
+.tier__list li { display: flex; gap: var(--space-2); }
+.tier__list li::before { content: "→"; color: var(--accent); flex: none; }
+.tier__cta { margin-top: auto; }
+
+/* --------------------------------------------------------------------------
+   The doors: sign-in, servers, agreement
+   -------------------------------------------------------------------------- */
+
+.auth { padding-block: var(--space-8) var(--space-9); }
+
+.auth__inner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: var(--space-8); align-items: start; }
+
+.auth__card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  padding: var(--space-6);
+}
+
+.auth__methods { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.auth__method {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.auth__method h3 { font-size: 1rem; }
+.auth__method p { margin: 0; font-size: var(--text-small); color: var(--text-muted); }
+
+.auth__form { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-2); }
+
+.notice {
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  color: var(--text-secondary);
+}
+
+.notice--bad { border-left-color: var(--danger); }
+
+@media (max-width: 900px) {
+  .auth__inner { grid-template-columns: minmax(0, 1fr); }
+}
+
+.guild-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
+  gap: var(--space-4);
+  align-items: center;
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.guild-row__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.guild-row__icon img { width: 100%; height: 100%; object-fit: cover; }
+.guild-row__name { font-weight: 550; }
+.guild-row__state { font-size: var(--text-small); color: var(--text-muted); }
+
+.decision { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-5); }
+/* Two answers of exactly the same size: an interface that makes "no" hard
+   produces a consent that is not consent. */
+.decision .btn { flex: 1 1 12rem; }
+
+/* --------------------------------------------------------------------------
+   The radio table
+   -------------------------------------------------------------------------- */
+
+.radio-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr) minmax(0, auto);
+  gap: var(--space-4);
+  align-items: baseline;
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.radio-row__name { font-weight: 550; }
+.radio-row__desc { color: var(--text-secondary); }
+.radio-row__tags { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+
+@media (max-width: 760px) {
+  .radio-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .radio-row__tags { justify-content: flex-start; }
+}
+
+/* --------------------------------------------------------------------------
+   Documents (the policies, the agreement)
+   -------------------------------------------------------------------------- */
+
+.doc-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+
+.doc-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------------------------
+   The line a page ends on
+   -------------------------------------------------------------------------- */
+
+.band--closing { padding-block: var(--space-7); background: var(--surface-sunken); }
+
+.closing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.closing__title {
+  font-size: var(--text-h2);
+  font-weight: 600;
+  max-width: 30ch;
+}
+
+.closing__actions { flex: none; }

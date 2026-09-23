@@ -64,19 +64,18 @@
           ('systems', 'Systems', '/systems'),
           ('start', 'Get started', '/start'),
           ('radio', 'Radio', '/radio'),
-          ('hub', 'Hub', '/hub'),
         ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
         <a class="nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>
         {% endfor %}
 
         <div class="top__actions">
           <button class="btn btn--ghost" type="button" data-theme-toggle aria-expanded="false" aria-controls="theme-menu">
-            <span aria-hidden="true">◐</span> <span data-theme-label>System</span>
+            <span aria-hidden="true">◐</span> <span data-theme-label>Dark</span>
           </button>
           {% if invite_url %}
           <a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>
           {% else %}
-          <a class="btn btn--primary" href="{{ enter_url }}">{{ enter_label }}</a>
+          <a class="btn btn--primary" href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
           {% endif %}
         </div>
       </nav>
@@ -107,8 +106,12 @@
         <div>
           <div class="foot__title">{{ bot_name }}</div>
           <p class="small">
+            {% if system_count %}
             {{ system_count }} systems and {{ command_count }} commands, every one of them
             switchable per server from a dashboard that stays out of the way.
+            {% else %}
+            A Discord bot with a dashboard for every server that has it.
+            {% endif %}
           </p>
         </div>
         <div>
@@ -117,7 +120,6 @@
             <a href="/systems">Every system</a>
             <a href="/start">Getting started</a>
             <a href="/radio">Radio</a>
-            <a href="/hub">The hub</a>
           </div>
         </div>
         <div>
@@ -133,8 +135,8 @@
           <div class="foot__title">Elsewhere</div>
           <div class="foot__list">
             {% if invite_url %}<a href="{{ invite_url }}">Add to a server</a>{% endif %}
-            <a href="{{ enter_url }}">{{ enter_label }}</a>
-            <a href="{{ kofi_url }}" rel="noopener">Support the bot</a>
+            <a href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+            {% if kofi_url %}<a href="{{ kofi_url }}" rel="noopener">Support the bot</a>{% endif %}
           </div>
         </div>
       </div>

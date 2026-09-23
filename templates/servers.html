@@ -1,168 +1,83 @@
-{#
-  The server picker.
+{% extends "site_base.html" %}
+{% block title %}Your servers — {{ bot_name }}{% endblock %}
 
-  Two audiences, one page. A Discord sign-in sees the servers they administer that
-  the bot is already in — the intersection, because a server the bot has left has
-  nothing to configure and a server they cannot configure is Discord's refusal
-  arriving later and less clearly. The operator's passkey sees every server, and
-  each row says what that server is currently running, so the one a deploy broke
-  is visible without opening six dashboards.
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
 
-  Like the sign-in page, every style here is the shared system's; what is left is
-  markup, and the only thing this page decides for itself is what a row says.
-#}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b0e13">
-    <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
-    <title>{{ "All servers" if operator else "Choose a server" }} — {{ bot_name }}</title>
-    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
-    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
-</head>
-<body>
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <a class="skip-link" href="#servers">Skip to servers</a>
+{% block page %}
+<section class="auth">
+  <div class="wrap">
+    <p class="micro">Servers</p>
+    <h1>Which server?</h1>
+    <p class="lede">
+      {% if user.name %}Signed in as {{ user.name }}. {% endif %}
+      {% if operator %}
+      The operator's key reaches every server the bot is in, so each one below says what it
+      is currently running — picking between a list of names is otherwise a guess.
+      {% else %}
+      These are the servers this session may change: where you hold Manage Server or
+      Administrator, and where the bot is present.
+      {% endif %}
+    </p>
 
-    <header class="site-header">
-        <div class="page">
-            <a class="brand" href="/dashboard">
-                <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
-                <span>{{ bot_name }}</span>
-            </a>
-            <nav class="site-nav" aria-label="Main">
-                <span class="identity">
-                    {% if user.avatar %}
-                    <img class="avatar" src="{{ user.avatar }}" alt="" width="34" height="34" style="width:34px;height:34px">
-                    {% else %}
-                    <span class="avatar" aria-hidden="true" style="width:34px;height:34px">{{ (user.name or "O")[0]|upper }}</span>
-                    {% endif %}
-                    <span>
-                        <span class="name">{{ user.name or "Operator" }}</span>
-                        <span class="sub">{{ "via Discord" if user.name else "passkey · every server" }}</span>
-                    </span>
-                </span>
-                {# The same control the landing page, the panel and the console
-                   carry: this page loads `theme.js`, so it has always *worn* the
-                   visitor's theme and never let them change it. #}
-                {% set theme_compact = true %}{% include "theme_picker.html" %}
-                {% if invite_url %}
-                <a class="btn btn-sm" href="{{ invite_url }}" target="_blank" rel="noopener">➕ Add to a server</a>
-                {% endif %}
-                <form method="POST" action="/logout">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-sm btn-danger">Sign out</button>
-                </form>
-            </nav>
-        </div>
-    </header>
+    {% if error %}
+    <p class="notice notice--bad" role="alert">{{ error }}</p>
+    {% endif %}
 
-    <main class="page section" id="servers">
-        <div class="section-head">
-            <span class="eyebrow">{{ "Operator" if operator else "Your servers" }}</span>
-            <h1 style="font-size: 26px">{{ "All servers" if operator else "Choose a server" }}</h1>
-            <p>
-                {% if operator %}
-                Every server {{ bot_name }} is in, with what each one is currently running.
-                Open one to start or stop its systems and change its command list — a change
-                here applies to that server only, never to the others.
-                {% else %}
-                These are the servers you help run that {{ bot_name }} is already in. Only
-                servers where you are <em>Administrator</em> — or own the server — are
-                listed, and the dashboard can only ever change the one you pick.
-                {% endif %}
-            </p>
-        </div>
-
-        {% if error %}
-        <div class="notice notice-bad" role="alert" style="margin-bottom: var(--space-4)">{{ error }}</div>
-        {% endif %}
-
-        {% if servers %}
-        <div class="server-list">
-            {% for server in servers %}
-            <div class="server-row">
-                {# The initial is always drawn and the picture sits over it, so a
-                   picture that fails to arrive uncovers the letter rather than
-                   leaving the browser's broken-image glyph in the row. `onerror`
-                   removes the element instead of hiding it, so nothing keeps the
-                   space or a place in the tab order — the route answers 404 for
-                   every picture it will not serve, and that is a normal answer,
-                   not a fault. #}
-                <span class="server-icon">
-                    <span class="server-icon-letter" aria-hidden="true">{{ (server.name or "?")[0]|upper }}</span>
-                    {% if server.icon %}
-                    <img src="{{ server.icon }}" alt="" width="44" height="44" onerror="this.remove()">
-                    {% endif %}
-                </span>
-                <span class="server-meta">
-                    <b>{{ server.name }}</b>
-                    <span class="mono dim" style="font-size: 12px">{{ server.id }}</span>
-                    {% if server.scope %}
-                    <span class="dim" style="display: block; margin-top: 4px; font-size: 12.5px">
-                        {% if server.scope.known %}
-                        {{ server.scope.on }} of {{ server.scope.total }} systems on{% if server.scope.off %} · off: {{ server.scope.off|join(", ") }}{% endif %}
-                        {% else %}
-                        module state could not be read
-                        {% endif %}
-                    </span>
-                    {% endif %}
-                </span>
-
-                <form method="POST" action="/servers">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="guild_id" value="{{ server.id }}">
-                    <button type="submit" class="btn {{ 'btn-primary' if current_guild_id == server.id|int else '' }}">
-                        {{ "Open" if current_guild_id == server.id|int else "Manage" }}
-                    </button>
-                </form>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="empty">
-            <p>
-                You are signed in, but you do not manage any server that has this bot —
-                and a server the bot is not in has nothing for this dashboard to change.
-            </p>
-            {% if invite_url %}
-            <a class="btn btn-primary" href="{{ invite_url }}" target="_blank" rel="noopener">Add {{ bot_name }} to a server</a>
-            {% if invite_limited_url %}
-            <a class="hint" href="{{ invite_limited_url }}" target="_blank" rel="noopener">
-                or add it with only the permissions it uses
-            </a>
-            {% endif %}
-            {% endif %}
-        </div>
-        {% endif %}
-
-        <p class="hint" style="margin-top: var(--space-5)">
-            {% if operator %}
-            This session is the operator's passkey, so it reaches every server the bot is in.
-            A module switch, a command-list change or a name is still applied to
-            <strong>one</strong> server at a time — open the server you mean.
+    {% if servers %}
+    <ul class="list" style="margin-top: var(--space-6)">
+      {% for server in servers %}
+      <li class="guild-row">
+        <span class="guild-row__icon" aria-hidden="true">
+          {% if server.icon %}
+          <img src="{{ server.icon }}" alt="">
+          {% else %}
+          {{ (server.name[:1] or '?') | upper }}
+          {% endif %}
+        </span>
+        <span>
+          <span class="guild-row__name">{{ server.name }}</span>
+          <span class="guild-row__state">
+            {% if server.scope is defined %}
+              {% if server.scope.known %}
+                {{ server.scope.on }} of {{ server.scope.total }} systems on
+                {%- if server.scope.off %}, off: {{ server.scope.off | join(', ') }}{% endif %}
+              {% else %}
+                System state could not be read for this server.
+              {% endif %}
             {% else %}
-            Signing in asked Discord for your <code>identify</code> and <code>guilds</code>
-            permissions — your name, your picture, and the servers you are in with your
-            permissions on each. Nothing else was requested: no email, no messages, and the
-            access token was used for those two lookups and then discarded.
+              {{ 'open' if server.id|string == current_guild_id|string else 'ready' }}
             {% endif %}
-        </p>
-    </main>
+          </span>
+        </span>
+        <form method="post" action="/servers">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="guild_id" value="{{ server.id }}">
+          <button class="btn {{ 'btn--primary' if server.id|string == current_guild_id|string else '' }}" type="submit">
+            {{ 'Open' if server.id|string != current_guild_id|string else 'Current' }}
+          </button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="notice">
+      None of your servers have this bot yet. Add it below and it will appear here — the
+      dashboard can only change a server the bot is actually in.
+    </p>
+    {% endif %}
 
-    <footer class="site-footer">
-        <div class="page">
-            <div class="links">
-                <a href="/">Home</a>
-                <a href="/privacy">Privacy Policy</a>
-                <a href="/terms">Terms of Service</a>
-                <a href="/health">Status</a>
-            </div>
-        </div>
-    </footer>
-    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
-</body>
-</html>
+    <div class="row" style="margin-top: var(--space-6)">
+      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to another server</a>{% endif %}
+      {% if invite_limited_url %}<a class="btn" href="{{ invite_limited_url }}">Add with fewer permissions</a>{% endif %}
+    </div>
+
+    <p class="hint tiles">
+      Every server-scoped page re-checks this list on each request, so a server you were
+      demoted from, or one the bot has left, stops being reachable immediately rather than at
+      the end of a session.
+    </p>
+  </div>
+</section>
+{% endblock %}

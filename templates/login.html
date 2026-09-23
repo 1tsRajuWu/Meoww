@@ -1,86 +1,74 @@
-{#
-  Signing in.
+{% extends "site_base.html" %}
+{% block title %}Sign in — {{ bot_name }}{% endblock %}
 
-  This page's own stylesheet is gone: its palette, its buttons, its inputs and
-  its focus ring are the shared design system's now (``static/meow.css``), which
-  is also what the landing page, the server picker, the dashboard and the two
-  policies use. The one thing it keeps of its own is the Discord button's logo,
-  because that is a trademark doing its job rather than decoration.
-#}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b0e13">
-    <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
-    <title>Sign in — {{ bot_name }}</title>
-    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
-    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
-</head>
-<body>
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <a class="skip-link" href="#signin">Skip to sign in</a>
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
 
-    <main class="auth-shell">
-        <div class="auth-card glass">
-            {# A sign-in card is a page a visitor can land on first, and the theme
-               is chosen once and kept for every page after it — so this one offers
-               the control too, in the corner the console's own sign-in uses for
-               its swatches. #}
-            <div class="auth-theme">
-                {% set theme_compact = true %}{% include "theme_picker.html" %}
-            </div>
-            <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
-            <h1>Sign in to the control panel</h1>
-            <p class="hint" style="margin: 8px 0 var(--space-5)">
-                Manage the servers you run, switch systems on and off, and see what
-                {{ bot_name }} is doing — per server, and only for the servers you are
-                allowed to touch.
-            </p>
+{% block page %}
+<section class="auth">
+  <div class="wrap auth__inner">
+    <div>
+      <p class="micro">Sign in</p>
+      <h1>Which server did you come to change?</h1>
+      <p class="lede">
+        The dashboard acts on a server, so every door here answers the same first question:
+        which servers are yours. Nothing on this page reaches a server you cannot already
+        administer.
+      </p>
 
-            {% if error %}
-            <div class="notice notice-bad" role="alert" style="margin-bottom: var(--space-4)">{{ error }}</div>
-            {% endif %}
+      {% if error %}
+      <p class="notice notice--bad" role="alert">{{ error }}</p>
+      {% endif %}
+    </div>
 
-            {# Signing in as yourself is the way a member gets here: it is the only
-               method that can say which servers they run, because that depends on
-               the person rather than on a server or a shared secret. #}
-            <div id="signin">
-            {% if oauth_enabled %}
-                <a class="btn btn-primary btn-block" href="/login/discord">
-                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 15.437 3c-.21.375-.45.88-.617 1.28a18.27 18.27 0 0 0-5.64 0A12.6 12.6 0 0 0 8.55 3a19.74 19.74 0 0 0-4.886 1.372C.61 9.05-.29 13.62.16 18.13a19.9 19.9 0 0 0 5.993 3.02c.48-.656.907-1.353 1.276-2.086a12.9 12.9 0 0 1-2.01-.965c.169-.123.334-.251.492-.383a14.2 14.2 0 0 0 12.18 0c.16.133.325.26.492.383a12.9 12.9 0 0 1-2.013.966c.37.732.796 1.43 1.276 2.085a19.86 19.86 0 0 0 5.996-3.02c.53-5.226-.9-9.757-3.535-13.761ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.955 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.947 2.418-2.157 2.418Z"/></svg>
-                    Sign in with Discord
-                </a>
-                <p class="hint" style="margin-top: 10px">
-                    Asks for your name, your picture and which servers you administer.
-                    No email, no messages, and the access token is discarded after the
-                    two lookups it is used for.
-                </p>
-            </div>
-            {% else %}
-            <div class="notice" role="status">
-                <strong>Discord sign-in is off.</strong>
-                {{ oauth_hint }}
-                <div style="margin-top: 10px">
-                    <span class="field-label">Callback URL</span>
-                    <code style="word-break: break-all">{{ oauth_callback }}</code>
-                </div>
-            </div>
-            {% endif %}
-            </div>
-
-            <p class="hint" style="margin-top: var(--space-5)">
-                Administrators can open <code>/help</code> in a server and tap
-                <code>⚡ Open Dashboard</code> for a single-use sign-in link, valid for
-                fifteen minutes and scoped to that one server. Do not share it.
-            </p>
-            <p class="hint" style="margin-top: var(--space-3)">
-                <a href="/">← Back to the front page</a>
-            </p>
+    <div class="auth__card">
+      <div class="auth__methods">
+        {% if oauth_enabled %}
+        <div class="auth__method">
+          <h2>Sign in with Discord</h2>
+          <p>
+            Asks for your name and your server list, and keeps only the servers where you hold
+            Manage Server or Administrator and the bot is present. Re-checked on every
+            request, so losing the permission loses the access.
+          </p>
+          <a class="btn btn--primary" href="/login/discord">Continue with Discord</a>
         </div>
-    </main>
-    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
-</body>
-</html>
+        {% else %}
+        <div class="auth__method">
+          <h2>Discord sign-in is off</h2>
+          <p>
+            This deployment has no Discord client credentials configured, so the button that
+            would use them is not shown. {% if oauth_hint %}{{ oauth_hint }}{% endif %}
+          </p>
+        </div>
+        {% endif %}
+
+        <div class="auth__method">
+          <h2>A one-time link</h2>
+          <p>
+            In Discord, run <code>/help</code> in the server you want and press
+            <strong>⚡ Open Dashboard</strong>. The link works once, expires quickly, and is
+            scoped to that one server.
+          </p>
+        </div>
+
+        {% if passkey_enabled %}
+        <div class="auth__method">
+          <h2>The operator's passkey</h2>
+          <p>The deployment owner's key. It reaches every server the bot is in.</p>
+          <form class="auth__form" method="post" action="/login">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field">
+              <span class="field__label">Passkey</span>
+              <input class="input" type="password" name="passkey" autocomplete="current-password" required>
+            </label>
+            <button class="btn" type="submit">Unlock</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

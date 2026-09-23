@@ -1,95 +1,62 @@
-{#
-  One of the two policies, as a page.
+{% extends "site_base.html" %}
+{% block title %}{{ title }} — {{ bot_name }}{% endblock %}
 
-  `body` is already HTML — rendered from the markdown by `utils/webdocs.render`,
-  which escapes the text before it applies any markup, so a tag in the document
-  cannot become a tag on the page. The source file is read by
-  `cogs/legal.read_document`, the same function the Discord card uses, so the
-  page and the card can never disagree about which file is the policy.
-#}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b0e13">
-    <meta name="robots" content="index, follow">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
-    <title>{{ title }} — {{ bot_name }}</title>
-    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
-    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
-</head>
-<body>
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <a class="skip-link" href="#document">Skip to the document</a>
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
 
-    <header class="site-header">
-        <div class="page">
-            <a class="brand" href="/">
-                <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
-                <span>{{ bot_name }}</span>
-            </a>
-            <nav class="site-nav" aria-label="Main">
-                <a href="/">Home</a>
-                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
-                <a href="/privacy" {% if current == "privacy" %}aria-current="page"{% endif %}>Privacy</a>
-                <a href="/terms" {% if current == "terms" %}aria-current="page"{% endif %}>Terms</a>
-                {# The third document, and the only one that is not an agreement:
-                   what this deployment does about automated collection. It is in
-                   the nav rather than buried because it is the page a person
-                   looks for after their own work has been crawled. #}
-                <a href="/ai" {% if current == "ai" %}aria-current="page"{% endif %}>AI &amp; crawling</a>
-                <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
-            </nav>
-        </div>
-    </header>
+{% block page %}
+<section class="page-head band band--flush">
+  <div class="wrap wrap--narrow">
+    <p class="micro">{{ eyebrow }}</p>
+    <h1>{{ title }}</h1>
+    <p class="prose__meta">
+      <span>Effective {{ effective }}</span>
+      <span aria-hidden="true">·</span>
+      <span>In Discord: <code>{{ command }}</code></span>
+      <span aria-hidden="true">·</span>
+      <span>The same file the command reads</span>
+    </p>
+  </div>
+</section>
 
-    <main class="page">
-        <article class="doc" id="document">
-            <span class="eyebrow">{{ eyebrow }}</span>
-            <h1>{{ title }}</h1>
-            <p class="dim" style="margin-bottom: var(--space-5)">
-                Effective {{ effective }}. The same text is what <code>{{ command }}</code>
-                shows in Discord, read from this file at runtime — so there is one policy, not
-                a short one for chat and a long one for the web.
-            </p>
-            {{ body|safe }}
-        </article>
-    </main>
+<section class="band">
+  <div class="wrap wrap--narrow">
+    <article class="prose">
+      {{ body | safe }}
+    </article>
+  </div>
+</section>
 
-    <footer class="site-footer">
-        <div class="page">
-            <div class="links">
-                <a href="/">Home</a>
-                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
-                <a href="/privacy">Privacy Policy</a>
-                <a href="/terms">Terms of Service</a>
-                <a href="/ai">AI &amp; crawling</a>
-                <a href="/health">Status</a>
-                {# There is no "Source" link while the repository is private — see
-                   `SOURCE_REPOSITORY` in keep_alive.py. #}
-                {% if repository %}<a href="{{ repository }}" rel="noopener">Source</a>{% endif %}
-                {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
-            </div>
-            {# A policy page is often somebody's first page — it is what a cautious
-               visitor opens before adding a bot — so the theme control is here too
-               rather than only on the front door. #}
-            <div class="footer-theme">
-                {% set theme_compact = true %}
-                {% include "theme_picker.html" %}
-            </div>
-            {# It used to name the file the procedure is written in —
-               `docs/legal/data-requests.md` — which is a path inside a private
-               repository, printed at the one place a reader is looking for
-               somebody to ask. The support server is where the request goes; where
-               the team keeps its notes is the team's business. #}
-            <p>
-                Questions about either document, or a request to see or delete what
-                {{ bot_name }} holds about you, go in the bot's own support server.
-            </p>
-            {% include "_trap.html" %}
-        </div>
-    </footer>
-    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
-</body>
-</html>
+<section class="band">
+  <div class="wrap wrap--narrow">
+    <div class="band__head">
+      <div>
+        <p class="micro">The other two</p>
+        <h2>Policies are not behind a wall</h2>
+      </div>
+    </div>
+
+    <ul class="list list--pair">
+      <li class="list__row">
+        <span class="list__key"><a href="/privacy">Privacy</a></span>
+        <span class="list__note">What is stored, where it lives, how long it is kept, and what is never written down at all.</span>
+      </li>
+      <li class="list__row">
+        <span class="list__key"><a href="/terms">Terms</a></span>
+        <span class="list__note">What running this bot in your server means for you and for your members.</span>
+      </li>
+      <li class="list__row">
+        <span class="list__key"><a href="/ai">AI &amp; crawling</a></span>
+        <span class="list__note">What automated readers are told, and what this deployment does about the ones that ignore it.</span>
+      </li>
+    </ul>
+
+    <p class="hint tiles">
+      A policy you must accept before you may read is not a policy, so none of these pages is
+      behind the agreement. The agreement exists for the dashboard, which acts on your
+      server rather than describing it.
+    </p>
+  </div>
+</section>
+{% endblock %}

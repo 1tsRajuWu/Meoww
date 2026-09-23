@@ -1,318 +1,139 @@
-{#
-  Radio, as a page.
-
-  This is the one surface of the radio that is not inside Discord, and it exists
-  because the feature's failures are *quiet*: a bot that is connected, a card that
-  says "playing", and silence. Everything a visitor would otherwise discover by
-  being disappointed is on this page instead — that there is no song search and
-  why, that a dropped station is asked again before anybody is told, and the one
-  thing it genuinely cannot fix (a host with no route to the outside world).
-
-  The command list is ``radio_commands``, read out of the feature registry by the
-  route, so this page cannot advertise a command the bot does not publish — which
-  matters more here than anywhere: the commands people remember from other bots
-  are exactly the ones this one deliberately does not have. The table itself comes
-  from ``utils.radio_catalogue``, so the page cannot advertise a station the bot
-  would refuse to play.
-#}
 {% extends "site_base.html" %}
-
 {% block title %}Radio — {{ bot_name }}{% endblock %}
-{% block description %}24/7 radio in any genre, every language, and a station in every country the catalogue could verify — one command, and what the bot says when a station goes quiet.{% endblock %}
 
-{% block skip_target %}radio{% endblock %}
-{% block skip_label %}Skip to what the radio does{% endblock %}
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
 
-{% block main %}
-    <main class="lp">
-        {# ------------------------------------------------------------------ #}
-        {# Hero, in its short form                                            #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-hero lp-hero-compact">
-            <div class="lp-plate" aria-hidden="true">
-                <div class="lp-plate-layer" data-parallax="0,8">
-                    <span class="lp-plate-grid"></span>
-                    <img class="lp-plate-mark" src="/static/logo.svg" alt="">
-                </div>
-            </div>
+{% block page %}
+{# The two counts cannot disagree because both are counted from the same table
+   this page is rendered from. #}
+{% set languages = stations | map(attribute='language') | reject('equalto', '') | unique | list %}
+{% set countries = stations | map(attribute='country') | reject('equalto', '') | unique | list %}
 
-            {% include "site_header.html" %}
+<section class="page-head band band--flush">
+  <div class="wrap">
+    <p class="micro">Radio</p>
+    <h1>A station, not a search box</h1>
+    <p class="lede">
+      {{ stations | length }} stations in {{ languages | length }} languages across
+      {{ countries | length }} countries, every one of them fetched before it was written
+      down. Nothing here resolves a song through a media platform, so nobody can decide
+      this bot is a robot and answer with a check instead of a stream.
+    </p>
+  </div>
+</section>
 
-            <div class="lp-hero-title">
-                <h1 class="lp-display" data-fit="9" data-text-reveal="words"
-                    data-stagger="120" data-duration="950">
-                    Radio, and nothing else
-                </h1>
-            </div>
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">01 — The command</p>
+        <h2>One group, three faces</h2>
+      </div>
+      <p class="small muted">
+        One <code>/radio</code> group rather than a command per station: Discord allows 100
+        commands, and three of them are all this needs.
+      </p>
+    </div>
 
-            <div class="lp-hero-bottom">
-                <p class="lp-lede">
-                    One command puts a station on — by name, by language, or by the
-                    country you want to hear — and it stays until somebody stops it.
-                    Nothing to search, nothing to link, and when a station goes quiet
-                    the bot asks it again before it says a word.
-                </p>
-            </div>
-        </section>
+    <ul class="list">
+      {% for command in radio_commands %}
+      <li class="list__row">
+        <span class="list__key"><code>{{ command }}</code></span>
+        <span class="list__note">
+          {% if 'play' in command %}Join the voice channel you are in and start a station — by name, by country, by language, or at random.{% elif 'stop' in command %}Stop, and leave the channel.{% elif 'doctor' in command %}Check whether this host can play at all, and name the missing piece if it cannot.{% else %}Radio — see <code>/radio play</code>.{% endif %}
+        </span>
+        <span class="list__meta mono">per server</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
 
-        {# ------------------------------------------------------------------ #}
-        {# What it does                                                       #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-paper lp-section lp-inner" id="radio">
-            <header class="lp-paper-head">
-                <p class="lp-eyebrow">Playback</p>
-                <h2 class="lp-h2">Three complaints, answered</h2>
-            </header>
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">02 — The table</p>
+        <h2>Verified stations</h2>
+      </div>
+      <p class="small muted">
+        A country row is kept only when the station corroborates it, and a tag comes from a
+        closed vocabulary so a filter cannot quietly stop matching.
+      </p>
+    </div>
 
-            <div class="lp-rows">
-                <div class="lp-row">
-                    <div>
-                        <h3 class="lp-h2">There is nothing to guess about</h3>
-                        <p class="dim">
-                            A station <em>is</em> its address, so there is no search, no
-                            match to get wrong and no link to expire. Every URL on this
-                            page was fetched and listened to before it was written down,
-                            and the country entries had to <em>corroborate</em> their own
-                            country first — a Ukrainian internet station filed under the
-                            Emirates stays out, because a directory's label is a claim
-                            like any other.
-                        </p>
-                    </div>
-                </div>
+    <ul class="list">
+      {% for station in stations[:48] %}
+      <li class="radio-row">
+        <span class="radio-row__name">{{ station.icon }} {{ station.name }}</span>
+        <span class="radio-row__desc">{{ station.desc }}</span>
+        <span class="radio-row__tags">
+          <span class="tag">{{ station.genre }}</span>
+          {% if station.country %}<span class="tag">{{ station.country }}</span>{% endif %}
+          {% if station.language %}<span class="tag">{{ station.language }}</span>{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
 
-                <div class="lp-row">
-                    <div>
-                        <h3 class="lp-h2">A station that goes quiet is asked again</h3>
-                        <p class="dim">
-                            A dropped connection reaches the player looking exactly
-                            like a programme that finished, so the old behaviour moved
-                            on in silence and nobody was told. A live stream has no end,
-                            so an ended one is now a cut: the same station is opened
-                            again within a couple of seconds, and only if it will not
-                            come back does the room hear about it — with how long it
-                            played and what the engine said. A station that keeps
-                            dropping is news; a station that blipped once is not.
-                        </p>
-                    </div>
-                </div>
+    {% if stations | length > 48 %}
+    <p class="hint tiles">
+      Showing the first 48 of {{ stations | length }}. Ask for the rest in Discord —
+      <code>/radio play</code> searches the whole table, by name, country or language.
+    </p>
+    {% endif %}
+  </div>
+</section>
 
-                <div class="lp-row">
-                    <div>
-                        <h3 class="lp-h2">ffmpeg does the work, at the source's own rate</h3>
-                        <p class="dim">
-                            A station sends MP3 or AAC; Discord wants Opus, so the bot
-                            decodes and re-encodes — above the channel's own much lower
-                            default rather than down to it, in one command line written
-                            in one place, with reconnect flags so a merely interrupted
-                            stream is retried instead of treated as over. Volume is
-                            applied live when the host has libopus, and re-renders the
-                            stream when it does not, which the card says out loud.
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </section>
+{# The part a visitor cannot discover until it happens to them. #}
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">03 — When it goes wrong</p>
+        <h2>A live stream has no end</h2>
+      </div>
+    </div>
 
-        {# ------------------------------------------------------------------ #}
-        {# The table                                                          #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-deep lp-section lp-inner">
-            <header class="lp-paper-head">
-                <p class="lp-eyebrow on-dark">Always available</p>
-                <h2 class="lp-h2 on-dark">Every country the table could verify</h2>
-                <p class="dim">
-                    Every station is a direct stream, and nothing here asks a media
-                    platform for anything, so there is no platform left to refuse the
-                    host. The country list is the honest kind of list: a country is
-                    here because one of its stations was fetched and verified, and the
-                    ones that are missing are missing rather than filled with a guess.
-                </p>
-            </header>
+    <ul class="list list--pair">
+      <li class="list__row">
+        <span class="list__key">“The music is short.”</span>
+        <span class="list__note">
+          A live source that reports itself finished was cut. The bot asks the engine what
+          ended, retries inside a bounded budget, and says so out loud if it cannot hold the
+          socket — rather than leaving a silent gap that looks like a broken command.
+        </span>
+      </li>
+      <li class="list__row">
+        <span class="list__key">“Music is broken here.”</span>
+        <span class="list__note">
+          Every reason is checked before joining a channel: the ffmpeg binary, an Opus
+          library if the host has one, and the voice library discord.py refuses to open a
+          connection without. Each missing piece is reported separately, because each one is
+          a different fix.
+        </span>
+      </li>
+      <li class="list__row">
+        <span class="list__key">The one thing it will not claim</span>
+        <span class="list__note">
+          It cannot tell whether a station is reachable from your network — only whether it
+          is reachable from this host. A station that answers this deployment can still
+          refuse yours, and the card says so instead of pretending otherwise.
+        </span>
+      </li>
+    </ul>
+  </div>
+</section>
 
-            <div class="lp-panels">
-                <div class="lp-panel lp-panel-tilt-a">
-                    <div class="lp-panel-head">
-                        <span aria-hidden="true">📻</span>
-                        <span>
-                            Stations — {{ stations|length }} in
-                            {{ index.languages|length if index else 0 }} languages
-                            across {{ index.countries|length if index else 0 }} countries
-                        </span>
-                    </div>
-                    <div class="lp-panel-body">
-                        <ul class="lp-rows">                                {#
-                                Each row carries what the station *is* — the genre,
-                                and the language or country when one is declared —
-                                because the question this list has to be able to
-                                answer is "is there anything here in my language, or
-                                from where I am?", and a row of name-and-a-sentence
-                                cannot answer it. It says a language only where the
-                                table has one: the stations whose words are whatever
-                                the music is in deliberately declare nothing, and
-                                inventing a tag for them would be the lookup table
-                                lying again. "ad-free" is shown for the same reason a
-                                listener would ask for it: a station that breaks a
-                                conversation to sell something is the one failure a
-                                background radio cannot design away, and only the
-                                stations whose own site says they carry no
-                                advertising are marked.
-                            #}
-                            {% for station in stations %}
-                            <li class="lp-row">
-                                <span>
-                                    {{ station.icon }} <strong>{{ station.name }}</strong>
-                                    {# On its own line rather than trailing the name: the
-                                       line arrives at "Groove Salad Chill · ad-free" when
-                                       it is inline and reads as part of the name. On its
-                                       own line it needs the column to be wide enough for
-                                       it — that is what `.lp-rows li.lp-row` in
-                                       `static/meow.css` is for — and the tag itself is in
-                                       `.lp-tag` so that the hyphen in "ad-free" cannot
-                                       be the place it wraps, which is the one wrap that
-                                       says the opposite of what the tag means. #}
-                                    <span
-                                        class="dim lp-row-kind"
-                                    >{{ station.genre }}{% if station.language %} · {{ station.language }}{% endif %}{% if station.country %} · {{ station.capital or station.country }}{% endif %}{% if station.ad_free %} · <span class="lp-tag">ad-free</span>{% endif %}</span>
-                                </span>
-                                <span class="dim">{{ station.desc }}</span>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                    <p class="lp-panel-caption">
-                        The seat is held by default: the bot stays in the channel until
-                        somebody runs <span class="mono">/radio stop</span>.
-                    </p>
-                    <p class="dim">
-                        A station is somebody else's programming, so an ad break in
-                        the middle of a conversation cannot be filtered out of it —
-                        but which stations get played can be chosen. The stations
-                        whose <em>own</em> sites say they carry no advertising are
-                        marked <em>ad-free</em> here, and that is what the radio picks
-                        from unless a server says otherwise.
-                    </p>
-                </div>
-
-                <div class="lp-panel lp-panel-tilt-b">
-                    <div class="lp-panel-head">
-                        <span aria-hidden="true">🎛️</span>
-                        <span>What is said out loud</span>
-                    </div>
-                    <div class="lp-panel-body">
-                        <p class="dim">
-                            <strong>That station went quiet.</strong> Said only after it
-                            was asked again and would not come back, with how long it
-                            played — one station doing it is that station, all of them
-                            is the host.
-                        </p>
-                        <p class="dim">
-                            <strong>That station would not open.</strong> A different card
-                            from the one above, because "it stopped" and "it never
-                            started" are fixed differently.
-                        </p>
-                        <p class="dim">
-                            <strong>Nothing carried advertising there.</strong> Said when
-                            the country or language somebody asked for has no ad-free
-                            station in it yet, so the pick came from the wider table
-                            instead — a preference is not allowed to leave a room with
-                            silence.
-                        </p>
-                    </div>
-                    <p class="lp-panel-caption">
-                        Every radio failure is also one entry in the operator's own
-                        log — once per reason, not once per station.
-                    </p>
-                </div>
-            </div>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# The commands                                                       #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-paper lp-section lp-inner">
-            <header class="lp-paper-head">
-                <p class="lp-eyebrow">The commands</p>
-                <h2 class="lp-h2">Three, where there used to be fourteen</h2>
-                <p class="dim">
-                    Discord allows an application 100 top-level commands in total and
-                    this bot publishes a lot of them, so every one of these lives under
-                    <span class="mono">/radio</span> — one slot for the whole feature.
-                    The list below is read out of the bot's own registry rather than
-                    written here, so the page cannot describe a command that does not
-                    exist. The queue, the skip and the audio filters are gone on
-                    purpose: against a live stream they had nothing to act on.
-                </p>
-            </header>
-
-            <ul class="lp-rows">
-                {% for command in radio_commands %}
-                <li class="lp-row">
-                    <span class="mono">{{ command.split(" — ")[0] }}</span>
-                    <span class="dim">{{ command.split(" — ")[1] if " — " in command else "" }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# The limits, which are the point of the page                         #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-deep lp-section lp-inner">
-            <header class="lp-paper-head">
-                <p class="lp-eyebrow on-dark">The limits</p>
-                <h2 class="lp-h2 on-dark">What it will not do</h2>
-            </header>
-
-            <div class="lp-rows">
-                <div class="lp-row">
-                    <div>
-                        <h3 class="lp-h2 on-dark">It will not play a song by name</h3>
-                        <p class="dim">
-                            That used to be the headline feature, and it was given up on
-                            purpose rather than fixed: resolving a named song means
-                            asking a media platform, and a platform that has decided a
-                            datacenter address is a robot answers every request with a
-                            check instead of a stream. Cookies and proxies paper over it
-                            until the next change. A station needs none of that, so the
-                            honest thing to offer is a table rather than a search box
-                            that fails a third of the time.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="lp-row">
-                    <div>
-                        <h3 class="lp-h2 on-dark">It will not invent a country</h3>
-                        <p class="dim">
-                            A country appears in the picker when one of its stations was
-                            verified and the station backed the claim — its own name or
-                            state names the capital, or it is served from that country's
-                            own domain. Where nothing qualified, the country is absent
-                            and the picker says so, which is a smaller list than a
-                            directory would give and the only one that plays.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="lp-row">
-                    <div>
-                        <h3 class="lp-h2 on-dark">It says when it cannot play at all</h3>
-                        <p class="dim">
-                            A host needs an audio decoder and Discord's own encryption
-                            library before a single frame can be sent. If either is
-                            missing — or if the host simply cannot reach a station from
-                            where it runs — the command answers with what is wrong and
-                            how to fix it, instead of joining your channel and playing
-                            silence.
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <p class="lp-read-again">
-                <a class="btn btn-primary" href="{{ invite_url }}">Add to Discord</a>
-                <a class="btn" href="/systems">See every system</a>
-            </p>
-        </section>
-    </main>
+<section class="band band--closing">
+  <div class="wrap closing">
+    <h2 class="closing__title">Radio is one system among {{ system_count }}, and switchable like the rest.</h2>
+    <div class="row closing__actions">
+      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
+      <a class="arrow-link" href="/systems">Every system</a>
+    </div>
+  </div>
+</section>
 {% endblock %}

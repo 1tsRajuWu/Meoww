@@ -1,693 +1,142 @@
-{#
-  Pricing page for the bot.
-#}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b0e13">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
-    <title>Pricing — {{ bot_name }}</title>
-    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
-    {# Blocking, like every page: the stored theme has to be on `<html>` before
-       the first paint. See `static/theme.js`. #}
-    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
-    <style>
-        /* Pricing page specific styles */
-        .pricing-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: var(--space-5);
-            margin-top: var(--space-7);
-            align-items: stretch;
-        }
+{% extends "site_base.html" %}
+{% block title %}Pricing — {{ bot_name }}{% endblock %}
 
-        @media (min-width: 1024px) {
-            .pricing-cards {
-                align-items: center;
-            }
-        }
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
 
-        .pricing-card {
-            display: flex;
-            flex-direction: column;
-            padding: var(--space-6);
-            position: relative;
-            transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease);
-        }
+{% block page %}
+<section class="page-head band band--flush">
+  <div class="wrap">
+    <p class="micro">Pricing</p>
+    {% if selling %}
+    <h1>{{ system_count }} systems, priced by how many servers you run</h1>
+    <p class="lede">
+      Every tier gets the whole bot. The difference is how many servers may use it, and how
+      many scheduled messages one server may hold — the limits are enforced by the same
+      model this page is rendered from.
+    </p>
+    {% else %}
+    <h1>Free, and the whole bot is in it</h1>
+    <p class="lede">
+      There is no paid tier on this deployment. Everything the registry declares is
+      available to every server that has the bot: {{ system_count }} systems and
+      {{ command_count }} commands, {{ features | length }} of the systems switchable per
+      server.
+      {% if plans_enforced %}
+      Limits are enforced, so a server with more than its share is told which one it is over.
+      {% else %}
+      Nothing is withheld, and nothing is metered — this is a free product's page, not a
+      free trial's.
+      {% endif %}
+    </p>
+    {% endif %}
+  </div>
+</section>
 
-        .pricing-card:hover {
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 25px rgba(91, 94, 240, 0.15);
-        }
+{% if selling %}
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">01 — Tiers</p>
+        <h2>Pick by scale, not by feature</h2>
+      </div>
+      <p class="small muted">
+        A licence is activated per server with <code>/bot plan</code>, and the store counts
+        the activations — so “up to five servers” is the shop's rule rather than a number
+        this bot invents.
+      </p>
+    </div>
 
-        .pro-card {
-            background: rgba(22, 27, 37, 0.65);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            box-shadow: 0 20px 40px -10px rgba(88,101,242,0.2);
-            z-index: 2;
-        }
-
-        @media (min-width: 1024px) {
-            .pro-card {
-                transform: scale(1.05);
-            }
-            .pro-card:hover {
-                transform: scale(1.08); /* slight extra hover lift */
-            }
-        }
-
-        .pro-card::before {
-            content: '';
-            position: absolute;
-            inset: -1px;
-            border-radius: inherit;
-            padding: 2px;
-            /* One accent, still. A three-colour border travelling around the
-               card on a six-second loop was the loudest element on the page,
-               competing with the price it was meant to recommend. */
-            background: var(--accent);
-            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-            -webkit-mask-composite: xor;
-            mask-composite: exclude;
-            pointer-events: none;
-        }
-
-        .tier-badge {
-            position: absolute;
-            top: -12px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--accent);
-            color: #fff;
-            padding: 4px 14px;
-            border-radius: var(--radius-pill);
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            box-shadow: var(--shadow-md);
-            white-space: nowrap;
-        }
-
-        .price {
-            font-size: 42px;
-            font-weight: 700;
-            margin: var(--space-3) 0;
-            letter-spacing: -0.02em;
-            display: flex;
-            align-items: baseline;
-            gap: 4px;
-        }
-
-        .price .period {
-            font-size: 16px;
-            color: var(--text-muted);
-            font-weight: 400;
-            display: inline-block;
-        }
-
-        .features-list {
-            list-style: none;
-            padding: 0;
-            margin: var(--space-5) 0;
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-3);
-            flex-grow: 1;
-        }
-
-        .features-list li {
-            display: flex;
-            align-items: flex-start;
-            gap: var(--space-3);
-            font-size: 14.5px;
-            color: var(--text-secondary);
-        }
-
-        .features-list li svg {
-            flex-shrink: 0;
-            width: 18px;
-            height: 18px;
-            color: var(--green);
-            margin-top: 2px;
-        }
-
-        .compare-section {
-            margin-top: var(--space-8);
-        }
-        
-        .compare-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: var(--space-3);
-            font-size: 14px;
-            text-align: left;
-        }
-        
-        .compare-table th, .compare-table td {
-            padding: var(--space-3) var(--space-4);
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .compare-table th {
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-        
-        .compare-table td {
-            color: var(--text-secondary);
-        }
-        
-        .compare-table tr:hover td {
-            background: rgba(255,255,255,0.02);
-        }
-
-        .accordion {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            overflow: hidden;
-        }
-        
-        .accordion-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: var(--space-4) var(--space-5);
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            user-select: none;
-            color: var(--text-primary);
-        }
-        
-        .accordion-head::-webkit-details-marker {
-            display: none;
-        }
-        
-        .accordion[open] .accordion-head {
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .accordion-head .icon {
-            transition: transform var(--base) var(--ease);
-            color: var(--text-muted);
-        }
-        
-        .accordion[open] .accordion-head .icon {
-            transform: rotate(180deg);
-        }
-        
-        .accordion-body {
-            padding: var(--space-5);
-        }
-
-        .faq-grid {
-            display: grid;
-            gap: var(--space-4);
-            margin-top: var(--space-5);
-        }
-        
-        .faq-item {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: var(--space-5);
-        }
-        
-        .faq-item h4 {
-            margin-bottom: var(--space-2);
-            font-size: 16px;
-            color: var(--text-primary);
-        }
-        
-        .faq-item p {
-            color: var(--text-secondary);
-            font-size: 14.5px;
-        }
-    </style>
-</head>
-<body>
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-
-    <header class="site-header">
-        <div class="page">
-            <a class="brand" href="/">
-                <img class="brand-logo" src="/static/logo.svg" alt="{{ bot_name }} logo">
-                <span>{{ bot_name }}</span>
-            </a>
-            <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
-                <span></span><span></span><span></span>
-            </button>
-            <nav class="site-nav" aria-label="Main">
-                <a href="/systems">Features</a>
-                <a href="/start">Get started</a>
-                {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
-                <a href="/privacy">Privacy</a>
-                <a href="/terms">Terms</a>
-                {% if invite_url %}
-                <a class="btn btn-primary btn-sm" href="{{ invite_url }}">Add to Discord</a>
-                {% endif %}
-                <a class="btn btn-sm" href="{{ enter_url }}">{{ enter_label }}</a>
-            </nav>
+    <div class="tiers">
+      <div class="tier">
+        <h3 class="tier__name">Free</h3>
+        <p class="tier__price">{{ price_free }}</p>
+        <ul class="tier__list">
+          <li>One server</li>
+          <li>Every system, every command</li>
+          <li>The full dashboard</li>
+        </ul>
+        <div class="tier__cta">
+          {% if invite_url %}<a class="btn" href="{{ invite_url }}">Add to Discord</a>{% endif %}
         </div>
-    </header>
+      </div>
 
-    <main>
-        <section class="hero page center">
-            <h1 class="reveal" style="--i: 0; max-width: none;">
-                {% if selling %}
-                    Simple, <span class="shine">transparent pricing</span>.
-                {% else %}
-                    Everything is <span class="shine">free</span>.
-                {% endif %}
-            </h1>
-
-            {#
-              What the page says above the fold is the difference between a
-              product and an advertisement: while nothing is on sale there is no
-              "upgrade", no price to be billed and nothing to cancel, and copy
-              that says otherwise is describing a shop that does not exist.
-
-              No yearly switch in either state. Both products in the store are
-              monthly subscriptions, so a toggle that halved the number and
-              promised "Save 20%" was offering a price nobody could be charged —
-              the same defect as a dead button, one layer further in.
-            #}
-            {% if selling %}
-            <p class="lede reveal" style="--i: 1; margin-left: auto; margin-right: auto;">
-                Everything you need to grow your community. Upgrade when you need more power, custom branding, or priority support.
-            </p>
-            <p class="dim reveal" style="--i: 2; margin: 0">
-                Billed monthly in Indian rupees. Cancel any time.
-            </p>
-            {% else %}
-            <p class="lede reveal" style="--i: 1; margin-left: auto; margin-right: auto;">
-                Every system {{ bot_name }} has, in your server, for nothing — with no
-                card, no trial and no licence key.
-            </p>
-            <p class="dim reveal" style="--i: 2; margin: 0">
-                No limit is switched on today, so every tier below is the same one.
-            </p>
-            {% endif %}
-        </section>
-
-        <section class="page" style="padding-top: 0">
-            {#
-              What a visitor must know before reading a price, and the only place
-              that knows it is the deployment: whether checkout is wired at all,
-              and whether the tiers are actually enforced. A page that states
-              neither is a page that can be wrong in two directions — charging for
-              what is already free, or promising limits that do not exist.
-            #}
-            <div class="card glass reveal" style="max-width: 760px; margin: 0 auto;">
-                <div class="panel-head" style="justify-content: center; text-align: center">
-                    <div>
-                        {% if checkout_ready %}
-                            <span class="pill pill-ok">Checkout by Lemon Squeezy</span>
-                            <h3 style="margin: 10px 0 6px">Buy a plan, or keep using everything for free</h3>
-                            <p class="dim" style="margin: 0">
-                                Payment is handled by Lemon Squeezy — the card details never reach
-                                {{ bot_name }}. You get a licence key, and an administrator of your
-                                server runs <code>/bot plan key:…</code> once to activate it; one key
-                                covers as many servers as your plan allows, and releasing one here
-                                gives nothing away that you cannot take back.
-                                {% if not plans_enforced %}
-                                    <strong>Limits are not switched on yet</strong>, so nothing you
-                                    already use is taken away while you decide: paying supports the
-                                    bot, and the tiers below are what they will be held to.
-                                {% endif %}
-                            </p>
-                        {% else %}
-                            <span class="pill pill-ok">No billing yet</span>
-                            <h3 style="margin: 10px 0 6px">Everything on this page is free today</h3>
-                            <p class="dim" style="margin: 0">
-                                Add {{ bot_name }} and every system below is on in your server right
-                                now: nothing to buy, no card to enter, no licence key to activate.
-                                {% if not plans_enforced %}
-                                    Nor is anything held back — <strong>no limit is switched on</strong>,
-                                    so no tier is missing a feature.
-                                {% endif %}
-                                We may introduce paid plans later, for a network that wants more
-                                servers, its own branding, or priority support; if that ever happens,
-                                this page will say so first, rather than the bot going quiet on you.
-                            </p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="page">
-            <div class="pricing-cards">
-                {% if selling %}
-
-                <!-- Free Tier -->
-                <div class="card card-hover pricing-card reveal" style="--i: 3">
-                    <h3>Free</h3>
-                    <div class="price">
-                        <span class="static-num">{{ price_free }}</span><span class="period static-period">/mo</span>
-                    </div>
-                    <p class="dim">Perfect for getting started</p>
-                    
-                    <ul class="features-list">
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> 1 server</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Moderation & Logs</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Automod & Shield</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Leveling & XP</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Fun & Memes</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Social Roleplay</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Mini-Games Hub</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Basic Dashboard</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Hourly backups</li>
-                    </ul>
-                    <a href="{{ invite_url }}" class="btn btn-block">Get Started Free</a>
-                </div>
-
-                <!-- Pro Tier -->
-                <div class="card card-hover pricing-card pro-card reveal" style="--i: 4">
-                    <span class="tier-badge">Most Popular</span>
-                    <h3>Pro</h3>
-                    <div class="price">
-                        <span class="static-num">{{ price_pro }}</span><span class="period static-period">/mo</span>
-                    </div>
-                    <p class="dim">Power up your communities</p>
-                    
-                    <ul class="features-list">
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Up to 5 servers</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Everything in Free</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Support Tickets</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Economy & Casino</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Market (Live Trading)</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Starboard</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Activity Tracker</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Full Dashboard (Real-time)</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Message Composer</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> 5 Scheduled Messages / server</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Bot Identity (per server)</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Real-time backups</li>
-                    </ul>
-                    {% if checkout_pro %}
-                        <a href="{{ checkout_pro }}" class="btn btn-primary btn-block" rel="noopener">Get Pro — {{ price_pro }}/mo</a>
-                    {% else %}
-                        <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free today' if invite_url else 'Open the dashboard' }}</a>
-                    {% endif %}
-                </div>
-
-                <!-- Enterprise Tier -->
-                <div class="card card-hover pricing-card reveal" style="--i: 5">
-                    <h3>Enterprise</h3>
-                    <div class="price">
-                        <span class="static-num">{{ price_enterprise }}</span><span class="period static-period">/mo</span>
-                    </div>
-                    <p class="dim">For large networks & brands</p>
-                    
-                    <ul class="features-list">
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Unlimited servers</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Everything in Pro</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Unlimited Scheduled Messages</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Custom Branding</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Priority Discord Support</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Custom backup schedule</li>
-                    </ul>
-                    {% if checkout_enterprise %}
-                        <a href="{{ checkout_enterprise }}" class="btn btn-block" rel="noopener">Get Enterprise — {{ price_enterprise }}/mo</a>
-                    {% else %}
-                        <a href="/servers" class="btn btn-block">Open the dashboard</a>
-                    {% endif %}
-                </div>
-
-                {% else %}
-                {#
-                  The whole premium surface is gone while nothing is for sale. A
-                  tier the code does not enforce, priced at money nobody can pay,
-                  is not a roadmap — it is a page that contradicts itself, and it
-                  was still carrying a "Most Popular" badge for the privilege.
-                  What replaces it is the product as it exists: one plan, every
-                  system from the registry the bot actually loads, and no number
-                  anybody is being asked for.
-                #}
-                <div class="card card-hover pricing-card reveal" style="--i: 3; max-width: 620px; margin: 0 auto;">
-                    <span class="tier-badge">Everything included</span>
-                    <h3>Free</h3>
-                    <div class="price">
-                        {# This card is the only one that shows while nothing is for
-                           sale, and it carried the model's own `₹0` and a `/mo`
-                           period — a price tag and a billing cycle on a product
-                           nobody can buy, on the page whose whole point was that
-                           there is no number to pay. #}
-                        <span class="static-num">Free</span>
-                    </div>
-                    <p class="dim">Every system, with no limit switched on</p>
-
-                    <ul class="features-list">
-                        {% for feature in features %}
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> {{ feature.name }}</li>
-                        {% endfor %}
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Real-time dashboard &amp; message composer</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Scheduled messages</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Your own name and picture for the bot, per server</li>
-                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Hourly cloud backups</li>
-                    </ul>
-
-                    <a href="{{ invite_url or '/servers' }}" class="btn btn-primary btn-block">{{ 'Add to Discord — free' if invite_url else 'Open the dashboard' }}</a>
-                    <a href="{{ kofi_url or 'https://ko-fi.com/1tsraj' }}" target="_blank" rel="noopener" class="btn btn-block" style="margin-top: 0.5rem">Support on Ko-fi</a>
-                    {% if invite_limited_url %}
-                    <a href="{{ invite_limited_url }}" class="btn btn-block" style="margin-top: 0.5rem">Add with limited permissions</a>
-                    {% endif %}
-                </div>
-                {% endif %}
-            </div>
-        </section>
-
-        {% if selling %}
-        {#
-          The three-column table only means anything when there are three things
-          to choose between. With the premium surface gone it would be a column of
-          "Included", a column of "-" and a row about who gets priority support
-          for a product with no support tier.
-        #}
-        <section class="section page compare-section">
-            <details class="accordion reveal" style="--i: 6">
-                <summary class="accordion-head">
-                    Full Feature Comparison
-                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                </summary>
-                <div class="accordion-body" style="overflow-x: auto;">
-                    <table class="compare-table">
-                        <thead>
-                            <tr>
-                                <th>Feature</th>
-                                <th>Free</th>
-                                <th>Pro</th>
-                                <th>Enterprise</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Servers limit</td>
-                                <td>1</td>
-                                <td>Up to 5</td>
-                                <td>Unlimited</td>
-                            </tr>
-                            <tr>
-                                <td>Dashboard Experience</td>
-                                <td>Basic</td>
-                                <td>Real-time live updates</td>
-                                <td>Custom Branded</td>
-                            </tr>
-                            <tr>
-                                <td>Moderation & Automod</td>
-                                <td>Included</td>
-                                <td>Included</td>
-                                <td>Included</td>
-                            </tr>
-                            <tr>
-                                <td>Economy & Casino</td>
-                                <td>-</td>
-                                <td>Included</td>
-                                <td>Included</td>
-                            </tr>
-                            <tr>
-                                <td>Scheduled Messages</td>
-                                <td>-</td>
-                                <td>5 per server</td>
-                                <td>Unlimited</td>
-                            </tr>
-                            <tr>
-                                <td>Support Level</td>
-                                <td>Community Support</td>
-                                <td>Priority Support Tickets</td>
-                                <td>Priority Discord Support</td>
-                            </tr>
-                            <tr>
-                                <td>Backup Frequency</td>
-                                <td>Hourly</td>
-                                <td>Real-time</td>
-                                <td>Custom Schedule</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </details>
-        </section>
-        {% endif %}
-
-        <section class="section page" id="faq">
-            <div class="section-head reveal" style="--i: 7">
-                <span class="eyebrow">FAQ</span>
-                <h2>Common Questions</h2>
-            </div>
-            <div class="faq-grid">
-                {% if selling %}
-                <div class="faq-item reveal" style="--i: 8">
-                    {#
-                      The old answer promised "a 7-day free trial of Pro features"
-                      on every new server. There is no trial in the store (the
-                      products are plain monthly subscriptions) and nothing in the
-                      bot implements one, so it was a promise two systems would
-                      each have to break to keep.
-                    #}
-                    <h4>Can I try Pro features for free?</h4>
-                    <p>There is no trial and no time limit on the free plan — it is permanent, and it
-                    includes moderation, automod, leveling, the mini-games, fun and social. Pro adds the
-                    support tickets, economy, market, starboard and activity tracker systems; see
-                    <a href="/systems">what each one does</a> before you pay for it.</p>
-                </div>
-                <div class="faq-item reveal" style="--i: 9">
-                    <h4>What payment methods do you accept?</h4>
-                    <p>Whatever Lemon Squeezy offers in your country — cards and the local methods they
-                    support. The card details are entered on their checkout and are never sent to
-                    {{ bot_name }}, which only ever sees that a licence is active.</p>
-                </div>
-                <div class="faq-item reveal" style="--i: 10">
-                    <h4>Can I cancel anytime?</h4>
-                    <p>Yes, at any time from the link on your Lemon Squeezy receipt. The plan stays active on
-                    your servers until the end of the period you already paid for, and the licence key in
-                    <code>/bot plan</code> stops working after that.</p>
-                </div>
-                {% else %}
-                {#
-                  While nothing is on sale the questions a visitor actually has are
-                  not about payment methods: they are "is this really free", "will
-                  it start charging me", and "what do I have to hand over". Each
-                  answer is a fact about the deployment — no checkout exists, no
-                  limit is enforced, and the only thing asked for is Discord's own
-                  permission to add a bot.
-                #}
-                <div class="faq-item reveal" style="--i: 8">
-                    <h4>Is everything really free?</h4>
-                    <p>Yes. Every system {{ bot_name }} has is available in your server today, with no
-                    trial and no time limit on any of it. There is no checkout on this page, no card
-                    to enter, and no key to activate — an administrator adds the bot and the whole
-                    panel is open. See <a href="/systems">what each system does</a>.</p>
-                </div>
-                <div class="faq-item reveal" style="--i: 9">
-                    <h4>Will it start costing money later?</h4>
-                    <p>It might, and we would rather say so than surprise you. A paid tier would be
-                    for a network that wants more servers, its own branding, or priority support —
-                    not for the systems you already use. If one is ever introduced, this page will
-                    say so before anything changes, and no limit is switched on today, so no tier is
-                    currently missing anything.</p>
-                </div>
-                <div class="faq-item reveal" style="--i: 10">
-                    <h4>What does adding the bot cost me in permissions?</h4>
-                    <p>Discord's own permission to add a bot — that is the whole list. The invite
-                    asks for <b>Administrator</b> so that no feature fails later while you work out
-                    which permission it wanted; if you would rather not grant that, the second link
-                    asks only for the permissions {{ bot_name }} actually uses, and you can grant one
-                    more if a system asks for it.</p>
-                </div>
-                {% endif %}
-                <div class="faq-item reveal" style="--i: 11">
-                    {#
-                      "We use encrypted backups" was false: the cloud backup is a
-                      raw SQLite file in a private bucket, and encryption at rest
-                      was deliberately removed when the Gist backup went. The
-                      Privacy Policy says the true thing, and this page must not
-                      contradict it.
-                    #}
-                    <h4>Is my data safe?</h4>
-                    <p>The cloud backup is a raw database file in a private bucket that needs a
-                    service-role key for every read and write, so access control — not encryption —
-                    is what protects it. Only what the systems you switch on need is stored, and
-                    <a href="/privacy">the privacy policy</a> lists each kind with how long it is kept.</p>
-                </div>
-                {% if selling %}
-                <div class="faq-item reveal" style="--i: 12">
-                    <h4>What happens if I downgrade?</h4>
-                    <p>Nothing is deleted on a downgrade: the plan changes, and the retention windows
-                    in the privacy policy go on applying to what was already recorded. If the paid
-                    systems are held back on the free plan, they stop being available until a licence
-                    is active again — and activating one puts them back exactly as they were.</p>
-                </div>
-                {% else %}
-                <div class="faq-item reveal" style="--i: 12">
-                    <h4>What happens if I remove the bot?</h4>
-                    <p>Your records are not deleted the moment it leaves: the retention windows in
-                    <a href="/privacy">the privacy policy</a> go on applying, so activity counts age
-                    out after their own window and queued message history after 90 days. Adding it
-                    back picks up from what is still stored.</p>
-                </div>
-                {% endif %}
-            </div>
-        </section>
-    </main>
-
-    <footer class="site-footer">
-        <div class="page">
-            <div class="links">
-                <a href="{{ kofi_url or 'https://ko-fi.com/1tsraj' }}" target="_blank" rel="noopener">Support (Ko-fi)</a>
-                <a href="/privacy">Privacy Policy</a>
-                <a href="/terms">Terms of Service</a>
-                <a href="/market/BTC">Live market</a>
-                <a href="/health">Status</a>
-                {% if invite_url %}<a href="{{ invite_url }}">Add to Discord</a>{% endif %}
-            </div>
-            <div class="footer-theme">
-                {% set theme_compact = true %}
-                {% include "theme_picker.html" %}
-            </div>
-            <p>
-                {{ bot_name }} stores what it needs to run the systems you switch on —
-                {% if retention_days %}activity counts kept for {{ retention_days }} days,{% endif %}
-                queued and sent message history for 90 — and the policy above says exactly what
-                that is, in the same words the Discord command shows.
-            </p>
+      <div class="tier tier--lead">
+        <h3 class="tier__name">Pro</h3>
+        <p class="tier__price">{{ price_pro }}<small> per month</small></p>
+        <ul class="tier__list">
+          <li>More servers on one licence</li>
+          <li>More scheduled messages per server</li>
+          <li>Priority on updates</li>
+        </ul>
+        <div class="tier__cta">
+          {% if checkout_pro and checkout_ready %}
+          <a class="btn btn--primary" href="{{ checkout_pro }}" rel="noopener">Buy Pro</a>
+          {% else %}
+          <span class="hint">Not on sale here yet — a licence key works the moment one exists.</span>
+          {% endif %}
         </div>
-    </footer>
+      </div>
 
-    <script>
-        // Entrance animation matching home.html
-        (function () {
-            const items = document.querySelectorAll(".reveal");
-            if (!items.length || typeof IntersectionObserver !== "function") return;
-            items.forEach(function (item) { item.style.animationPlayState = "paused"; });
-            const seen = new IntersectionObserver(function (entries) {
-                entries.forEach(function (entry) {
-                    if (!entry.isIntersecting) return;
-                    const el = entry.target;
-                    el.style.animationPlayState = "running";
-                    seen.unobserve(el);
-                });
-            }, { rootMargin: "0px 0px -40px 0px" });
-            items.forEach(function (item) { seen.observe(item); });
-        })();
+      <div class="tier">
+        <h3 class="tier__name">Enterprise</h3>
+        <p class="tier__price">{{ price_enterprise }}<small> per month</small></p>
+        <ul class="tier__list">
+          <li>The largest allowance</li>
+          <li>Every system, no exceptions</li>
+          <li>The operator's own console</li>
+        </ul>
+        <div class="tier__cta">
+          {% if checkout_enterprise and checkout_ready %}
+          <a class="btn" href="{{ checkout_enterprise }}" rel="noopener">Buy Enterprise</a>
+          {% else %}
+          <span class="hint">Not on sale here yet.</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
 
-        // Mobile Nav Toggle
-        (function() {
-            const toggle = document.querySelector('.nav-toggle');
-            const nav = document.querySelector('.site-nav');
-            if (toggle && nav) {
-                toggle.addEventListener('click', () => {
-                    const open = nav.classList.toggle('open');
-                    toggle.setAttribute('aria-expanded', String(open));
-                });
-            }
-        })();
-    </script>
-    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
-</body>
-</html>
+    {% if not checkout_ready %}
+    <p class="hint tiles">
+      Selling is switched on but no checkout link is configured, so no button above takes
+      money. A store that has not been set up must not look like one that has.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">{{ '02' if selling else '01' }} — What is in it</p>
+        <h2>Every system, listed</h2>
+      </div>
+      <p class="small muted">Read from the registry, so this page cannot sell a feature the bot does not have.</p>
+    </div>
+
+    <ul class="list">
+      {% for module in features %}
+      <li class="list__row">
+        <span class="list__key">{{ module.icon }} {{ module.name }}</span>
+        <span class="list__note">{{ module.commands | length }} command{{ '' if (module.commands | length) == 1 else 's' }}</span>
+        <span class="list__meta mono">{{ module.category }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="band band--closing">
+  <div class="wrap closing">
+    <h2 class="closing__title">Everything on this page is enforced by the same model that serves it.</h2>
+    <div class="row closing__actions">
+      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
+      <a class="arrow-link" href="{{ kofi_url }}" rel="noopener">Support the bot</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,413 +1,136 @@
-{#
-  What is in the bot.
-
-  This is the page the front door's *see all N systems* goes to, and it holds the
-  three things that used to make the landing page long: every system with the
-  commands it declares, the panel that lets a reader operate the claim the page
-  makes, and the two previews of the dashboard they get with it.
-
-  **The list is the registry.** `features` is `features.dashboard_modules()` — the
-  same object the dashboard's module cards are built from — so this page cannot
-  advertise a module the bot does not have, which is the failure that once left a
-  removed feature showing as a green card. The counts are the registry's own
-  answers (`system_count()` and `command_count()`), not this page's arithmetic on
-  a list.
-
-  **The one claim a reader cannot check by reading is operable here.** A system
-  switched off leaves *that server's* command picker and nowhere else — which is
-  the product's actual difference from a bot whose commands are global — so it
-  ships as something to press rather than as another paragraph asserting it. The
-  panel is server-rendered with everything on, which is the truth about a server
-  nobody has configured, so it says something accurate before any script loads.
-  Nothing it does touches the network, and it says so: a demo that looked like it
-  had changed somebody's Discord would be worse than no demo.
-#}
 {% extends "site_base.html" %}
+{% block title %}Every system — {{ bot_name }}{% endblock %}
 
-{% block title %}Systems — {{ bot_name }}{% endblock %}
-{% block description %}Every system in {{ bot_name }}, the commands each one declares, and what switching one off does to a single server's command picker.{% endblock %}
-
-{% block skip_target %}features{% endblock %}
-{% block skip_label %}Skip to the systems{% endblock %}
-
-{% block main %}
-    <main class="lp">
-        {# ------------------------------------------------------------------ #}
-        {# Hero, in its short form                                            #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-hero lp-hero-compact">
-            <div class="lp-plate" aria-hidden="true">
-                <div class="lp-plate-layer" data-parallax="0,8">
-                    <span class="lp-plate-grid"></span>
-                    <img class="lp-plate-mark" src="/static/logo.svg" alt="">
-                </div>
-            </div>
-
-            {% include "site_header.html" %}
-
-            <div class="lp-hero-title">
-                <h1 class="lp-display" data-fit="9" data-text-reveal="words"
-                    data-stagger="120" data-duration="950">
-                    What's in it
-                </h1>
-            </div>
-
-            <div class="lp-hero-bottom">
-                <p class="lp-lede">
-                    {{ system_count }} systems. {{ command_count }} commands.
-                    Everything listed is what the bot actually has.
-                </p>
-            </div>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# The paper band — every system, numbered                            #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-paper lp-section lp-inner" id="features">
-            <div class="lp-paper-head">
-                <span class="lp-eyebrow">Every system</span>
-                <h2 class="lp-h2" data-lines data-base-delay="0" data-stagger="120" data-duration="950">
-                    <span class="line"><span class="line-inner">{{ system_count }} systems,</span></span>
-                    <span class="line"><span class="line-inner">{{ features|length }} of them switchable</span></span>
-                </h2>
-                <p>
-                    Switch a system off and its commands leave that server only.
-                    <b>{{ always_on|join(", ") }}</b> is always on.
-                </p>
-            </div>
-
-            <ul class="lp-rows">
-                {% for feature in features %}
-                <li data-reveal data-reveal-delay="{{ (loop.index0 % 6) * 70 }}">
-                    <div class="lp-row" data-hover="x:6">
-                        <span class="lp-row-index">{{ "%02d"|format(loop.index) }}</span>
-                        <div class="lp-row-body">
-                            <h3><span aria-hidden="true">{{ feature.icon }}</span> {{ feature.name }}</h3>
-                            <p>{{ feature.desc }}</p>
-                            {% if feature.commands %}
-                            <div class="lp-row-commands">
-                                {# No leading slash of our own: every name in the
-                                   registry already carries one, so the old
-                                   `/{{ cmd }}` rendered `//rank`, `//balance`,
-                                   `//daily` on this page and nowhere else. The
-                                   dashboard's module cards render `{{ cmd }}` and
-                                   always have, which is why the two surfaces
-                                   disagreed and only one of them was wrong. #}
-                                {% for cmd in feature.commands[:4] %}
-                                <span class="lp-cmd-pill">{{ cmd }}</span>
-                                {% endfor %}
-                                {% if feature.commands|length > 4 %}
-                                <span class="lp-cmd-more">+{{ feature.commands|length - 4 }} more</span>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        </div>
-                        {% if feature.commands %}
-                        <span class="lp-row-arrow mono" aria-label="{{ feature.commands|length }} commands">
-                            {{ feature.commands|length }}
-                        </span>
-                        {% endif %}
-                    </div>
-                </li>
-                {% endfor %}
-            </ul>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# The list above, made operable                                      #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-deep lp-section lp-inner" id="try" aria-labelledby="try-title"
-                 data-try data-try-total="{{ features|length }}">
-            <span class="lp-eyebrow on-dark">Try it</span>
-            <h2 class="lp-h2 on-dark" id="try-title" style="margin-top: 1rem"
-                data-lines data-base-delay="0" data-stagger="120">
-                <span class="line"><span class="line-inner">Switch a system off.</span></span>
-                <span class="line"><span class="line-inner">Watch its commands go.</span></span>
-            </h2>
-
-            <p class="lp-try-lede">
-                Press a system. See the commands Discord would show.
-            </p>
-
-            <div class="lp-try-layout">
-                <div class="lp-try-systems" role="group" aria-label="Systems you can switch">
-                    {% for feature in features %}
-                    <button type="button" class="lp-try-system" data-system="{{ feature.id }}"
-                            aria-pressed="true"
-                            {% if not feature.commands %}data-no-commands="1"{% endif %}>
-                        <span class="lp-try-icon" aria-hidden="true">{{ feature.icon }}</span>
-                        <span class="lp-try-name">{{ feature.name }}</span>
-                        <span class="lp-try-state" aria-hidden="true">On</span>
-                    </button>
-                    {% endfor %}
-                </div>
-
-                <div class="lp-try-panel">
-                    <div class="lp-try-readout" role="status" aria-live="polite" data-try-readout>
-                        All {{ features|length }} systems on.
-                    </div>
-                    <div class="lp-try-picker" data-try-picker>
-                        <div class="lp-try-picker-head">
-                            <span class="lp-try-picker-dot" aria-hidden="true"></span>
-                            <span>{{ bot_name }} would offer</span>
-                            <span class="lp-try-num" data-try-num>0</span>
-                            <span>commands here</span>
-                        </div>
-                        <ul class="lp-try-list" data-try-list></ul>
-                        <div class="lp-try-empty" data-try-empty hidden>
-                            <b>Nothing left.</b>
-                            <span>Every system is off, so this server's picker would be empty — the bot would still be able to answer nothing at all, which is a state you can only reach on purpose.</span>
-                        </div>
-                    </div>
-                    <div class="lp-try-foot">
-                        <span>Nothing is sent. No server is changed.</span>
-                        <button type="button" class="lp-try-reset" data-try-reset>Reset to all on</button>
-                    </div>
-                </div>
-            </div>
-
-            {# `|safe`, because the escaping that matters has already happened in
-               `_try_payload()` — Jinja's autoescaping would turn every quote in
-               the payload into `&#34;`, which is valid HTML and not valid JSON,
-               so the panel would silently fall back to its static state on every
-               page. What autoescaping protects against here is markup in the
-               data, and the builder has already replaced `<`. #}
-            <script type="application/json" data-try-data>{{ try_payload|safe }}</script>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# Two previews of the dashboard that comes with it                    #}
-        {# ------------------------------------------------------------------ #}
-        {# This is the page's live surface, and the reason it is here rather than on
-           the front door: `figures.js` re-reads `/api/figures` and repaints every
-           `[data-figure]` below, so the copy on the CDN — rendered once, at build
-           time — does not stay frozen on the figures of the day it was built. The
-           baked payload is what a visitor sees with no script at all, which is why
-           it is in the markup rather than fetched first. #}
-        <section class="lp-section lp-inner" id="dashboard" aria-label="The dashboard"
-                 data-figures-url="{{ figures_url }}">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap">
-                <span class="lp-eyebrow on-dark">What you get</span>
-                {# The read and its age, in one control — the same shape as the
-                   owner console's status panel, for the same reason: a figure
-                   with no statement of when it was taken is a figure a reader
-                   has to guess about. #}
-                <button type="button" class="lp-read-again" data-figures-refresh>
-                    <span data-figures-stamp>this deployment</span>
-                    <span class="lp-read-again-do">read again</span>
-                </button>
-            </div>
-            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
-                <span class="line"><span class="line-inner">A dashboard,</span></span>
-                <span class="line"><span class="line-inner">not a wall of commands</span></span>
-            </h2>
-
-            <div class="lp-panels">
-                <figure class="lp-panel lp-panel-tilt-a" style="margin:0" data-reveal data-reveal-delay="0" data-tilt="5">
-                    <div class="lp-panel-head"><span>Control panel</span><span>this deployment</span></div>
-                    <div class="lp-panel-body">
-                        <div class="lp-mock-tiles">
-                            {% for tile in control_tiles %}
-                            <div class="lp-mock-tile">
-                                <b data-figure="control:{{ tile.key }}">{{ tile.value }}</b>
-                                <span>{{ tile.label }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {# Not a decorative chart. One bar per system, its height the
-                           number of commands that system declares in the registry, and
-                           each one operable — the list above prints the commands, this
-                           says how the load is distributed across the systems.
-                           Drawn from `system_bars`, so it cannot disagree with the
-                           registry the rest of the page is built from. #}
-                        <div class="lp-bars" role="group" aria-label="Commands per system" data-bars>
-                            {% for bar in system_bars %}
-                            <button type="button" class="lp-bar"
-                                    data-bar="{{ bar.id }}"
-                                    data-bar-name="{{ bar.name }}"
-                                    data-bar-commands="{{ bar.commands }}"
-                                    style="--bar-height: {{ bar.pct }}%; --bar-delay: {{ '%.2f'|format(loop.index0 * 0.06) }}s"
-                                    aria-pressed="false"
-                                    aria-label="{{ bar.name }} — {{ bar.commands }} commands"
-                                    title="{{ bar.name }} — {{ bar.commands }} commands">
-                                <span class="lp-bar-fill" aria-hidden="true"></span>
-                            </button>
-                            {% endfor %}
-                        </div>
-                        <p class="lp-panel-read" data-bar-readout>Pick a bar to see which system it is.</p>
-                    </div>
-                    <figcaption class="lp-panel-caption">
-                        <strong>Every system, its own toggle</strong>
-                        <span>Switches and figures are live, and the figures above are this deployment's own.</span>
-                    </figcaption>
-                </figure>
-
-                <figure class="lp-panel lp-panel-tilt-b" style="margin:0" data-reveal data-reveal-delay="140" data-tilt="5">
-                    <div class="lp-panel-head"><span>Activity</span><span>message &amp; voice</span></div>
-                    <div class="lp-panel-body">
-                        {# Buttons with `aria-pressed`, not a `tablist`: a real tablist
-                           owes the reader arrow-key navigation and a panel per tab, and
-                           a group of up to four windows over the same four numbers is
-                           neither. This is the same shape as the systems panel above. #}
-                        <div class="lp-tabs" role="group" aria-label="Counting window" data-periods>
-                            {% for period in activity_periods %}
-                            <button type="button" class="lp-tab"
-                                    data-period="{{ period.id }}"
-                                    aria-pressed="{{ 'true' if period.selected else 'false' }}">{{ period.label }}</button>
-                            {% endfor %}
-                        </div>
-                        <div class="lp-mock-tiles" aria-live="polite">
-                            {% for tile in activity_tiles %}
-                            <div class="lp-mock-tile">
-                                <b data-figure="activity:{{ tile.key }}">{{ tile.value }}</b>
-                                <span>{{ tile.label }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    <figcaption class="lp-panel-caption">
-                        <strong>Activity tracker</strong>
-                        <span>
-                            Per channel and per voice channel{% if retention_days %}, kept
-                            {{ retention_days }} days{% endif %} — and readable by the members
-                            themselves.
-                        </span>
-                    </figcaption>
-                </figure>
-            </div>
-
-            <script type="application/json" data-figures-data>{{ figures_json|safe }}</script>
-
-            <div class="lp-more">
-                <a class="btn" href="/start">Get started</a>
-                <span class="dim">Adding it takes about five minutes.</span>
-            </div>
-        </section>
-    </main>
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
 {% endblock %}
 
-{% block scripts %}
-    <script>
-        // ── the "switch a system off" panel ──────────────────────────────────
-        // The page's one claim a reader cannot check by reading is that switching
-        // a system off removes its commands from *that server's* picker and
-        // nowhere else. So the section ships operable and this makes it work.
-        //
-        // Three decisions worth stating:
-        //
-        // * **The payload is not parsed until the section exists**, and a payload
-        //   that will not parse leaves the server-rendered "all on" state alone.
-        //   A panel that failed to its "nothing on" state would be telling the
-        //   reader something false about the product.
-        // * **The list is capped.** The registry's biggest system carries more
-        //   commands than a marketing page should scroll through, and a count
-        //   plus a truthful "+N more" is more use than a wall.
-        // * **No network.** Nothing here posts anywhere, which is why it can be
-        //   offered to somebody who has not added the bot and has no session.
-        (() => {
-            "use strict";
+{% block page %}
+<section class="page-head band band--flush">
+  <div class="wrap">
+    <p class="micro">Systems</p>
+    <h1>Every system, and what switching one off does</h1>
+    <p class="lede">
+      {{ system_count }} systems and {{ command_count }} commands, all of them read out of
+      the bot's own registry. A switch belongs to one server: turning one off takes its
+      commands out of that server's picker and leaves every other server alone.
+    </p>
+  </div>
+</section>
 
-            const section = document.querySelector("[data-try]");
-            if (!section) return;
+{# What this deployment is doing. A reading that was never taken is a dash rather
+   than a zero, because a confident "0 servers" from a sleeping host reads as a
+   bot nobody uses. #}
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">01 — This deployment</p>
+        <h2>Counted, not claimed</h2>
+      </div>
+      <p class="small muted">Read from the gateway when it is connected, and left blank when it is not.</p>
+    </div>
 
-            const payload = section.querySelector("[data-try-data]");
-            let systems;
-            try {
-                systems = JSON.parse(payload ? payload.textContent : "[]");
-            } catch (error) {
-                return; // the server-rendered state stands; it is already true
-            }
-            if (!Array.isArray(systems) || !systems.length) return;
+    <div class="tiles">
+      {% for tile in control_tiles %}
+      <div class="tile">
+        <span class="tile__value">{{ tile.value }}</span>
+        <span class="tile__label">{{ tile.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
 
-            const MAX_LISTED = 24;
-            const buttons = Array.from(section.querySelectorAll("[data-system]"));
-            const list = section.querySelector("[data-try-list]");
-            const num = section.querySelector("[data-try-num]");
-            const readout = section.querySelector("[data-try-readout]");
-            const empty = section.querySelector("[data-try-empty]");
-            const reset = section.querySelector("[data-try-reset]");
-            const total = Number(section.dataset.tryTotal) || systems.length;
+{# Activity, over the window the tracker keeps. The windows are named rather
+   than drawn as tabs: the readings for the other windows are not on this page,
+   and a tab that cannot change what is under it is a lie with a hover state. #}
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">02 — Activity</p>
+        <h2>What people actually did</h2>
+      </div>
+      <p class="small muted">
+        This window:
+        {% for period in activity_periods %}
+        <span class="{{ 'mono' if period.selected else '' }}">{{ period.label }}</span>{{ ' · ' if not loop.last else '' }}
+        {% endfor %}
+      </p>
+    </div>
 
-            // Everything is on to begin with: a server nobody has configured is
-            // the state the copy describes, and the state that renders without
-            // this script at all.
-            const on = new Set(systems.map((system) => system.id));
+    <div class="tiles">
+      {% for tile in activity_tiles %}
+      <div class="tile">
+        <span class="tile__value">{{ tile.value }}</span>
+        <span class="tile__label">{{ tile.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="hint">A dash means nobody has taken that reading yet — not that the answer is zero.</p>
+  </div>
+</section>
 
-            function commandsFrom(ids) {
-                const names = [];
-                systems.forEach((system) => {
-                    if (!ids.has(system.id)) return;
-                    (system.commands || []).forEach((name) => {
-                        if (!names.includes(name)) names.push(name);
-                    });
-                });
-                return names;
-            }
+<section class="band">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">03 — Command weight</p>
+        <h2>Which system is the big one</h2>
+      </div>
+      <p class="small muted">Each bar is the number of commands that system declares, against the largest of them.</p>
+    </div>
 
-            function plural(count, word) {
-                return count + " " + word + (count === 1 ? "" : "s");
-            }
+    <ul class="bars">
+      {% for bar in system_bars %}
+      <li class="bar">
+        <span class="bar__name">{{ bar.icon }} {{ bar.name }}</span>
+        <span class="bar__track"><span class="bar__fill" style="--bar: {{ bar.pct }}%"></span></span>
+        <span class="bar__value mono">{{ bar.commands }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
 
-            function render() {
-                buttons.forEach((button) => {
-                    const on_ = on.has(button.dataset.system);
-                    button.setAttribute("aria-pressed", String(on_));
-                    button.classList.toggle("is-on", on_);
-                    const state = button.querySelector(".lp-try-state");
-                    if (state) state.textContent = on_ ? "On" : "Off";
-                });
+<section class="band" id="all">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">04 — The list</p>
+        <h2>{{ system_count }} systems</h2>
+      </div>
+      <p class="small muted">Switchable means the server's own switches can turn it off; always-on means nothing works without it.</p>
+    </div>
 
-                const names = commandsFrom(on);
-                if (num) num.textContent = String(names.length);
+    <ul class="list">
+      {% for module in features %}
+      <li class="list__row">
+        <span class="list__key">{{ module.icon }} {{ module.name }}</span>
+        <span class="list__note">{{ module.commands | length }} command{{ '' if (module.commands | length) == 1 else 's' }}</span>
+        <span class="list__meta mono">{{ module.category }}</span>
+      </li>
+      {% endfor %}
+    </ul>
 
-                if (readout) {
-                    readout.textContent = on.size === total
-                        ? "All " + total + " systems on."
-                        : plural(on.size, "system") + " on, " + plural(total - on.size, "system") + " off.";
-                }
+    {# Which of the two counts a reader is looking at, by name: a page that
+       prints a total over a shorter list has to say what the difference is. #}
+    <p class="hint tiles">
+      {{ always_on | length }} of them are always on: {{ always_on | join(', ') }}.
+    </p>
+  </div>
+</section>
 
-                if (list) {
-                    list.innerHTML = "";
-                    names.slice(0, MAX_LISTED).forEach((name) => {
-                        // The name arrives with its slash — the registry stores
-                        // `/rank`, not `rank`, which is the whole reason the
-                        // static list was rendering `//rank`.
-                        const item = document.createElement("li");
-                        item.textContent = name;
-                        list.appendChild(item);
-                    });
-                    if (names.length > MAX_LISTED) {
-                        const more = document.createElement("li");
-                        more.className = "lp-try-more";
-                        more.textContent = "+" + (names.length - MAX_LISTED) + " more";
-                        list.appendChild(more);
-                    }
-                }
-
-                if (empty) empty.hidden = names.length !== 0;
-                if (list) list.hidden = names.length === 0;
-            }
-
-            buttons.forEach((button) => {
-                button.addEventListener("click", () => {
-                    const id = button.dataset.system;
-                    if (on.has(id)) on.delete(id);
-                    else on.add(id);
-                    render();
-                });
-            });
-
-            if (reset) {
-                reset.addEventListener("click", () => {
-                    systems.forEach((system) => on.add(system.id));
-                    render();
-                });
-            }
-
-            // The names appear in the markup order the registry gives, which is
-            // also the order they are grouped in, so a reader sees one system's
-            // commands arrive together as they press it.
-            render();
-        })();
-    </script>
+<section class="band band--closing">
+  <div class="wrap closing">
+    <h2 class="closing__title">Want the whole thing running your way?</h2>
+    <div class="row closing__actions">
+      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
+      <a class="arrow-link" href="/start">Getting started</a>
+    </div>
+  </div>
+</section>
 {% endblock %}
+
+
