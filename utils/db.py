@@ -351,23 +351,27 @@ async def setup():
             as_of REAL DEFAULT 0
         )''')
 
-        # Archived music cog still exposes 24/7 helpers; create the table so
-        # those readers do not fail on a fresh database.
-        await db.execute('''CREATE TABLE IF NOT EXISTS music_247 (
+        # The radio's two tables, and they are the *new* names for two old ones.
+        # ``radio_stay`` is the seat a server asked the bot to hold: a channel kept
+        # through silence and through restarts, which is what makes `/radio` a
+        # radio rather than a player. ``radio_last`` is the station a server last
+        # put on — one row per server, because the question it answers is "what do
+        # we put on when nobody wants to choose" and that has exactly one answer.
+        # ``as_of`` is here so a stale choice is visible.
+        await db.execute('''CREATE TABLE IF NOT EXISTS radio_stay (
             guild_id INTEGER PRIMARY KEY,
             channel_id INTEGER DEFAULT 0,
             enabled INTEGER DEFAULT 0
         )''')
-
-        # The station a server last put on. One row per server, because the question
-        # it answers is "what do we put on when nobody wants to choose" and that has
-        # exactly one answer — a history would be a table nobody reads. ``as_of`` is
-        # here so a stale choice is visible; nothing branches on it yet.
-        await db.execute('''CREATE TABLE IF NOT EXISTS music_radio (
+        await db.execute('''CREATE TABLE IF NOT EXISTS radio_last (
             guild_id INTEGER PRIMARY KEY,
             station TEXT DEFAULT '',
             as_of REAL DEFAULT 0
         )''')
+
+        # The rename, carried rather than asked for — see the helper for what it
+        # does with the old rows and why they are left in place.
+        await _carry_radio_rename(db)
 
         # One-time migration for the 1:1 rate change (250 coins per dollar became
         # 1). Every stored market amount is in coin units, so without this every
@@ -1194,19 +1198,25 @@ def write_guild_module_sync(guild_id: int, module_name: str, enabled: bool) -> b
     finally:
         conn.close()
 
-async def get_247_setting(guild_id: int) -> tuple[bool, int]:
-    """Returns (enabled, channel_id) for a guild."""
+async def get_radio_stay(guild_id: int) -> tuple[bool, int]:
+    """Returns (staying, channel_id) for a guild.
+
+    A *seat* rather than a preference: when it is on, the bot holds the channel
+    through silence and reclaims it after a restart. It is also the difference
+    between a radio and a player, which is why the default is on for a server
+    that has never touched the setting — see ``utils.radio.DEFAULT_STAY``.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute('SELECT enabled, channel_id FROM music_247 WHERE guild_id = ?', (guild_id,)) as cur:
+        async with db.execute('SELECT enabled, channel_id FROM radio_stay WHERE guild_id = ?', (guild_id,)) as cur:
             row = await cur.fetchone()
             if row:
                 return bool(row[0]), int(row[1] or 0)
     return False, 0
 
-async def set_247_setting(guild_id: int, channel_id: int, enabled: bool):
-    """Save 24/7 setting for a guild."""
+async def set_radio_stay(guild_id: int, channel_id: int, enabled: bool):
+    """Save the stay setting for a guild."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute('''INSERT INTO music_247 (guild_id, channel_id, enabled)
+        await db.execute('''INSERT INTO radio_stay (guild_id, channel_id, enabled)
             VALUES (?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 channel_id = excluded.channel_id,
@@ -1215,25 +1225,25 @@ async def set_247_setting(guild_id: int, channel_id: int, enabled: bool):
         await db.commit()
 
 # ── Radio ────────────────────────────────────────────────────────────────────
-# What this server last chose, so `/music radio` with no argument puts *that* back
+# What this server last chose, so `/radio` with no argument puts *that* back
 # on rather than picking for them. The read has no default to guess: an empty
 # string is "nothing remembered", which the caller turns into a random station and
 # says so, instead of pretending the choice was anybody's.
 
-async def get_radio_station(guild_id: int) -> str:
+async def get_radio_last(guild_id: int) -> str:
     """The station key this guild last played, or ``''`` if it never has."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            'SELECT station FROM music_radio WHERE guild_id = ?', (guild_id,)
+            'SELECT station FROM radio_last WHERE guild_id = ?', (guild_id,)
         ) as cur:
             row = await cur.fetchone()
     return str(row[0] or "") if row else ""
 
 
-async def set_radio_station(guild_id: int, station: str):
+async def set_radio_last(guild_id: int, station: str):
     """Remember the station this guild just put on."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute('''INSERT INTO music_radio (guild_id, station, as_of)
+        await db.execute('''INSERT INTO radio_last (guild_id, station, as_of)
             VALUES (?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 station = excluded.station,
@@ -1243,26 +1253,28 @@ async def set_radio_station(guild_id: int, station: str):
 
 
 #: The key this setting lives under, and the only place it is spelled. It sits in
-#: the generic ``guild_settings`` table rather than in ``music_radio`` on purpose:
+#: the generic ``guild_settings`` table rather than in ``radio_last`` on purpose:
 #: that row is *what this server last played*, which is written on every start, and
 #: a preference sharing a row with it would be rewritten by the very thing it
 #: governs. This one changes when somebody asks it to and never otherwise.
-RADIO_ADS_KEY = "music_radio_ads"
+RADIO_ADS_KEY = "radio_ads"
 
-#: The three answers, and the reason the default is the first one: a setting that
-#: changes what plays must not arrive switched on for servers that never asked.
-RADIO_ADS_MODES = ("any", "prefer", "only")
+#: The three answers, and they are the radio's own vocabulary rather than the
+#: player's old one (``ad-free`` / ``any`` / ``strict``, where the old names were
+#: ``prefer`` / ``any`` / ``only``). The rename carried the stored values across;
+#: :func:`_carry_radio_rename` is where that mapping is written down.
+RADIO_ADS_MODES = ("ad-free", "any", "strict")
 
 
 async def get_radio_ads(guild_id: int) -> str:
-    """How this server wants advertising handled: ``any``, ``prefer`` or ``only``.
+    """How this server wants advertising handled: ``ad-free``, ``any`` or ``strict``.
 
-    Anything unrecognised reads as ``any``, which is what makes a hand-edited
-    database and a value from a future version of this file both mean *do what you
-    did before* rather than *refuse to play anything*.
+    Anything unrecognised reads as the radio's default, which is what makes a
+    hand-edited database and a value from a future version of this file both mean
+    *do what you would have done* rather than *refuse to play anything*.
     """
-    value = str(await get_setting(guild_id, RADIO_ADS_KEY, "any") or "")
-    return value if value in RADIO_ADS_MODES else "any"
+    value = str(await get_setting(guild_id, RADIO_ADS_KEY, "") or "")
+    return value if value in RADIO_ADS_MODES else "ad-free"
 
 
 async def set_radio_ads(guild_id: int, mode: str):
@@ -1283,7 +1295,7 @@ async def set_radio_ads(guild_id: int, mode: str):
 #: member who names a station still gets that station. Nothing about it can refuse
 #: anybody, which is why there is no table of allowed values here — the vocabulary
 #: is the catalogue's, and the catalogue lives in the cog that plays it.
-RADIO_LANGUAGE_KEY = "music_radio_language"
+RADIO_LANGUAGE_KEY = "radio_language"
 
 #: How long a stored language name may be. The longest name in the catalogue is
 #: thirteen characters (*Mandarin Chinese*); this is room to spell it differently
@@ -1502,10 +1514,67 @@ async def recent_web_actions(*, guild_id=None, limit: int = 50) -> list[dict]:
     ]
 
 
-async def get_all_247_guilds() -> list[tuple[int, int]]:
-    """Returns list of (guild_id, channel_id) where 24/7 mode is enabled."""
+async def radio_seats() -> list[tuple[int, int]]:
+    """``(guild_id, channel_id)`` for every server whose radio is a 24/7 seat."""
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute('SELECT guild_id, channel_id FROM music_247 WHERE enabled = 1') as cur:
+        async with db.execute('SELECT guild_id, channel_id FROM radio_stay WHERE enabled = 1') as cur:
             rows = await cur.fetchall()
             return [(int(r[0]), int(r[1] or 0)) for r in rows]
+
+
+async def _carry_radio_rename(db) -> None:
+    """Carry a pre-rename database's radio settings to their new names, once.
+
+    The rule this project already follows for a rescued database — see the market
+    rescale below the tables — is that a rename has to be carried rather than
+    asked for, and that the *old* rows are left exactly where they are. Two
+    reasons, and both matter: a rollback to the release before the rename finds
+    its own data untouched, and a second boot copies nothing because the new rows
+    already exist (every statement here is ``INSERT OR IGNORE``).
+
+    The advertising vocabulary changed with the setting's name — ``prefer``
+    became ``ad-free`` and ``only`` became ``strict`` — so that column is mapped
+    rather than copied. The mapping is idempotent: the new words are not in the
+    mapping, so a second pass leaves them alone.
+    """
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name IN ('music_247', 'music_radio')"
+    ) as cur:
+        old_tables = {str(row[0]) for row in await cur.fetchall()}
+    if "music_247" in old_tables:
+        await db.execute(
+            'INSERT OR IGNORE INTO radio_stay (guild_id, channel_id, enabled) '
+            'SELECT guild_id, channel_id, enabled FROM music_247'
+        )
+    if "music_radio" in old_tables:
+        await db.execute(
+            'INSERT OR IGNORE INTO radio_last (guild_id, station, as_of) '
+            'SELECT guild_id, station, as_of FROM music_radio'
+        )
+    await db.execute(
+        "INSERT OR IGNORE INTO guild_settings (guild_id, key, value) "
+        "SELECT guild_id, 'radio_language', value FROM guild_settings "
+        "WHERE key = 'music_radio_language'"
+    )
+    await db.execute(
+        "INSERT OR IGNORE INTO guild_settings (guild_id, key, value) "
+        "SELECT guild_id, 'radio_ads', value FROM guild_settings "
+        "WHERE key = 'music_radio_ads'"
+    )
+    async with db.execute(
+        "SELECT guild_id, value FROM guild_settings WHERE key = 'radio_ads'"
+    ) as cur:
+        stored = await cur.fetchall()
+    for guild_id, raw in stored:
+        try:
+            value = json.loads(raw)
+        except Exception:  # noqa: BLE001 — a hand-edited row is not a crash
+            value = ""
+        mapped = {"prefer": "ad-free", "only": "strict"}.get(str(value))
+        if mapped:
+            await db.execute(
+                "UPDATE guild_settings SET value = ? WHERE guild_id = ? AND key = 'radio_ads'",
+                (json.dumps(mapped), guild_id),
+            )
 

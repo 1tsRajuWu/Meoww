@@ -1,6 +1,6 @@
 """Whether this process can actually *speak* in a voice channel, and what is missing.
 
-Music was retired once for being "the most fragile part" of the bot, and the
+A player was retired once for being "the most fragile part" of the bot, and the
 fragility was never in the queue or the filters — it was that four separate
 things have to be true before a single frame reaches Discord, they fail in four
 different ways, and **not one of them says anything to the member**. The card
@@ -8,9 +8,9 @@ says "now playing", the bot is in the channel, and nothing is heard.
 
 This module is the one place that asks all four questions and can answer the
 only useful sentence: *which piece is missing, and what fixes it*. It is asked
-once at boot (one printed line), by ``/music doctor``, by the owner console and
+once at boot (one printed line), by ``/radio doctor``, by the owner console and
 by ``/api/voice-debug`` — one probe, four readers, so no surface can disagree
-with another about whether music works here.
+with another about whether the radio can play here.
 
 What is required, measured against the installed library rather than assumed:
 
@@ -198,7 +198,7 @@ class Caps:
         return "bundled ffmpeg, no live volume"
 
     def missing(self) -> tuple[str, ...]:
-        """Every reason music cannot play here, in the order they must be fixed."""
+        """Every reason the radio cannot play here, in the order they must be fixed."""
         problems: list[str] = []
         if not self.dave:
             problems.append(
@@ -275,16 +275,16 @@ def startup_line() -> str:
 
 
 def build_source(caps: Caps | None = None):
-    """Whether music should be offered at all, and the sentence when it should not.
+    """Whether the radio should be offered at all, and the sentence when it should not.
 
-    Every music command goes through this before it touches voice, because the
-    alternative is what the archived cog did: join the channel, send the card,
-    and play silence with the only evidence in a container log.
+    Every command that joins a channel goes through this before it touches voice,
+    because the alternative is what the archived cog did: join the channel, send
+    the card, and play silence with the only evidence in a container log.
     """
     caps = caps or probe()
     if caps.playable:
         return True, ""
     return False, (
-        "🎧 **Music cannot play on this host right now** — the bot is not joined to "
+        "🎧 **The radio cannot play on this host right now** — the bot is not joined to "
         "anything.\n\n" + "\n".join(f"- {item}" for item in caps.missing())
     )

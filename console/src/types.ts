@@ -474,8 +474,8 @@ export type LivePayload = {
    * What the radio player is doing here, whether this host can play at all, and
    * whether it can open a station.
    *
-   * All three in one block because "nobody has asked for a station", "music cannot
-   * play on this host" and "this host cannot reach a station" used to look
+   * All three in one block because "nobody has started the radio", "the radio
+   * cannot play on this host" and "this host cannot reach a station" used to look
    * identical on this page — and the second and third are the faults an operator
    * can actually fix, in different ways. `caps.playable` is `null` when the probe
    * could not be run at all, which is a third state and is drawn as one.
@@ -484,30 +484,33 @@ export type LivePayload = {
    * station is a network round trip and this page polls), so it carries the age of
    * the reading and an `unknown` state for a process that has not run one.
    */
-  music: {
+  radio: {
     read: { player: boolean; caps: boolean };
     /**
      * How wide the station table is: how many stations this bot can play, how many
-     * languages they can answer a search in, and how many carry no language tag at
-     * all.
+     * languages they can answer a search in, how many countries have a verified
+     * station of their own, and how many carry no language tag at all.
      *
      * The only reading in this block that is about the *members* rather than about
      * the host, and the reason it is carried: "is there anything here in my
-     * language?" is a question an administrator gets asked, and its answer — the
-     * number of languages — was previously a number nobody had, on either side of
-     * the bot. The two blank counts travel with it and are kept apart, because
+     * language, or from where I am?" is a question an administrator gets asked,
+     * and its answer was previously a number nobody had, on either side of the
+     * bot. The two blank counts travel with it and are kept apart, because
      * *these have no language* and *this table has not established which* are
      * different facts about a station and only one of them is a gap. `null` when
-     * the cog could not be read, which is a third state and is drawn as one rather
-     * than as zero.
+     * the table could not be read, which is a third state and is drawn as one
+     * rather than as zero.
      */
     catalogue: {
       stations: number;
       languages: number;
-      /** No words at all — the entry carries the catalogue's own `instrumental` tag. */
+      countries: number;
+      /** No words at all — the entry carries the table's own `instrumental` tag. */
       wordless: number;
       /** Words in whatever the music is in, which the table has not established. */
       unlabelled: number;
+      /** Stations whose own site says they carry no advertising. */
+      ad_free: number;
     } | null;
     stream: {
       /** `unreachable` is the one that is not a finding *about a stream*: this
@@ -537,19 +540,27 @@ export type LivePayload = {
       channel: string | null;
       playing: boolean;
       paused: boolean;
-      current: {
-        title: string;
-        provider: string;
-        duration: number;
-        requester: string;
+      /**
+       * The station on air — a row of the table, not a queued recording. There is
+       * no duration and no provider because a live stream has neither, and no
+       * queue because radio has nothing to queue.
+       */
+      station: {
+        key: string;
+        name: string;
+        genre: string;
+        language: string;
+        country: string;
+        /** The capital city, on the rows that substantiated it. Empty otherwise. */
+        capital: string;
+        icon: string;
       } | null;
+      requester: string;
       engine: string;
       position: number;
       volume: number;
-      filter: string;
-      queue: number;
-      queue_preview: string[];
-      is_247: boolean;
+      /** Whether the channel is held until `/radio stop`. */
+      stay: boolean;
       error?: string;
     } | null;
   };

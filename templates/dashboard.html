@@ -314,7 +314,7 @@
                         read — a cold process says so in a sentence rather than
                         painting a zero over a reading it never made.
                     #}
-                    {% set live = overview_live|default({'read': False, 'why': 'Nothing was read for this render.', 'rooms': [], 'people': 0, 'alone': 0, 'music': none}) %}
+                    {% set live = overview_live|default({'read': False, 'why': 'Nothing was read for this render.', 'rooms': [], 'people': 0, 'alone': 0, 'radio': none}) %}
                     <div class="status-grid" style="margin-top:16px;" data-reveal data-reveal-y="10">
                         <div class="panel-card">
                             <div class="field-head">
@@ -353,47 +353,36 @@
                         </div>
                         <div class="panel-card">
                             <div class="field-head">
-                                <span class="field-label">The player</span>
+                                <span class="field-label">The radio</span>
                                 <span class="composer-hint">Read at render time.</span>
                             </div>
-                            {% set music = live.music|default(none) %}
+                            {% set radio = live.radio|default(none) %}
                             {% if not live.read %}
                             <div class="status-empty">{{ live.why }}</div>
-                            {% elif not music or not music.player %}
-                            <div class="status-empty">Nobody has asked for a song since the last restart. `/music play` is where that starts — and `/music radio` never touches the extractor.</div>
+                            {% elif not radio or not radio.player %}
+                            <div class="status-empty">Nobody has started the radio since the last restart. `/radio play` is where that starts.</div>
                             {% else %}
                             <div class="status-row">
-                                <span class="status-dot {{ 'up' if music.player.playing else ('paused' if music.player.paused else 'paused') }}" aria-hidden="true"></span>
+                                <span class="status-dot {{ 'paused' if radio.player.paused or not radio.player.playing else 'up' }}" aria-hidden="true"></span>
                                 <div class="status-main">
-                                    <div class="status-name">{{ music.player.current.title if music.player.current else 'Nothing loaded' }}</div>
+                                    <div class="status-name">{{ radio.player.station.name if radio.player.station else 'Nothing on air' }}</div>
                                     <div class="status-url">
-                                        {%- if music.player.playing %}Playing{% elif music.player.paused %}Paused{% else %}Idle{% endif %}
-                                        {%- if music.player.channel %} in {{ music.player.channel }}{% endif %}
-                                        {%- if music.player.current %} · asked for by {{ music.player.current.requester }}{% endif %}
+                                        {%- if radio.player.playing %}Playing{% elif radio.player.paused %}Paused{% else %}Idle{% endif %}
+                                        {%- if radio.player.channel %} in {{ radio.player.channel }}{% endif %}
+                                        {%- if radio.player.station %} · {{ radio.player.station.genre }}{% if radio.player.station.language %} · {{ radio.player.station.language }}{% endif %}{% endif %}
+                                        {%- if radio.player.requester %} · started by {{ radio.player.requester }}{% endif %}
                                     </div>
                                 </div>
                                 <div class="status-figures">
-                                    <span><b>{{ music.player.queue }}</b> queued</span>
-                                    <span><b>{{ (music.player.volume * 100)|round|int }}%</b> volume</span>
+                                    <span><b>{{ (radio.player.volume * 100)|round|int }}%</b> volume</span>
+                                    <span><b>{{ 'held' if radio.player.stay else 'free' }}</b> seat</span>
                                 </div>
                             </div>
-                            {% if music.player.queue_preview|default([]) %}
-                            <div class="composer-hint" style="margin-top:8px;">
-                                Next: {{ music.player.queue_preview|join(' · ') }}
-                            </div>
                             {% endif %}
-                            {% if music.extractor and music.extractor.sources|default(none) %}
-                            {# The reading that stops "the provider refused this host" from
-                               being the whole story: which doors are left, in the order
-                               this host will knock on them. #}
+                            {% if live.read and radio and radio.caps and not radio.caps.playable %}
                             <div class="composer-hint" style="margin-top:8px;">
-                                Sources, in order:
-                                {% for item in music.extractor.sources.order %}{{ item.label }}{% if not loop.last %} → {% endif %}{% endfor %}
-                                {%- if music.extractor.sources.refusing %}
-                                — {{ music.extractor.sources.refusing|join(', ') }} {{ 'is' if music.extractor.sources.refusing|length == 1 else 'are' }} being knocked on last, because {{ 'it' if music.extractor.sources.refusing|length == 1 else 'they' }} refused this host.
-                                {%- endif %}
+                                This host cannot play: {{ radio.why or 'the capability probe named nothing, which is itself a fault' }}
                             </div>
-                            {% endif %}
                             {% endif %}
                         </div>
                     </div>

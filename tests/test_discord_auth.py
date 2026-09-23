@@ -922,8 +922,8 @@ class InvitePermissionsCase(unittest.TestCase):
 
         **`connect`/`speak` are no longer on this list, and that is the test
         working as intended rather than being weakened.** They were removed from
-        the invite when music was retired, because nothing joined a voice channel
-        any more; `cogs/music.py` joins one again, so the pair is granted. What
+        the invite when the radio was retired, because nothing joined a voice channel
+        any more; `cogs/radio.py` joins one again, so the pair is granted. What
         the assertion below still forbids is every *other* way a hijacked token
         reaches a room it was not asked to touch.
         """

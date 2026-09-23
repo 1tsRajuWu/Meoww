@@ -149,6 +149,34 @@ class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
             build_site.build(out, LIVE, SITE)
         self.assertTrue((Path(out) / "index.html").is_file())
 
+    def test_a_retired_page_cannot_survive_in_the_artifact(self):
+        """The directory is the build's output, not a place it writes into.
+
+        This is a defect that shipped: `/music` was retired and the *file* of its
+        old page was still in the build directory, so every deploy uploaded it
+        again — a page advertising "a live queue with real-time audio effects",
+        next to the `_redirects` rule meant to answer that address with `/radio`.
+        A static host publishes everything it is handed, so a leftover is a page
+        nobody chose to publish.
+        """
+        out = tempfile.mkdtemp(prefix="meow-site-")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        stale = Path(out) / "music.html"
+        stale.write_text("<html>a live queue with real-time audio effects</html>")
+        buried = Path(out) / "static" / "old-thing.js"
+        buried.parent.mkdir(parents=True, exist_ok=True)
+        buried.write_text("// a script from a build nobody remembers")
+
+        with mock.patch.dict(
+            os.environ,
+            {"MEOW_STATIC_SITE": "1", "DISCORD_CLIENT_ID": "1548380269776605324"},
+        ):
+            build_site.build(out, LIVE, SITE)
+
+        self.assertFalse(stale.exists(), "a retired page was left to be published")
+        self.assertFalse(buried.exists(), "a stale asset was left to be published")
+        self.assertTrue((Path(out) / "radio.html").is_file(), "the live page is missing")
+
 
 class BuiltSiteCase(unittest.TestCase):
     """One real build, inspected the way a visitor's browser would."""

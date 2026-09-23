@@ -977,11 +977,11 @@ async def on_ready():
     except Exception as e:
         print(f"[FEATURES] ⚠️ Registry validation failed: {e}", flush=True)
 
-    # One line about whether this host can play music, answered before anybody
-    # asks for a song. The four things voice needs fail in four different ways
+    # One line about whether this host can play the radio, answered before anybody
+    # asks for a station. The four things voice needs fail in four different ways
     # and none of them used to say anything to the member — the card said
     # "playing", the bot was in the channel, and nothing was heard. The probe is
-    # asked once here and read again by /music doctor, the owner console and
+    # asked once here and read again by /radio doctor, the owner console and
     # /api/voice-debug, so no two surfaces can disagree about it.
     try:
         from utils import voice_caps  # noqa: PLC0415

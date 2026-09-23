@@ -10,7 +10,7 @@ Four rules, and every one of them is a reason a person would otherwise be right 
 be annoyed:
 
 * **Alone means alone.** The trigger is a channel whose only occupant is one human
-  being. Another bot in there is company of a kind, so a channel with a music bot
+  being. Another bot in there is company of a kind, so a channel with a radio bot
   in it is not a channel where anyone is alone — and two bots sitting silently in
   the same room is a joke nobody asked for.
 * **It listens to nothing and says nothing out loud.** The connection is deafened
@@ -192,7 +192,7 @@ async def set_greeting(guild_id: int | None, value) -> Settings | None:
 def alone(members, *, bot_id: int) -> bool:
     """True when ``members`` is one human and nothing else.
 
-    Bots are counted, deliberately: a channel with a music bot in it is not a room
+    Bots are counted, deliberately: a channel with a radio bot in it is not a room
     somebody is alone in, and a second *companion* bot would be a comedy.
     """
     people = [member for member in members or () if getattr(member, "id", None) != bot_id]
@@ -324,23 +324,23 @@ def greeting(name: str | None = None, *, streaming: bool = False, pick=None) -> 
     return f"{line}, {name}." if name else f"{line}."
 
 
-#: What is said when the bot has to walk out on somebody to go and play music.
+#: What is said when the bot has to walk out on somebody to go and play radio.
 #:
 #: The scenario both features share one socket for: a person is alone with the bot,
-#: somebody in **another** room presses play, and music moves the connection —
+#: somebody in **another** room presses play, and the radio moves the connection —
 #: because one Discord client sits in one voice channel at a time. Whoever is left
 #: behind watches the bot leave and is told nothing, which reads as *it left
 #: because of me*. The truth is that it is two rooms away doing what it was asked,
 #: so it gets said: ``brb``, in the bot's own voice, and it comes back.
 LEAVING: tuple[str, ...] = (
-    "brb — somebody asked for music in another room, so I'm on speaker duty",
-    "brb, somebody wants music next door and I'm the speaker again",
-    "one minute — music is wanted in the other room, I'll be right back",
+    "brb — somebody asked for the radio in another room, so I'm on speaker duty",
+    "brb, somebody wants the radio next door and I'm the speaker again",
+    "one minute — the radio is wanted in the other room, I'll be right back",
 )
 
 
 def leaving(*, pick=None) -> str:
-    """The line said when music takes the connection away. Injectably chosen,
+    """The line said when the radio takes the connection away. Injectably chosen,
     like :func:`greeting`, so a test can pin which variant it gets."""
     chooser = pick or (lambda options: options[0])
     return chooser(list(LEAVING))

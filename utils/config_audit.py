@@ -645,7 +645,7 @@ SETTINGS: tuple[Setting, ...] = (
         "how long after boot to read UptimeRobot for the first time",
         "the default 60-second delay is used.",
     ),
-    # --- music -----------------------------------------------------------------
+    # --- radio ----------------------------------------------------------------
     # Two names, and both are optional: playback does not depend on either. The
     # extractor's own settings (cookies, PO token, visitor data, source order and
     # an outbound proxy) are gone with it — they were the answers to a provider
@@ -653,7 +653,7 @@ SETTINGS: tuple[Setting, ...] = (
     # provider anything. Radio is a URL and ffmpeg.
     Setting(
         "MEOW_FFMPEG", TUNING,
-        "an explicit ffmpeg binary for the music player, for a host whose ffmpeg "
+        "an explicit ffmpeg binary for the radio, for a host whose ffmpeg "
         "is somewhere ``PATH`` does not reach",
         "a system ffmpeg is looked for on ``PATH``, and then the static build "
         "shipped by ``imageio-ffmpeg`` is used — so this is only ever needed to "
@@ -663,7 +663,7 @@ SETTINGS: tuple[Setting, ...] = (
         "STREAM_PROBE_TARGET", TUNING,
         "the station the weekly self-check opens and the console's stream row reads, "
         "which is how a host that can no longer reach *any* stream reports itself "
-        "instead of every `/music radio` failing quietly one at a time",
+        "instead of every `/radio` failing quietly one at a time",
         "SomaFM's Groove Salad is used: an icecast stream that has been up for "
         "years, owned by nobody's catalogue and needing no account. Set this only "
         "when the default cannot be reached from where this runs — a probe station "

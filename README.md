@@ -74,12 +74,13 @@ else is linked from the [table of contents](#contents).
 | ⭐ | **Starboard** | Star reactions → community showcase cards |
 | 🐾 | **Social Roleplay** | `/action /marry /ship /hunt /zoo`, `/uwu` styler |
 | 🎭 | **Fun & Memes** | Live Reddit memes, 8ball, quotes, roasts |
+| 🎵 | **Radio** | `/radio` — 24/7 stations in every language the table holds, by name, language or country |
 | 🎮 | **Mini-Games Hub** | TicTacToe, RPS, trivia, mines, crash, high/low |
 | 📊 | **Activity Tracker** | Per-day, per-channel message + voice stats |
 | ⚙️ | **System (always on)** | `/serverinfo /userinfo /announce`, lockdown, `/bot sync`, `/bot push` |
 
 Every feature can be toggled per-server from the dashboard — no redeploy.
-Retired features (music, giveaways, …) are archived intact in
+Retired features (the old music player, giveaways, …) are archived intact in
 [`deleted_features/`](deleted_features/README.md) with restore steps.
 
 ---

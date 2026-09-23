@@ -63,12 +63,12 @@ DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
 PAGES = (
     ("/", "index.html"),
     ("/systems", "systems.html"),
-    # The music feature's own page, and the reason it is one: its failures are
-    # quiet (a connected bot, a card that says "playing", and silence), so the
-    # things a reader would otherwise discover by being disappointed are written
-    # down here instead. On the site rather than only in Discord because a
-    # policy is not the only thing worth reading before you trust a bot.
-    ("/music", "music.html"),
+    # The radio's own page, and the reason it is one: its failures are quiet (a
+    # connected bot, a card that says "playing", and silence), so the things a
+    # reader would otherwise discover by being disappointed are written down here
+    # instead. On the site rather than only in Discord because a policy is not the
+    # only thing worth reading before you trust a bot.
+    ("/radio", "radio.html"),
     ("/start", "start.html"),
     ("/pricing", "pricing.html"),
     ("/privacy", "privacy.html"),
@@ -329,6 +329,12 @@ def _redirects_file() -> str:
     return (
         "# Cloudflare Pages natively serves clean extensionless URLs (e.g. /pricing -> pricing.html).\n"
         "# Explicit 200 rewrites to .html files are omitted to avoid circular 308 redirect loops.\n"
+        "\n"
+        "# The page this one used to be. A URL somebody bookmarked is not a mistake\n"
+        "# to punish, so the old address answers with the new one — on the static\n"
+        "# host as well as in the app, or a link shared last month would land on the\n"
+        "# cleanup and 404 while the live app redirected it.\n"
+        "/music /radio 301\n"
     )
 
 
@@ -521,6 +527,16 @@ def build(
         )
 
     client = keep_alive.app.test_client()
+    # The output directory is emptied first, so the artifact is exactly what this
+    # build produced. Without it a **retired page survives** in the directory and
+    # is uploaded again by every deploy — found by building this tree and finding
+    # `music.html` still in it, a page describing *"a live queue with real-time
+    # audio effects"* that the product stopped having, sitting beside the
+    # `_redirects` rule that is supposed to answer `/music` with the new page. A
+    # static host is told "everything in here is published", so a file nobody
+    # meant to publish is published: the directory has to be the build's own
+    # output rather than a place the build writes into.
+    shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir, exist_ok=True)
     report: dict = {"pages": [], "leftovers": [], "invite": bool(discord_auth.client_id())}
 

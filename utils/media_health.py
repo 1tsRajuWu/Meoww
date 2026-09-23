@@ -20,8 +20,9 @@ stops". Two kinds of thing are probed, because the bot sends two kinds:
   question here is whether the *resolver* still produces something: a provider
   that quietly changed its payload shape fails this while answering ``200``.
 * **The stream path itself** — one station opened all the way to bytes
-  (:func:`utils.media_source.self_check`). This is the only target that is not a
-  *link*: it is the host's ability to play music, and it fails in a way no URL can.
+  (:func:`utils.radio_stream.self_check`). This is the only target that is not a
+  *link*: it is the host's ability to play a station, and it fails in a way no URL
+  can.
   Every station URL below can be perfectly healthy while the deployment has no
   route to the outside world, or a proxy that used to work has stopped, and
   nothing else in this module would notice — the difference between one broken
@@ -50,7 +51,7 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
-from . import config_audit, db, gifs, media_source
+from . import config_audit, db, gifs, radio_stream
 
 #: Where this check's clock lives. Guild ``0`` is the application's own row, the
 #: same sentinel ``utils.presence`` uses for a value that belongs to no server.
@@ -286,12 +287,12 @@ def _walk(path: str) -> tuple[str, ...]:
 
 def declared() -> tuple[Target, ...]:
     """The media this bot *makes*: one target per action, one per pet — plus the
-    stream path, which is what makes the music playable.
+    stream path, which is what makes the radio playable.
 
     Read off the resolver's own tables, so an action added there is checked
     without anybody remembering to add it here — and a test fails if the two ever
     drift apart. The stream target is the same idea one level up: its probe target
-    is read from :func:`utils.media_source.probe_target`, so a deployment that
+    is read from :func:`utils.radio_stream.probe_target`, so a deployment that
     overrides ``STREAM_PROBE_TARGET`` is checked against what it configured.
     """
     targets = [
@@ -306,15 +307,15 @@ def declared() -> tuple[Target, ...]:
         Target(
             name=STREAM_TARGET,
             kind="stream",
-            url=media_source.probe_target(),
-            source="utils/media_source.py",
+            url=radio_stream.probe_target(),
+            source="utils/radio_stream.py",
         )
     )
     return tuple(targets)
 
 
 #: The stream target, named once because three places read it: the target list,
-#: the console's music panel and this module's own reading of the last pass.
+#: the console's radio panel and this module's own reading of the last pass.
 STREAM_TARGET = "stream:radio"
 
 
@@ -323,7 +324,7 @@ def targets(root: str | None = None) -> tuple[Target, ...]:
 
     A URL a *declared* target names is not asked about twice. The stream target is
     the reason: its whole job is to open one real station, and the station it opens
-    is also in the catalogue — so the scan finds the same URL in ``cogs/music.py``
+    is also in the catalogue — so the scan finds the same URL in ``utils/radio_catalogue.py``
     and the pass would report 151 checks over 150 addresses. Two probes of one URL
     is a wasted request and a count that overstates how much of the catalogue was
     checked, which is the one number this module exists to report honestly. The
@@ -438,7 +439,7 @@ async def _open_stream() -> tuple[bool, str]:
     gateway while it runs is a check that gets switched off.
     """
     try:
-        probe = await asyncio.to_thread(media_source.self_check)
+        probe = await asyncio.to_thread(radio_stream.self_check)
     except Exception as exc:  # noqa: BLE001 — the pass must not raise
         return False, f"the stream check itself failed ({type(exc).__name__})"
     if probe.healthy:
@@ -618,7 +619,7 @@ def stream_state() -> dict:
     The console panel and ``/health`` both want this, and neither may trigger a
     network call: one is a page that polls, the other is unauthenticated. So it
     reads the last verdict and says plainly when there is not one yet — *not
-    checked* is a state a reader can act on (``/music doctor`` asks now), and it
+    checked* is a state a reader can act on (``/radio doctor`` asks now), and it
     is the honest answer for a process that has just restarted.
 
     Read off the same verdict the link findings come from, because it *is* the same

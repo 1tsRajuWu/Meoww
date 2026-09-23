@@ -47,7 +47,7 @@ import html as _html
 import ipaddress
 from flask import (
     Flask, render_template, request, redirect, send_from_directory, session, jsonify,
-    Response,
+    url_for, Response,
 )
 from utils import (
     ai_guard, alert_webhook, command_publish, command_scope, company, config_audit,
@@ -1102,7 +1102,10 @@ PUBLIC_PREFIXES = (
     # Found by fixing the check that exists to catch exactly this: `/music` was on
     # *neither* list, and the list it was missing from made it a signed-in surface
     # — the agreement stood in front of the marketing page for a music feature,
-    # and it was served `noindex`, which is the wrong answer twice over.
+    # and it was served `noindex`, which is the wrong answer twice over. The
+    # rename kept the old address here as well as on the route, because an old
+    # link must reach the redirect rather than the agreement.
+    "/radio",
     "/music",
     "/login",
     "/logout",
@@ -1618,10 +1621,11 @@ def api_voice_debug():
     vcs = []
     if BOT_INSTANCE:
         for vc in BOT_INSTANCE.voice_clients:
-            # ``_player`` only exists on the music cog's VoiceClient subclass,
-            # which is currently archived. Reading it directly raised
-            # AttributeError on a plain client, so go through getattr — this
-            # endpoint must report on any voice client without assuming music.
+            # ``_player`` only exists on a player subclass of VoiceClient, and
+            # this bot's radio does not wrap the client at all. Reading it
+            # directly raised AttributeError on a plain client, so go through
+            # getattr — this endpoint must report on any voice client without
+            # assuming one.
             player = getattr(vc, "_player", None)
             connection = getattr(vc, "_connection", None)
             vcs.append({
@@ -1640,7 +1644,7 @@ def api_voice_debug():
             })
 
     started, connected = _gateway_state()
-    # The same probe the boot line and /music doctor read, so this endpoint can
+    # The same probe the boot line and /radio doctor read, so this endpoint can
     # never report a different host than they do.
     try:
         from utils import voice_caps  # noqa: PLC0415
@@ -1653,9 +1657,9 @@ def api_voice_debug():
     # pass's last verdict because this endpoint's whole job is to answer for the
     # host *now* — and it reports the kind of failure, not just the fact of one.
     try:
-        from utils import media_source  # noqa: PLC0415
+        from utils import radio_stream  # noqa: PLC0415
 
-        stream = media_source.self_check().to_dict()
+        stream = radio_stream.self_check().to_dict()
     except Exception as exc:  # noqa: BLE001 — a diagnostic that 500s is not a diagnostic
         stream = {"healthy": None, "reason": f"the check could not run ({type(exc).__name__})"}
 
@@ -2150,54 +2154,59 @@ def _start_page():
     )
 
 
-def _music_page():
-    """Music, on the site: what it does, and what it refuses to pretend.
+def _radio_page():
+    """Radio, on the site: what it does, and what it refuses to pretend.
 
     The command list is read out of ``utils/features`` rather than written here,
     for the reason every other page reads the registry — a page that lists a
     command the bot does not have is the failure this project keeps meeting. The
-    station list comes from the cog for the same reason.
+    table comes from :mod:`utils.radio_catalogue` for the same reason, and it is
+    read rather than written so the page cannot advertise a station the bot would
+    refuse to play.
 
-    The page's last section is the one that makes it worth publishing: a media
-    platform refusing a datacenter address is the single failure this feature
-    cannot design away, so it is stated in words a visitor can check rather than
-    discovered when their song does not play.
+    The page's last section is the one that makes it worth publishing: a stream
+    can still go quiet, and what the bot does about it — ask again, then say so —
+    is the part a visitor cannot discover until it happens to them.
     """
-    music = features.get("music")
-    stations: list[dict] = []
-    languages: list[str] = []
+    feature = features.get("radio")
+    stations: list = []
+    index = None
     try:
-        from cogs import music as music_cog  # noqa: PLC0415
+        from utils import radio_catalogue  # noqa: PLC0415
 
-        # The whole entry rather than three keys of it. Three keys was the version
-        # that made this page unable to answer the one question a visitor has about
-        # a radio catalogue — *is there anything here in my language?* — because a
-        # row carrying a name and a sentence says nothing about either axis. The
-        # template reads ``genre`` and ``lang`` off each one, and the language count
-        # is what lets the band say how wide the table actually is.
-        stations = list(music_cog.RADIO_STATIONS.values())
-        languages = sorted({value["lang"] for value in stations if value.get("lang")})
+        stations = list(radio_catalogue.CATALOGUE)
+        index = radio_catalogue.index()
     except Exception as exc:
-        print(f"[SITE] could not read the stations for /music: {exc}", flush=True)
+        print(f"[SITE] could not read the stations for /radio: {exc}", flush=True)
 
     return render_template(
-        "music.html",
+        "radio.html",
         **_site_context(),
-        current="music",
+        current="radio",
         meta_description=(
-            f"Music in {_bot_display_name()}: search or paste a link, a live queue "
-            "with audio filters, 24/7 radio, and an honest word about what can "
-            "go wrong."
+            f"Radio in {_bot_display_name()}: 24/7 stations in every language and "
+            "country the table could verify, one command for all of it, and an "
+            "honest word about what can go wrong."
         ),
-        music_commands=list(music.commands) if music else [],
+        radio_commands=list(feature.commands) if feature else [],
         stations=stations,
-        languages=languages,
+        index=index,
     )
+
+
+@app.route("/radio")
+def radio_page():
+    return _radio_page()
 
 
 @app.route("/music")
 def music_page():
-    return _music_page()
+    """The address this page used to have, kept alive.
+
+    A redirect rather than a second route because a URL somebody bookmarked is
+    not a mistake to punish: the page moved, and 301 is the sentence for that.
+    """
+    return redirect(url_for("radio_page"), code=301)
 
 
 @app.route("/")
@@ -5040,36 +5049,36 @@ def _live_bot_voice() -> list[dict]:
     return rows
 
 
-def _live_music(guild_id) -> dict:
-    """What the music player is doing in one server, and what this host can do.
+def _live_radio(guild_id) -> dict:
+    """What the radio is doing in one server, and what this host can do.
 
-    Two halves in one block because they answer one question — *is music working
-    here, and if not, why not* — and the second half is the one nobody can
+    Three halves in one block because they answer one question — *is the radio
+    working here, and if not, why not* — and the last two are the ones nobody can
     discover from the page otherwise. The capability reading comes from
-    :mod:`utils.voice_caps`, the same probe ``/music doctor``, the boot line and
+    :mod:`utils.voice_caps`, the same probe ``/radio doctor``, the boot line and
     ``/api/voice-debug`` read, so a console that said "fine" while the bot's own
     doctor said otherwise is not a state this can reach.
 
     ``read.player`` is false when this guild has no player yet, which is a
     different sentence from "a player that is idle" — the first means nobody has
-    asked for a song since the last restart.
+    started the radio since the last restart.
 
-    The third half is the stream path, and it is the one that cannot be inferred
-    from either of the others: every capability can be present, every station URL
-    healthy and the host firewalled off from the outside world. It is read from the
-    **weekly pass's own verdict** rather than asked live, because this is a page
-    that polls and opening a station is a network round trip — so the panel says
-    when it was last asked rather than pretending to have asked.
+    The stream path is the one that cannot be inferred from either of the others:
+    every capability can be present, every station URL healthy and the host
+    firewalled off from the outside world. It is read from the **weekly pass's own
+    verdict** rather than asked live, because this is a page that polls and
+    opening a station is a network round trip — so the panel says when it was last
+    asked rather than pretending to have asked.
     """
     try:
-        from utils import media_health, player as player_module, voice_caps  # noqa: PLC0415
+        from utils import media_health, radio_stream, voice_caps  # noqa: PLC0415
 
         caps = voice_caps.probe().to_dict()
         stream = media_health.stream_state()
     except Exception as exc:
         return {
             "read": {"player": False, "caps": False},
-            "why": f"the music modules could not be read ({type(exc).__name__})",
+            "why": f"the radio modules could not be read ({type(exc).__name__})",
             "caps": None,
             "player": None,
             "stream": None,
@@ -5081,28 +5090,29 @@ def _live_music(guild_id) -> dict:
         key = int(guild_id or 0)
     except (TypeError, ValueError):
         key = 0
-    holder = getattr(player_module, "PLAYERS", {}).get(key)
+    holder = getattr(radio_stream, "PLAYERS", {}).get(key)
     if holder is not None:
         try:
             entry = holder.status()
         except Exception as exc:
             entry = {"error": f"{type(exc).__name__}: {exc}"}
-    # The width of the station table, which is the one reading here that is about
-    # the *members* rather than about the host. It is also the only place the
-    # language coverage can be read without opening Discord: "is there anything
+    # The width of the table, which is the one reading here that is about the
+    # *members* rather than about the host. It is also the only place the language
+    # and country coverage can be read without opening Discord: "is there anything
     # here in my language" is a question a server's administrator gets asked, and
-    # the answer was previously a number nobody had — the table could grow a
-    # language or lose one and no surface would say so either way.
+    # its answer was previously a number nobody had.
     catalogue = None
     try:
-        from cogs import music as music_cog  # noqa: PLC0415
+        from utils import radio_catalogue  # noqa: PLC0415
 
-        index = music_cog.catalogue_index()
+        index = radio_catalogue.index()
         catalogue = {
-            "stations": len(music_cog.RADIO_STATIONS),
+            "stations": index.stations,
             "languages": len(index.languages),
+            "countries": len(index.countries),
             "wordless": index.wordless,
             "unlabelled": index.unlabelled,
+            "ad_free": index.ad_free,
         }
     except Exception:
         catalogue = None
@@ -5142,7 +5152,7 @@ def _overview_live(guild_id) -> dict:
             "rooms": [],
             "people": 0,
             "alone": 0,
-            "music": None,
+            "radio": None,
         }
     rooms: list[dict] = []
     people = 0
@@ -5173,7 +5183,7 @@ def _overview_live(guild_id) -> dict:
             "rooms": [],
             "people": 0,
             "alone": 0,
-            "music": None,
+            "radio": None,
         }
     rooms.sort(key=lambda row: (-row["people"], row["name"]))
     return {
@@ -5182,7 +5192,7 @@ def _overview_live(guild_id) -> dict:
         "rooms": rooms[:8],
         "people": people,
         "alone": alone,
-        "music": _live_music(guild_id),
+        "radio": _live_radio(guild_id),
     }
 
 
@@ -5221,7 +5231,7 @@ def _live_companion(guild, guild_id, channels: list[dict]) -> dict:
                 })
         # Somebody on their own: one person in the room and nobody else at all.
         # A second *bot* in there counts, which is the same rule the companion
-        # itself follows — a music bot is company of a kind, and a room with two
+        # itself follows — a radio bot is company of a kind, and a room with two
         # silent bots in it is not a room where anybody is alone.
         if len(people) == 1 and not people[0]["bot"]:
             person = people[0]
@@ -5417,10 +5427,10 @@ def api_console_live():
         "company": company_block,
         "talkers": _live_talkers(row["id"], guild),
         "bot_voice": _live_bot_voice(),
-        # What music is doing here, and whether this host can play at all. The
-        # second half is the reason the block exists: "nobody has asked for a
-        # song" and "music cannot play on this host" used to look identical.
-        "music": _live_music(row["id"]),
+        # What the radio is doing here, and whether this host can play at all. The
+        # second half is the reason the block exists: "nobody has started the
+        # radio" and "the radio cannot play on this host" used to look identical.
+        "radio": _live_radio(row["id"]),
         "totals": {
             "channels": len(channels),
             "text": sum(1 for channel in channels if channel["kind"] == "text"),

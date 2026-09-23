@@ -209,7 +209,7 @@ export function Live() {
 
       <Companion data={data} />
 
-      <MusicPanel data={data} />
+      <RadioPanel data={data} />
 
       <div className="stack-col">
         <Card span={2} index={3} title="Who is around" hint="Needs the Presence intent.">
@@ -385,38 +385,37 @@ export function Live() {
   );
 }
 
-/** The music player, and — the half nobody can otherwise discover — whether
- * this host is able to play at all.
+/** The radio, and — the half nobody can otherwise discover — whether this host is
+ * able to play at all.
  *
  * The two used to be the same page's blind spot: a deployment with no ffmpeg, no
- * libopus and no `davey` looked exactly like a server where nobody had asked for
- * a song, because both render as an idle player. So the panel leads with the
+ * libopus and no `davey` looked exactly like a server where nobody had started the
+ * radio, because both render as an idle player. So the panel leads with the
  * capability reading, which comes from the same probe the boot line,
- * `/music doctor` and `/api/voice-debug` read — and every *missing* reason is
+ * `/radio doctor` and `/api/voice-debug` read — and every *missing* reason is
  * printed rather than summarised, because each one is a different fix.
  *
  * The stream path is the third reading and the one that cannot be inferred from
- * the other two: every capability present, every station URL in the catalogue
+ * the other two: every capability present, every station URL in the table
  * healthy, and this host firewalled off from the outside world. It carries the age
  * of the reading because it comes from the weekly pass rather than from a request
  * this page made — the honest thing to draw for "asked two days ago" is two days
  * ago.
  */
-function MusicPanel({ data }: { data: LivePayload }) {
-  const music = data.music;
-  const caps = music?.caps ?? null;
-  const player = music?.player ?? null;
-  const stream = music?.stream ?? null;
-  const catalogue = music?.catalogue ?? null;
+function RadioPanel({ data }: { data: LivePayload }) {
+  const radio = data.radio;
+  const caps = radio?.caps ?? null;
+  const player = radio?.player ?? null;
+  const stream = radio?.stream ?? null;
+  const catalogue = radio?.catalogue ?? null;
   const playable = caps?.playable ?? null;
   const asked = stream?.checked_seconds_ago;
 
-  return (
-    <Card
+  return (      <Card
       span={6}
       index={11}
-      title="Music & radio"
-      hint="What is queued here, what is found, and what this host can actually do for voice."
+      title="Radio"
+      hint="What is on air here, how wide the table is, and what this host can actually do for voice."
       action={
         <>
           {playable === null ? (
@@ -473,7 +472,8 @@ function MusicPanel({ data }: { data: LivePayload }) {
             <>
               {catalogue.stations} stations
               <span className="chan__note">
-                {catalogue.languages} languages · {catalogue.wordless} wordless ·{" "}
+                {catalogue.languages} languages · {catalogue.countries} countries ·{" "}
+                {catalogue.ad_free} ad-free · {catalogue.wordless} wordless ·{" "}
                 {catalogue.unlabelled} with no language established
               </span>
             </>
@@ -494,7 +494,7 @@ function MusicPanel({ data }: { data: LivePayload }) {
             <>
               none opened since this process started{" "}
               <span className="chan__note">
-                the weekly pass opens one, and <code>/music doctor</code> opens one now
+                the weekly pass opens one, and <code>/radio doctor</code> opens one now
               </span>
             </>
           ) : stream.status === "unreachable" ? (
@@ -527,34 +527,36 @@ function MusicPanel({ data }: { data: LivePayload }) {
                   player.playing ? (player.paused ? "paused" : "playing") : "idle"
                 }`
               : "connected nowhere right now"
-            : "no player yet — nobody has asked for a station since the last restart"}
+            : "no player yet — nobody has started the radio since the last restart"}
         </dd>
-        {player?.current && (
+        {player?.station && (
           <>
-            <dt>Playing</dt>
+            <dt>On air</dt>
             <dd>
-              {player.current.title}
-              {player.current.requester ? ` <span className="chan__note">for ${player.current.requester}</span>` : null}
+              {player.station.icon} {player.station.name}
+              <span className="chan__note">
+                {player.station.genre}
+                {player.station.language ? ` · ${player.station.language}` : ""}
+                {player.station.country ? ` · ${player.station.capital || player.station.country}` : ""}
+              </span>
+              {player.requester ? ` <span className="chan__note">started by ${player.requester}</span>` : null}
             </dd>
             <dt>Engine</dt>
             <dd>{player.engine || "starting"}</dd>
-            <dt>Queue</dt>
+            <dt>Volume · seat</dt>
             <dd>
-              {player.queue} track{player.queue === 1 ? "" : "s"}
-              {player.queue_preview?.length ? ` — next: ${player.queue_preview[0]}` : ""}
-            </dd>
-            <dt>Volume · filter</dt>
-            <dd>
-              {Math.round(player.volume * 100)}% · {player.filter}
+              {Math.round(player.volume * 100)}% ·{" "}
+              {player.stay ? "held until /radio stop" : "leaves when the room empties"}
             </dd>
           </>
         )}
       </dl>
       <p className="alone__foot">
-        A station that goes quiet is reported rather than skipped: the bot sends a card naming how long
-        it played, and the operator log gets one entry per reason — so "one station is down" can be
-        told apart from "this host lost its route out", which is the difference the stream row above
-        is drawn for.
+        A station that goes quiet is asked again before anybody is told: the bot reconnects within a
+        couple of seconds, and only a station that will not come back gets a card naming how long it
+        played. The operator log gets one entry per reason — so "one station is down" can be told
+        apart from "this host lost its route out", which is the difference the stream row above is
+        drawn for.
       </p>
     </Card>
   );

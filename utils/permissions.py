@@ -211,35 +211,18 @@ COMMAND_ACCESS: dict[str, str] = {
     "qna inbox": DEV,
     "qna reply": DEV,
 
-    # -- Music: everyone plays, the server owner keeps the seat ---------------- #
-    # Playback control is deliberately open to any member: it is a shared room,
-    # the person who queued nothing is still in it, and every other music bot
-    # people have used lets them skip. What is *not* open is a permanent
-    # connection — that is the server's decision, so 24/7 is the guild owner's
-    # (with the bot's own owner allowed alongside, checked in the callback).
-    "music radio": EVERYONE,
-    "music stations": EVERYONE,
-    "music skip": EVERYONE,
-    "music pause": EVERYONE,
-    "music resume": EVERYONE,
-    "music stop": EVERYONE,
-    "music queue": EVERYONE,
-    "music nowplaying": EVERYONE,
-    "music volume": EVERYONE,
-    "music filter": EVERYONE,
+    # -- Radio: everyone plays, the server owner keeps the seat ----------------- #
+    # Playing is deliberately open to any member: it is a shared room, and every
+    # other bot people have used lets them put something on. The three settings
+    # that change what *everyone* hears — the language, the advertising mode and
+    # the seat — travel as options on `/radio play` and are **saved** only for a
+    # caller with Manage Server; a member without it gets their choice for the
+    # start they asked for, which is why the command itself is EVERYONE.
+    "radio play": EVERYONE,
+    "radio stop": EVERYONE,
     # The readout names the host's own paths and libraries, which is the
     # operator's business rather than a member's.
-    # A content preference for the whole server rather than a resource decision:
-    # `/music 247` keeps the bot in a channel indefinitely and is the owner's, while
-    # this one changes what a member hears and belongs to whoever configures the
-    # bot. It can refuse a station a member names, which is why it is not EVERYONE.
-    "music ads": GUILD,
-    # The sibling of the line above, and the same audience for the same reason:
-    # it changes what every member hears without gating any one of them out of
-    # speaking to the bot, so the server's configurers set it and members do not.
-    "music language": GUILD,
-    "music doctor": ADMIN,
-    "music 247": OWNER,
+    "radio doctor": ADMIN,
     "customquote add": EVERYONE,
     "customquote get": EVERYONE,
     "customquote list": EVERYONE,

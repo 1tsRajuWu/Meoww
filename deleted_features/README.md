@@ -100,6 +100,35 @@ the radio player, not the extractor.
 already listed in `requirements-archived.txt`, and `utils/spotify.py` and
 `utils/card.py` were left live on purpose (the now-playing card still draws).
 
+---
+
+Archived on 2026-09-23, at the owner's request: **the radio as it was, replaced by
+a rebuild of the same feature** — *"rebuild the whole radio sys from scartch and
+remove music and keep radio only"*. What was there worked, but had grown three
+centres of gravity: rows, commands, cards and the 24/7 timer in one 1,900-line
+cog; a player still carrying queue, seek, loop and filter machinery from the
+system it had outlived; and a media module doing two jobs. The surface said
+*Music* on every page the bot serves.
+
+The rebuild is four files with one job each — `utils/radio_catalogue.py` is the
+data, `utils/radio.py` the policy, `utils/radio_stream.py` the engine and
+`cogs/radio.py` the surface — with a table rebuilt from a probed pass and
+fourteen commands replaced by three (`/radio`, `/radio stop`, `/radio doctor`).
+
+| Feature | File | Notes |
+|---|---|---|
+| The catalogue and the surface | `radio_2026_09/cogs_music.py` | The rows, the commands, the cards and the seat timer in one file; its `/music` group is what `/radio` replaces. |
+| The player | `radio_2026_09/utils_player.py` | The engine, with the queue, seek, loop, filter and queue-drawing machinery a live stream never needed. `utils/radio_stream.py` is the rebuild: one station, one socket, a *named* retry budget and the cut-stream guard, and nothing queue-shaped. |
+| The stream half of the media module | `radio_2026_09/utils_media_source.py` | The module as it stood. The live engine carries its own `Station` and its own probe, so nothing imports this. |
+| The public page | `radio_2026_09/templates_music.html` | `/music` is a **301 to `/radio`** now, and `templates/radio.html` is the page. |
+| The suites | `radio_2026_09/test_music.py`, `radio_2026_09/test_radio.py` | The old player's mechanics and the old catalogue's rules, verbatim. The live `tests/test_radio.py` is the **new** suite — the same filename because it covers the same feature. |
+
+**Nothing the table needs was deleted**: `imageio-ffmpeg` stays in
+`requirements.txt`, because ffmpeg is what plays a station. `utils/spotify.py`
+went with it this time — nothing had imported it since the resolver was archived
+on 2026-09-22, and a module kept "in case" is a module the next reader has to
+re-decide about.
+
 ## How to restore a feature
 
 1. Move the file back: `mv deleted_features/cogs/<name>.py cogs/`
@@ -107,13 +136,16 @@ already listed in `requirements-archived.txt`, and `utils/spotify.py` and
 3. Re-add its command names to `MODULE_COMMAND_MAP` in `bot.py`.
 4. Re-add the dashboard card to `AVAILABLE_MODULES` in `keep_alive.py`.
 5. Re-add its help category in `cogs/help.py` (and the home-body bullet).
-6. For **radio** (the archived `cogs/music.py`, the pre-rebuild one):
-   `pip install yt-dlp imageio-ffmpeg` (+ a system `ffmpeg` binary).
-   `utils/spotify.py` + `utils/card.py` were left live on purpose, so nothing
-   needs moving for them. For the **resolver** specifically, move
-   `deleted_features/utils/media_source.py` over `utils/media_source.py` (it
-   carries the whole module as it was) and move the three test files back, then
-   re-add `yt-dlp` to `requirements.txt`.
+6. For **radio** as it was before the rebuild (`radio_2026_09/`): move
+   `cogs_music.py` back to `cogs/music.py`, `utils_player.py` to
+   `utils/player.py`, `templates_music.html` to `templates/music.html` and both
+   suites to `tests/`, then `pip install yt-dlp imageio-ffmpeg` (+ a system
+   `ffmpeg` binary). It collides with the live `cogs/radio.py` by design: the
+   `/music` group and the `/radio` group would both exist, so delete the one you
+   are not keeping. For the **resolver** (the 2026-09-22 archive), move
+   `deleted_features/utils/media_source.py` back over the live engine's own name
+   and move the three test files back, then re-add `yt-dlp` to
+   `requirements.txt`.
 7. For **uploads** only: move `catbox.py`, `file_kiwi.py`, `filehost.py` and
    `streamable.py` back into `utils/`, move
    `deleted_features/tests/test_uploads.py` back into `tests/`, re-add the

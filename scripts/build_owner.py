@@ -65,7 +65,7 @@ CONSOLE_PREFIXES = (
     "/api/toggle-all",
     "/api/command-scope",
     "/api/image",
-    # The voice capability probe the Music panel is built from: whether this
+    # The voice capability probe the Radio panel is built from: whether this
     # deployment has an ffmpeg, an opus encoder and `davey` at all. It is named
     # by the panel that explains it, so it belongs on this host for the same
     # reason /api/console does: an operator reading "cannot play" needs to be
@@ -205,7 +205,7 @@ const CONSOLE_PREFIXES = [
   // Pictures the console draws, served from the backend's own origin so the CSP
   // can keep `img-src 'self'`.
   "/api/image",
-  // The voice capability probe: the Music panel's own reading of what this
+  // The voice capability probe: the Radio panel's own reading of what this
   // deployment can do for voice, named by the panel that explains it.
   "/api/voice-debug",
   // Signing in and out. `/login/discord` is the owner's Discord button on the

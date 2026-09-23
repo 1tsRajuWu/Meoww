@@ -372,7 +372,7 @@ class OverviewLive(_DashboardFixture):
         self.sign_in()
         body = self.client.get("/dashboard").data.decode()
         self.assertIn("In voice right now", body)
-        self.assertIn("The player", body)
+        self.assertIn("The radio", body)
         self.assertIn("Nobody is in a voice channel. That is the reading, not a failure.", body)
         self.assertNotIn("Nothing was read for this render.", body, "this render did read")
 
@@ -590,7 +590,7 @@ class DeploymentConfig(unittest.TestCase):
 
         That is worse than clutter. An operator who fills them in has configured
         nothing, no run of the bot will read them, and the manifest reads as
-        though music still needs a media platform's cookies to play a station.
+        though the bot still needed a media platform's cookies to play a station.
         The registry already refuses a setting nothing reads; the manifest was
         never held to the same rule because the only check on it was the one
         asserting the *required* keys are present.

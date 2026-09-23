@@ -435,29 +435,29 @@ async def media_alert(bot, verdict, message: str) -> bool:
         return False
 
 
-#: Music faults already reported in this process, by kind. Music fails *per track*:
-#: a provider that has started refusing this host refuses every search, and a
-#: card per attempt would be a hundred cards an hour about one fact. One entry per
-#: reason is the whole design, and it is why the card carries the count of what it
-#: is standing in for.
-_music_reported: dict[str, int] = {}
+#: Radio faults already reported in this process, by kind. A stream fails *per
+#: station*: an encoder that has gone dark goes dark for everyone who asks for it,
+#: and a card per attempt would be a hundred cards an hour about one fact. One
+#: entry per reason is the whole design, and it is why the card carries the count
+#: of what it is standing in for.
+_radio_reported: dict[str, int] = {}
 
 #: What to do about each kind, in the words of somebody who has to fix it.
-_MUSIC_REMEDIES: dict[str, str] = {
+_RADIO_REMEDIES: dict[str, str] = {
     "truncated": (
-        "The station stopped mid-stream, which is not the same as a song ending — a "
-        "live stream has no end, so ffmpeg reporting one means the connection went. "
-        "One station doing this is that station; every station doing it is this "
-        "host's route to the outside, and `/music doctor` opens one to prove which."
+        "The station stopped mid-stream, which is not the same as a programme "
+        "ending — a live stream has no end, so the connection went. One station "
+        "doing this is that station; every station doing it is this host's route "
+        "to the outside, and `/radio doctor` opens one to prove which."
     ),
     "source_error": (
         "The audio engine (ffmpeg) exited with an error. The card names what it "
         "said; `-err_detect ignore_err` used to hide exactly this."
     ),
     "unplayable": (
-        "A queued station could not be opened at all. A single one is usually a "
-        "station that is down; every station is this host's ffmpeg or voice "
-        "connection, and `/music doctor` tells the two apart."
+        "A station could not be opened at all. A single one is usually a station "
+        "that is down; every station is this host's ffmpeg or voice connection, "
+        "and `/radio doctor` tells the two apart."
     ),
     "opus_missing": (
         "Not a fault: without libopus the volume is baked into the stream instead "
@@ -467,41 +467,41 @@ _MUSIC_REMEDIES: dict[str, str] = {
 }
 
 
-def music_reported(kind: str) -> int:
+def radio_reported(kind: str) -> int:
     """How many times a kind has already been reported in this process."""
-    return _music_reported.get(kind, 0)
+    return _radio_reported.get(kind, 0)
 
 
-def forget_music_reports() -> None:
+def forget_radio_reports() -> None:
     """Let the next fault be reported again. For tests, and for an operator who
     wants the card back after fixing something and watching it fail again."""
-    _music_reported.clear()
+    _radio_reported.clear()
 
 
-async def music_alert(bot, fault, *, player=None) -> bool:
+async def radio_alert(bot, fault, *, player=None) -> bool:
     """Say that playback broke, once per reason, with the evidence attached.
 
-    Music's failures are all quiet: the bot stays connected, the card says it is
+    Radio's failures are all quiet: the bot stays connected, the card says it is
     playing, and the only symptom is that nothing is heard — which is why the
     archived cog survived a week of "it doesn't work" with nothing in the log.
     Four kinds share this entry point because they are one question asked under
-    different conditions, and the operator needs the *difference*: a provider
-    refusing this host reads nothing like a single dead upload.
+    different conditions, and the operator needs the *difference*: a host with no
+    route out reads nothing like one station that is simply down.
 
-    Deduplicated by kind rather than by track, because that is the unit the
-    operator acts on: one host being blocked is one fact however many songs it
-    ruins. The card says how many times it has happened since the first report,
-    so a single quiet entry does not read as a single event.
+    Deduplicated by kind rather than by station, because that is the unit the
+    operator acts on: one host being firewalled off is one fact however many
+    stations it silences. The card says how many times it has happened since the
+    first report, so a single quiet entry does not read as a single event.
     """
     kind = getattr(fault, "kind", "unknown")
-    seen = _music_reported.get(kind, 0)
-    _music_reported[kind] = seen + 1
+    seen = _radio_reported.get(kind, 0)
+    _radio_reported[kind] = seen + 1
     if seen:
         # Already reported in this process: the count moved, the card did not.
         return False
 
     embed = discord.Embed(
-        title=f"🎵 Music: {getattr(fault, 'headline', kind)}",
+        title=f"📻 Radio: {getattr(fault, 'headline', kind)}",
         description=getattr(fault, "detail", "") or "no further detail",
         color=style.WARN if kind != "blocked" else style.DANGER,
         timestamp=discord.utils.utcnow(),
@@ -522,20 +522,23 @@ async def music_alert(bot, fault, *, player=None) -> bool:
             inline=True,
         )
     if player is not None:
+        station = getattr(player, "current", None)
         embed.add_field(
             name="Player",
             value=(
-                f"`{player.engine or 'idle'}` · {len(player.queue)} queued · "
-                f"volume {int(player.volume * 100)}% · filter {player.filter_name}"
+                f"`{player.engine or 'idle'}` · "
+                f"{getattr(station, 'name', '') or 'nothing on air'} · "
+                f"volume {int(player.volume * 100)}% · "
+                f"seat {'held' if player.stay else 'free'}"
             ),
             inline=False,
         )
     embed.add_field(
         name="What to do",
-        value=_MUSIC_REMEDIES.get(kind, "The card carries what was seen; this kind has no scripted remedy yet."),
+        value=_RADIO_REMEDIES.get(kind, "The card carries what was seen; this kind has no scripted remedy yet."),
         inline=False,
     )
-    embed.set_footer(text="Meow · music · once per reason, not once per track")
+    embed.set_footer(text="Meow · radio · once per reason, not once per station")
 
     target = None
     for role in _INSTANCE_ROLES:
@@ -548,7 +551,7 @@ async def music_alert(bot, fault, *, player=None) -> bool:
         await style.send_card(target, embed=embed, timeout=None)
         return True
     except Exception as exc:
-        print(f"[LOG] could not report the music fault: {exc}", flush=True)
+        print(f"[LOG] could not report the radio fault: {exc}", flush=True)
         return False
 
 

@@ -284,30 +284,28 @@ FEATURES: tuple[Feature, ...] = (
         help_key="qna",
     ),
     Feature(
-        id="music",
-        name="Music & Radio",
-        icon="🎵",
+        id="radio",
+        name="Radio",
+        icon="📻",
         category="Voice",
         description=(
-            "24/7 radio stations in any genre or language, with a queue, filters "
-            "and volume, plus an honest readout of what this host can play."
+            "24/7 radio stations in any genre, every language, and a station in "
+            "every country the table could verify — one command for all of it, "
+            "plus an honest readout of what this host can play."
         ),
         # One root: Discord allows an application 100 top-level commands and this
         # bot has already spent most of that budget, so every command lives under
-        # the `/music` group — which the gate sees, since Discord reports the
+        # the `/radio` group — which the gate sees, since Discord reports the
         # group for a subcommand.
-        gate_commands=("music",),
+        gate_commands=("radio",),
         commands=(
-            "/music radio — a station by name, genre, language or mood",
-            "/music stations — browse the catalogue by genre, language or mood",
-            "/music queue", "/music nowplaying", "/music skip", "/music pause",
-            "/music resume", "/music stop", "/music volume", "/music filter",
-            "/music 247", "/music ads — how this server's radio treats stations that "
-            "carry advertising", "/music language — which language this server's "
-            "radio should be in", "/music doctor",
+            "/radio play — a station by name, genre, language or country, with the "
+            "language, advertising and 24/7 seat carried as options",
+            "/radio stop — end it and give the channel back",
+            "/radio doctor — what this host can and cannot do for voice",
         ),
-        cog="cogs.music",
-        help_key="music",
+        cog="cogs.radio",
+        help_key="radio",
     ),
     Feature(
         id="tracker",

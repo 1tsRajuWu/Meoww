@@ -1925,8 +1925,8 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
         )
         # Asserted as a search rather than with ``assertIn``: a failure here
         # would otherwise print the whole template, which is 20KB of prose about
-        # the music feature and not one line of it about the tag.
-        template = read(os.path.join(TEMPLATES, "music.html"))
+        # the radio feature and not one line of it about the tag.
+        template = read(os.path.join(TEMPLATES, "radio.html"))
         self.assertTrue(
             re.search(r'<span class="lp-tag">ad-free</span>', template),
             "the template writes \"ad-free\" without lp-tag, so the rule above "

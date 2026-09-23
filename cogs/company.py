@@ -200,21 +200,21 @@ class Company(commands.Cog):
         self._sitting["streaming"] = bool(getattr(state, "self_stream", False))
         self._sitting["video"] = bool(getattr(state, "self_video", False))
 
-    def _music_owns(self, guild) -> bool:
-        """Whether the music player is using this guild's connection right now.
+    def _radio_owns(self, guild) -> bool:
+        """Whether the radio is using this guild's connection right now.
 
         The two features share one socket, because a Discord client sits in one
         voice channel at a time — so the companion has to be able to stand down.
         Without this, a companion that decided the room had company would
-        disconnect the bot *mid-song*: the music is on the same connection it was
-        about to close. Imported here rather than at module scope so this stays
-        the only direction of dependency between the two features (music does not
-        know the companion exists).
+        disconnect the bot *mid-stream*: the radio is on the same connection it
+        was about to close. Imported here rather than at module scope so this
+        stays the only direction of dependency between the two features (the
+        radio does not know the companion exists).
         """
         try:
-            from utils import player as player_module  # noqa: PLC0415
+            from utils import radio_stream  # noqa: PLC0415
 
-            return player_module.holds_voice(getattr(guild, "id", None))
+            return radio_stream.holds_voice(getattr(guild, "id", None))
         except Exception:
             return False
 
@@ -234,7 +234,7 @@ class Company(commands.Cog):
         which is cheaper and calmer than disconnecting and rejoining, and it does
         not start a five-minute cooldown over somebody switching rooms.
         """
-        if self._music_owns(getattr(target, "guild", None)):
+        if self._radio_owns(getattr(target, "guild", None)):
             return
         client = next(iter(getattr(self.bot, "voice_clients", None) or []), None)
         if client is None:
@@ -262,10 +262,11 @@ class Company(commands.Cog):
             if channel is None:
                 continue
             guild = getattr(channel, "guild", None)
-            if guild is not None and self._music_owns(guild):
-                # Somebody pressed play. The connection is music's now, and
-                # closing it would stop their song — which is a stranger way to
-                # say goodbye than anything this feature could intend.
+            if guild is not None and self._radio_owns(guild):
+                # Somebody pressed play. The connection is the radio's now, and
+                # closing it would stop what they are listening to — which is a
+                # stranger way to say goodbye than anything this feature could
+                # intend.
                 await self._say_brb(channel)
                 self._sitting = {}
                 continue
@@ -291,10 +292,10 @@ class Company(commands.Cog):
         again with no evidence of why. Unsaid, that reads as *it left because of me*,
         when the truth is a two-room errand it was asked to run.
 
-        **Nothing is said when the music started in the room the bot was already
+        **Nothing is said when the radio started in the room the bot was already
         in.** That person is now less alone than they were, and a goodbye for a song
         playing in their own channel is noise — which is why the check is on the
-        channel *changing* rather than on music simply starting. It also honours the
+        channel *changing* rather than on the radio simply starting. It also honours the
         server's own arrival setting: a server that asked for silent arrivals has
         asked for silence here too, so it sends nothing at all.
         """
@@ -317,7 +318,7 @@ class Company(commands.Cog):
         )
         try:
             await style.send_panel(channel, card)
-            self._log(f"said brb in #{self._name(channel)} — music took the connection")
+            self._log(f"said brb in #{self._name(channel)} — the radio took the connection")
         except Exception as exc:
             # A courtesy that cannot be sent is not a reason to lose the run.
             self._failure(
@@ -364,7 +365,7 @@ class Company(commands.Cog):
         connected = self._connected_channel()
         if connected is not None:
             guild = getattr(connected, "guild", None)
-            if guild is not None and not self._module_on(guild) and not self._music_owns(guild):
+            if guild is not None and not self._module_on(guild) and not self._radio_owns(guild):
                 await self._leave(
                     next(iter(getattr(self.bot, "voice_clients", None) or []), None),
                     "the module was switched off",

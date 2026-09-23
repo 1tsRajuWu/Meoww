@@ -354,12 +354,15 @@ class TheMarkupAndTheHosts(unittest.TestCase):
             "an exact list must be matched by equality — as a prefix, '/' covers everything",
         )
 
-    def test_the_music_page_is_public_rather_than_defaulted_to_gated(self):
+    def test_the_radio_page_is_public_rather_than_defaulted_to_gated(self):
         """A page in the public navigation is reachable without agreeing to
 
         anything, and that is a *classification*, not a consequence of the guard
         being permissive: `noindex` and the clickwrap both follow the same list.
+        The old address counts too: it redirects here, and a redirect that lands
+        behind the clickwrap is the failure this test exists for.
         """
+        self.assertFalse(keep_alive._agreement_stands_here("/radio"))
         self.assertFalse(keep_alive._agreement_stands_here("/music"))
         self.assertTrue(keep_alive._agreement_stands_here("/api/command-scope"))
         self.assertTrue(keep_alive._agreement_stands_here("/api/channels"))

@@ -22,9 +22,13 @@ can call it directly without mocking Discord.
 | `figures.py` | What this deployment is doing, as counts a **stranger** may read (servers, members, and the tracker's messages/voice/people/channels per window). Counts and never names; a reading that was never taken is absent rather than zero; cached a minute. Feeds the landing page's cards and the console's *What the bot is doing* panel through `/api/figures`. |
 | `cloud_sync.py` | Supabase backup: restore on boot, upload loop, leases, shrink guards. |
 | `style.py` | Card design system (`send_card`, `card`) — replies that never ping by accident. |
+| `radio_catalogue.py` | **The station table**, as data: every row a URL that was fetched before it was written down, plus the closed tag vocabulary, the indexes and the autocomplete search. Nothing here touches Discord or the network. |
+| `radio.py` | The radio's *policy*: the defaults (English, shuffle, ad-free, a held seat), the pool a request narrows, and the pick — including the two rules worth knowing, that a country or language is a **request** (never widened) while ad-free is a **preference** (never empties the room). |
+| `radio_stream.py` | The engine: one station, one socket, the cut-stream guard, the bounded retry budget a healthy stretch restores, the 24/7 seat, and the probe `media_health` and `/radio doctor` share. |
+| `voice_caps.py` | Whether this host can play anything at all — ffmpeg, libopus, `davey` — and *which* piece is missing, asked once at boot and read by `/radio doctor`, the consoles and `/api/voice-debug`. |
+| `media_health.py` | The weekly check over every hardcoded media URL **and** one real station opened all the way to a byte, so a host that lost its route out reports itself. Covers the table automatically: `utils/radio_catalogue.py` is in its declared source paths. |
 | `chart.py` | Candlestick/line chart image rendering (Pillow). |
-| `card.py` | Rank/level card image rendering (archived music art lives here too). |
-| `spotify.py` | Spotify link resolver (kept for the archived music feature). |
+| `card.py` | Rank/level card image rendering. |
 | `admin_limits.py` | Caps on admin-settable numbers so a typo can't break the economy. |
 | `update_notify.py` | Update-announcement helpers (what changed since last deploy). |
 | `version.py` | Changelog hashing + digest for the "Bot Updated" post. |

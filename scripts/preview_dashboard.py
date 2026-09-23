@@ -1049,56 +1049,78 @@ def dashboard():
         # a state, and a preview that showed the *empty* branch of both would show
         # nothing about any of it. The numbers are the harness's own servers.
         management=preview_management(guild["id"]),
-        # The Overview's own panel. Stubbed for the same reason the rosters above
-        # are: production reads the gateway, this process has none, and a preview
-        # that only ever showed the *cold-process* branch would show nothing about
-        # the panel at all — including the branch that matters most, a room with
-        # exactly one person in it.
-        overview_live=PREVIEW_LIVE,
+        # The Overview's own panel, read by production's own reader rather than
+        # written out here. It used to be a hand-built dict, and the radio rebuild
+        # is what that cost: the block described a player with a **queue** and a
+        # song's *title* and *provider* — the shape of the system that was retired
+        # — and the preview would have drawn an empty radio panel with no way to
+        # tell a broken page from a stale fixture. ``_seed_radio`` puts a real
+        # player in the real registry instead, so the panel is painted by
+        # ``keep_alive._overview_live`` from the same shapes production reads,
+        # which is the only version of this that cannot drift.
+        overview_live=_preview_overview(guild["id"]),
     )
 
 
-#: What the Overview's "right now" panel shows in the preview: two rooms, one of
-#: them holding a single person (the case the companion exists for), and a player
-#: mid-song with a queue behind it.
-PREVIEW_LIVE: dict = {
-    "read": True,
-    "why": "",
-    "rooms": [
-        {"id": "1", "name": "Lobby", "people": 4, "alone": False, "live": True},
-        {"id": "2", "name": "Study", "people": 1, "alone": True, "live": False},
-    ],
-    "people": 5,
-    "alone": 1,
-    "music": {
-        "read": {"player": True, "caps": True},
-        "why": "",
-        "caps": {"playable": True, "missing": []},
-        "catalogue": {"stations": 142, "languages": 25, "wordless": 41, "unlabelled": 53},
-        "stream": {
-            "status": "ok",
-            "detail": "",
-            "checked_seconds_ago": 420,
-        },
-        "player": {
-            "connected": True,
-            "channel": "Lobby",
-            "playing": True,
-            "paused": False,
-            "engine": "ffmpeg encode [Normal (studio clean)] 128 kbps",
-            "volume": 1.0,
-            "filter": "normal",
-            "queue": 2,
-            "queue_preview": ["🎷 Blue Note Radio", "🌙 Beat Blender"],
-            "current": {
-                "title": "🥗 Groove Salad",
-                "provider": "radio",
-                "duration": 0,
-                "requester": "RAJ",
-            },
-        },
-    },
-}
+class _PreviewVoice:
+    """A voice client for the preview's player: connected, playing, in a room."""
+
+    def __init__(self, channel):
+        self.channel = channel
+        self._playing = True
+
+    def is_connected(self) -> bool:
+        return True
+
+    def is_playing(self) -> bool:
+        return self._playing
+
+    def is_paused(self) -> bool:
+        return False
+
+    def stop(self) -> None:
+        self._playing = False
+
+    async def disconnect(self, force: bool = False) -> None:
+        self._playing = False
+
+    async def move_to(self, channel) -> None:
+        self.channel = channel
+
+
+def _seed_radio(guild_id: int) -> None:
+    """Put a real player in the real registry, so the radio panel is a reading.
+
+    Nothing here is a stand-in for the *payload*: ``radio_stream.RadioPlayer`` is
+    the object the bot itself builds, the station is a row of the shipped table,
+    and only the socket — the one thing this process cannot have — is a stub. The
+    panel is then whatever ``status()`` says about it, which is the same object
+    the operator console and the dashboard read in production.
+    """
+    from utils import radio_catalogue, radio_stream
+
+    guild = keep_alive.BOT_INSTANCE.get_guild(guild_id) if keep_alive.BOT_INSTANCE else None
+    channels = list(getattr(guild, "voice_channels", []) or [])
+    if not channels:
+        return
+    playing = radio_stream.RadioPlayer(keep_alive.BOT_INSTANCE, int(guild_id))
+    playing.voice_client = _PreviewVoice(channels[0])
+    # A station somebody asked for by name, so the card shows a genre, a language
+    # and a country rather than the first row of the file.
+    playing.current = next(
+        (row for row in radio_catalogue.CATALOGUE if row.country and row.language),
+        radio_catalogue.CATALOGUE[0],
+    )
+    playing.requester = "Wren"
+    playing.engine = "ffmpeg encode 128 kbps"
+    playing.stay = True
+    playing._started_at = time.monotonic() - 42.0
+
+
+def _preview_overview(guild_id: int) -> dict:
+    """The Overview panel, read by production's own reader."""
+    _seed_radio(guild_id)
+    return keep_alive._overview_live(guild_id)
 
 
 #: What the Members and Server panels show in the preview: a roster with the

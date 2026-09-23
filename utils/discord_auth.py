@@ -129,9 +129,9 @@ INVITE_PERMISSIONS = ADMINISTRATOR_PERMISSIONS
 #: is still a grant: it is what a hijacked token reaches for.
 #:
 #: **Connect and Speak are back**, and the reason they were absent is worth
-#: keeping: music had been retired, so the list was measured against a tree in
+#: keeping: playback had been retired, so the list was measured against a tree in
 #: which nothing joined a voice channel and the entry was correctly removed as
-#: unused. ``cogs/music.py`` joins one again — and a voice bot without Connect
+#: unused. ``cogs/radio.py`` joins one on every ``/radio`` — and a bot without Connect
 #: fails with ``Missing Permissions`` at exactly the moment somebody asks it to
 #: play something, which is the least useful time to discover an invite link was
 #: built from an out-of-date list. ``tests/test_discord_auth.py`` decodes the
@@ -151,8 +151,8 @@ MINIMAL_PERMISSION_BITS = (
     ("ban_members", 1 << 2),             # /ban
     ("moderate_members", 1 << 40),       # /mute, /unmute, automod's 5-minute timeout
     ("manage_messages", 1 << 13),        # /purge
-    # --- voice: playback (cogs/music.py) ---
-    ("connect", 1 << 20),                # /play, /music radio — joining the channel
+    # --- voice: playback (cogs/radio.py) ---
+    ("connect", 1 << 20),                # /radio — joining the channel
     ("speak", 1 << 21),                  # the same commands, playing into it
     # --- structure ---
     ("manage_channels", 1 << 4),         # /lock, /unlock, ticket channels

@@ -54,11 +54,11 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
         """A row for a module that is not a feature any more must not come back.
 
         The example used to be ``music``, which is why this test changed: music
-        was archived and its rows outlived it, and now it is a feature again — so
-        the rows a *retired* module left are named with the ones that really are
-        still retired (the archive in ``deleted_features/``). The assertion is
-        about the registry being the only source of module ids, which is what
-        stops a switch reappearing for something the bot no longer has.
+        was archived and its rows outlived it, then rebuilt as ``radio`` — so the
+        rows a *retired* module left are named with the ones that really are still
+        retired (the archive in ``deleted_features/``). The assertion is about the
+        registry being the only source of module ids, which is what stops a switch
+        reappearing for something the bot no longer has.
         """
         conn = db.connect()
         try:
@@ -74,7 +74,7 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
         states = modules.get_states(111)
         for retired in ("tempvoice", "welcome", "giveaways"):
             self.assertNotIn(retired, states)
-        self.assertIn("music", states, "music is a live feature again")
+        self.assertIn("radio", states, "radio is a live feature again")
 
     def test_unknown_module_is_not_gated_but_cannot_be_written(self):
         self.assertTrue(modules.is_enabled(111, "not_a_real_module"))

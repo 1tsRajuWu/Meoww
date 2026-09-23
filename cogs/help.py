@@ -76,25 +76,24 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "🫂"
     },
-    "music": {
-        "title": "🎵 Music & Radio",
+    "radio": {
+        "title": "📻 Radio",
         "desc": (
-            "Radio stations in your voice channel — a genre, a language, a mood, or a "
-            "name — with a live queue, real-time audio effects and 24/7 mode. There is "
-            "no song search: a station is a direct stream that asks no media platform "
-            "for anything, which is why it keeps playing on hosts a platform has "
-            "blocked. If a station goes quiet the bot says so, rather than moving on "
-            "and letting it look like a short track.\n\n"
-            "> `/music radio <station>` — Start a station (blank = this server's last one)\n"
-            "> `/music stations [word]` — Browse the catalogue by genre, language or mood\n"
-            "> `/music queue` · `/music nowplaying` — What is playing and what is next\n"
-            "> `/music skip` · `/music pause` · `/music resume` · `/music stop`\n"
-            "> `/music volume <percent>` · `/music filter <effect>` — Live audio shaping\n"
-            "> `/music 247 [channel]` — Stay put permanently *(server owner)*\n"
-            "> `/music doctor` — What this host can and cannot do for voice *(admin)*"
+            "24/7 radio stations in your voice channel — a genre, a language, a mood, "
+            "a name, or a station in any country the table could verify — and it stays "
+            "until somebody stops it. There is no song search: a station is a direct "
+            "stream that asks no media platform for anything, which is why it keeps "
+            "playing on hosts a platform has blocked. If a station goes quiet the bot "
+            "says so *and asks it again*, rather than moving on and letting it look "
+            "like a short track.\n\n"
+            "> `/radio play [station] [language] [country] [ads] [stay] [volume]` — "
+            "put a station on; run it again with nothing while one is playing for the "
+            "controls *(Manage Server saves the settings)*\n"
+            "> `/radio stop` — end it and give the channel back\n"
+            "> `/radio doctor` — what this host can and cannot do for voice *(admin)*"
         ),
         "color": 0x5865F2,
-        "emoji": "🎵"
+        "emoji": "📻"
     },
     "economy": {
         "title": "💰 Economy & Currency",
@@ -274,7 +273,7 @@ HELP_HOME_BODY = (
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
-    "- 🎵 **Music & Radio** — radio stations, a live queue, 24/7 mode, audio filters\n"
+    "- 🎵 **Radio** — 24/7 stations by name, language or country\n"
     "- 🎫 **Tickets** — private staff support\n"
     "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
     "- ❓ **Anonymous Q&A** — ask with no name on it, answer by DM"

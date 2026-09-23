@@ -666,10 +666,10 @@ class Leaving(_CogCase):
         await self.cog._leave_where_the_company_is_gone()  # must not raise
         self.assertFalse(client.disconnected)
 
-    async def test_music_taking_the_connection_says_brb_to_whoever_was_left(self):
+    async def test_radio_taking_the_connection_says_brb_to_whoever_was_left(self):
         """The shared-socket scenario, said out loud.
 
-        Somebody is alone with the bot; somebody *else* presses play; music moves
+        Somebody is alone with the bot; somebody *else* presses play; the radio moves
         the one voice connection to their room. Whoever is left behind watches it
         walk out and is told nothing, which reads as *it left because of me* — when
         the truth is a two-room errand it was asked to run.
@@ -683,19 +683,19 @@ class Leaving(_CogCase):
         bot.voice_clients.append(client)
         bot.get_channel = lambda cid: was_in if cid == was_in.id else None
 
-        with mock.patch.object(self.cog, "_music_owns", return_value=True):
+        with mock.patch.object(self.cog, "_radio_owns", return_value=True):
             await self.cog._leave_where_the_company_is_gone()
 
         said = _said(was_in)
         self.assertIn("brb", said)
-        self.assertIn("music", said)
-        self.assertFalse(client.disconnected, "music's own connection must not be closed")
+        self.assertIn("radio", said)
+        self.assertFalse(client.disconnected, "the radio's own connection must not be closed")
         self.assertEqual(self.cog._sitting, {}, "the sit died with the connection")
 
-    async def test_music_starting_in_the_same_room_says_nothing(self):
-        """That person is now *less* alone than they were, and a goodbye for a song
+    async def test_radio_starting_in_the_same_room_says_nothing(self):
+        """That person is now *less* alone than they were, and a goodbye for a station
         playing in their own channel is noise. The check is on the channel
-        changing, not on music simply starting."""
+        changing, not on the radio simply starting."""
         guild = _Guild()
         room, _ = self._solo(guild)
         bot = await self._make(guild)
@@ -703,7 +703,7 @@ class Leaving(_CogCase):
         bot.voice_clients.append(_VoiceClient(room))
         bot.get_channel = lambda _cid: room
 
-        with mock.patch.object(self.cog, "_music_owns", return_value=True):
+        with mock.patch.object(self.cog, "_radio_owns", return_value=True):
             await self.cog._leave_where_the_company_is_gone()
 
         self.assertEqual(getattr(room, "sent", []), [])
@@ -719,7 +719,7 @@ class Leaving(_CogCase):
         bot.voice_clients.append(_VoiceClient(elsewhere))
         bot.get_channel = lambda cid: was_in if cid == was_in.id else None
 
-        with mock.patch.object(self.cog, "_music_owns", return_value=True):
+        with mock.patch.object(self.cog, "_radio_owns", return_value=True):
             await self.cog._leave_where_the_company_is_gone()
 
         self.assertEqual(getattr(was_in, "sent", []), [])
