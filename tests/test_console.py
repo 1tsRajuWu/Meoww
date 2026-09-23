@@ -30,6 +30,7 @@ import io
 import json
 import os
 import re
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -1556,6 +1557,188 @@ class TheConsoleSchemaIsWhatTheServerAnswers(_DashboardFixture):
         self.assertTrue(payload["success"])
         self.assertIs(payload["republish"], False)
         self.assertTrue(keep_alive.modules.is_enabled(GUILD_ID, module))
+
+    def test_the_live_reading_answers_what_its_schema_declares(self):
+        """The endpoint this console draws the most of, and the last one checked.
+
+        Every card on the Live page reads a block of this one payload, so a field
+        the server stops sending is eleven quiet blanks rather than one loud
+        failure — the original complaint in this class, one endpoint over. The
+        ``radio`` block is the case that keeps happening: the player became a
+        live stream and the block was renamed with it, and a rename reaches the
+        page as *an idle radio* rather than as anything an operator can see.
+        """
+        payload = self.client.get("/api/console/live").get_json()
+        self._assert_matches("/api/console/live", payload)
+        self.assertIsInstance(payload["radio"], dict)
+        self.assertIsInstance(payload["servers"], list)
+
+
+def _ts_without_prose(text: str) -> str:
+    """A TypeScript file without its comments, so braces in prose are not counted."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _braced(text: str) -> str | None:
+    """The inside of the first ``{ ... }`` in ``text``, with its braces balanced."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:index]
+    return None
+
+
+def _remember_member(members: dict[str, tuple[str, bool]], chunk: str) -> None:
+    """File one `name: declaration` chunk, keeping whether the name was optional."""
+    name, colon, declaration = chunk.partition(":")
+    name = name.strip()
+    if colon and name:
+        members[name.rstrip("?")] = (declaration.strip(), name.endswith("?"))
+
+
+def _declared(body: str) -> dict[str, tuple[str, bool]]:
+    """``name -> (declaration, optional)`` for the members of a TypeScript body.
+
+    Counted rather than matched, because these declarations are not uniform:
+    several members are objects written on one line
+    (``read: { player: boolean; caps: boolean };``) and several are a union with
+    ``null``. Optionality travels with each name because it is the difference
+    between a key the server must answer and one it may leave out when there is
+    nothing to say — ``player.error`` is only there on a failure, and a law that
+    demanded it would fail on a working radio.
+    """
+    members: dict[str, tuple[str, bool]] = {}
+    depth = 0
+    chunk = ""
+    for char in body:
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        if char == ";" and depth == 0:
+            _remember_member(members, chunk)
+            chunk = ""
+            continue
+        chunk += char
+    _remember_member(members, chunk)
+    return members
+
+
+class TheRadioBlockSaysWhatTheConsoleDeclares(_DashboardFixture):
+    """One level below the payload boundary, and the level this rebuild moved.
+
+    ``payload.ts`` is shallow on purpose — it names keys, not shapes — so the most
+    it can say is that a payload carries a ``radio`` block. What the block is
+    *made of* is declared in ``console/src/types.ts``, and only the compiler reads
+    that file: nothing compares it against the server, which is not compiled by
+    it. The two sides disagreeing here does not crash and does not throw at the
+    boundary. It draws an empty panel — and an empty panel is the one reading
+    this block exists to be able to tell apart from the others, which is why
+    "nobody has started the radio", "this host cannot play" and "this host cannot
+    reach a station" were given one block and not three.
+
+    Both sides are read from their own file, and a station genuinely on air is put
+    behind the reading for the second half, because the idle panel and the playing
+    one are different shapes and only one of them is ever reached by a process
+    that has not opened Discord.
+    """
+
+    #: The block's own member in `types.ts` — the only `radio:` at that indent.
+    ANCHOR = re.compile(r"^\s{2}radio\s*\??:\s*\{", flags=re.MULTILINE)
+
+    def setUp(self):
+        super().setUp()
+        # The operator, because this reading is the whole fleet's — the block is
+        # answered per server and the page is only served to the operator.
+        self.sign_in(scope="global")
+
+    def radio_body(self) -> str:
+        """The inside of the ``radio`` block ``types.ts`` declares."""
+        types = _ts_without_prose((CONSOLE / "src" / "types.ts").read_text(encoding="utf-8"))
+        anchor = self.ANCHOR.search(types)
+        self.assertIsNotNone(anchor, "types.ts declares no `radio` block")
+        body = _braced(types[anchor.start():])
+        self.assertIsNotNone(body, "the `radio` block of types.ts could not be read")
+        return body
+
+    def live(self) -> dict:
+        response = self.client.get("/api/console/live")
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        return response.get_json()
+
+    def assert_answers(self, value: dict, body: str, path: str) -> None:
+        """Every required member of ``body``, and of the objects inside it."""
+        for name, (declaration, optional) in _declared(body).items():
+            if optional:
+                continue
+            self.assertIn(
+                name,
+                value,
+                f"types.ts declares {path}.{name} and the server does not answer it",
+            )
+            inner = _braced(declaration)
+            if inner is None:
+                continue
+            if value[name] is None:
+                # ``null`` is itself a reading — nobody has started the radio, the
+                # weekly pass has not run — and the panel draws each as its own
+                # sentence rather than as a zero.
+                continue
+            self.assertIsInstance(
+                value[name], dict, f"types.ts declares {path}.{name} as an object"
+            )
+            self.assert_answers(value[name], inner, f"{path}.{name}")
+
+    def test_the_block_answers_exactly_what_the_page_declares(self):
+        """Equality, not containment: a key the page does not declare is drift too."""
+        radio = self.live()["radio"]
+        declared = _declared(self.radio_body())
+        self.assertEqual(
+            sorted(radio),
+            sorted(declared),
+            "the payload's radio block and the console's declaration have parted "
+            "ways; a renamed member draws as an idle radio rather than as an error",
+        )
+        self.assert_answers(radio, self.radio_body(), "radio")
+
+    def test_a_station_on_air_answers_the_row_the_page_draws(self):
+        """The playing shape, driven through the real player and a real station.
+
+        The panel is the reason this block was rebuilt: what an operator opens it
+        for is the station that is on air and whether this host can play one. A
+        reading taken while nobody has started the radio cannot say whether that
+        half of the shape is still the shape the page declares, so the player is
+        put in ``PLAYERS`` the way the cog puts it there and the payload is asked
+        again.
+        """
+        from utils import radio_catalogue, radio_stream
+
+        station = radio_catalogue.CATALOGUE[0]
+        player = radio_stream.RadioPlayer(bot=None, guild_id=GUILD_ID)
+        self.addCleanup(radio_stream.PLAYERS.pop, GUILD_ID, None)
+        player.current = station
+        player.requester = "RajTheOperator"
+        player.engine = "ffmpeg"
+        player.volume = 0.5
+        player.stay = True
+        player._started_at = time.monotonic() - 42
+
+        radio = self.live()["radio"]
+        self.assertTrue(radio["read"]["player"], "a player in PLAYERS went unreported")
+        self.assertIsInstance(radio["player"], dict)
+        self.assert_answers(radio, self.radio_body(), "radio")
+        self.assertEqual(radio["player"]["station"]["name"], station.name)
+        self.assertEqual(radio["player"]["station"]["language"], station.language)
+        self.assertEqual(radio["player"]["station"]["capital"], station.capital)
+        self.assertEqual(radio["player"]["requester"], "RajTheOperator")
 
 
 class _DmTarget:

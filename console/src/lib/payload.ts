@@ -66,6 +66,14 @@ export const SCHEMAS: Record<string, Record<string, Shape>> = {
     channels: "array",
     totals: "object",
     at: "number",
+    // Required for the same reason, and it is the key that has actually moved:
+    // the page draws its whole Radio section from this block, and the block was
+    // renamed when the player became a live stream. A page reading last week's
+    // name off this week's server finds nothing and cannot tell *"the radio is
+    // idle"* from *"nobody sent me a reading"* — which is the one distinction
+    // that block exists to make. Naming it here turns that silence into the
+    // sentence the boundary already knows how to throw.
+    radio: "object",
   },
   "/api/console/systems": {
     success: "boolean",
