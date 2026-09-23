@@ -17,11 +17,10 @@
   var CHOICES = ["system", "light", "dark", "contrast"];
   var root = document.documentElement;
 
-  /* The house palette is the light one, and it is what a first-time visitor
-     gets — not their operating system's preference. A site whose look depends on
-     which machine opened it is a site with no look; Dark and System are one click
-     away in the theme menu, and System still follows the setting once chosen. */
-  var DEFAULT = "light";
+  /* The house palette is the near-black one, and the markup states it, so a page
+     with this script blocked still renders the design rather than a fallback.
+     System follows the operating system once somebody asks for it. */
+  var DEFAULT = "dark";
 
   function stored() {
     try {
@@ -32,26 +31,22 @@
     }
   }
 
-  /* The sheet's own default is the light palette, so "light" is the absence of
-     an attribute rather than another name for one. A page that states nothing
-     is a page that renders before this runs. */
   function applies(choice) {
     if (choice === "system") {
-      var light = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-      return light ? "dark" : "light";
+      var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      return dark ? "dark" : "light";
     }
     return choice;
   }
 
   function paint(choice) {
     var theme = applies(choice);
-    if (theme === "light") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", theme);
+    root.setAttribute("data-theme", theme);
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
       meta.setAttribute(
         "content",
-        theme === "dark" ? "#0d0f12" : theme === "contrast" ? "#000000" : "#f7f5f1"
+        theme === "dark" ? "#0a0a0b" : theme === "contrast" ? "#000000" : "#fbfaf8"
       );
     }
     var label = document.querySelector("[data-theme-label]");

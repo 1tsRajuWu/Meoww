@@ -19,15 +19,17 @@
      * `motion.js` is deferred and last. Everything is readable without it: the
        sheets state the resting values and the markup states what is closed.
    ========================================================================== #}
+{# The theme is stated in the markup, not left to a script: a page that renders
+   before JavaScript runs is a page that already looks like this site. #}
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{{ bot_name }}{% endblock %}</title>
 {% if meta_description %}<meta name="description" content="{{ meta_description }}">{% endif %}
-<meta name="theme-color" content="#f7f5f1">
-<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark light">
 {# The AI-crawler directive, in the convention crawlers look for. #}
 <meta name="robots" content="noai, noimageai">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
@@ -48,7 +50,7 @@
     <div class="wrap top__inner">
       <a class="brand" href="/">
         <span class="brand__mark" aria-hidden="true">{{ bot_initial }}</span>
-        <span class="brand__name">{{ bot_name }}</span>
+        <span class="brand__name">{{ bot_name }}<span class="brand__dot">.</span></span>
       </a>
 
       <button class="top__menu" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-nav">
@@ -105,8 +107,8 @@
         <div>
           <div class="foot__title">{{ bot_name }}</div>
           <p class="small">
-            {{ system_count }} systems, {{ command_count }} commands, and a dashboard for every
-            server that has it. Built to run without being watched.
+            {{ system_count }} systems and {{ command_count }} commands, every one of them
+            switchable per server from a dashboard that stays out of the way.
           </p>
         </div>
         <div>
