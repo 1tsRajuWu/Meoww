@@ -31,6 +31,7 @@ import json
 import os
 import re
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
@@ -305,6 +306,7 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
     def setUp(self):
         self.template = (ROOT / ".env.example").read_text(encoding="utf-8")
         self.blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+        self.deployment = (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
 
     def test_the_template_offers_every_setting_whose_absence_costs_something(self):
         """``.env.example`` is the documented way to configure this locally.
@@ -363,6 +365,74 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
             missing,
             [],
             f"render.yaml does not offer a setting the deployment needs: {missing}",
+        )
+
+
+    def the_address_the_code_falls_back_to(self) -> str:
+        """The Render hostname this deployment is reached at.
+
+        Asked of the function that decides it, under the environment of a Render
+        host, rather than read from a copy of the string: the fact under test is
+        that a *name* and an *address* are different things, and a second literal
+        here would be one more copy of the address to drift.
+        """
+        with mock.patch.dict(os.environ, {"RENDER": "true"}, clear=True):
+            return urllib.parse.urlsplit(keep_alive.dashboard_base_url()).hostname or ""
+
+    def test_the_manifest_names_the_service_the_account_has(self):
+        """A sync matches on **name**, so a name the account does not have creates a bot.
+
+        ``render.yaml`` declared ``meow-discord-bot`` — which is the service's
+        *address* (``meow-discord-bot.onrender.com``, the subdomain it was created
+        with) — while the service that runs this bot is named ``Meoww``. Render
+        updates the service whose name the Blueprint declares and creates one when
+        there is no match, so that mismatch minted ``meow-discord-bot-fmhp``
+        alongside the real service on 2026-09-19. The duplicate had no environment
+        variables (the prompts are answered per service and nobody answered them
+        for it), so every one of its deploys died at boot in
+        ``RuntimeError: DISCORD_TOKEN not found`` and Render never ran an instance
+        on it — a red deploy on every push, next to a service doing its job.
+
+        A file cannot ask Render what a service is called, so the account drifting
+        away from the repository is a dashboard fact this test cannot see. What it
+        can see is the shape the drift took, and both halves of it: the name is
+        written down twice here (the manifest's declaration and the deployment
+        guide's record of it) and those two must agree; the address is likewise
+        written twice (that same line and the fallback the code reaches a Render
+        host at) and those must agree; and the one string may never be used as the
+        other, which is what the edit that caused this looks like.
+        """
+        declared = re.findall(r"^\s{4}name:\s*(\S+)\s*$", self.blueprint, flags=re.MULTILINE)
+        self.assertEqual(len(declared), 1, "there should be exactly one service in the manifest")
+        recorded = re.findall(r"^\s*- Service:\s*(\S+)", self.deployment, flags=re.MULTILINE)
+        self.assertEqual(len(recorded), 1, "docs/deployment.md should record the service once")
+        self.assertEqual(
+            declared[0],
+            recorded[0],
+            "render.yaml and docs/deployment.md disagree about the service's name",
+        )
+
+        address = self.the_address_the_code_falls_back_to()
+        self.assertTrue(address, "the deployment has no address to compare a name against")
+        stated = re.findall(r"^\s*- Address:\s*(\S+)", self.deployment, flags=re.MULTILINE)
+        self.assertEqual(len(stated), 1, "docs/deployment.md should record the address once")
+        self.assertEqual(
+            urllib.parse.urlsplit(stated[0]).hostname,
+            address,
+            "the address the guide records is not the one the code reaches this host at",
+        )
+
+        name = declared[0]
+        self.assertNotIn(
+            ".",
+            name,
+            f"{name!r} reads as a hostname; the manifest's name is the dashboard name",
+        )
+        self.assertNotEqual(
+            name.lower(),
+            address.split(".")[0].lower(),
+            f"{name!r} is this service's address, not its name: a Blueprint sync would "
+            "create a second service instead of updating the one that runs the bot",
         )
 
 

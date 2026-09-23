@@ -9,11 +9,45 @@
 - Deployment: Manual deployment to Render
 
 ### 2. Render Configuration
-- Service: Web service (meow-discord-bot)
+- Service: Meoww — **the name on Render's dashboard**, which is not the same
+  string as its address
+  - Address: https://meow-discord-bot.onrender.com (its `onrender.com`
+    subdomain, chosen when the service was created on 2026-09-12 and kept
+    through the rename)
+  - Dashboard: https://dashboard.render.com/web/srv-daiqibp594qs739qebc0
 - Runtime: Python 3.11
 - Plan: Free tier
 - Build: `pip install -r requirements.txt`
 - Start: `python bot.py`
+
+**The name and the address are two different strings, and writing one where the
+other belongs creates a second service that cannot start.** `render.yaml` is the
+Blueprint, and Render matches a Blueprint against the account **by name**: it
+updates the service with the declared name if one exists, and creates a new one if
+none does. That file declared `meow-discord-bot` — the subdomain, copied from the
+URL — while the service that has run this bot since 2026-09-12 is named `Meoww`,
+so a Blueprint sync on 2026-09-19 created `meow-discord-bot-fmhp` beside it. The
+duplicate was never given any environment variables, because the prompts below are
+answered per service and nobody answered them for that one, so **every deploy it
+ever had ended at boot in `RuntimeError: DISCORD_TOKEN not found`** and Render
+never ran an instance on it. It was deleted on 2026-09-23; the manifest and this
+line carry the name the account actually has, and `tests/test_config_audit.py`
+refuses the edit that caused it.
+
+What that law can and cannot see is worth stating. A file cannot ask Render what
+the service is called, so it cannot catch the account drifting away from the
+repository — that is a dashboard fact. What it can do is hold the two places the
+repository writes the name to each other (this section and `render.yaml`), and
+refuse a name that *is* the address, which is the shape the drift took.
+Consequences worth keeping: a sync is now able to adopt the running service
+instead of minting a stranger — the manifest's build command, start command, plan
+and runtime are the live service's own, read back from Render's API, which is the
+state in which a sync changes nothing, though **no sync has been run** to prove
+adoption and an environment variable's *value* cannot be read back this way, so
+the prompts below are the part worth looking at before pressing Sync — and the
+account is meant to hold exactly two services, this one and `discord-github-bot`
+(a different repository, seen next to `Meow` in the dashboard). Anything else
+appearing there is a sync that did not match a name in this file.
 
 ### 3. Supabase Storage (Database Backup)
 - Purpose: Persistent database storage across deployments
@@ -279,7 +313,10 @@ Render's free plan allows 750 instance hours per account per month, and a servic
 that never sleeps uses 730–744 of them (24 × 30, or 24 × 31). This bot may be the
 **only** free service on the account: a second one running the same way pushes the
 total over the allowance and both are suspended — the failure looks like "the bot
-died" and has nothing to do with the bot. The public site and the owner console
+died" and has nothing to do with the bot. That is the price of the duplicate in
+§2, and the reason the dashboard's service list is worth a glance after any
+Blueprint sync: a name the account does not have does not fail the sync, it
+quietly spends the budget building a second bot. The public site and the owner console
 are on Cloudflare Pages, which has no such budget, so there is nothing to add
 there and nothing to keep awake.
 

@@ -1,6 +1,21 @@
 services:
   - type: web
-    name: meow-discord-bot
+    # **The name Render matches a Blueprint sync *on*, which is deliberately not
+    # the address anybody reaches this service at.** Render looks for a service
+    # with the declared name, updates it if it finds one, and creates a new one if
+    # it does not — so this field decides whether a sync adopts the service that
+    # runs the bot or mints a stranger beside it. It said `meow-discord-bot` here,
+    # which is the service's *address* (`meow-discord-bot.onrender.com`, the
+    # subdomain it was created with): no service in the account had that name, the
+    # account's bot service is named **Meoww**, and so a Blueprint sync created
+    # `meow-discord-bot-fmhp` next to the real one. That duplicate had no
+    # environment variables — nobody ever answered the prompts below for it — so
+    # every deploy it was ever given ended at boot in
+    # `RuntimeError: DISCORD_TOKEN not found`, Render never ran an instance on it,
+    # and it was deleted by hand on 2026-09-23. Naming the service that exists is
+    # what makes adoption possible; the address belongs in `DASHBOARD_BASE_URL`
+    # and in the docs, which is where every other reference to it already lives.
+    name: Meoww
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
