@@ -379,6 +379,25 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
         with mock.patch.dict(os.environ, {"RENDER": "true"}, clear=True):
             return urllib.parse.urlsplit(keep_alive.dashboard_base_url()).hostname or ""
 
+    def services_in_the_manifest(self) -> list[tuple[str, str]]:
+        """``(type, name)`` for every service ``render.yaml`` declares.
+
+        Structural rather than a line scan, and that is a correction of this law's
+        own first draft: it matched ``name:`` at **exactly four spaces** of indent,
+        which is true of the file today and would have made the law fail — with a
+        message about there being no service at all — the first time somebody
+        re-indented valid YAML. Entries are split on ``- type:`` so that the count
+        is the number of *services*, which is the thing that matters, rather than
+        however many ``name:`` lines happen to match.
+        """
+        entries = re.split(r"^\s*-\s*type:\s*", self.blueprint, flags=re.MULTILINE)[1:]
+        found = []
+        for entry in entries:
+            kind = entry.splitlines()[0].strip() if entry.splitlines() else ""
+            named = re.search(r"^\s*name:\s*(\S+)\s*$", entry, flags=re.MULTILINE)
+            found.append((kind, named.group(1) if named else ""))
+        return found
+
     def test_the_manifest_names_the_service_the_account_has(self):
         """A sync matches on **name**, so a name the account does not have creates a bot.
 
@@ -402,12 +421,19 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
         host at) and those must agree; and the one string may never be used as the
         other, which is what the edit that caused this looks like.
         """
-        declared = re.findall(r"^\s{4}name:\s*(\S+)\s*$", self.blueprint, flags=re.MULTILINE)
-        self.assertEqual(len(declared), 1, "there should be exactly one service in the manifest")
+        services = self.services_in_the_manifest()
+        self.assertEqual(
+            len(services),
+            1,
+            f"the manifest should declare exactly one web service; it declares {services}",
+        )
+        kind, declared = services[0]
+        self.assertEqual(kind, "web", "the bot is a web service, and the sync matches it by name")
+        self.assertTrue(declared, "the service in the manifest has no name")
         recorded = re.findall(r"^\s*- Service:\s*(\S+)", self.deployment, flags=re.MULTILINE)
         self.assertEqual(len(recorded), 1, "docs/deployment.md should record the service once")
         self.assertEqual(
-            declared[0],
+            declared,
             recorded[0],
             "render.yaml and docs/deployment.md disagree about the service's name",
         )
@@ -422,7 +448,7 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
             "the address the guide records is not the one the code reaches this host at",
         )
 
-        name = declared[0]
+        name = declared
         self.assertNotIn(
             ".",
             name,

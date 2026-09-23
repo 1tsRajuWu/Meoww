@@ -321,33 +321,19 @@ class Fun(commands.Cog):
             if picture:
                 embed.set_image(url=picture)
 
-        # **One message, and the client draws the clip.** Two complaints are what
-        # pinned this command's shape down, and they pull in opposite directions
-        # until you notice which party draws the audio.
-        #
-        # The card carried the clip as a Components V2 File component, and a V2
-        # layout is what draws the message: the attachment came out as a file row
-        # with a download arrow — *"why is there download, I don't wanna download,
-        # I wanna hear"*. A **voice message** is the shape Discord draws as a
-        # player, but it may carry nothing beside its one attachment, so the clip
-        # had to be a message of its own — card, then an audio bubble: *"why double,
-        # I only want one like it was"*.
-        #
-        # What draws a player is the *client*, and it does that for an attachment on
-        # any message that is **not** a V2 layout. That is what ``send_plain`` is
-        # for, and it is not a guess: the same bytes were already being drawn with a
-        # play button on this command's own fallback path. So the embed and the clip
-        # go out together on one plain payload — the picture, the sound's name, the
-        # credit — with the player underneath them.
-        #
-        # The clip is attached as it ships rather than re-encoded, because the
-        # Ogg/Opus transcode existed only for the voice message and a plain
-        # attachment asks for nothing. The name the player shows is the asset's own
-        # (``meow_1.ogg``); the card above it names the sound in words.
-        await style.send_plain(
+        # *What* this command says is its business; **how a message has to be shaped
+        # to be heard is not** — that belongs to ``utils.style``, which is the layer
+        # that knows a clip must be drawn by the client rather than by a card, that
+        # one message is the whole of it, and that a refusal has to be reported
+        # rather than swallowed. So this hands over the picture, the words and the
+        # path, and `send_sound` walks the shapes Discord will accept, richest
+        # first, printing which one it got. Three reports (no sound, a download
+        # row, then two messages) are what put that rule there instead of here.
+        await style.send_sound(
             interaction,
+            path=file_path,
             embed=embed,
-            file=discord.File(file_path, filename=sound_file),
+            caption=f"🔊 **{sound_title}** — {sound_caption}",
         )
 
     @app_commands.command(name="flavor", description="Choose how the fun commands look in this server (per-server).")

@@ -1,6 +1,8 @@
 """Every non-interactive message now goes through the Components V2 helpers.
 Discord rejects a payload that exceeds its hard limits, which would take a
 command down, so the budget guards are pinned here."""
+import contextlib
+import io
 import re
 import unittest
 from pathlib import Path
@@ -200,12 +202,20 @@ class CardEdits(unittest.IsolatedAsyncioTestCase):
 
 
 class _SendTarget:
-    """A Messageable stand-in that records what a card payload carried."""
+    """A Messageable stand-in that records what a card payload carried.
 
-    def __init__(self):
+    ``refuse`` is a predicate on the payload, for the payloads Discord answers with
+    a 400: a refusal is the only thing that decides which shape a member gets, so a
+    test that cannot produce one is not testing the ladder.
+    """
+
+    def __init__(self, refuse=None):
         self.calls = []
+        self._refuse = refuse
 
     async def send(self, **kwargs):
+        if self._refuse is not None and self._refuse(kwargs):
+            raise RuntimeError("400 Bad Request (this payload was refused)")
         self.calls.append(kwargs)
         return self
 
@@ -298,19 +308,14 @@ class AttachmentsOnACard(unittest.IsolatedAsyncioTestCase):
 
 
 class PlainMessagesDrawThemselves(unittest.IsolatedAsyncioTestCase):
-    """``/meowsound``'s player, and the whole of why ``send_plain`` exists.
+    """The primitive underneath ``send_sound``: a payload with no layout of ours.
 
     A Components V2 layout is what draws a card, and a File component has no
-    player: the soundboard's clip came out as a file row with a download arrow —
-    *"why is there download, I don't wanna download, I wanna hear"*. On a payload
-    that is not a layout the **client** draws the attachment, with a play button,
-    so the clip goes out on a plain message. That message is now the only one the
-    command sends: giving the clip a message of its own to get a player cost the
-    card's picture and a second message, which the next report was about — *"why
-    double, I only want one like it was"*.
+    player, so a clip on a card comes out as a file row with a download arrow
+    while the same bytes on a payload that is not a layout are drawn by the client.
     """
 
-    async def test_the_clip_goes_out_on_a_payload_with_no_layout_of_ours(self):
+    async def test_the_payload_carries_no_layout_of_ours(self):
         target = _SendTarget()
         attachment = discord.File(SAMPLE_CLIP, filename="purr.ogg")
         embed = discord.Embed(title="🔊 Mew!", description="**Sound:** purr")
@@ -328,6 +333,91 @@ class PlainMessagesDrawThemselves(unittest.IsolatedAsyncioTestCase):
         target = _SendTarget()
         await style.send_plain(target, content="🔊 purr")
         self.assertIs(target.calls[0]["allowed_mentions"], style.NO_PINGS)
+
+
+class ASoundClipIsSentInShapesThatPlay(unittest.IsolatedAsyncioTestCase):
+    """``send_sound``: the richest payload Discord accepts, and a line saying which.
+
+    Three reports built this. A card drew the clip as a **file row with a download
+    arrow** (*"I don't wanna download, I wanna hear"*); a **voice message** plays,
+    but may carry nothing beside its one attachment, so the card became a *second*
+    message (*"why double, I only want one like it was"*); and the report nobody
+    made — because nothing anywhere said anything — was that a refusal had been
+    falling into a catch-all for a whole commit, which is how the voice message
+    shipped inert. So the ladder is tested in both directions: the shape it reaches
+    when nothing is refused, and the shapes it falls to when Discord says no.
+    """
+
+    CAPTION = "🔊 **purr** — Mew!"
+
+    def _embed(self) -> discord.Embed:
+        return discord.Embed(title="🔊 Mew!", description="**Sound:** purr")
+
+    async def test_the_card_and_the_clip_go_out_as_one_message(self):
+        target = _SendTarget()
+        embed = discord.Embed(title="🔊 Mew!", description="**Sound:** purr")
+        landed = await style.send_sound(
+            target, path=SAMPLE_CLIP, embed=embed, caption="🔊 purr"
+        )
+        self.assertEqual(landed, "card")
+        self.assertEqual(len(target.calls), 1, "one message, never a card and then a clip")
+        payload = target.calls[0]
+        self.assertIs(payload["embed"], embed)
+        self.assertIsInstance(payload["file"], discord.File)
+        self.assertEqual(
+            payload["file"].filename, SAMPLE_CLIP.name, "the player shows the asset's own name"
+        )
+        self.assertNotIn("view", payload, "a layout is what draws the download row")
+        self.assertIs(target.calls[0]["allowed_mentions"], style.NO_PINGS)
+
+    async def test_a_refused_card_falls_to_the_clip_alone_and_says_so(self):
+        """The picture is the first thing to go: an embed is what a refusal is most
+        likely to be about, and losing it still leaves the clip playable."""
+        target = _SendTarget(refuse=lambda payload: "embed" in payload)
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            landed = await style.send_sound(
+                target, path=SAMPLE_CLIP, embed=self._embed(), caption=self.CAPTION
+            )
+        self.assertEqual(landed, "clip")
+        self.assertEqual(len(target.calls), 1, "one message, after the refusal")
+        self.assertNotIn("embed", target.calls[0])
+        self.assertIsInstance(target.calls[0]["file"], discord.File)
+        log = said.getvalue()
+        self.assertIn("'card'", log, "the shape that was refused is named")
+        self.assertIn("400 Bad Request", log, "and what Discord called it")
+
+    async def test_a_refused_clip_falls_to_a_sentence_rather_than_silence(self):
+        target = _SendTarget(refuse=lambda payload: "file" in payload)
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            landed = await style.send_sound(
+                target, path=SAMPLE_CLIP, embed=self._embed(), caption=self.CAPTION
+            )
+        self.assertEqual(landed, "word")
+        self.assertEqual(target.calls[0]["content"], self.CAPTION)
+        self.assertIn("'clip'", said.getvalue())
+
+    async def test_a_clip_that_cannot_be_sent_at_all_answers_none(self):
+        """A caller has to be able to tell *nothing was posted* from *posted*; that
+        answer is the difference between the last report and a fix."""
+        target = _SendTarget(refuse=lambda payload: True)
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            landed = await style.send_sound(
+                target, path=SAMPLE_CLIP, embed=self._embed(), caption=self.CAPTION
+            )
+        self.assertIsNone(landed)
+        self.assertEqual(target.calls, [], "not one payload was accepted")
+        self.assertIn("nothing was posted", said.getvalue())
+
+    async def test_a_sound_with_no_card_still_goes_out_as_a_clip(self):
+        """Every shape is optional except the clip: ``embed`` and ``caption`` are
+        what a caller may have nothing to say with."""
+        target = _SendTarget()
+        landed = await style.send_sound(target, path=SAMPLE_CLIP)
+        self.assertEqual(landed, "clip")
+        self.assertIsInstance(target.calls[0]["file"], discord.File)
 
 
 class MentionsOnACard(unittest.TestCase):

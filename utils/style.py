@@ -141,21 +141,105 @@ async def send_plain(target, *, content=None, **extras):
     """Send a payload with **no card** — the client's own rendering of it.
 
     Everything else in this module routes through ``send_card``, which is right for
-    text and wrong for exactly one thing: an audio attachment. A Components V2
-    layout turns a sound file into a **file row with a download arrow**, because
-    the layout is what draws the message and a File component has no player; on a
-    payload that is not a layout the *client* draws it, with a play button. So this
-    is ``/meowsound``'s whole send path — ``content``/``embed`` and the clip on one
-    message, which is what somebody asked for after the clip was given a message of
-    its own: *"why double, I only want one like it was"*.
-
-    What an audio attachment will *not* do here is play on every client: Discord's
-    own guidance is that a Vorbis file "may not play back on mobile", and the
-    soundboard ships Vorbis. A voice message — one attachment, Ogg/Opus, nothing
-    beside it — is the shape that plays everywhere, and it was this command's shape
-    until it cost the card's picture and a second message to have it.
+    text and wrong for one thing: a payload whose *attachment* has to be drawn by
+    the client rather than by us. A Components V2 layout is what draws a card's
+    message, and a File component has no player — so a clip on a card comes out as
+    a **file row with a download arrow**, where the same bytes on a payload that is
+    not a layout are drawn as a player. :func:`send_sound` is the caller that needs
+    that; this function is the primitive, not the rule.
     """
     return await _dispatch_send(target, {"content": content, **extras}, False)
+
+
+#: The payloads one sound clip is tried in, richest first, each being what is left
+#: when Discord refuses the one above it. The **names** matter because "which shape
+#: went out" is the answer to "why does it look like that" — and until this existed
+#: there was no answer to give: a refusal landed in a catch-all and the member saw
+#: whichever attempt happened to be last, which is how this feature shipped a
+#: download row, and then a second message, without a line anywhere saying so.
+SOUND_SHAPES = ("card", "clip", "word")
+
+
+def _sound_ladder(embed, caption) -> list[str]:
+    """The shapes worth trying for *this* payload, richest first.
+
+    A caller with no card has no first rung, and reporting ``"card"`` for a
+    payload that never carried one is the kind of quiet lie this module has already
+    paid for once — so the ladder is filtered from what the caller actually has
+    rather than from a fixed three.
+    """
+    offered = {"card": embed is not None, "clip": True, "word": caption is not None}
+    return [shape for shape in SOUND_SHAPES if offered[shape]]
+
+
+async def send_sound(target, *, path, embed=None, caption=None) -> str | None:
+    """Post one sound clip on the richest payload Discord accepts, and say which.
+
+    Returns the shape that landed (one of :data:`SOUND_SHAPES`), or ``None`` when
+    every one of them was refused — so a caller that wants to tell an operator what
+    happened has an answer to tell them with.
+
+    **Why one message, and why not a card.** Two reports pinned this shape. A
+    Components V2 layout is what draws a card's message and a File component has no
+    player, so the clip came out as a *file row with a download arrow* — "why is
+    there download, I don't wanna download, I wanna hear". The other shape Discord
+    draws as a player is a **voice message**, but it may carry nothing beside its
+    one attachment, so having one meant the card became a second message — "why
+    double, I only want one like it was". So: the embed and the clip on one payload,
+    richest first, and never two messages.
+
+    **The ladder covers the third report, which was silence.** Which shape a member
+    gets is decided by Discord's refusal, and a refusal this layer does not report
+    is indistinguishable from a command that never ran: the voice message that
+    answered "no sound" shipped *inert* for a commit because every clip landed in a
+    catch-all and nothing said a word. So each refusal is printed with the shape
+    that was refused and what Discord called it, and the last rung is a sentence
+    naming the sound rather than nothing at all — the two refusals above it are the
+    ones this command has actually produced; that floor is there so a third cannot
+    be silence.
+
+    What it does **not** promise is that the clip plays on every client. Discord's
+    own guidance is that a Vorbis file "may not play back on mobile", and the
+    soundboard's clips are Vorbis; a voice message is the shape that plays there,
+    and it costs the picture and a second message to have one.
+    """
+    ladder = _sound_ladder(embed, caption)
+    for shape in ladder:
+        payload: dict = {}
+        if shape == "card":
+            payload["embed"] = embed
+        if shape in ("card", "clip"):
+            payload["file"] = discord.File(path)
+        else:
+            payload["content"] = caption
+
+        try:
+            await send_plain(target, **payload)
+        except Exception as exc:
+            # A refused upload can leave its handle open; the next rung reopens the
+            # file, so this one is closed rather than left to the collector.
+            refused_file = payload.get("file")
+            if refused_file is not None:
+                try:
+                    refused_file.close()
+                except Exception:
+                    pass
+            print(
+                f"[STYLE] a sound clip was refused as {shape!r} "
+                f"({type(exc).__name__}: {exc})",
+                flush=True,
+            )
+            continue
+
+        if shape != ladder[0]:
+            print(
+                f"[STYLE] a sound clip went out as {shape!r} rather than as {ladder[0]!r}",
+                flush=True,
+            )
+        return shape
+
+    print("[STYLE] no shape of a sound clip landed — nothing was posted", flush=True)
+    return None
 
 
 def v2_ready() -> bool:

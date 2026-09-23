@@ -7,15 +7,17 @@ through the real command callbacks:
 
 * ``/action``, ``/rizz`` and ``/roast`` pass an ``allowed_mentions`` set naming the
   target, and name nobody else;
-* the soundboard is **one** message, sent ``plain`` so the client draws the clip as
-  a player: a card carried it as a File component and Discord drew a download row,
-  and the voice message that fixed that needed a message of its own beside it;
+* the soundboard hands one clip, on one message, to ``utils.style.send_sound`` —
+  the layer that knows a card draws a File component as a download row, that a
+  voice message would need a message of its own beside the card, and that a refused
+  shape has to be reported rather than swallowed;
 * a picture that could not be verified is simply absent, never a broken box.
 
 ``cogs.fun`` and ``cogs.social`` import ``send_card`` into their own namespace, so
 the tests patch it there, exactly where the command reads it.
 """
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -25,6 +27,8 @@ from cogs import fun as fun_module
 from cogs import social as social_module
 from tests.support import TempDatabaseMixin
 from utils import db, flavor
+
+ROOT = Path(__file__).resolve().parent.parent
 
 GUILD = 909
 AUTHOR = 111
@@ -178,33 +182,52 @@ class TheFunCommands(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.release_temp_database()
 
     async def _meowsound(self, picture="https://cataas.com/cat/gif"):
-        """Run the command with the message it sends recorded."""
+        """Run the command with what it hands the send layer recorded."""
         with mock.patch.object(fun_module, "send_card", new=self.card), \
-             mock.patch.object(fun_module.style, "send_plain", new=self.plain), \
+             mock.patch.object(fun_module.style, "send_sound", new=self.plain), \
              mock.patch.object(fun_module.gifs, "pet_picture", new=mock.AsyncMock(return_value=picture)):
             await fun_module.Fun.meowsound.callback(self.cog, self.interaction)
 
-    async def test_the_soundboard_is_one_message(self):
-        """It was two — a card and a voice message — because a voice message cannot
-        carry anything beside its one attachment. *"Why double, I only want one
-        like it was"*: the embed and the clip go out together now."""
-        await self._meowsound()
-        self.assertEqual(len(self.plain.calls), 1, "one message, not two")
-        self.assertEqual(self.card.calls, [], "and it is not a card as well")
+    def test_every_clip_the_soundboard_offers_is_a_file_that_ships(self):
+        """The command's data integrity, which nothing held before.
 
-    async def test_the_clip_rides_on_the_message_the_client_draws(self):
-        """What draws a player is the client, and it does that for an attachment on
-        a payload that is not a V2 layout. The card is what turned the clip into a
-        file row with a download arrow — *"I don't wanna download, I wanna hear"* —
-        so the payload must carry no layout of ours at all."""
+        ``CAT_SOUNDS`` is the table the command picks from, and a name in it with no
+        file behind it is a command that raises on the member who happens to draw
+        that entry — one in thirteen, so it survives every hand test. The send
+        layer's ladder assumes a real path (it attaches the file as it ships rather
+        than re-encoding), so the premise is checked here instead: every entry is a
+        path that exists, is not empty, and is audio the player has a chance with.
+        """
+        table = fun_module.CAT_SOUNDS
+        self.assertGreater(len(table), 3, "the soundboard's table was not found")
+        for entry in table:
+            name, title, caption = entry
+            with self.subTest(clip=name):
+                self.assertTrue(name.endswith((".ogg", ".mp3")), name)
+                self.assertTrue(title.strip(), f"{name} has no sound name")
+                self.assertTrue(caption.strip(), f"{name} has no caption")
+                path = ROOT / "assets" / "sounds" / name
+                self.assertTrue(path.is_file(), f"{name} is offered and not shipped")
+                self.assertGreater(path.stat().st_size, 0, f"{name} is empty")
+
+    async def test_the_soundboard_hands_one_clip_to_the_send_layer(self):
+        """*Which* message shape a clip needs is not this command's business — one
+        message, drawn by the client, walked down the shapes Discord accepts, with a
+        refusal reported — and it lives in ``utils.style.send_sound``. This pins
+        only what the command owns: the path, the card and the words, handed over
+        exactly once. It posted twice when the shape was assembled here."""
         await self._meowsound()
-        payload = self.plain.last
-        self.assertIsInstance(payload["file"], discord.File)
-        self.assertTrue(payload["file"].filename.endswith((".ogg", ".mp3")))
-        self.assertIsInstance(payload["embed"], discord.Embed, "the card is the embed")
-        self.assertNotIn("view", payload, "a layout is what replaces the player")
-        self.assertIsNotNone(payload["embed"].title)
-        self.assertIn("sound", payload["embed"].description.lower())
+        self.assertEqual(len(self.plain.calls), 1, "one message, never two")
+        self.assertEqual(self.card.calls, [], "and not a card as well")
+        sent = self.plain.last
+        self.assertTrue(str(sent["path"]).startswith("assets/sounds/"))
+        self.assertTrue(str(sent["path"]).endswith((".ogg", ".mp3")))
+        self.assertIsInstance(sent["embed"], discord.Embed)
+        self.assertIn("Sound:", sent["embed"].description)
+        # The words beside the player name the same clip the card does, because a
+        # sentence about a different sound is worse than no sentence.
+        sounded = sent["embed"].description.removeprefix("**Sound:** ")
+        self.assertIn(sounded, sent["caption"])
 
     async def test_the_soundboard_shows_an_actual_picture(self):
         await self._meowsound(picture="https://cataas.com/cat/gif")
@@ -213,7 +236,7 @@ class TheFunCommands(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def test_the_soundboard_still_plays_when_no_picture_is_available(self):
         await self._meowsound(picture=None)
         self.assertIsNone(getattr(self.plain.last["embed"].image, "url", None) or None)
-        self.assertIn("file", self.plain.last, "a missing picture is not a missing clip")
+        self.assertIn("path", self.plain.last, "a missing picture is not a missing clip")
 
     async def test_the_soundboard_speaks_this_servers_flavour(self):
         await self._meowsound()
@@ -226,12 +249,12 @@ class TheFunCommands(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def test_the_neutral_flavour_looks_for_no_animal_at_all(self):
         await flavor.set_flavor(GUILD, "neutral")
         with mock.patch.object(fun_module, "send_card", new=self.card), \
-             mock.patch.object(fun_module.style, "send_plain", new=self.plain), \
+             mock.patch.object(fun_module.style, "send_sound", new=self.plain), \
              mock.patch.object(fun_module.gifs, "pet_picture", new=mock.AsyncMock()) as pet:
             await fun_module.Fun.meowsound.callback(self.cog, self.interaction)
         pet.assert_not_called()
         self.assertIsNone(getattr(self.plain.last["embed"].image, "url", None) or None)
-        self.assertIn("file", self.plain.last, "neutral means no animal, not no sound")
+        self.assertIn("path", self.plain.last, "neutral means no animal, not no sound")
 
     async def test_meow_uses_the_flavour_for_word_and_picture(self):
         await flavor.set_flavor(GUILD, "dog")
