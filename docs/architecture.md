@@ -177,6 +177,11 @@ embed in three ways that have each been a shipped bug:
   while looking fine. `send_card(file=…)`/`files=…` now appends a File component
   for each upload, and skips the card entirely (legacy send) if the installed
   library has no File component, where an attachment is at least visible as a file.
+  **That command is no longer a card, though, and the reason is the same one from
+  the other side**: a File component draws an attachment as a row with a download
+  arrow, so `/meowsound` posts one plain message instead and lets the *client*
+  draw the audio — see `style.send_plain` below. A card is still the right shape
+  for everything that is not audio.
 - **Mentions notify, so they must be opted into.** A `TextDisplay` mention pings
   its target; `send_card` therefore defaults to `AllowedMentions.none()`, and a
   card that is *about* somebody passes `style.pings(target)`. Without that, a card

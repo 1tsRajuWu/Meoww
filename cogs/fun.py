@@ -321,32 +321,34 @@ class Fun(commands.Cog):
             if picture:
                 embed.set_image(url=picture)
 
-        # Two messages, because that is what Discord requires rather than a
-        # preference: a **voice message** may carry nothing beside its one
-        # attachment, so the clip cannot ride on the card.
+        # **One message, and the client draws the clip.** Two complaints are what
+        # pinned this command's shape down, and they pull in opposite directions
+        # until you notice which party draws the audio.
         #
-        # The card used to carry the clip as a File component, which was the fix
-        # for the *previous* complaint about this command ("no sound") and is the
-        # cause of this one: on a Components V2 message Discord draws an attachment
-        # as a file row with a download arrow, so the clip was visible and
-        # playable nowhere — "why is there download, I don't wanna download, I
-        # wanna hear". A voice message is the shape Discord draws as a player, and
-        # the transcode it needs (Ogg/**Opus**, not the Vorbis these files are) is
-        # in ``utils/style.send_voice_clip``. The fallback for a host that cannot
-        # post one is a plain message in the same place, never a card.
-        await send_card(interaction, embed=embed)
-        if not await style.send_voice_clip(interaction, path=file_path):
-            # Nothing playable could be posted that way — a host without ffmpeg, or a
-            # library that moved the flag's only door — so the clip goes out as a
-            # **plain** message rather than on a card: a card is what turns an audio
-            # attachment into a file row, and the client's own renderer has a player.
-            # A download row is a poor thing to hand somebody, and it is not nothing,
-            # which is what silence would be.
-            await style.send_plain(
-                interaction,
-                content=f"🔊 **{sound_title}** — {sound_caption}",
-                file=discord.File(file_path, filename=sound_file),
-            )
+        # The card carried the clip as a Components V2 File component, and a V2
+        # layout is what draws the message: the attachment came out as a file row
+        # with a download arrow — *"why is there download, I don't wanna download,
+        # I wanna hear"*. A **voice message** is the shape Discord draws as a
+        # player, but it may carry nothing beside its one attachment, so the clip
+        # had to be a message of its own — card, then an audio bubble: *"why double,
+        # I only want one like it was"*.
+        #
+        # What draws a player is the *client*, and it does that for an attachment on
+        # any message that is **not** a V2 layout. That is what ``send_plain`` is
+        # for, and it is not a guess: the same bytes were already being drawn with a
+        # play button on this command's own fallback path. So the embed and the clip
+        # go out together on one plain payload — the picture, the sound's name, the
+        # credit — with the player underneath them.
+        #
+        # The clip is attached as it ships rather than re-encoded, because the
+        # Ogg/Opus transcode existed only for the voice message and a plain
+        # attachment asks for nothing. The name the player shows is the asset's own
+        # (``meow_1.ogg``); the card above it names the sound in words.
+        await style.send_plain(
+            interaction,
+            embed=embed,
+            file=discord.File(file_path, filename=sound_file),
+        )
 
     @app_commands.command(name="flavor", description="Choose how the fun commands look in this server (per-server).")
     @app_commands.describe(style="Cat, Dog, or Neutral — what the fun cards show")

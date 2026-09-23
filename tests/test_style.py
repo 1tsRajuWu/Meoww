@@ -1,22 +1,18 @@
 """Every non-interactive message now goes through the Components V2 helpers.
 Discord rejects a payload that exceeds its hard limits, which would take a
 command down, so the budget guards are pinned here."""
-import io
-import json
 import re
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from unittest import mock
 
 import discord
 
-from utils import style, voice_caps
+from utils import style
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: A real clip the soundboard ships, for the one test that runs the encoder rather
-#: than the arguments it is handed.
+#: A real clip the soundboard ships, so the payload is built from a real file
+#: rather than from a path that could be anything.
 SAMPLE_CLIP = ROOT / "assets" / "sounds" / "meow_1.ogg"
 
 
@@ -301,124 +297,37 @@ class AttachmentsOnACard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(style.file_components(None), [])
 
 
-class _VoiceTarget:
-    """An Interaction stand-in for a voice message: a client, a channel, a log."""
+class PlainMessagesDrawThemselves(unittest.IsolatedAsyncioTestCase):
+    """``/meowsound``'s player, and the whole of why ``send_plain`` exists.
 
-    def __init__(self, *, refuse=False, channel_id=4242, client=True):
-        self.channel_id = channel_id
-        self.calls = []
-        self._refuse = refuse
-        if client:
-            self.client = SimpleNamespace(http=self)
+    A Components V2 layout is what draws a card, and a File component has no
+    player: the soundboard's clip came out as a file row with a download arrow —
+    *"why is there download, I don't wanna download, I wanna hear"*. On a payload
+    that is not a layout the **client** draws the attachment, with a play button,
+    so the clip goes out on a plain message. That message is now the only one the
+    command sends: giving the clip a message of its own to get a player cost the
+    card's picture and a second message, which the next report was about — *"why
+    double, I only want one like it was"*.
+    """
 
-    async def send_message(self, channel_id, *, params):
-        self.calls.append((channel_id, params))
-        if self._refuse:
-            raise RuntimeError("400 Bad Request (message cannot be a voice message)")
-        return SimpleNamespace(id=9000)
-
-    def body(self) -> dict:
-        """The JSON Discord would parse out of the multipart it was handed."""
-        _channel, params = self.calls[0]
-        return json.loads(params.multipart[0]["value"])
-
-    def filenames(self) -> list[str]:
-        _channel, params = self.calls[0]
-        return [part["filename"] for part in params.multipart[1:]]
-
-
-class VoiceMessages(unittest.IsolatedAsyncioTestCase):
-    """``/meowsound``'s *"why is there download, I don't wanna download, I wanna
-    hear"*. A V2 card draws an attachment as a file row with a download arrow; a
-    **voice message** — the ``IS_VOICE_MESSAGE`` flag and one Ogg/Opus attachment —
-    is what Discord draws as a player."""
-
-    VOICE_FLAG = 1 << 13
-    FLAG_VALUE = "discord.flags.flag_value"
-
-    def test_the_flag_is_a_value_rather_than_the_class_descriptor(self):
-        """``discord.MessageFlags.voice`` read off the *class* is a descriptor with
-        no ``value`` at all, and ``handle_message_parameters`` raises on one. That
-        raise lands in the catch-all that exists for a missing ffmpeg, so the first
-        version of this shipped as the fallback: every clip a download row."""
-        self.assertIsNotNone(style.VOICE_MESSAGE, "this library has no voice flag")
-        if type(style.VOICE_MESSAGE).__module__ + "." + type(style.VOICE_MESSAGE).__name__ == self.FLAG_VALUE:
-            self.fail(
-                "VOICE_MESSAGE is the flag descriptor rather than a flags value — "
-                "handle_message_parameters raises on it and every clip falls back"
-            )
-        self.assertEqual(int(style.VOICE_MESSAGE.value), self.VOICE_FLAG)
-
-    async def test_the_clip_goes_out_as_one_attachment_and_nothing_beside_it(self):
-        target = _VoiceTarget()
-        landed = await style.send_voice_clip(target, path=SAMPLE_CLIP)
-        self.assertTrue(landed)
-        self.assertEqual([c for c, _p in target.calls], [4242], "the channel it was asked for")
-        body = target.body()
-        self.assertEqual(body["flags"], self.VOICE_FLAG, "without the flag Discord draws a file")
-        self.assertEqual(body["attachments"], [{"id": 0, "filename": "voice-message.ogg"}])
-        self.assertEqual(target.filenames(), ["voice-message.ogg"])
-        for forbidden in ("content", "embeds", "components"):
-            self.assertNotIn(forbidden, body, f"Discord refuses a voice message with {forbidden}")
-
-    def test_the_encoder_writes_ogg_opus_and_not_the_vorbis_it_was_given(self):
-        """The soundboard's files are Vorbis, which Discord's own guidance says "may
-        not play back on mobile", so every clip is re-encoded on the way out."""
-        captured = {}
-
-        def fake_run(command, **kwargs):
-            captured["command"] = command
-            return SimpleNamespace(returncode=0, stdout=b"OggS\x00OpusHead fake")
-
-        with mock.patch.object(style.subprocess, "run", new=fake_run):
-            payload = style._opus_clip(SAMPLE_CLIP)
-        self.assertEqual(payload, b"OggS\x00OpusHead fake")
-        command = captured["command"]
-        self.assertIn("libopus", command, "the only codec a voice message may carry")
-        self.assertNotIn("libvorbis", command)
-        self.assertIn(str(SAMPLE_CLIP), command)
-        self.assertEqual(command[-3:], ["-f", "ogg", "-"], "the bytes come back on stdout")
-
-    def test_the_real_encoder_produces_something_discord_will_play(self):
-        if not voice_caps.ffmpeg_path()[0]:
-            self.assertIsNone(style._opus_clip(SAMPLE_CLIP))
-            self.skipTest("no ffmpeg on this host — the caller sends a plain message instead")
-        payload = style._opus_clip(SAMPLE_CLIP)
-        self.assertTrue(payload, "a clip the soundboard ships failed to encode")
-        self.assertTrue(payload.startswith(b"OggS"))
-        self.assertIn(b"OpusHead", payload[:200], "an Ogg container is not enough: it must be Opus")
-        self.assertNotIn(b"\x01vorbis", payload[:200], "Vorbis is what Discord refuses on mobile")
-
-    async def test_a_host_without_ffmpeg_sends_nothing_rather_than_something_wrong(self):
-        target = _VoiceTarget()
-        with mock.patch.object(voice_caps, "ffmpeg_path", new=lambda **kw: (None, "not found")):
-            landed = await style.send_voice_clip(target, path=SAMPLE_CLIP)
-        self.assertFalse(landed)
-        self.assertEqual(target.calls, [], "nothing was posted, so the caller's fallback can be")
-
-    async def test_discords_refusal_is_false_and_not_an_exception(self):
-        """The caller's fallback has to run on every path a library or a host can
-        produce, so a refusal is answered rather than raised."""
-        target = _VoiceTarget(refuse=True)
-        self.assertFalse(await style.send_voice_clip(target, path=SAMPLE_CLIP))
-        self.assertEqual(len(target.calls), 1, "it did try")
-
-    async def test_a_target_with_no_client_or_no_channel_is_not_a_voice_message(self):
-        self.assertFalse(await style.send_voice_clip(_VoiceTarget(client=False), path=SAMPLE_CLIP))
-        self.assertFalse(await style.send_voice_clip(_VoiceTarget(channel_id=None), path=SAMPLE_CLIP))
-
-    async def test_a_message_that_cannot_be_a_voice_message_is_sent_plain(self):
-        """The fallback is deliberately **not** a card: a V2 layout is what replaces
-        the player with a file row, so a plain payload is the only shape left where
-        the clip can still be heard without downloading it."""
+    async def test_the_clip_goes_out_on_a_payload_with_no_layout_of_ours(self):
         target = _SendTarget()
         attachment = discord.File(SAMPLE_CLIP, filename="purr.ogg")
-        await style.send_plain(target, content="🔊 purr", file=attachment)
+        embed = discord.Embed(title="🔊 Mew!", description="**Sound:** purr")
+        await style.send_plain(target, embed=embed, file=attachment)
         payload = target.calls[0]
-        self.assertEqual(payload["content"], "🔊 purr")
         self.assertIs(payload["file"], attachment)
+        self.assertIs(payload["embed"], embed, "the card travels with the clip")
         self.assertNotIn("view", payload, "a card is what draws the download row")
         self.assertNotIn("flags", payload)
+
+    async def test_a_plain_message_cannot_ping_by_accident(self):
+        """It goes through the same dispatcher as every card, so the mentions
+        default is the same one — a payload with no card is not a payload with no
+        rule."""
+        target = _SendTarget()
+        await style.send_plain(target, content="🔊 purr")
+        self.assertIs(target.calls[0]["allowed_mentions"], style.NO_PINGS)
 
 
 class MentionsOnACard(unittest.TestCase):
