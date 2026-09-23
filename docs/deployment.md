@@ -39,15 +39,24 @@ the service is called, so it cannot catch the account drifting away from the
 repository — that is a dashboard fact. What it can do is hold the two places the
 repository writes the name to each other (this section and `render.yaml`), and
 refuse a name that *is* the address, which is the shape the drift took.
-Consequences worth keeping: a sync is now able to adopt the running service
-instead of minting a stranger — the manifest's build command, start command, plan
-and runtime are the live service's own, read back from Render's API, which is the
-state in which a sync changes nothing, though **no sync has been run** to prove
-adoption and an environment variable's *value* cannot be read back this way, so
-the prompts below are the part worth looking at before pressing Sync — and the
-account is meant to hold exactly two services, this one and `discord-github-bot`
-(a different repository, seen next to `Meow` in the dashboard). Anything else
-appearing there is a sync that did not match a name in this file.
+**Adoption has now been measured rather than argued, and the measurement is worth
+writing down because it was not planned.** Editing this file *is* what triggers a
+Blueprint sync, so the naming fix above ran one on 2026-09-23 at 05:49 — and it
+**updated `Meoww`**: a `blueprint_sync` deploy appeared on that service, the
+service's `updatedAt` moved, no third service appeared anywhere in the account, and
+the deploy the sync produced is the one now live. A matching name produces an
+update; the old one produced a second, never-starting bot. The sync also *installed*
+the settings declared below, which is what a manifest is for: `/health` went from
+`unset 32 / attention 6` to `unset 27 / attention 5`, and the bot came back
+`bot_ready: true` with `gateway: connected`, so nothing it cannot run without was
+lost in the process. What still cannot be read back from a laptop is an environment
+variable's *value*, so the prompts below remain the part worth looking at before
+pressing Sync by hand.
+
+The account is meant to hold exactly two services: this one, and
+`discord-github-bot` (a different repository, seen next to `Meow` in the
+dashboard). Anything else appearing there is a sync that did not match a name in
+this file.
 
 ### 3. Supabase Storage (Database Backup)
 - Purpose: Persistent database storage across deployments
