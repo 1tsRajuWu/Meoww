@@ -406,6 +406,108 @@ class TheSiteIsOneDesign(unittest.TestCase):
         self.assertIn("if (reduced.matches || !(\"IntersectionObserver\" in window)) return;", motion)
 
 
+class EveryPublicPageSharesOneFrame(unittest.TestCase):
+    """The pages a signed-out visitor can reach, and the one fact they all state.
+
+    Written after driving the built site in a browser, for three defects that
+    came out of one cause — a route that spelled the frame out by hand instead
+    of spreading :func:`keep_alive._site_context`:
+
+      * `/pricing` printed **"15 systems and commands"**, having copied six frame
+        names and left `command_count` behind, and its footer lost the number
+        with it;
+      * `/privacy`, `/terms` and `/ai` had no counts at all — the footer fell
+        back to the generic sentence — and stated *"Nothing is kept longer than
+        it is needed"* where the deployment keeps 365 days;
+      * `/login` and `/owner/login` answered **500**:
+        `TypeError: got multiple values for keyword argument 'oauth_enabled'`,
+        the moment the context supplied a flag the route also spelled out.
+
+    None of the three is visible in a template. All three are visible in a
+    served page, which is what these read instead.
+    """
+
+    #: A browser's user agent: `/` answers a `curl` UA with one health line.
+    BROWSER = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+
+    #: Every address a signed-out visitor can land on.
+    PUBLIC = (
+        "/",
+        "/systems",
+        "/start",
+        "/radio",
+        "/pricing",
+        "/privacy",
+        "/terms",
+        "/ai",
+        "/login",
+        "/owner/login",
+    )
+
+    def setUp(self):
+        import re  # noqa: PLC0415 — this file imports it where it is used
+
+        self.re = re
+        self.client = keep_alive.app.test_client()
+
+    def _get(self, path: str):
+        return self.client.get(path, headers={"User-Agent": self.BROWSER})
+
+    def test_every_public_address_answers(self):
+        """A page that raises is not a page, and two of these did."""
+        for path in self.PUBLIC:
+            with self.subTest(path=path):
+                self.assertEqual(self._get(path).status_code, 200, path)
+
+    def test_every_public_page_states_the_deployments_own_counts(self):
+        """One sentence, ten pages, and both numbers have to be in it.
+
+        The footer states them from the registry, so a page whose context lost
+        either number cannot render this sentence at all — it falls back to the
+        generic one, which is exactly what `/pricing` did.
+        """
+        systems = keep_alive.features.system_count()
+        # The number a visitor can *type*, which is what every page of this site
+        # counts: the footer and `/pricing` print it beside lists whose rows are
+        # commands, and printing the picker's smaller figure there is how the
+        # front door came to say "95 commands" above a hundred and ten of them.
+        commands = keep_alive.features.entry_count()
+        pattern = self.re.compile(rf"{systems}\s+systems and\s+{commands}\s+commands")
+        for path in self.PUBLIC:
+            with self.subTest(path=path):
+                body = self._get(path).get_data(as_text=True)
+                self.assertRegex(body, pattern, f"{path} does not state the counts")
+
+    def test_the_sign_in_pages_space_their_headline_from_its_sentence(self):
+        """Both measured **0px** between the two, in a browser, at every width.
+
+        The gap came from `.page-head`, and the sign-in pages are not one — they
+        state their own headline and sentence, so the two sat flush and the
+        first line a visitor reads was a heading with its explanation welded to
+        the bottom of it. Text is CSS, so the guard is a rule rather than a
+        rendered box: the sheet has to say the gap is there.
+        """
+        sheet = (ROOT / "static" / "pages.css").read_text(encoding="utf-8")
+        rule = self.re.search(r"\.auth\s+\.lede\s*\{([^}]*)\}", sheet)
+        self.assertIsNotNone(rule, "nothing spaces a sign-in page's lede")
+        self.assertIn("margin-top", rule.group(1))
+
+    def test_a_mistyped_address_is_the_sites_own_page(self):
+        """Not Flask's bare default, which offers a visitor nothing to click.
+
+        This is the most common error page anybody ever sees, and it was the
+        least finished page on the site: Flask's own shell from this process, a
+        hand-written document full of deleted classes on the static host.
+        """
+        response = self._get("/this-address-is-not-a-page")
+        self.assertEqual(response.status_code, 404)
+        body = response.get_data(as_text=True)
+        self.assertIn("nothing at that address", body)
+        for way in ("/systems", "/start", "/login"):
+            self.assertIn(f'href="{way}"', body, f"the 404 offers no way to {way}")
+        self.assertIn("meow.css", body, "the 404 arrived unstyled")
+
+
 class TheHarnessServesTheRealPages(unittest.TestCase):
     """The preview must not restate a page it exists to show.
 

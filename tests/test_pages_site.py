@@ -106,6 +106,48 @@ class RewriteUrlCase(unittest.TestCase):
         self.assertEqual(build_site.rewrite_url("pricing.html", LIVE), "pricing.html")
 
 
+class TheCatalogueIsARowWide(unittest.TestCase):
+    """A *table* in a two-column row is a page with half of it empty.
+
+    The radio page's catalogue is the station table — 308 rows — and it sat in
+    the panel row beside a card. Measured on the built page: the column holding
+    it came out **34,178px** tall beside its sibling's 421px, so the row's second
+    column was empty for 99% of a 38,310px scroll and the card parked at the
+    bottom of it was never reached by anybody. A section that holds a table says
+    which shape it is, and the two files that have to agree about that are held
+    to each other here, because dropping the class from the template or the rule
+    from the sheet are both silent — the page still renders, just badly.
+    """
+
+    TEMPLATE = ROOT / "templates" / "radio.html"
+    SHEET = ROOT / "static" / "meow.css"
+
+    def test_the_radioPage_puts_its_catalogue_in_a_wide_row(self):
+        markup = self.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn(
+            'class="lp-panels lp-panels-wide"',
+            markup,
+            "the catalogue is back in a half-width column beside a card",
+        )
+
+    def test_the_sheet_gives_that_row_one_column_and_its_rows_two(self):
+        """One column for the section, two for the rows — and both declared."""
+        sheet = self.SHEET.read_text(encoding="utf-8")
+        halves = sheet.split(".lp-panels-wide {", 1)
+        self.assertEqual(len(halves), 2, "the sheet does not declare .lp-panels-wide")
+        body = halves[1].split("}", 1)[0]
+        self.assertIn(
+            "grid-template-columns: minmax(0, 1fr)",
+            body,
+            "the wide row does not say it is one column, so the grid still splits it",
+        )
+        wide_rows = re.search(r"\.lp-panels-wide ul\.lp-rows \{[^}]*columns: 2", sheet)
+        self.assertIsNotNone(
+            wide_rows,
+            "the catalogue's rows are not laid out across the width the class won",
+        )
+
+
 class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
     """``--out .`` is how a private repository becomes a public website.
 
@@ -245,6 +287,37 @@ class BuiltSiteCase(unittest.TestCase):
             offenders["meow.css"] = sorted(set(leftovers))
         self.assertEqual(offenders, {}, f"root-relative URLs would 404: {offenders}")
 
+    def test_the_built_404_is_the_page_the_app_serves(self):
+        """One error page, two hosts — and no asset that only exists in a memory.
+
+        The published `404.html` used to be HTML written in `build_site.py` by
+        hand, and by the time anybody looked it named `page-404`, `brand-logo`,
+        `hero-cta`, `btn-primary` and three more classes the sheet had stopped
+        defining, beside `static/logo.svg`, which the redesign deleted. A mistyped
+        address on the CDN got a broken-image glyph and plainly unstyled text.
+
+        It is now the app's own answer for a path nothing routes, fetched the same
+        way every other page is — so this reads the built file the way a browser
+        would: the headings have to be there, and every local asset it names has
+        to exist in the directory beside it.
+        """
+        path = Path(self.out) / "404.html"
+        self.assertTrue(path.is_file(), "no 404.html was written")
+        body = path.read_text(encoding="utf-8")
+        self.assertIn("nothing at that address", body)
+        self.assertIn("meow.css", body, "the built 404 does not load the sheet")
+        self.assertNotIn("/static/", body, "a root-relative URL survived into the 404")
+        local = re.findall(r'(?:src|href)="((?!https?:|#)[^"]+)"', body)
+        self.assertTrue(local, "the built 404 links to nothing at all")
+        for url in local:
+            target = (Path(self.out) / url.split("?")[0].split("#")[0]).resolve()
+            if target.is_dir() or url.endswith("/"):
+                continue
+            self.assertTrue(
+                target.is_file() or (target.parent / "index.html").is_file(),
+                f"the built 404 points at {url}, which is not in the build",
+            )
+
     def test_the_cat_cursor_is_actually_fetchable_from_the_stylesheet(self):
         """The silent one: a missing cursor image is the system arrow.
 
@@ -339,11 +412,11 @@ class BuiltSiteCase(unittest.TestCase):
         page was lying, which is the whole cost of two renderers and two numbers.
         """
         index = self.pages["index.html"]
-        systems, commands = features.system_count(), features.command_count()
+        systems, commands = features.system_count(), features.entry_count()
         switchable = len(features.dashboard_modules())
         self.assertLess(switchable, systems, "the split this page explains has gone")
         self.assertIn(f"{systems} systems,", index)
-        self.assertIn(f"{switchable} of them switchable", index)
+        self.assertIn(f"{switchable} switchable", index)
         # The hero's figure card is the *total*, not the switchable subset — which
         # is how this page came to advertise eleven of twelve systems.
         self.assertIn(f"<b>{systems}</b>", index)

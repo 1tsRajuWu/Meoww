@@ -9,25 +9,23 @@
 
 {% block page %}
 {# --------------------------------------------------------------------------
-   01 — The claim, and the thing itself.
+   01 — One claim, one sentence, two ways in.
 
-   A short headline, one sentence about what this is, two ways onward, and the
-   dashboard drawn beside it with this deployment's own numbers in it. The
-   product is the argument, so the panel is the product rather than a picture of
-   it: what a visitor sees here is what an administrator opens after the invite.
+   What used to be here was a paragraph explaining the product to itself. A
+   front door says what this is and offers the door; everything else on the page
+   is something a reader can open, and it stays closed until they do.
    -------------------------------------------------------------------------- #}
 <section class="hero">
   <div class="wrap hero__inner">
     <div class="hero__copy">
-      <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> A Discord bot, one server or forty</p>
+      <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> A Discord bot</p>
       <h1 class="hero__title">
         One bot.
         <span class="hero__title-accent">Every system.</span>
       </h1>
       <p class="lede">
-        Moderation with a record of every action, tickets, levels, an economy, radio
-        that plays without arguing with a media platform, and a live market — all of
-        it switched per server from one dashboard that stays out of the way.
+        Moderation, tickets, levels, an economy and radio — each one switched per
+        server, from one dashboard.
       </p>
       <div class="row hero__actions">
         {% if invite_url %}
@@ -35,18 +33,16 @@
         {% else %}
         <a class="btn btn--primary" href="{{ enter_url }}">{{ enter_label }}</a>
         {% endif %}
-        <a class="arrow-link" href="#systems">See every system</a>
+        <a class="arrow-link" href="#systems">See what is in it</a>
       </div>
-      <p class="hero__meta mono">
-        {{ system_count }} systems · {{ command_count }} commands · free ·
-        {% if oauth_enabled %}sign in with Discord{% else %}no account needed{% endif %}
-      </p>
+      <p class="hero__meta mono">{{ system_count }} systems · {{ entry_count }} commands · free</p>
     </div>
 
-    {# The preview panel: depth without spending the top of the page on it. #}
+    {# The panel is the product rather than a picture of it: what a visitor sees
+       here is what an administrator opens after the invite. #}
     <aside class="preview" aria-labelledby="preview-heading">
       <div class="preview__bar">
-        <span class="micro">01 — Dashboard</span>
+        <span class="micro">Dashboard</span>
         <span class="hint">
           <span class="dot {{ status.dot }}" aria-hidden="true"></span> {{ status.label }}
         </span>
@@ -64,54 +60,46 @@
         </dl>
 
         <div class="preview__rows">
-          {% for system in systems[:5] %}
+          {% for system in systems[:4] %}
           <div class="preview__row">
-            <span class="preview__name">{{ system.icon }} {{ system.name }}</span>
+            <span class="preview__name">{{ system.name }}</span>
             <span class="mono preview__count">{{ system.command_count }} cmd</span>
           </div>
           {% endfor %}
           <div class="preview__row preview__row--more">
-            <span class="preview__name">and {{ systems | length - 5 }} more</span>
+            <span class="preview__name">and {{ systems | length - 4 }} more</span>
             <a class="mono" href="#systems">see all</a>
           </div>
         </div>
-
-        <p class="hint preview__note">{{ status.detail }}</p>
       </div>
     </aside>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   02 — What is inside, filtered, with each system opening where it stands.
+   02 — What is inside: one line each, opened in place, filtered in the open.
    -------------------------------------------------------------------------- #}
 <section class="band" id="systems">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">02 — Systems</p>
-        <h2>{{ systems | length }} systems, {{ switchable_count }} of them switchable</h2>
+        <p class="micro">Systems</p>
+        <h2>{{ systems | length }} systems, {{ switchable_count }} switchable</h2>
       </div>
-      <p class="lede small muted">
-        Read out of the bot's own registry, so this page cannot advertise a system the
-        bot does not have.
-      </p>
     </div>
 
     <div class="explorer" data-explorer>
       <div class="explorer__bar">
         <label class="field explorer__search">
-          <span class="field__label">Find a system</span>
+          <span class="visually-hidden">Find a system</span>
           <input class="input" type="search" id="system-search" data-explorer-search
-                 placeholder="economy, moderation, radio…" autocomplete="off">
+                 placeholder="Search: economy, radio, tickets…" autocomplete="off">
         </label>
         <div class="chips" role="group" aria-label="Filter by kind">
-          <button class="chip" type="button" data-explorer-kind="" aria-pressed="true">
-            All <span class="chip__count">{{ systems | length }}</span>
-          </button>
+          <button class="chip" type="button" data-explorer-kind="" aria-pressed="true">All</button>
           {% for category in categories %}
           <button class="chip" type="button" data-explorer-kind="{{ category.name }}" aria-pressed="false">
-            {{ category.name }} <span class="chip__count">{{ category.count }}</span>
+            {{ category.name }}
           </button>
           {% endfor %}
         </div>
@@ -126,14 +114,13 @@
         <li class="system" data-system data-kind="{{ system.category }}"
             data-search="{{ system.name }} {{ system.category }} {{ system.id }} {{ system.desc }}">
           <div class="system__row">
-            <span class="system__name">{{ system.name }}</span>
+            <span class="system__name">{{ system.icon }} {{ system.name }}</span>
             <span class="system__meta mono">
-              {{ system.command_count }} cmd ·
-              {{ 'per server' if system.toggleable else 'always on' }}
+              {{ system.command_count }} cmd · {{ 'switchable' if system.toggleable else 'always on' }}
             </span>
             <button class="system__toggle" type="button"
                     data-drawer aria-controls="system-{{ system.id }}" aria-expanded="false">
-              {{ 'Details' if system.commands else 'Details' }}
+              Details
               <span class="system__chev" aria-hidden="true">+</span>
             </button>
           </div>
@@ -143,19 +130,19 @@
                 <p>{{ system.desc }}</p>
                 {% if system.commands %}
                 <div class="system__commands">
-                  {% for command in system.commands %}
-                  <code>{{ command }}</code>
+                  {% for command in system.commands[:8] %}
+                  <code>{{ command.split(' — ')[0] }}</code>
                   {% endfor %}
+                  {% if system.commands | length > 8 %}
+                  <span class="hint">+{{ system.commands | length - 8 }} more</span>
+                  {% endif %}
                 </div>
-                {% else %}
-                <p class="hint">No commands of its own — it works behind the others.</p>
                 {% endif %}
                 <p class="hint">
                   {% if system.toggleable %}
-                  Switching it off removes those {{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}
-                  from that one server's picker. No other server notices.
+                  Switching it off leaves that server's picker and nothing else.
                   {% else %}
-                  Always on: there is no switch, because nothing else works without it.
+                  Always on — nothing else works without it.
                   {% endif %}
                 </p>
               </div>
@@ -166,82 +153,92 @@
       </ul>
 
       <p class="hint explorer__empty" hidden data-explorer-empty>
-        Nothing matches that. Every system is still here — clear the box to see them.
+        Nothing matches that. Clear the box to see them all again.
       </p>
     </div>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   03 — What you can type. One searchable list, and the two counts both named,
-   because a single number over a list is read as a measurement.
+   03 — What you can type.
+
+   A search box, the first handful of rows, and a button for the rest. All
+   hundred and ten are in the document — the search filters the whole set, and
+   nothing here is fetched — but a front door that opens with six thousand
+   pixels of command names is a wall, not a front door. The control that opens
+   it is one button, and it says how many it is opening.
+
+   The number in the heading is the number of rows: what a visitor can type. The
+   picker's own count is smaller (`/market buy` is one command to Discord) and
+   the line under the heading says so, because two numbers about one word with
+   no explanation is the thing a reader notices and cannot resolve.
    -------------------------------------------------------------------------- #}
 <section class="band" id="commands">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">03 — Commands</p>
-        <h2>{{ command_count }} commands, {{ entry_count }} things to type</h2>
+        <p class="micro">Commands</p>
+        <h2>{{ entry_count }} commands</h2>
       </div>
-      <p class="lede small muted">
-        The difference is a group: <code>/market</code> is one command in a picker and
-        several things in your hands.
+      <p class="small muted">
+        Counted one row each, so `/market buy` is its own. Discord's picker holds
+        {{ command_count }}, because it counts `/market` once.
       </p>
     </div>
 
     <label class="field console__search">
-      <span class="field__label">Find a command</span>
+      <span class="visually-hidden">Find a command</span>
       <input class="input" type="search" id="command-search" data-command-search
-             placeholder="/market, level, ticket…" autocomplete="off">
+             placeholder="Search: market, level, ticket…" autocomplete="off">
     </label>
 
-    <p class="small muted console__status" data-command-status role="status">
-      Showing all {{ commands | length }} entries.
-    </p>
-
-    <ul class="console__list" data-command-list>
+    <ul class="console__list" data-command-list data-command-preview="12">
       {% for command in commands %}
       <li class="command" data-command data-search="{{ command.search }}">
         <code class="command__name">{{ command.name }}</code>
-        <span class="command__blurb">{{ command.blurb }}</span>
-        <span class="command__system mono">{{ command.system }}</span>
+        {% if command.blurb %}<span class="command__blurb">{{ command.blurb }}</span>{% endif %}
         <button class="command__copy" type="button" data-copy="{{ command.name }}"
                 data-copy-label="Copied">Copy</button>
       </li>
       {% endfor %}
     </ul>
+
+    {# The line describes what is on screen, and without a script that is every
+       row — so it says so, and the button that opens the rest stays hidden
+       until the file that caps the list is the one that shows it. #}
+    <div class="console__foot">
+      <p class="hint" data-command-status role="status">
+        Showing all {{ entry_count }} entries.
+      </p>
+      <button class="btn btn--ghost" type="button" data-command-more aria-expanded="true" hidden>
+        Show all {{ entry_count }}
+      </button>
+    </div>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   04 — The dashboard's real pages, as a table rather than a wall of cards.
+   04 — The dashboard's own pages, one window with a rail.
    -------------------------------------------------------------------------- #}
 <section class="band" id="dashboard">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">04 — Showcase</p>
-        <h2>{{ tour | length }} ways to make it yours</h2>
+        <p class="micro">The dashboard</p>
+        <h2>What you get when you sign in</h2>
       </div>
-      <p class="lede small muted">
-        The actual interface, with sample data. Pick a page and look around — nothing you
-        touch here reaches a server, and the address under each one opens the real page.
-      </p>
     </div>
 
     <div class="showcase" data-showcase>
       {# The rail is the dashboard's own page list, rendered from the same
-         registry the rail itself renders from — so the preview cannot show a
-         page the dashboard does not have, or miss one it does. #}
+         registry the dashboard's rail renders from. #}
       <div class="showcase__rail" role="tablist" aria-label="Dashboard pages">
         {% for page in tour %}
         <button class="showcase__item" type="button" role="tab"
                 id="tab-{{ page.id }}" aria-controls="view-{{ page.id }}"
                 aria-selected="{{ 'true' if loop.first else 'false' }}"
                 tabindex="{{ '0' if loop.first else '-1' }}">
-          <span class="showcase__num mono">{{ '%02d' | format(loop.index) }}</span>
           <span class="showcase__label">{{ page.label }}</span>
-          <span class="showcase__path mono" aria-hidden="true">{{ page.path }}</span>
         </button>
         {% endfor %}
       </div>
@@ -251,7 +248,7 @@
         <section class="mock" id="view-{{ page.id }}" role="tabpanel"
                  aria-labelledby="tab-{{ page.id }}"{% if not loop.first %} hidden{% endif %}>
           <header class="mock__bar">
-            <span class="micro">{{ '%02d' | format(loop.index) }} — {{ page.label }}</span>
+            <span class="micro">{{ page.label }}</span>
             <span class="tag">{{ page.path }}</span>
           </header>
 
@@ -271,13 +268,12 @@
 
             {% elif page.id == 'systems' %}
             <div class="mock__rows">
-              {% for system in systems[:5] %}
+              {% for system in systems[:4] %}
               <div class="mock__row">
-                <span class="mock__row-name">{{ system.icon }} {{ system.name }}</span>
+                <span class="mock__row-name">{{ system.name }}</span>
                 <span class="mock__row-note">{{ system.command_count }} cmd</span>
-                {# An always-on system gets no switch here, because it has none in the
-                   dashboard either. A preview that drew one would be teaching the
-                   wrong thing about the page it is previewing. #}
+                {# An always-on system gets no switch here, because it has none in
+                   the dashboard either. #}
                 {% if system.toggleable %}
                 <span class="mock-switch" role="switch" aria-checked="true"
                       aria-label="Preview switch for {{ system.name }}" tabindex="0">
@@ -290,19 +286,6 @@
               {% endfor %}
             </div>
 
-            {% elif page.id == 'commands' %}
-            <div class="mock__rows">
-              {% for command in commands[:5] %}
-              <div class="mock__row">
-                <code class="mock__row-code">{{ command.name }}</code>
-                <span class="mock__row-note">{{ command.system }}</span>
-              </div>
-              {% endfor %}
-            </div>
-            <p class="mock__line mock__line--quiet">
-              Republish ran 4 minutes ago · Discord holds 87, three more than these switches say
-            </p>
-
             {% else %}
             <div class="mock__rows">
               {% for point in page.points %}
@@ -313,14 +296,14 @@
               {% endfor %}
             </div>
             {% endif %}
-
-            <p class="mock__note hint">Sample data. A preview that reached a real server would be a
-              preview nobody should be allowed to click.</p>
           </div>
 
-          <footer class="mock__foot">
+          {# A `div`, not a `footer`: eleven of these plus the real one would be
+             twelve `contentinfo` landmarks on a page with one footer. #}
+          <div class="mock__foot">
             <a class="arrow-link" href="{{ page.path }}">Open {{ page.path }}</a>
-          </footer>
+            <span class="hint">Sample data — nothing here is connected.</span>
+          </div>
         </section>
         {% endfor %}
       </div>
@@ -329,13 +312,13 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   05 — Getting it running: three steps, stated plainly.
+   05 — Getting it running: three lines, in order.
    -------------------------------------------------------------------------- #}
 <section class="band" id="start">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">05 — Get started</p>
+        <p class="micro">Get started</p>
         <h2>Three steps</h2>
       </div>
     </div>
@@ -343,13 +326,13 @@
     <ol class="steps">
       <li class="step" data-reveal>
         <span class="step__number mono" aria-hidden="true">01</span>
-        <h3 class="step__title">Add it to the server</h3>
+        <h3 class="step__title">Add it</h3>
         <p class="step__body">
           {% if invite_url %}
-          <a href="{{ invite_url }}">The invite</a> asks for Administrator, because one
-          permission bit is how a feature never arrives as “Missing Permissions”.
+          <a href="{{ invite_url }}">The invite</a> asks for Administrator, so no feature
+          ever arrives as “Missing Permissions”.
           {% if invite_limited_url %}
-          <a href="{{ invite_limited_url }}">The least-privilege link</a> is beside it.
+          <a href="{{ invite_limited_url }}">A smaller grant</a> is beside it.
           {% endif %}
           {% else %}
           This deployment has no invite link configured yet.
@@ -358,20 +341,18 @@
       </li>
       <li class="step" data-reveal>
         <span class="step__number mono" aria-hidden="true">02</span>
-        <h3 class="step__title">Open the dashboard</h3>
+        <h3 class="step__title">Sign in</h3>
         <p class="step__body">
-          Run <code>/help</code> and press the dashboard button, or
-          <a href="{{ enter_url }}">{{ enter_label }}</a>{% if oauth_enabled %} — a Discord
-          sign-in keeps only the servers where you hold Manage Server, and only while you
-          still do{% endif %}.
+          <a href="{{ enter_url }}">{{ enter_label }}</a> with Discord{% if oauth_enabled %} —
+          only the servers you hold Manage Server on{% endif %}.
         </p>
       </li>
       <li class="step" data-reveal>
         <span class="step__number mono" aria-hidden="true">03</span>
-        <h3 class="step__title">Turn off what you do not want</h3>
+        <h3 class="step__title">Switch off what you do not want</h3>
         <p class="step__body">
           {{ switchable_count }} of {{ systems | length }} systems have a switch. Off means
-          the commands leave that server's picker and nothing else changes.
+          the commands leave that server's picker.
         </p>
       </li>
     </ol>
@@ -379,13 +360,13 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   06 — The questions, answered inside the panel that opened.
+   06 — The questions.
    -------------------------------------------------------------------------- #}
 <section class="band" id="questions">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">06 — Questions</p>
+        <p class="micro">Questions</p>
         <h2>Before you add it</h2>
       </div>
     </div>
@@ -411,7 +392,7 @@
 
 <section class="band band--closing">
   <div class="wrap closing">
-    <h2 class="closing__title">Add it, open the dashboard, switch off what you do not want.</h2>
+    <h2 class="closing__title">Add it, sign in, switch off what you do not want.</h2>
     <div class="row closing__actions">
       {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
       <a class="arrow-link" href="/systems">Every system, in detail</a>

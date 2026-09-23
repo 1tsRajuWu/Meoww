@@ -504,6 +504,52 @@ def command_count() -> int:
     return len(ROOT_COMMANDS)
 
 
+def feature_entries(feature: "Feature") -> tuple[tuple[str, str], ...]:
+    """One system's commands, split into the two halves a reader is shown.
+
+    A declared command is one string — ``"/market buy — Buy an instrument with
+    coins"`` — and every surface that shows it wants the same two pieces: the
+    name a person types and, where the registry wrote one, the sentence after
+    the em dash. Splitting it in each caller is how two of them come to disagree
+    about how many rows there are, so the split lives here and callers read it.
+    """
+    entries = []
+    for raw in feature.commands:
+        text = str(raw).strip()
+        if not text:
+            continue
+        name, _, note = text.partition(" — ")
+        name = name.strip()
+        if name:
+            entries.append((name, note.strip()))
+    return tuple(entries)
+
+
+#: Every command as a person types it, for the whole registry.
+COMMAND_ENTRIES: tuple[tuple[str, str], ...] = tuple(
+    entry for feature in FEATURES for entry in feature_entries(feature)
+)
+
+
+def command_entries() -> tuple[tuple[str, str], ...]:
+    """Every command **as a person types it**, with the note the registry wrote.
+
+    ``command_count()`` counts the way Discord's picker counts — `/market buy`
+    and `/market sell` are one command called ``market`` — while this counts the
+    rows somebody can actually type. Both are true and the difference is real
+    (``/market`` alone is seven of them), so a page that prints one must not
+    print it over a list of the other: that is how the front door came to say
+    *95 commands* above a hundred and ten of them, which reads as a page
+    arguing with itself.
+    """
+    return COMMAND_ENTRIES
+
+
+def entry_count() -> int:
+    """How many rows :func:`command_entries` holds — what a visitor can type."""
+    return len(COMMAND_ENTRIES)
+
+
 def always_on_names() -> tuple[str, ...]:
     """The systems a server cannot switch off, by name.
 

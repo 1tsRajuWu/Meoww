@@ -38,15 +38,31 @@
       trigger.setAttribute("aria-expanded", open ? "true" : "false");
     }
 
+    function isOpen() {
+      return doc.documentElement.getAttribute("data-menu-open") === "true";
+    }
+
     set(false);
     trigger.addEventListener("click", function () {
-      set(doc.documentElement.getAttribute("data-menu-open") !== "true");
+      set(!isOpen());
     });
     nav.addEventListener("click", function (event) {
       if (event.target.closest("a")) set(false);
     });
     doc.addEventListener("keydown", function (event) {
       if (event.key === "Escape") set(false);
+    });
+    /* A tap anywhere else closes it.
+       Escape, a link and the button itself were the three ways out, which is
+       every way except the one a thumb uses: on a phone the panel covers the
+       content a visitor was reading, and the only escape was to find the same
+       small button again and press it twice. The theme popover next door has
+       always closed on an outside click; this is the same rule, in the same
+       shape, so the two menus of the same header behave the same way.         */
+    doc.addEventListener("click", function (event) {
+      if (!isOpen()) return;
+      if (event.target.closest("#site-nav") || event.target.closest("[data-menu-toggle]")) return;
+      set(false);
     });
   }
 
@@ -271,14 +287,24 @@
    * ----------------------------------------------------------------------- */
   function wireCopy() {
     doc.querySelectorAll("[data-copy]").forEach(function (button) {
+      /* The resting label is read once, when the page loads, and never from the
+         button again. It used to be captured per click, which made a second
+         click read *"Copied"* as the label to restore — so the button said
+         "Copied" for the rest of the page's life, about nothing, from a single
+         impatient double press. The pending timer is cleared for the same
+         reason: two clicks, one label, one timer.                           */
+      var resting = button.textContent;
+      var pending = null;
+
       button.addEventListener("click", function () {
         var text = button.getAttribute("data-copy") || "";
         var label = button.getAttribute("data-copy-label") || "Copied";
-        var original = button.textContent;
         function done() {
           button.textContent = label;
-          window.setTimeout(function () {
-            button.textContent = original;
+          if (pending) window.clearTimeout(pending);
+          pending = window.setTimeout(function () {
+            button.textContent = resting;
+            pending = null;
           }, 1600);
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {

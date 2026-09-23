@@ -467,10 +467,13 @@ main { flex: 1 0 auto; }
   min-height: var(--top-h);
 }
 
+/* The home link is a target like any other, and it measured 28px — the height of
+   the mark inside it — which is below the floor this project sets for a finger. */
 .brand {
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: var(--tap-min);
   color: var(--text-primary);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -591,6 +594,11 @@ main { flex: 1 0 auto; }
 }
 
 .theme-pop__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* A quiet button is small *because* it sits inside a row of them, and in a
+   popover on a phone that made four four-way choices 35px tall. The popover's
+   own buttons take the floor; the quiet size stays for inline row actions. */
+.theme-pop .btn { min-height: var(--tap-min); flex: 1 1 45%; }
 
 @media (max-width: 880px) {
   .top__menu { display: inline-flex; }
@@ -945,8 +953,20 @@ main { flex: 1 0 auto; }
 
 .foot__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) repeat(auto-fit, minmax(150px, 1fr));
+  /* The `min()` is the floor *and* the ceiling: a `minmax(150px, 1fr)` column
+     cannot go below 150px, so on a phone the three link columns won and the
+     first one collapsed to a 49px sliver — "Add to a server" wrapped onto three
+     lines in it, and the grid measured 437px inside a 390px viewport, which is
+     the sideways scroll `body { overflow-x: hidden }` was hiding. */
+  grid-template-columns: minmax(0, 1.4fr) repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: var(--space-7) var(--space-6);
+}
+
+/* Under the header's own breakpoint the footer stops reserving a column for the
+   name: four blocks flow into as many 150px columns as the width allows, which
+   is two on a phone and three on a tablet. */
+@media (max-width: 880px) {
+  .foot__grid { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
 }
 
 .foot__title {
@@ -958,7 +978,18 @@ main { flex: 1 0 auto; }
 }
 
 .foot__list { display: flex; flex-direction: column; gap: var(--space-2); }
-.foot__list a { color: var(--text-muted); }
+.foot__list a { color: var(--text-muted); display: block; }
+
+/* The footer is where a finger ends up. Fifteen links measured 28px on a phone
+   — a text line with no target around it — which is the one shape this sheet's
+   own Fitts's-law floor is written for, and the mouse keeps the tighter list. */
+@media (pointer: coarse) {
+  .foot__list a {
+    display: flex;
+    align-items: center;
+    min-height: var(--tap-min);
+  }
+}
 .foot__list a:hover { color: var(--text-primary); }
 
 .foot__base {

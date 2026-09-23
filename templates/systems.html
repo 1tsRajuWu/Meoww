@@ -11,9 +11,9 @@
     <p class="micro">Systems</p>
     <h1>Every system, and what switching one off does</h1>
     <p class="lede">
-      {{ system_count }} systems and {{ command_count }} commands, all of them read out of
-      the bot's own registry. A switch belongs to one server: turning one off takes its
-      commands out of that server's picker and leaves every other server alone.
+      {{ system_count }} systems and {{ entry_count }} commands, read out of the bot's own
+      registry. A switch belongs to one server: turning one off takes its commands out of
+      that server's picker and leaves the others alone.
     </p>
   </div>
 </section>
@@ -28,7 +28,6 @@
         <p class="micro">01 — This deployment</p>
         <h2>Counted, not claimed</h2>
       </div>
-      <p class="small muted">Read from the gateway when it is connected, and left blank when it is not.</p>
     </div>
 
     <div class="tiles">
@@ -53,7 +52,6 @@
         <h2>What people actually did</h2>
       </div>
       <p class="small muted">
-        This window:
         {% for period in activity_periods %}
         <span class="{{ 'mono' if period.selected else '' }}">{{ period.label }}</span>{{ ' · ' if not loop.last else '' }}
         {% endfor %}
@@ -68,7 +66,7 @@
       </div>
       {% endfor %}
     </div>
-    <p class="hint">A dash means nobody has taken that reading yet — not that the answer is zero.</p>
+    <p class="hint">A dash is a reading nobody has taken yet — not a zero.</p>
   </div>
 </section>
 
@@ -79,7 +77,7 @@
         <p class="micro">03 — Command weight</p>
         <h2>Which system is the big one</h2>
       </div>
-      <p class="small muted">Each bar is the number of commands that system declares, against the largest of them.</p>
+      <p class="small muted">Commands declared, against the largest system.</p>
     </div>
 
     <ul class="bars">

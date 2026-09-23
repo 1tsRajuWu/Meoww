@@ -95,6 +95,16 @@
 
   /* -------------------------------------------------------------------------
      The command list
+
+     Two states and one control between them: the first `data-command-preview`
+     rows, or all of them. A search is not a third state — it says *find this*,
+     so it searches the whole list and shows every match, and the cap comes back
+     when the box is cleared.
+
+     The cap is applied here rather than in the markup, so a visitor whose script
+     did not run is looking at a list that is entirely visible under a line that
+     says so. The button that opens the rest is `hidden` in the markup and shown
+     by this file, so the no-script reading has no control that would do nothing.
      ---------------------------------------------------------------------- */
   function commands() {
     var list = document.querySelector("[data-command-list]");
@@ -102,27 +112,52 @@
 
     var field = document.querySelector("[data-command-search]");
     var status = document.querySelector("[data-command-status]");
+    var more = document.querySelector("[data-command-more]");
     var rows = toList(list.querySelectorAll("[data-command]"));
+    var preview = parseInt(list.getAttribute("data-command-preview") || "0", 10) || 0;
+    var thorough = preview <= 0;
 
     function apply() {
       var term = field ? field.value.trim().toLowerCase() : "";
-      var shown = 0;
-      rows.forEach(function (row) {
+      var found = rows.filter(function (row) {
         var haystack = (row.getAttribute("data-search") || "").toLowerCase();
-        var visible = !term || haystack.indexOf(term) !== -1;
-        row.hidden = !visible;
-        if (visible) shown += 1;
+        return !term || haystack.indexOf(term) !== -1;
       });
+      var capped = !term && !thorough && preview > 0 && found.length > preview;
+      var visible = capped ? found.slice(0, preview) : found;
+
+      rows.forEach(function (row) { row.hidden = true; });
+      visible.forEach(function (row) { row.hidden = false; });
+
       if (status) {
-        status.textContent = term
-          ? "Showing " + shown + " of " + plural(rows.length, "entry", "entries") +
-            " matching “" + term + "”."
-          : "Showing all " + plural(rows.length, "entry", "entries") + ".";
+        if (term) {
+          status.textContent =
+            found.length + " of " + plural(rows.length, "entry", "entries") +
+            " match “" + term + "”.";
+        } else if (capped) {
+          status.textContent =
+            "Showing the first " + preview + " of " +
+            plural(rows.length, "entry", "entries") + ". Search for one by name.";
+        } else {
+          status.textContent = "Showing all " + plural(rows.length, "entry", "entries") + ".";
+        }
+      }
+
+      if (more) {
+        more.hidden = Boolean(term) || (preview > 0 && rows.length <= preview);
+        more.textContent = capped ? "Show all " + rows.length : "Show fewer";
+        more.setAttribute("aria-expanded", capped ? "false" : "true");
       }
     }
 
-    if (!field) return;
-    field.addEventListener("input", apply);
+    if (more) {
+      more.addEventListener("click", function () {
+        thorough = !thorough;
+        apply();
+      });
+    }
+
+    if (field) field.addEventListener("input", apply);
     apply();
   }
 

@@ -52,9 +52,9 @@ from flask import (
 from utils import (
     ai_guard, alert_webhook, command_publish, command_scope, company, config_audit,
     consent, db, digest, discord_auth, features, figures, guild_directory, hub,
-    identity, media_health, meowfee, moderation_actions, modules, plans, principal,
-    qna, ratelimit, scheduled, server_control, sessions, site_guard, uptime_status,
-    webdocs,
+    identity, levels as levels_module, media_health, meowfee, moderation_actions,
+    modules, pause, plans, principal, qna, ratelimit, scheduled, server_control,
+    sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -405,18 +405,28 @@ def _safe_next(raw) -> str | None:
 
 
 def _login_page(error=None, status: int | None = None):
-    """The sign-in page, with every method's availability read from the environment."""
-    name = _bot_display_name()
+    """The sign-in page, with every method's availability read from the environment.
+
+    The frame — the name, the navigation, the footer, the invite — comes from
+    :func:`_site_context` rather than being spelled out here, which is what this
+    page used to do: it listed the sign-in page's own fields and six of the
+    frame's, so its footer says *"A Discord bot with a dashboard for every
+    server that has it"* where every other page states the real counts, and its
+    navigation could never show a Pricing link on a deployment that sells. Two
+    answers to one question is the failure the shared context exists to end.
+    """
     body = render_template(
         "login.html",
+        **_site_context(),
+        current="",
         error=error,
         csrf_token=get_csrf_token(),
         passkey_enabled=False,
-        oauth_enabled=discord_auth.enabled(),
+        # `oauth_enabled` is the shared context's — it is the same call
+        # (`discord_auth.enabled()`), and passing it twice is a `TypeError`
+        # rather than a silent override, which is how this was found.
         oauth_callback=oauth_redirect_uri(),
         oauth_hint=_oauth_setup_hint(),
-        bot_name=name,
-        bot_initial=(name[:1] or "M").upper(),
     )
     return (body, status) if status else body
 
@@ -443,17 +453,15 @@ def _owner_signin_notice() -> str:
 
 def _owner_login_page(error=None, status: int | None = None):
     """The operator sign-in page for the /owner console."""
-    name = _bot_display_name()
     body = render_template(
         "owner_login.html",
+        **_site_context(),
+        current="",
         error=error,
         csrf_token=get_csrf_token(),
         notice=_owner_signin_notice(),
         passkey_enabled=bool(ADMIN_PASSKEY),
-        oauth_enabled=discord_auth.enabled(),
         discord_is_enough=OWNER_DISCORD_ELEVATION,
-        bot_name=name,
-        bot_initial=(name[:1] or "M").upper(),
         # Where the public site is, for the one link on this page that leaves the
         # operator's surface. It used to be "/", which on the owner host is the
         # console — so "Return to Public Site" returned the operator to the page
@@ -1271,6 +1279,126 @@ def _rate_limited(_error):
     }), 429
 
 
+#: The two pages this site answers with when there is nothing to answer with.
+#:
+#: Written as data rather than as two templates because they are one shape with
+#: two sentences, and because the status code is the only part a crawler or a
+#: monitor reads. Both are rendered by :func:`_error_page` in the site's own
+#: shell, and the static build gets the same document by asking this process for
+#: a path nothing serves — the rule this project already follows for every other
+#: page: what a visitor reads on the CDN and what this process answers are one
+#: template with one context.
+#:
+#: Before this, both surfaces failed and neither failure was this site's. The
+#: process answered with Flask's own bare default — no navigation, no
+#: stylesheet, no way back — and the published `404.html` was hand-written HTML
+#: naming seven classes the current sheet does not define (`page-404`,
+#: `brand-logo`, `hero-cta`, `btn-primary`, …) beside `static/logo.svg`, which the
+#: redesign deleted. A mistyped address on the CDN therefore got a
+#: broken-picture glyph, a heading in the browser's own font, and no way to
+#: anywhere. A visitor who typed one character wrong met the least finished page
+#: on the site.
+ERROR_PAGES = {
+    404: {
+        "eyebrow": "Not found",
+        "headline": "There is nothing at that address",
+        "explanation": (
+            "No page of this deployment answers it. A mistyped address is the "
+            "usual reason, and nothing here is broken — the ways back are below."
+        ),
+    },
+    500: {
+        "eyebrow": "This side",
+        "headline": "That did not work, and it is not you",
+        "explanation": (
+            "The bot could not answer that request. It has been written down where "
+            "the operator reads them, so it is a known fault rather than a mystery. "
+            "The pages that do work are below."
+        ),
+    },
+}
+
+
+def _error_page(status: int, *, explanation: str = ""):
+    """One error page, in the site's own shell, for both surfaces.
+
+    The ways onward are built from the deployment rather than written into the
+    template, so an error page cannot offer a door this deployment does not
+    have: the sign-in link is whatever :func:`_site_context` calls it, and
+    Pricing appears only where anything can actually be bought.
+    """
+    page = ERROR_PAGES.get(status) or ERROR_PAGES[500]
+    context = _site_context()
+    ways = [
+        {
+            "label": "The front page",
+            "href": "/",
+            "note": "What this bot is, what is in it, and what it is doing right now.",
+            "meta": "/",
+        },
+        {
+            "label": f"Every system ({context['system_count']})",
+            "href": "/systems",
+            "note": "Each system, and exactly what switching one off does.",
+            "meta": "/systems",
+        },
+        {
+            "label": "Getting started",
+            "href": "/start",
+            "note": "Three steps, and the two invites side by side.",
+            "meta": "/start",
+        },
+    ]
+    if context.get("selling"):
+        ways.append(
+            {
+                "label": "Pricing",
+                "href": "/pricing",
+                "note": "What a licence covers, and what it costs.",
+                "meta": "/pricing",
+            }
+        )
+    ways.append(
+        {
+            "label": context["enter_label"],
+            "href": context["enter_url"],
+            "note": "The dashboard, for a server that already has the bot.",
+            "meta": "needs Discord",
+        }
+    )
+    return (
+        render_template(
+            "error.html",
+            **context,
+            current="",
+            code=status,
+            ways=ways,
+            eyebrow=page["eyebrow"],
+            headline=page["headline"],
+            explanation=explanation or page["explanation"],
+        ),
+        status,
+    )
+
+
+@app.errorhandler(404)
+def _no_such_page(_error):
+    """A mistyped address is the most common error page a visitor ever sees."""
+    return _error_page(404)
+
+
+@app.errorhandler(500)
+def _broken_page(_error):
+    """An unhandled exception, told to a visitor without a traceback.
+
+    A public address raising a `TemplateNotFound` used to answer this process's
+    own HTML shell — *"The server encountered an internal error"* — which tells a
+    visitor nothing and looks like a host that has fallen over. The fault is on
+    this side, and now the page says only that.
+    """
+    return _error_page(500)
+
+
 @app.after_request
 def set_security_headers(response):
     # The anti-AI reservation, on every response this process writes. It travels
@@ -2054,6 +2182,13 @@ def _site_context() -> dict:
         # than left for a template to count a list with. `features` is the
         # *switchable* subset; a page that shows both labels both.
         "system_count": features.system_count(),
+        # Two honest numbers about commands, in one place: ``entry_count`` is what
+        # a person can type (``/market buy`` is its own row) and ``command_count``
+        # is what Discord's picker holds (``/market`` is one). A page prints one
+        # and labels it; printing the picker's figure over a list of entries is
+        # how the front door came to advertise 95 commands above a hundred and ten
+        # of them, which reads as a page arguing with itself.
+        "entry_count": features.entry_count(),
         "command_count": features.command_count(),
         "features": features.dashboard_modules(),
         # The difference between the two counts above, by name. A page that prints
@@ -2064,17 +2199,293 @@ def _site_context() -> dict:
     }
 
 
-def _home_page():
-    """The front door: what this is, and what it is doing right now.
+#: What each dashboard page is *for*, in the landing page's own words.
+#:
+#: Keyed by the page id in :data:`DASHBOARD_PAGES` rather than written out as a
+#: list of its own, and that is the whole point: the tour on the front door walks
+#: the dashboard's real pages, so a page added to the dashboard cannot go
+#: unddescribed here and a page removed cannot linger. A page this mapping has no
+#: entry for still appears, with a sentence built from its label — the failure
+#: mode of forgetting one is "it is still there", never "it is missing".
+LANDING_TOUR = {
+    "overview": {
+        "icon": "◎",
+        "blurb": "What this server is doing right now, at a glance.",
+        "points": (
+            "Who is in voice, and who is sitting alone",
+            "Which systems are on, and which are off",
+            "The gateway's latency",
+        ),
+    },
+    "systems": {
+        "icon": "▦",
+        "blurb": "One switch per system, per server.",
+        "points": (
+            "Every system, with its switch",
+            "The commands a switch turns off",
+            "A republish button for Discord's picker",
+        ),
+    },
+    "members": {
+        "icon": "☰",
+        "blurb": "The roster, and the moderation that goes with it.",
+        "points": (
+            "Search members, and read their warnings",
+            "Warn, time out, kick or ban — or undo it",
+            "A record of who asked for what",
+        ),
+    },
+    "server": {
+        "icon": "⛨",
+        "blurb": "The whole server at once: lockdown, lift, slowmode.",
+        "points": (
+            "See the plan before it runs",
+            "The permission the bot is missing, said up front",
+            "What was locked, and when it was lifted",
+        ),
+    },
+    "economy": {
+        "icon": "▤",
+        "blurb": "What this server's coins are doing.",
+        "points": (
+            "Wallets, banks and what is in circulation",
+            "The largest holdings, and their share",
+            "Read-only: nothing here moves a balance",
+        ),
+    },
+    "leveling": {
+        "icon": "⤴",
+        "blurb": "Who is earning, and how far they have climbed.",
+        "points": (
+            "Members earning, against everyone seen",
+            "The highest level, and the average",
+            "How far the leader is into their next level",
+        ),
+    },
+    "composer": {
+        "icon": "✎",
+        "blurb": "Write a message as the bot, and see it first.",
+        "points": (
+            "A preview of how it will arrive",
+            "The character and channel limits",
+            "A channel chosen per server",
+        ),
+    },
+    "schedule": {
+        "icon": "◷",
+        "blurb": "Queue a message, once or on a repeat.",
+        "points": (
+            "One-off, or every day, week or month",
+            "Messages the bot can write itself",
+            "Cancel or send one by hand",
+        ),
+    },
+    "identity": {
+        "icon": "☺",
+        "blurb": "The bot's name and picture in this server.",
+        "points": (
+            "A per-server nickname and bio",
+            "An avatar and banner",
+            "What Discord shows you, read back",
+        ),
+    },
+    "commands": {
+        "icon": "⌘",
+        "blurb": "Your switches, against what Discord actually holds.",
+        "points": (
+            "Every command the bot declares",
+            "Every command Discord's picker has",
+            "What is missing, by name",
+        ),
+    },
+    "status": {
+        "icon": "◈",
+        "blurb": "This deployment's own health, on the page.",
+        "points": (
+            "Uptime, and the last site check",
+            "A configuration audit that names what is missing",
+            "The gateway's own badge",
+        ),
+    },
+}
 
-    Deliberately the shortest of the three. The systems list and its demo are on
-    `/systems`, the steps and the ways in are on `/start`, and this page's copies
-    of those are a count, a list of names and three numbered lines — each with the
-    link that says where the detail went.
+#: The questions the front door answers, in the order it answers them.
+#:
+#: Authored here rather than in the template because three of the six are claims
+#: about *the deployment* — the retention window, whether Discord sign-in is on,
+#: and what the market is priced from — and a template that hard-coded them would
+#: keep saying them after the deployment changed.
+LANDING_QUESTIONS = (
+    (
+        "Does the bot need administrator permission?",
+        "No. The invite asks for what the systems you keep need, and there is a "
+        "smaller link beside it.",
+    ),
+    (
+        "What happens when I switch a system off?",
+        "Its commands leave that server's picker. Nothing is deleted, and switching "
+        "it back on puts them back.",
+    ),
+    (
+        "Where is my data, and for how long?",
+        "In this deployment's own database, for the number of days printed in the "
+        "footer.",
+    ),
+    (
+        "Do I have to make an account?",
+        "No. Discord sign-in, and it shows only the servers you already administer.",
+    ),
+    (
+        "Is the market real money?",
+        "No. Real prices, the bot's own coins — nothing on it costs money.",
+    ),
+    (
+        "What if the host is asleep?",
+        "These pages come from a host that never sleeps. The live figures wake the "
+        "bot when a page asks, and say so while they do.",
+    ),
+)
+
+
+def _landing_systems() -> list[dict]:
+    """Every system on the front door's explorer, from the registry itself.
+
+    All of them, not the switchable subset: the page's headline counts both, and
+    a list that quietly dropped the always-on ones would be the same defect the
+    figures band was fixed for — two numbers about one word, disagreeing.
+    """
+    return [
+        {
+            "id": feature.id,
+            "name": feature.name,
+            "icon": feature.icon,
+            "category": feature.category,
+            "desc": feature.description,
+            "commands": [str(command) for command in feature.commands],
+            "toggleable": bool(feature.toggleable),
+            "command_count": len(feature.commands),
+        }
+        for feature in features.FEATURES
+    ]
+
+
+def _landing_categories(systems: list[dict]) -> list[dict]:
+    """The filter chips, in the order the registry lists them.
+
+    Counted from the *switchable* systems, because that is the list the chips
+    filter — a chip reading "Economy 3" over a grid that hides one of them is a
+    number about nothing.
+    """
+    seen: dict[str, int] = {}
+    for system in systems:
+        if not system["toggleable"]:
+            continue
+        seen[system["category"]] = seen.get(system["category"], 0) + 1
+    return [{"name": name, "count": count} for name, count in seen.items()]
+
+
+def _landing_commands() -> list[dict]:
+    """Every command the front door's console can play back.
+
+    Read out of the registry rather than written here, so the page cannot offer a
+    command the bot does not have — and each row carries the system that gates it
+    and where that system is switched, which is what makes the card an *answer*
+    rather than a decoration. A command's own description, where the registry has
+    one, is split off the human-facing string: ``"/market buy — Buy an "
+    "instrument with coins"`` is a name and a sentence, and both are shown.
+    """
+    rows: list[dict] = []
+    for feature in features.FEATURES:
+        # One split of one string, in the registry, so this list and the figure
+        # printed above it cannot disagree about how many rows there are.
+        for name, note in features.feature_entries(feature):
+            rows.append({
+                "name": name,
+                "icon": feature.icon,
+                "system": feature.name,
+                "blurb": note,
+                "scope": "per server" if feature.toggleable else "always on",
+                "toggle": "/dashboard/systems",
+                "path": "/dashboard/systems",
+                # What the search box matches on, built here so the browser does
+                # not have to know how a command is spelled to find it.
+                "search": " ".join(
+                    part for part in (name, note, feature.name, feature.category, feature.id) if part
+                ).lower(),
+            })
+    return rows
+
+
+def _landing_tour() -> list[dict]:
+    """The dashboard's own pages, described for the front door's tour."""
+    rows = []
+    for page_id, label, path, _anchor in DASHBOARD_PAGES:
+        entry = LANDING_TOUR.get(page_id) or {}
+        rows.append({
+            "id": page_id,
+            "label": label,
+            "path": path,
+            "icon": entry.get("icon") or "▸",
+            "blurb": entry.get("blurb") or f"The {label.lower()} page of the dashboard.",
+            "points": list(entry.get("points") or ()),
+        })
+    return rows
+
+
+def _landing_context() -> dict:
+    """Everything the rebuilt front door draws, read once.
+
+    The page's whole claim is "this is what is in it, and here is what each piece
+    does" — so every list on it comes from a registry rather than from prose: the
+    explorer and the console from :mod:`utils.features`, the tour from
+    :data:`DASHBOARD_PAGES`. That is what makes it impossible for the front door
+    to advertise a system, a command or a page that does not exist, which is the
+    defect this project has shipped twice.
+    """
+    systems = _landing_systems()
+    commands = _landing_commands()
+    # The strip under the hero: real commands, deduplicated in registry order and
+    # capped, because the track is drawn twice for its seamless loop and a DOM
+    # with four hundred nodes in a decorative strip is a cost with no reader.
+    ticker = []
+    for command in commands:
+        if command["name"] not in ticker:
+            ticker.append(command["name"])
+        if len(ticker) >= 44:
+            break
+    return {
+        "systems": systems,
+        "switchable_count": len(features.dashboard_modules()),
+        "categories": _landing_categories(systems),
+        "commands": commands,
+        # ``entry_count`` is deliberately not here: it is a figure about the
+        # registry, so it lives in :func:`_site_context` with the other one, and
+        # the front door spreads that context before this mapping. Spelling it
+        # here as well was a `TypeError` on the next request — two authors for
+        # one name — which is the failure this pair of functions exists to avoid.
+        "commands_json": _inline_json(commands),
+        "explorer_json": _inline_json({"systems": systems}),
+        "ticker_commands": ticker,
+        "tour": _landing_tour(),
+        "faq": [{"question": question, "answer": answer} for question, answer in LANDING_QUESTIONS],
+    }
+
+
+def _home_page():
+    """The front door: one deep page that answers its own questions in place.
+
+    It used to be the shortest of three pages, because every question lived one
+    click away — the systems list on `/systems`, the steps on `/start`. That is a
+    front door that explains nothing to a visitor who will not click twice, so
+    the answers moved here with the interactions that make them legible: filter
+    the registry, open a system, watch it go off, play back a command, walk the
+    dashboard's pages. `/systems` and `/start` remain, and remain the places the
+    detail lives; this page no longer needs them to mean anything.
     """
     return render_template(
         "home.html",
         **_site_context(),
+        **_landing_context(),
         # Which nav link is this page. The server knows, so the rail says so with
         # `aria-current` and no script can disagree with it.
         current="home",
@@ -2305,28 +2716,31 @@ def _policy_page(slug: str):
     document = POLICY_DOCUMENTS[slug]
     text = legal.read_document(document["filename"])
     if not text.strip():
-        return (
-            f"<h1>404 — {_html.escape(document['filename'])} is missing from this deploy</h1>",
+        # A missing document is this deployment's fault rather than the
+        # reader's, and it is the reader who is looking at it — so it is the
+        # error page's own sentence on the error page's own shell, instead of a
+        # bare `<h1>` fragment in the browser's default font.
+        return _error_page(
             404,
-            {"Content-Type": "text/html; charset=utf-8"},
+            explanation=(
+                f"{_html.escape(document['filename'])} is missing from this "
+                "deploy, so this page has nothing to show. In Discord the "
+                f"{document['command']} command reads the same file and says "
+                "the same thing."
+            ),
         )
+    # The frame comes from `_site_context()` — including the count the footer
+    # states and the flag that decides whether Pricing exists — and only the
+    # document itself is this page's own business.
     return render_template(
         "legal.html",
+        **_site_context(),
         current=slug,
         body=webdocs.render(text),
         title=webdocs.title_from(text, document["filename"]),
         eyebrow=document["eyebrow"],
         command=document["command"],
         effective=_effective_date(text),
-        bot_name=_bot_display_name(),
-        bot_initial=(_bot_display_name()[:1] or "M").upper(),
-        enter_url="/login",
-        enter_label="Sign in",
-        **_invite_context(),
-        repository=SOURCE_REPOSITORY,
-        # The nav is shared with the pages that do sell, so it asks the same
-        # question they do rather than deciding for itself.
-        selling=plans.selling_enabled(),
     )
 
 
@@ -2404,7 +2818,6 @@ for _trap_index, (_trap_path, _trap_label) in enumerate(ai_guard.HONEYTOKENS):
 
 @app.route("/pricing")
 def pricing_page():
-    name = _bot_display_name()
     # The prices and the limits come from the model the bot enforces, so the page
     # cannot advertise a tier or a number the code does not know about — and the
     # "is this enforced yet" sentence is read from the deployment rather than
@@ -2415,19 +2828,18 @@ def pricing_page():
     # cannot buy. It used to keep advertising the tiers — prices, feature lists,
     # a "most popular" badge — with the buttons just switched off, which reads as
     # a shop whose door has been left open rather than as a product that is free.
+    #
+    # The frame is `_site_context()` and only the prices are this page's. It
+    # used to be spelled out here — six frame names, hand-copied — and the one
+    # it left out was `command_count`, so the page read *"15 systems and
+    # commands"* and the footer lost its number too. A price list is the wrong
+    # place to discover that the frame has two authors.
     checkout_pro = plans.checkout_url(plans.PRO)
     checkout_enterprise = plans.checkout_url(plans.ENTERPRISE)
     return render_template(
         "pricing.html",
-        bot_name=name,
-        bot_initial=(name[:1] or "M").upper(),
-        **_invite_context(),
-        enter_url="/login",
-        enter_label="Sign in",
-        system_count=features.system_count(),
-        features=features.dashboard_modules(),
-        selling=plans.selling_enabled(),
-        kofi_url=KOFI_URL,
+        **_site_context(),
+        current="pricing",
         price_free=plans.FREE.price,
         price_pro=plans.PRO.price,
         price_enterprise=plans.ENTERPRISE.price,
@@ -3049,11 +3461,10 @@ def _agree_page(
 ):
     """The clickwrap page: three documents, one decision, two equal buttons."""
     notice, bad = _agree_notice(declined=declined, written=written, error=error)
-    name = _bot_display_name()
     body = render_template(
         "agree.html",
-        bot_name=name,
-        bot_initial=(name[:1] or "M").upper(),
+        **_site_context(),
+        current="",
         csrf_token=get_csrf_token(),
         documents=[
             {
@@ -3281,18 +3692,16 @@ def _servers_page(error=None, status: int | None = None):
         # is otherwise a guess from a list of names.
         for entry in servers:
             entry["scope"] = _module_summary(entry["id"])
-    name = _bot_display_name()
     body = render_template(
         "servers.html",
+        # The invite in the frame is offered even with nothing to pick: a person
+        # whose servers do not have the bot yet is exactly who needs this page.
+        **_site_context(),
+        current="",
         servers=servers,
         error=error,
         operator=operator,
-        bot_name=name,
-        bot_initial=(name[:1] or "M").upper(),
         user=session.get("discord_user") or {},
-        # The invite is offered even with nothing to pick: a person whose
-        # servers do not have the bot yet is exactly who needs this page.
-        **_invite_context(),
         current_guild_id=_int_or_none(session.get("guild_id")),
         csrf_token=get_csrf_token(),
     )
@@ -3374,6 +3783,71 @@ def market_index():
     return redirect("/market/BTC")
 
 
+def market_context(instrument) -> dict:
+    """Everything ``market.html`` needs, in one place.
+
+    The route and ``tests/test_market_page.py`` both call this, so the test that
+    renders the template in a bare Jinja environment cannot pass while the route
+    hands over something different — which is the failure it exists to catch:
+    a page that renders in the tooling and raises in production.
+    """
+    from utils import market as market_module
+
+    return {
+        "symbol": instrument.symbol,
+        "name": instrument.name,
+        "kind": instrument.kind,
+        "periods": list(market_module.PERIODS.items()),
+        "default_period": market_module.DEFAULT_PERIOD,
+        "instrument_groups": _market_groups(market_module),
+        "instrument_count": len(market_module.INSTRUMENTS),
+        "treat_fee_label": market_module.treat_fee_label(),
+        # The ticket's own limits, read from the bot rather than written into the
+        # page: the fill window is the bot's (`MIN_TRADE_COINS`,
+        # `MAX_TRADE_COINS`), and a page that offers an amount the bot refuses is
+        # offering a transaction that cannot happen. The shortcut buttons are
+        # built here for the same reason — the hand-written set ended in "1M",
+        # which is four times the largest fill this market has ever allowed.
+        "min_trade": market_module.MIN_TRADE_COINS,
+        "max_trade": market_module.MAX_TRADE_COINS,
+        "default_spend": min(max(10_000, market_module.MIN_TRADE_COINS), market_module.MAX_TRADE_COINS),
+        "quick_sizes": _market_quick_sizes(
+            market_module.MIN_TRADE_COINS, market_module.MAX_TRADE_COINS
+        ),
+        # The rail is rendered by the server, so the board is on the page before
+        # any script runs; the things a template cannot know — which instrument
+        # this is, which period it opened on, and what the bot will fill — ride
+        # along here.
+        "boot_json": _inline_json(
+            {
+                "symbol": instrument.symbol,
+                "period": market_module.DEFAULT_PERIOD,
+                "minTrade": market_module.MIN_TRADE_COINS,
+                "maxTrade": market_module.MAX_TRADE_COINS,
+            }
+        ),
+    }
+
+
+def _market_quick_sizes(minimum: int, maximum: int) -> list[dict]:
+    """The order ticket's shortcut amounts, inside the bot's own fill window.
+
+    They are computed rather than written into the template because the two
+    numbers have to agree and only one of them is a design decision: the window
+    is the bot's, and a shortcut outside it puts a command on the clipboard that
+    Discord refuses — which is exactly what "1M" did, against a
+    ``MAX_TRADE_COINS`` of 250,000.
+    """
+    picks = [1_000, 10_000, 100_000, maximum]
+    rows: list[dict] = []
+    for value in picks:
+        if not minimum <= value <= maximum or any(row["value"] == value for row in rows):
+            continue
+        label = f"{value // 1_000_000}M" if value >= 1_000_000 else f"{value // 1_000}k"
+        rows.append({"value": value, "label": label})
+    return rows
+
+
 @app.route("/market/<symbol>")
 def market_page(symbol: str):
     """The live, interactive chart for one instrument."""
@@ -3383,20 +3857,60 @@ def market_page(symbol: str):
     instrument = market_module.BY_SYMBOL.get(raw.strip().upper())
     if instrument is None:
         safe = _html.escape(raw, quote=True)
+        # A shell, because a mistyped ticker is the likeliest way to arrive: the
+        # bare `<h1>` this used to return was an unstyled white page with one
+        # link and no way back to the board, the dashboard or the site — a dead
+        # end reached by pressing one wrong key, next to a page of forty panels.
         return (
-            f"<h1>404 — {safe} is not on the market</h1>"
-            "<p><a href='/market/BTC'>Open BTC instead</a></p>",
+            "<!doctype html>\n<html lang=\"en\">\n<head>\n"
+            "    <meta charset=\"utf-8\">\n"
+            "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+            f"    <title>{safe} is not on the market — {_html.escape(_bot_display_name())}</title>\n"
+            "    <link rel=\"icon\" type=\"image/svg+xml\" "
+            f"href=\"/static/favicon.svg?v={asset_version('favicon.svg')}\">\n"
+            f"    <link rel=\"stylesheet\" href=\"/static/meow.css?v={asset_version('meow.css')}\">\n"
+            "</head>\n<body class=\"has-aurora\">\n"
+            "    <div class=\"aurora\" aria-hidden=\"true\"><span class=\"grid\"></span></div>\n"
+            "    <main class=\"page\" style=\"max-width:640px;margin:12vh auto;\">\n"
+            "        <span class=\"eyebrow\">The market</span>\n"
+            f"        <h1 style=\"margin-top:0.5rem;\">{safe} is not on the market</h1>\n"
+            "        <p class=\"muted\" style=\"margin-top:1rem;\">\n"
+            "            The board carries every instrument this deployment trades, by ticker."
+            "            The one you asked for is not one of them — the link may have been"
+            "            typed from memory, or the symbol may have been renamed.\n"
+            "        </p>\n"
+            "        <p style=\"margin-top:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;\">\n"
+            "            <a class=\"btn btn-primary\" href=\"/market/BTC\">Open the board</a>\n"
+            "            <a class=\"btn\" href=\"/\">What this bot is</a>\n"
+            "            <a class=\"btn\" href=\"/dashboard\">The dashboard</a>\n"
+            "        </p>\n"
+            "    </main>\n</body>\n</html>\n",
             404,
             {"Content-Type": "text/html; charset=utf-8"},
         )
-    return render_template(
-        "market_live.html",
-        symbol=instrument.symbol,
-        name=instrument.name,
-        kind=instrument.kind,
-        periods=list(market_module.PERIODS.items()),
-        default_period=market_module.DEFAULT_PERIOD,
-    )
+    return render_template("market.html", **market_context(instrument))
+
+
+def _market_groups(market_module) -> list[dict]:
+    """The instrument catalog as the rail's sections.
+
+    Grouped by kind, in catalog order, with the two known kinds labelled and any
+    future kind appearing under its own name rather than being dropped into
+    somebody else's section.
+    """
+    labels = {market_module.CRYPTO: "Crypto", market_module.STOCK: "Stocks & ETFs"}
+    groups: list[dict] = []
+    for instrument in market_module.INSTRUMENTS:
+        if not groups or groups[-1]["kind"] != instrument.kind:
+            groups.append(
+                {
+                    "kind": instrument.kind,
+                    "label": labels.get(instrument.kind, instrument.kind.title()),
+                    "instruments": [],
+                }
+            )
+        groups[-1]["instruments"].append(instrument)
+    return groups
 
 
 @app.route("/api/market/quotes")
@@ -3450,6 +3964,12 @@ DASHBOARD_PAGES = (
     ("systems", "Systems", "/dashboard/systems", "modules"),
     ("members", "Members", "/dashboard/members", "members"),
     ("server", "Server", "/dashboard/server", "server-control"),
+    # The two pages that are about what a member *earns* here. They are pages
+    # rather than cards because each of them is a whole job: the economy's
+    # leaderboard is a reading nobody can take off a switch, and the level roles
+    # are a promise somebody has to be able to check one row at a time.
+    ("economy", "Economy", "/dashboard/economy", "economy"),
+    ("leveling", "Levels", "/dashboard/leveling", "leveling"),
     ("composer", "Composer", "/dashboard/composer", "composer"),
     ("schedule", "Scheduled", "/dashboard/schedule", "schedule"),
     ("identity", "Identity", "/dashboard/identity", "identity"),
@@ -3471,10 +3991,12 @@ DASHBOARD_PAGES = (
 #: longer than five, five groups at most, every other page placed in the order it
 #: was declared.
 DASHBOARD_GROUPS = (
-    # What this server *is* — the systems it runs, the people in it, and the
-    # controls over the whole of it. Three pages, and they are the three an
-    # administrator comes here to read first.
-    ("This server", ("systems", "members", "server")),
+    # What this server *is* — the systems it runs, the people in it, what they
+    # earn here, and the controls over the whole of it. Five pages, which is the
+    # width this law allows and the width it reads at: an administrator comes
+    # here to see the systems, the roster, the server's own controls, and then
+    # the two ledgers.
+    ("This server", ("systems", "members", "server", "economy", "leveling")),
     ("Message", ("composer", "schedule")),
     ("Configure", ("identity", "commands", "status")),
 )
@@ -3487,6 +4009,8 @@ DASHBOARD_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in DASHBOAR
 @app.route("/dashboard/systems")
 @app.route("/dashboard/members")
 @app.route("/dashboard/server")
+@app.route("/dashboard/economy")
+@app.route("/dashboard/leveling")
 @app.route("/dashboard/composer")
 @app.route("/dashboard/schedule")
 @app.route("/dashboard/identity")
@@ -3634,9 +4158,12 @@ def dashboard():
     # open. Nothing here is a *rule* — the guards the actions use are computed at
     # the moment of the action, in the endpoint.
     management = _management_context(guild_id, page)
+    progression = _progression_context(guild_id, page)
     return render_template(
         "dashboard.html",
         management=management,
+        economy_view=progression["economy"],
+        level_view=progression["levels"],
         guild_id=guild_id,
         guild_name=guild_name,
         gateway=_badge_state(),
@@ -3852,6 +4379,93 @@ def _bot_abilities(guild) -> list[dict] | None:
         {"label": label, "ok": bool(getattr(perms, attr, False)), "why": why}
         for label, attr, why in rows
     ]
+
+
+def _progression_context(guild_id, page) -> dict:
+    """What this server's members hold and have earned, for the two ledgers.
+
+    Read where it is drawn, for the reason :func:`_management_context` gives: a
+    page about the composer has no business reading a leaderboard, and these are
+    two more tables nobody asked for unless the page is open.
+
+    Both readings are **reads**, and the pages say so. The balances and the XP
+    are written by ``cogs/economy.py`` and ``cogs/leveling.py``, which are also
+    the only things that decide what a message is worth; a dashboard that wrote
+    its own numbers here would be a second source of truth for the same wallet.
+    The one exception is the module switch, which is the same endpoint the
+    Systems page uses — so "manage this feature" on these pages is the switch
+    that already exists rather than a second one with its own rules.
+    """
+    context = {"economy": None, "levels": None}
+    if not guild_id or page not in ("economy", "leveling"):
+        return context
+    # Names, where Discord's cache can answer without asking. A leaderboard of
+    # ids is a leaderboard nobody reads, and the roster cache the Members page
+    # already draws from holds exactly this mapping. A cold cache is not an
+    # error: the row falls back to the id, which is still true.
+    names: dict[int, str] = {}
+    guild = _live_guild(guild_id)
+    if guild is not None:
+        cached = moderation_actions.roster_cached(guild)
+        if cached:
+            names = {
+                int(member["id"]): member.get("display_name") or member.get("name") or ""
+                for member in cached.get("members", [])
+            }
+
+    try:
+        if page == "economy":
+            reading = db.read_guild_economy_sync(guild_id, limit=12)
+            # What the server's own fee switch is set to, from the same key the
+            # bot reads — so the page cannot describe a fee that is off here, and
+            # the bank figure below has a stated origin rather than appearing as
+            # money from nowhere.
+            stored = db.read_setting_sync(guild_id, meowfee.SETTING_KEY, None)
+            reading["fee"] = {
+                "enabled": meowfee.parse_enabled(stored) is not False,
+                "label": meowfee.fee_label(),
+                "describe": meowfee.describe(),
+                "cap": meowfee.MAX_FEE,
+                "stored": stored is not None,
+            }
+            for holder in reading["top"]:
+                holder["name"] = names.get(holder["user_id"], "")
+                # What share of everything this server holds is this member's.
+                # Computed here rather than in the template because it is a
+                # division by a total that can be zero, and a template doing
+                # arithmetic on "no economy yet" divides by it.
+                total = reading["circulation"] or 0
+                holder["share"] = (holder["net"] / total * 100) if total else 0.0
+            context["economy"] = reading
+        else:
+            reading = db.read_guild_levels_sync(guild_id, limit=12)
+            for earner in reading["top"]:
+                earner["name"] = names.get(earner["user_id"], "")
+                # How far into the current level this member is, as the pair the
+                # rank card draws: XP earned inside the band, and the band's own
+                # width. From the same function the card uses, so the bar here
+                # and the bar in Discord cannot disagree.
+                _level, into, needed = levels_module.calculate_level_from_xp(earner["xp"])
+                earner["into"] = into
+                earner["needed"] = needed
+                earner["progress"] = (into / needed * 100) if needed else 0.0
+            # The role each level grants, named where the guild can be read.
+            role_names = {}
+            if guild is not None:
+                role_names = {
+                    int(role.id): role.name for role in getattr(guild, "roles", []) or []
+                }
+            reading["roles"] = [
+                {**row, "name": role_names.get(row["role_id"], "")}
+                for row in reading["roles"]
+            ]
+            context["levels"] = reading
+    except Exception as e:
+        # A page that cannot read its own table says so rather than drawing an
+        # empty leaderboard, which would read as "nobody here has earned
+        # anything" — the one reading that is worse than an error.
+        print(f"[DASHBOARD] ⚠️ Could not read the {page} tables: {e}", flush=True)
+    return context
 
 
 def _management_context(guild_id, page) -> dict:
@@ -4398,6 +5012,12 @@ OWNER_PAGES = (
     ("questions", "Questions", "/owner/questions", "questions"),
     ("access", "Access", "/owner/access", "access"),
     ("changes", "Changes", "/owner/changes", "changes"),
+    # The tier, last, because it is the last place an operator should be and the
+    # four actions it holds are the only ones in this console that are not about
+    # one server. It is a *page* rather than a modal hung off the fleet list so
+    # that its address can be bookmarked and, more usefully, so that the actions
+    # have somewhere to live that is not one hurried click away from Oversight.
+    ("god", "God level", "/owner/god", "god"),
 )
 
 #: The rail's groups, as (label, page ids) — **the console has nine pages and a
@@ -4413,7 +5033,7 @@ OWNER_PAGES = (
 OWNER_GROUPS = (
     ("Fleet", ("live", "servers", "systems")),
     ("Work", ("commands", "economy", "ops", "questions")),
-    ("Owner", ("access", "changes")),
+    ("Owner", ("access", "changes", "god")),
 )
 
 #: Where the bundled console app is built to (``console/`` builds into it).
@@ -4531,6 +5151,95 @@ def owner_console(sub: str = ""):
 # ---------------------------------------------------------------------------
 
 
+#: God level: the actions that affect **every** server at once, and the reason
+#: they are behind a second door.
+#:
+#: Everything else in this console is scoped to a thing — a server, a wallet, a
+#: command list — and a mistake there is a mistake about one server. The four
+#: actions below are not: a pause stops the bot answering anywhere, and the two
+#: fleet switches write every server's system state at once. They are the kind of
+#: control that a page cannot make safe with an "are you sure?" box, because the
+#: answer to that question is always yes when somebody is in a hurry.
+#:
+#: So the tier is a *time-limited unlock* rather than a second password on a
+#: second page: the operator proves the passkey again, the console opens the four
+#: actions for a quarter of an hour, and every one of them lands in the same
+#: audit trail as the rest of the website's actions, with the actor's name and
+#: the reason they typed. ``tests/test_god.py`` pins the three properties that
+#: make it worth having: it is off by default, it expires, and it is audited.
+GOD_UNLOCK_SECONDS = 15 * 60
+
+#: ``(id, label, blurb, needs_a_reason)``, in the order the console offers them.
+#: Declared here rather than in the React app for the same reason the pages are:
+#: the server is the only party that may decide what this tier can do, and the
+#: app renders the list it is handed — including the reason it must ask for.
+GOD_ACTIONS = (
+    (
+        "pause",
+        "Pause the bot everywhere",
+        "Every server's commands are refused until it is resumed. The gateway stays "
+        "connected and both panels keep answering, so this is the switch to reach for "
+        "while something is being fixed rather than a way to stop the process.",
+        True,
+    ),
+    (
+        "resume",
+        "Resume the bot everywhere",
+        "Commands are answered again on every server, with each server's own systems "
+        "exactly as they were left.",
+        False,
+    ),
+    (
+        "fleet_off",
+        "Turn every system off, on every server",
+        "One write per server per system. Reversible with the action below, and each "
+        "server's admin can turn their own systems back on afterwards.",
+        True,
+    ),
+    (
+        "fleet_on",
+        "Turn every system on, on every server",
+        "The same write in the other direction. This enables systems a server's admin "
+        "had deliberately switched off, which is why it asks for a reason.",
+        True,
+    ),
+)
+
+GOD_ACTION_IDS = tuple(action[0] for action in GOD_ACTIONS)
+
+
+def _god_remaining() -> int:
+    """Seconds left on this session's god unlock, or ``0`` when it is locked."""
+    until = float(session.get("god_until") or 0)
+    return max(0, int(until - time.time()))
+
+
+def _god_unlocked() -> bool:
+    return _god_remaining() > 0
+
+
+def _god_actor() -> tuple[object, str]:
+    """Who is acting, as the audit trail records them: an id and a name."""
+    user = session.get("discord_user") or {}
+    return user.get("id") or 0, str(user.get("username") or "the operator")
+
+
+def _god_fleet_ids() -> list[int]:
+    """Every server the bot is in right now, as ids.
+
+    From the gateway rather than the directory: the directory remembers servers
+    the bot has *seen*, which includes the ones it has since left, and a fleet
+    write that touched those would be a write about nothing.
+    """
+    if BOT_INSTANCE is None:
+        return []
+    try:
+        return [int(guild.id) for guild in BOT_INSTANCE.guilds]
+    except Exception as exc:  # noqa: BLE001
+        print(f"[CONSOLE] could not read the fleet for a god action: {exc}", flush=True)
+        return []
+
+
 def _require_operator_api():
     if not is_authenticated():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
@@ -4538,6 +5247,25 @@ def _require_operator_api():
         return jsonify({"success": False, "error": "Operator sign-in required"}), 403
     if request.method != "GET" and not validate_csrf():
         return jsonify({"success": False, "error": "Invalid or missing CSRF token"}), 403
+    return None
+
+
+def _require_god_api():
+    """The operator gate **and** the god unlock, for the four fleet actions.
+
+    Deliberately cumulative rather than an alternative: being the operator is not
+    the same claim as having just re-proved the passkey, and the second one is
+    what the console's unlock form is asking for.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+    if not _god_unlocked():
+        return jsonify({
+            "success": False,
+            "error": "God level is locked. Unlock it with the owner passkey first.",
+            "locked": True,
+        }), 403
     return None
 
 
@@ -5851,6 +6579,246 @@ def api_console_ops():
             # Presence only — `attention_json` never reads a value.
             "config": {**config_audit.health_json(), "named": config_audit.attention_json()},
         },
+    })
+
+
+def _god_audit(action: str, *, ok: bool, detail: str = "", scope: str = "god") -> None:
+    """One line in the website's audit trail, written through the bot's loop.
+
+    ``record_web_action`` is a coroutine, and this is called from a Flask thread,
+    so it goes through the same reader the rest of the console uses. A record
+    that cannot be written is reported and swallowed: the act itself has already
+    happened, and failing the request afterwards would tell the operator it did
+    not.
+    """
+    actor_id, actor_name = _god_actor()
+    try:
+        _loop_reading(
+            db.record_web_action(
+                scope=scope,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                guild_id=0,
+                action=action,
+                target="every server" if scope == "god" else "",
+                ok=ok,
+                detail=detail,
+                at=time.time(),
+            ),
+            None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[AUDIT] could not record god action '{action}': {exc}", flush=True)
+
+
+def _god_recent(limit: int = 8) -> list[dict]:
+    """The last few god-level actions, read back from the audit trail.
+
+    Read from the trail rather than kept in a ring in memory, because the point
+    of the trail is that it outlives the process — and a god page whose history
+    emptied on every deploy would be a page that cannot answer "did somebody
+    pause the bot last night?".
+    """
+    rows, read = _loop_reading(db.recent_web_actions(guild_id=0, limit=40), [])
+    if not read:
+        return []
+    return [row for row in rows if str(row.get("scope") or "") == "god"][:limit]
+
+
+@app.route("/api/console/god")
+def api_console_god():
+    """The god level: whether it is open, and what its actions would act on.
+
+    Read-only, and it needs no unlock: the page has to be able to draw itself
+    while it is locked, or the operator cannot see what "unlock" would open. What
+    the lock protects is the *actions* endpoint below.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    pause_state = pause.state(refresh=True)
+    fleet = _fleet_rows()
+    return jsonify({
+        "success": True,
+        "locked": not _god_unlocked(),
+        "remaining_seconds": _god_remaining(),
+        "unlock_seconds": GOD_UNLOCK_SECONDS,
+        "paused": pause_state,
+        "paused_sentence": pause.describe(pause_state),
+        "fleet": fleet,
+        "totals": _console_totals(fleet),
+        "actions": [
+            {
+                "id": action_id,
+                "label": label,
+                "blurb": blurb,
+                "reason_required": bool(needs_reason),
+                # Whether it would change anything right now, so a button that
+                # would do nothing says so instead of being pressed to find out.
+                "is_set": (
+                    (action_id == "pause" and pause_state["paused"])
+                    or (action_id == "resume" and not pause_state["paused"])
+                ),
+            }
+            for action_id, label, blurb, needs_reason in GOD_ACTIONS
+        ],
+        "recent": _god_recent(),
+    })
+
+
+@app.route("/api/console/god/unlock", methods=["POST"])
+def api_console_god_unlock():
+    """Re-prove the owner passkey, and open the tier for a quarter of an hour.
+
+    The same credential as the front door, and the same limiter: an extra place
+    to type a passkey is an extra place to guess one, so this shares
+    ``_PASSKEY``'s window rather than getting a bucket of its own. What it does
+    *not* share is the session: unlocking god level leaves the ordinary operator
+    session exactly as it was, so the tier can expire without signing anybody out.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    if not ADMIN_PASSKEY:
+        return jsonify({
+            "success": False,
+            "error": "No owner passkey is configured in this deployment, so this tier cannot be opened.",
+        }), 409
+    if _passkey_attempts_left() <= 0:
+        return jsonify({"success": False, "error": "Too many attempts. Wait a few minutes and try again."}), 429
+
+    data = request.get_json(silent=True) or {}
+    entered = str(data.get("passkey") or "")
+    if not entered or not secrets.compare_digest(entered, ADMIN_PASSKEY):
+        _record_passkey_failure()
+        _god_audit("god_unlock", ok=False, detail="wrong passkey")
+        # `locked: True` is not decoration: the console reads a 403 as "your
+        # session is dead" *unless* it carries that flag, so a mistyped passkey
+        # here answered with "Your sign-in is no longer valid. Reload to sign in
+        # again." — a sentence that is false, sends the operator to reload a page
+        # that is working, and hides the server's own message. The tier is still
+        # locked, which is exactly what the flag claims.
+        return jsonify({
+            "success": False,
+            "error": "That is not the owner passkey.",
+            "locked": True,
+        }), 403
+
+    session["god_until"] = time.time() + GOD_UNLOCK_SECONDS
+    _god_audit("god_unlock", ok=True, detail=f"open for {GOD_UNLOCK_SECONDS // 60} minutes")
+    return jsonify({
+        "success": True,
+        "locked": False,
+        "remaining_seconds": _god_remaining(),
+        "said": "God level is open for this browser.",
+    })
+
+
+@app.route("/api/console/god/lock", methods=["POST"])
+def api_console_god_lock():
+    """Close the tier now rather than waiting for the clock.
+
+    An operator who is finished should not have to remember that a page is still
+    armed; this is the control that makes the unlock a thing you *hold* rather
+    than a thing you did.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+    was_open = _god_unlocked()
+    session.pop("god_until", None)
+    if was_open:
+        _god_audit("god_lock", ok=True, detail="closed early")
+    return jsonify({"success": True, "locked": True, "remaining_seconds": 0})
+
+
+@app.route("/api/console/god/act", methods=["POST"])
+def api_console_god_act():
+    """One fleet-wide action, with the reason it was asked for.
+
+    Four actions, and each of them is written down *before* the answer is given:
+    the audit line is the record, and a record written after a partial failure
+    would be a record of the parts that worked.
+    """
+    denied = _require_god_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "")
+    reason = str(data.get("reason") or "").strip()
+    if action not in GOD_ACTION_IDS:
+        return jsonify({"success": False, "error": "Unknown god action"}), 400
+
+    needs_reason = next(a[3] for a in GOD_ACTIONS if a[0] == action)
+    if needs_reason and not reason:
+        return jsonify({
+            "success": False,
+            "error": "Give a reason — it is what the next person to read the trail will have.",
+        }), 400
+
+    _actor_id, actor_name = _god_actor()
+
+    if action in ("pause", "resume"):
+        paused = action == "pause"
+        state_after = pause.set_state(paused, actor=actor_name, reason=reason)
+        _god_audit(
+            "god_pause" if paused else "god_resume",
+            ok=True,
+            detail=reason or "no reason given",
+        )
+        return jsonify({
+            "success": True,
+            "paused": state_after,
+            "said": pause.describe(state_after),
+        })
+
+    # The two fleet switches. Written server by server so a server that refuses
+    # is named rather than lost inside a bulk write: `modules.set_enabled`
+    # persists first and then updates the cache, and a failure on one guild must
+    # not stop the rest or pretend it happened.
+    enabled = action == "fleet_on"
+    fleet_ids = _god_fleet_ids()
+    if not fleet_ids:
+        return jsonify({
+            "success": False,
+            "error": "The bot is not in any server right now, so there is nothing to switch.",
+        }), 409
+    changed = 0
+    failed: list[str] = []
+    for guild_id in fleet_ids:
+        for module in AVAILABLE_MODULES:
+            try:
+                modules.set_enabled(guild_id, module["id"], enabled)
+                changed += 1
+            except Exception as exc:  # noqa: BLE001
+                failed.append(f"{guild_id}:{module['id']} ({type(exc).__name__})")
+
+    _god_audit(
+        "god_fleet_on" if enabled else "god_fleet_off",
+        ok=not failed,
+        detail=(reason or "no reason given")
+        + f" — {len(fleet_ids)} servers, {changed} switches"
+        + (f", {len(failed)} refused" if failed else ""),
+    )
+    return jsonify({
+        "success": not failed,
+        "changed": changed,
+        "servers": len(fleet_ids),
+        "failed": failed[:20],
+        "error": (
+            f"{len(failed)} switch(es) were refused — see the audit trail for which."
+            if failed
+            else None
+        ),
+        "said": (
+            f"Every system is now {'on' if enabled else 'off'} on all {len(fleet_ids)} "
+            f"server{'s' if len(fleet_ids) != 1 else ''}."
+            if not failed
+            else None
+        ),
     })
 
 

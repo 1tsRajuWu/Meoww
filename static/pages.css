@@ -163,6 +163,12 @@
 
 .auth { padding-block: var(--space-8) var(--space-9); }
 
+/* The sign-in pages state their own headline and sentence rather than filling a
+   `.page-head`, and the gap between the two came from that band — so both of
+   them measured **0px** between the h1 and its first sentence in a browser,
+   which is the one line on the page a reader has to read. */
+.auth .lede { margin-top: var(--space-5); }
+
 .auth__inner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: var(--space-8); align-items: start; }
 
 .auth__card {
@@ -292,4 +298,9 @@
   max-width: 30ch;
 }
 
-.closing__actions { flex: none; }
+/* `flex: 0 1 auto` rather than `flex: none`: the same box on the same site hung
+   past a phone's column because it was not allowed to shrink. */
+.closing__actions {
+  flex: 0 1 auto;
+  min-width: 0;
+}

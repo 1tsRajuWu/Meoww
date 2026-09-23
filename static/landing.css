@@ -234,10 +234,20 @@
 
 .explorer__empty { margin-top: var(--space-4); }
 
+/* On a phone the row was three stacked lines — name, facts, control — which is
+   a hundred and fourteen pixels for two words and a switch. The control moves
+   up beside the name and the facts take the second line: same three things, a
+   third less height, fourteen times over. */
 @media (max-width: 760px) {
   .explorer__bar { grid-template-columns: minmax(0, 1fr); }
-  .system__row { grid-template-columns: minmax(0, 1fr) auto; }
-  .system__meta { grid-column: 1; grid-row: 2; }
+  .system__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-4);
+    padding-block: var(--space-3);
+  }
+  .system__name { grid-column: 1; grid-row: 1; }
+  .system__toggle { grid-column: 2; grid-row: 1; }
+  .system__meta { grid-column: 1 / -1; grid-row: 2; }
 }
 
 /* --------------------------------------------------------------------------
@@ -245,7 +255,20 @@
    -------------------------------------------------------------------------- */
 
 .console__search { max-width: 24rem; margin-bottom: var(--space-4); }
-.console__status { margin-bottom: var(--space-4); }
+
+/* What is listed, and the one control that changes it. Both on one line, because
+   the count is about the button's own effect and a reader checking "twelve of
+   what" should not have to look somewhere else for the answer. */
+.console__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.console__foot .btn { min-height: var(--tap-min); }
 
 .console__list {
   list-style: none;
@@ -254,11 +277,15 @@
   border-top: 1px solid var(--line);
 }
 
+/* Name, its own sentence where the registry has one, and the copy button. The
+   list is ninety-five rows long, so every column it does not need is one it
+   does not get: a row whose command has no description is a name and a button,
+   which is what a reader is actually scanning for. */
 .command {
   display: grid;
-  grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr) minmax(0, auto) auto;
+  grid-template-columns: minmax(11rem, 16rem) minmax(0, 1fr) auto;
   gap: var(--space-4);
-  align-items: baseline;
+  align-items: center;
   padding-block: var(--space-3);
   border-bottom: 1px solid var(--line);
 }
@@ -274,7 +301,6 @@
 }
 
 .command__blurb { color: var(--text-secondary); }
-.command__system { font-size: var(--text-small); color: var(--text-muted); white-space: nowrap; }
 
 .command__copy {
   min-height: 30px;
@@ -290,6 +316,13 @@
   transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 
+/* On a pointer that can be a finger the button is always visible and takes the
+   44px floor: 30px is a hover affordance, not something to aim at. */
+@media (pointer: coarse) {
+  .command__copy { min-height: var(--tap-min); opacity: 1; }
+  .system__toggle { min-height: var(--tap-min); }
+}
+
 .command:hover .command__copy,
 .command__copy:focus-visible { opacity: 1; }
 
@@ -300,8 +333,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--space-1) var(--space-4);
   }
-  .command__blurb { grid-column: 1 / -1; }
-  .command__system { grid-column: 1 / -1; }
+  .command__blurb { grid-column: 1 / -1; color: var(--text-muted); }
   .command__copy { opacity: 1; }
 }
 
@@ -325,10 +357,7 @@
 .showcase__rail { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 
 .showcase__item {
-  display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr);
-  gap: 0 var(--space-3);
-  align-items: baseline;
+  display: block;
   min-height: var(--tap-min);
   padding: var(--space-3) var(--space-2);
   background: transparent;
@@ -343,12 +372,13 @@
 
 .showcase__item:hover { color: var(--text-primary); background: var(--surface-hover); }
 
-.showcase__item[aria-selected="true"] { color: var(--text-primary); background: var(--surface-card); }
-.showcase__item[aria-selected="true"] .showcase__num { color: var(--accent); }
+.showcase__item[aria-selected="true"] {
+  color: var(--text-primary);
+  background: var(--surface-card);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 
-.showcase__num { font-size: var(--text-small); color: var(--text-muted); }
 .showcase__label { font-weight: 550; }
-.showcase__path { grid-column: 2; font-size: var(--text-small); color: var(--text-muted); }
 
 .showcase__stage { min-width: 0; }
 
@@ -426,19 +456,32 @@
 }
 
 .mock__line--quiet { color: var(--text-muted); }
-.mock__note { margin-top: var(--space-4); }
 
 .mock__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--line);
   background: var(--surface-sunken);
 }
 
 .mock__foot .arrow-link { font-size: var(--text-small); }
+.mock__foot .hint { font-size: var(--text-micro); }
 
 /* A preview control: it moves because a switch that does nothing looks broken,
-   and it says it is a preview in the panel's own note. */
-.mock-switch { display: inline-flex; cursor: pointer; }
+   and it says it is a preview in the panel's own note. The visual track is
+   small and the hit area is not: the row it sits in is where a thumb lands. */
+.mock-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  cursor: pointer;
+}
 
 .mock-switch__track {
   width: 38px;
@@ -475,12 +518,11 @@
     scrollbar-width: thin;
   }
   .showcase__item {
-    grid-template-columns: auto;
     border-bottom: 0;
     border-right: 1px solid var(--line);
     white-space: nowrap;
   }
-  .showcase__path { display: none; }
+  .showcase__item[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--accent); }
 }
 
 /* --------------------------------------------------------------------------
@@ -573,4 +615,10 @@
   max-width: 30ch;
 }
 
-.closing__actions { flex: none; }
+/* The two controls stay on one line while there is room and stack when there is
+   not. `flex: none` forbade the second half of that: the box could not shrink,
+   so on a phone it hung 54px past the column and the page scrolled sideways. */
+.closing__actions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
