@@ -220,24 +220,111 @@
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">04 — Dashboard</p>
-        <h2>{{ tour | length }} pages, one per thing you came to change</h2>
+        <p class="micro">04 — Showcase</p>
+        <h2>{{ tour | length }} ways to make it yours</h2>
       </div>
       <p class="lede small muted">
-        The rail is the pages. Each one loads only its own listeners, and the server —
-        not a scroll spy — decides which one you are on.
+        The actual interface, with sample data. Pick a page and look around — nothing you
+        touch here reaches a server, and the address under each one opens the real page.
       </p>
     </div>
 
-    <ul class="pages">
-      {% for page in tour %}
-      <li class="pages__row" data-reveal>
-        <span class="pages__path mono">{{ page.path }}</span>
-        <span class="pages__label">{{ page.label }}</span>
-        <span class="pages__blurb">{{ page.blurb }}</span>
-      </li>
-      {% endfor %}
-    </ul>
+    <div class="showcase" data-showcase>
+      {# The rail is the dashboard's own page list, rendered from the same
+         registry the rail itself renders from — so the preview cannot show a
+         page the dashboard does not have, or miss one it does. #}
+      <div class="showcase__rail" role="tablist" aria-label="Dashboard pages">
+        {% for page in tour %}
+        <button class="showcase__item" type="button" role="tab"
+                id="tab-{{ page.id }}" aria-controls="view-{{ page.id }}"
+                aria-selected="{{ 'true' if loop.first else 'false' }}"
+                tabindex="{{ '0' if loop.first else '-1' }}">
+          <span class="showcase__num mono">{{ '%02d' | format(loop.index) }}</span>
+          <span class="showcase__label">{{ page.label }}</span>
+          <span class="showcase__path mono" aria-hidden="true">{{ page.path }}</span>
+        </button>
+        {% endfor %}
+      </div>
+
+      <div class="showcase__stage">
+        {% for page in tour %}
+        <section class="mock" id="view-{{ page.id }}" role="tabpanel"
+                 aria-labelledby="tab-{{ page.id }}"{% if not loop.first %} hidden{% endif %}>
+          <header class="mock__bar">
+            <span class="micro">{{ '%02d' | format(loop.index) }} — {{ page.label }}</span>
+            <span class="tag">{{ page.path }}</span>
+          </header>
+
+          <div class="mock__body">
+            <p class="mock__blurb">{{ page.blurb }}</p>
+
+            {% if page.id == 'overview' %}
+            <div class="mock__tiles">
+              {% for figure in stats %}
+              <span class="mock__tile">
+                <span class="mock__tile-value">{{ figure.value }}</span>
+                <span class="mock__tile-label">{{ figure.label }}</span>
+              </span>
+              {% endfor %}
+            </div>
+            <p class="mock__line"><span class="dot {{ status.dot }}" aria-hidden="true"></span> {{ status.label }}</p>
+
+            {% elif page.id == 'systems' %}
+            <div class="mock__rows">
+              {% for system in systems[:5] %}
+              <div class="mock__row">
+                <span class="mock__row-name">{{ system.icon }} {{ system.name }}</span>
+                <span class="mock__row-note">{{ system.command_count }} cmd</span>
+                {# An always-on system gets no switch here, because it has none in the
+                   dashboard either. A preview that drew one would be teaching the
+                   wrong thing about the page it is previewing. #}
+                {% if system.toggleable %}
+                <span class="mock-switch" role="switch" aria-checked="true"
+                      aria-label="Preview switch for {{ system.name }}" tabindex="0">
+                  <span class="mock-switch__track"></span>
+                </span>
+                {% else %}
+                <span class="tag">always on</span>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+
+            {% elif page.id == 'commands' %}
+            <div class="mock__rows">
+              {% for command in commands[:5] %}
+              <div class="mock__row">
+                <code class="mock__row-code">{{ command.name }}</code>
+                <span class="mock__row-note">{{ command.system }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            <p class="mock__line mock__line--quiet">
+              Republish ran 4 minutes ago · Discord holds 87, three more than these switches say
+            </p>
+
+            {% else %}
+            <div class="mock__rows">
+              {% for point in page.points %}
+              <div class="mock__row">
+                <span class="mock__row-dot" aria-hidden="true"></span>
+                <span class="mock__row-name mock__row-name--soft">{{ point }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            <p class="mock__note hint">Sample data. A preview that reached a real server would be a
+              preview nobody should be allowed to click.</p>
+          </div>
+
+          <footer class="mock__foot">
+            <a class="arrow-link" href="{{ page.path }}">Open {{ page.path }}</a>
+          </footer>
+        </section>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 </section>
 

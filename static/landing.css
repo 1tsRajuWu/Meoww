@@ -306,26 +306,181 @@
 }
 
 /* --------------------------------------------------------------------------
-   The dashboard pages, as a table
+   The showcase: the dashboard's pages on the left, one of them rendered on the
+   right with sample data.
+
+   It is a real tablist rather than a set of links, because the rail is a control
+   that changes what the panel shows — and the panel says "sample data" in words,
+   because a preview that looks live and is not is the one thing this pattern can
+   get wrong.
    -------------------------------------------------------------------------- */
 
-.pages { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
-
-.pages__row {
+.showcase {
   display: grid;
-  grid-template-columns: minmax(10rem, 14rem) minmax(8rem, 11rem) minmax(0, 1fr);
-  gap: var(--space-5);
-  padding-block: var(--space-4);
-  border-bottom: 1px solid var(--line);
-  align-items: baseline;
+  grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
 }
 
-.pages__path { font-size: var(--text-small); color: var(--text-muted); }
-.pages__label { font-weight: 550; }
-.pages__blurb { color: var(--text-secondary); }
+.showcase__rail { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 
-@media (max-width: 860px) {
-  .pages__row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+.showcase__item {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: 0 var(--space-3);
+  align-items: baseline;
+  min-height: var(--tap-min);
+  padding: var(--space-3) var(--space-2);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.showcase__item:hover { color: var(--text-primary); background: var(--surface-hover); }
+
+.showcase__item[aria-selected="true"] { color: var(--text-primary); background: var(--surface-card); }
+.showcase__item[aria-selected="true"] .showcase__num { color: var(--accent); }
+
+.showcase__num { font-size: var(--text-small); color: var(--text-muted); }
+.showcase__label { font-weight: 550; }
+.showcase__path { grid-column: 2; font-size: var(--text-small); color: var(--text-muted); }
+
+.showcase__stage { min-width: 0; }
+
+/* The window the preview is drawn in — the reference's app frame, minus the
+   chrome a real window would have. */
+.mock {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  overflow: hidden;
+}
+
+.mock__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+
+.mock__body { padding: var(--space-5); }
+.mock__blurb { color: var(--text-secondary); max-width: 54ch; }
+
+.mock__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-4);
+  padding-block: var(--space-4);
+  border-block: 1px solid var(--line);
+  margin-bottom: var(--space-4);
+}
+
+.mock__tile { display: flex; flex-direction: column; gap: 2px; }
+.mock__tile-value { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.03em; }
+.mock__tile-label {
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.mock__rows { border-top: 1px solid var(--line); }
+
+.mock__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, auto);
+  gap: var(--space-4);
+  align-items: center;
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9375rem;
+}
+
+.mock__row-name { color: var(--text-primary); }
+.mock__row-name--soft { color: var(--text-secondary); }
+.mock__row-note { font-size: var(--text-small); color: var(--text-muted); white-space: nowrap; }
+.mock__row-code { font-size: var(--text-small); }
+
+.mock__row-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.mock__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.mock__line--quiet { color: var(--text-muted); }
+.mock__note { margin-top: var(--space-4); }
+
+.mock__foot {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+
+.mock__foot .arrow-link { font-size: var(--text-small); }
+
+/* A preview control: it moves because a switch that does nothing looks broken,
+   and it says it is a preview in the panel's own note. */
+.mock-switch { display: inline-flex; cursor: pointer; }
+
+.mock-switch__track {
+  width: 38px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line-strong);
+  position: relative;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.mock-switch__track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.mock-switch[aria-checked="true"] .mock-switch__track { background: rgb(var(--accent-rgb) / 22%); border-color: var(--accent); }
+.mock-switch[aria-checked="true"] .mock-switch__track::after { transform: translateX(18px); background: var(--accent); }
+
+@media (max-width: 900px) {
+  .showcase { grid-template-columns: minmax(0, 1fr); }
+  .showcase__rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-top: 0;
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: thin;
+  }
+  .showcase__item {
+    grid-template-columns: auto;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .showcase__path { display: none; }
 }
 
 /* --------------------------------------------------------------------------
