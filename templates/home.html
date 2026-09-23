@@ -1,322 +1,374 @@
-{#
-  The front door.
-
-  `/` used to redirect straight to a sign-in card, so the first thing a server
-  owner following an invite saw was a password box for a panel they had never
-  heard of. Then it became one long page that answered every question at once —
-  *what is this*, *what does it do*, *how do I get it*, *how do I sign in* — and
-  a reader who arrived with one of those four had to scroll past the other three
-  to find it. It is now the shortest of three pages and answers exactly one
-  question: **what is this thing.**
-
-  What is left here is the part that earns a front door: the headline and the
-  live status, what the deployment is doing right now, the shape of what is in it
-  as a count and a list of names, the shape of getting it in three lines, and the
-  one button. Everything with detail in it lives one click away — the systems
-  list and its demo on `/systems`, the steps and the ways in on `/start` — and
-  each teaser says where it went, so nothing is a dead end.
-
-  **Every number here is read, not written.** The figures come from the running
-  process (`_home_stats`), the feature registry, and the command tree; the systems
-  list *is* the registry, which is what stops this page advertising a module the
-  bot does not have. A number nobody can vouch for is left out rather than
-  guessed: on a host that sleeps, a cold start would otherwise render a confident
-  `0 servers`, which reads as a bot nobody uses rather than as a process that has
-  not woken up yet.
-
-  **The anchors moved with the content, but the old ones still land.** `#features`
-  and `#start` and `#ways-in` are the sections on *this* page (a count-and-list
-  teaser, a three-line teaser, and the signing-in line inside it), because those
-  ids are in links people have already pasted — `/#features` was in the pricing
-  page and in a test — and a fragment cannot be redirected by a server. So the
-  section a reader expected is still at that address; the full version is one
-  click further on.
-
-  The composition is the landing page's own (see the `body.landing` block in
-  `static/meow.css`): a full-height navy hero with a giant clip-masked headline, a
-  paper band, and the live figures as a numbered band. The motion is
-  `static/motion.js` — springs, clip-masked reveals and a curtain, all declared
-  here as `data-*` and all optional: with the script blocked, or under
-  `prefers-reduced-motion`, the page renders whole and static rather than blank.
-#}
 {% extends "site_base.html" %}
+{% block title %}{{ bot_name }} — the whole server, in one bot{% endblock %}
 
-{% block title %}{{ bot_name }} — moderation, leveling, tickets, a live market and a real-time dashboard{% endblock %}
+{% block page_css %}
+<link rel="stylesheet" href="/static/landing.css?v={{ asset_version('landing.css') }}">
+{% endblock %}
 
-{% block skip_target %}features{% endblock %}
-{% block skip_label %}Skip to what's in it{% endblock %}
+{% block body_class %}page-home{% endblock %}
 
-{% block loader %}
-    {#
-      The curtain. It is in the markup, not injected, so there is no flash of
-      the page underneath before the script runs; the CSS dismisses it on its
-      own after the maximum-visible mark, so a blocked script cannot strand a
-      visitor behind it.
+{% block page %}
+{# --------------------------------------------------------------------------
+   The hero. One claim, the state of the process that is making it, and two ways
+   onward — the invite, and the list that proves the claim.
+   -------------------------------------------------------------------------- #}
+<section class="hero band band--flush">
+  <div class="wrap hero__inner">
+    <div class="hero__copy">
+      <p class="eyebrow">{{ system_count }} systems · {{ command_count }} commands · per server switches</p>
+      <h1 class="hero__title">
+        Everything a Discord server needs,
+        <span class="hero__title-accent">in one bot nobody has to babysit.</span>
+      </h1>
+      <p class="lede">
+        Moderation that writes down what it did, tickets, levels, an economy, radio that
+        plays without asking a media platform for permission, and a live market that trades
+        in the same coins — every one of them switchable per server, from a dashboard that
+        answers in one page rather than one scroll.
+      </p>
 
-      Front door only, and that is a decision rather than an oversight: a curtain
-      is a first-impression device. Playing it over every internal navigation is a
-      toll on the visitor, not a flourish for them.
-    #}
-    <div class="lp-loader" data-loader aria-hidden="true">
-        <div class="lp-loader-inner">
-            <div class="lp-loader-word">
-                <img src="/static/logo.svg" alt="">
-                <span>{{ bot_name }}</span>
-            </div>
-            <div class="lp-loader-track"><span class="loader-fill"></span></div>
-        </div>
+      <div class="row hero__actions">
+        {% if invite_url %}
+        <a class="btn btn--primary" href="{{ invite_url }}">Add it to a server</a>
+        <a class="btn btn--ghost" href="{{ invite_limited_url }}">Add with fewer permissions</a>
+        {% else %}
+        <a class="btn btn--primary" href="{{ enter_url }}">{{ enter_label }}</a>
+        {% endif %}
+        <a class="btn btn--ghost" href="#systems">See what is inside</a>
+      </div>
+
+      <p class="hero__enter">
+        Already running it? <a href="{{ enter_url }}">{{ enter_label }}</a> to the dashboard
+        {% if oauth_enabled %}with Discord{% endif %} — or open the <a href="/hub">hub</a>.
+      </p>
     </div>
+
+    <aside class="hero__state card card--raise" aria-labelledby="state-heading">
+      <div class="card__head">
+        <h2 class="card__title" id="state-heading">
+          <span class="dot {{ status.dot }}" aria-hidden="true"></span>
+          Right now
+        </h2>
+        <span class="pill {{ status.class }}">{{ status.label }}</span>
+      </div>
+      <p class="card__body">{{ status.detail }}</p>
+
+      <dl class="figures figures--hero">
+        {% for figure in stats %}
+        <div class="figure">
+          <dd class="figure__value" data-count="{{ figure.value }}">{{ figure.value }}</dd>
+          <dt class="figure__label">{{ figure.label }}</dt>
+        </div>
+        {% endfor %}
+      </dl>
+
+      <p class="card__foot">
+        Counted from the registry this deployment is running, not from a marketing page —
+        and a figure that was never read is left out rather than printed as zero.
+      </p>
+    </aside>
+  </div>
+</section>
+
+{# The strip: real command names, drawn twice so the loop has no seam. It is
+   decorative, so it says so and takes no focus. #}
+<section class="ticker" aria-hidden="true">
+  <div class="ticker__track">
+    {% for pass in range(2) %}
+    <div class="ticker__run">
+      {% for name in ticker_commands %}
+      <span class="ticker__item">{{ name }}</span>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   The explorer: every system, filtered, and each one opening in place.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="systems">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="eyebrow">What is inside</p>
+        <h2>{{ systems | length }} systems, one switch each</h2>
+      </div>
+      <p class="lede small">
+        Every card below is read out of the bot's own registry, so this page cannot
+        advertise a system the bot does not have.
+      </p>
+    </div>
+
+    <div class="explorer" data-explorer>
+      <div class="explorer__bar">
+        <label class="field explorer__search">
+          <span class="field__label">Find a system</span>
+          <input class="input" type="search" id="system-search" data-explorer-search
+                 placeholder="economy, moderation, radio…" autocomplete="off">
+        </label>
+        <div class="chips" role="group" aria-label="Filter by kind">
+          <button class="chip" type="button" data-explorer-kind="" aria-pressed="true">
+            All <span class="chip__count">{{ switchable_count }}</span>
+          </button>
+          {% for category in categories %}
+          <button class="chip" type="button" data-explorer-kind="{{ category.name }}" aria-pressed="false">
+            {{ category.name }} <span class="chip__count">{{ category.count }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <p class="explorer__status small muted" data-explorer-status role="status">
+        Showing all {{ systems | length }} systems.
+      </p>
+
+      <ul class="explorer__list">
+        {% for system in systems %}
+        <li class="system" data-system data-kind="{{ system.category }}"
+            data-search="{{ system.name }} {{ system.category }} {{ system.id }} {{ system.desc }}">
+          <div class="system__row">
+            <span class="system__icon" aria-hidden="true">{{ system.icon }}</span>
+            <span class="system__name">{{ system.name }}</span>
+            <span class="tag">{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
+            <span class="tag">{{ system.category }}</span>
+            <span class="tag {{ 'tag--solid' if system.toggleable else '' }}">
+              {{ 'per server' if system.toggleable else 'always on' }}
+            </span>
+            <button class="btn btn--quiet system__toggle" type="button"
+                    data-drawer aria-controls="system-{{ system.id }}" aria-expanded="false">
+              What it does
+            </button>
+          </div>
+          <div class="drawer" id="system-{{ system.id }}" data-open="false">
+            <div class="drawer__inner">
+              <div class="system__detail">
+                <p>{{ system.desc }}</p>
+                {% if system.commands %}
+                <div class="system__commands">
+                  {% for command in system.commands %}
+                  <code>{{ command }}</code>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="hint">This one has no commands of its own — it works behind the others.</p>
+                {% endif %}
+                {% if system.toggleable %}
+                <p class="hint">
+                  Switching it off removes those {{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}
+                  from that one server's picker. No other server notices.
+                </p>
+                {% else %}
+                <p class="hint">Always on: there is no switch, because nothing else can work without it.</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <p class="explorer__empty hint" hidden data-explorer-empty>
+        Nothing matches that. Every system is still there — clear the box to see them.
+      </p>
+    </div>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   The console: every command a person can type, searchable, each one saying
+   which system gates it and where that switch lives.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="commands">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="eyebrow">What you can type</p>
+        <h2>{{ entry_count }} commands, and the system behind each one</h2>
+      </div>
+      <p class="lede small">
+        A count is where this kind of page usually stops being true, so both numbers are
+        printed: {{ command_count }} commands as a picker counts them — a group is one
+        command — over the {{ entry_count }} things you can actually type, subcommands
+        included.
+      </p>
+    </div>
+
+    <label class="field console__search">
+      <span class="field__label">Find a command</span>
+      <input class="input" type="search" id="command-search" data-command-search
+             placeholder="/market, level, ticket…" autocomplete="off">
+    </label>
+
+    <p class="console__status small muted" data-command-status role="status">
+      Showing all {{ commands | length }} entries.
+    </p>
+
+    <ul class="console__list" data-command-list>
+      {% for command in commands %}
+      <li class="command" data-command data-search="{{ command.search }}">
+        <div class="command__name">
+          <code>{{ command.name }}</code>
+        </div>
+        <div class="command__blurb">{{ command.blurb }}</div>
+        <div class="command__where">
+          <span class="tag">{{ command.icon }} {{ command.system }}</span>
+          <button class="btn btn--quiet" type="button" data-copy="{{ command.name }}"
+                  data-copy-label="Copied">Copy</button>
+        </div>
+        <div class="command__scope small muted">
+          {{ command.scope }} ·
+          {% if command.scope == 'per server' %}
+          <a href="{{ command.toggle }}">switch it here</a>
+          {% else %}
+          nothing to switch
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   The dashboard, walked as its real pages.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="dashboard">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="eyebrow">The dashboard</p>
+        <h2>{{ tour | length }} pages, one for each thing you came to change</h2>
+      </div>
+      <p class="lede small">
+        Not one long scroll: the rail is the pages, the server sets which one you are on,
+        and each page loads only its own listeners.
+      </p>
+    </div>
+
+    <ul class="tour grid grid--2">
+      {% for page in tour %}
+      <li class="card card--raise tour__card" data-reveal>
+        <div class="card__head">
+          <h3 class="card__title">
+            <span class="card__icon" aria-hidden="true">{{ page.icon }}</span>
+            {{ page.label }}
+          </h3>
+          <code>{{ page.path }}</code>
+        </div>
+        <p class="card__body">{{ page.blurb }}</p>
+        {% if page.points %}
+        <ul class="tour__points">
+          {% for point in page.points %}
+          <li>{{ point }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   Getting in.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="start">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="eyebrow">Getting it running</p>
+        <h2>Three steps, and one of them is a click</h2>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li class="step" data-reveal>
+        <span class="step__number" aria-hidden="true">1</span>
+        <h3 class="step__title">Put it in the server</h3>
+        <p class="step__body">
+          {% if invite_url %}
+          <a href="{{ invite_url }}">The invite</a> asks for Administrator, because one
+          permission bit is how a feature never arrives as “Missing Permissions”.
+          {% if invite_limited_url %}
+          <a href="{{ invite_limited_url }}">The least-privilege link</a> is beside it for
+          anybody who would rather grant exactly what is used.
+          {% endif %}
+          {% else %}
+          This deployment has no invite link configured yet.
+          {% endif %}
+        </p>
+      </li>
+      <li class="step" data-reveal>
+        <span class="step__number" aria-hidden="true">2</span>
+        <h3 class="step__title">Open the dashboard</h3>
+        <p class="step__body">
+          Run <code>/help</code> and press the dashboard button, or
+          <a href="{{ enter_url }}">{{ enter_label }}</a>
+          {%- if oauth_enabled %} — a Discord sign-in keeps only the servers where you hold
+          Manage Server, and only while you still do{% endif %}. Every server-scoped route
+          re-checks that list on each request.
+        </p>
+      </li>
+      <li class="step" data-reveal>
+        <span class="step__number" aria-hidden="true">3</span>
+        <h3 class="step__title">Switch off what you do not want</h3>
+        <p class="step__body">
+          {{ switchable_count }} of the {{ systems | length }} systems have a switch. Turning
+          one off removes its commands from that server's picker and nothing else — the
+          other servers, and the systems that depend on it, are untouched.
+        </p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   The six things a visitor asks before trusting a bot with a server.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="questions">
+  <div class="wrap wrap--narrow">
+    <div class="band__head">
+      <div>
+        <p class="eyebrow">Before you add it</p>
+        <h2>Questions that get asked every time</h2>
+      </div>
+    </div>
+
+    <ul class="faq">
+      {% for item in faq %}
+      <li class="faq__item">
+        <button class="faq__question" type="button" data-drawer
+                aria-controls="faq-{{ loop.index }}" aria-expanded="false">
+          <span>{{ item.question }}</span>
+          <span class="faq__mark" aria-hidden="true">+</span>
+        </button>
+        <div class="drawer" id="faq-{{ loop.index }}" data-open="false">
+          <div class="drawer__inner">
+            <p class="faq__answer">{{ item.answer }}</p>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="band band--closing">
+  <div class="wrap row row--between">
+    <div>
+      <h2>Add it, look at the dashboard, switch off what you do not want.</h2>
+      <p class="lede">Nothing here needs a payment method, and no switch is global by accident.</p>
+    </div>
+    <div class="row">
+      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
+      <a class="btn btn--ghost" href="/systems">Every system, in detail</a>
+    </div>
+  </div>
+</section>
 {% endblock %}
 
-{% block main %}
-    <main class="lp">
-        {# ------------------------------------------------------------------ #}
-        {# Hero                                                               #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-band lp-hero">
-            <div class="lp-plate" aria-hidden="true">
-                <div class="lp-plate-layer" data-parallax="0,12">
-                    <span class="lp-plate-grid"></span>
-                    <img class="lp-plate-mark" src="/static/logo.svg" alt="">
-                </div>
-            </div>
-
-            {% include "site_header.html" %}
-
-            <div class="lp-hero-title">
-                {# Words are split into clip masks by the script; the sentence here
-                   is the sentence a reader — and a test — sees. #}
-                <h1 class="lp-display" data-fit="12.5" data-text-reveal="words"
-                    data-stagger="140" data-duration="1100">
-                    Own your server
-                </h1>
-            </div>
-
-            <div class="lp-hero-bottom">
-                <p class="lp-tagline" data-lines data-base-delay="350" data-stagger="110" data-duration="900">
-                    {# The product's own count, from the registry — not the length of
-                       the card list below, which is the *switchable* subset and was
-                       how this page came to advertise eleven of twelve systems. #}
-                    <span class="line"><span class="line-inner">{{ system_count }} systems,</span></span>
-                    <span class="line"><span class="line-inner">one dashboard</span></span>
-                </p>
-
-                <div class="lp-hero-cluster">
-                    <div class="lp-glass lp-status-card" data-reveal data-reveal-delay="650">
-                        <span class="pill {{ status.class }}">
-                            <span class="dot {{ status.dot }}" aria-hidden="true"></span>{{ status.label }}
-                        </span>
-                        <p>{{ status.detail }}</p>
-                    </div>
-                    <div class="lp-glass lp-figure-card" data-reveal data-reveal-delay="780">
-                        <div>
-                            <b>{{ system_count }}</b>
-                            <span>systems</span>
-                            <p class="lp-figure-dots" aria-hidden="true">
-                                {# The theme's own accent, by reference: written out as hex
-                                   these four dots were a fifth copy of the palette and the
-                                   only part of the hero a theme could not reach. #}
-                                <i style="background:var(--accent)"></i>
-                                <i style="background:var(--accent-text)"></i>
-                                <i style="background:#2b2b33"></i>
-                                <i style="background:#f4f2ef"></i>
-                            </p>
-                        </div>
-                        <div style="display:flex; align-items:flex-end">
-                            <span>each switched on or off per server</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# Ghost words — the system's own promise, oversized and quiet        #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-ghost" aria-label="Switch anything off">
-            <div data-lines data-base-delay="120" data-stagger="120" data-duration="700">
-                <div class="lp-ghost-row">
-                    <span class="line" data-parallax-x="-2,2"><span class="line-inner">Switch</span></span>
-                    <span class="line" data-parallax-x="2,-2"><span class="line-inner">it</span></span>
-                </div>
-                <div class="lp-ghost-row">
-                    <span class="line" data-parallax-x="-1.5,2.5"><span class="line-inner accent">off</span></span>
-                    <span class="line" data-parallax-x="2.5,-2"><span class="line-inner">anytime</span></span>
-                </div>
-            </div>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# The figures, as they stand                                         #}
-        {# ------------------------------------------------------------------ #}
-        {# Server-rendered on purpose, and *not* wired to `figures.js`: the numbers
-           here are counted up by `motion.js`, which captures each value, animates
-           it and restores what it captured — so a live refresh writing into these
-           `<dd>`s would be overwritten by the count-up's last frame with the
-           figure the page was built with. The live, re-readable version of these
-           same counts is the two panels on `/systems`, which is where a reader who
-           wants to watch them has gone to look. #}
-        <section class="lp-band lp-deep lp-section lp-inner" aria-label="Live figures">
-            <span class="lp-eyebrow on-dark">Right now</span>
-            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
-                <span class="line"><span class="line-inner">The numbers</span></span>
-            </h2>
-            <dl class="lp-stats">
-                {% for stat in stats %}
-                {# A real term and definition, in that order in the markup, with the
-                   CSS putting the figure above its label. The first version hid the
-                   <dt> and repeated the label in the <dd> — which read as
-                   "systems 11 systems" both to a screen reader and, because the
-                   utility that hides it was never defined here, to everybody. #}
-                <div class="lp-stat" data-reveal data-reveal-delay="{{ loop.index0 * 110 }}">
-                    <dt>{{ stat.label }}</dt>
-                    <dd>{{ stat.value }}</dd>
-                </div>
-                {% endfor %}
-            </dl>
-            <p class="lp-lede" style="margin-top: 1.5rem">
-                Live from the running bot. Details on <a href="/systems">the systems page</a>.
-            </p>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# What's in it — the count, the names, and where the detail went      #}
-        {# ------------------------------------------------------------------ #}
-        {# The id is `features` because it always has been: `/systems#features` is
-           the full list, and this is that address's front door. #}
-        <section class="lp-band lp-paper lp-section lp-inner" id="features">
-            <div class="lp-paper-head">
-                <span class="lp-eyebrow">What's in it</span>
-                {# Two numbers about one word, both labelled, because the alternative is
-                   what this page used to do: print the switchable count as if it were
-                   the total, and disagree with the hub a click away. The always-on
-                   system is the difference, and the hub's own systems page names it. #}
-                <h2 class="lp-h2" data-lines data-base-delay="0" data-stagger="120" data-duration="950">
-                    <span class="line"><span class="line-inner">{{ system_count }} systems,</span></span>
-                    <span class="line"><span class="line-inner">{{ features|length }} of them switchable</span></span>
-                </h2>
-                <p>
-                    Switch any system off per server. The list is the bot's own registry.
-                </p>
-                {# The heading is the total and the grid is the switchable subset, so the
-                   difference is named rather than left to be counted. The name comes
-                   from the registry (`always_on`, read by `/systems` too), which is what
-                   keeps the two pages saying the same thing about the same system. #}
-                <p class="lp-teaser-note">
-                    Plus <b>{{ always_on|join(", ") }}</b> — always on.
-                </p>
-            </div>
-
-            {# Names only. The commands, the descriptions and the demo that proves the
-               claim above are all on `/systems`; a front door that printed every
-               system's command list was the reason this page needed splitting. #}
-            <ul class="lp-teaser">
-                {% for feature in features %}
-                <li data-reveal data-reveal-delay="{{ (loop.index0 % 6) * 60 }}">
-                    <span class="lp-teaser-icon" aria-hidden="true">{{ feature.icon }}</span>
-                    <span class="lp-teaser-name">{{ feature.name }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-
-            <div class="lp-more">
-                <a class="btn btn-primary" href="/systems" data-hover="y:-2">See all {{ system_count }} systems</a>
-                <span class="dim">Commands, toggles, and a live demo.</span>
-            </div>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# Get started — three lines, and the page that has the detail         #}
-        {# ------------------------------------------------------------------ #}
-        <section class="lp-section lp-inner" id="start">
-            <span class="lp-eyebrow on-dark">Get started</span>
-            <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="120">
-                <span class="line"><span class="line-inner">Three steps,</span></span>
-                <span class="line"><span class="line-inner">about five minutes</span></span>
-            </h2>
-
-            <ol class="lp-steps">
-                <li data-reveal data-reveal-delay="0">
-                    <span class="lp-step-num">1</span>
-                    <div>
-                        <h3>Add the bot</h3>
-                        <p>One click. One permission.</p>
-                    </div>
-                </li>
-                <li data-reveal data-reveal-delay="120">
-                    <span class="lp-step-num">2</span>
-                    <div>
-                        <h3>Run <code>/help</code></h3>
-                        <p>See your commands and sign in.</p>
-                    </div>
-                </li>
-                <li data-reveal data-reveal-delay="240">
-                    <span class="lp-step-num">3</span>
-                    <div>
-                        <h3>Switch off what you don't want</h3>
-                        <p>Toggle per server.</p>
-                    </div>
-                </li>
-            </ol>
-
-            {# `ways-in` belongs here, not nowhere: the id is in links that were
-               pasted while this page was the only one, and `#start` is the section
-               about getting in. `/start#ways-in` has the long version. #}
-            <div class="lp-more" id="ways-in">
-                <a class="btn btn-primary" href="/start" data-hover="y:-2">How to set it up</a>
-                <span class="dim">
-                    Invites, sign-in, permissions — on <a href="/start#ways-in">one page</a>.
-                </span>
-            </div>
-        </section>
-
-        {# ------------------------------------------------------------------ #}
-        {# Where to add it                                                     #}
-        {# ------------------------------------------------------------------ #}
-        {# The closing call to action, and it says the thing this page is actually
-           for: everything above arrives with the bot, and every system in it can be
-           switched off afterwards. This band used to be a **plans** band — an
-           eyebrow reading *Plans* and a chip naming a tier — on a page where
-           nothing is for sale. The commercial question lives on `/pricing`, which
-           already answers it in as many words as it deserves. #}
-        <section class="lp-band lp-deep lp-section lp-inner" id="add" data-cta>
-            <div class="lp-cta">
-                <div>
-                    <span class="lp-eyebrow on-dark">Where to add it</span>
-                    <h2 class="lp-h2" style="margin-top: 1rem" data-lines data-base-delay="0" data-stagger="110">
-                        <span class="line"><span class="line-inner">Everything above</span></span>
-                        <span class="line"><span class="line-inner">arrives with the bot</span></span>
-                    </h2>
-                    <p class="lp-lede" style="margin-top: 1.25rem">                No downloads. Add the bot and everything's in your server.
-                    </p>
-                </div>
-                <div style="display:grid; gap:0.75rem">
-                    {% if invite_url %}
-                    <a class="btn btn-primary" href="{{ invite_url }}" data-hover="y:-2">Add {{ bot_name }} to your server</a>
-                    {% endif %}
-                    {% if invite_limited_url %}
-                    <a class="btn" href="{{ invite_limited_url }}" data-hover="y:-2">
-                        Add it with limited permissions
-                    </a>
-                    <p class="dim" style="margin:0; font-size:0.875rem">
-                        Same bot, fewer permissions asked.
-                    </p>
-                    {% endif %}
-                    {# The support link, on the front door as well as in the menu and
-                       the footer (``site_base.html`` has it in both). Guarded, so a
-                       deployment with no support address renders no link rather
-                       than a dead one — the same rule every other optional link on
-                       this page follows. #}
-                    {% if kofi_url %}
-                    <a class="btn" href="{{ kofi_url }}" target="_blank" rel="noopener"
-                       data-hover="y:-2">☕ Buy me a coffee</a>
-                    <p class="dim" style="margin:0; font-size:0.875rem">
-                        Voluntary, and never required: nothing here is locked behind it.
-                    </p>
-                    {% endif %}
-                </div>
-            </div>
-        </section>
-    </main>
+{% block page_js %}
+<script type="application/json" id="landing-explorer">{{ explorer_json | safe }}</script>
+<script src="/static/landing.js?v={{ asset_version('landing.js') }}" defer></script>
 {% endblock %}
-

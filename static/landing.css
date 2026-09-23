@@ -1,0 +1,362 @@
+/* ==========================================================================
+   landing.css — the front door's own sheet.
+
+   It loads *after* `meow.css` and only adds what is particular to one page:
+   the hero, the command strip, the systems explorer, the command list, the
+   dashboard tour, the steps and the questions. Everything it uses for colour,
+   type, space and motion is a token from the shared sheet — which is what keeps
+   a change of palette a one-line change in one file.
+
+   Two rules shaped the layout, and both are here rather than in a component:
+
+     * A row of two columns states the first column's share. A flex or grid item
+       with no basis is sized by its content, so the sentence takes the row and
+       the name collapses to its longest word.
+     * A strip that scrolls forever is drawn twice and hidden from the reader:
+       nobody wants the command list read aloud at them, and the second copy is
+       what makes the loop seamless.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   The hero
+   -------------------------------------------------------------------------- */
+
+.hero { padding-block: var(--space-9) var(--space-8); }
+
+.hero__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
+  gap: var(--space-7);
+  align-items: start;
+}
+
+.hero__title {
+  font-size: clamp(var(--text-h1), 5.4vw, var(--text-display));
+  margin-block: var(--space-4) var(--space-5);
+  max-width: 22ch;
+}
+
+.hero__title-accent {
+  display: block;
+  color: var(--accent-text);
+}
+
+.hero__copy .lede { font-size: 1.0625rem; }
+
+.hero__actions { margin-top: var(--space-5); }
+
+.hero__enter {
+  margin-top: var(--space-5);
+  font-size: var(--text-small);
+  color: var(--text-muted);
+}
+
+.hero__state { position: sticky; top: calc(var(--top-h) + var(--space-5)); }
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-5) 0 0;
+}
+
+.figures--hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.figure { display: flex; flex-direction: column-reverse; gap: var(--space-1); }
+
+.figure__value {
+  margin: 0;
+  font-size: var(--text-h2);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.figure__label {
+  font-size: var(--text-small);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .hero__inner { grid-template-columns: minmax(0, 1fr); }
+  .hero__state { position: static; }
+}
+
+/* --------------------------------------------------------------------------
+   The command strip
+   -------------------------------------------------------------------------- */
+
+.ticker {
+  overflow: hidden;
+  border-block: 1px solid var(--line);
+  background: var(--surface-sunken);
+  padding-block: var(--space-3);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.ticker__track { display: flex; width: max-content; animation: ticker-run 54s linear infinite; }
+
+.ticker__run { display: flex; gap: var(--space-6); padding-right: var(--space-6); }
+
+.ticker__item {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--text-small);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ticker__item::before { content: "› "; color: var(--accent); }
+
+@keyframes ticker-run {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* --------------------------------------------------------------------------
+   The systems explorer
+   -------------------------------------------------------------------------- */
+
+.explorer__bar {
+  display: grid;
+  grid-template-columns: minmax(240px, 22rem) 1fr;
+  gap: var(--space-5);
+  align-items: end;
+  margin-bottom: var(--space-4);
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-small);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+
+.chip:hover { border-color: var(--line-strong); color: var(--text-primary); }
+
+.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 14%);
+  color: var(--accent-text);
+}
+
+.chip__count { font-variant-numeric: tabular-nums; opacity: 0.75; }
+
+.explorer__status { margin-bottom: var(--space-3); }
+.explorer__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+
+.system {
+  background: var(--surface-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color var(--fast) var(--ease);
+}
+
+.system:hover { border-color: var(--line-strong); }
+.system[hidden] { display: none; }
+
+.system__row {
+  display: grid;
+  grid-template-columns: 2rem minmax(9rem, 14rem) repeat(3, minmax(0, max-content)) 1fr;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+}
+
+.system__icon { font-size: 1.15rem; text-align: center; }
+.system__name { font-weight: 600; }
+.system__toggle { justify-self: end; }
+
+.system__detail {
+  padding: var(--space-4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.system__detail p { max-width: var(--measure); }
+
+.system__commands { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.system__commands code { font-size: var(--text-small); }
+
+.explorer__empty { margin-top: var(--space-4); }
+
+@media (max-width: 760px) {
+  .explorer__bar { grid-template-columns: minmax(0, 1fr); }
+  .system__row { grid-template-columns: 2rem 1fr; }
+  .system__toggle { grid-column: 2; justify-self: start; }
+}
+
+/* --------------------------------------------------------------------------
+   The command list
+   -------------------------------------------------------------------------- */
+
+.console__search { max-width: 26rem; margin-bottom: var(--space-3); }
+.console__status { margin-bottom: var(--space-4); }
+
+.console__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.command {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr) minmax(0, max-content);
+  grid-template-areas:
+    "name blurb where"
+    "name scope scope";
+  gap: var(--space-1) var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  align-items: baseline;
+}
+
+.command[hidden] { display: none; }
+
+.command__name { grid-area: name; }
+.command__name code { font-size: var(--text-small); color: var(--accent-text); }
+.command__blurb { grid-area: blurb; color: var(--text-secondary); }
+.command__where { grid-area: where; display: flex; align-items: center; gap: var(--space-2); }
+.command__scope { grid-area: scope; }
+
+@media (max-width: 860px) {
+  .command {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "name" "blurb" "where" "scope";
+    gap: var(--space-2);
+  }
+  .command__where { justify-content: space-between; }
+}
+
+/* --------------------------------------------------------------------------
+   The dashboard tour
+   -------------------------------------------------------------------------- */
+
+.tour { list-style: none; margin: 0; padding: 0; }
+
+.tour__card { display: flex; flex-direction: column; }
+
+.tour__points {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+  color: var(--text-muted);
+}
+
+.tour__points li { display: flex; gap: var(--space-2); }
+
+.tour__points li::before {
+  content: "→";
+  color: var(--accent);
+  flex: none;
+}
+
+/* --------------------------------------------------------------------------
+   The steps
+   -------------------------------------------------------------------------- */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-5);
+  counter-reset: step;
+}
+
+.step {
+  position: relative;
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--line);
+}
+
+.step__number {
+  position: absolute;
+  top: calc(-1 * var(--space-4));
+  left: 0;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-invert);
+  font-weight: 700;
+  font-size: var(--text-small);
+}
+
+.step__title { margin-bottom: var(--space-2); }
+.step__body { color: var(--text-secondary); max-width: var(--measure-tight); }
+
+/* --------------------------------------------------------------------------
+   The questions
+   -------------------------------------------------------------------------- */
+
+.faq { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+
+.faq__item {
+  background: var(--surface-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.faq__question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-4) var(--space-5);
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.faq__question:hover { background: var(--surface-hover); }
+
+.faq__mark {
+  font-size: 1.25rem;
+  color: var(--accent);
+  transition: transform var(--fast) var(--ease);
+}
+
+.faq__question[aria-expanded="true"] .faq__mark { transform: rotate(45deg); }
+
+.faq__answer {
+  margin: 0;
+  padding: 0 var(--space-5) var(--space-5);
+  color: var(--text-secondary);
+  max-width: var(--measure);
+}
+
+/* The one band that is not separated by a rule: it closes the page. */
+.band--closing { border-top: 1px solid var(--line); background: var(--surface-sunken); }

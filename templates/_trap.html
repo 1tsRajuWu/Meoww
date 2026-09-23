@@ -1,19 +1,21 @@
-{#
-  The honeytoken link.
+{# ==========================================================================
+   _trap.html — the two paths no person is ever sent to.
 
-  A single anchor, off-screen, on every page whose footer includes this file. It
-  is the one link in this repository that visitors never see and are never meant
-  to: it is disallowed in `robots.txt` for every agent, absent from the sitemap,
-  `tabindex="-1"` so no keyboard user can land on it, `aria-hidden` so no screen
-  reader can read it, and its target answers with a decoy that says what it is.
-  Nothing legitimate follows it; anything that does is a collector that reads
-  markup and ignores directives, which is a fact worth having in writing.
+   `utils/ai_guard` publishes them in `robots.txt` and `ai.txt`, and the guard
+   answers a declared crawler with a decoy plus a row in `net_guard_events`.
+   They appear here for exactly one reason: a directive that lists a path which
+   is linked from nowhere is a directive a crawler can ignore as a mistake, and
+   one that is *linked* — off-screen, out of the tab order, `nofollow` — is the
+   shape a real site's link graph has.
 
-  Written as literal markup rather than generated, and pinned by
-  `tests/test_ai_guard.py`: the href must equal `ai_guard.HONEYTOKENS[0][0]`, and
-  that path must be `Disallow`ed in the file `ai_guard.robots_txt()` produces. A
-  trap nobody can look up is a trap with a broken href, and a trap whose path the
-  directives allow is a link a well-behaved crawler may follow — both are caught
-  by the test rather than discovered in a log months later.
-#}
-<a class="trap-link" href="/api/_index/entities.json" tabindex="-1" aria-hidden="true">internal page index (automated readers only)</a>
+   Every attribute here is load-bearing:
+     * `tabindex="-1"` and `aria-hidden` so a keyboard user never lands on one;
+     * `nofollow` so a legitimate crawler that follows links is not punished for
+       a path this project listed on purpose;
+     * `class="trap"` so the sheet keeps them off the page without `display:
+       none`, which some collectors treat as "do not follow" and skip.
+   ========================================================================== #}
+<div class="trap" aria-hidden="true">
+  <a href="/api/_index/entities.json" rel="nofollow" tabindex="-1">Entity index</a>
+  <a href="/_corpus/training.jsonl" rel="nofollow" tabindex="-1">Corpus export</a>
+</div>

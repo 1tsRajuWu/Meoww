@@ -18,7 +18,7 @@ from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
 from utils import figures, webdocs
 
 ROOT = Path(__file__).resolve().parent.parent
-PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market_live.html", "pricing.html")
+PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market.html", "pricing.html")
 
 #: The three that share a layout. They reach the stylesheet and the reveal script
 #: through `site_base.html`, so what is asserted of them is that they reach it.
@@ -383,19 +383,27 @@ class TheSiteIsOneDesign(unittest.TestCase):
     def test_a_button_in_the_nav_keeps_a_legible_label(self):
         """Found by looking at the page: the nav's link colour won.
 
-        ``.site-nav a`` (a class *and* a type) outranks ``.btn-primary`` (a
-        class), so "Add to Discord" rendered its label in the nav's grey on the
-        accent fill — about 2.2:1, on the primary call to action.
+        ``.nav a`` (a class *and* a type) outranks ``.btn--primary`` (a class), so
+        "Add to Discord" rendered its label in the nav's grey on the accent fill —
+        about 2.2:1, on the primary call to action.
         """
         sheet = (ROOT / "static" / "meow.css").read_text(encoding="utf-8")
-        self.assertIn(".site-nav a.btn {", sheet)
+        self.assertIn(".nav a.btn {", sheet)
+        self.assertIn(".nav a.btn--primary {", sheet)
+        self.assertIn("color: var(--text-invert)", sheet.split(".nav a.btn--primary {")[1])
 
     def test_motion_is_switched_off_when_it_is_asked_to_be(self):
         sheet = (ROOT / "static" / "meow.css").read_text(encoding="utf-8")
         self.assertIn("prefers-reduced-motion: reduce", sheet)
-        # And the entrance must not leave the content invisible once its
-        # animation is suppressed to nothing.
-        self.assertIn(".reveal {", sheet.split("prefers-reduced-motion: reduce")[1])
+        # And the entrance must not leave the content invisible once its animation
+        # is suppressed to nothing: the *resting* state of a revealed block is
+        # visible, and only the script — which refuses to run under a reduced-motion
+        # preference — ever marks one as waiting.
+        resting = sheet.split("[data-reveal]")[1].split("}")[0]
+        self.assertIn("opacity: 1", resting)
+        self.assertIn("transform: none", resting)
+        motion = (ROOT / "static" / "motion.js").read_text(encoding="utf-8")
+        self.assertIn("if (reduced.matches || !(\"IntersectionObserver\" in window)) return;", motion)
 
 
 class TheHarnessServesTheRealPages(unittest.TestCase):
