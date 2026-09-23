@@ -28,37 +28,40 @@
    -------------------------------------------------------------------------- */
 
 :root {
-  /* The page, and the two surfaces that sit on it. The card is the only thing
-     that is allowed to look raised; a third surface turns a page into a
-     diagram. */
-  --bg: #0b0f14;
-  --bg-deep: #070a0e;
-  --surface-card: #141b24;
-  --surface-sunken: #0e141b;
-  --surface-hover: #1b2430;
+  /* Paper. The default is light and warm rather than dark and blue: a product
+     page is read in the morning as often as at midnight, and a light page with
+     one loud accent reads as *a page*, not as a terminal. The two other themes
+     below are choices, not the house style. */
+  --bg: #f7f5f1;
+  --bg-deep: #efece6;
+  --surface-card: #ffffff;
+  --surface-sunken: #f4f1ec;
+  --surface-hover: #ece8e1;
 
   /* Text, in three weights of importance and nothing else. */
-  --text-primary: #e8eef6;
-  --text-secondary: #b9c6d4;
-  --text-muted: #8a99ab;
-  --text-invert: #0b0f14;
+  --text-primary: #131519;
+  --text-secondary: #3d434c;
+  --text-muted: #666d78;
+  --text-invert: #ffffff;
 
-  /* The one accent, in the three shapes it is needed: a fill, the same colour
-     as text, and a low-alpha wash for a selected row. */
-  --accent: #f59e0b;
-  --accent-text: #ffd08a;
-  --accent-rgb: 245 158 11;
+  /* The one accent: a coral that is loud enough to be a button and dark enough
+     to be a sentence. `--accent` is the fill and the ring; `--accent-text` is the
+     shade anything *written* in the accent uses, because a fill and a line of
+     text are different jobs and one number cannot pass both floors. */
+  --accent: #e0483a;
+  --accent-text: #b3261e;
+  --accent-rgb: 224 72 58;
 
   /* States report a state or they are decoration. Nothing here is ever used to
      make something look nice. */
-  --good: #4ade80;
-  --warn: #fbbf24;
-  --danger: #f87171;
+  --good: #15803d;
+  --warn: #a16207;
+  --danger: #b91c1c;
 
   /* Lines: a hairline for a separator, a stronger one for an edge that has to
-     be seen. */
-  --line: #22303d;
-  --line-strong: #35485a;
+     be seen. Both are warm, so a rule never looks like a bruise on paper. */
+  --line: #e3ded5;
+  --line-strong: #c9c2b6;
 
   /* Type. The root size is `--text-body` — a sheet that sets a root size from a
      token is a sheet whose whole scale moves when the token moves. */
@@ -70,16 +73,18 @@
   --text-display: 3rem;
   --text-mega: 3.75rem;
 
-  /* Space, on a 4px grid. */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
-  --space-8: 64px;
-  --space-9: 96px;
+  /* Space. It is deliberately generous at the top end: the page's job is to be
+     read, and the cheapest way to make a dense product look like a wall is to
+     save four pixels on every gap. */
+  --space-1: 6px;
+  --space-2: 10px;
+  --space-3: 14px;
+  --space-4: 20px;
+  --space-5: 30px;
+  --space-6: 44px;
+  --space-7: 64px;
+  --space-8: 88px;
+  --space-9: 128px;
 
   /* Corners, three sizes and no more. */
   --radius-sm: 8px;
@@ -88,7 +93,7 @@
   --radius-pill: 999px;
 
   /* One shadow, for the one thing that floats. */
-  --shadow: 0 18px 40px rgb(0 0 0 / 45%);
+  --shadow: 0 16px 38px rgb(19 21 25 / 12%);
 
   /* Fitts's law, as a number: anything a finger is meant to hit. */
   --tap-min: 44px;
@@ -114,46 +119,46 @@
 /* A theme redefines the *values* that make it a theme and never the shape of the
    palette: both themes below declare exactly the same names, so neither can drop
    one and paint another theme's colour in its place. */
-[data-theme="light"] {
-  --bg: #f6f7f9;
-  --bg-deep: #eceef2;
-  --surface-card: #ffffff;
-  --surface-sunken: #f0f2f5;
-  --surface-hover: #eef1f5;
-  --text-primary: #14181d;
-  --text-secondary: #414d5a;
-  --text-muted: #5f6b78;
-  --text-invert: #ffffff;
-  --accent: #b45309;
-  --accent-text: #8a4108;
-  --accent-rgb: 180 83 9;
-  --good: #15803d;
-  --warn: #a16207;
-  --danger: #b91c1c;
-  --line: #dfe3e8;
-  --line-strong: #b9c1cb;
-  --shadow: 0 14px 34px rgb(20 24 29 / 14%);
+[data-theme="dark"] {
+  --bg: #0d0f12;
+  --bg-deep: #08090b;
+  --surface-card: #15181d;
+  --surface-sunken: #101317;
+  --surface-hover: #1d2127;
+  --text-primary: #f2f0ec;
+  --text-secondary: #c3c7cd;
+  --text-muted: #9aa0a8;
+  --text-invert: #0d0f12;
+  --accent: #ff7a6b;
+  --accent-text: #ffb3a8;
+  --accent-rgb: 255 122 107;
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --line: #262b31;
+  --line-strong: #3a4048;
+  --shadow: 0 20px 44px rgb(0 0 0 / 52%);
 }
 
 [data-theme="contrast"] {
   --bg: #000000;
   --bg-deep: #000000;
-  --surface-card: #0d0d0d;
-  --surface-sunken: #050505;
-  --surface-hover: #1a1a1a;
+  --surface-card: #0a0a0a;
+  --surface-sunken: #000000;
+  --surface-hover: #1c1c1c;
   --text-primary: #ffffff;
-  --text-secondary: #f2f2f2;
-  --text-muted: #d6d6d6;
+  --text-secondary: #f4f4f4;
+  --text-muted: #dedede;
   --text-invert: #000000;
   --accent: #ffd400;
   --accent-text: #ffe666;
   --accent-rgb: 255 212 0;
-  --good: #5dff9a;
+  --good: #7dffae;
   --warn: #ffd400;
-  --danger: #ff8b8b;
-  --line: #4d4d4d;
-  --line-strong: #808080;
-  --shadow: 0 0 0 1px #ffffff;
+  --danger: #ff9d9d;
+  --line: #5a5a5a;
+  --line-strong: #8f8f8f;
+  --shadow: 0 0 0 2px #ffffff;
 }
 
 /* --------------------------------------------------------------------------
@@ -276,24 +281,22 @@ hr {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(58rem 34rem at 12% -8%, rgb(var(--accent-rgb) / 13%), transparent 62%),
-    radial-gradient(46rem 30rem at 88% 4%, rgb(var(--accent-rgb) / 8%), transparent 60%),
+    radial-gradient(52rem 30rem at 14% -10%, rgb(var(--accent-rgb) / 9%), transparent 64%),
+    radial-gradient(44rem 28rem at 86% 2%, rgb(var(--accent-rgb) / 6%), transparent 62%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
 }
 
+/* Two round washes rather than one conic sweep: a conic gradient behind a blur
+   still shows the seam where the sweep starts, and a visible rectangle of colour
+   in the middle of a page is a defect, not an atmosphere. */
 .aurora__ribbon {
   position: absolute;
-  inset: -25% -10%;
-  background: conic-gradient(
-    from 210deg at 50% 50%,
-    transparent 0deg,
-    rgb(var(--accent-rgb) / 9%) 70deg,
-    transparent 150deg,
-    rgb(var(--accent-rgb) / 6%) 250deg,
-    transparent 330deg
-  );
-  filter: blur(48px);
-  animation: aurora-drift 42s var(--ease) infinite alternate;
+  inset: -18%;
+  background:
+    radial-gradient(38rem 26rem at 24% 14%, rgb(var(--accent-rgb) / 10%), transparent 66%),
+    radial-gradient(30rem 22rem at 74% 6%, rgb(var(--accent-rgb) / 7%), transparent 64%);
+  filter: blur(26px);
+  animation: aurora-drift 46s var(--ease) infinite alternate;
 }
 
 .aurora__grid {
@@ -308,8 +311,8 @@ hr {
 }
 
 @keyframes aurora-drift {
-  from { transform: rotate(-4deg) scale(1.02); }
-  to   { transform: rotate(6deg) scale(1.12); }
+  from { transform: translate3d(-2%, -1%, 0) scale(1.02); }
+  to   { transform: translate3d(3%, 2%, 0) scale(1.1); }
 }
 
 /* --------------------------------------------------------------------------
@@ -514,6 +517,31 @@ main { flex: 1 0 auto; }
 .nav a.btn--primary {
   color: var(--text-invert);
 }
+
+/* The theme menu is a popover, not a flex item: a panel in the header's row is a
+   panel that reserves its own width while it is closed, which is how a nav grows
+   a gap nobody can see. */
+.theme-pop {
+  position: absolute;
+  top: 100%;
+  right: max(var(--space-4), calc((100% - 1180px) / 2));
+  z-index: 25;
+  width: min(22rem, calc(100vw - var(--space-6)));
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease),
+    visibility var(--fast) step-end;
+}
+
+.theme-pop[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity var(--slow) var(--ease), transform var(--slow) var(--ease), visibility 0s;
+}
+
+.theme-pop__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 .top__menu {
   display: none;

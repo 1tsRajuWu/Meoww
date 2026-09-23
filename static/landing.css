@@ -21,7 +21,7 @@
    The hero
    -------------------------------------------------------------------------- */
 
-.hero { padding-block: var(--space-9) var(--space-8); }
+.hero { padding-block: calc(var(--space-9) + var(--space-6)) var(--space-9); }
 
 .hero__inner {
   display: grid;
@@ -32,8 +32,9 @@
 
 .hero__title {
   font-size: clamp(var(--text-h1), 5.4vw, var(--text-display));
-  margin-block: var(--space-4) var(--space-5);
-  max-width: 22ch;
+  line-height: 1.08;
+  margin-block: var(--space-5) var(--space-6);
+  max-width: 24ch;
 }
 
 .hero__title-accent {
@@ -168,16 +169,20 @@
 .system:hover { border-color: var(--line-strong); }
 .system[hidden] { display: none; }
 
+/* Four things a row: the mark, the name, one line of facts, one button. The
+   first column states the name's share so the name cannot be squeezed to its
+   longest word by the sentence beside it. */
 .system__row {
   display: grid;
-  grid-template-columns: 2rem minmax(9rem, 14rem) repeat(3, minmax(0, max-content)) 1fr;
-  gap: var(--space-3);
+  grid-template-columns: 2.5rem minmax(10rem, 1fr) minmax(0, auto) minmax(0, auto);
+  gap: var(--space-4);
   align-items: center;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-5);
 }
 
-.system__icon { font-size: 1.15rem; text-align: center; }
-.system__name { font-weight: 600; }
+.system__icon { font-size: 1.25rem; text-align: center; }
+.system__name { font-weight: 600; font-size: 1.0625rem; }
+.system__meta { color: var(--text-muted); font-size: var(--text-small); }
 .system__toggle { justify-self: end; }
 
 .system__detail {
@@ -196,7 +201,8 @@
 
 @media (max-width: 760px) {
   .explorer__bar { grid-template-columns: minmax(0, 1fr); }
-  .system__row { grid-template-columns: 2rem 1fr; }
+  .system__row { grid-template-columns: 2.5rem 1fr; gap: var(--space-3); }
+  .system__meta { grid-column: 2; }
   .system__toggle { grid-column: 2; justify-self: start; }
 }
 

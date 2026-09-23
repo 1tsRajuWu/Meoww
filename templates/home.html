@@ -92,7 +92,7 @@
     <div class="band__head">
       <div>
         <p class="eyebrow">What is inside</p>
-        <h2>{{ systems | length }} systems, one switch each</h2>
+        <h2>{{ systems | length }} systems, {{ switchable_count }} of them switchable</h2>
       </div>
       <p class="lede small">
         Every card below is read out of the bot's own registry, so this page cannot
@@ -108,8 +108,11 @@
                  placeholder="economy, moderation, radio…" autocomplete="off">
         </label>
         <div class="chips" role="group" aria-label="Filter by kind">
+          {# The chip's count is what the chip *shows* — all of them — because a
+             count over a list is read as a measurement, and "All 14" above 15
+             rows is the one number nobody can trust. #}
           <button class="chip" type="button" data-explorer-kind="" aria-pressed="true">
-            All <span class="chip__count">{{ switchable_count }}</span>
+            All <span class="chip__count">{{ systems | length }}</span>
           </button>
           {% for category in categories %}
           <button class="chip" type="button" data-explorer-kind="{{ category.name }}" aria-pressed="false">
@@ -130,10 +133,12 @@
           <div class="system__row">
             <span class="system__icon" aria-hidden="true">{{ system.icon }}</span>
             <span class="system__name">{{ system.name }}</span>
-            <span class="tag">{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
-            <span class="tag">{{ system.category }}</span>
-            <span class="tag {{ 'tag--solid' if system.toggleable else '' }}">
-              {{ 'per server' if system.toggleable else 'always on' }}
+            {# One line of facts per row, not five chips: the category is what the
+               filter above already says, and repeating it on every row is how a
+               list of fourteen systems becomes a wall. #}
+            <span class="system__meta">
+              {{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }} ·
+              {{ 'switched per server' if system.toggleable else 'always on' }}
             </span>
             <button class="btn btn--quiet system__toggle" type="button"
                     data-drawer aria-controls="system-{{ system.id }}" aria-expanded="false">

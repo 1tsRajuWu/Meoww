@@ -26,8 +26,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{{ bot_name }}{% endblock %}</title>
 {% if meta_description %}<meta name="description" content="{{ meta_description }}">{% endif %}
-<meta name="theme-color" content="#0b0f14">
-<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#f7f5f1">
+<meta name="color-scheme" content="light dark">
 {# The AI-crawler directive, in the convention crawlers look for. #}
 <meta name="robots" content="noai, noimageai">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
@@ -69,7 +69,7 @@
 
         <div class="top__actions">
           <button class="btn btn--ghost" type="button" data-theme-toggle aria-expanded="false" aria-controls="theme-menu">
-            Theme: <span data-theme-label>System</span>
+            <span aria-hidden="true">◐</span> <span data-theme-label>System</span>
           </button>
           {% if invite_url %}
           <a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>
@@ -78,17 +78,18 @@
           {% endif %}
         </div>
       </nav>
+    </div>
 
-      <div class="drawer" id="theme-menu" data-open="false">
-        <div class="drawer__inner">
-          <div class="card card--pad-sm">
-            <p class="hint" id="theme-menu-label">Which palette this page is drawn in.</p>
-            <div class="row" role="group" aria-labelledby="theme-menu-label">
-              <button class="btn btn--quiet" type="button" data-theme-set="system" aria-pressed="true">System</button>
-              <button class="btn btn--quiet" type="button" data-theme-set="light" aria-pressed="false">Light</button>
-              <button class="btn btn--quiet" type="button" data-theme-set="contrast" aria-pressed="false">High contrast</button>
-            </div>
-          </div>
+    {# The theme menu sits outside the flex row on purpose: a panel that is a flex
+       item is a panel that reserves its width while it is closed. #}
+    <div class="theme-pop" id="theme-menu" data-open="false">
+      <div class="card card--pad-sm">
+        <p class="hint" id="theme-menu-label">Which palette this page is drawn in.</p>
+        <div class="theme-pop__row" role="group" aria-labelledby="theme-menu-label">
+          <button class="btn btn--quiet" type="button" data-theme-set="system" aria-pressed="true">System</button>
+          <button class="btn btn--quiet" type="button" data-theme-set="light" aria-pressed="false">Light</button>
+          <button class="btn btn--quiet" type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+          <button class="btn btn--quiet" type="button" data-theme-set="contrast" aria-pressed="false">High contrast</button>
         </div>
       </div>
     </div>
