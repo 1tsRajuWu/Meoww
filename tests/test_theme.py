@@ -77,6 +77,80 @@ def _tokens(block: str) -> set[str]:
     return set(re.findall(r"(--[a-z0-9-]+)\s*:", block))
 
 
+def _values(block: str) -> dict[str, str]:
+    """The palette's declarations as name → value, for the numbers that matter."""
+    return {
+        match.group(1): match.group(2).strip()
+        for match in re.finditer(r"(--[a-z0-9-]+)\s*:\s*([^;]+);", block)
+    }
+
+
+def _luminance(colour: str) -> float:
+    """Relative luminance of a ``#rrggbb``, the way WCAG defines it."""
+    text = colour.strip().lstrip("#")
+    if len(text) == 3:
+        text = "".join(char * 2 for char in text)
+    channels = [int(text[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+    linear = [
+        value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+        for value in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast(one: str, other: str) -> float:
+    high, low = sorted((_luminance(one), _luminance(other)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+class TheAccentFillCarriesInkYouCanRead(unittest.TestCase):
+    """Every palette's `--text-invert` clears 4.5:1 on that palette's `--accent`.
+
+    The pair no other law looks at. The design laws measure the accent **as
+    text** (`--accent-text` on a surface) and the accent as a **graphic** (3:1 for
+    fills and rings), and `--text-invert` is neither: it is the ink painted *on*
+    the fill, and it is what the brand mark's K and the primary button's label are
+    drawn in.
+
+    In the light palette it was white on `#0d9488` — **3.74:1**, in the palette a
+    visitor gets by choosing Light, while the dark and high-contrast palettes
+    measured 10.6:1 and 14.2:1. Nothing failed, because a colour that is merely
+    hard to read is not an error anywhere a browser reports one: it is a button
+    whose label a person has to look twice at. Both halves are asserted for the
+    reason the token set is — a palette may move the fill or move the ink, and the
+    only thing that cannot move is the ratio between them.
+    """
+
+    def setUp(self):
+        css = SHEET.read_text(encoding="utf-8")
+        root = re.search(r"^:root\s*\{(.*?)\n\}", css, re.DOTALL | re.MULTILINE)
+        self.assertTrue(root, "the sheet declares no :root palette")
+        self.palettes = {DEFAULT: _values(root.group(1))}
+        for name, block in _blocks(css).items():
+            self.palettes[name] = _values(block)
+
+    def test_every_palette_paints_readable_ink_on_its_accent(self):
+        self.assertIn(f"--text-invert", self.palettes[DEFAULT], "the default palette is unreadable")
+        for name, values in self.palettes.items():
+            with self.subTest(palette=name):
+                self.assertIn("--accent", values, f"{name} declares no accent")
+                self.assertIn("--text-invert", values, f"{name} declares no invert")
+                ratio = _contrast(values["--text-invert"], values["--accent"])
+                self.assertGreaterEqual(
+                    round(ratio, 2),
+                    4.5,
+                    f"{name}: --text-invert {values['--text-invert']} on --accent "
+                    f"{values['--accent']} is {ratio:.2f}:1, below the 4.5:1 body text "
+                    "needs — the brand mark and the primary button are drawn in it",
+                )
+
+    def test_the_pair_is_actually_read_by_something(self):
+        """A palette cannot satisfy the ratio by having the names but not using them."""
+        css = SHEET.read_text(encoding="utf-8")
+        self.assertIn("color: var(--text-invert)", css)
+        self.assertIn("background: var(--accent)", css)
+
+
 class TheThreeCopiesAgree(unittest.TestCase):
     """The sheet, the partial and the script list the same palettes."""
 

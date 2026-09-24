@@ -739,6 +739,52 @@ class EverySignedInPageSharesThatSameFrame(_DashboardFixture):
                         f"{path} lost the link that supports the bot",
                     )
 
+    def test_the_system_cards_print_commands_a_person_can_type(self):
+        """A card offered `//starboard set`, and a doubled slash is not a command.
+
+        The registry writes every command **as a person types it**, leading slash
+        included (`"/market buy"`), and the card's line prefixed one of its own —
+        so all fifteen cards listed commands nobody can run, and the one command
+        somebody could have copied out of the page was wrong. Nothing failed: the
+        doubled slash is valid text, and this is the page an administrator reads
+        to decide what a system does.
+
+        Read off the served page rather than off the template, for the reason the
+        test above gives: a source that looks right is not a page that renders
+        right. The second half is the tie that keeps the fix honest — the name
+        after each slash has to be a root the registry actually declares, so a
+        card cannot start inventing commands either.
+        """
+        declared = {
+            command.lstrip("/").split()[0]
+            for feature in keep_alive.features.FEATURES
+            for command in feature.commands
+        }
+        body = self.body_of("/dashboard/systems")
+        blocks = re.findall(r'<p class="small mono">(.*?)</p>', body, re.DOTALL)
+        self.assertGreaterEqual(len(blocks), 10, "the cards printed no commands at all")
+        seen = 0
+        for block in blocks:
+            with self.subTest(block=block.strip()[:60]):
+                # Only the tokens that *are* commands: a command is one whitespace-
+                # separated word beginning with a slash, and the note after the em
+                # dash is prose that may contain a slash of its own ("win/loss").
+                for token in block.split():
+                    if not token.startswith("/"):
+                        continue
+                    seen += 1
+                    self.assertFalse(
+                        token.startswith("//"),
+                        "a card prints a command with two slashes, which is not a "
+                        "command and not one a copy-paste would fix",
+                    )
+                    self.assertIn(
+                        token.lstrip("/"),
+                        declared,
+                        "a card prints a command the registry does not declare",
+                    )
+        self.assertGreater(seen, 30, "no commands were read off the cards at all")
+
 
 class TheFrameIsOneFunctionEverywhere(unittest.TestCase):
     """A cheap floor under the law above, so a *new* page group cannot skip it.
@@ -817,6 +863,39 @@ class TheHarnessServesTheRealPages(unittest.TestCase):
         out unstyled."""
         source = (ROOT / "scripts" / "preview_dashboard.py").read_text(encoding="utf-8")
         self.assertIn('static_folder=os.path.join(ROOT, "static")', source)
+
+    def test_the_preview_hands_over_the_frame_it_shows(self):
+        """The harness drew the site frame without ever being handed it.
+
+        ``/dashboard`` and ``/market/<symbol>`` were rendered with the page's own
+        context alone, so every name the frame owns arrived unset — and an unset
+        name in a template is empty rather than an error. The wordmark came out as
+        a **lone "."**, the ``<title>`` ended on its own separator, and the footer
+        had no title, no counts sentence and no retention line, while all of that
+        was correct on the routes themselves. It is the same defect the route was
+        repaired for one level down, and it is worse in a harness, whose entire
+        job is to be the thing somebody looks at to decide whether the page is
+        right. Every render of a page that wears the frame merges
+        ``_site_context()``, exactly as the route does.
+        """
+        source = (ROOT / "scripts" / "preview_dashboard.py").read_text(encoding="utf-8")
+        for template in ("dashboard.html", "market.html"):
+            with self.subTest(template=template):
+                pattern = re.compile(
+                    rf'render_template\(\s*"{re.escape(template)}",(?P<body>.*?)\n    \)',
+                    re.DOTALL,
+                )
+                found = list(pattern.finditer(source))
+                self.assertTrue(found, f"no render_template call for {template}")
+                for call in found:
+                    self.assertIn(
+                        "keep_alive._site_context(",
+                        call.group("body"),
+                        f"the preview renders {template} without the frame the "
+                        "route hands it, so the wordmark, the title, the counts "
+                        "sentence and the retention line are all drawn from names "
+                        "nobody sent",
+                    )
 
 
 if __name__ == "__main__":

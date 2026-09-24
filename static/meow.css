@@ -139,7 +139,13 @@
   --text-primary: #121316;
   --text-secondary: #43474f;
   --text-muted: #6b7078;
-  --text-invert: #ffffff;
+  /* The ink that goes on an accent fill, and the one palette where it was not
+     readable: white on #0d9488 measures **3.74:1**, below the 4.5:1 the two
+     palettes beside it clear (10.6:1 and 14.2:1), on the primary button's label
+     and on the brand mark's K. The house ink on the same fill is 5.59:1, and it
+     is what the dark palette already paints — so the light palette paints the
+     same pair rather than the same foreground. */
+  --text-invert: #0a0b0c;
   --accent: #0d9488;
   --accent-text: #0f766e;
   --accent-rgb: 13 148 136;

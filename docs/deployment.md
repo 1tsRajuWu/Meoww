@@ -87,22 +87,25 @@ this file.
   when a push has to be *proved* to have landed:
 
   ```bash
-  python scripts/ship.py                 # build, upload and verify both hosts
-  python scripts/ship.py --dry-run       # build both hosts, upload nothing
-  python scripts/ship.py --verify-only   # upload nothing; did the push arrive?
+  python scripts/ship.py                  # build, upload and verify all three
+  python scripts/ship.py --dry-run        # build all three, upload nothing
+  python scripts/ship.py --verify-only    # upload nothing; did the push arrive?
   python scripts/ship.py --only meow-owner
+  python scripts/ship.py --only meowdev   # the developer hub — see §6
   ```
 
-  `--verify-only` reports what each host serves, and a host that is *behind* is
-  the honest answer rather than a failure of the check: `meow-bot` publishes
-  itself on push within seconds, while `meow-owner` (no Git integration, below)
-  stays where it was last deployed — so a docs-only commit legitimately leaves it
-  a commit behind, and `--only meow-owner` is the fix when the console changed.
+  `--verify-only` reports what each of the four addresses serves, and a host that
+  is *behind* is the honest answer rather than a failure of the check: `meow-bot`
+  publishes itself on push within seconds, while `meow-owner` and `meowdev` (no
+  Git integration, below) stay where they were last deployed — so a docs-only
+  commit legitimately leaves them a commit behind, and `--only meow-owner` is the
+  fix when the console changed. The fourth address is the machine (§6), which
+  nothing here uploads; it is checked in every run regardless of `--only`.
 
   It refuses to build from a dirty tracked file or from a commit that is not on
   `origin/main` — a deployment carries the commit it was built from, and both of
-  those produce a hash that does not name its contents — then uploads both
-  projects as production deployments of that commit and asks Cloudflare, and the
+  those produce a hash that does not name its contents — then uploads every
+  project as a production deployment of that commit and asks Cloudflare, and the
   hosts themselves, whether it arrived. It is the local twin of `site.yml` for
   the part of that workflow that has never once run here.
 - **Build command:** `pip install -r requirements.txt && python scripts/build_site.py --out _site --proxy`
@@ -294,6 +297,46 @@ of this file cannot see. The passkey and the per-address sign-in limit
 not a substitute for either — and the Render host deliberately keeps serving
 `/owner` with only the passkey, so that a mistake in an edge policy cannot lock
 the operator out of their own console.
+
+### 6. Cloudflare Pages (the developer hub)
+
+- Project: `meowdev` → https://meowdev.pages.dev
+- Source: **no Git integration**, and until recently no publish path anywhere
+  else either. `Site` builds `_site` and `_owner` and has no job for `_hub`, so
+  this host changed only when somebody remembered to build and upload it by hand
+  — which is exactly how it stayed a whole rebrand behind the other two: a violet
+  `--accent` (the token is declared in `hub/static/hub.css`), an ambient glow
+  spelling the same violet as three `rgba()` channels, and a 404 that announced
+  the pre-rebrand name. Nothing in this repository could see any of it.
+
+Ship it the same way as the other two:
+
+```bash
+python scripts/ship.py --only meowdev
+```
+
+#### The release check names all four addresses
+
+Three of them are Pages projects that `scripts/ship.py` builds and uploads. The
+fourth is the machine the other three proxy to, and it is not uploaded from here
+at all:
+
+| Address | What deploys it | What *is it current* means there |
+| --- | --- | --- |
+| https://meow-bot.pages.dev | Cloudflare's Git integration on push; `ship.py` when a push has to be *proved* | production is this commit, and `/static/meow.css` is this build's bytes |
+| https://meow-owner.pages.dev | `python scripts/ship.py --only meow-owner` | the same two claims, against `_owner` |
+| https://meowdev.pages.dev | `python scripts/ship.py --only meowdev` | the same two claims, against `_hub` and its own sheet |
+| https://1tsrajowo-meow.hf.space | `.github/workflows/sync_hf.yml` force-pushes `main` to it (or a hand push) | only that `/health` answers *and* names this product |
+
+The last row is deliberately weaker than the others, because it is the only claim
+available on that host: the Space carries no commit stamp, so *which commit are
+you serving* is not a question anything can answer about it, and the check says
+so in words rather than borrowing the Pages hosts' verdict. What it *can* answer
+is its own name — `/health`'s `service` field is built from `utils/brand.py`, so a
+rebrand moves the check and the answer together — and a machine still announcing
+the retired name fails the release. That is the drift this row exists for: the
+monitor on that address had been reading `"service":"meow-bot"` while the
+product's pages had already moved.
 
 ## Free, and online without you
 

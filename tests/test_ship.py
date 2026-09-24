@@ -18,8 +18,18 @@ what is pinned here:
    bytes this build produced.
 
 The commands are compared against ``.github/workflows/site.yml`` in one test, on
-purpose: the workflow and this script build the same two directories, and two
-places that must agree are exactly where this repository keeps finding drift.
+purpose: the workflow and this script build the same directories, and two places
+that must agree are exactly where this repository keeps finding drift.
+
+Two more things are pinned here, and both of them are about a host not being
+checked. **The developer hub has a publish path in this file because it had none
+anywhere else**: no workflow built ``_hub``, nothing uploaded it and nothing asked
+it what it served, so it sat an entire rebrand behind — a violet palette and a 404
+announcing the retired name on a public address — while the other two hosts moved.
+And **the machine is checked too, as the machine**: the Hugging Face Space is
+pushed to rather than uploaded and carries no commit stamp, so it is asked the one
+question that is available to it — whether it is up and wearing this release's
+name — rather than being given the Pages hosts' check with a different URL.
 """
 import contextlib
 import io
@@ -30,6 +40,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import ship
+from utils import brand
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "site.yml"
@@ -140,7 +151,17 @@ class TheHashOnTheDeploymentMeansSomething(unittest.TestCase):
         self.assertIn("console/src/App.tsx", complaints.getvalue())
 
 
-class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
+#: The machine's own check, stubbed out. It is a real HTTP request to a real
+#: address, so every test that drives a whole run says what it answered — the
+#: alternative is a suite that passes or fails on whether Hugging Face is awake.
+GATEWAY_UP: tuple[bool, str] = (
+    True,
+    f"answers as {brand.GATEWAY_SERVICE} · it carries no commit stamp, so this is "
+    "that it is up and wearing this name rather than that it is this commit",
+)
+
+
+class EveryHostCarriesTheCommitItWasBuiltFrom(unittest.TestCase):
     def _ship(self, **kwargs):
         wrangler = _Wrangler(**kwargs)
         with mock.patch.object(ship, "head", return_value=SHA), \
@@ -149,6 +170,7 @@ class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
              mock.patch.object(ship, "run", wrangler), \
              mock.patch.object(ship, "asset_matches_build",
                                return_value=(True, "static/meow.css is this build's (0c595c784ac5)")), \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
              mock.patch.object(ship, "ATTEMPTS", 2), \
              mock.patch.object(ship, "PAUSE_SECONDS", 0):
             return ship.ship(ship.HOSTS), wrangler, ship.HOSTS
@@ -168,14 +190,23 @@ class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
                             "the directory uploaded is not the one that was built")
 
     def test_the_builders_are_the_ones_the_workflow_runs(self):
-        """Two places build these directories, and they have to agree.
+        """Where two places build one directory, they have to agree.
 
         Read as text rather than parsed, for the same reason
         ``tests/test_site_workflow.py`` reads it that way: PyYAML is not a
         dependency of this project.
+
+        Only the hosts the workflow mentions are compared, and that is not the
+        check weakening: the hub is deliberately *not* in the workflow (it has no
+        job there, which is how it fell a rebrand behind), so the agreement that
+        matters is between the two the workflow does build — and if a hub job is
+        ever added, this test picks it up on the next run rather than failing on
+        the fact that it exists.
         """
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        for host in ship.HOSTS:
+        shared = [host for host in ship.HOSTS if host.builder[0] in workflow]
+        self.assertEqual({host.project for host in shared}, {"meow-bot", "meow-owner"})
+        for host in shared:
             self.assertIn(" ".join(host.builder), workflow,
                           f"{host.project} is built differently by the workflow")
 
@@ -194,6 +225,7 @@ class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
              mock.patch.object(ship, "run", wrangler), \
              mock.patch.object(ship, "asset_matches_build",
                                return_value=(False, "answered with other bytes")), \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
              mock.patch.object(ship, "ATTEMPTS", 2), \
              mock.patch.object(ship, "PAUSE_SECONDS", 0):
             self.assertEqual(ship.ship(ship.HOSTS), 1)
@@ -216,6 +248,7 @@ class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
              mock.patch.object(ship, "run", wrangler), \
              mock.patch.object(ship, "asset_matches_build",
                                return_value=(True, "static/meow.css is this build's (0c595c784ac5)")), \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
              mock.patch.object(ship, "ATTEMPTS", 2), \
              mock.patch.object(ship, "PAUSE_SECONDS", 0):
             code = ship.ship(ship.HOSTS, verify_only=True)
@@ -233,6 +266,7 @@ class BothHostsCarryTheCommitTheyWereBuiltFrom(unittest.TestCase):
              mock.patch.object(ship, "dirty_tracked", return_value=[]), \
              mock.patch.object(ship, "upstream", return_value=("origin/main", 0)), \
              mock.patch.object(ship, "run", wrangler), \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
              mock.patch.object(ship, "ATTEMPTS", 4), \
              mock.patch.object(ship, "PAUSE_SECONDS", 30), \
              contextlib.redirect_stderr(io.StringIO()) as complaints:
@@ -340,9 +374,9 @@ class TheDeploymentListIsReadAsWranglerWritesIt(unittest.TestCase):
 
 
 class OnlyTheHostsThisRepositoryHas(unittest.TestCase):
-    def test_no_flag_is_both_hosts(self):
+    def test_no_flag_is_every_host(self):
         self.assertEqual([host.project for host in ship.selected([])],
-                         ["meow-bot", "meow-owner"])
+                         ["meow-bot", "meow-owner", "meowdev"])
 
     def test_a_named_host_is_the_one_that_ships(self):
         self.assertEqual([host.project for host in ship.selected(["meow-owner"])],
@@ -354,10 +388,144 @@ class OnlyTheHostsThisRepositoryHas(unittest.TestCase):
         self.assertIn("meow-bot", str(refusal.exception))
         self.assertIn("meow-owner", str(refusal.exception))
 
-    def test_the_projects_are_the_two_the_sites_announce(self):
+    def test_the_projects_are_the_ones_the_sites_announce(self):
         """The address each host verifies against is the project it deploys."""
         for host in ship.HOSTS:
             self.assertEqual(host.url, f"https://{host.project}.pages.dev")
+
+
+class TheHubHasAPublishPathHere(unittest.TestCase):
+    """The hub shipped by nothing, and that is exactly how it fell behind.
+
+    ``Site`` builds ``_site`` and ``_owner``; no workflow builds ``_hub``, and no
+    release path mentioned it — so a rebrand reached two hosts of three, and the
+    third kept serving a violet palette and a 404 announcing the retired name on
+    a public address with nothing anywhere to say so.
+    """
+
+    def hub(self) -> ship.Host:
+        return next(host for host in ship.HOSTS if host.project == "meowdev")
+
+    def test_the_hub_is_built_and_uploaded_by_this_script(self):
+        hub = self.hub()
+        self.assertEqual(hub.out, "_hub")
+        self.assertEqual(hub.builder, ("scripts/build_hub.py", "--out", "_hub"))
+        self.assertEqual(hub.url, "https://meowdev.pages.dev")
+
+    def test_the_hub_is_a_directory_a_builder_actually_fills(self):
+        """The upload's directory is the build's directory, and it has to exist."""
+        self.assertTrue(os.path.isfile(os.path.join(ship.ROOT, "scripts", "build_hub.py")))
+        self.assertTrue(
+            os.path.isdir(self.hub().directory),
+            "_hub is not built, so `wrangler pages deploy _hub` would upload a directory "
+            "that is not there",
+        )
+
+    def test_the_hub_is_asked_for_a_file_only_the_hub_has(self):
+        """A probe has to be a file *that* host serves.
+
+        ``static/meow.css`` is the site's sheet: the hub's build copies only its
+        own assets, so asking the hub for the site's would report *the build has no
+        static/meow.css* on every run — a red release check with nothing behind it,
+        which is how a check stops being read.
+        """
+        hub = self.hub()
+        self.assertEqual(hub.probe, "static/hub.css")
+        self.assertNotEqual(hub.probe, ship.PROBE)
+
+    def test_every_probe_is_a_file_its_own_builder_starts_from(self):
+        """A probe naming a file no builder produces is a check that cannot pass."""
+        sources = {"meow-bot": "static", "meow-owner": "static", "meowdev": "hub/static"}
+        for host in ship.HOSTS:
+            source = os.path.join(ship.ROOT, sources[host.project], os.path.basename(host.probe))
+            self.assertTrue(os.path.isfile(source),
+                            f"{host.project}'s probe is {host.probe}, which is not a file its build has")
+
+    def test_the_hub_probe_is_the_file_a_rebrand_moves(self):
+        """And that is why this probe can see the drift the hub had: its accent is in it.
+
+        The token is declared in ``hub/static/hub.css``, so the bytes the check
+        hashes are the bytes the brand is written into — the same reason
+        ``tests/test_brand.py`` holds that sheet to ``brand.ACCENT_HEX``.
+        """
+        sheet = (ROOT / "hub" / "static" / "hub.css").read_text(encoding="utf-8")
+        self.assertIn(brand.ACCENT_HEX, sheet)
+
+
+class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
+    """The fourth address gets the question it can answer, not the other one.
+
+    Nothing in this file uploads the Space: ``.github/workflows/sync_hf.yml``
+    force-pushes ``main`` to it and no deployment of it carries a commit stamp, so
+    *which commit are you serving* is not askable. *Are you up, and wearing this
+    release's name* is — its ``/health`` answers with the product's name, which is
+    a fact a rebrand moves, and a machine still announcing the retired name is a
+    host a whole rebrand behind.
+    """
+
+    def _payload(self, body: bytes):
+        with mock.patch.object(ship, "served_bytes", return_value=(body, "")):
+            return ship.verify_gateway(ship.SPACE)
+
+    def test_the_release_report_names_all_four_addresses(self):
+        """A host nobody asks is a host nobody notices is behind, four times."""
+        with mock.patch.object(ship, "production_commit", return_value="75e32e4"), \
+             mock.patch.object(ship, "asset_matches_build", return_value=(True, "ok")), \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
+             contextlib.redirect_stdout(io.StringIO()) as printed:
+            code = ship.report(ship.HOSTS, SHA, wait=False)
+        self.assertEqual(code, 0)
+        for name in ("meow-bot", "meow-owner", "meowdev", ship.SPACE.name):
+            self.assertIn(name, printed.getvalue(), f"{name} was not checked")
+
+    def test_a_healthy_gateway_passes_and_says_what_it_did_not_prove(self):
+        """The claim is smaller than the Pages hosts', and it says so."""
+        ok, note = self._payload(
+            json.dumps({"status": "healthy", "service": brand.GATEWAY_SERVICE}).encode()
+        )
+        self.assertTrue(ok)
+        self.assertIn("no commit stamp", note)
+
+    def test_a_machine_announcing_the_retired_name_fails_the_release(self):
+        """Measured, not hypothetical: this is what the live Space answered."""
+        ok, note = self._payload(b'{"status":"healthy","service":"meow-bot"}')
+        self.assertFalse(ok)
+        self.assertIn("meow-bot", note)
+        self.assertIn(brand.GATEWAY_SERVICE, note)
+
+    def test_a_machine_that_does_not_answer_names_what_updates_it(self):
+        """A dead address and a stale one are different failures with one fix."""
+        with mock.patch.object(ship, "served_bytes", return_value=(None, "HTTP 000")):
+            ok, note = ship.verify_gateway(ship.SPACE)
+        self.assertFalse(ok)
+        self.assertIn("HTTP 000", note)
+        self.assertIn("sync_hf.yml", note)
+
+    def test_the_gateway_check_asks_the_address_a_monitor_watches(self):
+        """The same endpoint the uptime monitor reads, so the two agree."""
+        with mock.patch.object(ship, "served_bytes", return_value=(b'{}', "")) as ask:
+            ship.verify_gateway(ship.SPACE)
+        self.assertEqual(ask.call_args.args[0], f"{ship.SPACE.url}/health")
+
+    def test_the_machine_is_not_a_project_this_script_uploads(self):
+        """``--only`` names hosts that can be uploaded; the Space is never one of them."""
+        self.assertNotIn(ship.SPACE.name, [host.project for host in ship.HOSTS])
+        with self.assertRaises(ship.Refused):
+            ship.selected([ship.SPACE.name])
+
+    def test_the_machine_is_checked_even_when_only_one_host_is_named(self):
+        """Which host an upload was aimed at has no bearing on what is served."""
+        self.assertEqual(ship.addresses(ship.selected(["meowdev"])),
+                         (ship.selected(["meowdev"])[0], ship.SPACE))
+
+
+class TheDocNamesTheSameAddresses(unittest.TestCase):
+    def test_every_address_this_check_asks_is_named_in_the_deployment_doc(self):
+        """A host added here and not there is the next one to be forgotten."""
+        text = (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+        for address in ship.addresses(ship.HOSTS):
+            self.assertIn(address.name, text,
+                          f"{address.name} is checked at release but not documented")
 
 
 if __name__ == "__main__":

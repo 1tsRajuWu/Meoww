@@ -424,6 +424,76 @@ class BuiltSiteCase(unittest.TestCase):
         """Jekyll would otherwise process the site — and silently drop underscores."""
         self.assertTrue((Path(self.out) / ".nojekyll").is_file())
 
+    def test_the_page_about_the_switched_off_system_says_that_it_is_off(self):
+        """Radio's page promised three commands and never mentioned the gate.
+
+        Radio and the anonymous question box are one system that ships *off*: an
+        administrator has to offer it to a server before `/radio` answers at all.
+        `/radio` is in the header of every page on this site, and its own page —
+        the only place a visitor can read what the system does — described the
+        commands, the station table and the failure modes, and closed by calling
+        it *"switchable like the rest"*, which a reader takes to mean available
+        and optionally off. So a visitor installed the bot, typed `/radio`, and was
+        refused for a fact no page had told them, and the one number a refusal
+        can be answered with was nowhere on the site either.
+
+        Read off the built page rather than the template, because the template is
+        not what a visitor is served. The claim is the pair: this system arrives
+        off, and this is the command that offers it.
+        """
+        body = (Path(self.out) / "radio.html").read_text(encoding="utf-8")
+        self.assertIn(
+            "/bot legacy state:On",
+            body,
+            "the radio page never names the command that turns the system on",
+        )
+        self.assertRegex(
+            body,
+            r"switched off",
+            "the radio page describes a system that ships off without saying so",
+        )
+        # And the same fact, where a reader counts systems: the registry's own
+        # sentence for it, on the page that lists all fifteen.
+        self.assertIn(
+            "switched off until an administrator asks for them",
+            self.pages["index.html"],
+            "the front page lists the legacy system as though it were on",
+        )
+
+    def test_the_radio_page_lists_the_radio_commands(self):
+        """A heading promising *three faces* over an empty list, on the live page.
+
+        ``/radio``'s route asked the registry for a feature called ``"radio"``.
+        There has been no such feature since radio and the anonymous question box
+        became one switch called ``legacy``, and ``features.get`` answers ``None``
+        rather than raising — so the route passed an empty list, the template
+        read it as nothing, and the section that is the page's whole answer to
+        *what do I type* shipped with no commands in it. The tests that existed
+        read the catalogue, the cap and the failure modes, and none of them
+        counted the rows under that heading.
+
+        Tied to the registry rather than to three literals: the rows are the
+        ``/radio`` half of the legacy feature, so retiring a subcommand retires
+        its row instead of leaving this test demanding one.
+        """
+        legacy = features.get("legacy")
+        self.assertIsNotNone(legacy, "the registry has no legacy feature to read")
+        declared = [
+            name
+            for name, _note in features.feature_entries(legacy)
+            if name.lstrip("/").split()[0] == "radio"
+        ]
+        self.assertGreaterEqual(len(declared), 3, declared)
+        body = (Path(self.out) / "radio.html").read_text(encoding="utf-8")
+        for name in declared:
+            with self.subTest(command=name):
+                self.assertIn(
+                    f"<code>{name}</code>",
+                    body,
+                    "the radio page does not show a command the registry declares, so "
+                    "its own section renders as an empty list",
+                )
+
     def test_not_one_root_relative_url_survives_anywhere(self):
         """The whole class of 404 this build exists to prevent.
 

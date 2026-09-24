@@ -187,6 +187,82 @@ class TheAccentHasOneAuthor(unittest.TestCase):
             )
 
 
+class TheHubWearsTheSameAccent(unittest.TestCase):
+    """The hub has a palette of its own, and it was a different colour.
+
+    `hub/static/hub.css` is deliberately self-contained — the hub is a separate
+    Pages project, it has no access to `static/meow.css`, and a law in
+    `tests/test_hub.py` asserts it declares its own palette rather than reading
+    one. That arrangement is right, and it is also exactly how **the fourth host
+    of four kept a violet accent** (`#8b7bff`) through the whole rebrand: two
+    files declaring one brand, and nothing anywhere saying they were the same
+    fact. A visitor to the developer hub got a periwinkle button under a teal
+    product, and every test in this repository passed.
+
+    So this law is the comparison that was missing. It reads the hub's *dark*
+    accent from the palette module — one colour, one author — and its *light*
+    accent from the light half of the site's own sheet, because the hub paints
+    text in `--accent` where the site keeps a second, darker `--accent-text` for
+    that, so the hub's light value has to be the site's light text shade.
+    """
+
+    def setUp(self):
+        self.css = read(ROOT / "hub" / "static" / "hub.css")
+
+    def test_the_hubs_dark_palette_is_the_modules_accent(self):
+        root = re.search(r"^:root\s*\{(.*?)\n\}", self.css, re.DOTALL | re.MULTILINE)
+        self.assertIsNotNone(root, "hub.css declares no :root palette")
+        block = root.group(1)
+        self.assertIn(
+            f"--accent: {brand.ACCENT_HEX};",
+            block,
+            "the hub's dark palette does not paint the brand's accent",
+        )
+        self.assertIn(
+            f"--accent-2: {brand.ACCENT_TEXT_HEX};",
+            block,
+            "the hub's second gradient stop is not in the brand's family",
+        )
+
+    def test_the_hubs_light_palette_is_the_sites_light_text_shade(self):
+        light = re.search(r'\[data-theme="light"\]\s*\{(.*?)\n\}', read(SHEET), re.DOTALL)
+        self.assertIsNotNone(light, "the site declares no light palette")
+        tokens = dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", light.group(1)))
+        shade = tokens["accent-text"].strip()
+        # Two blocks — the explicit theme and the `prefers-color-scheme` copy that
+        # keeps a visitor who has chosen nothing from getting the dark one.
+        self.assertEqual(
+            self.css.count(f"--accent: {shade};"),
+            2,
+            "the hub's light palettes do not use the shade the site uses for accent "
+            "text on a light ground, or one of the two blocks was missed",
+        )
+
+    def test_the_retired_violet_is_gone(self):
+        """The values this file shipped before, so the fix cannot half-land.
+
+        Read out of the **declarations**, with the comments stripped: the accent
+        was not only in the token block — the page's ambient glow, which is the
+        largest colour on any page of the hub, spelled the same violet as three
+        `rgba()` channels, and a fix that moved the tokens alone would have left a
+        violet wash behind a teal button. A comment is allowed to name the value
+        it replaced; a declaration is not.
+        """
+        declarations = re.sub(r"/\*.*?\*/", "", self.css, flags=re.DOTALL)
+        for retired in ("#8b7bff", "#5b48e0", "139, 123, 255", "91, 72, 224"):
+            with self.subTest(value=retired):
+                self.assertNotIn(
+                    retired, declarations, "the hub still carries its old accent"
+                )
+
+    def test_the_hub_404_is_not_the_old_name(self):
+        """The one hand-written page of that host, and it read *“Meow Hub”*."""
+        builder = read(ROOT / "scripts" / "build_hub.py")
+        self.assertNotIn("Meow Hub", builder)
+        self.assertIn("{hub_name}", builder, "the 404 title stopped being read from the brand")
+        self.assertNotIn("Meow Hub", read(ROOT / "hub" / "static" / "hub.js"))
+
+
 class TheMarkFamilyIsThePaletteFamily(unittest.TestCase):
     """Three palettes, three marks — and the two builders ship the same family."""
 
@@ -280,6 +356,64 @@ class TheMarkFamilyIsThePaletteFamily(unittest.TestCase):
                 tree = ET.parse(ROOT / "static" / name)
                 self.assertEqual(tree.getroot().get("role"), "img")
                 self.assertEqual(tree.getroot().get("aria-label"), brand.NAME)
+
+
+class TheSpaceWearsTheBrand(unittest.TestCase):
+    """Two more surfaces a person reads: the Space card and the Space's own page.
+
+    Both live outside the four Cloudflare hosts, and both were missed by the
+    rebrand for the same reason: one is YAML front matter that huggingface.co
+    reads rather than markup a template renders (it said `title: Meow`, a paw and
+    an **indigo→purple** gradient), and the other is a Gradio block whose copy sat
+    in `app.py` — a file no test had ever read. A visitor arriving at the host
+    that actually runs the bot was greeted by the old name, in the old accent,
+    with three unlabelled widgets and no way to reach anything.
+    """
+
+    def test_the_space_card_names_this_product(self):
+        front = read(ROOT / "README.md").split("---")[1]
+        self.assertRegex(front, rf"(?m)^title:\s*{brand.NAME}\s*$")
+        self.assertNotRegex(
+            front,
+            r"(?m)^(title|emoji|colorFrom|colorTo):.*(Meow|🐾|indigo|purple)",
+            "the Space card still advertises the name, the mark or the palette that "
+            "came before this one",
+        )
+
+    def test_the_answer_a_release_is_checked_against_is_derived_too(self):
+        """``/health`` is the one page ``scripts/ship.py`` can hold the Space to.
+
+        The machine carries no commit stamp, so the release check compares the
+        name it answers with instead — which means an answer typed here and a
+        check written there are two declarations of one fact, exactly the shape
+        this module exists to remove. Derived, the two move together; a rename
+        that misses one is a release that fails for the right reason.
+        """
+        self.assertEqual(brand.GATEWAY_SERVICE, f"{brand.NAME.lower()}-gateway")
+        # Read as lines rather than as a file, because this fact is written in a
+        # comment too: a check that the *text* names the expression passes on the
+        # sentence explaining it, which is how a law stops measuring anything.
+        served = [
+            line for line in read(ROOT / "app.py").splitlines() if '"service"' in line
+        ]
+        self.assertTrue(served, "app.py no longer answers /health with a service name")
+        for line in served:
+            self.assertIn(
+                "brand.GATEWAY_SERVICE",
+                line,
+                "the Space's /health spells the name instead of deriving it: " + line.strip(),
+            )
+
+    def test_the_spaces_own_page_is_drawn_from_the_brand(self):
+        app = read(ROOT / "app.py")
+        self.assertIn("from utils import brand", app, "the space page restates the name")
+        self.assertIn("brand.NAME", app)
+        self.assertNotIn("Meow", app, "the space still announces the retired name")
+        # The ZeroGPU contract, which is the reason a GPU-decorated function has
+        # to exist at all — and the reason its label may not read like a feature.
+        self.assertIn("@spaces.GPU", app)
+        self.assertIn("btn.click(fn=_zero_gpu_worker", app)
+        self.assertIn("load check", app, "the GPU box is presented as a feature")
 
 
 class TheModuleIsOneAuthorByConstruction(unittest.TestCase):

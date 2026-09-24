@@ -59,6 +59,13 @@ INITIAL = "K"
 #: are allowed to mention it are this line and the CHANGELOG's own history.
 RETIRED_NAME = "Meow Bot"
 
+#: What the machine calls itself when something asks. The Space's ``/health`` is
+#: served by `app.py` as a literal rather than rendered from a template, so the
+#: name is *derived* here and the release check compares the served value with
+#: it: a Space still announcing the retired name is a host a whole rebrand behind,
+#: and that is a fact worth failing a release on (see `scripts/ship.py`).
+GATEWAY_SERVICE = f"{NAME.lower()}-gateway"
+
 # --------------------------------------------------------------------------- #
 # The accent
 # --------------------------------------------------------------------------- #
@@ -151,7 +158,7 @@ FAVICON_FOR: dict[str, str] = {theme: "favicon.svg" for theme in THEMES}
 #: buys nothing a visitor can see.
 INTERNAL_NAMES: tuple[str, ...] = (
     "MEOW_* environment variables",
-    "the meow-bot and meow-owner Pages projects",
+    "the meow-bot, meow-owner and meowdev Pages projects",
     "the meow_bank table",
     "the /meow and /meowsound commands",
     "the meow-theme localStorage key",

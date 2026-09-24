@@ -2769,7 +2769,21 @@ def _radio_page():
     can still go quiet, and what the bot does about it — ask again, then say so —
     is the part a visitor cannot discover until it happens to them.
     """
-    feature = features.get("radio")
+    # The registry holds **one** feature for radio and the question box — the
+    # legacy module — so the radio commands are the `/radio` half of it. This
+    # looked the id `"radio"` up, which no feature has answered to since those two
+    # became one flag: `features.get` answers ``None`` rather than raising, the
+    # template reads ``radio_commands`` as empty, and the page's own section —
+    # headed *One group, three faces* — shipped with **no commands in it at all**,
+    # on the page a visitor reads to decide whether to ask for the system.
+    feature = features.get("legacy")
+    entries = features.feature_entries(feature) if feature else ()
+    # Just the radio three: the switch also carries `/qna`, and this page is the
+    # radio's. The name is what a person types, so the note after the em dash is
+    # the template's own sentence rather than a second copy of the registry's.
+    radio_commands = [
+        name for name, _note in entries if name.lstrip("/").split()[0] == "radio"
+    ]
     stations: list = []
     index = None
     try:
@@ -2803,7 +2817,7 @@ def _radio_page():
             "country the table could verify, one command for all of it, and an "
             "honest word about what can go wrong."
         ),
-        radio_commands=list(feature.commands) if feature else [],
+        radio_commands=radio_commands,
         stations=stations,
         station_rows=rows,
         station_preview=STATION_PREVIEW,

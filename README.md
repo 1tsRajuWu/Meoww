@@ -1,8 +1,14 @@
 ---
-title: Meow
-emoji: 🐾
-colorFrom: indigo
-colorTo: purple
+# The Hugging Face Space card, read by huggingface.co rather than by GitHub: the
+# title, the tile's emoji and the gradient behind it. It said `Meow`, a paw and
+# indigo→purple — the pre-rebrand name and the accent the hub used to wear — so
+# the space's own page announced a product that no longer exists under a colour
+# the product no longer has. The card's palette is a closed vocabulary (there is
+# no "teal" to ask for), so it is the nearest pair of allowed words.
+title: Keystone
+emoji: 💠
+colorFrom: green
+colorTo: blue
 sdk: gradio
 app_file: app.py
 pinned: false
@@ -10,7 +16,7 @@ pinned: false
 
 <div align="center">
 
-# 🐾 Meow Bot
+# Keystone
 
 [![Tests](https://github.com/1tsRajOwO/meow-discord-bot/actions/workflows/tests.yml/badge.svg)](https://github.com/1tsRajOwO/meow-discord-bot/actions/workflows/tests.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
@@ -107,7 +113,7 @@ meow-discord-bot/
 ├── cogs/                  ← one file per feature (economy.py, market.py, …)
 ├── utils/                 ← shared helpers; features.py = the feature registry
 ├── templates/             ← the pages: dashboard, sign-in, picker, market, landing, policies
-├── static/                ← meow.css (the one design system), logo, favicon, cat cursors
+├── static/                ← meow.css (the one design system), logo, favicon, the pointer art
 ├── assets/                ← fonts + sounds the bot ships with
 ├── scripts/               ← helper tools (avatar/banner, dev runner, preview, build_site.py)
 ├── docs/                  ← newbie guide, architecture, deployment, and voice-debug

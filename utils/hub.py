@@ -155,6 +155,14 @@ def plain(text: str) -> str:
     # matches this pattern too, so running it first would leave the outer pair
     # behind as two literal asterisks on a page that renders no markup at all.
     out = _MD_EM.sub(r"\1", out)
+    # …and a `**` that survived both passes is still markup rather than content.
+    # Two entries in this file carry an **unpaired** marker — the closing one was
+    # eaten by an earlier pass — so the pair-stripping left it inside a published
+    # sentence (*"Suite unchanged at 148 failed / 2,429 passed / 41 skipped**"*),
+    # where a visitor reads it as a typo in a document nobody rendered. A doubled
+    # asterisk is never prose, so it goes; a single one is left alone, because it
+    # can be.
+    out = out.replace("**", "")
     out = _MD_HEADING.sub("", out)
     out = out.replace("`", "").replace('\\"', '"')
     return re.sub(r"\s+", " ", out).strip()

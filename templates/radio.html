@@ -31,7 +31,11 @@
       </div>
       <p class="small muted">
         One <code>/radio</code> group rather than a command per station: Discord allows 100
-        commands, and three of them are all this needs.
+        commands, and three of them are all this needs. <strong>They answer once an
+        administrator turns the legacy module on for the server</strong>: radio and the
+        anonymous question box ship switched off, and <code>/bot legacy state:On</code> is
+        the one command that offers both. Until then <code>/radio</code> says which switch
+        is off, rather than failing quietly.
       </p>
     </div>
 
@@ -188,7 +192,13 @@
 
 <section class="band band--closing">
   <div class="wrap closing">
-    <h2 class="closing__title">Radio is one system among {{ system_count }}, and switchable like the rest.</h2>
+    {# The old sentence was "one system among {{ system_count }}, and switchable like
+       the rest", which a reader takes to mean *available, and you may turn it off*.
+       The truth is the other way round: radio arrives switched off, and this page —
+       the only address on the site that describes radio — never said so. A visitor
+       installed the bot, typed `/radio`, and was refused by the gate for a fact the
+       page had not mentioned. #}
+    <h2 class="closing__title">Radio arrives switched off, with the question box — one command offers both again.</h2>
     <div class="row closing__actions">
       {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
       <a class="arrow-link" href="/systems">Every system</a>

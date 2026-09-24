@@ -1,15 +1,34 @@
-"""Ship both static hosts in one command, and check that they took it.
+"""Ship every static host in one command, and check that the whole product took it.
 
-There are two Cloudflare Pages projects behind this repository — ``meow-bot`` for
-the public site and ``meow-owner`` for the operator console — and both of them
-are built here and uploaded here, because the thing that was supposed to do it
-does not run. Every workflow run on this repository's GitHub account fails before
-a job starts (*"The job was not started because recent account payments have
-failed or your spending limit needs to be increased"*), so ``Site`` never builds
-and never publishes, and the only path that has ever actually shipped a commit is
-somebody typing ``wrangler pages deploy`` by hand. Four commands, in the right
-order, with the right ``--commit-hash`` on each — which is exactly the kind of
-procedure that gets half-remembered at the moment it matters.
+There are three Cloudflare Pages projects behind this repository — ``meow-bot``
+for the public site, ``meow-owner`` for the operator console and ``meowdev`` for
+the developer hub — and all three are built here and uploaded here, because the
+thing that was supposed to do it does not run. Every workflow run on this
+repository's GitHub account fails before a job starts (*"The job was not started
+because recent account payments have failed or your spending limit needs to be
+increased"*), so ``Site`` never builds and never publishes, and the only path
+that has ever actually shipped a commit is somebody typing ``wrangler pages
+deploy`` by hand. Four commands, in the right order, with the right
+``--commit-hash`` on each — which is exactly the kind of procedure that gets
+half-remembered at the moment it matters.
+
+**And the hub is here because it had no publish path at all.** ``Site`` has a job
+for ``_site`` and one for ``_owner`` and none for ``_hub``, so the hub changed
+only when somebody remembered it by hand — which is how it sat an entire rebrand
+behind, still serving a violet palette and a 404 that said the retired name,
+while the other two hosts moved. A host with no path in this file is a host the
+next rebrand forgets, so every Pages project this repository builds now ships
+from here and is checked here.
+
+**There is a fourth address, and it is not one this script uploads.** The machine
+itself — the Hugging Face Space the other three proxy to — is *pushed* to rather
+than uploaded (``.github/workflows/sync_hf.yml`` force-pushes ``main``), and no
+deployment of it carries a commit stamp, so the byte check that proves a Pages
+host took this build has no analogue there. What it can be held to is the one
+claim it makes about itself: its ``/health`` answers with this product's name, so a
+machine still announcing the retired one is a host a whole rebrand behind. The
+report therefore names all four addresses, and each is asked the question that is
+actually available to it — never a stand-in for it.
 
 So this is that procedure, with the checks that make it worth trusting:
 
@@ -31,33 +50,39 @@ compares its bytes with the ones this build produced.
 
 **And it is honest about the shape of the second claim.** What the byte check
 proves is that the host is answering with this build's artifact, not that the
-site is fresh — the file it fetches (``static/meow.css``, the one sheet both
-hosts serve) only changes when the sheet does. The freshness claim is the first
-check's, and the two are reported apart so neither is taken for the other.
+site is fresh — the file it fetches is each host's own stylesheet
+(``static/meow.css`` for the site and the console, ``static/hub.css`` for the
+hub, where the accent token lives), and a sheet only changes when the sheet does.
+The freshness claim is the first check's, and the two are reported apart so
+neither is taken for the other.
 
 Nothing here pushes: commit and push first, or use the push flow, because an
 upload stamped with a hash that is not on the remote is the failure the refusals
-above exist to prevent. ``--dry-run`` builds both hosts and stops.
+above exist to prevent. ``--dry-run`` builds all three hosts and stops.
 
-**One of the two projects publishes without this script, and that is why
+**One of the projects publishes without this script, and that is why
 ``--verify-only`` exists.** ``meow-bot`` is connected to the repository through
 Cloudflare's own Git integration, so a push to ``main`` is built and published
 by Cloudflare within seconds, off the repository rather than off this machine —
 measured, not assumed: nine seconds after one push the production deployment
-already carried it. ``meow-owner`` has no Git integration at all, so it changes
-only when somebody deploys it. An upload of ``meow-bot`` from here is therefore a
-second, deliberate copy of the same commit, which is worth having when the point
-is to publish *this* tree rather than to wait — and worth skipping when the point
-is only to know whether the push arrived, which is the usual case:
+already carried it. ``meow-owner`` and ``meowdev`` have no Git integration at
+all, so they change only when somebody deploys them. An upload of ``meow-bot``
+from here is therefore a second, deliberate copy of the same commit, which is
+worth having when the point is to publish *this* tree rather than to wait — and
+worth skipping when the point is only to know whether the push arrived, which is
+the usual case:
 
     python scripts/ship.py --verify-only
 
 Usage::
 
-    python scripts/ship.py                 # build, upload and verify both hosts
-    python scripts/ship.py --dry-run       # build both hosts, upload nothing
-    python scripts/ship.py --verify-only   # upload nothing; check the push landed
-    python scripts/ship.py --only meow-bot # one host, when only it changed
+    python scripts/ship.py                  # build, upload and verify all three
+    python scripts/ship.py --dry-run        # build all three, upload nothing
+    python scripts/ship.py --verify-only    # upload nothing; check the push landed
+    python scripts/ship.py --only meowdev   # one host, when only it changed
+
+``--verify-only`` asks all four addresses however narrow ``--only`` is: which host
+an upload was aimed at has no bearing on what the product is serving.
 """
 from __future__ import annotations
 
@@ -74,6 +99,16 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+#: ROOT before anything of this project's is imported. This file is run as
+#: ``python scripts/ship.py``, which puts ``scripts/`` first on the path and not
+#: the repository root, so ``utils`` would not resolve without this line.
+sys.path.insert(0, ROOT)
+
+#: One fact about this release that the machine serves rather than renders: its
+#: ``/health`` names the product, so the Space can be checked against the brand
+#: instead of against a string typed in two places (see `app.py`).
+from utils import brand  # noqa: E402 — needs ROOT on the path first
+
 #: The wrangler command. ``npx --yes`` because wrangler is not a dependency of
 #: this repository — it is a deploy tool, not a build tool, and the one machine
 #: that has it installed for the console has an old one. A machine that *does*
@@ -89,10 +124,10 @@ WRANGLER = os.environ.get("MEOW_WRANGLER", "npx --yes wrangler").split()
 #: changes nothing anybody can see.
 BRANCH = "main"
 
-#: The file the byte check fetches, relative to each build directory. It is the
-#: one asset both hosts upload and both hosts serve under the same path, and it
-#: is copied rather than rendered, so the bytes on the host are the bytes on
-#: disk — which is what makes a comparison meaningful at all.
+#: The file a byte check fetches, relative to a build directory, when a host does
+#: not name one of its own. It has to be a file that host's build writes, that host
+#: actually serves, and that a change to the product moves — otherwise the check
+#: either fails for a reason that is not a deployment, or passes for one that is.
 PROBE = "static/meow.css"
 
 #: How long to wait for a deployment to become the one production serves. The
@@ -113,10 +148,20 @@ class Host:
     out: str
     builder: tuple[str, ...]
     url: str
+    #: The file *this* host answers the byte check with. Per-host rather than one
+    #: shared constant, because a host only serves its own build: asking the hub
+    #: for the site's sheet would report *the build has no static/meow.css* on
+    #: every run — a red check for a reason that has nothing to do with a deploy.
+    probe: str = PROBE
 
     @property
     def directory(self) -> str:
         return os.path.join(ROOT, self.out)
+
+    @property
+    def name(self) -> str:
+        """What the report calls this address."""
+        return self.project
 
 
 HOSTS: tuple[Host, ...] = (
@@ -135,7 +180,50 @@ HOSTS: tuple[Host, ...] = (
         builder=("scripts/build_owner.py", "--out", "_owner"),
         url="https://meow-owner.pages.dev",
     ),
+    Host(
+        project="meowdev",
+        out="_hub",
+        builder=("scripts/build_hub.py", "--out", "_hub"),
+        url="https://meowdev.pages.dev",
+        # Its own sheet, and precisely the file a rebrand moves: the accent token
+        # is declared in `hub/static/hub.css`, so the bytes hashed here are the
+        # bytes the brand is written into. That is what makes the hub's staleness
+        # — a whole rebrand of it, unnoticed — a thing this check can see.
+        probe="static/hub.css",
+    ),
 )
+
+
+@dataclasses.dataclass(frozen=True)
+class Space:
+    """The machine, and the one claim that can be made about it.
+
+    This is the address the three Pages hosts proxy to: the Discord gateway, the
+    database and the API. Nothing in this file builds or uploads it —
+    ``.github/workflows/sync_hf.yml`` force-pushes ``main`` to it — and no
+    deployment of it carries a commit stamp, so *which commit is it serving* is
+    not a question this script can answer, let alone fail on.
+
+    What it does answer is ``/health``, whose ``service`` field is this product's
+    name. That is a fact a rebrand moves, served by the machine itself, and a
+    Space still announcing the name the product stopped using is a host a whole
+    rebrand behind — so this is the question it gets asked, and the report says
+    in words which claim passed rather than lending it the Pages hosts'.
+    """
+
+    name: str
+    url: str
+    health: str = "/health"
+
+
+#: The machine. Named here so the release report can name it too: a product
+#: checked at three addresses and deployed at four has one host nobody looks at.
+SPACE = Space(name="1tsrajowo-meow.hf.space", url="https://1tsrajowo-meow.hf.space")
+
+
+def addresses(hosts: tuple[Host, ...]) -> tuple[Host | Space, ...]:
+    """Every address a release is checked against: the ones built here, and the machine."""
+    return (*hosts, SPACE)
 
 
 class Refused(Exception):
@@ -305,7 +393,7 @@ def probe_url(host: Host, sha: str) -> str:
     entitled to answer from last year's copy, and a check that can be satisfied
     by a cached file is not a check.
     """
-    return f"{host.url}/{PROBE}?ship={sha[:12]}"
+    return f"{host.url}/{host.probe}?ship={sha[:12]}"
 
 
 def served_bytes(url: str) -> tuple[bytes | None, str]:
@@ -331,26 +419,77 @@ def served_bytes(url: str) -> tuple[bytes | None, str]:
 
 def asset_matches_build(host: Host, sha: str) -> tuple[bool, str]:
     """Does the host answer the probe with the bytes this build produced?"""
-    path = os.path.join(host.directory, PROBE)
+    path = os.path.join(host.directory, host.probe)
     try:
         with open(path, "rb") as handle:
             built = handle.read()
     except OSError as error:
-        return False, f"the build has no {PROBE}: {error}"
+        return False, f"the build has no {host.probe}: {error}"
     live, note = served_bytes(probe_url(host, sha))
     if live is None:
         return False, f"{probe_url(host, sha)} did not answer ({note})"
     expected, found = hashlib.sha256(built).hexdigest(), hashlib.sha256(live).hexdigest()
     if expected != found:
         return False, (
-            f"{host.url}/{PROBE} answered with other bytes than this build's "
+            f"{host.url}/{host.probe} answered with other bytes than this build's "
             f"(host {found[:12]}, build {expected[:12]})"
         )
-    return True, f"{PROBE} is this build's ({found[:12]})"
+    return True, f"{host.probe} is this build's ({found[:12]})"
 
 
-def verify(host: Host, sha: str) -> tuple[bool, str]:
-    """Both claims about one host, reported together."""
+def gateway_payload(space: Space) -> tuple[dict | None, str]:
+    """``(health payload, note)`` for the machine — the note says what it answered instead."""
+    body, note = served_bytes(f"{space.url}{space.health}")
+    if body is None:
+        return None, note
+    try:
+        payload = json.loads(body.decode("utf-8", "replace"))
+    except ValueError:
+        return None, f"answered {body[:60]!r}, which is not JSON"
+    if not isinstance(payload, dict):
+        return None, f"answered {body[:60]!r}, which is not a health payload"
+    return payload, ""
+
+
+def verify_gateway(space: Space) -> tuple[bool, str]:
+    """Whether the machine answers, and answers as this product.
+
+    Deliberately *not* the Pages hosts' check with a different URL. Those two
+    claims — Cloudflare says production is this commit, and the host serves this
+    build's bytes — are about an upload, and nothing here uploads the Space. The
+    available claim is smaller and is reported as what it is: the machine is up,
+    and it is wearing this release's name.
+    """
+    payload, note = gateway_payload(space)
+    if payload is None:
+        return False, (
+            f"{space.url}{space.health} answered nothing ({note}); nothing here "
+            "uploads this host — .github/workflows/sync_hf.yml pushes to it — so a "
+            "machine that is not answering is one that push has not reached"
+        )
+    status = str(payload.get("status") or "")
+    served = str(payload.get("service") or "")
+    if status != "healthy" or served != brand.GATEWAY_SERVICE:
+        return False, (
+            f"answers {status or 'no status'} as {served or 'nothing'}, where this "
+            f"release answers healthy as {brand.GATEWAY_SERVICE} — the machine is "
+            "serving a build from before that name, or is not this product"
+        )
+    return True, (
+        f"answers as {served} · it carries no commit stamp, so this is that it is "
+        "up and wearing this name rather than that it is this commit"
+    )
+
+
+def verify(address: Host | Space, sha: str) -> tuple[bool, str]:
+    """The claims available about one address, reported together."""
+    if isinstance(address, Space):
+        return verify_gateway(address)
+    return verify_host(address, sha)
+
+
+def verify_host(host: Host, sha: str) -> tuple[bool, str]:
+    """Both claims about one Pages host: which commit, and which bytes."""
     landed = production_commit(host.project)
     if landed is None:
         return False, "Cloudflare reported no production deployment for this project"
@@ -374,7 +513,7 @@ def ship(
     sha = preflight(require_clean=not verify_only, require_push=not dry_run)
     if verify_only:
         print(
-            f"Verifying {sha[:7]} on {', '.join(host.project for host in hosts)}\n"
+            f"Verifying {sha[:7]} on {', '.join(address.name for address in addresses(hosts))}\n"
             "(nothing will be built or uploaded)\n"
         )
         return report(hosts, sha, wait=False)
@@ -409,18 +548,23 @@ def report(hosts: tuple[Host, ...], sha: str, *, wait: bool) -> int:
     sleeps, so it asks once and reports what it found.
     """
     attempts = ATTEMPTS if wait else 1
+    checked = addresses(hosts)
+    # Aligned to the longest address rather than to a number: the machine's name
+    # is twice the length of the longest Pages project, and a column that misses
+    # its widest entry is a report nobody reads down.
+    width = max(len(address.name) for address in checked) + 2
     unmet: list[str] = []
     for attempt in range(1, attempts + 1):
         unmet = []
-        for host in hosts:
-            ok, note = verify(host, sha)
+        for address in checked:
+            ok, note = verify(address, sha)
             mark = "✓" if ok else "✗"
-            print(f"  {mark} {host.project:<12} {note}")
+            print(f"  {mark} {address.name:<{width}} {note}")
             if not ok:
-                unmet.append(f"{host.project}: {note}")
+                unmet.append(f"{address.name}: {note}")
         if not unmet:
             verb = "Shipped" if wait else "Confirmed"
-            print(f"\n{verb} {sha[:7]} on {len(hosts)} host(s), and every one answered.")
+            print(f"\n{verb} {sha[:7]} on {len(checked)} addresses, and every one answered.")
             return 0
         if attempt < attempts:
             print(f"    … not yet ({attempt}/{attempts}); asking again in {PAUSE_SECONDS}s\n")
@@ -434,16 +578,19 @@ def report(hosts: tuple[Host, ...], sha: str, *, wait: bool) -> int:
         )
     else:
         # Nothing was uploaded here, so *unpublished* is the ordinary reading
-        # rather than an alarm: `meow-owner` has no Git integration, so it changes
-        # only when somebody deploys it, and the public host's build is
-        # Cloudflare's rather than this machine's.
+        # rather than an alarm: `meow-owner` and `meowdev` have no Git
+        # integration, so they change only when somebody deploys them, and the
+        # public host's build is Cloudflare's rather than this machine's.
         advice = (
             "\n\nNothing in this run uploaded anything, so this is the state of the"
-            "\nhosts rather than a failed publish. A host that is behind has simply not"
-            "\nbeen deployed for this commit: `python scripts/ship.py --only <project>`."
+            "\naddresses rather than a failed publish. A Pages host that is behind"
+            "\nhas simply not been deployed for this commit:"
+            "\n`python scripts/ship.py --only <project>`. The machine is a push rather"
+            "\nthan an upload — updated by `.github/workflows/sync_hf.yml`, or by hand —"
+            "\nso a Space that is behind is one that push has not reached."
         )
     print(
-        "\n✗ Not every host is serving this commit:\n  "
+        "\n✗ Not every address is serving this release:\n  "
         + "\n  ".join(unmet)
         + advice,
         file=sys.stderr,
@@ -470,12 +617,16 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="PROJECT",
-        help=f"one host instead of both ({', '.join(h.project for h in HOSTS)})",
+        help=(
+            "one host instead of all three "
+            f"({', '.join(h.project for h in HOSTS)}). Every address is checked "
+            "either way, the Space included"
+        ),
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="build both hosts and stop; upload nothing and verify nothing",
+        help="build all three hosts and stop; upload nothing and verify nothing",
     )
     parser.add_argument(
         "--verify-only",

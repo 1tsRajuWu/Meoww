@@ -953,6 +953,14 @@ def dashboard(sub: str = "overview"):
     page_url = f"{page_path}?guild_id={guild['id']}"
     return render_template(
         "dashboard.html",
+        # The frame, merged the way the route merges it: `_site_context()` for the
+        # name, the counts, the footer and the theme picker, `_invite_context()` for
+        # the two invite links. This harness rendered neither, and the shape the
+        # omission took was **a wordmark that was a lone "."** — the same defect the
+        # route itself was repaired for, alive in the tool a person opens to look at
+        # the page. Anything the frame owns is named once, above; the kwargs below
+        # are this page's own.
+        **{**keep_alive._site_context(), **keep_alive._invite_context(guild_id=guild["id"])},
         guild_id=guild["id"],
         guild_name=guild["name"],
         member_count=guild["members"],
@@ -971,11 +979,11 @@ def dashboard(sub: str = "overview"):
         # reachable here too — it is the one that used to be unreachable, in both
         # directions, and the one worth being able to look at.
         gateway=_preview_badge(),
-        # Whether the topbar offers the Pricing link, from the same switch the
-        # route reads. Left out, it would read as "off" and the preview would
-        # silently show a topbar production may not have — the harness drift
-        # this file's own comment above warns about.
-        selling=keep_alive.plans.selling_enabled(),
+        # `selling=` used to stand here, read from the same switch the route reads
+        # so the topbar's Pricing link could not quietly differ. `_site_context()`
+        # above carries it now, which is the *only* version of that argument that
+        # cannot drift from the route: one owner, and this file no longer has to be
+        # right about which switch it is.
         modules=MODULES,
         # Counted, not seeded: these two were literals from the three-card stub
         # and said "2 / 3" over an eleven-card page after the registry grew.
@@ -1004,12 +1012,11 @@ def dashboard(sub: str = "overview"):
         # A passkey-shaped session (the operator's), which is the one this page
         # renders: no Discord identity in the header, no picker link — but the
         # invite link is gated on the client id alone, exactly as production
-        # gates it, so the header button is the real one.
+        # gates it, so the header button is the real one. The three invite links
+        # themselves are `_invite_context()`'s, merged above with the server this
+        # page is open on, so `invite_here_url` names the same server the rail does.
         signed_in_as={},
         pick_server_url="",
-        invite_url=discord_auth.invite_url(),
-        invite_limited_url=discord_auth.invite_url(minimal=True),
-        invite_here_url=discord_auth.invite_url(guild_id=guild["id"]),
         # The composer's rulebook, read from the bot rather than restated: the
         # page refuses locally with these sentences and these numbers, so a
         # preview that invented its own would show a different composer. (The
@@ -1500,7 +1507,12 @@ def market_page(symbol):
     # context would go on working the day the real one grew a key it needs.
     import keep_alive
 
-    return render_template("market.html", **keep_alive.market_context(instrument))
+    # The route's own merge, `_site_context()` included: the market page wears the
+    # site frame like every other address, and rendering it with only the market's
+    # half left the wordmark a lone "." and the `<title>` ending on its separator.
+    return render_template(
+        "market.html", **{**keep_alive._site_context(), **keep_alive.market_context(instrument)}
+    )
 
 
 #: A few plausible prices for the preview board, in USD.

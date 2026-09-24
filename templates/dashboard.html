@@ -294,7 +294,12 @@
         </div>
         <p class="hint">{{ module.desc }}</p>
         <p class="small mono">
-          {% for command in module.commands %}/{{ command }} {% endfor %}
+          {# The registry writes each command as a person types it — `/market buy`,
+             leading slash included — so the card prints what the registry holds.
+             It did not: this line prefixed a second `/`, and every card on this
+             page offered `//starboard set`, which is not a command anybody can
+             run and not one a copy-paste would fix. #}
+          {% for command in module.commands %}{{ command }} {% endfor %}
         </p>
       </div>
       {% endfor %}
@@ -1124,5 +1129,3 @@
 </section>
 {% endif %}
 {% endblock %}
-</content>
-</invoke>
