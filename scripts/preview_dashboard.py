@@ -903,7 +903,8 @@ def _preview_badge() -> dict:
 
 
 @app.route("/dashboard")
-def dashboard():
+@app.route("/dashboard/<path:sub>")
+def dashboard(sub: str = "overview"):
     try:
         guild_id = int(request.args.get("guild_id"))
     except (TypeError, ValueError):
@@ -911,12 +912,44 @@ def dashboard():
         # back to the session's. It is what makes the picker's **Manage** land on
         # the server that was chosen rather than on the first one in the file.
         guild_id = CURRENT_GUILD["id"]
+    # One page of the dashboard, by its own address — the same eleven production
+    # serves, so the rail's links are followable here instead of landing on a 404
+    # only this harness has. An address that is not a page falls back to the front
+    # one, the way ``DASHBOARD_PAGE_BY_PATH`` does.
+    page = sub if any(spec == sub for spec, *_ in keep_alive.DASHBOARD_PAGES) else "overview"
     # An unknown id falls back to the first server, exactly as
     # ``keep_alive._resolve_guild_id`` does, so the select can never point at a
     # server it does not also list.
     guild = next((g for g in GUILDS if g["id"] == guild_id), GUILDS[0])
     # The cards describe the real store, not the seed values in this file.
     _sync_module_cards(guild["id"])
+    # The rail and the page's own headings, from the same list and the same copy
+    # the route uses — the harness's whole rule is that it renders what production
+    # renders, and a rail built here by hand is exactly the drift its own comments
+    # warn about.
+    title, lede = keep_alive.DASHBOARD_PAGE_COPY.get(
+        page, keep_alive.DASHBOARD_PAGE_COPY["overview"]
+    )
+    nav = keep_alive._page_nav(
+        keep_alive.DASHBOARD_PAGES, page, f"?guild_id={guild['id']}",
+        groups=keep_alive.DASHBOARD_GROUPS,
+    )
+    # The roster and the two ledgers, through production's own readers: an epoch
+    # is formatted by the route's own helper, and the ledgers come from the tables
+    # this harness seeds rather than from a fixture written out here.
+    management = preview_management(guild["id"])
+    keep_alive._stamp_rows(management["recent"], "at", "when_text")
+    if management["roster"]:
+        keep_alive._stamp_rows(management["roster"]["members"], "joined_at", "joined_text")
+    economy_reading = keep_alive._progression_context(guild["id"], "economy")["economy"]
+    level_reading = keep_alive._progression_context(guild["id"], "leveling")["levels"]
+    fee = (economy_reading or {}).get("fee") or {}
+    # Where a form on the page comes back to: the address with the server in it,
+    # which is also what production hands its forms.
+    page_path = next(
+        path for spec, _label, path, _anchor in keep_alive.DASHBOARD_PAGES if spec == page
+    )
+    page_url = f"{page_path}?guild_id={guild['id']}"
     return render_template(
         "dashboard.html",
         guild_id=guild["id"],
@@ -957,12 +990,7 @@ def dashboard():
         # is the half of the rail that is a design decision rather than a link.
         # (The console's route below has carried its own version of this for the
         # same reason; this is the dashboard's.)
-        dashboard_pages=keep_alive._page_nav(
-            keep_alive.DASHBOARD_PAGES,
-            "",
-            f"?guild_id={guild['id']}",
-            groups=keep_alive.DASHBOARD_GROUPS,
-        ),
+        dashboard_pages=nav,
         guild_query=f"?guild_id={guild['id']}",
         fleet_url="/servers",
         pages_json=keep_alive._inline_json({
@@ -1048,7 +1076,37 @@ def dashboard():
         # the uptime snapshot above is: the panels' whole job is to show a list and
         # a state, and a preview that showed the *empty* branch of both would show
         # nothing about any of it. The numbers are the harness's own servers.
-        management=preview_management(guild["id"]),
+        management=management,
+        # The page the harness was asked for, and everything the eleven sections
+        # are drawn from — all of it read by production's own helpers.
+        dash_page=page,
+        page_title=title,
+        page_lede=lede,
+        page_anchor=keep_alive._page_anchor(keep_alive.DASHBOARD_PAGES, page),
+        page_url=page_url,
+        rail=keep_alive._dashboard_rail(nav),
+        dash_notice="",
+        dash_error="",
+        economy_view=economy_reading,
+        level_view=level_reading,
+        economy_display=keep_alive._economy_display(economy_reading),
+        level_display=keep_alive._level_display(level_reading),
+        economy_fee={
+            "label": fee.get("label", ""),
+            "enabled": bool(fee.get("enabled", True)),
+            "cap": fee.get("cap", 0),
+            "stored": bool(fee.get("stored", False)),
+            "describe": str(fee.get("describe", "")).replace("**", ""),
+        },
+        # The queue, the channel picker and the two action lists, from the same
+        # readers production uses — the harness has a real seeded store behind it,
+        # so an empty stub here would preview a branch production may never take.
+        schedule_queue=keep_alive._schedule_queue(guild["id"], page),
+        channel_choices=keep_alive._channel_choices(guild["id"], page),
+        member_actions=keep_alive.PANEL_MEMBER_ACTIONS,
+        server_actions=keep_alive.PANEL_SERVER_ACTIONS,
+        toggle_url="/api/toggle",
+        toggle_all_url="/api/toggle-all",
         # The Overview's own panel, read by production's own reader rather than
         # written out here. It used to be a hand-built dict, and the radio rebuild
         # is what that cost: the block described a player with a **queue** and a

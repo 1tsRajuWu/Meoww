@@ -1,0 +1,1079 @@
+{# ==========================================================================
+   dashboard.html — one page of one server, served rather than bundled.
+
+   Every address in this group answered **301 to `/servers`** for one rebuild: the
+   pre-rebuild template was swept into the archive while its routes, its readers
+   and forty of its own tests still needed it, so the per-feature management the
+   dashboard exists for — the systems, the members, the two ledgers, the composer,
+   the queue, the identity — was nowhere to be found. The eleven pages are back,
+   in this site's own language, and every reading on them comes from the function
+   the matching `/api/*` endpoint already answers with. A page and a script cannot
+   disagree about the same server.
+
+   Three rules the markup follows, all of them this site's:
+
+     * **A write is a form.** Every control is a `<form>` that POSTs to the
+       endpoint that already owns that write and lands back here with the
+       server's own sentence. No JavaScript is required for anything that changes
+       something — which matters most exactly when something is wrong — and no
+       second implementation of a rule exists behind a form-shaped door.
+     * **A reading is never invented.** Where a reader could not be read, the page
+       says so in words instead of drawing a zero: "could not ask" and "there is
+       nobody" are different answers, and this project keeps them apart
+       everywhere else too.
+     * **The rail is the page list.** It is drawn from `DASHBOARD_PAGES` and
+       `DASHBOARD_GROUPS` in the view, so a page added to the table is in the
+       navigation before anybody remembers to add it there.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+{% block title %}{{ page_title }} — {{ guild_name }} — {{ bot_name }}{% endblock %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
+
+{# One hidden field per form, from the two values every write needs: the token the
+   endpoint checks, the server it is about, where the reader goes back to, and the
+   sentence to show when it worked. Written once so eleven forms cannot disagree
+   about the shape of a write. #}
+{% macro guard(notice) %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="guild_id" value="{{ guild_id }}">
+  <input type="hidden" name="dash_return" value="{{ page_url }}">
+  <input type="hidden" name="dash_notice" value="{{ notice }}">
+{% endmacro %}
+
+{% macro chip(label, value, tone="") %}
+<span class="own-chip{% if tone %} own-chip--{{ tone }}{% endif %}">
+  <span class="own-chip__label">{{ label }}</span>
+  <span class="own-chip__value mono">{{ value }}</span>
+</span>
+{% endmacro %}
+
+{# A reader's own mapping, as labelled readings. Scalars only: a list or a nested
+   mapping belongs in a table built for it. #}
+{% macro facts(title, mapping) %}
+{% if mapping is mapping %}
+<dl class="own-facts">
+  {% for key, value in mapping.items() %}
+  {% if value is string or value is number or value is boolean or value is none %}
+  <div class="own-fact">
+    <dt>{{ key | replace('_', ' ') }}</dt>
+    <dd class="mono">{% if value is none %}—{% else %}{{ value }}{% endif %}</dd>
+  </div>
+  {% endif %}
+  {% endfor %}
+</dl>
+{% endif %}
+{% endmacro %}
+
+{# A system's own switch. Posts to the endpoint the JSON route uses, so one click
+   from a page and one call from a script are the same write — and turning one off
+   is the *absence* of `enabled`, because an unchecked HTML box is not sent at all
+   and `bool("0")` is true. #}
+{% macro module_switch(module) %}
+<form class="dash-switch" method="post" action="{{ toggle_url }}" data-module="{{ module.id }}">
+  {{ guard(module.name ~ (' switched off' if module.enabled else ' switched on')) }}
+  <input type="hidden" name="module" value="{{ module.id }}">
+  {% if not module.enabled %}<input type="hidden" name="enabled" value="1">{% endif %}
+  <button class="dash-switch__btn{{ ' is-on' if module.enabled }}" type="submit"
+          role="switch" aria-checked="{{ 'true' if module.enabled else 'false' }}">
+    <span class="dash-switch__state">{{ 'On' if module.enabled else 'Off' }}</span>
+    <span class="visually-hidden">{{ module.name }}</span>
+  </button>
+</form>
+{% endmacro %}
+
+{% block page %}
+<section class="page-head band band--flush">
+  <div class="wrap">
+    <p class="micro">Dashboard</p>
+    <h1 id="dash-title">{{ page_title }}</h1>
+    <p class="lede">{{ page_lede }}</p>
+
+    {% if dash_notice %}<p class="notice" role="status">{{ dash_notice }}</p>{% endif %}
+    {% if dash_error %}<p class="notice notice--bad" role="alert">{{ dash_error }}</p>{% endif %}
+    {% if not guild_id %}
+    <p class="notice notice--bad" role="alert">
+      This sign-in does not reach a server right now, so there is nothing to read —
+      pick one below and every page will fill in.
+    </p>
+    {% endif %}
+
+    <div class="own-state">
+      {{ chip('Server', guild_name) }}
+      {{ chip('Members', member_count) }}
+      {{ chip('Gateway', gateway.label, 'ok' if gateway.connected else 'warn') }}
+      {{ chip('Ping', (bot_ping ~ ' ms') if bot_ping is not none else 'Not answering',
+              '' if bot_ping is not none else 'warn') }}
+      {{ chip('Systems', active_count ~ ' of ' ~ total_count) }}
+      {% if fleet_url %}{{ chip('Operator', 'console open') }}{% endif %}
+    </div>
+
+    {% if can_switch_guild and guilds | length > 1 %}
+    <nav class="dash-servers" aria-label="Which server">
+      {% for server in guilds %}
+      <a class="own-rail__link{% if server.id|string == guild_id|string %} is-current{% endif %}"
+         href="/dashboard?guild_id={{ server.id }}">{{ server.name }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+
+    {# The rail. Grouped from `DASHBOARD_GROUPS`, drawn from `_page_nav`, so a page
+       added to the table and not placed in a group is still reachable. #}
+    <nav class="own-rail" aria-label="Dashboard pages">
+      {% for group in rail %}
+      <div class="own-rail__group">
+        {% if group.label %}<p class="micro">{{ group.label }}</p>{% endif %}
+        <div class="own-rail__row">
+          {% for item in group.pages %}
+          <a class="own-rail__link{% if item.current %} is-current{% endif %}" href="{{ item.url }}"
+             {% if item.current %}aria-current="page"{% endif %}>{{ item.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </nav>
+  </div>
+</section>
+
+{# ---------------------------------------------------------------------------
+   Overview — what this server *is doing*, not what the deployment's numbers are.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'overview' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">Right now</h2>
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>In voice right now</h3>
+        {% if overview_live.read %}
+          {% if overview_live.rooms %}
+          <ul class="list">
+            {% for room in overview_live.rooms %}
+            <li class="list__row">
+              <span class="list__key">{{ room.name }}</span>
+              <span class="list__note">
+                {{ room.people }} {{ 'person' if room.people == 1 else 'people' }}
+                {%- if room.alone %} · alone{% endif %}
+                {%- if room.live %} · live{% endif %}
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="hint">
+            {{ overview_live.people }}
+            {{ 'person' if overview_live.people == 1 else 'people' }} in voice across
+            {{ overview_live.rooms | length }}
+            {{ 'room' if overview_live.rooms | length == 1 else 'rooms' }}.
+          </p>
+          {% else %}
+          <p class="muted">Nobody is in a voice channel. That is the reading, not a failure.</p>
+          {% endif %}
+        {% else %}
+        <p class="muted">Nothing was read for this render.</p>
+        <p class="hint">{{ overview_live.why }}</p>
+        {% endif %}
+      </div>
+
+      <div class="own-card">
+        <h3>The radio</h3>
+        {% if overview_live.radio %}
+        {{ facts('', overview_live.radio) }}
+        {% elif not overview_live.read %}
+        <p class="hint">{{ overview_live.why }}</p>
+        {% else %}
+        <p class="muted">Nothing is playing here right now.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>Where to go next</h3>
+        <ul class="list">
+          {# The market board is not a dashboard page — it is a public surface with no
+             session at all — but it is where the charts are, and the overview is
+             where somebody looks for them. #}
+          <li class="list__row">
+            <span class="list__key"><a href="/market">The market board</a></span>
+            <span class="list__note">Live prices and the candle charts.</span>
+            <span class="list__meta mono">/market</span>
+          </li>
+          {% for item in dashboard_pages if item.id in ('members', 'server', 'composer', 'schedule') %}
+          <li class="list__row">
+            <span class="list__key"><a href="{{ item.url }}">{{ item.label }}</a></span>
+            <span class="list__meta mono">{{ item.href }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="own-card">
+        <h3>This server's systems</h3>
+        <p class="hint">
+          {{ active_count }} of {{ total_count }} are on. Off means the commands are
+          not offered here either.
+        </p>
+        <ul class="list">
+          {% for module in modules if not module.enabled %}
+          <li class="list__row">
+            <span class="list__key">{{ module.name }}</span>
+            <span class="list__note">{{ module.desc }}</span>
+          </li>
+          {% else %}
+          <li class="list__row"><span class="list__note">Every system is on here.</span></li>
+          {% endfor %}
+        </ul>
+        <p class="hint"><a href="/dashboard/systems{{ guild_query }}">Open the systems</a></p>
+      </div>
+    </div>
+
+    <div class="own-card">
+      <h3>How this page reads</h3>
+      {{ facts('', {'guild_id': guild_id, 'page': dash_page, 'anchor': page_anchor}) }}
+      <p class="hint">
+        Every figure on this page comes from the same reader the matching API endpoint
+        answers with — the dashboard and a script cannot disagree about this server.
+      </p>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Systems — one switch per system, from the registry the toggle endpoint checks.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'systems' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">Every system</h2>
+    <p class="hint">
+      A switch is also a command-set change: turning a system off here is what takes
+      its commands out of this server's picker, because they are registered per server.
+    </p>
+
+    <div class="row">
+      <form method="post" action="{{ toggle_all_url }}">
+        {{ guard('Every system this server may have is on.') }}
+        <input type="hidden" name="enabled" value="1">
+        <button class="btn btn--primary" type="submit">Turn them all on</button>
+      </form>
+      <form method="post" action="{{ toggle_all_url }}">
+        {{ guard('Every system is off.') }}
+        <button class="btn" type="submit">Turn them all off</button>
+      </form>
+    </div>
+
+    {% for category, group in modules | groupby('category') %}
+    <h3>{{ category }}</h3>
+    <div class="own-grid">
+      {% for module in group %}
+      <div class="own-card dash-sys">
+        <div class="dash-sys__head">
+          <h4>{{ module.icon }} {{ module.name }}</h4>
+          {{ module_switch(module) }}
+        </div>
+        <p class="hint">{{ module.desc }}</p>
+        <p class="small mono">
+          {% for command in module.commands %}/{{ command }} {% endfor %}
+        </p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Members — the roster, the ban list and the actions, all through the same guard
+   the slash commands use.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'members' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">Who is here</h2>
+
+    <form class="row dash-search" method="get" action="/dashboard/members">
+      <label class="visually-hidden" for="member-search">Search this server's members</label>
+      <input id="member-search" type="search" name="q" value="{{ management.query }}"
+             placeholder="Name or @handle">
+      {% if guild_id %}<input type="hidden" name="guild_id" value="{{ guild_id }}">{% endif %}
+      <button class="btn" type="submit">Search</button>
+    </form>
+
+    {% if not management.read %}
+    <p class="notice">{{ management.why or 'That list could not be read just now.' }}</p>
+    {% else %}
+
+      {% if management.abilities %}
+      <div class="own-card">
+        <h3>What the bot may do here</h3>
+        <ul class="list">
+          {% for ability in management.abilities %}
+          <li class="list__row">
+            <span class="list__key">{{ ability.label }}</span>
+            <span class="list__note">{{ ability.why }}</span>
+            {{ chip('held' if ability.ok else 'missing', '', 'ok' if ability.ok else 'warn') }}
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="hint">
+          A permission the bot does not hold turns an action into a button that reports
+          success and changes nothing, so it is said here rather than discovered.
+        </p>
+      </div>
+      {% endif %}
+
+      {% if management.roster and management.roster.members %}
+      <div class="own-table__scroll">
+        <table class="own-table">
+          <caption>
+            Showing {{ management.roster.shown }} of {{ management.roster.matched }}
+            {%- if management.query %} matching “{{ management.query }}”{% endif %}
+            {%- if not management.roster.complete %} — without the Server Members intent this list may be short{% endif %}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Member</th>
+              <th scope="col">Joined</th>
+              <th scope="col">Top role</th>
+              <th scope="col">State</th>
+              <th scope="col">Do one thing</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for member in management.roster.members %}
+            <tr>
+              <th scope="row">
+                {{ member.display_name }}
+                <span class="mono small">@{{ member.name }}</span>
+              </th>
+              <td class="mono">{{ member.joined_text or '—' }}</td>
+              <td>{{ member.top_role or '—' }}</td>
+              <td>
+                {% if member.timeout_seconds %}timed out{% elif member.bot %}bot{% else %}—{% endif %}
+              </td>
+              <td>
+                <form class="dash-row-form" method="post" action="/api/member-action">
+                  {{ guard(member.display_name ~ ' — done.') }}
+                  <input type="hidden" name="user_id" value="{{ member.id }}">
+                  <label class="visually-hidden" for="act-{{ member.id }}">Action for {{ member.display_name }}</label>
+                  <select id="act-{{ member.id }}" name="action">
+                    {% for action in member_actions %}
+                    <option value="{{ action }}">{{ action | replace('_', ' ') }}</option>
+                    {% endfor %}
+                  </select>
+                  <label class="visually-hidden" for="why-{{ member.id }}">Reason</label>
+                  <input id="why-{{ member.id }}" type="text" name="reason" maxlength="200"
+                         placeholder="Reason">
+                  <button class="btn" type="submit">Apply</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">No members matched that search.</p>
+      {% endif %}
+
+      <div class="own-grid">
+        <div class="own-card">
+          <h3>Banned here</h3>
+          {% if management.bans %}
+          <div class="own-table__scroll">
+            <table class="own-table">
+              <caption>The ban list, newest first</caption>
+              <thead><tr><th scope="col">Who</th><th scope="col">Reason</th><th scope="col"></th></tr></thead>
+              <tbody>
+                {% for row in management.bans %}
+                <tr>
+                  <th scope="row">{{ row.display_name or row.name }}<span class="mono small"> @{{ row.name }}</span></th>
+                  <td>{{ row.reason or '—' }}</td>
+                  <td>
+                    <form method="post" action="/api/member-action">
+                      {{ guard((row.display_name or row.name) ~ ' is welcome again.') }}
+                      <input type="hidden" name="user_id" value="{{ row.id }}">
+                      <input type="hidden" name="action" value="unban">
+                      <button class="btn" type="submit">Unban</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="hint">Nobody is banned here, or the ban list could not be read.</p>
+          {% endif %}
+        </div>
+
+        <div class="own-card">
+          <h3>What was done from here</h3>
+          {% if management.recent %}
+          <ul class="list">
+            {% for row in management.recent %}
+            <li class="list__row">
+              <span class="list__key">{{ row.action }}{% if row.target %} → {{ row.target }}{% endif %}</span>
+              <span class="list__note">{{ row.detail or '' }}</span>
+              <span class="list__meta mono">{{ row.actor_name or row.actor_id }}{% if row.when_text %} · {{ row.when_text }}{% endif %}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="hint">Nothing has been done from the website in this server yet.</p>
+          {% endif %}
+          <p class="hint">
+            Discord's audit log credits the bot, because the bot is what performed the
+            action — this ledger is the only place the person who asked is written down.
+          </p>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Server — the whole-server controls, as forms.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'server' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">The whole of it</h2>
+
+    {% if not management.read %}
+    <p class="notice">{{ management.why or 'That reading could not be taken just now.' }}</p>
+    {% elif management.control %}
+    <div class="own-state">
+      {{ chip('Locked now', management.control.locked) }}
+      {{ chip('Channels', management.control.channels | length) }}
+      {{ chip('Slowmode', management.control.plan and 'planned' or 'not set') }}
+    </div>
+    <div class="own-card">
+      <h3>What a lockdown would do</h3>
+      <p>{{ management.control.plan }}</p>
+      {% if management.control.counts %}{{ facts('', management.control.counts) }}{% endif %}
+      {% if not management.control.ledger %}
+      <p class="hint">The ledger of what is already locked could not be read, so this
+        is the plan rather than the current state.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>Lock the server down</h3>
+        <p class="hint">Every channel that can be locked gets its send permission taken
+          away from the default role, and each one is written down as it happens.</p>
+        <form method="post" action="/api/server-action">
+          {{ guard('The server is locked down.') }}
+          <input type="hidden" name="action" value="lockdown">
+          <button class="btn btn--primary" type="submit">Lock it down</button>
+        </form>
+      </div>
+      <div class="own-card">
+        <h3>Lift it</h3>
+        <p class="hint">Only what this record shows as locked is lifted, so a channel
+          somebody locked by hand is left as they left it.</p>
+        <form method="post" action="/api/server-action">
+          {{ guard('The lockdown is lifted.') }}
+          <input type="hidden" name="action" value="unlock">
+          <button class="btn" type="submit">Lift the lockdown</button>
+        </form>
+      </div>
+      <div class="own-card">
+        <h3>Slowmode</h3>
+        <form class="row" method="post" action="/api/server-action">
+          {{ guard('Slowmode is set.') }}
+          <input type="hidden" name="action" value="slowmode">
+          <label class="visually-hidden" for="slow-seconds">Seconds between messages</label>
+          <select id="slow-seconds" name="seconds">
+            <option value="0">Off</option>
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds</option>
+            <option value="30">30 seconds</option>
+            <option value="60">1 minute</option>
+            <option value="300">5 minutes</option>
+            <option value="21600">6 hours</option>
+          </select>
+          <button class="btn" type="submit">Set it</button>
+        </form>
+      </div>
+    </div>
+
+    {% if management.recent %}
+    <div class="own-card">
+      <h3>Recent actions here</h3>
+      <ul class="list">
+        {% for row in management.recent %}
+        <li class="list__row">
+          <span class="list__key">{{ row.action }}</span>
+          <span class="list__note">{{ row.detail or '' }}</span>
+          <span class="list__meta mono">{{ row.actor_name or row.actor_id }}{% if row.when_text %} · {{ row.when_text }}{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Economy and Levels — two ledgers, each with the switches it is about and
+   nothing that could write a balance: that is the operator's console alone.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'economy' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">Coins, and where they are</h2>
+
+    {% if economy_display %}
+    <div class="own-state">
+      {{ chip('In wallets', economy_display.wallet) }}
+      {{ chip('In banks', economy_display.bank) }}
+      {{ chip('In circulation', economy_display.circulation) }}
+      {{ chip('Meow Bank', economy_display.meow_bank) }}
+      {{ chip('Accounts', economy_display.accounts) }}
+    </div>
+
+    {% if economy_display.top %}
+    <div class="own-table__scroll">
+      <table class="own-table">
+        <caption>The heaviest wallets here, by net worth</caption>
+        <thead>
+          <tr><th scope="col">Member</th><th scope="col">Net</th>
+              <th scope="col">Wallet</th><th scope="col">Bank</th>
+              <th scope="col">Share of everything</th></tr>
+        </thead>
+        <tbody>
+          {% for holder in economy_display.top %}
+          <tr>
+            <th scope="row">{{ holder.name or holder.user_id }}</th>
+            <td class="mono">{{ holder.net_text }}</td>
+            <td class="mono">{{ holder.wallet_text }}</td>
+            <td class="mono">{{ holder.bank_text }}</td>
+            <td class="mono">{{ holder.share_text }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">Nobody has earned a coin here yet.</p>
+    {% endif %}
+
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>The fee this server charges</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>rate</dt><dd class="mono">{{ economy_fee.label }}</dd></div>
+          <div class="own-fact"><dt>state</dt><dd class="mono">{{ 'charged' if economy_fee.enabled else 'off' }}</dd></div>
+          <div class="own-fact"><dt>banked fees</dt><dd class="mono">{{ economy_display.meow_bank }}</dd></div>
+        </dl>
+        <p class="hint">{{ economy_fee.describe }}</p>
+        <p class="hint">
+          Fees land in Meow Bank, which is the house account — the figure above is what
+          has actually been charged here.
+        </p>
+      </div>
+
+      <div class="own-card">
+        <h3>Manage this feature</h3>
+        <p class="hint">Coins come from the systems that pay them out, so these are the
+          two switches behind this ledger.</p>
+        {% for module in modules if module.id in ('economy', 'games') %}
+        <div class="dash-sys__head">
+          <h4>{{ module.icon }} {{ module.name }}</h4>
+          {{ module_switch(module) }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <p class="notice">This server's coin ledger could not be read just now, so nothing
+      here would be a reading — reload in a moment.</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if dash_page == 'leveling' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">What being here earns</h2>
+
+    {% if level_display %}
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>The rates in force</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>per message, XP</dt><dd class="mono">{{ level_display.text_xp }} XP</dd></div>
+          <div class="own-fact"><dt>per message, coins</dt><dd class="mono">{{ level_display.coin_band }} 🪙</dd></div>
+          <div class="own-fact"><dt>per minute in voice</dt><dd class="mono">{{ level_display.voice }}</dd></div>
+          <div class="own-fact"><dt>level-up notices</dt><dd class="mono">{{ 'in DMs' if level_display.dm else 'in the channel' }}</dd></div>
+        </dl>
+        <p class="hint">
+          {% if level_display.stored %}
+          These are the rates stored for this server — as configured here, not the
+          deployment's defaults.
+          {% else %}
+          This server has never saved its own rates, so it is on the deployment's
+          defaults. The bot reads the same numbers either way.
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="own-card">
+        <h3>This server's ledger</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>members earning</dt><dd class="mono">{{ level_view.members if level_view else 0 }}</dd></div>
+          <div class="own-fact"><dt>XP earned here</dt><dd class="mono">{{ '{:,}'.format(level_view.xp_total) if level_view else 0 }}</dd></div>
+          <div class="own-fact"><dt>highest level</dt><dd class="mono">{{ level_view.highest if level_view else 0 }}</dd></div>
+          <div class="own-fact"><dt>messages counted</dt><dd class="mono">{{ '{:,}'.format(level_view.messages) if level_view else 0 }}</dd></div>
+          <div class="own-fact"><dt>voice minutes</dt><dd class="mono">{{ '{:,}'.format(level_view.voice_minutes) if level_view else 0 }}</dd></div>
+        </dl>
+        {% for module in modules if module.id == 'leveling' %}
+        <div class="dash-sys__head">
+          <h4>{{ module.icon }} {{ module.name }}</h4>
+          {{ module_switch(module) }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if level_display.top %}
+    <div class="own-table__scroll">
+      <table class="own-table">
+        <caption>The people this server has levelled</caption>
+        <thead>
+          <tr><th scope="col">Member</th><th scope="col">Level</th>
+              <th scope="col">Into the next</th><th scope="col">XP</th>
+              <th scope="col">Messages</th><th scope="col">Voice</th></tr>
+        </thead>
+        <tbody>
+          {% for earner in level_display.top %}
+          <tr>
+            <th scope="row">{{ earner.name or earner.user_id }}</th>
+            <td>
+              {{ earner.level_text }}
+              {% if earner.repaired %}<span class="dash-flag">repaired from XP</span>{% endif %}
+            </td>
+            <td class="mono">{{ earner.progress_text }}</td>
+            <td class="mono">{{ earner.xp_text }}</td>
+            <td class="mono">{{ earner.messages }}</td>
+            <td class="mono">{{ earner.voice_minutes }}m</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">
+      A row marked <em>repaired from XP</em> is one whose stored level disagreed with
+      its XP — an old backup, or a hand-set level. The XP is what the rank card, this
+      list and every payout are computed from, so the XP is what is printed.
+    </p>
+    {% else %}
+    <p class="muted">Nobody has earned a level here yet.</p>
+    {% endif %}
+
+    <h3>Which level grants what</h3>
+    {% if level_view and level_view.roles %}
+    <div class="own-table__scroll">
+      <table class="own-table">
+        <caption>The roles this server hands out for levelling</caption>
+        <thead><tr><th scope="col">Level</th><th scope="col">Role</th></tr></thead>
+        <tbody>
+          {% for row in level_view.roles %}
+          <tr>
+            <th scope="row" class="mono">{{ row.level }}</th>
+            <td>{{ row.name or row.role_id }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">No level roles on this server.</p>
+    {% endif %}
+    {% else %}
+    <p class="notice">This server's level ledger could not be read just now, so nothing
+      here would be a reading — reload in a moment.</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Composer and Schedule — one message form, sent now or queued, both through the
+   same builder the endpoint validates with.
+   --------------------------------------------------------------------------- #}
+{% if dash_page in ('composer', 'schedule') %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">
+      {{ 'Write a message' if dash_page == 'composer' else 'Queue a message' }}
+    </h2>
+    <p class="hint">
+      This speaks as the bot, in the channels you pick and nowhere else. Every tag is
+      resolved against this server's members when it is queued, so a message sent now
+      or on a schedule cannot ping somebody who is not here.
+    </p>
+
+    {% if not channel_choices and guild_id %}
+    <p class="notice">The channel list could not be read, so there is nothing to pick —
+      the bot may not be connected to this server right now.</p>
+    {% endif %}
+
+    <form class="own-card dash-composer" method="post"
+          action="{{ '/api/send-message' if dash_page == 'composer' else '/api/schedule-message' }}">
+      {{ guard('Sent.' if dash_page == 'composer' else 'Queued.') }}
+
+      <div class="dash-field">
+        <label for="composer-channels">Channels ({{ composer_limits.channels }} at most)</label>
+        <select id="composer-channels" name="channel_ids" multiple size="5">
+          {% for channel in channel_choices %}
+          <option value="{{ channel.id }}"{% if not channel.can_send %} disabled{% endif %}>
+            #{{ channel.name }}{{ ' (voice)' if channel.kind == 'voice' }}{{ ' — cannot post' if not channel.can_send }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      {% if dash_page == 'schedule' %}
+      <div class="dash-field">
+        <label for="composer-when">When — <strong>UTC</strong>, this server's own clock</label>
+        <input id="composer-when" type="datetime-local" name="run_at_utc">
+        <p class="hint">
+          A browser cannot tell the server which time zone you read that in, so this
+          field is UTC and says so — a message queued for the wrong hour is worse than
+          a page that asks. Server clock now: {{ server_now }}.
+        </p>
+      </div>
+      <div class="dash-field">
+        <label for="composer-repeat">Repeat</label>
+        <select id="composer-repeat" name="repeat_minutes">
+          {% for choice in schedule_repeat_choices %}
+          <option value="{{ choice.minutes }}">{{ choice.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="dash-field">
+        <label for="composer-generator">What to post</label>
+        <select id="composer-generator" name="generator">
+          {% for choice in schedule_content_choices %}
+          <option value="{{ choice.value }}">{{ choice.label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">A built message has no text to write: its content does not exist
+          until the moment it posts.</p>
+      </div>
+      {% endif %}
+
+      <div class="dash-field">
+        <label for="composer-title">Title ({{ composer_limits.title }} at most) — with an embed only</label>
+        <input id="composer-title" type="text" name="title" maxlength="{{ composer_limits.title }}">
+      </div>
+
+      <div class="dash-field">
+        <label for="composer-body">Message ({{ composer_limits.chars }} at most)</label>
+        <textarea id="composer-body" name="content" rows="8" maxlength="{{ composer_limits.chars }}"></textarea>
+      </div>
+
+      <div class="dash-field">
+        <label for="composer-mentions">Tags — one @name or role per line, {{ composer_limits.tags }} at most</label>
+        <textarea id="composer-mentions" name="mentions" rows="3"
+                  placeholder="@everyone&#10;@raj"></textarea>
+      </div>
+
+      <div class="dash-field dash-field--check">
+        <input id="composer-embed" type="checkbox" name="embed" value="1">
+        <label for="composer-embed">Send as an embed, with the title above</label>
+      </div>
+
+      <button class="btn btn--primary" type="submit">
+        {{ 'Send it now' if dash_page == 'composer' else 'Add it to the queue' }}
+      </button>
+      <p class="hint">The counter, the preview and the tag picker this form used to have
+        needed a script; a form that posts works when the page's JavaScript does not,
+        which is exactly when somebody needs this.</p>
+    </form>
+
+    {% if dash_page == 'schedule' %}
+    <h3>Waiting to go out</h3>
+    {% if schedule_queue.read and schedule_queue.upcoming %}
+    <div class="own-table__scroll">
+      <table class="own-table">
+        <caption>
+          {{ schedule_queue.pending }} queued of {{ schedule_queue.max_pending }} allowed
+          {%- if schedule_queue.catchup_hours %} · a missed run is caught up within
+          {{ schedule_queue.catchup_hours }}h{% endif %}
+        </caption>
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">Channels</th>
+              <th scope="col">What</th><th scope="col">By</th><th scope="col"></th></tr>
+        </thead>
+        <tbody>
+          {% for message in schedule_queue.upcoming %}
+          <tr>
+            <th scope="row" class="mono">{{ message.run_at_text or message.run_at }}</th>
+            <td>
+              {% for channel in message.channels %}
+              <span class="mono">{{ '#' ~ channel.name if channel.name else channel.id }}</span>
+              {% endfor %}
+            </td>
+            <td>{{ message.generator_label or (message.preview or message.content or '—')[:80] }}</td>
+            <td>{{ message.created_by_name or '—' }}</td>
+            <td>
+              <div class="row">
+                <form method="post" action="/api/scheduled/{{ message.id }}/fire">
+                  {{ guard('Sent now.') }}
+                  <button class="btn" type="submit">Send now</button>
+                </form>
+                <form method="post" action="/api/scheduled/{{ message.id }}/cancel">
+                  {{ guard('That one is cancelled.') }}
+                  <button class="btn" type="submit">Cancel</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% elif not schedule_queue.read %}
+    <p class="notice">The queue could not be read just now, so this is not "nothing is
+      queued" — reload in a moment to see it.</p>
+    {% else %}
+    <p class="muted">Nothing is queued here.</p>
+    {% endif %}
+
+    {% if schedule_queue.recent %}
+    <h3>What the queue last did</h3>
+    <div class="own-table__scroll">
+      <table class="own-table">
+        <caption>The last few queued messages, finished or missed</caption>
+        <thead>
+          <tr><th scope="col">Status</th><th scope="col">Was due</th>
+              <th scope="col">Result</th></tr>
+        </thead>
+        <tbody>
+          {% for message in schedule_queue.recent %}
+          <tr>
+            <th scope="row">{{ message.status }}</th>
+            <td class="mono">{{ message.run_at_text or message.run_at }}</td>
+            <td>
+              {% if message.results %}
+              {% for result in message.results %}
+              <span class="mono">{{ ('#' ~ result.name if result.name else result.channel_id) }}:
+                {{ 'delivered' if result.ok else (result.error or 'not delivered') }}</span><br>
+              {% endfor %}
+              {% else %}{{ message.preview or message.content or '—' }}{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <p class="hint">
+      The queue outlives this tab and this process: a message is stored, not held in
+      the browser, so closing the page does not cancel the promise. Messages are sent
+      now or on a schedule — both are validated by the same builder.
+      {{ 'Messages can also be cancelled or sent early from the table above.' }}
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Identity — the bot's name and picture in this server only, as multipart form.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'identity' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">This server's bot</h2>
+    <p class="hint">
+      Discord keeps these on the bot's **member** in this server, not on the
+      application profile — so renaming it here changes nothing in any other server.
+    </p>
+
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>What this server sees now</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>asked for</dt><dd class="mono">{{ server_identity.nick or '—' }}</dd></div>
+          <div class="own-fact"><dt>showing right now</dt><dd class="mono">{{ server_identity.live_name or '—' }}</dd></div>
+          <div class="own-fact"><dt>picture set here</dt><dd class="mono">{{ 'yes' if server_identity.has_avatar else 'no' }}</dd></div>
+          <div class="own-fact"><dt>banner set here</dt><dd class="mono">{{ 'yes' if server_identity.has_banner else 'no' }}</dd></div>
+        </dl>
+        {% if server_identity.nick and server_identity.live_name and server_identity.nick != server_identity.live_name %}
+        <p class="notice">The name asked for and the name Discord is showing disagree —
+          that is usually a rename that Discord refused, and it is worth a look.</p>
+        {% endif %}
+        {% if not server_identity.live %}
+        <p class="hint">The bot's own member could not be read here, so the "showing
+          right now" line is empty rather than wrong.</p>
+        {% endif %}
+        <p class="hint">Bio: {{ server_identity.bio or 'nothing written' }}</p>
+      </div>
+
+      <div class="own-card">
+        <h3>The pictures</h3>
+        {% if server_identity.has_avatar %}
+        <p><img class="dash-pic" src="/api/identity/image/avatar?guild_id={{ guild_id }}" alt="The picture this server set"></p>
+        {% endif %}
+        {% if not server_identity.has_avatar or not server_identity.has_banner %}
+        <p class="hint">Without a picture of its own the bot wears its global
+          {{ 'avatar' if not server_identity.has_avatar else 'banner' }}, which is the
+          same in every server.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <form class="own-card dash-identity" method="post" action="/api/identity"
+          enctype="multipart/form-data">
+      {{ guard('Saved.') }}
+
+      <div class="dash-field">
+        <label for="identity-nick">Nickname ({{ server_identity.max_nick }} characters at most)</label>
+        <input id="identity-nick" type="text" name="nick"
+               maxlength="{{ server_identity.max_nick }}" value="{{ server_identity.nick }}">
+      </div>
+
+      <div class="dash-field">
+        <label for="identity-bio">About me ({{ server_identity.max_bio }} characters at most)</label>
+        <textarea id="identity-bio" name="bio" rows="4"
+                  maxlength="{{ server_identity.max_bio }}">{{ server_identity.bio }}</textarea>
+      </div>
+
+      <div class="dash-field">
+        <label for="identity-avatar-file">Avatar — PNG or JPEG, a few megabytes at most</label>
+        <input id="identity-avatar-file" type="file" name="avatar" accept="image/png,image/jpeg">
+      </div>
+
+      <div class="dash-field">
+        <label for="identity-banner-file">Banner — PNG or JPEG</label>
+        <input id="identity-banner-file" type="file" name="banner" accept="image/png,image/jpeg">
+      </div>
+
+      <div class="dash-field dash-field--check">
+        <input id="identity-clear" type="checkbox" name="clear_avatar" value="1">
+        <label for="identity-clear">Clear the picture this server set, and go back to the
+          global one</label>
+      </div>
+      <div class="dash-field dash-field--check">
+        <input id="identity-clear-banner" type="checkbox" name="clear_banner" value="1">
+        <label for="identity-clear-banner">Clear the banner this server set</label>
+      </div>
+
+      <button class="btn btn--primary" id="identity-save" type="submit">Save this server's profile</button>
+      <p class="hint">Changing the nickname needs *Manage Nicknames* in Discord; the
+        picture needs the bot's own profile permission. A refused save says so here,
+        in Discord's own words.</p>
+    </form>
+  </div>
+</section>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Commands — what Discord holds beside what the switches say, and the Status page.
+   --------------------------------------------------------------------------- #}
+{% if dash_page == 'commands' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">Commands in this server</h2>
+    <div class="own-state">
+      {{ chip('Available here', command_scope.available) }}
+      {{ chip('Every command', command_scope.total) }}
+      {{ chip('Hidden by switches', command_scope.hidden) }}
+      {{ chip('Discord holds', command_scope_publish.held if command_scope_publish.held is not none else 'not read yet') }}
+    </div>
+    <p class="hint">
+      A command whose system is off here is not in this server's picker at all — the
+      list is registered per server, so switching a system off is what removes it.
+      The pair of figures above is two different claims: what this server's switches
+      say, and what Discord came back with the last time the bot published the list.
+    </p>
+
+    {% if command_scope.hidden_names %}
+    <div class="own-card">
+      <h3>Not offered here</h3>
+      <p class="mono small">{{ command_scope.hidden_names | join(' ') }}</p>
+      <p class="hint">Turn a system back on from the Systems page and the next publish
+        puts them back.</p>
+    </div>
+    {% endif %}
+
+    <div class="own-card">
+      <h3>What Discord answered</h3>
+      {{ facts('', command_scope_publish) }}
+    </div>
+
+    <div class="own-card">
+      <h3>Commands per system</h3>
+      <div class="own-table__scroll">
+        <table class="own-table">
+          <caption>How many each system contributes, and whether it is on here</caption>
+          <thead><tr><th scope="col">System</th><th scope="col">Commands</th>
+                     <th scope="col">State</th></tr></thead>
+          <tbody>
+            {% for module in modules %}
+            <tr>
+              <th scope="row">{{ module.name }}</th>
+              <td class="mono">{{ module.commands | length }}</td>
+              <td>{{ 'on' if module.enabled else 'off' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if dash_page == 'status' %}
+<section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
+  <div class="wrap">
+    <h2 id="{{ dash_page }}-title">The deployment behind the bot</h2>
+    <div class="own-state">
+      {{ chip('Gateway', gateway.label, 'ok' if gateway.connected else 'warn') }}
+      {{ chip('Bot', 'ready' if bot_ready else 'not connected', 'ok' if bot_ready else 'warn') }}
+      {{ chip('Ping', (bot_ping ~ ' ms') if bot_ping is not none else 'Not answering') }}
+      {{ chip('Uptime watch', system_status.status or 'unknown') }}
+      {{ chip('Site check', site_guard_status.status or 'unknown') }}
+    </div>
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>The uptime watch</h3>
+        {{ facts('', system_status) }}
+        <p class="hint">{{ system_status.detail }}</p>
+      </div>
+      <div class="own-card">
+        <h3>The site check</h3>
+        {{ facts('', site_guard_status) }}
+        <p class="hint">{{ site_guard_status.detail }}</p>
+      </div>
+      <div class="own-card">
+        <h3>The configuration audit</h3>
+        {{ facts('', config_status) }}
+        <p class="hint">{{ config_status.detail }}</p>
+      </div>
+      <div class="own-card">
+        <h3>Out-of-band alerts</h3>
+        {{ facts('', alert_state) }}
+      </div>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+</content>
+</invoke>

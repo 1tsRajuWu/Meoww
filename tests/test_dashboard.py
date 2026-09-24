@@ -1434,7 +1434,13 @@ class TheTwoLedgers(_DashboardFixture):
         for page_id, anchor in sections.items():
             with self.subTest(page=page_id):
                 html = self.open_page(page_id)
-                start = html.index('<section id="%s"' % anchor)
+                # Found by the section's own id rather than by a literal attribute
+                # order: which side of `class` the id is written on is markup, and
+                # a suite that goes red over it teaches the next person to rewrite
+                # the test instead of reading what it guards.
+                opened = re.search(r'<section[^>]*\bid="%s"' % anchor, html)
+                self.assertIsNotNone(opened, f"no section carries id={anchor}")
+                start = opened.start()
                 end = html.index("</section>", start)
                 section = html[start:end]
                 self.assertNotIn("member-action", section)

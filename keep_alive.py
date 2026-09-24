@@ -30,6 +30,7 @@ Code Architecture & Navigation:
     Background scheduled message daemon and keep_alive() entrypoint.
 """
 import asyncio
+import functools
 import json
 import math
 import os
@@ -1019,6 +1020,94 @@ def _require_auth_api():
     if not validate_csrf():
         return jsonify({"success": False, "error": "Invalid or missing CSRF token"}), 403
     return None
+
+
+def _form_payload(form) -> dict:
+    """A plain HTML form read as the JSON payload the endpoints already take.
+
+    Multi-valued fields stay lists (the channels, the tags) and single ones become
+    strings, which is the shape ``request.get_json()`` would have given — so an
+    endpoint that reads ``data.get("content")`` does not care which door the
+    request came through.
+    """
+    data = {}
+    for key in form.keys():
+        values = form.getlist(key)
+        data[key] = values if len(values) > 1 else values[0]
+    return data
+
+
+def _json_or_form() -> dict:
+    """This request's payload, from JSON or from a plain form.
+
+    The dashboard's own forms are the whole reason: an HTML form posts
+    ``application/x-www-form-urlencoded``, these endpoints read JSON, and the
+    alternative — a second implementation of every rule behind a form-shaped door
+    — is the defect this file keeps paying for. One adapter, at the read.
+    """
+    data = request.get_json(silent=True)
+    if data:
+        return data
+    if request.form:
+        return _form_payload(request.form)
+    return {}
+
+
+def _safe_dash_return(value) -> str:
+    """The page a form asked to be sent back to, or ``/dashboard``.
+
+    A relative path **inside the dashboard**, and nothing else: this value rides
+    in a hidden field, which makes it a request rather than a fact, and an open
+    redirect built out of a form field is how a page ends up sending somebody to
+    a host it does not own.
+    """
+    text = (value or "").strip()
+    if not text.startswith("/dashboard") or text.startswith("//") or "\\" in text:
+        return "/dashboard"
+    return text
+
+
+def _form_door(view):
+    """Let a dashboard form post to a JSON endpoint and land back on a page.
+
+    These endpoints answer JSON because that is the right contract for the console
+    and for scripts — and the wrong thing to show a person who pressed a button in
+    a browser, which is a tab full of ``{"success": false, …}``. Rather than a
+    second implementation behind a form-shaped door, the form posts to the **same
+    endpoint** and this turns the same answer into a redirect carrying its
+    sentence: the server's own refusal, or the success wording the page supplied
+    in ``dash_notice``.
+
+    A form post is recognised by ``dash_return`` rather than by ``request.form``
+    alone, because ``/api/identity`` is multipart for the console's app as well and
+    a JSON caller sends neither.
+    """
+
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        response = view(*args, **kwargs)
+        target = request.form.get("dash_return") if request.form else None
+        if not target:
+            return response
+        status = 200
+        if isinstance(response, tuple):
+            response, status = response[0], response[1]
+        try:
+            payload = json.loads(response.get_data(as_text=True))
+        except Exception:  # noqa: BLE001 — an answer that is not JSON has no sentence
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        error = str(payload.get("error") or "")
+        if status >= 400 or error:
+            session["dash_error"] = error or "That did not go through."
+        else:
+            session["dash_notice"] = (
+                request.form.get("dash_notice") or payload.get("said") or "Saved."
+            )
+        return redirect(_safe_dash_return(target))
+
+    return wrapped
 
 
 def _body_limit_for(path: str) -> int:
@@ -4121,58 +4210,285 @@ DASHBOARD_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in DASHBOAR
 @app.route("/dashboard/commands")
 @app.route("/dashboard/status")
 def dashboard():
-    """Where the console's eleven addresses lead while the console is rebuilt.
+    """One page of one server's dashboard — served, not forwarded.
 
-    These pages were archived with the pre-rebuild site, so every address in the
-    group rendered a template that no longer exists: a 500 for anybody who had
-    one bookmarked, and what a freshly signed-in member landed on. The addresses
-    stay — twelve places in this file name them, from the sign-in door's default
-    to the help text's "the console" — so the forward is stated once, at the
-    address, rather than as twelve edits to destinations that would each have to
-    agree about where members go.
+    Every address in this group used to answer **301 to** ``/servers``: the
+    template these pages render was swept into the archive while its routes, its
+    readers and forty of its own tests still needed it, so per-feature management
+    — the systems, the members, the two ledgers, the composer, the queue, the
+    identity — was nowhere to be found. The pages are back, in this site's own
+    language, drawn from the readers the API endpoints already answer with.
 
-    ``/servers`` is the live member surface: the servers a signed-in person
-    actually has, which is what every action in this group belongs to. A
-    signed-out visitor meets the door first rather than being forwarded to a page
-    that would only forward them back here.
-    """
-    if not is_authenticated():
-        return redirect("/login")
-    return redirect("/servers", code=301)
-
-
-def _dashboard_page_archived():
-    """The console's renderer, unrouted while the console is rebuilt.
-
-    Its docstring, from when it routed:
-
-        One page of one server's dashboard.
-
-        Everything below is unchanged from when this was a single scroll; what
-        changed is which of the seven sections the renderer is handed. The scope
-        rules, the two readings of Discord's command list, the identity state and
-        the composer's rulebook are all computed on every page, because a page
-        that computed only what it draws would be seven chances to disagree with
-        the others about the same server.
-
-    Nothing calls it: it renders ``dashboard.html``, and the archive took that
-    template, so routing it again before the rebuild exists would put back the
-    500 this replaced. It stays readable because the rebuild starts from it —
-    ``_management_context`` and ``_progression_context`` below are the readers the
-    sections were assembled from, and they are unchanged.
+    A signed-out visitor meets the door first. The scope rules are
+    :func:`_dashboard_scope`'s, unchanged: a one-time link may only ever reach the
+    server it was minted for, and a lookup that fails is never written back into
+    the session.
     """
     if not is_authenticated():
         return redirect("/login")
 
+    page = DASHBOARD_PAGE_BY_PATH.get(request.path, "overview")
+    return _dashboard_page(page, _dashboard_scope())
+
+
+def _dashboard_scope():
+    """Which server this request is about: the query's, else the session's.
+
+    One function because two callers ask: the page render and (through the
+    endpoint's own resolver) every form on it. The rule that matters is the
+    ``else``: a failed lookup is **not** persisted, because writing the ``0``
+    fallback into the session is what once demoted a server-scoped sign-in to an
+    unscoped one, letting the second request reach any server the bot was in.
+    """
     requested = request.args.get("guild_id")
+    if requested is None:
+        requested = request.form.get("guild_id")
     guild_id = _resolve_guild_id(requested)
     if guild_id:
         session["guild_id"] = guild_id
-    else:
-        # Never persist the failure: writing ``0`` here is what let a scoped
-        # session look unscoped on its next request.
-        guild_id = 0
+        return guild_id
+    return 0
 
+
+#: What each dashboard page says it is: ``(title, lede)``. Declared here rather
+#: than written into the template so the rail, the heading and the skip link
+#: cannot describe the same page three different ways — and so the copy sits
+#: beside the page list it belongs to, where a page added to the table is a page
+#: somebody has to write a sentence for.
+DASHBOARD_PAGE_COPY = {
+    "overview": (
+        "This server",
+        "What this server is running right now, who is in it, and what needs a look.",
+    ),
+    "systems": (
+        "Systems",
+        "Every system this bot can run here, with its own switch. Off means the "
+        "commands are not offered in this server either.",
+    ),
+    "members": (
+        "Members",
+        "Who is here, and what may be done to whom — through the same guard the "
+        "slash commands use.",
+    ),
+    "server": (
+        "Server",
+        "The whole-server controls: lock it down, lift that, and set slowmode.",
+    ),
+    "economy": (
+        "Economy",
+        "Where this server's coins are — the wallets, the bank, and the fee the bot "
+        "charges. A reading, not a place to set a balance.",
+    ),
+    "leveling": (
+        "Levels",
+        "What being here earns, at the rates configured here, and which level "
+        "grants what.",
+    ),
+    "composer": (
+        "Composer",
+        "Write a message and post it as the bot. It reaches the channels you pick "
+        "and nobody else.",
+    ),
+    "schedule": (
+        "Scheduled",
+        "What this server has queued, and what it last did — the queue survives a "
+        "restart, so the promise is not tied to this tab.",
+    ),
+    "identity": (
+        "Identity",
+        "The bot's name and picture **in this server only** — Discord keeps them on "
+        "the bot's member here, so changing them changes nothing anywhere else.",
+    ),
+    "commands": (
+        "Commands",
+        "What Discord holds for this server, beside what its switches say it should "
+        "— the two are different claims, and only one of them can be wrong.",
+    ),
+    "status": (
+        "Status",
+        "The deployment behind the bot: the gateway, the uptime watch, the site "
+        "check and the configuration audit.",
+    ),
+}
+
+
+def _dashboard_rail(nav) -> list[dict]:
+    """The rail as groups, with the ungrouped bucket **first**.
+
+    The same arithmetic the console's rail is built to: the home page is
+    deliberately in no group — it is where you return to rather than a
+    destination beside the others — so the ungrouped bucket is the first row, not
+    an overflow. A page added to the table and not placed in a group lands there
+    too, so forgetting to place one never makes it unreachable.
+    """
+    ungrouped = [item for item in nav if not item["group"]]
+    rail = [{"label": "", "pages": ungrouped}] if ungrouped else []
+    rail += [
+        {"label": label, "pages": [item for item in nav if item["group"] == label]}
+        for label, _ids in DASHBOARD_GROUPS
+    ]
+    return rail
+
+
+def _stamp_rows(rows, field, target) -> None:
+    """Add a human reading of an epoch column, in place.
+
+    ``at`` and ``joined_at`` are seconds since the epoch: true, and unreadable on
+    a page. The text is made here rather than in the template because four
+    environments render these templates and only one of them has this app's
+    filters (the same reason :func:`_inline_json` serialises its own payloads).
+    """
+    for row in rows or []:
+        raw = row.get(field)
+        try:
+            row[target] = _utc_text(int(raw)) if raw else ""
+        except (TypeError, ValueError):
+            row[target] = ""
+
+
+def _schedule_queue(guild_id, page) -> dict:
+    """What this server has queued, for the one page that draws the queue.
+
+    Read where it is drawn, for the reason the two ledgers are: a page about the
+    identity form has no business reading a queue. Never raises — a queue nobody
+    can read is a sentence on the page rather than a page nobody can open.
+    """
+    empty = {"read": False, "upcoming": [], "recent": [], "pending": 0,
+             "max_pending": 0, "catchup_hours": 0}
+    if not guild_id or page != "schedule":
+        return empty
+    try:
+        data = scheduled.list_for_guild(guild_id)
+        guild = _live_guild(guild_id)
+        return {
+            "read": True,
+            # Names are resolved now rather than stored: a channel renamed since
+            # it was queued is named as it is, and one that is gone says so.
+            "upcoming": _stamped_schedule(guild, data["upcoming"]),
+            "recent": _stamped_schedule(guild, data["recent"]),
+            **_scheduled_counts(guild_id),
+        }
+    except Exception as exc:  # noqa: BLE001 — a reading that fails is not a page that fails
+        print(f"[DASHBOARD] ⚠️ Could not read the queue: {exc}", flush=True)
+        return empty
+
+
+def _stamped_schedule(guild, messages) -> list[dict]:
+    """The queue's rows, each with its delivery time as a person reads it."""
+    rows = [_schedule_view(guild, message) for message in messages]
+    _stamp_rows(rows, "run_at", "run_at_text")
+    return rows
+
+
+def _channel_choices(guild_id, page) -> list[dict]:
+    """Every channel a message could land in, for the two pages that send one.
+
+    Discord's own model decides the list: a text channel and a *voice* channel both
+    take a message (``discord.VoiceChannel`` is ``Messageable``), while forums,
+    categories and stages are left out because they take a thread or nothing. The
+    bot's own permissions decide ``can_send``, so a channel it cannot post to is
+    offered as such rather than quietly accepted and refused a moment later.
+    """
+    if not guild_id or page not in ("composer", "schedule"):
+        return []
+    guild = _live_guild(guild_id)
+    if guild is None:
+        return []
+    me = getattr(guild, "me", None)
+    rows = []
+    try:
+        for channel in [*guild.text_channels, *guild.voice_channels]:
+            perms = channel.permissions_for(me) if me is not None else None
+            if perms is not None and not perms.view_channel:
+                continue
+            rows.append({
+                # Text, like every id that crosses to a browser: a snowflake is not
+                # a JavaScript number (see ``_console_id``).
+                "id": str(channel.id),
+                "name": channel.name,
+                "kind": "voice" if type(channel).__name__ == "VoiceChannel" else "text",
+                "can_send": True if perms is None else bool(perms.send_messages),
+            })
+    except Exception as exc:  # noqa: BLE001 — a picker that cannot be read is empty, not fatal
+        print(f"[DASHBOARD] ⚠️ Could not read the channel list: {exc}", flush=True)
+        return []
+    return rows
+
+
+def _economy_display(reading):
+    """The economy ledger as the page prints it: text, and no arithmetic in a template.
+
+    Every figure comes from the table the bot writes — the page computes none of
+    them — and the strings are made here because a template doing arithmetic on
+    "no economy yet" divides by a circulation of zero.
+    """
+    if not reading:
+        return None
+    return {
+        "wallet": f"{reading.get('wallet', 0):,}",
+        "bank": f"{reading.get('bank', 0):,}",
+        "circulation": f"{reading.get('circulation', 0):,}",
+        "meow_bank": f"{reading.get('meow_bank', 0):,}",
+        "accounts": reading.get("accounts", 0),
+        "top": [
+            {
+                **holder,
+                "net_text": f"{holder.get('net', 0):,}",
+                "wallet_text": f"{holder.get('wallet', 0):,}",
+                "bank_text": f"{holder.get('bank', 0):,}",
+                "share_text": f"{holder.get('share', 0):.1f}%",
+            }
+            for holder in reading.get("top", [])
+        ],
+    }
+
+
+def _level_display(reading):
+    """The level ledger as the page prints it, including the rows XP has moved.
+
+    A stored level that disagrees with the XP is **repaired**: the reader derives
+    ``level`` from the XP and keeps the stored column beside it, and a row where
+    the two differ is one ``/setlevel`` or a restored backup left behind. The page
+    prints the derived figure and says so, because the XP is what the rank card,
+    the leaderboard and every payout are computed from.
+    """
+    if not reading:
+        return None
+    settings = reading.get("settings") or {}
+    return {
+        "text_xp": settings.get("text_xp", 0),
+        "coin_band": f"{settings.get('text_min_coins', 0)}–{settings.get('text_max_coins', 0)}",
+        # XP first, then coins: the order the bot pays them in, and the order the
+        # page reads them in.
+        "voice": f"{settings.get('vc_xp_per_min', 0)} XP · {settings.get('vc_coins_per_min', 0)} 🪙",
+        "stored": bool(settings.get("stored")),
+        "channel_id": settings.get("channel_id") or 0,
+        "dm": bool(settings.get("dm_notifications")),
+        "top": [
+            {
+                **earner,
+                "level_text": f"Level {earner.get('level', 0)}",
+                "repaired": earner.get("stored_level") != earner.get("level"),
+                "progress_text": f"{earner.get('into', 0):,} / {earner.get('needed', 0):,} XP",
+                "xp_text": f"{earner.get('xp', 0):,}",
+            }
+            for earner in reading.get("top", [])
+        ],
+    }
+
+
+def _dashboard_page(page: str, guild_id):
+    """One page of one server's dashboard, as the template draws it.
+
+    **Every page computes every rule**: the scope rules, the two readings of
+    Discord's command list, the identity state and the composer's rulebook are
+    computed whichever page is open, because a page that computed only what it
+    draws would be eleven chances to disagree with the others about the same
+    server. The two exceptions are documented where they are made — a member list
+    is a Discord reading rather than a rule (:func:`_management_context`) and a
+    ledger is a database reading (:func:`_progression_context`), so both are read
+    only where they are drawn.
+    """
     # The remembered name first, so the page is never headed "Unknown server"
     # for a server the bot is actually in. Discord's cache then overwrites it
     # when it has an answer, and that answer is written back down below.
@@ -4280,7 +4596,6 @@ def _dashboard_page_archived():
         "global_avatar_url": global_avatar,
     })
 
-    page = DASHBOARD_PAGE_BY_PATH.get(request.path, "overview")
     # Every page of one server, with this session's server carried across: a rail
     # that dropped `guild_id` would move an administrator from one page of their
     # server to another server's page.
@@ -4294,8 +4609,57 @@ def _dashboard_page_archived():
     # the moment of the action, in the endpoint.
     management = _management_context(guild_id, page)
     progression = _progression_context(guild_id, page)
+    title, lede = DASHBOARD_PAGE_COPY.get(page, DASHBOARD_PAGE_COPY["overview"])
+    dashboard_nav = _page_nav(
+        DASHBOARD_PAGES, page, guild_query, groups=DASHBOARD_GROUPS
+    )
+    # An epoch is true and unreadable, and four environments render this template
+    # while only one has this app's filters — so the reading of a timestamp is made
+    # here, once, for the two tables that show one.
+    _stamp_rows(management["recent"], "at", "when_text")
+    if management["roster"]:
+        _stamp_rows(management["roster"]["members"], "joined_at", "joined_text")
+    page_path = next(
+        path for candidate, _label, path, _anchor in DASHBOARD_PAGES if candidate == page
+    )
+    economy_reading = progression["economy"] or {}
+    fee = economy_reading.get("fee") or {}
     return render_template(
         "dashboard.html",
+        dash_page=page,
+        # The address a form on this page comes back to, server and all.
+        page_url=f"{page_path}{guild_query}",
+        # The fee, from the same switch the bank reads — with the markdown marks
+        # stripped, because a page is not where `**2%**` should be read literally.
+        economy_fee={
+            "label": fee.get("label", ""),
+            "enabled": bool(fee.get("enabled", True)),
+            "cap": fee.get("cap", 0),
+            "stored": bool(fee.get("stored", False)),
+            "describe": str(fee.get("describe", "")).replace("**", ""),
+        },
+        page_title=title,
+        page_lede=lede,
+        # The same list twice: as groups for the rail, and flat for the skip link
+        # and the page's own script. One reading, two renderings.
+        rail=_dashboard_rail(dashboard_nav),
+        # The sentence one write left for the next render — popped rather than
+        # read, so a reload cannot re-announce an action that already happened.
+        dash_notice=session.pop("dash_notice", ""),
+        dash_error=session.pop("dash_error", ""),
+        # Read on the page that draws them, like the two ledgers.
+        schedule_queue=_schedule_queue(guild_id, page),
+        channel_choices=_channel_choices(guild_id, page),
+        economy_display=_economy_display(progression["economy"]),
+        level_display=_level_display(progression["levels"]),
+        # What a member action may be asked for, from the one list the endpoint
+        # validates against, so the page cannot offer what would be refused.
+        member_actions=PANEL_MEMBER_ACTIONS,
+        server_actions=PANEL_SERVER_ACTIONS,
+        # The two write doors a form posts to, named once here rather than typed
+        # into eleven forms in the template.
+        toggle_url="/api/toggle",
+        toggle_all_url="/api/toggle-all",
         management=management,
         economy_view=progression["economy"],
         level_view=progression["levels"],
@@ -4312,7 +4676,7 @@ def _dashboard_page_archived():
             for candidate, _label, path, _anchor in DASHBOARD_PAGES
             if candidate == page
         ),
-        dashboard_pages=_page_nav(DASHBOARD_PAGES, page, guild_query, groups=DASHBOARD_GROUPS),
+        dashboard_pages=dashboard_nav,
         guild_query=guild_query,
         # …and the same list as data, for the page's own script: the palette crosses
         # pages by address, so it needs the address of every page with this
@@ -4700,6 +5064,7 @@ PANEL_SERVER_ACTIONS = ("lockdown", "unlock", "slowmode")
 
 
 @app.route("/api/member-action", methods=["POST"])
+@_form_door
 def api_member_action():
     """Do one thing to one member, from the website.
 
@@ -4712,21 +5077,34 @@ def api_member_action():
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
+    payload, status = _member_action_result(data)
+    return jsonify(payload), status
+
+
+def _member_action_result(data):
+    """One member action, from either door, as ``(payload, status)``.
+
+    The JSON route a script calls and the dashboard's own member rows come
+    through here together, so the guard that refuses moderating an administrator
+    (the same one ``/kick`` has always used), the ``web_actions`` row naming the
+    person who asked, and the sentence the page shows are one implementation
+    rather than two that drift.
+    """
     guild_id = _resolve_guild_id(data.get("guild_id"))
     if guild_id is None or not _may_act_here(guild_id):
-        return jsonify({"success": False, "error": "That server is not reachable from this sign-in."}), 403
+        return {"success": False, "error": "That server is not reachable from this sign-in."}, 403
 
     action = str(data.get("action") or "")
     if action not in PANEL_MEMBER_ACTIONS:
-        return jsonify({"success": False, "error": "Unknown action"}), 400
+        return {"success": False, "error": "Unknown action"}, 400
 
     guild = _live_guild(guild_id)
     if guild is None:
-        return jsonify({
+        return {
             "success": False,
             "error": "I am not connected to that server right now, so nothing was changed.",
-        }), 409
+        }, 409
 
     principal = _principal()
 
@@ -4773,8 +5151,7 @@ def api_member_action():
         )
         return payload, (200 if outcome.ok else 409)
 
-    payload, status = _on_bot_loop(work())
-    return jsonify(payload), status
+    return _on_bot_loop(work())
 
 
 async def _target_member(guild, raw_id, action):
@@ -4871,26 +5248,38 @@ async def _read_warnings(guild_id, user_id):
 
 
 @app.route("/api/server-action", methods=["POST"])
+@_form_door
 def api_server_action():
     """Lock the server down, lift it, or set slowmode — as one recorded action."""
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
+    payload, status = _server_action_result(data)
+    return jsonify(payload), status
+
+
+def _server_action_result(data):
+    """One whole-server action, from either door, as ``(payload, status)``.
+
+    Shared with the dashboard's own Server page for the reason
+    :func:`_member_action_result` is: a lockdown asked for from a form and one
+    asked for from a script must be the same lockdown, recorded the same way.
+    """
     guild_id = _resolve_guild_id(data.get("guild_id"))
     if guild_id is None or not _may_act_here(guild_id):
-        return jsonify({"success": False, "error": "That server is not reachable from this sign-in."}), 403
+        return {"success": False, "error": "That server is not reachable from this sign-in."}, 403
 
     action = str(data.get("action") or "")
     if action not in PANEL_SERVER_ACTIONS:
-        return jsonify({"success": False, "error": "Unknown action"}), 400
+        return {"success": False, "error": "Unknown action"}, 400
     guild = _live_guild(guild_id)
     if guild is None:
-        return jsonify({
+        return {
             "success": False,
             "error": "I am not connected to that server right now, so nothing was changed.",
-        }), 409
+        }, 409
 
     principal = _principal()
     seconds = _int_or_none(data.get("seconds")) or 0
@@ -4922,8 +5311,7 @@ def api_server_action():
         payload = report.to_dict()
         return payload, (200 if report.ok else 409)
 
-    payload, status = _on_bot_loop(work())
-    return jsonify(payload), status
+    return _on_bot_loop(work())
 
 
 @app.route("/api/console/server-action", methods=["POST"])
@@ -7614,12 +8002,13 @@ def api_console_questions_reply():
 
 
 @app.route("/api/toggle", methods=["POST"])
+@_form_door
 def api_toggle():
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     refused = _foreign_guild_refusal(data.get("guild_id"))
     if refused:
         return refused
@@ -7627,10 +8016,30 @@ def api_toggle():
     module_id = data.get("module")
     enabled = bool(data.get("enabled"))
 
+    session["guild_id"] = guild_id
+    payload, status = _flip_module(guild_id, module_id, enabled)
+    return jsonify(payload), status
+
+
+def _flip_module(guild_id, module_id, enabled):
+    """One system switched on or off — the whole write, in one place.
+
+    **Two doors ask for this now**, and that is why it is a function: the JSON
+    route a console or a script calls, and the dashboard's own switch, which is a
+    form that posts and redirects. A switch that wrote through a second copy of
+    these rules is the defect this project keeps meeting in its own history —
+    one of the two would eventually refuse a plan, or skip the republish, or
+    report a save that failed. The endpoint's answer and the page's notice are
+    both rendered from the mapping returned here, so they cannot disagree about
+    whether the write landed.
+
+    Returns ``(payload, status)`` — exactly what the endpoint answered before
+    the second door existed.
+    """
     if guild_id is None:
-        return jsonify({"success": False, "error": "No guild available"}), 400
+        return {"success": False, "error": "No guild available"}, 400
     if module_id not in ALLOWED_MODULE_IDS:
-        return jsonify({"success": False, "error": "Unknown module"}), 400
+        return {"success": False, "error": "Unknown module"}, 400
 
     # A system this server's plan does not include is refused in its own words.
     # ``modules.set_enabled`` refuses it too (that is what keeps every reader
@@ -7638,21 +8047,19 @@ def api_toggle():
     # springs back with no reason is the kind of defect this dashboard has
     # already been reported for twice.
     if enabled and not plans.feature_allowed(guild_id, module_id):
-        return jsonify({
+        return {
             "success": False,
             "error": (
                 f"{module_id} is part of a paid plan this server does not have. "
                 "Activate a licence with /bot plan to switch it on."
             ),
             "plan_required": True,
-        }), 403
-
-    session["guild_id"] = guild_id
+        }, 403
 
     # Persist BEFORE updating memory. If the write fails we must not report
     # success, otherwise the toggle silently reverts on the next restart.
     if not modules.set_enabled(guild_id, module_id, enabled):
-        return jsonify({"success": False, "error": "Could not save that change. Please try again."}), 500
+        return {"success": False, "error": "Could not save that change. Please try again."}, 500
 
     # Read *before* the republish is asked for, and into a local rather than
     # inside the response below: this is the stamp the page has to beat, so it
@@ -7664,7 +8071,7 @@ def api_toggle():
     queued = _resync_commands(guild_id)
     _schedule_cloud_backup()
 
-    return jsonify({
+    return {
         "success": True,
         # Text, like every other id this app hands the browser. A snowflake that
         # crosses as a JSON number comes back as a different number (see
@@ -7688,7 +8095,7 @@ def api_toggle():
         # hear the request — and a click during a restart would otherwise look
         # like a command that refused to appear with no cause anywhere.
         "republish": queued,
-    })
+    }, 200
 
 
 def _last_publish_at(guild_id) -> float | None:
@@ -7750,22 +8157,33 @@ def api_command_scope():
 
 
 @app.route("/api/toggle-all", methods=["POST"])
+@_form_door
 def api_toggle_all():
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     refused = _foreign_guild_refusal(data.get("guild_id"))
     if refused:
         return refused
     guild_id = _resolve_guild_id(data.get("guild_id"))
     enabled = bool(data.get("enabled"))
 
-    if guild_id is None:
-        return jsonify({"success": False, "error": "No guild available"}), 400
-
     session["guild_id"] = guild_id
+    payload, status = _flip_all(guild_id, enabled)
+    return jsonify(payload), status
+
+
+def _flip_all(guild_id, enabled):
+    """Every system at once — the bulk switch's write, shared with the page.
+
+    The dashboard offers the same two buttons the console's app had ("all on",
+    "all off") as forms, so this is the one implementation behind them. Returns
+    ``(payload, status)``.
+    """
+    if guild_id is None:
+        return {"success": False, "error": "No guild available"}, 400
 
     # "Enable all" means every system this server *may* have: offering the ones
     # its plan withholds would fail the whole bulk save over modules that are
@@ -7778,18 +8196,18 @@ def api_toggle_all():
     failed = modules.set_many(guild_id, wanted)
 
     if failed:
-        return jsonify({
+        return {
             "success": False,
             "error": f"Could not save: {', '.join(failed)}",
             "guild_id": _console_id(guild_id),
             "enabled": enabled,
-        }), 500
+        }, 500
 
     publish_before = _last_publish_at(guild_id)
     queued = _resync_commands(guild_id)
     _schedule_cloud_backup()
 
-    return jsonify({
+    return {
         "success": True,
         # Text, for the reason spelled out on ``/api/toggle`` above: the console
         # reads these two answers through one schema, so one of them answering
@@ -7799,7 +8217,7 @@ def api_toggle_all():
         "sync_latency_ms": 0,
         "publish_at": publish_before,
         "republish": queued,
-    })
+    }, 200
 
 
 def _resync_commands(guild_id: int) -> bool:
@@ -7947,6 +8365,7 @@ def _identity_state(guild_id: int) -> dict:
 
 
 @app.route("/api/identity", methods=["POST"])
+@_form_door
 def api_identity():
     """Set, change or clear the bot's profile **in this server only**."""
     denied = _require_auth_api()
@@ -8542,13 +8961,14 @@ def _build_message(guild, data):
 
 
 @app.route("/api/send-message", methods=["POST"])
+@_form_door
 def api_send_message():
     """Post a dashboard-written message as the bot."""
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     refused = _foreign_guild_refusal(data.get("guild_id"))
     if refused:
         return refused
@@ -8659,6 +9079,18 @@ def _epoch_seconds(data):
         if not math.isfinite(value) or value <= 0:
             return None
         return int(value / scale)
+    # A ``datetime-local`` field, read as **UTC**. The composer's own script sends
+    # milliseconds, which is an absolute instant and needs no zone; a plain form
+    # cannot know the reader's zone at all, so the field says UTC on its label and
+    # this is the one place that understands it. Ambiguity refused rather than
+    # guessed — a message queued for the wrong hour is worse than a page that asks.
+    raw = data.get("run_at_utc")
+    if raw:
+        try:
+            moment = datetime.datetime.strptime(str(raw).strip(), "%Y-%m-%dT%H:%M")
+        except (TypeError, ValueError):
+            return None
+        return int(moment.replace(tzinfo=datetime.timezone.utc).timestamp())
     return None
 
 
@@ -8775,13 +9207,14 @@ def api_scheduled_list():
 
 
 @app.route("/api/schedule-message", methods=["POST"])
+@_form_door
 def api_schedule_message():
     """Queue a composed message to be posted later, once or on a repeat."""
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     refused = _foreign_guild_refusal(data.get("guild_id"))
     if refused:
         return refused
@@ -8886,13 +9319,14 @@ def api_schedule_message():
 
 
 @app.route("/api/scheduled/<int:msg_id>/cancel", methods=["POST"])
+@_form_door
 def api_cancel_scheduled(msg_id: int):
     """Stop a queued message. Only the server it belongs to can do this."""
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     refused = _foreign_guild_refusal(data.get("guild_id"))
     if refused:
         return refused
@@ -8922,13 +9356,14 @@ def api_cancel_scheduled(msg_id: int):
 
 
 @app.route("/api/scheduled/<int:msg_id>/fire", methods=["POST"])
+@_form_door
 def api_fire_scheduled(msg_id: int):
     """Send a queued message immediately, through the normal send path."""
     denied = _require_auth_api()
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     refused = _foreign_guild_refusal(data.get("guild_id"))
     if refused:
         return refused

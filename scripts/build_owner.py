@@ -118,18 +118,7 @@ def _themed_logos() -> list[str]:
 #: for their own asset urls and fails if one of them is not copied.
 STATIC_ASSETS = [
     "meow.css",
-    "dashboard.css",
-    # The three surfaces added after this list was written — the landing page's
-    # own sheet and script, the market's, and the shared motion library both of
-    # them drive. They are **not** pages this host serves: the landing page and
-    # the market have hosts of their own, and this worker redirects them there.
-    # They are here because this list is a contract with `/static` rather than a
-    # description of the console: the console and the dashboard are rendered by
-    # the same backend, the backend emits one `/static` prefix for all of it, and
-    # a page this host proxies can arrive referring to any of it. Copying five
-    # files costs a few kilobytes on a CDN and removes the one failure mode this
-    # list exists to prevent — a stylesheet that 404s here and only here, which
-    # is what made the per-server dashboard render as an unstyled heading.
+    "pages.css",
     "landing.css",
     "landing.js",
     "anim.js",
@@ -137,8 +126,6 @@ STATIC_ASSETS = [
     "market.js",
     "theme.js",
     "motion.js",
-    "gateway.js",
-    "figures.js",
     # The themed marks are *discovered* rather than listed, because listing them is
     # how the console ended up asking for five logos that were never drawn: the
     # theme vocabulary grew to nine and this list stayed at four, so the rail drew a
