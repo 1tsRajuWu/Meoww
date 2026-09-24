@@ -44,7 +44,7 @@ sys.path.insert(0, ROOT)
 
 from utils import ai_guard, brand, config_audit  # noqa: E402  (after sys.path, by design)
 
-DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
+DEFAULT_LIVE_APP = "https://1tsrajowo-meow.hf.space"
 #: Where this host sends anything that is not the console. The public site is the
 #: one place a member-facing page *works*: it is built with its own assets, and
 #: its worker forwards the dynamic routes back to the same backend this host

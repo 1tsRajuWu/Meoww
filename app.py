@@ -67,8 +67,15 @@ fastapi_app.mount("/", WSGIMiddleware(keep_alive.app))
 # Expose app at module level for ASGI runners
 app = fastapi_app
 
+# Monkeypatch Hugging Face Spaces LogTee missing isatty for uvicorn
+if not hasattr(sys.stdout, "isatty"):
+    sys.stdout.isatty = lambda: False
+if not hasattr(sys.stderr, "isatty"):
+    sys.stderr.isatty = lambda: False
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", os.environ.get("GRADIO_SERVER_PORT", 7860)))
     print(f"[HF-SPACES] Serving API and Dashboard on port {port}...", flush=True)
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_config=None)
+
 

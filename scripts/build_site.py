@@ -51,7 +51,7 @@ from utils import ai_guard  # noqa: E402 — needs ROOT on the path first
 #: Where the real, live app is. Every link that needs a running process points
 #: here. It is the Render service's own hostname, which is stable across
 #: deploys; a custom domain can replace it later by setting ``LIVE_APP_URL``.
-DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
+DEFAULT_LIVE_APP = "https://1tsrajowo-meow.hf.space"
 
 #: ``route`` -> the file it becomes. Order is the order they are built.
 #:
