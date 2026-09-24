@@ -25,6 +25,7 @@ Public API (unchanged from the Gist version):
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import os
 import socket
@@ -58,6 +59,16 @@ except (TypeError, ValueError):
     BACKUP_KEEP = 5
 #: Seconds between snapshot rotations.
 SNAPSHOT_INTERVAL: int = 3600  # 1 hour
+#: Payloads at least this big travel gzipped. Below it the envelope costs more
+#: than it saves (the lease is a paragraph of JSON).
+PACK_MIN_BYTES: int = 1024
+#: What gzip writes in its first two bytes, and how a download tells a packed
+#: object from the raw one written by every release before this one.
+_GZIP_MAGIC: bytes = b"\x1f\x8b"
+#: The level used for a whole database. The snapshot is read at most once a
+#: tick and the upload is a moment against a 25-second budget, so the last few
+#: percent of ratio are worth more than the milliseconds level 6 would save.
+PACK_LEVEL: int = 6
 #: Seconds between periodic backup checks (default 5m to protect bandwidth quotas).
 try:
     SYNC_INTERVAL: int = max(10, int(config_audit.get("CLOUD_SYNC_INTERVAL", "300")))
@@ -123,6 +134,9 @@ def _storage_download(name: str, quiet: bool = False) -> bytes | None:
 
     ``quiet`` is for objects that are expected to be missing (the sync lease),
     where a 404 is an answer rather than a problem.
+
+    The bytes are unpacked here rather than at each caller so every object this
+    module ever reads answers with what was written — see :func:`_unpack_blob`.
     """
     try:
         req = urllib.request.Request(
@@ -130,7 +144,7 @@ def _storage_download(name: str, quiet: bool = False) -> bytes | None:
             headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read()
+            return _unpack_blob(resp.read())
     except urllib.error.HTTPError as exc:
         if quiet and exc.code in (400, 404):
             return b""
@@ -143,17 +157,65 @@ def _storage_download(name: str, quiet: bool = False) -> bytes | None:
         return None
 
 
+def _pack_blob(data: bytes) -> bytes:
+    """gzip a payload before it is sent, when that is worth doing.
+
+    A database is the one thing this bot uploads, and it is uploaded over and
+    over: the whole of ``bot.db`` goes to Supabase on every change, plus an
+    hourly snapshot. It is mostly SQLite pages of JSON, numbers and names, so it
+    compresses to roughly a third of its size — and the bytes saved are bytes
+    that would otherwise be counted against this host's egress allowance, which
+    is the allowance that ran out.
+
+    A payload that does not shrink is sent exactly as it is. Random bytes gzip
+    *larger*, and an incompressible megabyte is not made cheaper by wrapping it.
+    """
+    if len(data) < PACK_MIN_BYTES:
+        return data
+    try:
+        packed = gzip.compress(data, PACK_LEVEL)
+    except Exception as exc:
+        _warn_once(f"[CLOUD SYNC] ⚠️ Could not compress a {len(data):,}-byte payload: {exc}")
+        return data
+    return packed if len(packed) < len(data) else data
+
+
+def _unpack_blob(blob: bytes) -> bytes:
+    """What was uploaded, whether or not it went up packed.
+
+    The check is the gzip signature rather than a flag, so the bucket needs no
+    migration and no second object: a ``bot.db`` written by the release before
+    this one is still a raw SQLite file, is still recognised as one, and still
+    restores. A corrupt packed object is handed back as it arrived, which the
+    restore path already knows how to refuse — the alternative, raising here,
+    would fail the whole restore over one unreadable candidate.
+    """
+    if not blob.startswith(_GZIP_MAGIC):
+        return blob
+    try:
+        return gzip.decompress(blob)
+    except Exception as exc:
+        print(f"[CLOUD SYNC] ⚠️ A stored object says it is gzipped and is not: {exc}", flush=True)
+        return blob
+
+
 def _storage_upload(name: str, data: bytes) -> bool:
     """Upload (or overwrite) a file in the bucket.
 
     Uses PUT (not POST) because Supabase Storage's POST endpoint returns
     409 "The resource already exists" when the file is already in the bucket.
     PUT replaces it silently.
+
+    The payload is packed in here, at the one door every upload goes through, so
+    the snapshots are covered by the same rule as the current file and no caller
+    has to remember it. The object's name does not change: a packed ``bot.db``
+    is still ``bot.db``, and every reader unpacks it transparently.
     """
+    sent = _pack_blob(data)
     try:
         req = urllib.request.Request(
             _storage_url(name),
-            data=data,
+            data=sent,
             headers={
                 "Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type": "application/octet-stream",
@@ -161,7 +223,14 @@ def _storage_upload(name: str, data: bytes) -> bool:
             method="PUT",
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
-            return resp.status in (200, 201)
+            ok = resp.status in (200, 201)
+        if ok and len(sent) != len(data):
+            print(
+                f"[CLOUD SYNC] 🗜️ '{name}': {len(data):,} bytes sent as "
+                f"{len(sent):,} ({len(data) / len(sent):.1f}x smaller).",
+                flush=True,
+            )
+        return ok
     except Exception as exc:
         print(f"[CLOUD SYNC] ⚠️ Supabase upload '{name}' failed: {exc}", flush=True)
         return False

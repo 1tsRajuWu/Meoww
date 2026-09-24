@@ -12,8 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Force port 7860 for Hugging Face Spaces
+# Force port 7860 and disable SSR so Python FastAPI binds directly to 7860
 os.environ["PORT"] = "7860"
+os.environ["GRADIO_SSR_MODE"] = "False"
 
 import gradio as gr
 try:
@@ -44,8 +45,8 @@ import keep_alive
 # Mark server started so bot.py does not spin up duplicate threads
 keep_alive._SERVER_STARTED = True
 
-# Launch Gradio without blocking thread
-demo.launch(server_name="0.0.0.0", server_port=7860, prevent_thread_lock=True)
+# Launch Gradio directly on port 7860 with SSR disabled
+demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False, prevent_thread_lock=True)
 
 # 4. Attach catch-all forwarder on demo.server_app to Flask
 try:

@@ -9,6 +9,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 from tests.support import TempDatabaseMixin
@@ -651,3 +652,170 @@ class WhoElseIsRunning(unittest.TestCase):
     def test_an_empty_bucket_has_nobody_to_name(self):
         lease = cs._json.dumps({"owner": "srv-x", "ts": cs.time.time()}).encode()
         self.assertIsNone(self._owner(lease, has_data=False))
+
+
+class _Reply:
+    """Just enough of an ``http.client.HTTPResponse`` for the storage helpers."""
+
+    def __init__(self, body: bytes, status: int = 200):
+        self._body = body
+        self.status = status
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _Bucket:
+    """A Supabase Storage stand-in at the ``urlopen`` seam.
+
+    The in-memory fakes the rest of this file uses replace ``_storage_upload``
+    and ``_storage_download`` outright, which is the right seam for every
+    question about *which* object is written. It is the wrong seam for a
+    question about *what the bytes look like on the wire*, because it skips the
+    two functions that shape them — so these tests stand one level down, at the
+    HTTP call, and keep the objects exactly as Supabase would hold them.
+    """
+
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+
+    def urlopen(self, req, timeout=None):
+        url = req.full_url
+        method = req.get_method()
+        if "/object/list/" in url:
+            return _Reply(cs._json.dumps([{"name": n} for n in self.objects]).encode())
+        name = url.rsplit("/", 1)[-1]
+        if method == "PUT":
+            self.objects[name] = req.data or b""
+            return _Reply(b"{}")
+        if method == "DELETE":
+            self.objects.pop(name, None)
+            return _Reply(b"")
+        body = self.objects.get(name)
+        if body is None:
+            raise urllib.error.HTTPError(url, 404, "not found", {}, None)
+        return _Reply(body)
+
+    def patch(self):
+        return mock.patch.object(cs.urllib.request, "urlopen", side_effect=self.urlopen)
+
+
+def _sqlite_bytes() -> bytes:
+    """Some bytes that are unmistakably a database and long enough to pack."""
+    return b"SQLite format 3\x00" + b"\x00" * 4096
+
+
+class WhatGoesOverTheWire(unittest.TestCase):
+    """The bucket holds gzipped payloads, and every older object still reads.
+
+    ``bot.db`` is uploaded on every change and snapshotted hourly, so it is
+    simultaneously the biggest thing this bot sends and the thing it sends most
+    often. It compresses to about a third of its size; sending it raw is paying
+    three times over for bytes that are already in the file.
+    """
+
+    def setUp(self):
+        self._orig_url = cs.SUPABASE_URL
+        self._orig_key = cs.SUPABASE_KEY
+        cs.SUPABASE_URL = "https://test.supabase.co"
+        cs.SUPABASE_KEY = "test-key"
+
+    def tearDown(self):
+        cs.SUPABASE_URL = self._orig_url
+        cs.SUPABASE_KEY = self._orig_key
+
+    def test_a_database_goes_up_gzipped_and_comes_back_whole(self):
+        bucket = _Bucket()
+        raw = _sqlite_bytes()
+        with bucket.patch():
+            self.assertTrue(cs._storage_upload("bot.db", raw))
+        sent = bucket.objects["bot.db"]
+        self.assertTrue(sent.startswith(cs._GZIP_MAGIC), "it left this host uncompressed")
+        self.assertLess(len(sent), len(raw))
+        with bucket.patch():
+            self.assertEqual(cs._storage_download("bot.db"), raw)
+
+    def test_a_small_object_is_not_wrapped(self):
+        """The lease is a paragraph of JSON; an envelope would only enlarge it."""
+        bucket = _Bucket()
+        lease = cs._json.dumps({"owner": "srv-x", "ts": 1700000000}).encode()
+        self.assertLess(len(lease), cs.PACK_MIN_BYTES)
+        with bucket.patch():
+            self.assertTrue(cs._storage_upload(cs.LEASE_FILE, lease))
+        self.assertEqual(bucket.objects[cs.LEASE_FILE], lease)
+
+    def test_an_object_written_before_this_change_still_restores(self):
+        """The bucket on the other side was filled by the release before this one.
+
+        No migration and no second object name: the reader decides by looking at
+        the bytes, so a raw ``bot.db`` is read exactly as it was written.
+        """
+        bucket = _Bucket()
+        raw = _sqlite_bytes()
+        bucket.objects["bot.db"] = raw
+        with bucket.patch():
+            self.assertEqual(cs._storage_download("bot.db"), raw)
+
+    def test_a_payload_that_would_grow_is_sent_as_it_is(self):
+        """Random bytes gain the envelope's header and nothing else."""
+        payload = os.urandom(64 * 1024)
+        self.assertIs(cs._pack_blob(payload), payload)
+
+    def test_a_corrupt_packed_object_is_handed_back_rather_than_raised(self):
+        """One unreadable candidate must not fail the whole restore."""
+        broken = cs._GZIP_MAGIC + b"this is not a gzip stream"
+        self.assertEqual(cs._unpack_blob(broken), broken)
+        self.assertEqual(cs._unpack_blob(b""), b"")
+
+
+class TheBackupRoundTripsPacked(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """End to end through the real helpers and the real HTTP shape."""
+
+    async def asyncSetUp(self):
+        self.use_temp_database("packed_test.db")
+        await db.setup()
+        cs._last_sync_hash = None
+        cs._restore_blocked_reason = None
+        cs._remote_checked = False
+        cs._upload_requested = False
+        cs._last_upload_ts = 0.0
+        cs._last_snapshot_ts = 0
+        cs._cloud_has_data = False
+        self._orig_url = cs.SUPABASE_URL
+        self._orig_key = cs.SUPABASE_KEY
+        cs.SUPABASE_URL = "https://test.supabase.co"
+        cs.SUPABASE_KEY = "test-key"
+        self.bucket = _Bucket()
+
+    async def asyncTearDown(self):
+        cs.SUPABASE_URL = self._orig_url
+        cs.SUPABASE_KEY = self._orig_key
+        self.release_temp_database()
+
+    def test_the_snapshot_that_ships_is_the_snapshot_that_restores(self):
+        _make_db(cs.db_path())
+        with self.bucket.patch():
+            self.assertTrue(cs.backup_to_cloud_sync())
+        self.assertIn("bot.db", self.bucket.objects)
+        self.assertTrue(self.bucket.objects["bot.db"].startswith(cs._GZIP_MAGIC))
+
+        # A fresh process, a fresh file: exactly what a redeploy does.
+        os.remove(cs.db_path())
+        for suffix in ("-wal", "-shm"):
+            if os.path.exists(cs.db_path() + suffix):
+                os.remove(cs.db_path() + suffix)
+        cs._last_sync_hash = None
+        cs._restored_from = None
+        with self.bucket.patch():
+            self.assertTrue(cs.restore_from_cloud())
+
+        conn = sqlite3.connect(cs.db_path())
+        row = conn.execute("SELECT wallet, bank FROM economy WHERE user_id=?", (MEMBER,)).fetchone()
+        conn.close()
+        self.assertEqual(row, (SEED_WALLET, SEED_BANK))

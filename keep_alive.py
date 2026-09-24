@@ -51,9 +51,9 @@ from flask import (
     url_for, Response, abort,
 )
 from utils import (
-    ai_guard, alert_webhook, brand, command_publish, command_scope, company, config_audit,
-    consent, db, digest, discord_auth, features, figures, guild_directory, hub,
-    identity, levels as levels_module, media_health, meowfee, moderation_actions,
+    ai_guard, alert_webhook, brand, command_publish, command_scope, company, compression,
+    config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
+    hub, identity, levels as levels_module, media_health, meowfee, moderation_actions,
     modules, pause, plans, principal, qna, ratelimit, scheduled, server_control,
     sessions, site_guard, uptime_status, webdocs,
 )
@@ -103,6 +103,13 @@ sys.stdout = LogTee(sys.stdout)
 sys.stderr = LogTee(sys.stderr)
 
 app = Flask(__name__, template_folder="templates")
+
+# Egress is what this host is billed for, and the pages and JSON this process
+# writes are the repetitive text that gzips five to eight times over. Registered
+# here, before every other ``after_request`` hook in this module, because Flask
+# runs them in reverse order — so this one sees the *final* headers, including
+# the ``Vary`` the security pass sets for the two market endpoints.
+compression.register(app)
 
 
 #: Static assets are served with a **one-year immutable** cache by the `_headers`
