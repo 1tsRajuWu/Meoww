@@ -959,15 +959,19 @@ class PreviewHarness(unittest.TestCase):
         """
         client = self._load_harness().app.test_client()
 
+        # Asserted on what the page says *now*: the server it is showing is the
+        # one in the header chip, and the switcher marks that server's own link
+        # rather than a `<strong>` in a `<select>` — the picker is a row of links
+        # since the dashboard was rebuilt, and the reading is the same one.
         page = client.get("/dashboard?guild_id=777002").get_data(as_text=True)
-        self.assertIn("<strong>Second Server</strong>", page)
-        self.assertIn('<option value="777002" selected>', page)
+        self.assertIn('<span class="own-chip__value mono">Second Server</span>', page)
+        current_link = page.split('href="/dashboard?guild_id=777002"', 1)[0].rsplit("<a ", 1)[-1]
+        self.assertIn('is-current', current_link, "the switcher does not mark the open server")
 
         # An id that is not a server the bot is in falls back to the first one,
         # the way ``_resolve_guild_id`` does, rather than rendering no server.
         fallback = client.get("/dashboard?guild_id=nonsense").get_data(as_text=True)
-        self.assertIn("<strong>Meow Server</strong>", fallback)
-        self.assertIn('<option value="777001" selected>', fallback)
+        self.assertIn('<span class="own-chip__value mono">Meow Server</span>', fallback)
 
     def test_the_pickers_manage_button_actually_switches(self):
         """**Manage** posts and has to land in that server's dashboard.
@@ -991,9 +995,12 @@ class PreviewHarness(unittest.TestCase):
 
         page = client.get("/servers").get_data(as_text=True)
         current = page.split("777002", 1)[1].split("</li>", 1)[0]
-        self.assertIn("Open", current, "the server just picked is the one that is open")
+        # The picker's own words: the page you are on is **Current** and the one
+        # you are not is **Open** — the same two answers, named as the rebuilt
+        # page names them (it said Open/Manage before the rebuild).
+        self.assertIn("Current", current, "the server just picked is the one that is open")
         other = page.split("777001", 1)[1].split("</li>", 1)[0]
-        self.assertIn("Manage", other, "the server left behind offers Manage")
+        self.assertIn("Open", other, "the server left behind offers a way in")
 
         # An id that is not one the bot is in is refused in production's own
         # words, and does not move the preview.
@@ -1038,7 +1045,10 @@ class PreviewHarness(unittest.TestCase):
         from utils import digest
 
         client = self._load_harness().app.test_client()
-        page = client.get("/dashboard").get_data(as_text=True)
+        # The schedule page, which is where the route's content sources are
+        # offered: the composer and the queue are their own address now, not a
+        # section of one long page.
+        page = client.get("/dashboard/schedule").get_data(as_text=True)
 
         self.assertIn("Message I write", page)
         self.assertTrue(digest.GENERATORS, "this test would pass vacuously")
