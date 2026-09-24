@@ -246,7 +246,7 @@
 
 .radio-row {
   display: grid;
-  grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr) minmax(0, auto);
+  grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr) minmax(0, auto) auto;
   gap: var(--space-4);
   align-items: baseline;
   padding-block: var(--space-3);
@@ -258,9 +258,57 @@
 .radio-row__tags { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 
 @media (max-width: 760px) {
-  .radio-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  /* Two columns on a phone, not one: the name and its *Copy* share the first
+     line while the description and the tags span both. Stacking the control
+     under three lines of its own row added sixty pixels to every station —
+     the wall coming back one row at a time, which is what the first version of
+     this rule did when the fourth column arrived. */
+  .radio-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+  }
+  .radio-row__name { grid-column: 1; }
+  .radio-row__desc,
+  .radio-row__tags { grid-column: 1 / -1; }
   .radio-row__tags { justify-content: flex-start; }
+  .radio-row .command__copy { grid-column: 2; grid-row: 1; align-self: center; }
 }
+
+/* --------------------------------------------------------------------------
+   The table (02 — the stations)
+
+   The catalogue was one forty-eight-row list and two thirds of the page. The
+   rows are all still here; the page opens with the first two dozen, and what
+   opens the rest is a question — a search over every name, country, language,
+   genre and tag in the table, and the two menus beside it, whose options are
+   the catalogue's own lists rather than a second copy of them.
+
+   The cap lives here and nowhere else, and it is driven by the template's own
+   `data-beyond` marker: the number is written once, in Python, so the sheet
+   cannot disagree with the sentence under the list about how many are shown.
+   -------------------------------------------------------------------------- */
+
+.stations__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  margin-bottom: var(--space-4);
+}
+
+.stations__bar .field { flex: 1 1 14rem; min-width: 0; }
+
+.stations__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+  margin-top: var(--space-4);
+}
+
+.stations__foot .hint { margin: 0; }
+
+[data-capped="true"] [data-beyond] { display: none; }
 
 /* --------------------------------------------------------------------------
    Documents (the policies, the agreement)
@@ -334,8 +382,6 @@
   border-bottom: 1px solid var(--line);
 }
 
-.command[hidden] { display: none; }
-
 .command__name {
   font-size: 0.9375rem;
   background: transparent;
@@ -383,13 +429,6 @@
   gap: var(--space-3) var(--space-4);
   margin-bottom: var(--space-4);
 }
-
-/* `display: flex` would otherwise win over the `hidden` attribute, and the
-   no-script contract is that these tools are not shown at all. */
-.cmdx__bar[hidden],
-.cmdx__status[hidden],
-.cmdx__empty[hidden],
-.cmdx__group[hidden] { display: none; }
 
 .cmdx__status { margin: 0 0 var(--space-4); }
 

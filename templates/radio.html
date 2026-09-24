@@ -6,18 +6,16 @@
 {% endblock %}
 
 {% block page %}
-{# The two counts cannot disagree because both are counted from the same table
-   this page is rendered from. #}
-{% set languages = stations | map(attribute='language') | reject('equalto', '') | unique | list %}
-{% set countries = stations | map(attribute='country') | reject('equalto', '') | unique | list %}
+{# The three counts cannot disagree because all three come from the catalogue's
+   own index, which is the reader the bot's picker uses. #}
 
 <section class="page-head band band--flush">
   <div class="wrap">
     <p class="micro">Radio</p>
     <h1>A station, not a search box</h1>
     <p class="lede">
-      {{ stations | length }} stations in {{ languages | length }} languages across
-      {{ countries | length }} countries, every one of them fetched before it was written
+      {{ station_rows | length }} stations in {{ station_languages | length }} languages across
+      {{ station_countries | length }} countries, every one of them fetched before it was written
       down. Nothing here resolves a song through a media platform, so nobody can decide
       this bot is a robot and answer with a check instead of a stream.
     </p>
@@ -51,7 +49,23 @@
   </div>
 </section>
 
-<section class="band">
+{# --------------------------------------------------------------------------
+   02 — The table, as a table a visitor can ask questions of.
+
+   It used to be one list of forty-eight rows: 7,476px, two thirds of the page,
+   and a visitor who came to find out whether this bot plays anything in their
+   own language had to read it. Every row is still in the document — nothing is
+   fetched and no script builds the list, because a second renderer is the
+   failure this project has shipped twice — but the page opens with two dozen of
+   them and the search and the two menus reach all of them.
+
+   With scripting off nothing is hidden that the page cannot explain: the cap is
+   in the sheet, the note under the list names what is not shown and where the
+   rest can be asked for, and the search and the two menus ship `hidden`, because
+   a control that does nothing without its file is not shown to the reader who
+   does not have it.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="stations">
   <div class="wrap">
     <div class="band__head">
       <div>
@@ -64,26 +78,71 @@
       </p>
     </div>
 
-    <ul class="list">
-      {% for station in stations[:48] %}
-      <li class="radio-row">
-        <span class="radio-row__name">{{ station.icon }} {{ station.name }}</span>
-        <span class="radio-row__desc">{{ station.desc }}</span>
-        <span class="radio-row__tags">
-          <span class="tag">{{ station.genre }}</span>
-          {% if station.country %}<span class="tag">{{ station.country }}</span>{% endif %}
-          {% if station.language %}<span class="tag">{{ station.language }}</span>{% endif %}
-        </span>
-      </li>
-      {% endfor %}
-    </ul>
+    <div class="stations" data-station-explorer>
+      <div class="stations__bar" data-station-tools hidden>
+        <label class="field">
+          <span class="visually-hidden">Find a station</span>
+          <input class="input" type="search" data-station-search
+                 placeholder="Search {{ station_rows | length }}: name, country, language…"
+                 autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="visually-hidden">Language</span>
+          <select class="select" data-station-language>
+            <option value="">Any language</option>
+            {% for language in station_languages %}<option value="{{ language }}">{{ language }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span class="visually-hidden">Country</span>
+          <select class="select" data-station-country>
+            <option value="">Any country</option>
+            {% for country in station_countries %}<option value="{{ country }}">{{ country }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
 
-    {% if stations | length > 48 %}
-    <p class="hint tiles">
-      Showing the first 48 of {{ stations | length }}. Ask for the rest in Discord —
-      <code>/radio play</code> searches the whole table, by name, country or language.
-    </p>
-    {% endif %}
+      <p class="hint" data-station-status role="status" hidden></p>
+
+      <ul class="list" data-station-list data-capped="true">
+        {% for station in station_rows %}
+        {# `data-beyond` is the cap, written by the template from the one number
+           the page and its tests share — so the sheet never has to learn the
+           count, and a page with scripting off still says what it is holding. #}
+        <li class="radio-row" data-station
+            {% if loop.index > station_preview %}data-beyond="true"{% endif %}
+            data-search="{{ station.search }}"
+            data-language="{{ station.language }}"
+            data-country="{{ station.country }}">
+          <span class="radio-row__name">{{ station.icon }} {{ station.name }}</span>
+          <span class="radio-row__desc">{{ station.desc }}</span>
+          <span class="radio-row__tags">
+            <span class="tag">{{ station.genre }}</span>
+            {% if station.country %}<span class="tag">{{ station.country }}</span>{% endif %}
+            {% if station.language %}<span class="tag">{{ station.language }}</span>{% endif %}
+            {% if station.ad_free %}<span class="tag">ad-free</span>{% endif %}
+          </span>
+          <button class="command__copy" type="button" data-copy="{{ station.name }}"
+                  data-copy-label="Copied">Copy</button>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <p class="hint" data-station-empty hidden>
+        Nothing in the table answers that. The search covers every name, country,
+        language, genre and tag in it.
+      </p>
+
+      <div class="stations__foot">
+        <button class="btn btn--ghost" type="button" data-station-more hidden
+                aria-expanded="false">Show all {{ station_rows | length }}</button>
+        <p class="hint" data-station-cap>
+          Showing the first {{ station_preview }} of {{ station_rows | length }}. Ask for the
+          rest in Discord — <code>/radio play</code> searches the whole table, by name,
+          country or language.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 

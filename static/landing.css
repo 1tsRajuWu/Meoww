@@ -169,7 +169,6 @@
 /* Two facts and a control. A list is a list: hairlines between rows rather than
    a card per row, which is what turns fourteen systems into a wall of boxes. */
 .system { border-bottom: 1px solid var(--line); }
-.system[hidden] { display: none; }
 
 .system__row {
   display: grid;

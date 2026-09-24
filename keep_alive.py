@@ -2600,6 +2600,48 @@ def _start_page():
     )
 
 
+# How many stations the page opens with. A table is not a wall: every row is in
+# the document, two dozen of them are on screen, and the search and the two
+# filters reach all of them. The number is here rather than in the template
+# because the tests hold the page and the sheet to it.
+STATION_PREVIEW = 24
+
+
+def _station_rows(stations: list) -> list[dict]:
+    """The catalogue as rows the page can filter, one per station.
+
+    Read out of :mod:`utils.radio_catalogue` rather than written down, for the
+    reason every list on this site is read from its registry: a page that names
+    a station the bot would refuse to play is the failure those readers exist to
+    prevent. Each row carries its own haystack — name, description, genre,
+    country, language and the ad-free tag, lowercased — so the page's search has
+    one author and the template has none, which is the shape
+    :func:`_command_groups` already uses for the command reference.
+    """
+    rows: list[dict] = []
+    for station in stations:
+        ad_free = "ad-free" in (getattr(station, "tags", ()) or ())
+        rows.append({
+            "name": station.name,
+            "icon": station.icon,
+            "desc": station.desc,
+            "genre": station.genre,
+            "country": station.country,
+            "language": station.language,
+            "ad_free": ad_free,
+            "search": " ".join(
+                part for part in (
+                    station.name,
+                    station.genre,
+                    station.country,
+                    station.language,
+                    *(getattr(station, "tags", ()) or ()),
+                ) if part
+            ).lower(),
+        })
+    return rows
+
+
 def _radio_page():
     """Radio, on the site: what it does, and what it refuses to pretend.
 
@@ -2625,6 +2667,20 @@ def _radio_page():
     except Exception as exc:
         print(f"[SITE] could not read the stations for /radio: {exc}", flush=True)
 
+    rows = _station_rows(stations)
+    # The counts and the two filter menus come from the catalogue's own index,
+    # so the page cannot offer a language or a country its picker does not
+    # count. A table that could not be read at all falls back to the rows, which
+    # keeps the page's own arithmetic true rather than printing zeroes.
+    station_languages = (
+        [name for name, _ in index.languages] if index
+        else sorted({row["language"] for row in rows if row["language"]})
+    )
+    station_countries = (
+        list(index.countries) if index
+        else sorted({row["country"] for row in rows if row["country"]})
+    )
+
     return render_template(
         "radio.html",
         **_site_context(),
@@ -2636,6 +2692,10 @@ def _radio_page():
         ),
         radio_commands=list(feature.commands) if feature else [],
         stations=stations,
+        station_rows=rows,
+        station_preview=STATION_PREVIEW,
+        station_languages=station_languages,
+        station_countries=station_countries,
         index=index,
     )
 

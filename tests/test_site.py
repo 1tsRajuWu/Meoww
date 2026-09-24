@@ -8,7 +8,9 @@ does not have, no claim on a page that the code contradicts) and about the
 renderer that puts the policy files on the web second, because a renderer that
 drops half a sentence from a policy is worse than no page at all.
 """
+import html
 import os
+import re
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -330,6 +332,132 @@ class ThePricingPage(unittest.TestCase):
         self.assertIn("Pro", body)
         self.assertIn("Enterprise", body)
         self.assertNotIn("There is no paid tier", body)
+
+
+class TheRadioTableCanBeAsked(unittest.TestCase):
+    """``/radio`` renders 308 stations and opens with two dozen of them.
+
+    The page it replaces listed the first forty-eight and then told the visitor
+    to go and type into Discord — a table that answers questions about the bot
+    by asking you to leave the page. What replaces it is a list with a search
+    and the catalogue's own two menus in front of it, and every assertion below
+    is a way that could go quietly wrong: a station that gets no row, a row with
+    no haystack (so searching its own name cannot find it), an option in a menu
+    that the table does not hold, a cap that is off by one, or a count printed
+    on the page that is not the count of the thing it names.
+    """
+
+    def setUp(self):
+        self.client = keep_alive.app.test_client()
+        from utils import radio_catalogue
+
+        self.catalogue = radio_catalogue.CATALOGUE
+        self.index = radio_catalogue.index()
+
+    def _page(self):
+        response = self.client.get("/radio")
+        self.assertEqual(response.status_code, 200)
+        return response.get_data(as_text=True)
+
+    def test_every_station_gets_a_row_that_can_be_found_by_its_own_name(self):
+        """One row per station, and each row carries its own haystack.
+
+        The haystack is what the page's search reads, so an empty one is a row
+        that the search cannot match however hard a visitor types — and it
+        carries the name, country, language and genre, because those are the
+        words the placeholder promises.
+        """
+        body = self._page()
+        self.assertEqual(
+            body.count("data-search="), len(self.catalogue),
+            "the page does not render one searchable row per station",
+        )
+        # Unescaped, because a station called "I♥MUSIC & CHILL" is written into
+        # the markup as `&amp;` — and the row a visitor searches for is the one
+        # the *browser* holds, which is the unescaped one.
+        text = html.unescape(body).lower()
+        for station in self.catalogue[:20]:
+            with self.subTest(station=station.name):
+                self.assertIn(
+                    station.name.lower(),
+                    text,
+                    "a station in the table has no row to be found by",
+                )
+
+    def test_the_cap_is_the_number_the_page_says_it_is(self):
+        """Exactly ``STATION_PREVIEW`` rows are shown, and the sentence agrees.
+
+        The count is one value (``keep_alive.STATION_PREVIEW``) that the template
+        marks rows with and prints; a page whose sentence and whose rows disagree
+        is the defect this whole file keeps meeting, one number apart.
+        """
+        body = self._page()
+        beyond = body.count('data-beyond="true"')
+        preview = keep_alive.STATION_PREVIEW
+        self.assertEqual(
+            beyond, len(self.catalogue) - preview,
+            "the rows marked as beyond the cap are not the ones the cap leaves",
+        )
+        self.assertIn(
+            f"Showing the first {preview} of {len(self.catalogue)}",
+            body,
+            "the note under the list does not name what the list is holding",
+        )
+
+    def test_the_page_counts_what_the_catalogue_counts(self):
+        """Three numbers, read from the index the bot's picker reads.
+
+        The lede's counts were computed in the template from the rows it had
+        sliced; they now come from the catalogue's own index, so the page cannot
+        advertise a language the picker does not count.
+        """
+        body = " ".join(self._page().split())
+        self.assertIn(
+            f"{len(self.catalogue)} stations in {len(self.index.languages)} languages "
+            f"across {len(self.index.countries)} countries",
+            body,
+            "the page's own three counts are not the catalogue's",
+        )
+
+    def test_the_two_menus_offer_the_catalogue_and_nothing_else(self):
+        """The language and country options are the index's own names.
+
+        A hand-kept list of countries is how a page offers a station the bot
+        would refuse to play, which is the failure the registry readers exist to
+        prevent — so the menus are read out of the table rather than written
+        beside it.
+        """
+        body = self._page()
+
+        def options(marker: str) -> set[str]:
+            block = body.split(marker, 1)[1].split("</select>", 1)[0]
+            return set(re.findall(r"<option value=\"([^\"]*)\"", block))
+
+        languages = options("data-station-language")
+        countries = options("data-station-country")
+        # The first option is the "any" of each menu.
+        self.assertEqual(languages - {""}, {name for name, _ in self.index.languages})
+        self.assertEqual(countries - {""}, set(self.index.countries))
+
+    def test_the_ad_free_tag_is_shown_where_the_table_holds_one(self):
+        """The badge comes from the station's own tags, counted here.
+
+        "Ad-free" is the one claim on this page a visitor might choose a station
+        by, so it is counted rather than spot-checked: the page shows it exactly
+        as often as the catalogue records it.
+        """
+        body = self._page()
+        expected = sum(1 for station in self.catalogue if "ad-free" in station.tags)
+        self.assertGreater(expected, 0, "the catalogue has no ad-free tag left")
+        self.assertEqual(
+            body.count('<span class="tag">ad-free</span>'),
+            expected,
+            "the page shows the ad-free tag a different number of times than the table holds it",
+        )
+        self.assertEqual(
+            self.index.ad_free, expected,
+            "the index counts a different number of ad-free stations than the rows do",
+        )
 
 
 class TheSiteIsOneDesign(unittest.TestCase):

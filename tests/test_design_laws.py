@@ -1120,6 +1120,67 @@ class ImagesAreLabelled(unittest.TestCase):
         self.assertEqual(offenders, [], "\n".join(offenders))
 
 
+class HiddenMeansHidden(unittest.TestCase):
+    """The `hidden` attribute, on every element, whichever sheet names it.
+
+    The UA sheet says ``[hidden] { display: none }`` and **any** author rule that
+    sets ``display`` beats it. This project's sheets set ``display`` on almost
+    everything they name, so the fix grew one selector at a time —
+    ``.command[hidden]``, ``.cmdx__bar[hidden]``, ``.cmdx__status[hidden]``,
+    ``.cmdx__empty[hidden]``, ``.cmdx__group[hidden]``, ``.system[hidden]`` — and
+    that list was complete right up until the next element to ship ``hidden`` fell
+    through the hole it left.
+
+    Measured on the rebuilt station table before this law existed: every row the
+    filter had just excluded still computed ``display: grid`` at **359px tall**
+    while the count beside the list said *“2 of 308 in Finnish”*, and the two
+    controls that exist only for a browser *with* JavaScript — the tools bar and
+    the button that opens the rest — were on screen with nothing to do. The patch
+    list was not wrong about any of those elements; it just did not mention them,
+    which is the whole failure mode of a rule per element.
+
+    So the law is the general form: one rule, in the shared sheet, with
+    ``!important`` — because the defect *is* a specificity contest — and no sheet
+    patching it back one selector at a time.
+    """
+
+    def test_the_shared_sheet_hides_a_hidden_element_by_itself(self):
+        rules = [body for selector, body in blocks(read(PUBLIC_SHEET)) if selector == "[hidden]"]
+        self.assertEqual(
+            len(rules),
+            1,
+            "static/meow.css has no single `[hidden]` rule, so every element that "
+            "ships hidden depends on somebody remembering to patch its own "
+            "selector — which is how a filtered list stayed on screen",
+        )
+        self.assertRegex(
+            rules[0],
+            r"display:\s*none\s*!important",
+            "the `[hidden]` rule has to win the specificity contest it exists for: "
+            "a `.radio-row { display: grid }` beats a plain `[hidden] { display: none }`",
+        )
+
+    def test_no_sheet_keeps_a_patch_list_beside_it(self):
+        """``[hidden]`` anywhere else is that list growing again.
+
+        The one in ``static/meow.css`` is the general rule; a second one in
+        ``pages.css`` or ``landing.css`` would mean an element whose own selector
+        was written out by hand, which is exactly how the six-selector patch list
+        came to exist — and why the seventh element was broken.
+        """
+        general = read(PUBLIC_SHEET)
+        for name in ("pages.css", "landing.css"):
+            source = read(os.path.join(ROOT, "static", name))
+            with self.subTest(sheet=name):
+                self.assertNotIn(
+                    "[hidden]",
+                    source,
+                    f"static/{name} patches `[hidden]` for a selector of its own; "
+                    "the rule belongs in the shared sheet, once, where the next "
+                    "element gets it too",
+                )
+        self.assertIn("[hidden]", general)
+
 class FocusIsVisible(unittest.TestCase):
     """Nothing is reachable only with a mouse."""
 
@@ -1917,21 +1978,34 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
         )
 
     def test_the_tag_cannot_be_broken_at_its_own_hyphen(self):
+        """Re-pinned to the markup the page writes now.
+
+        This law spent the rebuild pointing at ``.lp-tag`` and at
+        ``<span class="lp-tag">ad-free</span>`` — the class of a page that no
+        longer exists. It failed for a year of commits about the *absence* of a
+        thing rather than about the defect it was written for, which is that a
+        line breaker treats a hyphen as an invitation: ``ad-`` on one line and
+        ``free`` on the next. The class is ``.tag`` now, it lives in the shared
+        sheet rather than the page's own, and the tag itself is written by the
+        station rows — from the catalogue's own ``ad-free`` tag, so the page
+        cannot show a badge the table does not hold.
+        """
         css = read(PUBLIC_SHEET)
         self.assertEqual(
-            self._declarations(css, ".lp-tag").get("white-space"), "nowrap",
-            ".lp-tag is what holds \"ad-free\" together: a hyphen is a break "
+            self._declarations(css, ".tag").get("white-space"), "nowrap",
+            ".tag is what holds \"ad-free\" together: a hyphen is a break "
             "opportunity to a line breaker",
         )
         # Asserted as a search rather than with ``assertIn``: a failure here
-        # would otherwise print the whole template, which is 20KB of prose about
-        # the radio feature and not one line of it about the tag.
+        # would otherwise print the whole template, which is prose about the
+        # radio feature and not one line of it about the tag.
         template = read(os.path.join(TEMPLATES, "radio.html"))
         self.assertTrue(
-            re.search(r'<span class="lp-tag">ad-free</span>', template),
-            "the template writes \"ad-free\" without lp-tag, so the rule above "
-            "guards nothing and the tag breaks after its hyphen",
+            re.search(r'<span class="tag">ad-free</span>', template),
+            "the template writes \"ad-free\" without a tag class, so the rule "
+            "above guards nothing and the tag breaks after its hyphen",
         )
+
 
 
 if __name__ == "__main__":  # pragma: no cover

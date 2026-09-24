@@ -158,6 +158,112 @@ class TheCatalogueIsARowWide(unittest.TestCase):
             "the catalogue's rows are not laid out across the width",
         )
 
+    def test_the_row_states_its_phone_shape_as_well(self):
+        """Measured at 390px: a four-column row has to say what it becomes.
+
+        The rebuilt row shipped with the desktop grid and **no** phone rule, and
+        every station grew to **320px** — two dozen of them were 7,856px, which
+        is the wall the rebuild existed to take away, rebuilt one row at a time.
+        Four columns in 390px is not a layout that wraps; it is a layout that
+        squeezes, and nothing else in this file could see it, because every other
+        law here reads markup or declarations rather than a screen.
+        """
+        sheet = self.SHEET.read_text(encoding="utf-8")
+        self.assertRegex(
+            sheet,
+            r"@media \(max-width: 760px\) \{[^@]*\.radio-row \{[^}]*grid-template-columns",
+            "the sheet states no phone shape for .radio-row, so four columns stand "
+            "on a 390px screen and every row becomes a card",
+        )
+
+
+class TheTableCanBeAskedAQuestion(unittest.TestCase):
+    """``/radio``'s catalogue is 308 rows, and it used to show 48 of them.
+
+    Measured on the served page at 390px: section 02 was **7,476px — two thirds
+    of the page — one list, and 690 of the page's 1,097 words**, with no search,
+    no filter and no way to ask about a language or a country. It capped itself
+    at forty-eight rows and said so, which is honest and still a wall: the rows
+    a visitor wanted were the ones that were not shown, and the only advice the
+    page had was to go and type into Discord.
+
+    The rebuild keeps every row in the document and opens with two dozen, with
+    a search and the catalogue's own two menus in front of the rest. Three
+    things have to agree for that to stay true — the template that marks the
+    capped rows, the sheet that hides them, and the script that lifts the cap
+    when a visitor asks — so each pair is held to the other here, and the
+    number itself is asserted to have exactly one author.
+    """
+
+    TEMPLATE = ROOT / "templates" / "radio.html"
+    SHEET = ROOT / "static" / "pages.css"
+    SCRIPT = ROOT / "static" / "motion.js"
+
+    def test_the_cap_is_written_once_and_the_sheet_only_reads_it(self):
+        """The template marks the rows beyond the cap; the sheet hides the mark.
+
+        The alternative was ``:nth-child(25)`` in the sheet, which is the same
+        number written twice — and this page's own sentence ("Showing the first
+        24 of 308") is a third place it would have to be kept true. The template
+        writes it from ``station_preview``, so the count under the list and the
+        rows that are hidden come from one value.
+        """
+        markup = self.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn(
+            "loop.index > station_preview",
+            markup,
+            "the rows beyond the cap are not marked, so nothing can hide them",
+        )
+        sheet = self.SHEET.read_text(encoding="utf-8")
+        halves = sheet.split('[data-capped="true"] [data-beyond]', 1)
+        self.assertEqual(
+            len(halves), 2,
+            "the sheet does not hide the rows the template marked as beyond the "
+            "cap, so the page opens with all 308 and the note under it lies",
+        )
+        self.assertIn("display: none", halves[1].split("}", 1)[0])
+
+    def test_the_tools_ship_hidden_and_the_script_is_what_opens_them(self):
+        """A control that does nothing without its file is not shown.
+
+        The search and the two menus arrive `hidden` and ``motion.js`` un-hides
+        them, which is the rule the command reference already follows — and it
+        is also the whole with-scripting-off story: two dozen rows, a sentence
+        naming how many are not shown, and no dead boxes at the top.
+        """
+        markup = self.TEMPLATE.read_text(encoding="utf-8")
+        for marker in ("data-station-tools hidden", "data-station-more hidden"):
+            self.assertIn(marker, markup, f"{marker} no longer ships hidden")
+        script = self.SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("wireStationExplorer", script, "nothing un-hides the tools")
+        self.assertIn(
+            "wireStationExplorer();", script,
+            "the station explorer is written but never booted",
+        )
+
+    def test_the_filter_menus_come_from_the_catalogue_rather_than_from_a_copy(self):
+        """Both menus are rendered from the lists the bot's own picker reads.
+
+        A hand-kept list of languages is how a page offers a language the table
+        cannot play — this project's most-repeated defect, one page over.
+        """
+        markup = self.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("for language in station_languages", markup)
+        self.assertIn("for country in station_countries", markup)
+        self.assertIn("data-station-language", markup)
+        self.assertIn("data-station-country", markup)
+
+    def test_the_button_label_is_counted_rather_than_written_down(self):
+        """*Show the first N* reads N off the rows the template marked.
+
+        The first draft of the script hardcoded 24 next to the template's own
+        number, which is the shape every one of these laws exists to catch: the
+        two agree until somebody changes one.
+        """
+        script = self.SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('row.hasAttribute("data-beyond")', script)
+        self.assertNotIn('"Show the first 24"', script)
+
 
 class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
     """``--out .`` is how a private repository becomes a public website.

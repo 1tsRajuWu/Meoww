@@ -257,6 +257,25 @@ hr {
 }
 
 /* --------------------------------------------------------------------------
+   Base, continued: the `hidden` attribute, honoured once and everywhere
+   --------------------------------------------------------------------------
+   The UA sheet's `[hidden] { display: none }` loses to *any* author rule that
+   sets `display`, and this stylesheet sets it on almost everything. So the fix
+   grew one selector at a time — `.command[hidden]`, `.cmdx__bar[hidden]`,
+   `.cmdx__status[hidden]`, `.system[hidden]` — and the next element that shipped
+   `hidden` fell through the hole the list left behind: the station table's
+   filter set `hidden` on three hundred station rows and **not one of them left
+   the screen**, while the count beside it said "2 of 308". The tools bar above
+   them and the button that opens the rest were just as invisible-to-JavaScript
+   as the patch list was long.
+
+   This is that patch list, once. A rule per element is a rule the next element
+   is not covered by.
+   -------------------------------------------------------------------------- */
+
+[hidden] { display: none !important; }
+
+/* --------------------------------------------------------------------------
    3. The one focus ring
    -------------------------------------------------------------------------- */
 

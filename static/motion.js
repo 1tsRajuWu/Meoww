@@ -400,6 +400,125 @@
     apply();
   }
 
+  /* --------------------------------------------------------------------------
+   * The station table (/radio): three hundred rows, two dozen of them on screen,
+   * and a question in front of the rest.
+   *
+   * The page it replaces was one forty-eight-row list — 7,476px, two thirds of
+   * the page — and a visitor looking for their own language had to read it. The
+   * shape here is the command reference's, one page over: the rows are all in
+   * the document, the search and the two menus narrow them, and the count says
+   * what is being looked at rather than leaving the reader to guess.
+   *
+   * Three rules, each of them the same rule as /systems:
+   *
+   *   * a search is an instruction to look at *everything* — asking lifts the
+   *     cap, and clearing the boxes puts it back exactly as it was;
+   *   * nothing the reader asked for is hidden — the *Show all* control leaves
+   *     the screen while a question is on, because it answers a question nobody
+   *     is asking any more;
+   *   * and a count is about what is *shown*, and says so — "12 of 308", never
+   *     "12".
+   * ----------------------------------------------------------------------- */
+  function wireStationExplorer() {
+    var root = doc.querySelector("[data-station-explorer]");
+    if (!root) return;
+
+    var tools = root.querySelector("[data-station-tools]");
+    var field = root.querySelector("[data-station-search]");
+    var language = root.querySelector("[data-station-language]");
+    var country = root.querySelector("[data-station-country]");
+    var status = root.querySelector("[data-station-status]");
+    var note = root.querySelector("[data-station-cap]");
+    var empty = root.querySelector("[data-station-empty]");
+    var more = root.querySelector("[data-station-more]");
+    var list = root.querySelector("[data-station-list]");
+    var rows = Array.prototype.slice.call(root.querySelectorAll("[data-station]"));
+    if (!rows.length || (!field && !language && !country)) return;
+
+    var total = rows.length;
+    /* The cap is counted, never written: the template marks the rows beyond it,
+       and the control's label is what those rows are worth, so the sheet, the
+       sentence under the list and the button cannot disagree about the number. */
+    var beyond = rows.filter(function (row) {
+      return row.hasAttribute("data-beyond");
+    }).length;
+    var preview = total - beyond;
+    var opened = false;
+
+    if (tools) tools.hidden = false;
+    if (more) more.hidden = false;
+
+    function question() {
+      return Boolean(
+        (field && field.value.trim()) ||
+        (language && language.value) ||
+        (country && country.value)
+      );
+    }
+
+    function apply() {
+      var term = field ? field.value.trim().toLowerCase() : "";
+      var wanted = language ? language.value : "";
+      var placed = country ? country.value : "";
+      var asked = question();
+      var found = 0;
+
+      rows.forEach(function (row) {
+        var hit =
+          (!term || (row.getAttribute("data-search") || "").indexOf(term) !== -1) &&
+          (!wanted || row.getAttribute("data-language") === wanted) &&
+          (!placed || row.getAttribute("data-country") === placed);
+        row.hidden = !hit;
+        if (hit) found += 1;
+      });
+
+      /* The cap, in one place: the sheet hides `[data-beyond]` while the list is
+         `data-capped`, and this writes both — never the rows themselves. */
+      if (list) list.setAttribute("data-capped", (asked || opened) ? "false" : "true");
+      if (note) note.hidden = asked || opened;
+
+      if (status) {
+        status.hidden = !asked;
+        if (asked) {
+          /* The ask, in the reader's words: a term is *matching*, and the two
+             menus are *where* — joined into one “in …” so a search that uses
+             both reads "in Finnish · Finland" rather than "in Finnish, in
+             Finland", which is a sentence about a language and then repeats
+             itself about a country. */
+          var why = [];
+          if (term) why.push("matching “" + term + "”");
+          var where = [wanted, placed].filter(Boolean).join(" · ");
+          if (where) why.push("in " + where);
+          status.textContent = found + " of " + total + " " + why.join(", ") + ".";
+        }
+      }
+
+      if (empty) empty.hidden = !(asked && found === 0);
+
+      if (more) {
+        more.hidden = asked;
+        more.textContent = opened ? "Show the first " + preview : "Show all " + total;
+        more.setAttribute("aria-expanded", opened ? "true" : "false");
+      }
+    }
+
+    [field, language, country].forEach(function (control) {
+      if (!control) return;
+      control.addEventListener("input", apply);
+      control.addEventListener("change", apply);
+    });
+
+    if (more) {
+      more.addEventListener("click", function () {
+        opened = !opened;
+        apply();
+      });
+    }
+
+    apply();
+  }
+
   function boot() {
     wireMenu();
     wireDrawers();
@@ -407,6 +526,7 @@
     wireCounters();
     wireCopy();
     wireCommandExplorer();
+    wireStationExplorer();
     wirePointer();
   }
 
