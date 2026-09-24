@@ -113,7 +113,7 @@ def live_url() -> str:
     """Where the bot itself is reachable — the console's own host."""
     return (config_audit.get("LIVE_APP_URL")
             or config_audit.get("MEOW_LIVE_APP_URL")
-            or "https://meow-discord-bot.onrender.com").rstrip("/")
+            or "https://1tsrajowo-meow.hf.space").rstrip("/")
 
 
 # ---------------------------------------------------------------------------

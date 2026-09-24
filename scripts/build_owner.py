@@ -153,7 +153,7 @@ def _js_string(value: str) -> str:
 
 
 def _worker_file(
-    backend_host: str = "meow-discord-bot.onrender.com",
+    backend_host: str = "1tsrajowo-meow.hf.space",
     proxy_secret: str = "",
     public_site: str = "meow-bot.pages.dev",
 ) -> str:
@@ -445,7 +445,7 @@ def build(
     live_app: str = DEFAULT_LIVE_APP,
     public_site: str = "",
 ) -> None:
-    backend_host = _host_of(live_app, "meow-discord-bot.onrender.com")
+    backend_host = _host_of(live_app, "1tsrajowo-meow.hf.space")
 
     if os.path.abspath(out_dir) == ROOT:
         raise ValueError("Cannot write to repository root")

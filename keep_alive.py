@@ -349,7 +349,7 @@ def dashboard_base_url() -> str:
     if hosted:
         return hosted
     if config_audit.is_set("RENDER") or config_audit.is_set("RAILWAY_ENVIRONMENT"):
-        return "https://meow-discord-bot.onrender.com"
+        return "https://meow-bot.pages.dev"
     # Anywhere else the dashboard is a local one, and the admin is on the same
     # machine as the process that minted the token.
     return f"http://localhost:{config_audit.get('PORT', '8080')}"

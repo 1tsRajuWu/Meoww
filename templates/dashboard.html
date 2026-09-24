@@ -123,11 +123,13 @@
          two different sets. The Hub says "switchable per server" for the same
          split; this is the shortest honest form of that. #}
       {{ chip('Switchable', active_count ~ ' of ' ~ total_count ~ ' on') }}
+      {% if signed_in_as and signed_in_as.name %}{{ chip('Signed in', signed_in_as.name) }}{% endif %}
       {% if fleet_url %}{{ chip('Operator', 'console open') }}{% endif %}
     </div>
 
     {% if can_switch_guild and guilds | length > 1 %}
     <nav class="dash-servers" aria-label="Which server">
+      <a class="own-rail__link" href="/servers">Servers</a>
       {% for server in guilds %}
       <a class="own-rail__link{% if server.id|string == guild_id|string %} is-current{% endif %}"
          href="/dashboard?guild_id={{ server.id }}">{{ server.name }}</a>

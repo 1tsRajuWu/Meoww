@@ -58,7 +58,7 @@
     flex-wrap: wrap;
     gap: var(--space-3) var(--space-4);
     padding: 12px var(--space-5);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--line);
     background: rgba(12, 12, 13, 0.86);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
@@ -103,7 +103,7 @@
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
-    transition: color var(--base) var(--ease);
+    transition: color var(--fast) var(--ease);
 }
 
 .mk-hud-change {
@@ -139,7 +139,7 @@
     gap: var(--space-2);
     padding: 5px 12px;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     background: var(--surface-card);
     font-size: 12.5px;
     font-weight: 600;
@@ -147,7 +147,7 @@
 }
 
 .mk-feed[data-state="live"] { border-color: rgba(35, 165, 90, 0.45); color: #7ee2a8; }
-.mk-feed[data-state="stale"] { border-color: rgba(240, 178, 50, 0.45); color: var(--gold); }
+.mk-feed[data-state="stale"] { border-color: rgba(240, 178, 50, 0.45); color: var(--warn); }
 .mk-feed[data-state="down"] { border-color: rgba(242, 63, 67, 0.45); color: #ff8a8d; }
 
 /* --------------------------------------------------------------------------
@@ -176,7 +176,7 @@
 }
 
 .mk-panel {
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     background: var(--surface-card);
     overflow: hidden;
@@ -191,8 +191,8 @@
     gap: var(--space-3);
     flex-wrap: wrap;
     padding: 12px var(--space-4);
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-sunken);
 }
 
 .mk-panel-head h2 {
@@ -206,9 +206,15 @@
 .mk-panel-body { padding: var(--space-4); }
 
 .mk-note {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
     font-size: 12.5px;
     line-height: 1.6;
-    color: var(--text-muted);
 }
 
 .mk-note a { color: var(--accent-text); }
@@ -218,7 +224,35 @@
    -------------------------------------------------------------------------- */
 .mk-rail { display: flex; flex-direction: column; gap: var(--space-4); }
 
-.mk-search input { min-height: 40px; font-size: 14px; }
+/* --------------------------------------------------------------------------
+   Controls
+   --------------------------------------------------------------------------
+   Every one of these is a `<button>` or an `<input>`, and neither inherits the
+   page's font — or, for an input, anything else either. Measured on the served
+   page before this block existed: the search field and the ticket's number field
+   were **white boxes with black inset borders** on a near-black page, rendering
+   in Arial at 153px and 68px wide, the period pills and the size shortcuts had
+   no border at all (their `border` read a `--border` this sheet never declared)
+   in that same Arial, and the watch star was the browser's own
+   `background: #efefef; border: 2px outset`. The class names were all ruled;
+   what was missing was the part of a control the browser draws for you.
+
+   The font is set per rule rather than by one `.mk button` rule on purpose:
+   `.mk button` out-specifies `.mk-period`, so a shared `font: inherit` would
+   silently replace each pill's own size with the body's. */
+.mk-search input {
+    width: 100%;
+    min-height: 40px;
+    padding: 0 var(--space-3);
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 14px;
+}
+
+.mk-search input::placeholder { color: var(--text-muted); }
 
 .mk-group-title {
     padding: 0 var(--space-2) var(--space-2);
@@ -246,7 +280,7 @@
 .mk-row:hover { background: var(--surface-hover); color: var(--text-primary); }
 
 .mk-row[aria-current="page"] {
-    background: var(--accent-quiet);
+    background: rgb(var(--accent-rgb) / 12%);
     color: var(--text-primary);
     box-shadow: inset 2px 0 0 var(--accent);
 }
@@ -309,15 +343,19 @@
     height: 26px;
     display: grid;
     place-items: center;
+    background: transparent;
+    border: 0;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
     font-size: 13px;
     transition: color var(--fast) var(--ease), background var(--fast) var(--ease), transform 0.26s var(--ease);
 }
 
 .mk-watch-toggle:hover { background: var(--surface-hover); color: var(--text-primary); }
 
-.mk-watch-toggle[aria-pressed="true"] { color: var(--gold); }
+.mk-watch-toggle[aria-pressed="true"] { color: var(--warn); }
 .mk-watch-toggle[aria-pressed="true"]:hover { transform: scale(1.12); }
 
 .mk-watch-empty {
@@ -355,15 +393,17 @@
     gap: 6px;
     flex-wrap: wrap;
     padding: 11px var(--space-4);
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--line);
 }
 
 .mk-period {
     padding: 6px 12px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     border-radius: var(--radius-pill);
-    background: var(--surface);
+    background: var(--surface-sunken);
     color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
     font-size: 12.5px;
     font-weight: 600;
     transition:
@@ -373,7 +413,7 @@
         transform var(--fast) var(--ease);
 }
 
-.mk-period:hover { transform: translateY(-1px); border-color: var(--border-active); color: var(--text-primary); }
+.mk-period:hover { transform: translateY(-1px); border-color: var(--line-strong); color: var(--text-primary); }
 
 .mk-period[aria-pressed="true"] {
     background: var(--accent);
@@ -385,8 +425,8 @@
     margin-left: auto;
     padding: 3px 10px;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border);
-    background: var(--surface);
+    border: 1px solid var(--line);
+    background: var(--surface-sunken);
     font-size: 11.5px;
     color: var(--text-muted);
     font-family: var(--font-mono);
@@ -407,7 +447,7 @@
     color: var(--text-secondary);
 }
 
-.mk-line + .mk-line { border-top: 1px solid var(--border); }
+.mk-line + .mk-line { border-top: 1px solid var(--line); }
 
 .mk-line b {
     font-weight: 600;
@@ -431,7 +471,7 @@
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--text-muted);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--line);
     font-weight: 700;
 }
 
@@ -440,7 +480,7 @@
 .mk-prints td {
     padding: 6px 8px;
     text-align: right;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--line);
     font-family: var(--font-mono);
     color: var(--text-secondary);
 }
@@ -458,7 +498,17 @@
     margin-bottom: var(--space-3);
 }
 
-.mk-ticket-input input { font-variant-numeric: tabular-nums; }
+.mk-ticket-input input {
+    width: 100%;
+    min-height: var(--tap-min);
+    padding: 0 var(--space-3);
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
 
 .mk-sizes { display: flex; gap: 6px; margin-bottom: var(--space-4); flex-wrap: wrap; }
 
@@ -466,17 +516,19 @@
     flex: 1;
     min-width: 62px;
     padding: 7px 6px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     border-radius: var(--radius-sm);
-    background: var(--surface);
+    background: var(--surface-sunken);
     color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
     font-size: 12px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
 }
 
-.mk-size:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-active); }
+.mk-size:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--line-strong); }
 
 .mk-call {
     display: flex;
@@ -487,9 +539,16 @@
     min-height: var(--tap-min);
     padding: 11px 16px;
     border: 0;
-    border-radius: var(--radius-md);
-    background: linear-gradient(135deg, var(--green), #15803d);
-    color: #fff;
+    border-radius: var(--radius);
+    /* The fill is the accent, and the *state* is the green one: `--accent` is the
+       token this system says draws a fill, and `--good` is a state report, which
+       is exactly what a confirmed copy is. The rule was written the other way
+       round (`--green, #15803d`) and it painted nothing, so the contradiction
+       between the resting fill and the `[data-copied]` one had never been seen —
+       with both resolving, the button would have changed from green to teal at
+       the moment it had something to report. */
+    background: var(--accent);
+    color: var(--text-invert);
     font: inherit;
     font-size: 14.5px;
     font-weight: 700;
@@ -497,9 +556,13 @@
     transition: filter var(--fast) var(--ease), transform var(--fast) var(--ease);
 }
 
-.mk-call:hover { filter: brightness(1.1); transform: translateY(-1px); text-decoration: none; }
+.mk-call:hover {
+    background: color-mix(in srgb, var(--accent) 88%, var(--text-primary));
+    transform: translateY(-1px);
+    text-decoration: none;
+}
 .mk-call:active { transform: none; }
-.mk-call[data-copied="true"] { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+.mk-call[data-copied="true"] { background: var(--good); }
 .mk-call[aria-disabled="true"] { background: var(--surface-hover); color: var(--text-muted); filter: none; transform: none; cursor: not-allowed; }
 
 /* The two meters. Both are `transform: scaleX` from the script — a width
@@ -541,16 +604,16 @@
    nothing", the panel says where the reading lives and what to type. */
 .mk-empty-state {
     padding: var(--space-4);
-    border: 1px dashed var(--border-active);
-    border-radius: var(--radius-md);
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius);
     color: var(--text-secondary);
     font-size: 13.5px;
     line-height: 1.65;
 }
 
 .mk-empty-state code {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     padding: 1px 6px;
     font-size: 12.5px;
@@ -565,7 +628,7 @@
     color: var(--text-secondary);
 }
 
-.mk-cmd-row + .mk-cmd-row { border-top: 1px solid var(--border); }
+.mk-cmd-row + .mk-cmd-row { border-top: 1px solid var(--line); }
 
 .mk-cmd-row code {
     font-family: var(--font-mono);
@@ -574,8 +637,8 @@
     min-width: 128px;
 }
 
-.mk-up { color: var(--green); }
-.mk-down { color: var(--red); }
+.mk-up { color: var(--good); }
+.mk-down { color: var(--danger); }
 .mk-flat { color: var(--text-muted); }
 
 /* A price that has just changed gets one pulse, and no more: a number that

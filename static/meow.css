@@ -83,6 +83,11 @@
   --leading-body: 1.62;
   --tracking-display: -0.035em;
   --tracking-micro: 0.16em;
+  /* The monospace voice the micro-labels and the market's figures speak in. A
+     token because two sheets need the same stack: this one for `.mono`, and
+     `static/market.css` for every price, ticker and byte count on that page —
+     which read `--font-mono` against nothing at all until it was named here. */
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
   /* Space. Generous at the top end on purpose: the cheapest way to make a page
      look like a wall is to save four pixels on every gap. */
@@ -240,7 +245,7 @@ pre,
 samp,
 .mono,
 .micro {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 code {

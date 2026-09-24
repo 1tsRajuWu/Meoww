@@ -779,7 +779,7 @@ class Tickets(commands.Cog):
             if not self.bot.is_module_enabled(interaction.guild_id, "tickets"):
                 await interaction.response.send_message(
                     "⚠️ The **Support Tickets** system is currently **turned off** on this server.\n"
-                    "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                     ephemeral=True
                 )
                 return False

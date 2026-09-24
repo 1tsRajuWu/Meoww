@@ -489,7 +489,7 @@ def build(out_dir: str, live_app: str, hub_url: str = "") -> dict:
     with open(css_path, "w", encoding="utf-8") as handle:
         handle.write(css)
 
-    backend_host = urllib.parse.urlsplit(live_app).netloc or "meow-discord-bot.onrender.com"
+    backend_host = urllib.parse.urlsplit(live_app).netloc or "1tsrajowo-meow.hf.space"
     files = {
         # GitHub Pages runs Jekyll unless told not to, and Jekyll silently drops
         # names beginning with an underscore — which is every file below.

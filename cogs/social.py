@@ -333,7 +333,7 @@ class Social(commands.Cog):
                     if not self.bot.is_module_enabled(interaction.guild_id, mod):
                         await interaction.response.send_message(
                             f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
-                            "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                            "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                             ephemeral=True
                         )
                         return False
@@ -342,7 +342,7 @@ class Social(commands.Cog):
                     if not self.bot.is_module_enabled(interaction.guild_id, mod):
                         await interaction.response.send_message(
                             f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
-                            "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                            "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                             ephemeral=True
                         )
                         return False
@@ -350,7 +350,7 @@ class Social(commands.Cog):
                 if not self.bot.is_module_enabled(interaction.guild_id, "social"):
                     await interaction.response.send_message(
                         "⚠️ The **Social Roleplay** system is currently **turned off** on this server.\n"
-                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                         ephemeral=True
                     )
                     return False

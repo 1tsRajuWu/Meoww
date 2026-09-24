@@ -236,7 +236,7 @@ async def global_module_check(interaction: discord.Interaction) -> bool:
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
                         f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
-                        f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        f"An administrator can re-enable it instantly in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                         ephemeral=True
                     )
                 return False

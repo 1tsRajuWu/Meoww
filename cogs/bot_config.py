@@ -53,7 +53,7 @@ def _pricing_url() -> str:
     of at this project's Render URL.
     """
     base = config_audit.get(
-        "DASHBOARD_BASE_URL", "https://meow-discord-bot.onrender.com"
+        "DASHBOARD_BASE_URL", "https://meow-bot.pages.dev"
     )
     return f"{base.rstrip('/')}/pricing"
 

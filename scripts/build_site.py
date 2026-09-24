@@ -339,7 +339,7 @@ def _sitemap(pages, live_app: str) -> str:
     )
 
 
-def _worker_file(backend_host: str = "meow-discord-bot.onrender.com") -> str:
+def _worker_file(backend_host: str = "1tsrajowo-meow.hf.space") -> str:
     """Cloudflare Pages Advanced Mode Worker (_worker.js).
 
     Reverse-proxies dynamic bot/dashboard routes to Render while keeping
@@ -570,7 +570,7 @@ def build(
     with open(os.path.join(out_dir, "_redirects"), "w", encoding="utf-8") as handle:
         handle.write(_redirects_file())
     # Cloudflare Pages Advanced Mode worker and routing config for reverse-proxying
-    backend_host = urllib.parse.urlsplit(live_app).netloc or "meow-discord-bot.onrender.com"
+    backend_host = urllib.parse.urlsplit(live_app).netloc or "1tsrajowo-meow.hf.space"
     with open(os.path.join(out_dir, "_worker.js"), "w", encoding="utf-8") as handle:
         handle.write(_worker_file(backend_host))
     with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as handle:

@@ -781,7 +781,7 @@ class Games(commands.Cog):
                     if not self.bot.is_module_enabled(interaction.guild_id, mod):
                         await interaction.response.send_message(
                             f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
-                            "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                            "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                             ephemeral=True
                         )
                         return False
@@ -789,7 +789,7 @@ class Games(commands.Cog):
                 if not self.bot.is_module_enabled(interaction.guild_id, "fun"):
                     await interaction.response.send_message(
                         "⚠️ The **Fun** system is currently **turned off** on this server.\n"
-                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                         ephemeral=True
                     )
                     return False
@@ -797,7 +797,7 @@ class Games(commands.Cog):
                 if not self.bot.is_module_enabled(interaction.guild_id, "games"):
                     await interaction.response.send_message(
                         "⚠️ The **Mini-Games Hub** is currently **turned off** on this server.\n"
-                        "An administrator can re-enable it in the [Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                        "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                         ephemeral=True
                     )
                     return False

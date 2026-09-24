@@ -116,7 +116,7 @@ class Structure(commands.Cog):
                 await interaction.response.send_message(
                     "⚠️ The **Server Structure** system is currently **turned off** on "
                     "this server.\nAn administrator can turn it on in the "
-                    "[Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
+                    "[Web Dashboard](https://meow-bot.pages.dev/dashboard).",
                     ephemeral=True,
                 )
                 return False
