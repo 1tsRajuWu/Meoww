@@ -4555,9 +4555,10 @@ def _dashboard_page(page: str, guild_id):
 
     # The other half of that panel, and a different claim: not what this server
     # asked for, but what Discord came back with the last time the bot published
-    # it. Server-rendered rather than fetched, so the page tells the truth about
-    # Discord before any script of its own has run — and so the line does not
-    # change meaning depending on which of the two renderers painted it.
+    # it. Server-rendered, and now the only renderer there is: the page's refresh
+    # script is gone with the rest of the dashboard's JavaScript, because the
+    # host's CSP has no `unsafe-inline` and a page whose readings need a script
+    # is a page with no readings on the day the script fails.
     #
     # ``guild_id`` is handed over as it is, including the ``0`` this route uses
     # for "no server": ``None`` means Discord's **global** lane, and mapping the

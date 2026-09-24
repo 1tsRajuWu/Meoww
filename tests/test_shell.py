@@ -1,4 +1,32 @@
-"""The dashboard's shell, after it stopped being a 1,660-line page.
+"""Retired: this suite pins the standalone shell the dashboard used to be.
+
+`templates/dashboard.html` is a page of this site now — it extends
+`site_base.html`, links the shared `meow.css` and `pages.css`, and carries no
+inline `<style>` block, no command palette and no script of its own. The four
+properties these tests protected were about *that document*: its layout sheet
+(`static/dashboard.css`, archived with the pre-rebuild design).
+
+Each one is still pinned, where each now lives:
+
+* **The layout is a stylesheet, not the template** — the page carries no inline
+  `<style>` or `<script>` at all, held by
+  `tests/test_dashboard_pages.py::test_the_page_ships_no_inline_script_of_its_own`,
+  and the page's own components are in `static/pages.css` beside the console's.
+* **The rail is the page list** — `tests/test_dashboard.py::TheTwoLedgers::
+  test_both_pages_are_in_the_rail_and_in_a_group`, plus the rail arithmetic law
+  in `tests/test_design_laws.py`.
+* **A command palette is markup the page carries** — there is no palette any
+  more: eleven addresses and a grouped rail replaced the scroll-and-search, and
+  `tests/test_dashboard.py` drives the addresses themselves.
+* **The custom cursor may never be the only pointer** — unchanged, and still
+  pinned: `tests/test_design_laws.py::TheCursorLayerIsTheOnlyAuthor` and the
+  layer in `static/meow.css`.
+
+Kept as a file rather than deleted so the reason travels with the repository:
+this is the third suite to pin the archived shell, and the next person to move a
+page should know these existed.
+
+The properties it was written for:
 
 Four properties, each one an edit away from being quietly undone, and each one
 found by driving the rebuilt page in a real browser rather than by reading it:
@@ -28,7 +56,18 @@ import re
 import unittest
 from pathlib import Path
 
+import pytest
+
 import keep_alive
+
+#: See the module docstring: the document this reads is archived with the
+#: pre-rebuild dashboard, and every property it pinned is pinned elsewhere.
+pytest.skip(
+    "pins the archived standalone dashboard shell; the same properties are held "
+    "by tests/test_dashboard_pages.py, tests/test_dashboard.py and "
+    "tests/test_design_laws.py — see this module's docstring",
+    allow_module_level=True,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 

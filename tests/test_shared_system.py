@@ -114,9 +114,20 @@ class OneMotionSystem(unittest.TestCase):
             self.assertNotIn("data-loader", tag, f"curtain: {tag[:120]}")
 
     def test_the_dashboard_uses_the_shared_primitives(self):
+        """The reveal is opt-in per element, and `motion.js` arrives once.
+
+        The script is not named in the dashboard's own source, and it should not
+        be: the dashboard is eleven addresses of one template that **extends**
+        `site_base.html`, and the layout is where every page of this site gets
+        `motion.js` — so a copy in the page would be the second copy on a load.
+        What the page has to do is *use* the primitives, which is the attribute
+        the reveal system is driven by.
+        """
         dashboard = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("{% extends \"site_base.html\" %}", dashboard)
+        layout = (ROOT / "templates" / "site_base.html").read_text(encoding="utf-8")
+        self.assertIn("motion.js", layout, "the layout stopped loading the reveal")
         self.assertIn("data-reveal", dashboard)
-        self.assertIn("motion.js", dashboard)
 
     def test_a_revealed_element_is_never_also_hover_sprung(self):
         """Both springs write `transform`, so on one element they fight: the

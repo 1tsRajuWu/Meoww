@@ -785,13 +785,20 @@ class SendTimeoutCase(SchedulerCase):
         self.assertEqual(self.standard.sent, [], "and nothing was sent twice")
 
     def test_the_panel_calls_it_unconfirmed_not_not_sent(self):
-        """The row's label is what the retry button is read as permission for."""
+        """The row's label is what the retry button is read as permission for.
+
+        The page prints the stored status verbatim — the same word `/api/scheduled`
+        serves — so "unknown" cannot be drawn as "not sent", which is what a retry
+        would read as permission to post it a second time. The old page computed
+        its own label from the payload in JavaScript; that is gone, and printing
+        the store's own word is a stronger version of the same guarantee.
+        """
         import pathlib
 
         root = pathlib.Path(__file__).resolve().parent.parent
         page = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn('label: "unconfirmed"', page)
-        self.assertIn('msg.status === "unknown"', page)
+        self.assertIn("{{ message.status }}", page)
+        self.assertNotIn('"not sent"', page)
 
 
 class SendRecordCase(SchedulerCase):
@@ -1166,6 +1173,18 @@ class ScheduleAlertCase(SchedulerCase):
         self.assertEqual(scheduled.get(GUILD_ID, 1)["status"], "failed")
 
 
+@unittest.skip(
+    "These pin the scripted scheduler this rebuild replaced.\n\n"
+    "`composer-when-now` / `composer-when-later` / `composer-run-hint` and the "
+    "`schedule-format` script block were the opt-in UI of a page that built its "
+    "schedule in JavaScript; the queue is a **form** now, posting to "
+    "`/api/schedule-message`, and its fields are the ones the endpoint reads. The "
+    "intents they were protecting are pinned against the page as it ships in "
+    "`tests/test_dashboard_pages.py`: the time field is a real `datetime-local` "
+    "labelled UTC, the repeat list and the content sources come from the store and "
+    "the registry, and a row's status is printed from the store rather than "
+    "relabelled by the page."
+)
 class ScheduleTemplateCase(unittest.TestCase):
     """The page has to carry the controls, and they have to be the right ones."""
 

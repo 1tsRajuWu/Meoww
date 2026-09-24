@@ -15,10 +15,13 @@ Two halves have to hold, and they fail differently:
   ambiguous — a pass refused part-way through its writes — must be ``None``.
   A number rendered under a heading is read as a measurement, so an approximate
   one is worse than no number at all.
-* **The sentence must have one author.** This line is rendered twice, by the
-  server and by the page's own refresh. The Status panel learned that the hard way:
-  its two renderers each spelled their own sentence, so the same box named its
-  environment variable twice depending on which one painted it.
+* **The sentence must have one author.** The line is composed in
+  ``utils/command_publish.describe`` and handed to the page whole, because the
+  page is no longer its only reader: the JSON endpoint answers the same scope, and
+  a console or a script that spelled its own sentence would disagree with the page
+  about the same reading. (The dashboard's own refresh script, which was the second
+  renderer this module was written against, is gone with the rest of its
+  JavaScript — see :class:`TheScopePanel`.)
 """
 
 import re
@@ -31,9 +34,10 @@ from utils import command_publish
 
 ROOT = Path(__file__).resolve().parents[1]
 _DASHBOARD = ROOT / "templates" / "dashboard.html"
-# The dashboard template sits in the archive until its rebuild lands. Reading it
-# unguarded raised FileNotFoundError at import, which aborts collection for the
-# *whole* suite — every other file's results hidden behind this one absence.
+# Rebuilt and back on disk; the guard stays because the read used to raise
+# FileNotFoundError at import, which aborts collection for the *whole* suite —
+# every other file's results hidden behind one absence. What depends on the
+# template is skipped rather than the run being lost with it.
 TEMPLATE = _DASHBOARD.read_text(encoding="utf-8") if _DASHBOARD.exists() else ""
 
 
@@ -211,51 +215,64 @@ class TheScopePanel(unittest.TestCase):
         self.assertIn('id="scope-publish-text"', markup)
         self.assertIn("command_scope_publish.text", markup)
 
-    def test_the_dot_matches_the_tone(self):
-        self.assertIn(
-            "{'ok': 'up', 'pending': 'paused', 'unverified': 'down'}",
-            TEMPLATE,
-            "the tones are drawn with the dots the Status panel already uses",
-        )
-
-    def test_the_page_waits_for_the_publish_not_for_a_number_of_seconds(self):
-        """The defect being pinned: the panel used to sleep four seconds and then
-        re-read figures the click had already saved."""
-        self.assertIn("publish.at > since", TEMPLATE)
-        self.assertIn("data.publish_at", TEMPLATE)
-
-    def test_both_bulk_and_single_switches_hand_over_the_stamp(self):
-        self.assertEqual(
-            TEMPLATE.count("scheduleScopeRefresh(data.publish_at)"), 2,
-            "a switch that does not hand over a stamp cannot tell when its own "
-            "republish landed",
-        )
+    # Two per-test retirements stand here rather than as tests, and both are the
+    # same fact: **the page has no refresh script any more.**
+    #
+    # The dashboard used to be one document whose panel was repainted in place by
+    # a script — the reason half of this module existed was that two renderers of
+    # one sentence could disagree, and that the panel slept four seconds and then
+    # re-read figures the click had already saved. The rebuilt dashboard is eleven
+    # pages of forms, and the host's CSP carries no `unsafe-inline`, so there is no
+    # script to refresh anything: a switch POSTs, the endpoint answers, and the
+    # page is rendered again by the server with the new reading already in it. That
+    # is strictly better than waiting — there is nothing left to wait *for* — and
+    # it is pinned where the page is pinned, in
+    # ``tests/test_dashboard_pages.py::ThePublishLineIsServerRendered``.
+    #
+    # What went: the tone→dot vocabulary (it was CSS drawn by the script), the
+    # `publish.at > since` wait (the API still answers `publish_at` for anything
+    # that wants to watch a republish land), `scheduleScopeRefresh(data.publish_at)`
+    # on both switches, and the "two clocks are never compared" test whose positive
+    # half was that same comparison. The negative half — never subtracting the
+    # browser's clock from the server's stamp — is now held by the absence of the
+    # script rather than by a line in a template.
 
     def test_the_template_does_not_spell_the_sentence_itself(self):
-        """One author for the words, or the box says one thing on load and another
-        after a refresh."""
+        """One author for the words, and it is ``utils/command_publish``.
+
+        Kept rather than retired with the rest of this class: the sentence is the
+        part that would *spread* if somebody hand-assembled it here, and it is one
+        line to assert on the page as it ships.
+        """
         self.assertEqual(
             TEMPLATE.count('id="scope-publish-text">{{ command_scope_publish.text }}'), 1,
             "the sentence must be handed over whole, not assembled here",
         )
-        for composed in (
-            "publish.pending", "publish.held", "publish.tone }} still",
+        # The figures may be printed — they are labelled readings of their own —
+        # but the *sentence* may not be spelled here. So what is checked absent is
+        # its wording, not the fields it was composed from.
+        for fragment in (
+            "matching what this server's switches say",
+            "has not been read since this process started",
+            "could not be confirmed",
         ):
             self.assertNotIn(
-                composed, TEMPLATE,
-                "the template is composing the sentence from the numbers; the "
-                "wording belongs to utils/command_publish, which the refresh path "
-                "also uses",
+                fragment, TEMPLATE,
+                "the page is spelling the sentence; the wording belongs to "
+                "utils/command_publish, which every reader of this scope shares",
             )
 
 
 @unittest.skipIf(not TEMPLATE, "templates/dashboard.html is archived, not rebuilt yet")
 class ScopeApiAnswer(_DashboardFixture):
-    """Driven against the real app, because the two renderers must agree.
+    """Driven against the real app, because the endpoint and the page must agree.
 
-    The page load and the page's own refresh are different code paths that paint
-    the same box. A test that only rendered the template would pass while the
-    refresh was answering something else entirely.
+    The JSON endpoint and the page render the same scope through different seams —
+    a query string against a resolved session — and a test that only rendered the
+    template would pass while the endpoint answered a different scope, or while
+    the *page* did. The scoping itself is the interesting part, not the wording:
+    ``describe`` answers correctly for both scopes, which is exactly why the bug
+    this class was written for could only be seen through the route.
     """
 
     def setUp(self):
@@ -383,15 +400,22 @@ class ScopeApiAnswer(_DashboardFixture):
 
         self.assertEqual(payload["publish"]["tone"], "never")
 
-    def test_two_process_clocks_are_never_compared(self):
-        """The page must not subtract its own clock from the server's stamp."""
+    def test_the_page_compares_no_two_clocks_of_its_own(self):
+        """Retired down to its negative half, which is the half that survives.
+
+        The positive half was the page waiting for a newer stamp than the click
+        handed it — a real fix for a real defect, and now unnecessary: the page has
+        no script, so a toggle is answered by a fresh render rather than by a
+        comparison. The negative half still matters, because it is the mistake
+        somebody would make while *re-adding* a script, and it costs one line to
+        keep: the browser's clock and the server's are minutes apart on a host in
+        another region, so nothing here may subtract one from the other.
+        """
         self.assertNotIn(
             "Date.now() - publish.at", TEMPLATE,
             "browser clock versus server clock breaks on a host in another region",
         )
         self.assertNotIn("new Date(publish.at", TEMPLATE)
-        # The only clock the page reads the stamp with is the comparison itself.
-        self.assertIn("publish.at > since", TEMPLATE)
 
 
 if __name__ == "__main__":

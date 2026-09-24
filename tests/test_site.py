@@ -24,11 +24,15 @@ PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", 
 
 #: The pages that share a layout. They reach the stylesheet and the reveal script
 #: through `site_base.html`, so what is asserted of them is that they reach it.
-#: (dashboard.html and market.html arrive with their rebuild; until then they are
-#: absent, and the loop below checks only what exists.)
+#: The dashboard is one of them as of its rebuild: eleven addresses of one
+#: template that extends the shared layout, so asking it to link `meow.css` itself
+#: would be asking for a second copy of the shell's own head. `market.html` is
+#: deliberately *not* here — it is a trading surface with a frame of its own and
+#: links the sheet directly, which is what the loop below asserts of it.
 SITE_PAGES = (
     "home.html", "systems.html", "start.html",
     "legal.html", "login.html", "servers.html", "pricing.html",
+    "dashboard.html",
 )
 BASE_TEMPLATE = "site_base.html"
 

@@ -93,10 +93,20 @@
 
     {% if dash_notice %}<p class="notice" role="status">{{ dash_notice }}</p>{% endif %}
     {% if dash_error %}<p class="notice notice--bad" role="alert">{{ dash_error }}</p>{% endif %}
+    {# The sentence promises the picker, so it is only said where the picker is
+       drawn *below it*. A sign-in that reaches no server and is offered none has
+       to be told where a server-scoped sign-in comes from instead. #}
     {% if not guild_id %}
     <p class="notice notice--bad" role="alert">
+      {% if can_switch_guild and guilds | length > 1 %}
       This sign-in does not reach a server right now, so there is nothing to read —
       pick one below and every page will fill in.
+      {% else %}
+      This sign-in does not reach a server right now, so there is nothing to read.
+      Open the dashboard from the server itself — the ⚡ Open Dashboard button on
+      <span class="mono">/help</span> in Discord — and every page fills in for that
+      server.
+      {% endif %}
     </p>
     {% endif %}
 
@@ -144,7 +154,7 @@
 <section class="band" id="{{ page_anchor }}" aria-labelledby="{{ dash_page }}-title">
   <div class="wrap">
     <h2 id="{{ dash_page }}-title">Right now</h2>
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>In voice right now</h3>
         {% if overview_live.read %}
@@ -188,7 +198,7 @@
       </div>
     </div>
 
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>Where to go next</h3>
         <ul class="list">
@@ -267,7 +277,7 @@
 
     {% for category, group in modules | groupby('category') %}
     <h3>{{ category }}</h3>
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       {% for module in group %}
       <div class="own-card dash-sys">
         <div class="dash-sys__head">
@@ -380,7 +390,7 @@
       <p class="muted">No members matched that search.</p>
       {% endif %}
 
-      <div class="own-grid">
+      <div class="own-grid" data-reveal>
         <div class="own-card">
           <h3>Banned here</h3>
           {% if management.bans %}
@@ -464,7 +474,7 @@
     </div>
     {% endif %}
 
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>Lock the server down</h3>
         <p class="hint">Every channel that can be locked gets its send permission taken
@@ -567,7 +577,7 @@
     <p class="muted">Nobody has earned a coin here yet.</p>
     {% endif %}
 
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>The fee this server charges</h3>
         <dl class="own-facts">
@@ -582,22 +592,27 @@
         </p>
       </div>
 
-      <div class="own-card">
-        <h3>Manage this feature</h3>
-        <p class="hint">Coins come from the systems that pay them out, so these are the
-          two switches behind this ledger.</p>
-        {% for module in modules if module.id in ('economy', 'games') %}
-        <div class="dash-sys__head">
-          <h4>{{ module.icon }} {{ module.name }}</h4>
-          {{ module_switch(module) }}
-        </div>
-        {% endfor %}
-      </div>
     </div>
     {% else %}
     <p class="notice">This server's coin ledger could not be read just now, so nothing
       here would be a reading — reload in a moment.</p>
     {% endif %}
+
+    {# The switch is a *control*, not a reading, so it is offered whether or not
+       the ledger could be read: a page whose only way to change something
+       disappears while a table is busy is a page with no way out of the state it
+       is reporting. #}
+    <div class="own-card">
+      <h3>Manage this feature</h3>
+      <p class="hint">Coins come from the systems that pay them out, so these are the
+        two switches behind this ledger.</p>
+      {% for module in modules if module.id in ('economy', 'games') %}
+      <div class="dash-sys__head">
+        <h4>{{ module.icon }} {{ module.name }}</h4>
+        {{ module_switch(module) }}
+      </div>
+      {% endfor %}
+    </div>
   </div>
 </section>
 {% endif %}
@@ -608,7 +623,7 @@
     <h2 id="{{ dash_page }}-title">What being here earns</h2>
 
     {% if level_display %}
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>The rates in force</h3>
         <dl class="own-facts">
@@ -637,12 +652,6 @@
           <div class="own-fact"><dt>messages counted</dt><dd class="mono">{{ '{:,}'.format(level_view.messages) if level_view else 0 }}</dd></div>
           <div class="own-fact"><dt>voice minutes</dt><dd class="mono">{{ '{:,}'.format(level_view.voice_minutes) if level_view else 0 }}</dd></div>
         </dl>
-        {% for module in modules if module.id == 'leveling' %}
-        <div class="dash-sys__head">
-          <h4>{{ module.icon }} {{ module.name }}</h4>
-          {{ module_switch(module) }}
-        </div>
-        {% endfor %}
       </div>
     </div>
 
@@ -704,6 +713,19 @@
     <p class="notice">This server's level ledger could not be read just now, so nothing
       here would be a reading — reload in a moment.</p>
     {% endif %}
+
+    {# The switch, outside the reading's branch for the reason the economy page's
+       is: changing something must not depend on a table being readable. #}
+    {% for module in modules if module.id == 'leveling' %}
+    <div class="own-card">
+      <h3>Manage this feature</h3>
+      <p class="hint">XP, levels and the roles they grant are this one system's.</p>
+      <div class="dash-sys__head">
+        <h4>{{ module.icon }} {{ module.name }}</h4>
+        {{ module_switch(module) }}
+      </div>
+    </div>
+    {% endfor %}
   </div>
 </section>
 {% endif %}
@@ -904,7 +926,7 @@
       application profile — so renaming it here changes nothing in any other server.
     </p>
 
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>What this server sees now</h3>
         <dl class="own-facts">
@@ -1011,9 +1033,28 @@
     </div>
     {% endif %}
 
-    <div class="own-card">
-      <h3>What Discord answered</h3>
-      {{ facts('', command_scope_publish) }}
+    {# The publish line, rendered by the server. Its sentence is composed once in
+       `utils/command_publish.describe` rather than assembled here: the page and
+       every API caller print the same words, so the box cannot say one thing to
+       somebody who loaded the page and another to somebody who did not. #}
+    <div class="own-card" id="scope-publish" data-tone="{{ command_scope_publish.tone }}">
+      <h3>What Discord holds</h3>
+      <p id="scope-publish-text">{{ command_scope_publish.text }}</p>
+      <div class="own-state">
+        {{ chip('Discord holds',
+                command_scope_publish.held if command_scope_publish.held is not none
+                else 'not read yet',
+                'ok' if command_scope_publish.tone == 'ok' else 'warn') }}
+        {{ chip('Still to write', command_scope_publish.pending) }}
+        {% if command_scope_publish.matches is sameas false %}
+        {{ chip('Disagrees with the switches', '', 'warn') }}
+        {% endif %}
+      </div>
+      <p class="hint">
+        A count that disagrees with the switches after a publish has finished is the
+        case this reading exists for — it is Discord's answer, not this server's
+        opinion, and it is re-read on every load rather than remembered by the page.
+      </p>
     </div>
 
     <div class="own-card">
@@ -1050,7 +1091,7 @@
       {{ chip('Uptime watch', system_status.status or 'unknown') }}
       {{ chip('Site check', site_guard_status.status or 'unknown') }}
     </div>
-    <div class="own-grid">
+    <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>The uptime watch</h3>
         {{ facts('', system_status) }}

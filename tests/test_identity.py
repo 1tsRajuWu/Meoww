@@ -381,7 +381,16 @@ class ThePanelIsRendered(unittest.TestCase):
             self.assertIn(element, self.page)
 
     def test_the_form_posts_multipart_to_the_identity_route(self):
-        self.assertIn('fetch("/api/identity"', self.page)
+        """A real form, to the endpoint that owns the write — not a fetch.
+
+        The panel used to POST through JavaScript; the page carries a
+        `multipart/form-data` form now, which is why the controls above are named
+        for the endpoint's own fields and why this reads the form rather than a
+        call site.
+        """
+        self.assertIn('action="/api/identity"', self.page)
+        self.assertIn('enctype="multipart/form-data"', self.page)
+        self.assertIn('method="post"', self.page)
 
     def test_the_command_panel_explains_why_the_list_is_per_server(self):
         self.assertIn("Commands in this server", self.commands_page)

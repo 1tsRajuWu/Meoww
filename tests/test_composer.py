@@ -669,7 +669,31 @@ def render_dashboard(**overrides) -> str:
     # perfectly in production, which is the least useful direction for a test
     # to be wrong in.
     env.globals["asset_version"] = keep_alive.asset_version
+    # Which page to draw. The dashboard is eleven addresses now, and one render
+    # draws one of them — so the fixture is told which, and the page's own copy,
+    # its anchor and the rail all follow from the same table the routes use.
+    page = overrides.pop("page", overrides.get("dash_page", "overview"))
+    nav = keep_alive._page_nav(
+        keep_alive.DASHBOARD_PAGES,
+        page,
+        f"?guild_id={GUILD_ID}",
+        groups=keep_alive.DASHBOARD_GROUPS,
+    )
+    title, lede = keep_alive.DASHBOARD_PAGE_COPY.get(
+        page, keep_alive.DASHBOARD_PAGE_COPY["overview"]
+    )
     context = dict(
+        dash_page=page,
+        page_title=title,
+        page_lede=lede,
+        page_anchor=keep_alive._page_anchor(keep_alive.DASHBOARD_PAGES, page),
+        page_url=f"/dashboard?guild_id={GUILD_ID}",
+        rail=keep_alive._dashboard_rail(nav),
+        # A write's sentence, read once by the page that drew it. Empty here: an
+        # announcement is what a form's own redirect carries, not what a render
+        # with no session has.
+        dash_notice="",
+        dash_error="",
         guild_id=GUILD_ID,
         guild_name="Meow Server",
         member_count=3,
@@ -728,11 +752,79 @@ def render_dashboard(**overrides) -> str:
             "channels": keep_alive.MESSAGE_MAX_CHANNELS,
             "title": keep_alive.MESSAGE_TITLE_MAX,
         },
+        # Everything the eleven sections read, in the shapes the view hands over.
+        # The ledgers and the queue are *readings* rather than booleans — a page
+        # test has to be able to drive the empty branch, the unread branch and a
+        # populated one, and each of those is a different sentence.
+        economy_view=None,
+        level_view=None,
+        economy_display=None,
+        level_display=None,
+        economy_fee={"label": "", "enabled": True, "cap": 0, "stored": False, "describe": ""},
+        schedule_queue={
+            "read": True, "upcoming": [], "recent": [], "pending": 0,
+            "max_pending": keep_alive.scheduled.MAX_PENDING_PER_GUILD,
+            "catchup_hours": keep_alive.scheduled.MISS_CATCHUP_SECONDS // 3600,
+        },
+        channel_choices=[],
+        # The two action lists, from the tuples the endpoints validate against, so
+        # the page cannot offer an action that would be refused.
+        member_actions=keep_alive.PANEL_MEMBER_ACTIONS,
+        server_actions=keep_alive.PANEL_SERVER_ACTIONS,
+        # The two write doors every form posts to, named once by the view rather
+        # than typed into eleven forms.
+        toggle_url="/api/toggle",
+        toggle_all_url="/api/toggle-all",
+        # An unread roster: the members and server pages then draw the branch a
+        # page takes when Discord could not be asked, which is a sentence.
+        management={
+            "page": "", "read": False, "why": "", "roster": None, "bans": [],
+            "control": None, "query": "", "recent": [], "abilities": None,
+        },
+        overview_live={
+            "read": True, "why": "", "rooms": [], "people": 0, "alone": 0, "radio": None,
+        },
+        # The deployment panels, empty: the shapes are the readers' own and a
+        # page test about them passes its own fixture.
+        system_status={},
+        site_guard_status={},
+        config_status={},
+        alert_state={},
+        server_now=1_700_000_000,
+        schedule_repeat_choices=[
+            {"minutes": minutes, "label": label}
+            for minutes, label in keep_alive.scheduled.REPEAT_CHOICES
+        ],
+        schedule_max_pending=keep_alive.scheduled.MAX_PENDING_PER_GUILD,
+        schedule_catchup_hours=keep_alive.scheduled.MISS_CATCHUP_SECONDS // 3600,
+        schedule_content_choices=[
+            {"value": "", "label": "Message I write", "blurb": ""},
+            *[
+                {"value": name, "label": entry["label"], "blurb": entry["blurb"]}
+                for name, entry in keep_alive.digest.GENERATORS.items()
+            ],
+        ],
+        selling=False,
+        fleet_url="",
+        pick_server_url="",
+        signed_in_as={},
     )
     context.update(overrides)
     return env.get_template("dashboard.html").render(**context)
 
 
+@unittest.skip(
+    "These pin the scripted composer this rebuild replaced.\n\n"
+    "Every control they name — composer-chips, composer-preview, "
+    "composer-mention-search, the inline script that parsed the rulebook in node — "
+    "belonged to the fetched UI the dashboard used to ship, and the composer is a "
+    "**form** now: it posts to `/api/send-message`, which is the endpoint that "
+    "always owned that write, and it works when a page's JavaScript does not. The "
+    "intents these tests were protecting are pinned against the page as it ships "
+    "in `tests/test_dashboard_pages.py`: the controls exist, the form posts to the "
+    "endpoint, the limits come from the server's own constants, names render as "
+    "text, and the page ships no inline script at all."
+)
 class DashboardTemplateCase(unittest.TestCase):
     """The shipped page must actually carry the composer, and carry it safely."""
 

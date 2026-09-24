@@ -670,3 +670,142 @@
 .cmdx__group[open] .console__list { border-top: 1px solid var(--line); }
 
 .cmdx__empty { margin-top: var(--space-4); }
+
+/* --------------------------------------------------------------------------
+   The dashboard's own components. The vocabulary above (`.own-card`, `.own-rail`,
+   `.own-facts`, `.own-table`) is the console's, and it is shared here on purpose:
+   two control surfaces drawn from one set of parts is how they stay one place.
+   What follows is only what the dashboard has and the console does not — the
+   switch, a row of server links, a form field and the two flags.
+   -------------------------------------------------------------------------- */
+
+/* A system's switch. It is a button in a one-field form, so it works with the
+   page's script absent; `[role="switch"]` is what tells a screen reader that
+   pressing it changes a state rather than navigating. */
+.dash-switch { margin: 0; }
+
+.dash-switch__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+.dash-switch__btn::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--text-muted);
+}
+
+.dash-switch__btn.is-on {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.dash-switch__btn.is-on::before { background: var(--accent); }
+
+.dash-switch__state { font-weight: 550; }
+
+/* One system's card, and the row its name and its switch share. */
+.dash-sys { display: grid; gap: var(--space-2); }
+
+.dash-sys__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.dash-sys__head h4 { margin: 0; font-size: var(--text-body); font-weight: 550; }
+
+/* The server switcher, when a session reaches more than one. */
+.dash-servers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* A form field, with its label above it — a label beside a `select multiple`
+   reads as belonging to the option beside it. */
+.dash-field { display: grid; gap: var(--space-2); margin-top: var(--space-4); }
+
+.dash-field label { color: var(--text-muted); font-size: var(--text-small); }
+
+.dash-field--check {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.dash-field--check label { color: var(--text-primary); font-size: var(--text-body); }
+
+.dash-field input[type="text"],
+.dash-field input[type="search"],
+.dash-field input[type="file"],
+.dash-field select,
+.dash-field textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.dash-field select[multiple] { padding: var(--space-2); }
+
+/* The search and the two per-row controls are rows of their own, not cards. */
+.dash-search { align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
+
+.dash-row-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dash-row-form select,
+.dash-row-form input[type="text"] {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+/* A row that XP has repaired, and the picture a server set. */
+.dash-flag {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dash-pic {
+  max-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* A form posted by a phone: the fields go full width rather than squeezing the
+   rows, and the per-row controls stop being a row. */
+@media (max-width: 760px) {
+  .dash-sys__head { flex-wrap: wrap; }
+  .dash-row-form { flex-direction: column; align-items: stretch; }
+  .dash-row-form > * { width: 100%; }
+}
