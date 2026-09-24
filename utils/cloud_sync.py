@@ -58,6 +58,11 @@ except (TypeError, ValueError):
     BACKUP_KEEP = 5
 #: Seconds between snapshot rotations.
 SNAPSHOT_INTERVAL: int = 3600  # 1 hour
+#: Seconds between periodic backup checks (default 5m to protect bandwidth quotas).
+try:
+    SYNC_INTERVAL: int = max(10, int(config_audit.get("CLOUD_SYNC_INTERVAL", "300")))
+except (TypeError, ValueError):
+    SYNC_INTERVAL = 300
 
 def db_path() -> str:
     """Return the current database path. Always reads live from ``utils.db.DB_PATH``
@@ -886,7 +891,7 @@ async def cloud_sync_loop():
     last_restore_try = 0.0
     while True:
         try:
-            await asyncio.sleep(25)
+            await asyncio.sleep(SYNC_INTERVAL)
             # An instance that booted during a Supabase blip is blocked from
             # uploading. While it still holds nothing, picking the backup up
             # late costs nobody anything, so keep trying — otherwise the only
