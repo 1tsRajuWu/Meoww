@@ -493,6 +493,11 @@ SETTINGS: tuple[Setting, ...] = (
         "an Enterprise licence is matched by the product's name instead, which a "
         "rename changes.",
     ),
+    Setting(
+        "CLOUD_SYNC_INTERVAL", TUNING,
+        "the frequency in seconds between cloud database backups",
+        "the default interval of 300 seconds is used.",
+    ),
 
     # --- supplied by the platform ------------------------------------------ #
     # Listed because the parity test accounts for every name the code reads, and
@@ -502,6 +507,8 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("RENDER", HOST, "that this is running on Render", "detection falls back to the other markers."),
     Setting("RENDER_EXTERNAL_URL", HOST, "the public URL Render assigned", "DASHBOARD_BASE_URL is used instead."),
     Setting("RAILWAY_ENVIRONMENT", HOST, "that this is running on Railway", "detection falls back to the other markers."),
+    Setting("SPACE_ID", HOST, "that this is running on Hugging Face Spaces", "detection falls back to the other markers."),
+    Setting("GRADIO_SSR_MODE", HOST, "whether server-side rendering is enabled for Gradio", "SSR is disabled by default for direct socket binding."),
 
     # --- the tooling that builds the public site --------------------------- #
     # A different machine, and never the running bot. Audited because a build

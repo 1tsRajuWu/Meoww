@@ -351,7 +351,7 @@ jobs:
         env:
           DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || '1548380269776605324' }}
           SITE_URL: ${{ vars.SITE_URL || 'https://meow-bot.pages.dev' }}
-          LIVE_APP: ${{ vars.LIVE_APP || 'https://meow-discord-bot.onrender.com' }}
+          LIVE_APP: ${{ vars.LIVE_APP || 'https://1tsrajowo-meow.hf.space' }}
         run: python scripts/build_owner.py --out _owner
 
       - name: Check the build produced a worker
