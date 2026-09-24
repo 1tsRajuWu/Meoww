@@ -989,6 +989,22 @@ main { flex: 1 0 auto; }
     align-items: center;
     min-height: var(--tap-min);
   }
+
+  /* The rest of the measured short targets, all 21–26px on a phone: the front
+     door's “+N more →” links (the only route from a system row to its full
+     command group), the preview's “see all”, and the two invite links. The
+     first two are standalone, so their box grows; the invite links sit inside
+     a sentence, where growing the box would break the line — their *hit area*
+     grows instead (padding on an inline element paints and clicks beyond the
+     line box without moving any text), wide enough to reach the floor and no
+     wider, so two links can never end up sharing a thumb's target. */
+  a.hint,
+  a.mono {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap-min);
+  }
+  .step__body a { padding-block: 12px; }
 }
 .foot__list a:hover { color: var(--text-primary); }
 
@@ -1166,4 +1182,35 @@ main { flex: 1 0 auto; }
   .meow-layer { display: none; }
 
   body { background: #fff; color: #000; }
+}
+
+/* --------------------------------------------------------------------------
+   Cursors. The pointer has to *look* like the page has controls, and the plain
+   system arrow never did here: a paw for the page, a paw with a finger for the
+   things that can be pressed. Relative to this stylesheet so the static
+   build's rewrite finds them; `pointer: fine` so a touchscreen never fetches a
+   cursor it will not use; and every url carries its fallback keyword, because
+   a cursor url a browser rejects with no fallback is a cursor that vanishes
+   silently — the exact failure `test_the_cat_cursor...` exists to catch.
+   -------------------------------------------------------------------------- */
+@media (pointer: fine) {
+  html {
+    cursor: url('cursor-default.svg') 4 3, auto;
+  }
+
+  a, button, label, select, summary,
+  [role="button"], [role="tab"], [role="switch"], [role="checkbox"],
+  input[type="button"], input[type="submit"], input[type="checkbox"],
+  input[type="radio"], [data-copy], [data-drawer], [onclick] {
+    cursor: url('cursor-pointer.svg') 11 3, pointer;
+  }
+
+  input[type="text"], input[type="search"], input[type="password"],
+  input[type="email"], textarea, [contenteditable="true"] {
+    cursor: text;
+  }
+
+  :disabled, [disabled], [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }

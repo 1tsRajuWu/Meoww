@@ -1,11 +1,12 @@
-/* landing.js — the front door's two filters.
+/* landing.js — the front door's one filter.
  *
- * Everything it filters is already on the page: the systems list and the command
- * list are rendered by the server from the bot's own registry, and this file
- * only hides rows and rewrites the count. That is deliberate. A script that
- * *built* the list would be a second renderer, and the failure this project has
- * shipped twice is exactly two renderers disagreeing about how many commands
- * exist.
+ * Everything it filters is already on the page: the systems list is rendered
+ * by the server from the bot's own registry, and this file only hides rows and
+ * rewrites the count. That is deliberate. A script that *built* the list would
+ * be a second renderer, and the failure this project has shipped twice is
+ * exactly two renderers disagreeing about how many commands exist. (The full
+ * command list lives on /systems now, grouped by system — its filter is in
+ * motion.js, which every page loads.)
  *
  * Two rules the counters follow:
  *
@@ -94,74 +95,6 @@
   }
 
   /* -------------------------------------------------------------------------
-     The command list
-
-     Two states and one control between them: the first `data-command-preview`
-     rows, or all of them. A search is not a third state — it says *find this*,
-     so it searches the whole list and shows every match, and the cap comes back
-     when the box is cleared.
-
-     The cap is applied here rather than in the markup, so a visitor whose script
-     did not run is looking at a list that is entirely visible under a line that
-     says so. The button that opens the rest is `hidden` in the markup and shown
-     by this file, so the no-script reading has no control that would do nothing.
-     ---------------------------------------------------------------------- */
-  function commands() {
-    var list = document.querySelector("[data-command-list]");
-    if (!list) return;
-
-    var field = document.querySelector("[data-command-search]");
-    var status = document.querySelector("[data-command-status]");
-    var more = document.querySelector("[data-command-more]");
-    var rows = toList(list.querySelectorAll("[data-command]"));
-    var preview = parseInt(list.getAttribute("data-command-preview") || "0", 10) || 0;
-    var thorough = preview <= 0;
-
-    function apply() {
-      var term = field ? field.value.trim().toLowerCase() : "";
-      var found = rows.filter(function (row) {
-        var haystack = (row.getAttribute("data-search") || "").toLowerCase();
-        return !term || haystack.indexOf(term) !== -1;
-      });
-      var capped = !term && !thorough && preview > 0 && found.length > preview;
-      var visible = capped ? found.slice(0, preview) : found;
-
-      rows.forEach(function (row) { row.hidden = true; });
-      visible.forEach(function (row) { row.hidden = false; });
-
-      if (status) {
-        if (term) {
-          status.textContent =
-            found.length + " of " + plural(rows.length, "entry", "entries") +
-            " match “" + term + "”.";
-        } else if (capped) {
-          status.textContent =
-            "Showing the first " + preview + " of " +
-            plural(rows.length, "entry", "entries") + ". Search for one by name.";
-        } else {
-          status.textContent = "Showing all " + plural(rows.length, "entry", "entries") + ".";
-        }
-      }
-
-      if (more) {
-        more.hidden = Boolean(term) || (preview > 0 && rows.length <= preview);
-        more.textContent = capped ? "Show all " + rows.length : "Show fewer";
-        more.setAttribute("aria-expanded", capped ? "false" : "true");
-      }
-    }
-
-    if (more) {
-      more.addEventListener("click", function () {
-        thorough = !thorough;
-        apply();
-      });
-    }
-
-    if (field) field.addEventListener("input", apply);
-    apply();
-  }
-
-  /* -------------------------------------------------------------------------
      The showcase: a tablist over the dashboard's pages, and the preview
      controls inside each panel.
 
@@ -226,7 +159,6 @@
 
   function boot() {
     explorer();
-    commands();
     showcase();
   }
 

@@ -2422,6 +2422,34 @@ def _landing_commands() -> list[dict]:
     return rows
 
 
+def _command_groups() -> list[dict]:
+    """Every system with its full command list, as one collapsed group each.
+
+    The reference page's accordions, built from the same registry readers as
+    :func:`_landing_commands` so the two surfaces cannot disagree about what a
+    system contains. A group carries its ``feature.id`` because the front door
+    deep-links to it (``/systems#cmd-economy``) from a drawer's “+N more”.
+    """
+    groups: list[dict] = []
+    for feature in features.FEATURES:
+        rows = []
+        for name, note in features.feature_entries(feature):
+            rows.append({
+                "name": name,
+                "search": " ".join(
+                    part for part in (name, note, feature.name, feature.category, feature.id)
+                    if part
+                ).lower(),
+            })
+        groups.append({
+            "id": feature.id,
+            "icon": feature.icon,
+            "name": feature.name,
+            "rows": rows,
+        })
+    return groups
+
+
 def _landing_tour() -> list[dict]:
     """The dashboard's own pages, described for the front door's tour."""
     rows = []
@@ -2544,6 +2572,7 @@ def _systems_page():
             for p in periods
         ],
         system_bars=_system_bars(),
+        command_groups=_command_groups(),
         figures_json=_inline_json(live_figures),
         figures_url=_figures_url(),
         # The same registry the list above is built from, as data — so the

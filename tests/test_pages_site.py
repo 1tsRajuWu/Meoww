@@ -337,10 +337,8 @@ class BuiltSiteCase(unittest.TestCase):
         """
         css_path = Path(self.out) / "static" / "meow.css"
         css = css_path.read_text(encoding="utf-8")
-        # The rebuilt sheet draws no custom cursor, so the presence assertion
-        # went with it; the silent-failure half stays — a cursor url that
-        # 404s *is* the system arrow, with no error anybody can see.
         cursor_urls = re.findall(r"cursor:\s*url\((['\"]?)([^'\")]+)\1\)", css)
+        self.assertTrue(cursor_urls, "the stylesheet no longer styles a cursor")
         for _quote, url in cursor_urls:
             resolved = (css_path.parent / url.split("?")[0]).resolve()
             self.assertTrue(resolved.is_file(), f"{url} does not exist next to the stylesheet")

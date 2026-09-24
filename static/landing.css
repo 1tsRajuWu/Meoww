@@ -250,91 +250,10 @@
   .system__meta { grid-column: 1 / -1; grid-row: 2; }
 }
 
-/* --------------------------------------------------------------------------
-   The command list
-   -------------------------------------------------------------------------- */
-
-.console__search { max-width: 24rem; margin-bottom: var(--space-4); }
-
-/* What is listed, and the one control that changes it. Both on one line, because
-   the count is about the button's own effect and a reader checking "twelve of
-   what" should not have to look somewhere else for the answer. */
-.console__foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3) var(--space-4);
-  margin-top: var(--space-4);
-}
-
-.console__foot .btn { min-height: var(--tap-min); }
-
-.console__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--line);
-}
-
-/* Name, its own sentence where the registry has one, and the copy button. The
-   list is ninety-five rows long, so every column it does not need is one it
-   does not get: a row whose command has no description is a name and a button,
-   which is what a reader is actually scanning for. */
-.command {
-  display: grid;
-  grid-template-columns: minmax(11rem, 16rem) minmax(0, 1fr) auto;
-  gap: var(--space-4);
-  align-items: center;
-  padding-block: var(--space-3);
-  border-bottom: 1px solid var(--line);
-}
-
-.command[hidden] { display: none; }
-
-.command__name {
-  font-size: 0.9375rem;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  color: var(--accent-text);
-}
-
-.command__blurb { color: var(--text-secondary); }
-
-.command__copy {
-  min-height: 30px;
-  padding: 2px var(--space-3);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--text-small);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
-}
-
-/* On a pointer that can be a finger the button is always visible and takes the
-   44px floor: 30px is a hover affordance, not something to aim at. */
+/* The command list moved to /systems with the page it belonged to; only the
+   touch floor for the explorer's own toggle lived in that block, and it stays. */
 @media (pointer: coarse) {
-  .command__copy { min-height: var(--tap-min); opacity: 1; }
   .system__toggle { min-height: var(--tap-min); }
-}
-
-.command:hover .command__copy,
-.command__copy:focus-visible { opacity: 1; }
-
-.command__copy:hover { color: var(--text-primary); border-color: var(--line-strong); }
-
-@media (max-width: 860px) {
-  .command {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-1) var(--space-4);
-  }
-  .command__blurb { grid-column: 1 / -1; color: var(--text-muted); }
-  .command__copy { opacity: 1; }
 }
 
 /* --------------------------------------------------------------------------

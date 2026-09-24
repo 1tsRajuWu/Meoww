@@ -134,7 +134,7 @@
                   <code>{{ command.split(' — ')[0] }}</code>
                   {% endfor %}
                   {% if system.commands | length > 8 %}
-                  <span class="hint">+{{ system.commands | length - 8 }} more</span>
+                  <a class="hint" href="/systems#cmd-{{ system.id }}">+{{ system.commands | length - 8 }} more →</a>
                   {% endif %}
                 </div>
                 {% endif %}
@@ -155,64 +155,6 @@
       <p class="hint explorer__empty" hidden data-explorer-empty>
         Nothing matches that. Clear the box to see them all again.
       </p>
-    </div>
-  </div>
-</section>
-
-{# --------------------------------------------------------------------------
-   03 — What you can type.
-
-   A search box, the first handful of rows, and a button for the rest. All
-   hundred and ten are in the document — the search filters the whole set, and
-   nothing here is fetched — but a front door that opens with six thousand
-   pixels of command names is a wall, not a front door. The control that opens
-   it is one button, and it says how many it is opening.
-
-   The number in the heading is the number of rows: what a visitor can type. The
-   picker's own count is smaller (`/market buy` is one command to Discord) and
-   the line under the heading says so, because two numbers about one word with
-   no explanation is the thing a reader notices and cannot resolve.
-   -------------------------------------------------------------------------- #}
-<section class="band" id="commands">
-  <div class="wrap">
-    <div class="band__head">
-      <div>
-        <p class="micro">Commands</p>
-        <h2>{{ entry_count }} commands</h2>
-      </div>
-      <p class="small muted">
-        Counted one row each, so `/market buy` is its own. Discord's picker holds
-        {{ command_count }}, because it counts `/market` once.
-      </p>
-    </div>
-
-    <label class="field console__search">
-      <span class="visually-hidden">Find a command</span>
-      <input class="input" type="search" id="command-search" data-command-search
-             placeholder="Search: market, level, ticket…" autocomplete="off">
-    </label>
-
-    <ul class="console__list" data-command-list data-command-preview="12">
-      {% for command in commands %}
-      <li class="command" data-command data-search="{{ command.search }}">
-        <code class="command__name">{{ command.name }}</code>
-        {% if command.blurb %}<span class="command__blurb">{{ command.blurb }}</span>{% endif %}
-        <button class="command__copy" type="button" data-copy="{{ command.name }}"
-                data-copy-label="Copied">Copy</button>
-      </li>
-      {% endfor %}
-    </ul>
-
-    {# The line describes what is on screen, and without a script that is every
-       row — so it says so, and the button that opens the rest stays hidden
-       until the file that caps the list is the one that shows it. #}
-    <div class="console__foot">
-      <p class="hint" data-command-status role="status">
-        Showing all {{ entry_count }} entries.
-      </p>
-      <button class="btn btn--ghost" type="button" data-command-more aria-expanded="true" hidden>
-        Show all {{ entry_count }}
-      </button>
     </div>
   </div>
 </section>

@@ -304,3 +304,129 @@
   flex: 0 1 auto;
   min-width: 0;
 }
+
+/* --------------------------------------------------------------------------
+   The command reference (/systems): a search, then one collapsed group per
+   system. These rules moved here with the component — the front door no longer
+   carries the list, and a stylesheet the page never loads is a style it never
+   gets.
+   -------------------------------------------------------------------------- */
+
+.console__search { max-width: 24rem; margin-bottom: 0; }
+
+.console__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Name and the copy button — two columns, because the row's description now
+   lives in the search index (and on /systems' own prose) rather than beside
+   every name: a wall of names plus a sentence each is two walls. */
+.command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.command[hidden] { display: none; }
+
+.command__name {
+  font-size: 0.9375rem;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--accent-text);
+}
+
+.command__copy {
+  min-height: 30px;
+  padding: 2px var(--space-3);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-small);
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.command:hover .command__copy,
+.command__copy:focus-visible { opacity: 1; }
+
+.command__copy:hover { color: var(--text-primary); border-color: var(--line-strong); }
+
+/* On a pointer that can be a finger the button is always visible and takes the
+   44px floor: 30px is a hover affordance, not something to aim at. */
+@media (pointer: coarse) {
+  .command__copy { min-height: var(--tap-min); opacity: 1; }
+}
+
+@media (max-width: 860px) {
+  .command__copy { opacity: 1; }
+}
+
+/* The groups: a summary line (name, count, marker) over rows that only exist
+   when the group is open. `scroll-margin-top` keeps the front door's
+   “+N more →” deep link from parking the summary under the sticky header. */
+.cmdx__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+/* `display: flex` would otherwise win over the `hidden` attribute, and the
+   no-script contract is that these tools are not shown at all. */
+.cmdx__bar[hidden],
+.cmdx__status[hidden],
+.cmdx__empty[hidden],
+.cmdx__group[hidden] { display: none; }
+
+.cmdx__status { margin: 0 0 var(--space-4); }
+
+.cmdx__group {
+  border-bottom: 1px solid var(--line);
+  scroll-margin-top: 5rem;
+}
+
+.cmdx__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--tap-min);
+  padding: var(--space-3) var(--space-2);
+  list-style: none;
+}
+
+.cmdx__summary::-webkit-details-marker { display: none; }
+
+.cmdx__name { flex: 1; font-weight: 550; }
+
+.cmdx__count { color: var(--text-muted); font-size: var(--text-small); }
+
+.cmdx__summary::after {
+  content: "+";
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.cmdx__group[open] > .cmdx__summary::after { content: "−"; }
+
+/* The deep link's own answer: the group the reader was sent to says so. */
+.cmdx__group:target > .cmdx__summary {
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: var(--space-3);
+}
+
+.cmdx__group[open] .console__list { border-top: 1px solid var(--line); }
+
+.cmdx__empty { margin-top: var(--space-4); }

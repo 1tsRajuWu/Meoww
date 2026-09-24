@@ -316,12 +316,97 @@
     });
   }
 
+  /* --------------------------------------------------------------------------
+   * The command reference (/systems): one collapsed group per system, and a
+   * search that reaches across all of them.
+   *
+   * The groups themselves are native `<details>` — they need no script to open,
+   * so everything this file adds is enhancement: un-hide the tools (they ship
+   * `hidden`, because a search box whose file did not load is a control that
+   * does nothing), filter rows inside every group, hide the groups that emptied,
+   * open the ones that matched while a term is typed, and land the deep link
+   * the front door's “+N more →” sends (`#cmd-<id>`).
+   * ----------------------------------------------------------------------- */
+  function wireCommandExplorer() {
+    var root = doc.querySelector("[data-command-explorer]");
+    if (!root) return;
+
+    var tools = root.querySelector("[data-command-tools]");
+    var field = root.querySelector("[data-command-search]");
+    var status = root.querySelector("[data-command-status]");
+    var empty = root.querySelector("[data-command-empty]");
+    var expand = root.querySelector("[data-command-expand]");
+    var groups = Array.prototype.slice.call(root.querySelectorAll("[data-command-group]"));
+    var total = root.querySelectorAll("[data-command]").length;
+
+    if (tools) tools.hidden = false;
+
+    function apply() {
+      var term = field ? field.value.trim().toLowerCase() : "";
+      var found = 0;
+
+      groups.forEach(function (group) {
+        var shownInGroup = 0;
+        Array.prototype.slice.call(group.querySelectorAll("[data-command]")).forEach(function (row) {
+          var haystack = (row.getAttribute("data-search") || "").toLowerCase();
+          var hit = !term || haystack.indexOf(term) !== -1;
+          row.hidden = !hit;
+          if (hit) { shownInGroup += 1; found += 1; }
+        });
+        group.hidden = shownInGroup === 0;
+        /* A search says *find this*: the groups holding matches open so the
+           answer is on screen, and they stay open when the box is cleared —
+           closing what the reader just found is a filter that argues. */
+        if (term && shownInGroup > 0) group.open = true;
+      });
+
+      if (status) {
+        status.hidden = !term;
+        status.textContent = term
+          ? found + " of " + total + " match “" + term + "”."
+          : "";
+      }
+      if (empty) empty.hidden = !(term && found === 0);
+      if (expand) {
+        expand.hidden = Boolean(term);
+        if (!term) {
+          var allOpen = groups.every(function (group) { return group.hidden || group.open; });
+          expand.textContent = allOpen ? "Collapse all" : "Expand all";
+          expand.setAttribute("aria-expanded", allOpen ? "true" : "false");
+        }
+      }
+    }
+
+    if (field) field.addEventListener("input", apply);
+
+    if (expand) {
+      expand.addEventListener("click", function () {
+        var allOpen = groups.every(function (group) { return group.hidden || group.open; });
+        groups.forEach(function (group) { if (!group.hidden) group.open = !allOpen; });
+        apply();
+      });
+    }
+
+    /* The front door links here as `/systems#cmd-economy`. A closed <details>
+       still scrolls to its summary, but the reader would arrive at a group that
+       looks empty — so the hash names the group and it opens before they land. */
+    if (window.location.hash) {
+      try {
+        var target = doc.querySelector(window.location.hash);
+        if (target && target.tagName === "DETAILS") target.open = true;
+      } catch (invalid) { /* a hash that is not a selector is not ours to open */ }
+    }
+
+    apply();
+  }
+
   function boot() {
     wireMenu();
     wireDrawers();
     wireReveals();
     wireCounters();
     wireCopy();
+    wireCommandExplorer();
     wirePointer();
   }
 

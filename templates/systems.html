@@ -120,6 +120,71 @@
   </div>
 </section>
 
+{# --------------------------------------------------------------------------
+   05 — Every command, grouped by the system that gates it.
+
+   The front door used to carry all hundred and ten rows; it is here instead,
+   one collapsed <details> per system, because a wall of names on the page that
+   is supposed to answer “what is this?” in five seconds is a wall whether it
+   is capped or not. Collapsed groups are also the one pattern that stays
+   minimal with scripting off: a keyboard opens them, and no script is asked
+   to render or cap anything. The search box starts `hidden` and is un-hidden
+   by motion.js — a control that does nothing without its file is not shown
+   to the reader who does not have it.
+   -------------------------------------------------------------------------- #}
+<section class="band" id="commands">
+  <div class="wrap">
+    <div class="band__head">
+      <div>
+        <p class="micro">05 — Commands</p>
+        <h2>Every command, by system</h2>
+      </div>
+      <p class="small muted">
+        {{ entry_count }} names here, counted one row each, so `/market buy` is its
+        own. Discord's picker holds {{ command_count }}, because it counts
+        `/market` once.
+      </p>
+    </div>
+
+    <div class="cmdx" data-command-explorer>
+      <div class="cmdx__bar" data-command-tools hidden>
+        <label class="field console__search">
+          <span class="visually-hidden">Find a command</span>
+          <input class="input" type="search" data-command-search
+                 placeholder="Search all {{ entry_count }}: market, level, ticket…"
+                 autocomplete="off">
+        </label>
+        <button class="btn btn--ghost" type="button" data-command-expand
+                aria-expanded="false" hidden>Expand all</button>
+      </div>
+      <p class="hint cmdx__status" data-command-status role="status" hidden></p>
+
+      {% for group in command_groups %}
+      <details class="cmdx__group" id="cmd-{{ group.id }}" data-command-group>
+        <summary class="cmdx__summary">
+          <span class="cmdx__name">{{ group.icon }} {{ group.name }}</span>
+          <span class="cmdx__count mono">{{ group.rows | length }} cmd</span>
+        </summary>
+        <ul class="console__list">
+          {% for row in group.rows %}
+          <li class="command" data-command data-search="{{ row.search }}">
+            <code class="command__name">{{ row.name }}</code>
+            <button class="command__copy" type="button" data-copy="{{ row.name }}"
+                    data-copy-label="Copied">Copy</button>
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endfor %}
+
+      <p class="hint cmdx__empty" data-command-empty hidden>
+        No command matches that. The search covers all {{ entry_count }} names, their
+        descriptions and their system.
+      </p>
+    </div>
+  </div>
+</section>
+
 <section class="band band--closing">
   <div class="wrap closing">
     <h2 class="closing__title">Want the whole thing running your way?</h2>
