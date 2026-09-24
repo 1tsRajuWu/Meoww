@@ -23,6 +23,20 @@
    =========================================================================== */
 
 .mk {
+    /* Above the background layer, and this is the line that matters most on this
+       page: `meow.css`'s `.aurora` is `position: fixed; z-index: 0`, its own
+       background ends in an opaque `linear-gradient(var(--bg), var(--bg-deep))`,
+       and a positioned element paints over in-flow static content. The frame's
+       own wrapper lifts itself with exactly this pair (`.shell`), so the shared
+       pages were never affected — but this page's wrapper names no class of the
+       frame's, and it was static. Measured before the fix, at 1280px: the rail's
+       rows computed white-on-`rgb(16,16,18)` at `opacity: 1` with nothing above
+       them, and the screen was black, because the only layer above them was the
+       background. The chart survived while the rail did not for the same reason
+       the header did: a canvas inside a positioned panel, and a sticky header,
+       are painted in the positioned layer. */
+    position: relative;
+    z-index: 1;
     min-height: 100vh;
     display: flex;
     flex-direction: column;

@@ -2207,5 +2207,133 @@ class TheMastheadFitsAPhone(unittest.TestCase):
         )
 
 
+class TheBackgroundIsBelowThePage(unittest.TestCase):
+    """Every page that draws the background layer must lift its own wrapper above it.
+
+    ``meow.css``'s ``.aurora`` is ``position: fixed`` with ``z-index: 0``, and its
+    own background ends in an opaque ``linear-gradient(var(--bg), var(--bg-deep))``
+    — so it paints **over** every in-flow, static element in the document, which is
+    all of a page's content unless the page says otherwise. A positioned element is
+    what says otherwise, and this frame's wrapper has said it since the layer was
+    written (``.shell``) — which is exactly why the defect went unseen: every page
+    that extends the frame was fine, and the one page that brings its own body was
+    painted over.
+
+    Found by measuring rather than reading. On the market page at 1280px the rail's
+    rows computed **white on ``rgb(16,16,18)`` at ``opacity: 1``** with nothing above
+    them in the hit-tested stack, while the screen below the header was black; the
+    chart and the header survived and the rail did not, for one reason — a canvas
+    inside a positioned panel and a ``position: sticky`` header are painted in the
+    positioned layer, and a static list is not.
+
+    The law reads the *template* for what the layer is and what the wrapper is
+    called, and the sheets that template links for the answer, so a page that adds
+    the background later — or renames its wrapper — is asked the same question
+    instead of being missed because a list in here went stale.
+    """
+
+    #: The layer, by class, as the templates draw it.
+    LAYER = "aurora"
+
+    def _templates_with_the_layer(self) -> list[str]:
+        found = []
+        for name in sorted(os.listdir(TEMPLATES)):
+            if not name.endswith(".html"):
+                continue
+            path = os.path.join(TEMPLATES, name)
+            if f'class="{self.LAYER}"' in read(path):
+                found.append(path)
+        return found
+
+    def _wrapper_after_the_layer(self, template: str) -> str | None:
+        """The first element after the layer that is not part of the layer."""
+        source = _without_comments(read(template))
+        start = source.find(f'class="{self.LAYER}"')
+        if start == -1:
+            return None
+        for candidate in re.findall(r'<div class="([\w-]+)"', source[start:]):
+            if not candidate.startswith(self.LAYER):
+                return candidate
+        return None
+
+    def _sheets_linked_by(self, template: str) -> list[str]:
+        names = re.findall(r"/static/([\w.-]+\.css)", read(template))
+        return [os.path.join(ROOT, "static", name) for name in names]
+
+    def _rule_for(self, wrapper: str, sheets: list[str]) -> str | None:
+        for sheet in sheets:
+            if not os.path.isfile(sheet):
+                continue
+            for selector, body in blocks(read(sheet)):
+                if re.search(rf"\.{re.escape(wrapper)}\b", selector):
+                    return body
+        return None
+
+    def test_the_layer_is_actually_above_static_content(self):
+        """The premise, asserted rather than remembered.
+
+        If the background ever stops being a positioned layer with an opaque
+        gradient, the law below is asking the wrong question — and asking it
+        forever without noticing would be worse than not asking it.
+        """
+        rule = None
+        for selector, body in blocks(read(PUBLIC_SHEET)):
+            if re.search(r"\.aurora\b", selector) and wrapper_is_plain(selector):
+                rule = body
+                break
+        self.assertIsNotNone(rule, "`static/meow.css` has no `.aurora` rule")
+        self.assertIn("position: fixed", rule, "the background layer is no longer fixed")
+        self.assertIn("z-index: 0", rule, "the background layer no longer claims the base layer")
+        self.assertIn(
+            "linear-gradient",
+            rule,
+            "the layer's own background is no longer opaque, so it may no longer be "
+            "painting over the pages at all — re-measure before trusting this law",
+        )
+
+    def test_every_page_that_draws_the_layer_lifts_its_wrapper(self):
+        pages = self._templates_with_the_layer()
+        self.assertTrue(pages, "no template draws the background layer any more")
+        for template in pages:
+            with self.subTest(template=os.path.basename(template)):
+                wrapper = self._wrapper_after_the_layer(template)
+                self.assertIsNotNone(
+                    wrapper,
+                    f"{os.path.basename(template)} draws the layer and no wrapper after it",
+                )
+                rule = self._rule_for(wrapper, self._sheets_linked_by(template))
+                self.assertIsNotNone(
+                    rule,
+                    f".{wrapper} is the wrapper {os.path.basename(template)} draws its page "
+                    "inside, and no sheet that template links styles it — so the "
+                    "background layer paints over the page",
+                )
+                self.assertRegex(
+                    rule,
+                    r"position:\s*(relative|absolute|sticky|fixed)",
+                    f".{wrapper} is not positioned, so the fixed background layer "
+                    "paints over everything inside it",
+                )
+                zindex = re.search(r"z-index:\s*([\w-]+)", rule)
+                self.assertIsNotNone(
+                    zindex,
+                    f".{wrapper} is positioned but given no `z-index`, so it stays in "
+                    "the same stacking level as the background layer and loses on "
+                    "document order",
+                )
+                self.assertNotIn(
+                    zindex.group(1),
+                    ("auto", "0"),
+                    f".{wrapper} must sit above the background layer's own `z-index: 0`",
+                )
+
+
+def wrapper_is_plain(selector: str) -> bool:
+    """Whether a selector list names the layer itself rather than its children."""
+    return any(
+        part.strip().rstrip(",") == ".aurora" for part in selector.split(",")
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

@@ -3983,7 +3983,16 @@ def market_page(symbol: str):
             404,
             {"Content-Type": "text/html; charset=utf-8"},
         )
-    return render_template("market.html", **market_context(instrument))
+    # The instrument comes from ``market_context`` and the *chrome* from the same
+    # place every other page's does. This route passed only the first, so the
+    # header's wordmark and its mark were filled from names nothing had sent:
+    # the page drew an empty brand beside a live price, which is how it stayed
+    # unnoticed — an unset name in a template is empty, not an error. The two
+    # mappings share no key, so the merge cannot silently replace an instrument
+    # with a site name.
+    return render_template(
+        "market.html", **{**_site_context(), **market_context(instrument)}
+    )
 
 
 def _market_groups(market_module) -> list[dict]:
