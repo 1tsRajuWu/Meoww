@@ -357,8 +357,31 @@ jobs:
       - name: Check the build produced a worker
         run: test -f _owner/_worker.js
 
+      # A step's `if` cannot read the `secrets` context at all — GitHub's
+      # context-availability table allows `github, needs, strategy, matrix, job,
+      # runner, env, vars, steps, inputs` there and nothing else — and writing it
+      # anyway is not a step that never runs but a *workflow that never parses*:
+      # every run since this line landed failed at validation with no jobs, no
+      # logs, and "This run likely failed because of a workflow file issue". The
+      # build guards above it never executed again either. So the secret is read
+      # where secrets are legal (a step `env`) and the decision is made from an
+      # output, which is a context an `if` may use — the same shape the `deploy`
+      # job above already uses for the same reason.
+      - name: Is Cloudflare configured?
+        id: cf
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT_ID" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=This commit did not publish the owner console::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set, so _owner was built and its worker checked, but meow-owner.pages.dev still serves an older commit. gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
       - name: Publish owner console to Cloudflare Pages
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        if: steps.cf.outputs.configured == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
