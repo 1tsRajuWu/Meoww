@@ -77,7 +77,21 @@ if not hasattr(sys.stderr, "isatty"):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", os.environ.get("GRADIO_SERVER_PORT", 7860)))
-    print(f"[HF-SPACES] Serving API and Dashboard on port {port}...", flush=True)
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_config=None)
+    print(f"[HF-SPACES] Checking port {port}...", flush=True)
+    import socket, subprocess
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("0.0.0.0", port))
+        s.close()
+        print(f"[HF-SPACES] Port {port} is FREE. Launching uvicorn...", flush=True)
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_config=None)
+    except Exception as exc:
+        print(f"[HF-SPACES] Port {port} occupied: {exc}. Inspecting system:", flush=True)
+        print(subprocess.getoutput("ps aux"), flush=True)
+        # If port 7860 is already managed by Gradio or a supervisor, keep main thread alive
+        print("[HF-SPACES] Keeping main thread alive to serve background bot...", flush=True)
+        while True:
+            time.sleep(3600)
+
 
 
