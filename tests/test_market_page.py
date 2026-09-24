@@ -11,6 +11,17 @@ below the chart ever ran, so the page could not even say what went wrong.
 An empty rectangle is indistinguishable from "the market has no prices", which is
 the one thing a price page must never say. These tests pin the properties that
 made the failure loud instead of silent.
+
+The page has since grown a shell (trading-site pacing: a rail of instruments, a
+chart, a ticket, the readings) and its behaviour moved out of an inline
+``<script>`` into ``static/market.js``, which is cached, reviewable and pinned by
+content token like every other first-party script. The properties below are the
+same ones: prices never wait on the chart, the chart's absence is stated in
+words, the shared motion layer is driven rather than re-implemented, and the only
+third-party URL is version-pinned. ``page_script()`` follows the page's own
+``<script src>`` list rather than reading a filename, so a page that quietly
+stopped loading its script fails here instead of passing on the strength of a
+file nobody links.
 """
 import os
 import re
@@ -21,37 +32,85 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from utils import market as market_module
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE = os.path.join(ROOT, "templates", "market_live.html")
 
 
 def render_page(symbol="BTC"):
-    """Render the shipped template exactly as the ``/market/<symbol>`` route does."""
+    """Render the shipped template exactly as the ``/market/<symbol>`` route does.
+
+    The context comes from ``keep_alive.market_context`` — the route's own
+    function — so the page cannot be rendered here with more than production
+    hands it. A bare Jinja environment is deliberate: it has no Flask filters and
+    no app globals, which is how a template that reaches for one is caught here
+    rather than in production.
+    """
+    import keep_alive
+
     instrument = market_module.BY_SYMBOL[symbol]
     env = Environment(
         loader=FileSystemLoader(os.path.join(ROOT, "templates")),
         autoescape=select_autoescape(["html"]),
     )
     # Handed over because the template asks the *app* for it: `/static/*` is
-    # cached immutable for a year, so the stylesheet link carries a token that
-    # changes with the file. A bare environment has no such global, and the
-    # page would fail to render here while working in production.
-    import keep_alive
-
+    # cached immutable for a year, so every asset link carries a token that
+    # changes with the file. A bare environment has no such global, and the page
+    # would fail to render here while working in production.
     env.globals["asset_version"] = keep_alive.asset_version
-    return env.get_template("market_live.html").render(
-        symbol=instrument.symbol,
-        name=instrument.name,
-        kind=instrument.kind,
-        periods=list(market_module.PERIODS.items()),
-        default_period=market_module.DEFAULT_PERIOD,
-    )
+    return env.get_template("market.html").render(**keep_alive.market_context(instrument))
 
 
-def inline_script(html):
-    """The page's own JavaScript, without the chart library's ``<script src>``."""
-    blocks = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
-    assert blocks, "the page ships no inline script"
-    return blocks[-1]
+def script_urls(html):
+    return re.findall(r'<script src="([^"]+)"', html)
+
+
+def first_party(html, kind):
+    """Every first-party asset of one kind the page loads, concatenated.
+
+    Read through the page's own links rather than from a filename, so a page that
+    quietly stopped loading an asset fails here instead of passing on the
+    strength of a file nobody links.
+    """
+    pattern = r'<script src="([^"]+)"' if kind == "script" else r'<link[^>]+href="([^"]+)"'
+    urls = re.findall(pattern, html)
+    local = [u for u in urls if not u.startswith(("http://", "https://", "//"))]
+    assert local, f"the page loads no first-party {kind}"
+    parts = []
+    for url in local:
+        path = os.path.join(ROOT, url.lstrip("/").split("?", 1)[0])
+        assert os.path.exists(path), f"{url} is linked but does not exist"
+        with open(path, encoding="utf-8") as handle:
+            parts.append(handle.read())
+    return "\n".join(parts)
+
+
+def page_script(html=None):
+    """The page's own JavaScript: every first-party script it loads, concatenated."""
+    return first_party(render_page() if html is None else html, "script")
+
+
+def page_styles(html=None):
+    """The page's own CSS: every first-party stylesheet it loads, concatenated."""
+    return first_party(render_page() if html is None else html, "style")
+
+
+def function_body(script, header):
+    """The body of one function, found by balancing braces.
+
+    The tests below care about what a *function* does, and the old
+    ``split("\n}", 1)`` cut ran to the end of the file whenever a closing brace
+    happened to sit at column zero — which is how a bootstrap call ended up
+    inside the chart function it was being contrasted with.
+    """
+    start = script.index(header) + len(header)
+    open_at = script.index("{", start)
+    depth = 0
+    for index in range(open_at, len(script)):
+        if script[index] == "{":
+            depth += 1
+        elif script[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return script[open_at : index + 1]
+    raise AssertionError(f"{header} is never closed")
 
 
 class TestMarketPageRenders(unittest.TestCase):
@@ -62,8 +121,21 @@ class TestMarketPageRenders(unittest.TestCase):
         for period in market_module.PERIODS.values():
             self.assertIn(period.label, html)
 
+    def test_the_board_is_rendered_by_the_server(self):
+        """The rail is on the page before any script runs.
+
+        A visitor with a blocked or broken script still gets the instruments and
+        the link to each one, which is the difference between a market that is
+        empty and a market that failed to load.
+        """
+        html = render_page()
+        for symbol in ("BTC", "AAPL", "SPY"):
+            with self.subTest(instrument=symbol):
+                self.assertIn(f'data-instrument="{symbol} ', html)
+                self.assertIn(f'href="/market/{symbol}"', html)
+
     def test_both_apis_are_called(self):
-        script = inline_script(render_page())
+        script = page_script()
         self.assertIn("/api/market/quotes", script)
         self.assertIn("/api/market/candles", script)
 
@@ -91,6 +163,8 @@ class TestMarketPageRenders(unittest.TestCase):
                     html,
                     r'data-drawer="%s"[^>]*aria-expanded="false"' % re.escape(target),
                 )
+        # The drawer pair is wired from the script rather than left as markup.
+        self.assertIn("MeowAnim.panel", page_script(html))
 
     def test_external_scripts_are_pinned(self):
         """An unpinned URL could change the library under a live page.
@@ -107,7 +181,7 @@ class TestMarketPageRenders(unittest.TestCase):
         either kind still fails.
         """
         html = render_page()
-        urls = re.findall(r'<script src="([^"]+)"', html)
+        urls = script_urls(html)
         self.assertTrue(urls)
         third_party = [u for u in urls if u.startswith(("http://", "https://", "//"))]
         self.assertTrue(third_party, "the chart libraries are no longer loaded from a CDN")
@@ -123,45 +197,54 @@ class TestChartFailureIsLoud(unittest.TestCase):
     """The chart is optional; the numbers are not."""
 
     def test_prices_do_not_wait_on_the_chart(self):
-        script = inline_script(render_page())
+        script = page_script()
         # The quote poll is issued by the bootstrap, not from inside the chart
         # setup, so prices are already in flight while a fallback CDN is tried.
-        body = script.split("async function startChart()", 1)[1].split("\n}", 1)[0]
+        body = function_body(script, "async function startChart()")
         self.assertNotIn("loadQuotes", body)
         self.assertIn("loadQuotes();", script)
 
     def test_chart_library_absence_is_checked(self):
-        script = inline_script(render_page())
+        script = page_script()
         self.assertIn('typeof LightweightCharts === "undefined"', script)
 
     def test_authoring_a_chart_is_guarded(self):
-        script = inline_script(render_page())
+        script = page_script()
         self.assertIn("try {", script)
         self.assertIn("} catch (error) {", script)
-        # A failed chart must be reported in the chart card, not drawn as nothing.
-        self.assertIn("chart-fallback", render_page())
+        # A failed chart must be reported in the chart card, not drawn as nothing —
+        # and the notice's class must be one the page's own stylesheet styles, or
+        # the explanation arrives as unstyled text somewhere in the layout.
+        self.assertIn("mk-chart-fallback", script)
+        self.assertIn(".mk-chart-fallback", page_styles())
         self.assertIn("chartNotice(", script)
 
     def test_a_cdn_that_never_answers_is_a_deadline_not_a_wait(self):
         """A blocked CDN fails; a hung one would otherwise stall the page."""
-        script = inline_script(render_page())
-        loader = script.split("function loadScript(", 1)[1].split("\n}", 1)[0]
+        loader = function_body(page_script(), "function loadScript(")
         self.assertIn("setTimeout(", loader)
         self.assertIn("clearTimeout(", loader)
 
     def test_a_hung_request_cannot_say_loading_forever(self):
         """The page's fetch has a timeout, so "Loading live prices…" is temporary."""
-        script = inline_script(render_page())
+        script = page_script()
         self.assertIn("AbortController", script)
         self.assertIn("controller.abort()", script)
         self.assertNotIn('fetch("/api/market/quotes")', script)
 
     def test_the_chart_is_drawn_from_data_that_was_fetched_anyway(self):
-        """Period move is computed before any drawing call, so it survives no chart."""
-        script = inline_script(render_page())
-        stats = script.index('el("periodMove").textContent')
-        draw = script.index("candleSeries.setData(candles)")
-        self.assertLess(stats, draw)
+        """The readings are written before any drawing call, so they survive no chart.
+
+        Same data, same request: what makes the numbers robust is the *order* —
+        the move, the source, the prints and the meter are all painted from the
+        series before the chart is handed anything, and the drawing call is
+        behind an early return for the case where there is no chart at all.
+        """
+        body = function_body(page_script(), "async function loadCandles()")
+        printed = body.index("periodMove.textContent")
+        drawn = body.index("candleSeries.setData(candles)")
+        self.assertLess(printed, drawn)
+        self.assertIn("if (!candleSeries || !volumeSeries || !chartObj) return;", body)
 
 
 if __name__ == "__main__":

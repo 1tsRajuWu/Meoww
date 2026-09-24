@@ -37,6 +37,13 @@ HEADER = ROOT / "templates" / "site_header.html"
 LANDING = FRONT
 MOTION = ROOT / "static" / "motion.js"
 SHEET = ROOT / "static" / "meow.css"
+#: The landing page's own sheet, which now carries the rules that used to be
+#: borrowed from `/systems` — the figures band among them.
+LANDING_SHEET = ROOT / "static" / "landing.css"
+#: The shared coordinated-motion module the interactive sections drive.
+ANIM = ROOT / "static" / "anim.js"
+#: The landing page's own behaviour.
+LANDING_SCRIPT = ROOT / "static" / "landing.js"
 
 
 def _all_markup() -> str:
@@ -132,10 +139,19 @@ class TheFiguresAreShownOnce(unittest.TestCase):
         self.assertNotIn("sr-only", self.markup, "the label is hidden again")
 
     def test_the_figure_is_drawn_above_its_label_by_the_stylesheet(self):
-        """`<dt>` must precede its `<dd>`, so the visual order comes from CSS."""
-        stat = self.sheet.split(".lp-stat {", 1)[1]
+        """`<dt>` must precede its `<dd>`, so the visual order comes from CSS.
+
+        The rule moved with the band: the front door's figures are `.lx-figure`
+        in `static/landing.css` now, because the page has a sheet of its own
+        rather than borrowing `/systems`' classes. What is being pinned is the
+        same and is not about the class name — those two numbers beside each
+        other in the markup are the defect, and the stylesheet is the only thing
+        allowed to swap them on screen.
+        """
+        sheet = LANDING_SHEET.read_text(encoding="utf-8")
+        stat = sheet.split(".lx-figure {", 1)[1]
         self.assertIn("display: flex", stat)
-        self.assertIn("order: -1", stat)
+        self.assertIn("order: -1", sheet.split(".lx-figure dd {", 1)[1])
 
     def test_the_accessibility_utility_exists_on_the_shared_sheet(self):
         """.sr-only was defined inside `dashboard.html` and nowhere else.
@@ -388,6 +404,25 @@ class TheSiteIsThreePagesAndTheyAllWork(unittest.TestCase):
         for href in re.findall(r'href="([^"]+)"', nav):
             self.assertFalse(href.startswith("#"), f"the shared menu links to {href}")
 
+    def test_the_phone_menu_offers_every_page_the_desktop_row_does(self):
+        """Two navigations, one site — and only one of them gets updated.
+
+        The header's row is what a laptop shows; the menu is a phone's *only*
+        navigation. Adding a page to one and forgetting the other is invisible
+        from the machine this is developed on, which is how `/radio` — the page
+        this site is now about — shipped reachable from a desktop and from
+        nowhere at all on a phone. Both lists are read as written, because the
+        question is only ever whether the markup offers the link.
+        """
+        header = HEADER.read_text(encoding="utf-8")
+        desktop = header.split('<nav class="lp-nav"', 1)[1].split("</nav>", 1)[0]
+        menu = self.base.split('<nav class="lp-menu-nav"', 1)[1].split("</nav>", 1)[0]
+        wanted = set(re.findall(r'href="(/[^"]*)"', desktop))
+        offered = set(re.findall(r'href="([^"]*)"', menu))
+        self.assertTrue(wanted, "the desktop row was not found to compare against")
+        missing = sorted(wanted - offered)
+        self.assertEqual(missing, [], f"the phone menu cannot reach: {missing}")
+
     def test_the_footer_is_absolute_too(self):
         footer = self.base.split('<footer class="lp-footer', 1)[1]
         for href in ("/systems", "/start"):
@@ -520,6 +555,79 @@ class TheMenuIsUsableFromTheKeyboard(unittest.TestCase):
         """An unguarded close steals focus back on any Escape, anywhere."""
         self.assertIn('event.key === "Escape" && menu.classList.contains("is-open")',
                       self.script)
+
+
+class EveryButtonIsDressedAsOne(unittest.TestCase):
+    """The page's own controls must not arrive wearing the browser's chrome.
+
+    `meow.css` styles `.btn` and the shared components and deliberately does not
+    reset the `<button>` element, so a control this page gives only a colour, a
+    size and a hover to renders with the *user agent's* background behind it —
+    `buttonface` grey, the system font, and a 2px black border. Rendered, the
+    tour rail and the six questions shipped as pale rows with near-white text on
+    them: unreadable, and invisible in the stylesheet, because a rule that sets
+    no `background` reads as a finished rule.
+
+    The question below is therefore not "is the reset there" but "is every
+    button on this page in it", and the class list is read from the *markup*
+    rather than written down here: the way this breaks next is a control added
+    below the list, which a test holding its own copy of the six would not
+    notice.
+    """
+
+    #: The rule, identified by what it does rather than by where it sits: a
+    #: block that both removes the background and hands the element the page's
+    #: own typography.
+    @staticmethod
+    def _reset_classes(sheet: str) -> set[str]:
+        classes: set[str] = set()
+        for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet):
+            if "background: none" not in body or "font: inherit" not in body:
+                continue
+            # Comments sit between selectors in this file, so they are stripped
+            # before the split rather than after it.
+            cleaned = re.sub(r"/\*.*?\*/", "", selector, flags=re.S)
+            for part in cleaned.split(","):
+                part = part.strip()
+                if re.fullmatch(r"\.[a-z][a-z0-9-]*", part):
+                    classes.add(part)
+        return classes
+
+    def test_every_lx_button_class_is_in_the_page_reset(self):
+        markup = FRONT.read_text(encoding="utf-8")
+        sheet = LANDING_SHEET.read_text(encoding="utf-8")
+
+        used = set()
+        for value in re.findall(r'<button[^>]*\bclass="([^"]*)"', markup, re.S):
+            used.update(
+                token for token in value.split()
+                if re.fullmatch(r"lx-[a-z][a-z0-9-]*", token)
+            )
+        self.assertTrue(
+            used,
+            "no classed buttons were found in the markup, so this check is now "
+            "measuring nothing — the regex has drifted from the template",
+        )
+
+        reset = self._reset_classes(sheet)
+        self.assertTrue(
+            reset,
+            "the page's button reset is gone or no longer recognisable, so every "
+            "control on it is back to the browser's chrome",
+        )
+        missing = sorted(f".{token}" for token in used if f".{token}" not in reset)
+        self.assertEqual(
+            missing, [],
+            "these classes are worn by a <button> on the front door and are not "
+            "in the page's reset, so they render with the browser's own "
+            "background and font",
+        )
+
+    def test_the_check_would_notice_a_button_left_out(self):
+        """A guard that cannot fail is decoration."""
+        sheet = """.lx-a, .lx-b { background: none; border: 0; font: inherit; }"""
+        self.assertEqual(self._reset_classes(sheet), {".lx-a", ".lx-b"})
+        self.assertNotIn(".lx-c", self._reset_classes(sheet))
 
 
 if __name__ == "__main__":

@@ -603,33 +603,77 @@ class EverySheetIsSatisfiedByItsPage(unittest.TestCase):
         except OSError:
             return set()
 
+    def _lineage(self, template: str) -> list[str]:
+        """A template and the bases it extends, base first.
+
+        A page that extends a base loads the base's sheets **before** its own: the
+        block a child fills sits inside the base's document, and the sheets the
+        base links are in the head above that block. The walk reads template text
+        rather than rendered HTML, so it has to follow ``extends`` itself — which
+        is why `home.html`, whose palette arrives from `site_base.html`, was read
+        as a page that declared nothing until this existed.
+        """
+        chain = [template]
+        seen = {os.path.abspath(template)}
+        while True:
+            match = re.search(r'{%\s*extends\s+"([^"]+)"', read(chain[-1]))
+            if not match:
+                break
+            parent = os.path.join(TEMPLATES, match.group(1))
+            if os.path.abspath(parent) in seen or not os.path.exists(parent):
+                break
+            seen.add(os.path.abspath(parent))
+            chain.append(parent)
+        return list(reversed(chain))
+
     def _gaps(self, template: str) -> list[str]:
         """Every read on this page that arrives before its own declaration."""
         known: set[str] = set()
         gaps = []
-        for _at, kind, payload in self._events(read(template)):
-            if kind == "script":
-                known |= self._runtime_names(payload)
-                continue
-            if kind == "sheet":
-                path = os.path.join(ROOT, payload.lstrip("/"))
-                if not os.path.exists(path):
-                    gaps.append(f"{template} links {payload}, which is not there")
+        for source_path in self._lineage(template):
+            for _at, kind, payload in self._events(read(source_path)):
+                if kind == "script":
+                    known |= self._runtime_names(payload)
                     continue
-                source, where = read(path), payload
-            elif kind == "inline-script":
-                known |= self._set_at_runtime(payload)
-                continue
-            else:
-                source, where = payload, "an inline <style> block"
-            missing = sorted(
-                self._read_without_a_fallback(source) - known - self._declared(source)
-            )
-            if missing:
-                names = ", ".join(f"--{name}" for name in missing)
-                gaps.append(f"{where} reads {names} with nothing loaded that declares them")
-            known |= self._declared(source)
+                if kind == "sheet":
+                    path = os.path.join(ROOT, payload.lstrip("/"))
+                    if not os.path.exists(path):
+                        gaps.append(f"{template} links {payload}, which is not there")
+                        continue
+                    source, where = read(path), payload
+                elif kind == "inline-script":
+                    known |= self._set_at_runtime(payload)
+                    continue
+                else:
+                    source, where = payload, "an inline <style> block"
+                missing = sorted(
+                    self._read_without_a_fallback(source) - known - self._declared(source)
+                )
+                if missing:
+                    names = ", ".join(f"--{name}" for name in missing)
+                    gaps.append(f"{where} reads {names} with nothing loaded that declares them")
+                known |= self._declared(source)
         return gaps
+
+    def test_a_page_that_extends_a_base_inherits_its_sheets(self):
+        """`home.html` reads the palette `site_base.html` links, and the walk sees it.
+
+        The failure this pins was a false one: the landing page was reported as
+        reading thirty tokens nothing declared, because the walk stopped at the
+        child template and never looked at the base whose head loads them. It
+        would have passed just as falsely the other way — a child that read a
+        token its base did not declare was reported against the child.
+        """
+        home = os.path.join(TEMPLATES, "home.html")
+        lineage = [os.path.basename(path) for path in self._lineage(home)]
+        self.assertEqual(lineage[0], "site_base.html", lineage)
+        self.assertEqual(lineage[-1], "home.html", lineage)
+        self.assertEqual(self._gaps(home), [])
+        # And a child's own sheet is still checked after the base's, which is what
+        # makes the pair legal rather than merely unreported.
+        base = self._lineage(home)[0]
+        base_events = [payload for _at, _kind, payload in self._events(read(base))]
+        self.assertIn("/static/meow.css", base_events)
 
     def test_the_walk_finds_the_pair_this_law_was_written_for(self):
         """A walk that looks at nothing passes for the wrong reason."""
@@ -1181,6 +1225,7 @@ class HiddenMeansHidden(unittest.TestCase):
                 )
         self.assertIn("[hidden]", general)
 
+
 class TheCursorLayerIsTheOnlyAuthor(unittest.TestCase):
     """One block in one sheet decides what the pointer looks like.
 
@@ -1248,6 +1293,7 @@ class TheCursorLayerIsTheOnlyAuthor(unittest.TestCase):
             "the `not-allowed` rule names only the state, so a disabled text field "
             "keeps the I-beam it inherited from `input[type=\"text\"]`",
         )
+
 
 class FocusIsVisible(unittest.TestCase):
     """Nothing is reachable only with a mouse."""
@@ -2074,6 +2120,91 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
             "above guards nothing and the tag breaks after its hyphen",
         )
 
+
+class TheMastheadFitsAPhone(unittest.TestCase):
+    """A header row that cannot fit puts its *last* control off the screen.
+
+    Measured on the live page at 390px — every iPhone in portrait — the control
+    group (theme, *Add to Discord*, *Sign in*, the burger) needs **302px** of the
+    header's 374, while the wordmark's own min-content holds another 92, so the
+    group ran **27px past the right edge** and the burger went with it. Nothing
+    scrolled (`scrollWidth` stayed equal to the viewport) and
+    ``elementFromPoint`` at the burger's centre answered ``main``: the button was
+    clipped rather than off-canvas, and on a phone that button is the **only**
+    way into the menu. The wordmark therefore stands down below the width where
+    the row stops fitting, and this is the law that it does — the markup would
+    render perfectly without the rule, which is the whole problem.
+    """
+
+    #: The widest the row may be asked to hold. Below this the four controls and
+    #: the wordmark's min-content do not both fit inside the padding.
+    PHONE = 480
+
+    def _max_width_blocks(self, css: str) -> list[tuple[int, str]]:
+        """``(width, body)`` for every ``@media (max-width: …px)`` block.
+
+        Braces are counted rather than matched, because the rules inside these
+        blocks are rules themselves and ``blocks()`` cannot say which media a
+        rule sits in — which is the only thing this law is about.
+        """
+        out: list[tuple[int, str]] = []
+        for match in re.finditer(r"@media \(max-width: (\d+)px\)\s*\{", css):
+            depth = 0
+            for index in range(match.end() - 1, len(css)):
+                if css[index] == "{":
+                    depth += 1
+                elif css[index] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        out.append((int(match.group(1)), css[match.end():index]))
+                        break
+        return out
+
+    def _phone_rule(self, css: str) -> str | None:
+        """The rule that hides the masthead wordmark on a phone, if it exists."""
+        for width, body in self._max_width_blocks(css):
+            if width > self.PHONE:
+                continue
+            found = re.search(
+                r"([^{}]*\.lp-brand span\s*\{[^}]*display:\s*none[^}]*\})", body
+            )
+            if found:
+                return found.group(1)
+        return None
+
+    def test_the_wordmark_stands_down_before_the_row_overflows(self):
+        css = read(PUBLIC_SHEET)
+        rule = self._phone_rule(css)
+        self.assertIsNotNone(
+            rule,
+            f"the sheet has no rule at or below {self.PHONE}px hiding the "
+            "masthead wordmark, so on a phone the controls (302px) and the "
+            "wordmark cannot both fit and the burger is pushed off the edge — "
+            "which is the only way into the menu",
+        )
+        self.assertIn(
+            ".lp-header",
+            rule,
+            "the rule has to say which header it is about; the menu panel wraps "
+            "its brand row in the same class",
+        )
+
+    def test_the_panels_own_brand_row_keeps_the_name(self):
+        """The menu panel's header is a ``.lp-header`` too, and it is where the
+        name is still said on a phone — so the rule must exempt it.
+
+        A rule that hid the wordmark everywhere would leave the site nameless on
+        the device that can least afford it, and nothing else here would notice:
+        the panel draws its own brand row from the same class.
+        """
+        rule = self._phone_rule(read(PUBLIC_SHEET))
+        self.assertIsNotNone(rule, "no phone rule to check")
+        self.assertIn(
+            ":not(.lp-menu-header)",
+            rule,
+            "the wordmark rule is unscoped, so it hides the name inside the menu "
+            "panel as well — the one place a phone still reads it",
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

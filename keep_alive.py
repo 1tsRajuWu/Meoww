@@ -4112,14 +4112,45 @@ DASHBOARD_PAGE_BY_PATH = {path: page for page, _label, path, _anchor in DASHBOAR
 @app.route("/dashboard/commands")
 @app.route("/dashboard/status")
 def dashboard():
-    """One page of one server's dashboard.
+    """Where the console's eleven addresses lead while the console is rebuilt.
 
-    Everything below is unchanged from when this was a single scroll; what
-    changed is which of the seven sections the renderer is handed. The scope
-    rules, the two readings of Discord's command list, the identity state and
-    the composer's rulebook are all computed on every page, because a page that
-    computed only what it draws would be seven chances to disagree with the
-    others about the same server.
+    These pages were archived with the pre-rebuild site, so every address in the
+    group rendered a template that no longer exists: a 500 for anybody who had
+    one bookmarked, and what a freshly signed-in member landed on. The addresses
+    stay — twelve places in this file name them, from the sign-in door's default
+    to the help text's "the console" — so the forward is stated once, at the
+    address, rather than as twelve edits to destinations that would each have to
+    agree about where members go.
+
+    ``/servers`` is the live member surface: the servers a signed-in person
+    actually has, which is what every action in this group belongs to. A
+    signed-out visitor meets the door first rather than being forwarded to a page
+    that would only forward them back here.
+    """
+    if not is_authenticated():
+        return redirect("/login")
+    return redirect("/servers", code=301)
+
+
+def _dashboard_page_archived():
+    """The console's renderer, unrouted while the console is rebuilt.
+
+    Its docstring, from when it routed:
+
+        One page of one server's dashboard.
+
+        Everything below is unchanged from when this was a single scroll; what
+        changed is which of the seven sections the renderer is handed. The scope
+        rules, the two readings of Discord's command list, the identity state and
+        the composer's rulebook are all computed on every page, because a page
+        that computed only what it draws would be seven chances to disagree with
+        the others about the same server.
+
+    Nothing calls it: it renders ``dashboard.html``, and the archive took that
+    template, so routing it again before the rebuild exists would put back the
+    500 this replaced. It stays readable because the rebuild starts from it —
+    ``_management_context`` and ``_progression_context`` below are the readers the
+    sections were assembled from, and they are unchanged.
     """
     if not is_authenticated():
         return redirect("/login")

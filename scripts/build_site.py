@@ -221,35 +221,18 @@ def _clean_targets(text: str, live_app: str, *, proxy_mode: bool = False) -> lis
     return leftovers
 
 
-def _not_found_page(live_app: str) -> str:
-    """A 404 that belongs to the site instead of GitHub's bare default."""
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex">
-    <title>Page not found</title>
-    <link rel="icon" type="image/svg+xml" href="static/favicon.svg">
-    <link rel="stylesheet" href="static/meow.css">
-</head>
-<body class="page-404">
-    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
-    <main class="page error-page">
-        <img class="brand-logo brand-logo-lg" src="static/logo.svg" alt="" aria-hidden="true">
-        <h1>That page wandered off</h1>
-        <p class="lede">
-            There is nothing at this address. The bot itself is probably fine —
-            it is just not here.
-        </p>
-        <div class="hero-cta">
-            <a class="btn btn-primary btn-lg" href="./">Back to the front page</a>
-            <a class="btn btn-lg" href="{live_app.rstrip('/')}/dashboard">Open the dashboard</a>
-        </div>
-    </main>
-</body>
-</html>
-"""
+#: The path this build asks the app for in order to get the site's 404 page.
+#:
+#: Nothing routes it, so the app answers with `_error_page(404)` — the same
+#: document a visitor gets from Render — and that response *is* `404.html` here.
+#: This replaced a page written out in this file by hand: it named `page-404`,
+#: `brand-logo`, `hero-cta`, `btn-primary` and three more classes the current
+#: sheet does not define, and drew `static/logo.svg`, which the redesign deleted
+#: — so a mistyped address on the published site got a broken-image glyph, a
+#: heading in the browser's default font, and nothing to click. It is also the
+#: third place in this project that learned the same lesson: two documents for
+#: one page is one document too many.
+NOT_FOUND_PROBE = "/this-address-is-not-a-page"
 
 
 #: The policy the static copy runs under.
@@ -592,8 +575,23 @@ def build(
         handle.write(_worker_file(backend_host))
     with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as handle:
         handle.write(_routes_file())
+    # The 404 page comes from the app, fetched the same way the pages above are,
+    # so a mistyped address reads the same on both hosts. A route that suddenly
+    # answers 200 for this path would mean the site's error page had moved and
+    # this file was about to publish something else entirely, so it is refused
+    # rather than written.
+    missing = client.get(NOT_FOUND_PROBE)
+    if missing.status_code != 404:
+        raise SystemExit(
+            f"{NOT_FOUND_PROBE} answered {missing.status_code} — the app serves the "
+            "site's 404 page and this build cannot invent one."
+        )
+    body = rewrite_html(missing.get_data(as_text=True), live_app, proxy_mode=proxy_mode)
+    leftovers = _clean_targets(body, live_app, proxy_mode=proxy_mode)
+    if leftovers:
+        report["leftovers"].append(("404.html", sorted(set(leftovers))))
     with open(os.path.join(out_dir, "404.html"), "w", encoding="utf-8") as handle:
-        handle.write(_not_found_page(live_app))
+        handle.write(body)
     # The directives, from the one module that writes them — the same call the
     # app serves at /robots.txt and the hub and owner builds make, so a crawler
     # cannot get a different answer depending on which host it happened to ask.

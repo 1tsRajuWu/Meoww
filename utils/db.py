@@ -756,6 +756,36 @@ async def set_setting(guild_id: int, key: str, value):
         await db.execute('INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)', (guild_id, key, val_str))
         await db.commit()
 
+
+def write_setting_sync(guild_id: int, key: str, value) -> None:
+    """One ``guild_settings`` row, written from a thread that cannot await.
+
+    The Flask thread owns the operator's console and cannot drive an event loop,
+    so :func:`set_setting` — which is ``async`` — is unreachable from a request.
+    The encoding mirrors it exactly (``json.dumps``), because these rows predate
+    JSON and :func:`get_setting` / :func:`read_setting_sync` decode with
+    ``json.loads``: a writer that stored a bare string would produce a setting
+    whose *value* is the string `"1"` on one reader and ``1`` on the other.
+
+    ``None`` deletes the row rather than storing JSON ``null``, which is what
+    "unset" means everywhere else in this table (an absent row is how every
+    feature's default is expressed).
+    """
+    if value is None:
+        run_atomic(
+            lambda cursor: cursor.execute(
+                "DELETE FROM guild_settings WHERE guild_id = ? AND key = ?",
+                (int(guild_id), str(key)),
+            )
+        )
+        return
+    run_atomic(
+        lambda cursor: cursor.execute(
+            "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+            (int(guild_id), str(key), json.dumps(value)),
+        )
+    )
+
 async def open_ticket_feedback(
     guild_id: int,
     channel_id: int,
@@ -1069,6 +1099,129 @@ def read_guild_economy_sync(guild_id: int, limit: int = 25) -> dict:
         "accounts": int(accounts or 0),
         "meow_bank": collected,
         "top": top,
+    }
+
+
+def read_guild_levels_sync(guild_id: int, limit: int = 25) -> dict:
+    """One server's progression: how it is configured, who is on top, how far along.
+
+    Read-only, and the companion of :func:`read_guild_economy_sync` for the second
+    half of what a server's members earn. Three tables are involved and each
+    answers a different question: ``level_settings`` is the *rule* (what a message
+    and a voice minute are worth, and where level-ups are announced),
+    ``level_roles`` is the *promise* (which role a level grants), and
+    ``user_levels`` is the *result*.
+
+    The rules are the ones ``cogs/leveling.py`` reads and writes, with the same
+    defaults, because a page that printed a different default than the bot would
+    apply would be a page that disagrees with the bot about the server it is
+    describing. The one difference is that this does **not** insert the missing row:
+    a dashboard that a member of staff opens should not be the thing that creates
+    state, and the bot creates it the first time it pays anything out.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        settings = {
+            "enabled": True,
+            "channel_id": 0,
+            "dm_notifications": False,
+            "text_min_coins": 4,
+            "text_max_coins": 10,
+            "text_xp": 15,
+            "vc_coins_per_min": 2,
+            "vc_xp_per_min": 3,
+            "stored": False,
+        }
+        try:
+            cur.execute(
+                "SELECT enabled, channel_id, dm_notifications, text_min_coins, "
+                "text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min "
+                "FROM level_settings WHERE guild_id = ?",
+                (int(guild_id),),
+            )
+            row = cur.fetchone()
+        except sqlite3.Error:
+            row = None
+        if row:
+            settings.update(
+                enabled=bool(row[0]),
+                channel_id=int(row[1] or 0),
+                dm_notifications=bool(row[2]),
+                text_min_coins=int(row[3] if row[3] is not None else 4),
+                text_max_coins=int(row[4] if row[4] is not None else 10),
+                text_xp=int(row[5] if row[5] is not None else 15),
+                vc_coins_per_min=int(row[6] if row[6] is not None else 2),
+                vc_xp_per_min=int(row[7] if row[7] is not None else 3),
+                stored=True,
+            )
+
+        # The order is the level's, because a level's role is the reading — a map
+        # keyed by role would have to be sorted by something it does not carry.
+        roles: list[dict] = []
+        try:
+            cur.execute(
+                "SELECT level, role_id FROM level_roles WHERE guild_id = ? ORDER BY level ASC",
+                (int(guild_id),),
+            )
+            roles = [
+                {"level": int(level or 0), "role_id": int(role_id or 0)}
+                for level, role_id in cur.fetchall()
+            ]
+        except sqlite3.Error:
+            roles = []
+
+        cur.execute(
+            "SELECT COUNT(*), COALESCE(SUM(xp), 0), COALESCE(SUM(level), 0), "
+            "COALESCE(MAX(level), 0), COALESCE(SUM(total_messages), 0), "
+            "COALESCE(SUM(voice_minutes), 0) FROM user_levels WHERE guild_id = ?",
+            (int(guild_id),),
+        )
+        members, xp_total, level_sum, highest, messages, voice_minutes = cur.fetchone()
+        cur.execute(
+            "SELECT COUNT(*) FROM user_levels WHERE guild_id = ? AND xp > 0",
+            (int(guild_id),),
+        )
+        earned = cur.fetchone()[0]
+        cur.execute(
+            "SELECT user_id, xp, level, total_messages, voice_minutes, total_earned "
+            "FROM user_levels WHERE guild_id = ? "
+            "ORDER BY xp DESC, user_id ASC LIMIT ?",
+            (int(guild_id), int(limit)),
+        )
+        top = [
+            {
+                "user_id": int(user_id),
+                "xp": int(row_xp or 0),
+                # The stored level and the XP are two readings of the same thing,
+                # and a row written by an older build can disagree with its own
+                # XP — so the band is computed from the XP, which is the figure
+                # every other surface derives from (see ``utils/levels.py``).
+                "level": levels.calculate_level_from_xp(int(row_xp or 0))[0],
+                "stored_level": int(row_level or 0),
+                "messages": int(row_messages or 0),
+                "voice_minutes": int(row_voice or 0),
+                "earned": int(row_earned or 0),
+            }
+            for user_id, row_xp, row_level, row_messages, row_voice, row_earned in cur.fetchall()
+        ]
+    finally:
+        conn.close()
+
+    members = int(members or 0)
+    return {
+        "settings": settings,
+        "roles": roles,
+        "top": top,
+        "members": members,
+        # "Members" counts rows, and a row exists for anybody who has ever been
+        # seen — so the number that means something is the second one.
+        "earned": int(earned or 0),
+        "xp_total": int(xp_total or 0),
+        "highest": int(highest or 0),
+        "average_level": (int(level_sum or 0) / members) if members else 0.0,
+        "messages": int(messages or 0),
+        "voice_minutes": int(voice_minutes or 0),
     }
 
 

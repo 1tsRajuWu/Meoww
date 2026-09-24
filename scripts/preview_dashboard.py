@@ -1436,14 +1436,12 @@ def market_page(symbol):
             404,
             {"Content-Type": "text/html; charset=utf-8"},
         )
-    return render_template(
-        "market_live.html",
-        symbol=instrument.symbol,
-        name=instrument.name,
-        kind=instrument.kind,
-        periods=list(market_module.PERIODS.items()),
-        default_period=market_module.DEFAULT_PERIOD,
-    )
+    # The route's own context builder, not a second copy of it: the preview exists
+    # to render what the live page renders, and a harness that assembled its own
+    # context would go on working the day the real one grew a key it needs.
+    import keep_alive
+
+    return render_template("market.html", **keep_alive.market_context(instrument))
 
 
 #: A few plausible prices for the preview board, in USD.

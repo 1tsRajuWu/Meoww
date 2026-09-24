@@ -198,14 +198,37 @@ class GrowingTablesAreIndexed(unittest.TestCase):
 
 class TheAuditFixesAreInTheShippedPages(unittest.TestCase):
     def test_the_market_page_announces_its_state(self):
-        """Its status line is the only place "trading paused" is ever said."""
-        html = _read("templates/market_live.html")
+        """Its status line is the only place "trading paused" is ever said.
+
+        Asked of the three files the page is made of, one question each, because
+        the rebuild moved them apart: the markup carries the live regions, the
+        sheet carries the focus ring (it left the template when the market's
+        colour did), and the script is the one place a price becomes DOM — which
+        is exactly where markup could be built out of somebody's quote.
+
+        The last two assertions are the pair that matters: the script has to
+        write text *and* not write markup, and a guard that only checked the
+        second would pass on a page that had stopped rendering prices at all.
+        """
+        html = _read("templates/market.html")
         self.assertIn('role="status"', html)
         self.assertIn('aria-live="polite"', html)
         self.assertIn('aria-pressed=', html)
         self.assertIn('role="img"', html)
-        self.assertIn(':focus-visible', html, "keyboard users need to see where they are")
-        self.assertNotIn("tr.innerHTML = `", html, "data is text, never markup")
+        self.assertIn("Trading pauses", html, "the one place a refusal is explained")
+        self.assertIn(
+            ":focus-visible", _read("static/market.css"),
+            "keyboard users need to see where they are",
+        )
+        import re
+
+        script = _read("static/market.js")
+        self.assertIn("textContent", script, "the prices are written, not formatted into markup")
+        assigned = {value.strip() for value in re.findall(r"innerHTML\s*=\s*([^;]+);", script)}
+        self.assertEqual(
+            assigned, {'""'},
+            "innerHTML is only ever used to empty a container, never to fill one",
+        )
 
     def test_the_composer_keeps_a_draft_across_an_expired_session(self):
         html = _read("templates/dashboard.html")
@@ -236,7 +259,7 @@ class ThePagesStayReadable(unittest.TestCase):
     #: gone on passing while checking almost nothing.
     PAGES = (
         "templates/dashboard.html",
-        "templates/market_live.html",
+        "templates/market.html",
         "templates/login.html",
         "static/meow.css",
         # The dashboard's own rules moved out of the template into this sheet.
@@ -244,6 +267,11 @@ class ThePagesStayReadable(unittest.TestCase):
         # longer holds most of its own colour, so a guard that read only the
         # template would go on passing while checking very little of it.
         "static/dashboard.css",
+        # The landing page and the market moved theirs out the same way, and
+        # for the same reason: reading below the fold of a template whose sheet
+        # holds the colour is a guard that checks almost nothing.
+        "static/landing.css",
+        "static/market.css",
     )
     FLOOR = 4.5
 

@@ -1,0 +1,50 @@
+{# ==========================================================================
+   error.html — the page a visitor gets when there is nothing at the address
+   they typed, or when this process could not answer at all.
+
+   It exists because the alternative was two pages that both failed the same
+   way and neither of which was this site's: the Flask process answered with
+   Flask's own bare default (a centered `<h1>Not Found</h1>` with no way back),
+   and the published copy's `404.html` was hand-written HTML naming seven
+   classes the current sheet does not define and an image (`static/logo.svg`)
+   that had been deleted — so a visitor who mistyped an address on the CDN got
+   a broken-image glyph and unstyled text. One document now, rendered by the
+   app and written into the static build by the same route the other pages
+   are, which is the rule this project already follows for `/privacy` and the
+   rest: the page on the CDN and the page this process serves are one template
+   with one context.
+
+   The context is deliberately three strings rather than one page of prose:
+   a 404 and a 500 are the same shape with different sentences, and the status
+   code is the only thing a crawler or a monitor reads.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+{% block title %}{{ headline }} — {{ bot_name }}{% endblock %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
+
+{% block page %}
+<section class="page-head band band--flush">
+  <div class="wrap wrap--narrow">
+    <p class="micro">{{ code }} — {{ eyebrow }}</p>
+    <h1>{{ headline }}</h1>
+    <p class="lede">{{ explanation }}</p>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap wrap--narrow">
+    <ul class="list">
+      {% for way in ways %}
+      <li class="list__row">
+        <span class="list__key"><a href="{{ way.href }}">{{ way.label }}</a></span>
+        <span class="list__note">{{ way.note }}</span>
+        <span class="list__meta mono">{{ way.meta }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+{% endblock %}

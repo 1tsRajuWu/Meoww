@@ -45,7 +45,7 @@ PAGES = (
     "servers.html",
     "dashboard.html",
     "console.html",
-    "market_live.html",
+    "market.html",
 )
 
 #: The layout the three site pages share. The head lives here now, which is what

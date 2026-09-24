@@ -67,8 +67,27 @@ class Radio(commands.Cog):
 
     # ------------------------------------------------------------------ gate #
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """The module gate, where the rest of this bot keeps it."""
-        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+        """The gate every command in this group passes: a server, then the module.
+
+        The guild check is first and it is not decoration. A station plays into
+        one channel of one server, so there is nothing any of these commands can
+        do in a private message — and until this existed, ``/radio`` outside a
+        server went looking for a player for guild ``None``: ``int(None)`` raised
+        inside ``get_player``, the member was shown nothing at all instead of a
+        sentence, and the traceback went to the operator's error handler. The
+        rest of this bot refuses the same way (``/balance`` and its neighbours),
+        and the check lives here rather than in each command because a gate is
+        one thing, not three.
+        """
+        if not interaction.guild_id:
+            await interaction.response.send_message(
+                "📻 **Radio needs a server.** A station plays into one of a "
+                "server's own voice channels, so this only works in a server — "
+                "ask me there and I'll follow you into voice.",
+                ephemeral=True,
+            )
+            return False
+        if hasattr(self.bot, "is_module_enabled"):
             if not self.bot.is_module_enabled(interaction.guild_id, "radio"):
                 await interaction.response.send_message(
                     "⚠️ The **Radio** system is currently **turned off** on this "

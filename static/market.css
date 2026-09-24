@@ -1,0 +1,619 @@
+/* ===========================================================================
+   The market — its layout, and only its layout
+   ===========================================================================
+   A trading surface, so the shape is the one every trading surface has had for
+   thirty years: a rail of instruments, a chart with the price on it, an order
+   ticket beside it, and the account panels underneath. That shape is a
+   convention rather than a copy — nothing here is taken from any particular
+   site, and the only thing borrowed from the idea of a trading terminal is the
+   *arrangement*, which is the part a reader's eye already knows.
+
+   Three rules, all inherited from `meow.css`:
+
+   1. **No new colours.** Every value below resolves to a token the shared sheet
+      defines, so the market cannot drift into being a different product. Up and
+      down are the shared green and red, and they mean the same thing here as
+      they do on the dashboard's activity cards.
+   2. **Numbers are tabular.** Every price, change and balance is a figure that
+      changes in place, and a proportional font makes a changing number jitter.
+      The mono stack does the same job and matches the rest of the project.
+   3. **Only transform, opacity and colour animate.** A price that ticks must not
+      cost a layout pass; nothing here writes width or height frame by frame
+      (the two meters that grow use `transform: scaleX`).
+   =========================================================================== */
+
+.mk {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* --------------------------------------------------------------------------
+   The HUD
+   --------------------------------------------------------------------------
+   One row across the top: the instrument, its price, whether the feed is live,
+   and the way out. It is sticky because the price is the page's subject and a
+   reader who has scrolled to the ticket should still be able to see it. */
+.mk-hud {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    padding: 12px var(--space-5);
+    border-bottom: 1px solid var(--border);
+    background: rgba(12, 12, 13, 0.86);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.mk-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* The brand is the frame's own mark — a letter tile and the name — rather than an
+   image: the same two spans `site_base.html` draws, so the market page wears the
+   same brand as the site it belongs to, and one less file to keep alive. */
+.mk-brand .brand__mark { width: 26px; height: 26px; }
+.mk-brand .brand__name { font-size: 14px; }
+
+/* The theme panel is positioned against the header it hangs from. The frame's header
+   is a centered 1120px wrap, so the shared rule measures the offset from the wrap's
+   edge; this header is full width, so the panel lines up with the HUD's own padding. */
+.mk-hud .theme-pop { right: var(--space-5); }
+
+.mk-hud-price {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.mk-hud-sym {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.mk-hud-sym .muted { font-weight: 500; font-size: 13.5px; }
+
+.mk-hud-big {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    transition: color var(--base) var(--ease);
+}
+
+.mk-hud-change {
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.mk-hud-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.mk-hud-links {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 13px;
+}
+
+.mk-hud-links a { color: var(--text-secondary); }
+.mk-hud-links a:hover { color: var(--text-primary); }
+
+/* The feed's own state, and it is a three-state pill rather than a word: live,
+   stale (trading paused) and offline are different answers to the same
+   question, and the whole point of the pill is that the difference is visible
+   from across the room. */
+.mk-feed {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 5px 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border);
+    background: var(--surface-card);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.mk-feed[data-state="live"] { border-color: rgba(35, 165, 90, 0.45); color: #7ee2a8; }
+.mk-feed[data-state="stale"] { border-color: rgba(240, 178, 50, 0.45); color: var(--gold); }
+.mk-feed[data-state="down"] { border-color: rgba(242, 63, 67, 0.45); color: #ff8a8d; }
+
+/* --------------------------------------------------------------------------
+   The three columns
+   -------------------------------------------------------------------------- */
+.mk-main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr) 320px;
+    gap: var(--space-4);
+    align-items: start;
+    width: 100%;
+    max-width: 1680px;
+    margin: 0 auto;
+    padding: var(--space-4) var(--space-5) var(--space-7);
+}
+
+@media (max-width: 1240px) {
+    .mk-main { grid-template-columns: 240px minmax(0, 1fr); }
+    .mk-side { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); align-items: start; }
+}
+
+@media (max-width: 900px) {
+    .mk-main { grid-template-columns: minmax(0, 1fr); padding: var(--space-3) var(--space-4) var(--space-6); }
+    .mk-rail, .mk-side { grid-column: auto; }
+}
+
+.mk-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-card);
+    overflow: hidden;
+}
+
+.mk-panel + .mk-panel { margin-top: var(--space-4); }
+
+.mk-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: 12px var(--space-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.mk-panel-head h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.mk-panel-body { padding: var(--space-4); }
+
+.mk-note {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+.mk-note a { color: var(--accent-text); }
+
+/* --------------------------------------------------------------------------
+   The instruments rail
+   -------------------------------------------------------------------------- */
+.mk-rail { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.mk-search input { min-height: 40px; font-size: 14px; }
+
+.mk-group-title {
+    padding: 0 var(--space-2) var(--space-2);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.mk-list { display: grid; gap: 1px; }
+
+.mk-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 13px;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.mk-row:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.mk-row[aria-current="page"] {
+    background: var(--accent-quiet);
+    color: var(--text-primary);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.mk-row-sym {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12.5px;
+}
+
+.mk-row-name {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mk-row-price {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.mk-row-price b { display: block; font-weight: 600; }
+.mk-row-price span { display: block; font-size: 11px; }
+
+.mk-row[hidden] { display: none; }
+
+/* The row and its star are laid out together rather than nested: the row is a
+   link to that instrument and the star is a button that pins it here, and a
+   button inside a link cannot be reached or announced as itself. The wrapper is
+   also what the search filter hides, so a filtered-out instrument takes both
+   halves away at once. */
+.mk-row-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px;
+}
+
+.mk-row-wrap[hidden] { display: none; }
+
+/* The change beside a row's price. `market.js` replaces this element's class
+   list with `mk-row-change` plus the tone class, so the base rule has to stand
+   on its own rather than only as a modifier. */
+.mk-row-change {
+    display: block;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The watchlist toggle sits inside the row without becoming the row's target:
+   the row is a link and this is a button beside it, which is why it is laid out
+   as a third column rather than wrapped around the whole thing. */
+.mk-watch-toggle {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+    transition: color var(--fast) var(--ease), background var(--fast) var(--ease), transform 0.26s var(--ease);
+}
+
+.mk-watch-toggle:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.mk-watch-toggle[aria-pressed="true"] { color: var(--gold); }
+.mk-watch-toggle[aria-pressed="true"]:hover { transform: scale(1.12); }
+
+.mk-watch-empty {
+    padding: var(--space-3) var(--space-2);
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   The chart
+   -------------------------------------------------------------------------- */
+.mk-chart-wrap {
+    position: relative;
+    height: min(58vh, 520px);
+    min-height: 320px;
+}
+
+.mk-chart-wrap[role="img"] { cursor: crosshair; }
+
+.mk-chart-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 0 var(--space-6);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.7;
+}
+
+.mk-periods {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 11px var(--space-4);
+    border-top: 1px solid var(--border);
+}
+
+.mk-period {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-weight: 600;
+    transition:
+        background var(--fast) var(--ease),
+        color var(--fast) var(--ease),
+        border-color var(--fast) var(--ease),
+        transform var(--fast) var(--ease);
+}
+
+.mk-period:hover { transform: translateY(-1px); border-color: var(--border-active); color: var(--text-primary); }
+
+.mk-period[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+}
+
+.mk-source {
+    margin-left: auto;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+/* --------------------------------------------------------------------------
+   Tables — positions, prints, fees, market
+   -------------------------------------------------------------------------- */
+.mk-rows { display: grid; gap: 2px; }
+
+.mk-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 7px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.mk-line + .mk-line { border-top: 1px solid var(--border); }
+
+.mk-line b {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.mk-line .mono { font-family: var(--font-mono); font-size: 12.5px; }
+
+.mk-prints {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.mk-prints th {
+    text-align: right;
+    padding: 6px 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    font-weight: 700;
+}
+
+.mk-prints th:first-child { text-align: left; }
+
+.mk-prints td {
+    padding: 6px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+}
+
+.mk-prints td:first-child { text-align: left; }
+.mk-prints tr:hover td { color: var(--text-primary); background: var(--surface-hover); }
+
+/* --------------------------------------------------------------------------
+   The order ticket
+   -------------------------------------------------------------------------- */
+.mk-ticket-input {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+
+.mk-ticket-input input { font-variant-numeric: tabular-nums; }
+
+.mk-sizes { display: flex; gap: 6px; margin-bottom: var(--space-4); flex-wrap: wrap; }
+
+.mk-size {
+    flex: 1;
+    min-width: 62px;
+    padding: 7px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.mk-size:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-active); }
+
+.mk-call {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: var(--tap-min);
+    padding: 11px 16px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--green), #15803d);
+    color: #fff;
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: filter var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+
+.mk-call:hover { filter: brightness(1.1); transform: translateY(-1px); text-decoration: none; }
+.mk-call:active { transform: none; }
+.mk-call[data-copied="true"] { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+.mk-call[aria-disabled="true"] { background: var(--surface-hover); color: var(--text-muted); filter: none; transform: none; cursor: not-allowed; }
+
+/* The two meters. Both are `transform: scaleX` from the script — a width
+   animation on a row that also changes colour is two layout passes a frame. */
+.mk-meter {
+    position: relative;
+    height: 5px;
+    margin-top: var(--space-3);
+    border-radius: var(--radius-pill);
+    background: var(--surface-hover);
+    overflow: hidden;
+}
+
+.mk-meter i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 100%;
+    border-radius: var(--radius-pill);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    background: var(--accent);
+    transition: transform 0.6s cubic-bezier(0.22, 0.61, 0.36, 1), background 0.3s var(--ease);
+}
+
+.mk-meter-label {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   The honest panels
+   --------------------------------------------------------------------------
+   Positions and history are the two panels a trading site has and this page
+   cannot: a position belongs to a *member*, and this page is public and
+   unauthenticated. So instead of an empty table that reads as "you hold
+   nothing", the panel says where the reading lives and what to type. */
+.mk-empty-state {
+    padding: var(--space-4);
+    border: 1px dashed var(--border-active);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 13.5px;
+    line-height: 1.65;
+}
+
+.mk-empty-state code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    font-size: 12.5px;
+}
+
+.mk-cmd-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 9px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.mk-cmd-row + .mk-cmd-row { border-top: 1px solid var(--border); }
+
+.mk-cmd-row code {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-primary);
+    min-width: 128px;
+}
+
+.mk-up { color: var(--green); }
+.mk-down { color: var(--red); }
+.mk-flat { color: var(--text-muted); }
+
+/* A price that has just changed gets one pulse, and no more: a number that
+   flashes on every tick is a page nobody can read a number off. */
+.mk-tick { animation: mk-tick 0.7s var(--ease); }
+
+@keyframes mk-tick {
+    0%   { background: rgba(var(--accent-rgb), 0.22); }
+    100% { background: transparent; }
+}
+
+/* One focus ring, and this sheet carries its own rather than leaning on the
+   shared one for a reason that only shows up on a trading surface: the shared
+   rule is a white outline, and two of these controls are *filled white text on a
+   coloured cap* — the call button and the selected period — where a white ring
+   sitting inside the fill is the one place the site-wide ring stops being a
+   ring. So the accent ring covers the controls on dark surfaces and the white
+   one covers the two that are themselves filled, which is the same pair the
+   shared rule already draws elsewhere on the site. */
+.mk-row:focus-visible,
+.mk-period:focus-visible,
+.mk-size:focus-visible,
+.mk-watch-toggle:focus-visible,
+.mk-search input:focus-visible,
+.mk-ticket-input input:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.mk-call:focus-visible,
+.mk-period[aria-pressed="true"]:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mk-tick { animation: none; }
+    .mk-row,
+    .mk-period,
+    .mk-size,
+    .mk-call,
+    .mk-watch-toggle,
+    .mk-meter i,
+    .mk-hud-big,
+    .mk-prints tr:hover td {
+        transition: none;
+    }
+}
+
+@media (max-width: 620px) {
+    .mk-hud { padding: 10px var(--space-4); }
+    .mk-hud-links { display: none; }
+    .mk-chart-wrap { height: 46vh; }
+}

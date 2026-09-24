@@ -21,6 +21,9 @@
    ========================================================================== #}
 {# The theme is stated in the markup, not left to a script: a page that renders
    before JavaScript runs is a page that already looks like this site. #}
+{# The theme control is a partial, not markup that lives here: the market page offers
+   the same four palettes and used to offer them from a second copy of this markup. #}
+{% from "_theme.html" import theme_button, theme_menu %}
 <!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -69,9 +72,7 @@
         {% endfor %}
 
         <div class="top__actions">
-          <button class="btn btn--ghost" type="button" data-theme-toggle aria-expanded="false" aria-controls="theme-menu">
-            <span aria-hidden="true">◐</span> <span data-theme-label>Dark</span>
-          </button>
+          {{ theme_button() }}
           {% if invite_url %}
           <a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>
           {% else %}
@@ -83,17 +84,7 @@
 
     {# The theme menu sits outside the flex row on purpose: a panel that is a flex
        item is a panel that reserves its width while it is closed. #}
-    <div class="theme-pop" id="theme-menu" data-open="false">
-      <div class="card card--pad-sm">
-        <p class="hint" id="theme-menu-label">Which palette this page is drawn in.</p>
-        <div class="theme-pop__row" role="group" aria-labelledby="theme-menu-label">
-          <button class="btn btn--quiet" type="button" data-theme-set="system" aria-pressed="true">System</button>
-          <button class="btn btn--quiet" type="button" data-theme-set="light" aria-pressed="false">Light</button>
-          <button class="btn btn--quiet" type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
-          <button class="btn btn--quiet" type="button" data-theme-set="contrast" aria-pressed="false">High contrast</button>
-        </div>
-      </div>
-    </div>
+    {{ theme_menu() }}
   </header>
 
   <main id="main">

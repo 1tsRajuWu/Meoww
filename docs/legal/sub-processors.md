@@ -44,7 +44,7 @@ single switch: the providers are a chain.
 | **meme-api.com** | a meme lookup | `cogs/fun.py` | disable the `fun` module |
 | **Tenor** | a search term for a GIF | `cogs/social.py` | disable the `social` module |
 | **TheCatAPI** | a request for a random cat picture | `cogs/fun.py` | disable the `fun` module |
-| **unpkg.com**, then **cdn.jsdelivr.net** | the browser's request for the chart library | `templates/market_live.html` (allowed by the CSP in `keep_alive.py`) | this is the visitor's browser, not the host; the chart page needs one of them |
+| **unpkg.com**, then **cdn.jsdelivr.net** | the browser's request for the chart library | `templates/market.html` (allowed by the CSP in `keep_alive.py`) | this is the visitor's browser, not the host; the chart page needs one of them |
 
 Images the Bot links (Imgur, Reddit's image hosts, Tenor media) are fetched by
 **Discord's own client** when it renders the card, not by the Bot.

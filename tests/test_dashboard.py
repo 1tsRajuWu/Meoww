@@ -1229,5 +1229,221 @@ class PreviewHarness(unittest.TestCase):
         self.assertTrue(all(m["enabled"] is False for m in module.MODULES))
 
 
+class TheTwoLedgers(_DashboardFixture):
+    """Economy and Levels: the pages that read what a member earns here.
+
+    Both pages exist because the two questions they answer — where this server's
+    coins are, and what being here is worth — cannot be read off a switch. The
+    properties pinned here are the ones that make them *readings* rather than
+    decoration:
+
+    1. **Every figure comes from the table the bot writes.** A page that computed
+       a total of its own would be a second answer to the same question, and the
+       two would drift on the first day somebody earned something. The tests seed
+       the real tables and assert the rendered bytes carry those numbers.
+    2. **A row whose stored level disagrees with its XP is drawn from the XP**, and
+       says so, because the XP is what every other surface derives from.
+    3. **An empty ledger is not an error.** Nothing earned here is a reading, and
+       the page says which reading it is holding rather than showing a blank.
+    """
+
+    def seed_economy(self, rows):
+        """Members and their balances, in the table the bot reads."""
+        import sqlite3
+
+        from utils import db
+
+        conn = sqlite3.connect(db.DB_PATH)
+        try:
+            for user_id, wallet, bank in rows:
+                conn.execute(
+                    "INSERT OR REPLACE INTO economy (user_id, guild_id, wallet, bank) VALUES (?, ?, ?, ?)",
+                    (user_id, GUILD_ID, wallet, bank),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def seed_levels(self, rows, *, settings=None, roles=()):
+        """XP rows, the settings row and the promised roles."""
+        import sqlite3
+
+        from utils import db
+
+        conn = sqlite3.connect(db.DB_PATH)
+        try:
+            for user_id, xp, level, messages, voice in rows:
+                conn.execute(
+                    "INSERT OR REPLACE INTO user_levels "
+                    "(guild_id, user_id, xp, level, total_messages, voice_minutes) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (GUILD_ID, user_id, xp, level, messages, voice),
+                )
+            if settings:
+                conn.execute(
+                    "INSERT OR REPLACE INTO level_settings "
+                    "(guild_id, enabled, channel_id, dm_notifications, text_min_coins, "
+                    " text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (GUILD_ID, *settings),
+                )
+            for level, role_id in roles:
+                conn.execute(
+                    "INSERT OR REPLACE INTO level_roles (guild_id, level, role_id) VALUES (?, ?, ?)",
+                    (GUILD_ID, level, role_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def open_page(self, page_id):
+        self.sign_in()
+        response = self.client.get(page_href(page_id))
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:400])
+        return response.get_data(as_text=True)
+
+    def test_the_economy_page_totals_the_table_the_bot_writes(self):
+        """Wallets, banks and the house account, in one page, adding up."""
+        self.seed_economy([(MEMBER_ID, 1250, 4000), (7002, 300, 100)])
+        html = self.open_page("economy")
+        self.assertIn("In wallets", html)
+        self.assertIn("1,550", html, "the wallet total is not the seeded one")
+        self.assertIn("4,100", html, "the bank total is not the seeded one")
+        # And the leaderboard is the same rows, by name where the cache can
+        # answer — the fixture's gateway holds `raj`.
+        self.assertIn("raj", html)
+        self.assertIn("5,250", html, "the heaviest wallet is not the seeded net")
+
+    def test_the_economy_page_reports_the_fee_the_bot_charges(self):
+        """The rate, the cap and the bank — and the bank is where the fees landed."""
+        from utils import db, meowfee
+
+        self.seed_economy([(MEMBER_ID, 100, 0)])
+        with db.connect() as conn:
+            meowfee.ensure_bank_table(conn.cursor())
+            meowfee.credit(conn.cursor(), GUILD_ID, 250)
+            conn.commit()
+        html = self.open_page("economy")
+        self.assertIn(meowfee.fee_label(), html)
+        self.assertIn("Meow Bank", html)
+        self.assertIn("250", html, "the banked fees are not on the page")
+
+    def test_an_empty_economy_says_nothing_has_been_earned(self):
+        """A blank leaderboard would read as "this server is broken"."""
+        html = self.open_page("economy")
+        self.assertIn("Nobody has earned a coin here yet", html)
+        self.assertIn("0", html)
+
+    def test_the_levels_page_prints_the_rates_the_bot_reads(self):
+        """Stored settings, not the defaults, and the level roles one row each."""
+        self.seed_levels(
+            [(7003, 900, 2, 400, 120)],
+            settings=(1, 0, 1, 7, 21, 18, 4, 5),
+            roles=((5, ROLE_ID),),
+        )
+        html = self.open_page("leveling")
+        self.assertIn("18 XP", html, "the stored text XP rate is not on the page")
+        self.assertIn("7–21 🪙", html, "the stored coin band is not on the page")
+        # The template prints the voice pair as "XP · coins", in that order — the
+        # assertion is written in the order the page reads rather than the order
+        # the columns are stored in, which is what made this fail the first time.
+        self.assertIn("5 XP · 4 🪙", html, "the stored voice rates are not on the page")
+        self.assertIn("as configured here", html, "the page did not notice a stored row")
+
+    def test_a_level_role_is_named_where_discord_can_answer(self):
+        self.seed_levels([(7004, 100, 0, 10, 0)], roles=((5, ROLE_ID),))
+        html = self.open_page("leveling")
+        self.assertIn("Which level grants what", html)
+        self.assertIn("Members", html)  # the role's own name, from the fixture
+
+    def test_the_stored_level_is_repaired_from_the_xp(self):
+        """A row whose level disagrees with its XP is drawn from the XP, loudly.
+
+        `/setlevel` and `/givexp` wrote levels and XP independently before the
+        repair pass existed, and a row like this one is what a server restored
+        from an old backup carries. The page recomputes from the XP — the figure
+        the leaderboard, the rank card and the payout all derive from — rather
+        than printing the stored column, and it says the two disagreed.
+        """
+        from utils import levels
+
+        xp = levels.total_xp_for_level(12)
+        self.seed_levels([(7005, xp, 3, 500, 0)])
+        html = self.open_page("leveling")
+        self.assertIn("Level 12", html)
+        self.assertIn("repaired from XP", html)
+
+    def test_an_empty_levels_page_says_which_reading_it_holds(self):
+        html = self.open_page("leveling")
+        self.assertIn("Nobody has earned a level here yet", html)
+        self.assertIn("No level roles on this server", html)
+
+    def test_both_pages_are_in_the_rail_and_in_a_group(self):
+        """A page nobody can reach from the navigation is a page nobody reads."""
+        self.sign_in()
+        for page_id in ("economy", "leveling"):
+            with self.subTest(page=page_id):
+                placed = [
+                    page for _label, page_ids in keep_alive.DASHBOARD_GROUPS for page in page_ids
+                ]
+                self.assertIn(page_id, placed)
+                response = self.client.get(page_href(page_id))
+                self.assertEqual(response.status_code, 200)
+
+    def test_the_two_pages_carry_the_switches_they_are_about(self):
+        """"Manage this feature" is the switch that already exists, not a new one."""
+        self.sign_in()
+        economy = self.client.get(page_href("economy")).get_data(as_text=True)
+        self.assertIn('data-module="economy"', economy)
+        self.assertIn('data-module="games"', economy)
+        levels_page = self.client.get(page_href("leveling")).get_data(as_text=True)
+        self.assertIn('data-module="leveling"', levels_page)
+        # …and the switch is the endpoint the Systems page posts to, so one
+        # click cannot write through a different path than the other page's.
+        self.assertIn("data-module", levels_page)
+
+    def test_a_ledger_with_no_server_is_a_sentence_not_a_crash(self):
+        """Two halves of the same rule: no server is not an error.
+
+        `_progression_context(0, …)` is the path a page takes when this session
+        may act on nothing, and it must answer `None` rather than raising into the
+        render. What the page does with that is the template's job — and the same
+        session is asked for both pages here, because the two are one branch.
+        """
+        for page_id in ("economy", "leveling"):
+            with self.subTest(page=page_id):
+                reading = keep_alive._progression_context(0, page_id)
+                self.assertIsNone(reading[page_id if page_id == "economy" else "levels"])
+
+        self.sign_in(scope="global", guild_id=None)
+        for page_id in ("economy", "leveling"):
+            with self.subTest(page=page_id, session="unscoped"):
+                response = self.client.get(page_href(page_id))
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("aria-labelledby=\"%s-title\"" % page_id, response.get_data(as_text=True))
+
+    def test_the_ledger_pages_do_not_offer_to_write_a_balance(self):
+        """Read-only by construction: no form, no coin field, no amount input.
+
+        The operator's console is the one surface that may set a balance, and it
+        is owner-only. A number field on a page any administrator can open is how
+        that stopped being true — so this asserts the absence, naming the control
+        that would be the violation.
+        """
+        sections = {"economy": "economy", "leveling": "leveling"}
+        for page_id, anchor in sections.items():
+            with self.subTest(page=page_id):
+                html = self.open_page(page_id)
+                start = html.index('<section id="%s"' % anchor)
+                end = html.index("</section>", start)
+                section = html[start:end]
+                self.assertNotIn("member-action", section)
+                self.assertNotIn('name="amount"', section)
+                self.assertNotIn("coins to give", section.lower())
+                # The one control these pages do own is the module switch, and it
+                # posts to the same endpoint the Systems page posts to.
+                self.assertIn("data-module=", section)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,39 @@
+{# ==========================================================================
+   _theme.html — the theme control, in one place.
+
+   Two surfaces offer the same four palettes, and they were offering them from
+   two different copies: the site frame's own markup, and — on the market page —
+   an `{% include "theme_picker.html" %}`, a template the redesign had already
+   archived. That is why `/market/<symbol>` answered 500 rather than a page. A
+   control written twice drifts; a control written once cannot, so both the frame
+   and the market page import these two macros.
+
+   Two macros rather than one because the button and the panel have to sit in
+   different places: the button belongs in the header's action row, and the panel
+   is deliberately *outside* that row, since a panel that is a flex item reserves
+   its width while it is closed. Both surfaces therefore call `theme_button()` in
+   their own header and `theme_menu()` once, after it.
+
+   The four values are the contract with `static/theme.js` — `system`, `light`,
+   `dark`, `contrast` — and they are written here once, which is the point.
+   ========================================================================== #}
+
+{% macro theme_button() %}
+<button class="btn btn--ghost" type="button" data-theme-toggle aria-expanded="false" aria-controls="theme-menu">
+  <span aria-hidden="true">◐</span> <span data-theme-label>Dark</span>
+</button>
+{% endmacro %}
+
+{% macro theme_menu() %}
+<div class="theme-pop" id="theme-menu" data-open="false">
+  <div class="card card--pad-sm">
+    <p class="hint" id="theme-menu-label">Which palette this page is drawn in.</p>
+    <div class="theme-pop__row" role="group" aria-labelledby="theme-menu-label">
+      <button class="btn btn--quiet" type="button" data-theme-set="system" aria-pressed="true">System</button>
+      <button class="btn btn--quiet" type="button" data-theme-set="light" aria-pressed="false">Light</button>
+      <button class="btn btn--quiet" type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+      <button class="btn btn--quiet" type="button" data-theme-set="contrast" aria-pressed="false">High contrast</button>
+    </div>
+  </div>
+</div>
+{% endmacro %}

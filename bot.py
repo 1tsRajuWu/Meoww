@@ -28,7 +28,8 @@ load_dotenv()
 from keep_alive import keep_alive  # noqa: E402
 from utils import (  # noqa: E402
     alert_webhook, bot_channels, command_publish, command_scope, commands_sync,
-    config_audit, db, features, guild_directory, modules, operator_log, permissions,
+    config_audit, db, features, guild_directory, modules, operator_log, pause,
+    permissions,
 )
 
 # Force real-time unbuffered log streaming to Render / cloud console
@@ -170,10 +171,42 @@ def set_module_state(guild_id: int, module_name: str, enabled: bool):
 bot.is_module_enabled = is_module_enabled
 bot.set_module_state = set_module_state
 
+
+def is_paused() -> bool:
+    """Whether the operator has paused the bot everywhere (see `utils.pause`).
+
+    Exposed on the bot for the same reason the module readers are: other parts of
+    the process — the scheduler, the uptime card, the console — ask the *bot*
+    what it is doing rather than importing the state from two places.
+    """
+    return pause.is_paused()
+
+
+bot.is_paused = is_paused
+
 # Global module toggle interceptor for all slash commands
 async def global_module_check(interaction: discord.Interaction) -> bool:
     if not interaction.command:
         return True
+
+    # The operator's bot-wide pause, checked first because it outranks every
+    # per-server switch: a pause means *no* server is answered, including one
+    # where the system in question is on. The reading is a cached dictionary
+    # (`utils.pause`), so this costs nothing measurable per interaction.
+    #
+    # The message is the whole point of doing it here rather than by stopping the
+    # process. A paused bot that simply went quiet is indistinguishable from a
+    # crashed one, and the member who typed `/daily` would try again, and again —
+    # so the refusal says what it is, who did it and where it can be undone.
+    if pause.is_paused():
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "😴 The bot is paused by its operator, so commands are not being "
+                "answered anywhere right now. This is deliberate rather than a "
+                "fault — check back in a little while.",
+                ephemeral=True,
+            )
+        return False
 
     if not interaction.guild_id:
         # Most commands read guild-scoped state (wallet, level row, module

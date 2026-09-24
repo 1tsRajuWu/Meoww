@@ -1,0 +1,368 @@
+{#
+  The market.
+
+  A trading surface, arranged the way trading surfaces have been arranged for
+  thirty years: instruments down the left, the chart in the middle with the
+  order ticket beside it, and the account panels underneath. The arrangement is
+  a convention rather than a copy — nothing here is taken from any particular
+  site, and the only thing borrowed from a trading terminal is the shape, which
+  is the part a reader's eye already knows how to read.
+
+  What it is honest about, and each of these is deliberate:
+
+  * **It is a calculator, not a broker.** This page is public and
+    unauthenticated, so there is no order endpoint and no session: the ticket
+    works out what a given spend would get at the observed price and then sends
+    the reader to the command that actually trades. A "Buy" button that looked
+    real and did nothing would be the one dishonest control on the surface.
+  * **Positions and history are named rather than faked.** A position belongs to
+    a member, so the panel says where the reading lives and what to type instead
+    of drawing an empty table that reads as "you hold nothing".
+  * **Everything is read, never written.** The instruments are the registry, the
+    prices are the endpoint, the prints are the candles that were fetched
+    anyway, and the fee label comes from the payload the bot itself uses. There
+    is no number on this page that the bot would disagree with.
+
+  The chart library is the only third-party request the whole project allows,
+  pinned to an exact version, and it is allowed to fail: the prices, the prints
+  and the ticket do not need it, and the chart card says so in words when it
+  cannot be built.
+#}
+{# The theme control is the site's own, imported rather than copied: this page used to
+   include `theme_picker.html`, which the redesign archived — an address that renders a
+   template nobody ships is a 500, which is what this page was answering. #}
+{% from "_theme.html" import theme_button, theme_menu %}
+<!doctype html>
+<html lang="en" class="no-js" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0c0c0d">
+    <title>🐾 {{ symbol }} · {{ name }} — the market</title>
+    <meta name="description" content="Live prices for {{ symbol }} ({{ name }}) on {{ bot_name }}: the board, the chart, the fee and a ticket that shows what a spend would get at the observed price.">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ asset_version('favicon.svg') }}">
+    {# The shared system first, then this page's own layout — the same order and
+       the same split the console uses: the palette is shared, the arrangement is
+       the page's. #}
+    <link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+    <link rel="stylesheet" href="/static/market.css?v={{ asset_version('market.css') }}">
+    {# Not deferred, and the only blocking script on the page: it reads the
+       visitor's stored theme and sets `data-theme` before the first paint. #}
+    <script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
+</head>
+<body class="has-aurora">
+    <div class="aurora" aria-hidden="true"><span class="grid"></span></div>
+    <a class="skip-link" href="#chart">Skip to the chart</a>
+
+    <div class="mk">
+        <header class="mk-hud">
+            <a class="mk-brand" href="/">
+                {# The site's own mark, drawn from the same two spans the frame's header
+                   wears. It replaces an `<img src="/static/logo.svg">` and the file went
+                   with the redesign, so every instrument page opened on a broken-picture
+                   glyph where the brand should be. #}
+                <span class="brand__mark" aria-hidden="true">{{ bot_initial }}</span>
+                <span class="brand__name">{{ bot_name }}<span class="brand__dot">.</span></span>
+            </a>
+
+            <div class="mk-hud-price">
+                <span class="mk-hud-sym">
+                    {{ symbol }} <span class="muted">· {{ name }}</span>
+                </span>
+                {# Both of these are live regions: the price is the page's subject
+                   and the feed's state is the one thing a reader must not have to
+                   guess. #}
+                <strong class="mk-hud-big" id="price" role="status" aria-live="polite" aria-atomic="true">—</strong>
+                <span class="mk-hud-change" id="change">—</span>
+            </div>
+
+            <div class="mk-hud-right">
+                <span class="mk-feed" id="mk-feed" data-state="idle">
+                    <span class="dot dot-idle" aria-hidden="true"></span>
+                    <span id="mk-feed-text">loading</span>
+                </span>
+                <nav class="mk-hud-links" aria-label="Elsewhere">
+                    {# `/servers`, not `/dashboard`: the console's addresses forward there now,
+                       and a link should name the page it opens rather than a hop. #}
+                    <a href="/servers">Your servers</a>
+                    <a href="/market/{{ symbol }}#positions">Positions</a>
+                    <a href="https://www.tradingview.com/symbols/{{ symbol }}/" target="_blank" rel="noopener">Chart on TradingView</a>
+                </nav>
+                {{ theme_button() }}
+            </div>
+            {{ theme_menu() }}
+        </header>
+
+        <main class="mk-main">
+            {# ---------------------------------------------------------------- #}
+            {# Instruments                                                      #}
+            {# ---------------------------------------------------------------- #}
+            <aside class="mk-rail" aria-label="Instruments" data-stagger="70">
+                <section class="mk-panel" data-reveal>
+                    <div class="mk-panel-head">
+                        <h2>Instruments</h2>
+                        <span class="mk-note">{{ instrument_count }} tradable</span>
+                    </div>
+                    <div class="mk-panel-body">
+                        <div class="mk-search">
+                            <label class="visually-hidden" for="mk-search">Search instruments</label>
+                            <input type="search" id="mk-search" placeholder="Search by ticker or name…" autocomplete="off">
+                        </div>
+                    </div>
+                    {# Rendered by the server, so the list is on the page before any
+                       script runs and a visitor with no script still gets the board.
+                       The prices beside them are filled in by the market script. #}
+                    {% for group in instrument_groups %}
+                    <div class="mk-panel-body" style="padding-bottom:0">
+                        <h3 class="mk-group-title">{{ group.label }}</h3>
+                    </div>
+                    <div class="mk-list" style="padding:0 8px 12px">
+                        {% for instrument in group.instruments %}
+                        <div class="mk-row-wrap" data-instrument="{{ instrument.symbol }} {{ instrument.name }} {{ group.label }}">
+                            <a class="mk-row" href="/market/{{ instrument.symbol }}" data-hover="y:-2"
+                               {% if instrument.symbol == symbol %}aria-current="page"{% endif %}>
+                                <span>
+                                    <span class="mk-row-sym">{{ instrument.symbol }}</span>
+                                    <span class="mk-row-name">{{ instrument.name }}</span>
+                                </span>
+                                <span class="mk-row-price">
+                                    <b data-price="{{ instrument.symbol }}">—</b>
+                                    <span data-change="{{ instrument.symbol }}">—</span>
+                                </span>
+                            </a>
+                            <button type="button" class="mk-watch-toggle" data-watch="{{ instrument.symbol }}"
+                                    aria-pressed="false" aria-label="Pin {{ instrument.symbol }} to the watchlist">☆</button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                    <p class="mk-watch-empty" id="mk-search-empty" hidden>No instrument matches that.</p>
+                </section>
+
+                <section class="mk-panel" data-reveal>
+                    <div class="mk-panel-head">
+                        <h2>Watchlist</h2>
+                        <span class="mk-note">this browser</span>
+                    </div>
+                    <div class="mk-panel-body" id="mk-watch-list">
+                        <p class="mk-watch-empty">
+                            Nothing pinned yet. The star beside an instrument keeps it here —
+                            in this browser, and nowhere else.
+                        </p>
+                    </div>
+                </section>
+            </aside>
+
+            {# ---------------------------------------------------------------- #}
+            {# The chart                                                        #}
+            {# ---------------------------------------------------------------- #}
+            <section class="mk-center" aria-label="Price" data-stagger="80">
+                <div class="mk-panel" id="chart" data-reveal>
+                    <div class="mk-panel-head">
+                        <h2>{{ symbol }} · {{ name }}</h2>
+                        <span class="mk-source" id="axisNote">· coins</span>
+                    </div>
+                    {# Named for assistive tech, with the numbers below carrying the
+                       same data: a canvas is a picture, and a picture of a chart says
+                       nothing on its own. #}
+                    <div class="mk-chart-wrap" id="chartWrap" role="img"
+                         aria-label="Price history for {{ symbol }} — the period move, the prints table and the ticket below carry the same data"></div>
+                    <div class="mk-periods" id="periods" role="group" aria-label="Chart period">
+                        {% for key, p in periods %}
+                        <button type="button" class="mk-period{% if key == default_period %} is-on{% endif %}"
+                                data-period="{{ key }}" data-hover="y:-2"
+                                aria-pressed="{{ 'true' if key == default_period else 'false' }}">{{ p.label }}</button>
+                        {% endfor %}
+                        <span class="mk-source" id="candleSource">—</span>
+                    </div>
+                    <div class="mk-panel-body" style="padding-top:0">
+                        <p class="mk-note" id="historyNote" role="status" aria-live="polite">
+                            Loading the history for {{ symbol }}…
+                        </p>
+                        <p class="mk-note" id="status" role="status" aria-live="polite" aria-atomic="true">
+                            Loading live prices…
+                        </p>
+                    </div>
+                </div>
+
+                {# ---------------------------------------------------------------- #}
+                {# Prints                                                           #}
+                {# ---------------------------------------------------------------- #}
+                <div class="mk-panel" id="history" data-reveal>
+                    <div class="mk-panel-head">
+                        <h2>Recent prints</h2>
+                        <span class="mk-source" id="mk-move-label">Period move —</span>
+                    </div>
+                    <div class="mk-panel-body">
+                        <div class="mk-meter" aria-hidden="true"><i id="mk-move-meter"></i></div>
+                        <table class="mk-prints">
+                            <caption class="visually-hidden">The eight most recent candles for {{ symbol }}, newest first</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Time</th>
+                                    <th scope="col">Open</th>
+                                    <th scope="col">High</th>
+                                    <th scope="col">Low</th>
+                                    <th scope="col">Close</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mk-prints-body">
+                                <tr><td colspan="5" class="mk-note">Loading the history…</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="mk-note" style="margin-top:0.75rem">
+                            Every row is a candle the chart is drawn from, so the table and the
+                            graph can never disagree about the same period.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mk-panel" id="positions" data-reveal>
+                    <div class="mk-panel-head">
+                        <h2>Positions</h2>
+                        <span class="mk-note">per member</span>
+                    </div>
+                    <div class="mk-panel-body">
+                        {# The honest version of a panel a trading site would fill with
+                           an account table: this page has no session, so there is
+                           nothing to show here and the panel says where it lives. #}
+                        <div class="mk-empty-state">
+                            A position belongs to a <b>member</b>, not to a page — and this page
+                            is public, so it has no idea who you are. Your averages, holdings and
+                            trade history are one command away in Discord:
+                            <div style="margin-top:0.75rem">
+                                <div class="mk-cmd-row"><code>/market portfolio</code><span>What you hold, with the average cost of each</span></div>
+                                <div class="mk-cmd-row"><code>/market chart</code><span>The candles with your own average drawn on them</span></div>
+                                <div class="mk-cmd-row"><code>/market buy</code><span>Buy at the observed price — refused rather than guessed when a price is stale</span></div>
+                                <div class="mk-cmd-row"><code>/market sell</code><span>Sell back into coins, at the same observed price</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {# ---------------------------------------------------------------- #}
+            {# The ticket and the readings                                       #}
+            {# ---------------------------------------------------------------- #}
+            <aside class="mk-side" aria-label="The ticket and the market's own readings" data-stagger="70">
+                <section class="mk-panel mk-ticket" id="ticket" data-reveal>
+                    <div class="mk-panel-head">
+                        <h2>Order ticket</h2>
+                        <span class="mk-note">what a spend gets</span>
+                    </div>
+                    <div class="mk-panel-body">
+                        {# The window is the bot's, not this page's: the input's own limits
+                           and the shortcuts below are drawn from `MIN_TRADE_COINS` and
+                           `MAX_TRADE_COINS`, because an amount outside them is a command
+                           Discord refuses — the hand-written shortcut list ended at 1M,
+                           four times the largest fill this market allows. #}
+                        <label class="field-label" for="spend">Coins to spend</label>
+                        <div class="mk-ticket-input">
+                            <input id="spend" type="number" min="{{ min_trade }}" max="{{ max_trade }}"
+                                   step="{{ min_trade }}" value="{{ default_spend }}"
+                                   inputmode="numeric" autocomplete="off">
+                        </div>
+                        <div class="mk-sizes" role="group" aria-label="Quick sizes">
+                            {% for size in quick_sizes %}
+                            <button type="button" class="mk-size" data-size="{{ size.value }}"
+                                    data-hover="y:-2">{{ size.label }}</button>
+                            {% endfor %}
+                        </div>
+                        <div class="mk-rows" aria-live="polite">
+                            <div class="mk-line"><span>Units you get</span><b id="units">—</b></div>
+                            <div class="mk-line"><span>Price per unit</span><b class="mono" id="unitPrice">—</b></div>
+                            <div class="mk-line"><span>🐾 {{ treat_fee_label }}</span><b class="mono" id="treat">—</b></div>
+                            <div class="mk-line"><span>Buying power left</span><b id="notional">—</b></div>
+                        </div>
+                        <p class="mk-note" style="margin-top:0.75rem">
+                            Fills happen at the observed price — there is no spread, and the fee is
+                            the only thing between your spend and the units. One fill is between
+                            {{ "{:,}".format(min_trade) }} and {{ "{:,}".format(max_trade) }} coins,
+                            which is the bot's own window: outside it the command is refused
+                            rather than rounded.
+                        </p>
+                        <div style="margin-top:1rem">
+                            {# A copier rather than a Buy button: it puts the *exact* command on
+                               the clipboard — instrument and amount, the amount being the one
+                               worked out above — because the order is placed in Discord, where
+                               the bot knows who the reader is. #}
+                            <button type="button" class="mk-call" id="mk-call" aria-disabled="true">Waiting for a price…</button>
+                        </div>
+                        <p class="mk-note" style="margin-top:0.6rem">
+                            This ticket is a calculator: the order itself is placed in Discord with
+                            <code>/market buy {{ symbol }} &lt;coins&gt;</code>, where the bot knows who you
+                            are. What the ticket shows is what that fill would do — same observed
+                            price, same fee.
+                        </p>
+                        <button type="button" class="mk-note" data-drawer="mk-how-fill"
+                                aria-expanded="false" style="background:none;border:0;padding:0.5rem 0;text-align:left;cursor:pointer;color:var(--accent-text)">
+                            How the fill works
+                        </button>
+                        <div id="mk-how-fill">
+                            <p class="mk-note">
+                                The treat is banked into Meow Bank, the server's own house account —
+                                which is itself one of the systems an administrator can switch off.
+                                When a price is older than the freshness window the trade is
+                                refused, because the alternative is filling at a number the bot
+                                cannot vouch for.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="mk-panel" id="market" data-reveal>
+                    <div class="mk-panel-head"><h2>Market</h2></div>
+                    <div class="mk-panel-body mk-rows">
+                        <div class="mk-line"><span>1 USD</span><b id="rate">—</b></div>
+                        <div class="mk-line"><span>Instruments</span><b id="count">—</b></div>
+                        <div class="mk-line"><span>Sources</span><b id="sources">—</b></div>
+                        <div class="mk-line"><span>No reading right now</span><b id="missing">—</b></div>
+                        <div class="mk-line"><span>Period move</span><b id="periodMove">—</b></div>
+                        <div class="mk-line"><span>Freshness window</span><b id="freshness">—</b></div>
+                    </div>
+                </section>
+
+                <section class="mk-panel" data-reveal>
+                    <div class="mk-panel-head"><h2>Fees</h2></div>
+                    <div class="mk-panel-body mk-rows">
+                        <div class="mk-line"><span>🐾 {{ treat_fee_label }}</span><b id="feeLabel">—</b></div>
+                        <div class="mk-line"><span>Rate</span><b id="feeRate">—</b></div>
+                        <div class="mk-line"><span>Banked to</span><b>Meow Bank</b></div>
+                    </div>
+                </section>
+
+                <section class="mk-panel" data-reveal>
+                    <div class="mk-panel-head"><h2>Feed</h2></div>
+                    <div class="mk-panel-body mk-rows">
+                        <div class="mk-line"><span>Last observation</span><b id="feedAge">—</b></div>
+                        <div class="mk-line"><span>Polled by this page</span><b>every 8s</b></div>
+                        <div class="mk-line"><span>History reloaded</span><b>every 60s</b></div>
+                    </div>
+                    <div class="mk-panel-body" style="padding-top:0">
+                        <p class="mk-note">
+                            Trading pauses when a price is older than the freshness window, and a
+                            fill is refused rather than guessed. The same window is what makes
+                            the pill at the top say <b>stale</b> rather than <b>live</b>.
+                        </p>
+                    </div>
+                </section>
+            </aside>
+        </main>
+    </div>
+
+    {# The two values the script cannot know: which instrument this is, and which
+       period the server opened it on. A payload rather than inline script, so the
+       page's own behaviour stays in one file that a browser caches. #}
+    <script type="application/json" id="market-boot">{{ boot_json|safe }}</script>
+
+    {# The chart library, pinned to an exact version. Loaded here rather than with
+       `defer` in the head because it is the page's only third-party request and
+       the last thing on the critical path: the browser has already painted the
+       board and started the quotes fetch by the time this is reached, and
+       `market.js` treats its absence as an ordinary condition. #}
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="/static/motion.js?v={{ asset_version('motion.js') }}"></script>
+    <script src="/static/anim.js?v={{ asset_version('anim.js') }}"></script>
+    <script src="/static/market.js?v={{ asset_version('market.js') }}"></script>
+</body>
+</html>
