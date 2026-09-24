@@ -27,7 +27,7 @@ bot_thread.start()
 
 # 2. Import Flask application from keep_alive
 import keep_alive
-from starlette.middleware.wsgi import WSGIMiddleware
+from a2wsgi import WSGIMiddleware
 from fastapi import FastAPI
 import gradio as gr
 import uvicorn
@@ -64,7 +64,11 @@ fastapi_app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
 # Mount Flask app as root to handle /api/*, /dashboard, /owner, /health, /
 fastapi_app.mount("/", WSGIMiddleware(keep_alive.app))
 
+# Expose app at module level for ASGI runners
+app = fastapi_app
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", os.environ.get("GRADIO_SERVER_PORT", 7860)))
     print(f"[HF-SPACES] Serving API and Dashboard on port {port}...", flush=True)
     uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
+
