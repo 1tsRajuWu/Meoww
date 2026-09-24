@@ -656,12 +656,17 @@ def render_dashboard(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     import keep_alive
-    from utils import command_publish
+    from utils import brand, command_publish
 
     env = Environment(
         loader=FileSystemLoader("templates"),
         autoescape=select_autoescape(["html"]),
     )
+    # …and the brand, for the same reason and with a sharper failure: the frame's
+    # `<meta name="theme-color">` reads `brand.BG_HEX`, and a bare environment
+    # without the global raises `'brand' is undefined` rather than rendering an
+    # empty colour — which is the loud direction, and the one to keep.
+    env.globals["brand"] = brand
     # The templates ask the *app* for a cache-busting token (`asset_version`),
     # because `/static/*` is served immutable for a year. This environment is
     # not the app, so it has to be handed the same function — otherwise every

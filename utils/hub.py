@@ -27,7 +27,7 @@ import hashlib
 import os
 import re
 
-from utils import ai_guard, config_audit, features
+from utils import ai_guard, brand, config_audit, features
 
 # ---------------------------------------------------------------------------
 # The pages
@@ -802,15 +802,12 @@ CHANGES_SHOWN = 40
 #: the app's shared `static/`. Listed rather than globbed so a page cannot come to
 #: depend on an asset nobody is shipping, and `tests/test_hub.py` fails on a
 #: reference to anything outside this set plus the hub's own two files.
+#:
+#: The family itself is `utils/brand.py`'s, and read rather than restated: the
+#: list used to name four logo marks and four favicons drawn for a nine-theme
+#: vocabulary, so a rebrand had to edit two lists in two languages and the one
+#: that was forgotten shipped a broken image silently. One author, and
+#: `tests/test_brand.py` holds these two to each other.
 SHARED_ASSETS = (
-    "logo.svg",
-    "logo-sakura.svg",
-    "logo-forest.svg",
-    "logo-ember.svg",
-    "favicon.svg",
-    "favicon-sakura.svg",
-    "favicon-forest.svg",
-    "favicon-ember.svg",
-    "cursor-default.svg",
-    "cursor-pointer.svg",
+    *brand.ASSETS,
 )

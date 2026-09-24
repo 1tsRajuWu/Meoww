@@ -609,6 +609,15 @@
 
 .command__copy:hover { color: var(--text-primary); border-color: var(--line-strong); }
 
+/* The row that owns the button is the row that reveals it — and the station
+   table's rows are `.radio-row`, not `.command`, so naming only `.command` here
+   left every one of the 308 *Copy* buttons at `opacity: 0` on a desktop pointer:
+   no visible affordance, and an invisible control the width of a name sitting in
+   the middle of each row, which a click anywhere near it copied from silently.
+   `:focus-within` is the same reveal for the pointer that arrives by keyboard. */
+.radio-row:hover .command__copy,
+.radio-row:focus-within .command__copy { opacity: 1; }
+
 /* On a pointer that can be a finger the button is always visible and takes the
    44px floor: 30px is a hover affordance, not something to aim at. */
 @media (pointer: coarse) {

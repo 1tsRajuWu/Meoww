@@ -7,11 +7,40 @@ loading at all. A subcommand nests inside its parent and costs none of that
 budget, so the commands that address the *bot* rather than any server's members
 now live in one group, and there is room for the next one.
 """
+import sys
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from utils import config_audit, db
+
+
+def _schedule_backup() -> None:
+    """Push the database to the cloud now that a switch has moved.
+
+    The same reason ``keep_alive._schedule_cloud_backup`` exists for the
+    dashboard's switches: the periodic upload runs every 25 seconds, and a
+    restart inside that window restores the snapshot from *before* the change —
+    an administrator who turned a system on and watched it work would find it off
+    again. Every switch this project has is supposed to schedule this, so a third
+    surface that forgot would be the same defect this module's sibling already
+    fixed once.
+
+    Reached through ``sys.modules`` rather than imported: ``keep_alive`` builds
+    the whole Flask application at import time, and the only process that has a
+    backup loop to race is the one that already imported it (the dashboard runs
+    in a thread beside the bot). A test process has no loop, so an absent module
+    is a no-op rather than a reason to import one.
+    """
+    module = sys.modules.get("keep_alive")
+    hook = getattr(module, "_schedule_cloud_backup", None)
+    if not callable(hook):
+        return
+    try:
+        hook()
+    except Exception as exc:  # noqa: BLE001 — a backup is never worth a failure
+        print(f"[MODULES] ⚠️ could not schedule a backup after a switch: {exc}", flush=True)
 
 #: The two seeded channel IDs below only exist in the home server. Writing them
 #: into any other guild pointed its moderation log at a channel that isn't there
@@ -574,6 +603,117 @@ class BotConfig(commands.Cog):
             await interaction.followup.send(body, ephemeral=True)
         else:
             await interaction.response.send_message(body, ephemeral=True)
+
+    # ── this server's systems ───────────────────────────────────────────────
+
+    @operator_group.command(
+        name="legacy",
+        description="This server's legacy systems — Radio and Anonymous Q&A: show them, or switch them.",
+    )
+    @app_commands.describe(
+        state="On: offer Radio and the question box in this server again. Off: hide both (the default).",
+    )
+    @app_commands.choices(
+        state=[
+            app_commands.Choice(name="🗄️ On — offer both again", value="on"),
+            app_commands.Choice(name="🚫 Off — hide both (the default)", value="off"),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def legacy(
+        self,
+        interaction: discord.Interaction,
+        state: app_commands.Choice[str] | None = None,
+    ):
+        """The one switch that keeps the systems this bot grew up on reachable.
+
+        Radio and Anonymous Q&A are **kept** rather than deleted, and off is where
+        they start: a server that never used either loses nothing, and a server
+        that did gets them back rather than waking up to two commands that are
+        simply gone. One flag for both, because they left the active set for the
+        same reason and because "two more things to configure" is the opposite of
+        what somebody asking for an off switch wants.
+
+        Off is the *declared* state, not a refusal at run time, and the difference
+        is the picker: a server whose switch is off does not offer the commands at
+        all — see ``utils/command_scope`` — while the command's own gate says so in
+        words for anybody who arrived from an old bookmark.
+
+        Administrator rather than this group's usual application-owner check: what
+        is being decided is *this server's* feature set, which is the same call the
+        dashboard's Systems page hands to whoever administers the server.
+        """
+        from utils import features, modules
+
+        guild_id = interaction.guild_id
+        if guild_id is None:
+            return await interaction.response.send_message(
+                "This is a per-server setting.", ephemeral=True
+            )
+
+        feature = features.get("legacy")
+        roots = sorted({line.split(" ")[0] for line in (feature.commands if feature else ())})
+        listed = " and ".join(roots) or "The legacy commands"
+
+        changed = state is not None
+        if changed:
+            on = state.value == "on"
+            if not modules.set_enabled(guild_id, "legacy", on):
+                return await interaction.response.send_message(
+                    "❌ I could not save that, so nothing changed. The reason is in "
+                    "the host's log.",
+                    ephemeral=True,
+                )
+            self._republish(guild_id)
+            _schedule_backup()
+        else:
+            on = modules.is_enabled(guild_id, "legacy")
+
+        if on:
+            body = (
+                f"🗄️ **Legacy systems: on.** {listed} are in this server's picker, "
+                "exactly as they were — nothing about either of them changed while "
+                "they were off."
+            )
+            if changed:
+                body += (
+                    "\n-# Discord's own client keeps a command list for a moment, so "
+                    "give the picker a minute to catch up."
+                )
+            else:
+                body += "\n-# `/bot legacy state:Off` hides them here."
+        else:
+            body = (
+                f"🗄️ **Legacy systems: off.** {listed} are not offered in this "
+                "server — Radio and Anonymous Q&A left the active set when the bot "
+                "became a management product, and off is where they start for every "
+                "server."
+            )
+            body += (
+                "\n-# `/bot legacy state:On` offers both again."
+                if not changed
+                else "\n-# Discord's own client keeps a command list for a moment, "
+                "so give the picker a minute to catch up."
+            )
+        await interaction.response.send_message(body, ephemeral=True)
+
+    def _republish(self, guild_id: int) -> bool:
+        """Ask for this server's command list to be republished.
+
+        A module switch **is** a command-set change: the picker is a per-server
+        list (see ``utils/command_scope``), so flipping the flag without asking
+        for a pass leaves the commands offered in a server that has them off until
+        the next boot. Nothing is waited for — the publish happens on the loop that
+        owns the gateway, which is where ninety Discord writes belong.
+        """
+        hook = getattr(self.bot, "resync_commands", None)
+        if not callable(hook):
+            return False
+        try:
+            return bool(hook(guild_id))
+        except Exception as exc:  # noqa: BLE001 — reported, never fatal to the switch
+            print(f"[SYNC] could not queue a republish for {guild_id}: {exc}", flush=True)
+            return False
 
     @operator_group.command(
         name="bug",

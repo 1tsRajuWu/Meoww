@@ -230,14 +230,25 @@ class TheBrandMarkCannotGoMissing(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "scripts"))
         import build_owner  # noqa: PLC0415
 
-        copied = {name for name in build_owner.STATIC_ASSETS if name.startswith("logo")}
-        on_disk = {path.name for path in STATIC.glob("logo*.svg")}
+        # The mark *family* rather than the logos alone: the brand draws one
+        # wordmark and one icon, and the floor exists so this cannot pass by
+        # checking an empty set — which is what a name pattern matching nothing
+        # would do.
+        patterns = ("logo", "favicon")
+        copied = {
+            name for name in build_owner.STATIC_ASSETS
+            if name.startswith(patterns)
+        }
+        on_disk = {
+            path.name for path in STATIC.iterdir()
+            if path.name.startswith(patterns) and path.suffix == ".svg"
+        }
         self.assertEqual(
             on_disk - copied,
             set(),
-            "a logo exists in static/ but the owner build does not copy it",
+            "a mark exists in static/ but the owner build does not copy it",
         )
-        self.assertGreaterEqual(len(copied), 2)
+        self.assertGreaterEqual(len(copied), 2, "the mark family was not found at all")
 
 
 if __name__ == "__main__":

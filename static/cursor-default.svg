@@ -1,5 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- Precision modern arrow cursor with accent node and crisp outline -->
+  <!-- The page cursor. The arrow is the shape every visitor already knows their
+       way around; what carries the brand is the node at its shoulder, which is
+       the keystone wedge rather than a dot — the same three-shape mark as the
+       logo, at four pixels. The outline is near-black on a near-white fill so it
+       reads on the house black and on a white page alike. -->
   <defs>
     <filter id="cur-shadow" x="-25%" y="-25%" width="150%" height="150%">
       <feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.45" />
@@ -9,6 +13,6 @@
     <path d="M4 3 L4 25 L10.5 19.5 L16.5 28 L19.5 26 L13.5 17.5 L22 17.5 Z"
           fill="#fbfcfe" stroke="#090a0f" stroke-width="1.6" stroke-linejoin="round" />
     <polygon points="5.5,5.5 5.5,22 10.5,18 16.5,26 18,25 12,16.5 19,16.5" fill="#fbfcfe" />
-    <circle cx="9.5" cy="10" r="2.2" fill="#5b5ef0" />
+    <path d="M7.6 7.6 L11.4 7.6 L12.4 11.6 L6.6 11.6 Z" fill="#2dd4bf" />
   </g>
 </svg>

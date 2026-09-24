@@ -17,7 +17,7 @@ from unittest import mock
 
 import keep_alive
 from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
-from utils import figures, webdocs
+from utils import brand, figures, webdocs
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market.html", "pricing.html")
@@ -127,14 +127,14 @@ class TheLandingPage(unittest.TestCase):
     def test_a_monitor_still_gets_the_one_line_it_parses(self):
         for agent in ("UptimeRobot/2.0", "curl/8.4.0"):
             body = self.client.get("/", headers={"User-Agent": agent}).get_data(as_text=True)
-            self.assertEqual(body, "Meow Bot is alive and operational!", agent)
+            self.assertEqual(body, f"{brand.NAME} is alive and operational!", agent)
 
     def test_a_visitor_gets_the_page_not_a_redirect(self):
         response = self.client.get("/", headers={"User-Agent": "Mozilla/5.0"})
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         for fragment in (
-            "Meow Bot",                 # the name, from the running process
+            keep_alive._bot_display_name(),  # the name, as the process answers it
             "systems",                  # how many there are
             'href="/login"',            # a way in
             "/privacy", "/terms",       # the policies
@@ -665,6 +665,125 @@ class EveryPublicPageSharesOneFrame(unittest.TestCase):
         for way in ("/systems", "/start", "/login"):
             self.assertIn(f'href="{way}"', body, f"the 404 offers no way to {way}")
         self.assertIn("meow.css", body, "the 404 arrived unstyled")
+
+
+class EverySignedInPageSharesThatSameFrame(_DashboardFixture):
+    """The dashboard's eleven pages, served the way a signed-in browser gets them.
+
+    `EveryPublicPageSharesOneFrame` above was written for exactly this defect
+    class and could not see this one, because it reads the addresses a
+    *signed-out* visitor can reach: `_dashboard_page` was the one served group
+    that never merged :func:`keep_alive._site_context`, and every test that
+    pinned the dashboard read the *template* through a fixture instead of the
+    route. An unset name in a template is empty rather than an error, so nothing
+    failed while all eleven pages wore a header reading **"."** where the
+    wordmark goes, an empty footer title, no counts sentence, no Support-the-bot
+    link, and stated *"Nothing is kept longer than it is needed"* where every
+    other page on the site says the deployment keeps messages
+    :func:`keep_alive._retention_days` days.
+
+    Found by opening `/dashboard` in a browser during a playtest, which is the
+    only place it was ever visible: every file a test reads was correct, and the
+    render call was what was short.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.name = keep_alive._bot_display_name()
+        self.systems = keep_alive.features.system_count()
+        self.commands = keep_alive.features.entry_count()
+        self.days = keep_alive._retention_days()
+
+    def body_of(self, path: str) -> str:
+        self.sign_in()
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200, path)
+        return response.get_data(as_text=True)
+
+    def test_every_dashboard_page_states_the_deployments_own_name_and_counts(self):
+        """One frame, eleven pages, read off the wire rather than off a fixture.
+
+        The fixture render (`tests.test_composer.render_dashboard`) is what every
+        other dashboard test uses and is deliberately *not* used here: it passes
+        `bot_name` itself, so it would have gone on being green through the whole
+        of this defect — the page a visitor is served is the only place the
+        missing frame shows.
+        """
+        for _spec, _label, path, _anchor in keep_alive.DASHBOARD_PAGES:
+            with self.subTest(path=path):
+                body = self.body_of(path)
+                self.assertRegex(
+                    body,
+                    rf'<span class="brand__name">{re.escape(self.name)}',
+                    f"{path} is served with no wordmark in the header",
+                )
+                self.assertIn(
+                    f'<div class="foot__title">{self.name}</div>',
+                    body,
+                    f"{path} is served with an empty footer title",
+                )
+                self.assertRegex(
+                    body,
+                    rf"{self.systems}\s+systems and\s+{self.commands}\s+commands",
+                    f"{path} does not state the deployment's own counts",
+                )
+                self.assertIn(
+                    f"Messages are kept {self.days} days",
+                    body,
+                    f"{path} states a retention the deployment does not have",
+                )
+                if keep_alive.KOFI_URL:
+                    self.assertIn(
+                        keep_alive.KOFI_URL,
+                        body,
+                        f"{path} lost the link that supports the bot",
+                    )
+
+
+class TheFrameIsOneFunctionEverywhere(unittest.TestCase):
+    """A cheap floor under the law above, so a *new* page group cannot skip it.
+
+    The behavioural test can only walk the pages that exist today; this reads
+    `keep_alive`'s own source and refuses a `render_template` call for any
+    template served through the shared layout unless that call reaches
+    `_site_context()` — directly, or merged into a dict the way the console and
+    the dashboard now do. The dashboard's render was the one call in the file
+    that did neither, and this is the check that would have said so the day it
+    was written.
+    """
+
+    #: Templates served through `site_base.html`, one page group each.
+    SERVED = (
+        "dashboard.html",
+        "owner.html",
+        "servers.html",
+        "market.html",
+        "agree.html",
+        "login.html",
+        "owner_login.html",
+        "pricing.html",
+    )
+
+    def test_every_served_group_reaches_the_shared_frame(self):
+        source = (ROOT / "keep_alive.py").read_text(encoding="utf-8")
+        for template in self.SERVED:
+            with self.subTest(template=template):
+                pattern = re.compile(
+                    rf'render_template\(\s*"{re.escape(template)}",(?P<body>.*?)\n    \)',
+                    re.DOTALL,
+                )
+                found = list(pattern.finditer(source))
+                self.assertTrue(found, f"no render_template call for {template}")
+                for call in found:
+                    self.assertIn(
+                        "_site_context(",
+                        call.group("body"),
+                        f"the {template} render is served without the site's own "
+                        "frame — the wordmark, the footer title, the counts "
+                        "sentence and the retention sentence all come from "
+                        "`_site_context()`, and an unset name in a template is "
+                        "empty rather than an error",
+                    )
 
 
 class TheHarnessServesTheRealPages(unittest.TestCase):

@@ -495,22 +495,36 @@ class TheSignInRoutes(_DashboardFixture):
         self.assertIn("operator", body.lower())
 
     def test_the_servers_list_says_what_each_one_is_running(self):
-        """Choosing which server to fix is otherwise a guess from a list of names."""
+        """Choosing which server to fix is otherwise a guess from a list of names.
+
+        A server starts with one system off — the legacy module — so the row names
+        it before anything is switched by hand. That is not a special case to
+        exempt: the count and the name are what make the row readable, and the
+        second half of this test is still that a switch flipped by hand joins it
+        rather than replacing it.
+        """
         self.sign_in(guild_id=GUILD_ID, scope="global")
         before = self.client.get("/servers").get_data(as_text=True)
         self.assertIn("systems on", before)
-        self.assertNotIn("off:", before, "nothing is off yet")
 
-        # Turn one system off the way the dashboard does, then ask again.
         import keep_alive as ka
 
         total = len(ka.AVAILABLE_MODULES)
+        self.assertIn(f"{total - 1} of {total} systems on", before)
+        self.assertIn("off:", before)
+        self.assertIn(
+            "Legacy",
+            before,
+            "the one system a server starts without should be named, not just counted",
+        )
+
+        # Turn one system off the way the dashboard does, then ask again.
         self.assertTrue(
             ka.modules.set_enabled(GUILD_ID, "market", False), "the switch did not save"
         )
         ka.modules.invalidate(GUILD_ID)
         after = self.client.get("/servers").get_data(as_text=True)
-        self.assertIn(f"{total - 1} of {total} systems on", after)
+        self.assertIn(f"{total - 2} of {total} systems on", after)
         self.assertIn("off:", after)
         self.assertIn("Market", after, "the list should name what is off, not just count it")
 

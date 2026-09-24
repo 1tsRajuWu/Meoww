@@ -976,7 +976,13 @@ class TheOwnersSurfaces(_QnaCase):
         off_cog = qna_cog.Qna(_Bot(module_on=False))
         off = _Interaction(user=self.asker, bot=_Bot(module_on=False))
         self.assertFalse(await off_cog.interaction_check(off))
-        self.assertIn("turned off", off.answered[-1]["content"])
+        said = off.answered[-1]["content"]
+        self.assertIn("off", said)
+        # And it says *which* switch, because "turned off" with no owner named is
+        # the message a member reads once and gives up on: the flag has a name, and
+        # the administrator who can flip it is the person they would ask.
+        self.assertIn("legacy", said.lower())
+        self.assertIn("/bot legacy", said)
         on = _Interaction(user=self.asker, bot=self.bot)
         self.assertTrue(await self.cog.interaction_check(on))
 

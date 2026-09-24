@@ -8,7 +8,7 @@
 
    The language, and every rule below is one of these sentences:
 
-     * **Near-black, one accent.** The page is #0a0a0b, a raised panel is a
+     * **Near-black, one accent.** The page is #0a0b0c, a raised panel is a
        hairline and a slightly lighter black, and the accent is spent on the one
        thing that can be acted on. Nothing is coloured to look interesting.
      * **Type is the design.** A display line is set large, tight and heavy; body
@@ -36,24 +36,29 @@
 :root {
   /* Near-black, and two surfaces that are barely different from it. A card is
      legible because of its hairline, not because it is white. */
-  --bg: #0a0a0b;
-  --bg-deep: #060607;
-  --surface-card: #101012;
-  --surface-sunken: #0c0c0e;
-  --surface-hover: #17171b;
+  --bg: #0a0b0c;
+  --bg-deep: #050607;
+  --surface-card: #101314;
+  --surface-sunken: #0c0f10;
+  --surface-hover: #171b1c;
 
   /* Text in three weights of importance and nothing else. */
-  --text-primary: #f4f4f5;
-  --text-secondary: #c9c9cf;
-  --text-muted: #8c8c95;
-  --text-invert: #0a0a0b;
+  --text-primary: #f2f5f5;
+  --text-secondary: #c6cece;
+  --text-muted: #8b9797;
+  --text-invert: #0a0b0c;
 
   /* The one accent. `--accent` draws a fill and a ring; `--accent-text` is the
      shade anything *written* in the accent uses, because a fill and a line of
-     text are held to different floors and one number cannot pass both. */
-  --accent: #ff6b5a;
-  --accent-text: #ffa196;
-  --accent-rgb: 255 107 90;
+     text are held to different floors and one number cannot pass both. The teal
+     clears both here (9.7:1 on the page, 14.7:1 for the text shade), and
+     `--accent-text-rgb` exists for a tint of the *text* shade — the fills' own
+     channels are `--accent-rgb`, and a glow built from the wrong pair is one of
+     the two-authors defects this palette split exists to prevent. */
+  --accent: #2dd4bf;
+  --accent-text: #8bf0e4;
+  --accent-rgb: 45 212 191;
+  --accent-text-rgb: 139 240 228;
 
   /* States report a state or they are decoration. */
   --good: #4ade80;
@@ -61,8 +66,8 @@
   --danger: #f87171;
 
   /* Hairlines: one for a separator, one for an edge that has to be seen. */
-  --line: #232327;
-  --line-strong: #3a3a41;
+  --line: #1f2526;
+  --line-strong: #333c3d;
 
   /* Type. The root size is a token, so the whole scale moves when it moves. A
      display line is set tight; body text is set calm; the micro-label is the
@@ -130,14 +135,15 @@
   --text-secondary: #43474f;
   --text-muted: #6b7078;
   --text-invert: #ffffff;
-  --accent: #d93a29;
-  --accent-text: #b3261e;
-  --accent-rgb: 217 58 41;
+  --accent: #0d9488;
+  --accent-text: #0f766e;
+  --accent-rgb: 13 148 136;
+  --accent-text-rgb: 15 118 110;
   --good: #15803d;
   --warn: #a16207;
   --danger: #b91c1c;
-  --line: #e5e1da;
-  --line-strong: #c8c2b8;
+  --line: #e3e6e4;
+  --line-strong: #c3c9c7;
   --shadow: 0 20px 48px rgb(18 19 22 / 12%);
 }
 
@@ -151,9 +157,10 @@
   --text-secondary: #f4f4f4;
   --text-muted: #dedede;
   --text-invert: #000000;
-  --accent: #ffd400;
-  --accent-text: #ffe666;
-  --accent-rgb: 255 212 0;
+  --accent: #5eead4;
+  --accent-text: #b6f7ec;
+  --accent-rgb: 94 234 212;
+  --accent-text-rgb: 182 247 236;
   --good: #7dffae;
   --warn: #ffd400;
   --danger: #ff9d9d;

@@ -176,6 +176,44 @@ class TheCatalogueIsARowWide(unittest.TestCase):
             "on a 390px screen and every row becomes a card",
         )
 
+    def test_the_copys_reveal_names_the_row_the_button_is_actually_in(self):
+        """The station table's *Copy* ships at `opacity: 0` and needs a reveal.
+
+        It had one — `.command:hover .command__copy` — but a station row is
+        `<li class="radio-row">`, not `.command`, so on a desktop pointer (fine
+        pointer, wider than the 860px sheet rule) the selector matched nothing
+        and all 308 buttons stayed invisible: no affordance at all, plus an
+        invisible control the width of a station name sitting inside every row,
+        which is where a click landed when a visitor missed the description.
+        The sheet is read against the row class the markup actually wears, so
+        the pair cannot drift apart again — neither half fails on its own, and
+        the button is the thing that pays for it.
+        """
+        markup = self.TEMPLATE.read_text(encoding="utf-8")
+        row_class = re.search(r'<li class="([\w-]+)"\s*\n?\s*data-station', markup)
+        self.assertIsNotNone(row_class, "the station rows lost their class")
+        self.assertIn(
+            'class="command__copy"',
+            markup,
+            "the row no longer holds the copy control this law is about",
+        )
+        sheet = self.SHEET.read_text(encoding="utf-8")
+        reveal = sheet.split("\n.command__copy {", 1)
+        self.assertEqual(len(reveal), 2, "the sheet does not state .command__copy")
+        self.assertIn(
+            "opacity: 0",
+            reveal[1].split("}", 1)[0],
+            "the copy button no longer rests invisible, so nothing has to "
+            "reveal it and this law is reading a different design",
+        )
+        self.assertRegex(
+            sheet,
+            rf"\.{row_class.group(1)}:hover[^{{}}]*\{{[^{{}}]*opacity:\s*1",
+            f"no rule reveals the copy button from `.{row_class.group(1)}:hover`, "
+            "so on a desktop pointer the station table's 308 buttons are "
+            "invisible while still being clickable",
+        )
+
 
 class TheTableCanBeAskedAQuestion(unittest.TestCase):
     """``/radio``'s catalogue is 308 rows, and it used to show 48 of them.

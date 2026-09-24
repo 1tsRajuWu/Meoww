@@ -116,7 +116,13 @@
       {{ chip('Gateway', gateway.label, 'ok' if gateway.connected else 'warn') }}
       {{ chip('Ping', (bot_ping ~ ' ms') if bot_ping is not none else 'Not answering',
               '' if bot_ping is not none else 'warn') }}
-      {{ chip('Systems', active_count ~ ' of ' ~ total_count) }}
+      {# Named for the subset it counts. The frame above this page says "15
+         systems" — the count this bot declares — while this chip counts the ones
+         a server can actually switch, so an unlabelled "Systems 14 of 14" beside
+         that sentence reads as a contradiction rather than as two numbers about
+         two different sets. The Hub says "switchable per server" for the same
+         split; this is the shortest honest form of that. #}
+      {{ chip('Switchable', active_count ~ ' of ' ~ total_count ~ ' on') }}
       {% if fleet_url %}{{ chip('Operator', 'console open') }}{% endif %}
     </div>
 

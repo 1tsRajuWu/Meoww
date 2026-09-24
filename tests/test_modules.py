@@ -74,7 +74,7 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
         states = modules.get_states(111)
         for retired in ("tempvoice", "welcome", "giveaways"):
             self.assertNotIn(retired, states)
-        self.assertIn("radio", states, "radio is a live feature again")
+        self.assertIn("legacy", states, "the legacy systems are a live feature again")
 
     def test_unknown_module_is_not_gated_but_cannot_be_written(self):
         self.assertTrue(modules.is_enabled(111, "not_a_real_module"))

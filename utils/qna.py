@@ -38,7 +38,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-from . import config_audit, db, version
+from . import config_audit, db, style, version
 
 #: The setting that switches the relay on. Read through the literal rather than
 #: through this constant because the config audit scans the source for a quoted
@@ -56,9 +56,11 @@ TABLE = "qna_questions"
 #: disguised name, an absent one.
 PUBLIC_NAME = "Anonymous"
 
-#: The accent the public question card is drawn in — the product's own blue, not
-#: a sixth colour invented for one feature.
-ACCENT = 0x5865F2
+#: The accent the public question card is drawn in — the product's own accent,
+#: not a sixth colour invented for one feature. Read from the one author of the
+#: palette rather than typed as a literal: this line was a second declaration of
+#: the same blurple, so a rebrand would have moved every card except this one.
+ACCENT = style.ACCENT
 
 #: Long enough for a real question and an answer that replies to it; short enough
 #: that neither can become a wall in a DM or a channel.

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ hub_title }} · Meow Hub</title>
+    <title>{{ hub_title }} · {{ brand.NAME }} Hub</title>
     <meta name="description" content="{{ hub_lede }}">
     <meta name="color-scheme" content="dark light">
     {# Every one of these carries `?v=`, and it is not decoration: the static host
@@ -35,7 +35,7 @@
             <img class="rail-mark" src="/static/logo.svg?v={{ hub_assets }}" alt=""
                  width="38" height="38">
             <span class="rail-brand-text">
-                <strong>Meow Hub</strong>
+                <strong>{{ brand.NAME }} Hub</strong>
                 <span>one place for everything</span>
             </span>
         </a>

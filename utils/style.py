@@ -26,6 +26,8 @@ import time
 
 import discord
 
+from utils import brand
+
 # Components V2 turns card text into ``TextDisplay`` components, and — unlike
 # legacy embeds, where mentions never notified — *mentions inside TextDisplay do
 # notify*. Before this module existed every card was an embed, so nothing pinged;
@@ -54,7 +56,13 @@ NO_PINGS = discord.AllowedMentions.none()
 # warning*, *this failed*, *this is information* — so those four stay, and
 # :data:`ACCENT_ALIASES` is the only place a colour becomes a state. Everything
 # else that reaches a card becomes :data:`ACCENT`, which is the whole rule.
-ACCENT = 0x5865F2
+#
+# The value comes from ``utils/brand.py`` rather than being typed here, because
+# the accent is also declared in `static/meow.css` as a CSS token and the two had
+# nothing holding them together: a rebrand was two edits, in two languages, and
+# the failure of missing one is a site in one colour and every card in another —
+# which reads as a bug in whichever half the reader saw second.
+ACCENT = brand.ACCENT
 SUCCESS = 0x23A55A
 WARN = 0xF59E0B
 DANGER = 0xF23F43

@@ -88,10 +88,15 @@ class Radio(commands.Cog):
             )
             return False
         if hasattr(self.bot, "is_module_enabled"):
-            if not self.bot.is_module_enabled(interaction.guild_id, "radio"):
+            # The gate names the **legacy** module rather than "radio": radio is
+            # one half of it, and one flag is what the brief asked for. Nothing
+            # else about this command changed, which is the point — a server that
+            # switches the flag on gets exactly the radio it had before.
+            if not self.bot.is_module_enabled(interaction.guild_id, "legacy"):
                 await interaction.response.send_message(
-                    "⚠️ The **Radio** system is currently **turned off** on this "
-                    "server.\nAn administrator can re-enable it in the "
+                    "⚠️ **Radio is part of the legacy module**, which is currently "
+                    "**turned off** on this server.\nAn administrator can turn it on with "
+                    "`/bot legacy state:On`, or in the "
                     "[Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
                     ephemeral=True,
                 )

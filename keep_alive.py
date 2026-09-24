@@ -51,7 +51,7 @@ from flask import (
     url_for, Response, abort,
 )
 from utils import (
-    ai_guard, alert_webhook, command_publish, command_scope, company, config_audit,
+    ai_guard, alert_webhook, brand, command_publish, command_scope, company, config_audit,
     consent, db, digest, discord_auth, features, figures, guild_directory, hub,
     identity, levels as levels_module, media_health, meowfee, moderation_actions,
     modules, pause, plans, principal, qna, ratelimit, scheduled, server_control,
@@ -125,6 +125,13 @@ def asset_version(name: str) -> str:
 # its own globals dict, so there is no single place to put this. Each registers
 # the same function, and a missing registration fails loudly the moment anything
 # renders that page rather than quietly shipping an unversioned URL.
+# The brand is a *global* rather than a context key for the reason above, one
+# step further: the frame's `<meta name="theme-color">` and the hub's own two
+# headings both need it, they arrive from two different context builders, and a
+# name that is missing from one of them renders an empty string — which is how
+# this project once shipped eleven pages whose wordmark was a lone ".". A global
+# cannot be forgotten by a route that was written after it.
+app.jinja_env.globals["brand"] = brand
 app.jinja_env.globals["asset_version"] = asset_version
 _env_secret = config_audit.get("FLASK_SECRET_KEY")
 if _env_secret:
@@ -1930,7 +1937,11 @@ def _bot_display_name() -> str:
         name = getattr(user, "name", None)
         if name:
             return str(name)
-    return "Meow Bot"
+    # The fallback is the brand, and it is read rather than spelled here: this
+    # line is what every page shows before the gateway connects — which on a host
+    # that sleeps is the first paint of a cold visit — and it lived in the middle
+    # of this file where nobody rebranding would think to look.
+    return brand.NAME
 
 
 def _gateway_counts() -> dict:
@@ -2811,7 +2822,7 @@ def home():
         # Uptime monitors are pointed at this process and parse this exact line;
         # the landing page above is for people, and a monitor must not be made to
         # fetch a whole document to learn one word.
-        return "Meow Bot is alive and operational!"
+        return f"{brand.NAME} is alive and operational!"
     if is_authenticated():
         return redirect("/dashboard")
     return _home_page()
@@ -4627,6 +4638,18 @@ def _dashboard_page(page: str, guild_id):
     fee = economy_reading.get("fee") or {}
     return render_template(
         "dashboard.html",
+        # The frame every served page wears, merged first so this page's own
+        # names win below. This render was the one group that never merged it,
+        # and an unset name in a template is empty rather than an error — so all
+        # eleven pages had been served with a header reading "." where the
+        # wordmark goes, an empty footer title, no "15 systems and 110 commands"
+        # line, no Support-the-bot link, and the *"nothing is kept longer than it
+        # is needed"* fallback while every other page on the site said 365 days.
+        # Nothing failed and every markup test still passed, because the markup
+        # was always right: the render call was what was short. `_invite_context`
+        # is merged over it because this page's invite link carries the server in
+        # hand, which the site-wide one does not.
+        **{**_site_context(), **_invite_context(guild_id=guild_id)},
         dash_page=page,
         # The address a form on this page comes back to, server and all.
         page_url=f"{page_path}{guild_query}",
@@ -4706,12 +4729,9 @@ def _dashboard_page(page: str, guild_id):
         # offered where it would actually open. A server's administrator seeing
         # a button that bounces them back to the picker is worse than no button.
         fleet_url=("/owner" if _principal().is_operator else ""),
-        # Whether anything is on sale. The topbar and the palette both link to
-        # `/pricing`, and while the product is free that page has nothing to
-        # offer — so the link is not offered either. It was: three surfaces
-        # pointed at a shop page that exists only to say there is no shop.
-        selling=plans.selling_enabled(),
-        **_invite_context(guild_id=guild_id),
+        # `selling`, the invite links and the retention sentence are no longer
+        # listed here: they are `_site_context()`'s, merged above, and one owner
+        # for them is the reason that function exists.
         # The composer's whole rulebook, from the same constants the endpoint
         # validates with: the character limit, the tag cap, the channel cap and
         # the title length. One owner each, so the page's counter, its button and

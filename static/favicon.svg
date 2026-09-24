@@ -1,8 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Meow">
-  <!-- One mark, one accent: the badge the header draws, in the header's colours. -->
-  <rect width="32" height="32" rx="8" fill="#0b0f14"/>
-  <path d="M8 12.5 9.4 6l5.2 4.1a12 12 0 0 1 2.8 0L22.6 6 24 12.5a8.6 8.6 0 0 1 1.4 4.7c0 4.1-4.2 6.8-9.4 6.8S6 21.3 6 17.2a8.6 8.6 0 0 1 1.4-4.7Z" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linejoin="round"/>
-  <circle cx="13" cy="16.4" r="1.2" fill="#f59e0b"/>
-  <circle cx="19" cy="16.4" r="1.2" fill="#f59e0b"/>
-  <path d="M16 19.4v1.6m-1.6 0h3.2" stroke="#f59e0b" stroke-width="1.6" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Keystone">
+  <!-- The same badge at 32px, with the geometry respaced for the size rather
+       than scaled: at this size a 1px gap between the wedge and the tile edge
+       closes up, so the wedge sits lower and the slot is a little wider. -->
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M0 8a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z
+           M11 5h10l3 10H8z
+           M15 8.2h2v5h-2z"
+        fill="#2dd4bf" />
 </svg>

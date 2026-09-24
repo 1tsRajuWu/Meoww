@@ -264,6 +264,20 @@ COMMAND_ACCESS: dict[str, str] = {
     "ticket setup": CHANNELS,
     "ticket add": CHANNELS,
     "ticket remove": CHANNELS,
+    # -- Server Structure -------------------------------------------------- #
+    # Declared at the permission each one *needs*, which is also what Discord
+    # itself checks on the command — a structure command offered to somebody who
+    # cannot run it is a picker entry that answers "Missing Permissions".
+    "structure channel-create": CHANNELS,
+    "structure channel-delete": CHANNELS,
+    "structure channel-archive": CHANNELS,
+    "structure role-create": ROLES,
+    "structure role-delete": ROLES,
+    "structure role-purge": ROLES,
+    # The ceilings are the administrator's to look at, and looking is all it does:
+    # changing one is a stored setting rather than a command, deliberately, because
+    # a limit that a command can raise is not a limit.
+    "structure limits": ADMIN,
     "starboard set": CHANNELS,
     "starboard status": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
@@ -289,6 +303,12 @@ COMMAND_ACCESS: dict[str, str] = {
     # activation on it, which is why this is not the operator's OWNER tier. The
     # key is the proof of purchase, so there is nothing here to guess at.
     "bot plan": ADMIN,
+    # The legacy systems are the same shape of decision as the plan: *this*
+    # server's feature set, made by whoever administers it. The two commands it
+    # switches are everyone's to run once it is on, and their own rows below are
+    # unchanged — a switch that widened what a member may do would be a different
+    # command entirely.
+    "bot legacy": ADMIN,
     "dbstatus": ADMIN,
     # -- Activity Tracker: admin-only for management ---------------------- #
     "activity me": ADMIN,

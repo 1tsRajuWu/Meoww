@@ -148,7 +148,7 @@
             grid: read("--border", "#26262b"),
             axis: read("--text-muted", "#8b8883"),
             text: read("--text-secondary", "#a9a6a1"),
-            accent: read("--accent", "#5b5ef0"),
+            accent: read("--accent", "#2dd4bf"),
             up: read("--green", "#23a55a"),
             down: read("--red", "#f23f43"),
         };

@@ -55,6 +55,7 @@ def render_page(symbol="BTC"):
     # changes with the file. A bare environment has no such global, and the page
     # would fail to render here while working in production.
     env.globals["asset_version"] = keep_alive.asset_version
+    env.globals["brand"] = keep_alive.brand
     return env.get_template("market.html").render(**keep_alive.market_context(instrument))
 
 

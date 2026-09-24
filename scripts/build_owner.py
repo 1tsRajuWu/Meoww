@@ -42,7 +42,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from utils import ai_guard, config_audit  # noqa: E402  (after sys.path, by design)
+from utils import ai_guard, brand, config_audit  # noqa: E402  (after sys.path, by design)
 
 DEFAULT_LIVE_APP = "https://meow-discord-bot.onrender.com"
 #: Where this host sends anything that is not the console. The public site is the
@@ -102,6 +102,12 @@ CONSOLE_PREFIXES = (
 def _themed_logos() -> list[str]:
     """Every ``logo-<name>.svg`` on disk, so a new one cannot be forgotten.
 
+    No longer read by :data:`STATIC_ASSETS` — the family comes from
+    ``utils.brand`` now, which is the same derivation with one author — but kept
+    because the archived console's own law imports it by name, and a missing
+    function is an import error that takes a whole test file's collection with it
+    rather than failing one assertion.
+
     The file name *is* the theme id, which is what makes this derivable: the console
     asks for ``/static/logo-<theme>.svg``, so anything matching the pattern belongs
     to a theme and must ship with the static build. Sorted for a deterministic list,
@@ -126,18 +132,13 @@ STATIC_ASSETS = [
     "market.js",
     "theme.js",
     "motion.js",
-    # The themed marks are *discovered* rather than listed, because listing them is
-    # how the console ended up asking for five logos that were never drawn: the
-    # theme vocabulary grew to nine and this list stayed at four, so the rail drew a
-    # broken image on five themes. A tenth themed mark is now copied by existing.
-    *_themed_logos(),
-    "logo.svg",
-    "favicon.svg",
-    "favicon-sakura.svg",
-    "favicon-forest.svg",
-    "favicon-ember.svg",
-    "cursor-default.svg",
-    "cursor-pointer.svg",
+    # One family, one author. `utils/brand.py` names every drawing the site and
+    # the two static hosts ship, so a mark added to the brand cannot be forgotten
+    # here — which is how the console once asked for five logos nobody had drawn.
+    # Read rather than restated, because a restated list is the copy that goes
+    # stale: this list named four marks drawn for a nine-theme vocabulary for two
+    # releases after that vocabulary was gone.
+    *brand.ASSETS,
 ]
 
 

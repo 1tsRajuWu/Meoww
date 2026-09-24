@@ -76,25 +76,6 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "🫂"
     },
-    "radio": {
-        "title": "📻 Radio",
-        "desc": (
-            "24/7 radio stations in your voice channel — a genre, a language, a mood, "
-            "a name, or a station in any country the table could verify — and it stays "
-            "until somebody stops it. There is no song search: a station is a direct "
-            "stream that asks no media platform for anything, which is why it keeps "
-            "playing on hosts a platform has blocked. If a station goes quiet the bot "
-            "says so *and asks it again*, rather than moving on and letting it look "
-            "like a short track.\n\n"
-            "> `/radio play [station] [language] [country] [ads] [stay] [volume]` — "
-            "put a station on; run it again with nothing while one is playing for the "
-            "controls *(Manage Server saves the settings)*\n"
-            "> `/radio stop` — end it and give the channel back\n"
-            "> `/radio doctor` — what this host can and cannot do for voice *(admin)*"
-        ),
-        "color": 0x5865F2,
-        "emoji": "📻"
-    },
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (
@@ -245,20 +226,57 @@ HELP_MODULES = {
         "color": 0x95A5A6,
         "emoji": "⚙️"
     },
-    "qna": {
-        "title": "❓ Anonymous Q&A",
+    "structure": {
+        "title": "🧱 Server Structure",
         "desc": (
-            "A question box with nobody's name on it. What you ask is posted to "
-            "the server's anonymous channel by the bot's own webhook, and the "
-            "answer comes back to you as a DM.\n\n"
-            "> `/qna ask` — Ask something anonymously\n\n"
-            "Who asked is written down beside the question and shown to **one** "
-            "person — the bot's owner, who answers it. Nobody in the server sees "
-            "a name, a mention or a profile: the question arrives as the box, not "
-            "as a member."
+            "Channels and roles, made and cleared away from here. These are the "
+            "commands that can *destroy* something — a deleted channel takes every "
+            "message in it, and Discord keeps no copy — so they are built around "
+            "two rules rather than one permission bit.\n\n"
+            "**Size is checked first.** Deleting the one channel you named is what "
+            "you asked for; clearing a category or taking a role off everybody who "
+            "has it stops and asks *you*, by a press, with the number said out "
+            "loud. `/structure limits` shows what this server asks about.\n"
+            "**Everything is written down.** Each one opens a case in this "
+            "server's moderation log — what changed, who asked, and why — and a "
+            "refusal is written down too, because \"Discord said no\" is the thing "
+            "an administrator most needs to know.\n\n"
+            "> `/structure channel-create <name> [category] [private]`\n"
+            "> `/structure channel-delete <channel>`\n"
+            "> `/structure channel-archive <category> [keep]` — confirmed\n"
+            "> `/structure role-create <name> [colour]`\n"
+            "> `/structure role-delete <role>`\n"
+            "> `/structure role-purge <role>` — confirmed\n"
+            "> `/structure limits` — the ceilings for this server *(admin)*"
+        ),
+        "color": 0x2dd4bf,
+        "emoji": "🧱"
+    },
+    "legacy": {
+        "title": "🗄️ Legacy — Radio & Anonymous Q&A",
+        "desc": (
+            "Two systems that shipped before this bot became a management product, "
+            "preserved exactly and switched **off**. One flag turns both on, and "
+            "nothing else about them changed — a server that relied on either gets "
+            "what it had.\n\n"
+            "> `/bot legacy state:on` — the switch, for this server only *(admin)*\n\n"
+            "**Radio** (📻) — 24/7 stations by genre, language, mood or country, "
+            "played as direct streams that ask no media platform for anything. "
+            "There is no song search, and a station that goes quiet is re-asked "
+            "rather than skipped, so it never looks like a short track.\n"
+            "> `/radio play [station] [language] [country] [ads] [stay] [volume]`\n"
+            "> `/radio stop` — end it and give the channel back\n"
+            "> `/radio doctor` — what this host can and cannot do for voice *(admin)*\n\n"
+            "**Anonymous Q&A** (❓) — a question box with nobody's name on it. What "
+            "you ask is posted by the bot's own webhook and the answer comes back "
+            "as a DM. Who asked is written down beside the question and shown to "
+            "**one** person, the bot's owner, who answers it: the question arrives "
+            "as the box, not as a member.\n"
+            "> `/qna ask` — ask something anonymously\n"
+            "> `/qna inbox` / `/qna reply` — the queue and the reply *(bot's own server)*"
         ),
         "color": 0x5865F2,
-        "emoji": "❓"
+        "emoji": "🗄️"
     }
 }
 
@@ -273,10 +291,10 @@ HELP_HOME_BODY = (
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
-    "- 🎵 **Radio** — 24/7 stations by name, language or country\n"
     "- 🎫 **Tickets** — private staff support\n"
     "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
-    "- ❓ **Anonymous Q&A** — ask with no name on it, answer by DM"
+    "- 🧱 **Server Structure** — channels and roles, with a confirmation on anything big\n"
+    "- 🗄️ **Legacy** — Radio and Anonymous Q&A, kept and switched off"
 )
 
 # The category *structure* comes from the feature registry; the prose below

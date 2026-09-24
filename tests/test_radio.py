@@ -707,14 +707,22 @@ class TheRenameIsComplete(unittest.TestCase):
                 self.assertNotIn("/music radio", text)
 
     def test_the_feature_registry_carries_radio_and_not_music(self):
+        """Radio is registered — inside the legacy module, which is off by default.
+
+        The registry no longer has a feature *called* radio: the two systems that
+        came before the management tier share one switch, so this asserts the half
+        that is radio's rather than the half that is the flag.
+        """
         from utils import features
 
         ids = {feature.id for feature in features.FEATURES}
-        self.assertIn("radio", ids)
+        self.assertIn("legacy", ids)
         self.assertNotIn("music", ids)
-        radio_feature = features.get("radio")
-        self.assertEqual(radio_feature.gate_commands, ("radio",))
-        self.assertEqual(radio_feature.cog, "cogs.radio")
+        self.assertNotIn("radio", ids, "radio is half of the legacy feature, not one of its own")
+        legacy = features.get("legacy")
+        self.assertIn("radio", legacy.gate_commands)
+        self.assertIn("qna", legacy.gate_commands)
+        self.assertFalse(legacy.enabled_by_default)
 
     def test_the_old_address_redirects_and_the_new_one_is_public(self):
         import keep_alive

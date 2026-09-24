@@ -373,6 +373,24 @@ async def setup():
         # does with the old rows and why they are left in place.
         await _carry_radio_rename(db)
 
+        # The two systems that came before the management tier now live behind one
+        # **legacy** module that is off by default — and both of them used to be on
+        # by default, so without this every server that never touched a switch
+        # would wake up with two command groups gone from its picker and nothing
+        # saying why. That is the silent breaking change the reorganisation is not
+        # allowed to be, so the state is *carried* rather than asked for, on
+        # evidence, once — see :func:`_carry_legacy_module` for the rule.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'legacy_module_v1'"
+        ) as cur:
+            _legacy_carried = await cur.fetchone()
+        if not _legacy_carried:
+            await _carry_legacy_module(db)
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) "
+                "VALUES (0, 'legacy_module_v1', '1')"
+            )
+
         # One-time migration for the 1:1 rate change (250 coins per dollar became
         # 1). Every stored market amount is in coin units, so without this every
         # existing holder's cost basis would be 250x the value of their position —
@@ -1673,6 +1691,77 @@ async def radio_seats() -> list[tuple[int, int]]:
         async with db.execute('SELECT guild_id, channel_id FROM radio_stay WHERE enabled = 1') as cur:
             rows = await cur.fetchall()
             return [(int(r[0]), int(r[1] or 0)) for r in rows]
+
+
+#: The module id the two pre-reorganisation systems were folded into: one row in
+#: ``guild_modules`` per server, because that is how this schema spells "this
+#: server's feature set". Written down here as well as in the feature registry
+#: because a migration has to name the row it writes, and a test holds the two
+#: spellings together rather than trusting that they match.
+LEGACY_MODULE_ID = "legacy"
+
+
+async def _carry_legacy_module(db) -> None:
+    """Turn the legacy module on for the servers that were actually using it.
+
+    Two sources of truth, in this order, because they answer different questions:
+
+    * **A stored row is a decision.** A server that deliberately turned radio or
+      the question box *on* said so, and that is carried exactly. (Its off rows
+      are deliberately **not** carried as off: a server that switched one off and
+      used the other keeps the other, and "off" for a system it may never have
+      seen is already the new default.)
+    * **Evidence of use is a fact.** A server with no row at all was on by
+      default, so it is carried when something was left behind — a held seat, the
+      station it last played, a saved language or advertising preference, or a
+      question that went through the box. A server with none of those never used
+      either system, and off is the honest answer for it rather than a guess about
+      a default nobody chose.
+
+    Read through ``sqlite_master`` first, because ``qna_questions`` is created by
+    ``utils.qna`` rather than by this module, so a database this process has never
+    opened the questions against does not have it — and naming a table that is not
+    there would fail the whole migration rather than skip one source of evidence.
+
+    Idempotent by construction: every statement is ``INSERT OR IGNORE``, the union
+    of the evidence sources is deduplicated, and the marker at the call site keeps
+    a second boot from running it at all. The old ``radio`` / ``qna`` rows are left
+    exactly where they are — ``modules._load_from_db`` ignores ids the registry no
+    longer declares, so they are inert, and a rollback to the release before this
+    one finds its own state untouched. That is the rule this project already
+    follows for a rename, and it applies to a demotion too.
+    """
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name IN ('radio_stay', 'radio_last', 'qna_questions')"
+    ) as cur:
+        present = {str(row[0]) for row in await cur.fetchall()}
+
+    # The stations a server actually played, the seat it asked the bot to hold,
+    # and the questions that went through its box.
+    evidence = [f"SELECT guild_id FROM {table}" for table in ("radio_stay", "radio_last", "qna_questions") if table in present]
+    # And the two preferences a server saves about the radio, under both spellings:
+    # ``_carry_radio_rename`` above copies the old keys forward, so a database that
+    # has only been through that pass still has its evidence in reach.
+    evidence.append(
+        "SELECT guild_id FROM guild_settings WHERE key IN "
+        "('radio_language', 'radio_ads', 'music_radio_language', 'music_radio_ads')"
+    )
+
+    await db.execute(
+        "INSERT OR IGNORE INTO guild_modules (guild_id, module_name, enabled, updated_at) "
+        "SELECT guild_id, ?, 1, CURRENT_TIMESTAMP FROM ("
+        + " UNION ".join(evidence)
+        + ") WHERE guild_id NOT IN (SELECT guild_id FROM guild_modules "
+        "WHERE module_name IN ('radio', 'qna'))",
+        (LEGACY_MODULE_ID,),
+    )
+    await db.execute(
+        "INSERT OR IGNORE INTO guild_modules (guild_id, module_name, enabled, updated_at) "
+        "SELECT guild_id, ?, 1, CURRENT_TIMESTAMP FROM guild_modules "
+        "WHERE module_name IN ('radio', 'qna') AND enabled = 1",
+        (LEGACY_MODULE_ID,),
+    )
 
 
 async def _carry_radio_rename(db) -> None:

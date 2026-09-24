@@ -42,13 +42,11 @@
   function paint(choice) {
     var theme = applies(choice);
     root.setAttribute("data-theme", theme);
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) {
-      meta.setAttribute(
-        "content",
-        theme === "dark" ? "#0a0a0b" : theme === "contrast" ? "#000000" : "#fbfaf8"
-      );
-    }
+    /* The page's own `<meta name="theme-color">` is deliberately not touched.
+       A theme moves the *accent*; the browser chrome follows the page's
+       background, which is a per-page constant — this script used to overwrite
+       all of them with one hardcoded value, so every page advertised a colour
+       that matched no page's background. Two writers, one attribute. */
     var label = document.querySelector("[data-theme-label]");
     if (label) {
       label.textContent =
@@ -118,7 +116,7 @@
     else if (query.addListener) query.addListener(react);
   }
 
-  /* A visitor with JavaScript off never runs any of this: the sheet's own
-     default is the light palette, and the menu's buttons still render. */
+  /* A visitor with JavaScript off never runs any of this: the markup states the
+     house palette on <html> and the menu's buttons still render. */
   window.MeowTheme = { choose: choose, current: stored };
 })();

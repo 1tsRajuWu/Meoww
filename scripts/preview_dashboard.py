@@ -169,6 +169,7 @@ app.secret_key = "preview-only-not-a-credential"
 import keep_alive  # noqa: E402
 
 app.jinja_env.globals["asset_version"] = keep_alive.asset_version
+app.jinja_env.globals["brand"] = keep_alive.brand
 
 from utils import (  # noqa: E402
     command_publish, command_scope, digest, discord_auth, features, identity,

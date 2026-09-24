@@ -44,6 +44,11 @@ from . import db, modlog
 #: The actions this module performs, and what each one is called where a person
 #: reads it. One table, because the web panel, the record and the tests all need
 #: the verb and three hand-written copies is how they drift.
+#:
+#: The structure actions at the end belong to ``utils.structure``, the second door
+#: onto server state. They live here because a *case* is one list: a server's
+#: moderation log drawing "Ban", "Kick" and "Channel deleted" from three tables
+#: would number them in three places, and `Case #12` has to mean one thing.
 ACTIONS: dict[str, str] = {
     "warn": "Warn",
     "timeout": "Mute",
@@ -52,6 +57,13 @@ ACTIONS: dict[str, str] = {
     "ban": "Ban",
     "unban": "Unban",
     "clear_warnings": "Warnings cleared",
+    # --- structure (utils/structure.py) ---
+    "channel_create": "Channel created",
+    "channel_delete": "Channel deleted",
+    "channel_archive": "Channels cleared from a category",
+    "role_create": "Role created",
+    "role_delete": "Role deleted",
+    "role_purge": "Role removed from members",
 }
 
 #: How long a timeout may be, in minutes. Discord's own ceiling is 28 days; the
@@ -190,6 +202,8 @@ def body_embed(action: str, guild, target, actor: Actor, reason: str, case_id: i
     emoji = {
         "warn": "⚠️", "timeout": "🔇", "timeout_remove": "🔊",
         "kick": "👢", "ban": "🔨", "unban": "✅", "clear_warnings": "🧹",
+        "channel_create": "🏗️", "channel_delete": "🗑️", "channel_archive": "🗄️",
+        "role_create": "🏷️", "role_delete": "🗑️", "role_purge": "🧨",
     }.get(action, "🛡️")
     title = f"{emoji} {ACTIONS.get(action, action.title())}"
     if case_id:

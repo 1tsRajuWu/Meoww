@@ -581,10 +581,15 @@ class Qna(commands.Cog):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
-            if not self.bot.is_module_enabled(interaction.guild_id, "qna"):
+            # Gated by **legacy**, not by "qna": the question box is the other
+            # half of the one switch an administrator flips. The inbox and the
+            # reply live in the bot's own server and their audience is unchanged.
+            if not self.bot.is_module_enabled(interaction.guild_id, "legacy"):
                 await interaction.response.send_message(
-                    "⚠️ The **Anonymous Q&A** system is currently **turned off** on this "
-                    "server.\nAn administrator can re-enable it in the "
+                    "⚠️ **Anonymous Q&A is part of the legacy module**, which is "
+                    "currently **turned off** on this server.\nAn administrator can "
+                    "turn it on with "
+                    "`/bot legacy state:On`, or in the "
                     "[Web Dashboard](https://meow-discord-bot.onrender.com/dashboard).",
                     ephemeral=True,
                 )

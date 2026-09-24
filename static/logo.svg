@@ -1,47 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Meow">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Keystone">
   <!--
-    Meow — Handcrafted Chibi Mascot
-    Artisanal vector illustration: chubby kitten cheeks, sparkling anime eyes
-    with dual glints, soft pink inner ear tufts, rosy blush, and a sweet :3 smile.
+    Keystone — the block an arch is named for: the wedge at the crown that locks
+    the span, held between the piers it presses against.
+
+    It is drawn as a **badge**: an accent tile with the keystone and its key slot
+    knocked out of it. That is a decision about failure modes rather than about
+    looks, and this project has already paid for it once — a mark whose colours
+    belong to the page is illegible on whichever palette nobody checked, and the
+    generation before this one shipped five themes asking for a logo file that
+    did not exist, which a browser reports as nothing at all. A mark that carries
+    its own ground is legible on the house black, on the light palette and on the
+    high-contrast one from a single file, so there is no list to keep in step.
+
+    The knockouts are true holes (`fill-rule="evenodd"`), not shapes painted in
+    the background colour: a hole works on any ground, a painted shape works on
+    exactly one.
   -->
-  <defs>
-    <linearGradient id="chibiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6f72f8" />
-      <stop offset="60%" stop-color="#5b5ef0" />
-      <stop offset="100%" stop-color="#4649de" />
-    </linearGradient>
-  </defs>
-
-  <!-- Chubby friendly head -->
-  <path d="M32 15 C26 15 21 8 16 3 C13.5 1 10.5 3 11 6.5 C11.8 12 11 18 7.5 24 C2.5 32 4.5 45 15 52 C20 55.5 26 57 32 57 C38 57 44 55.5 49 52 C59.5 45 61.5 32 56.5 24 C53 18 52.2 12 53 6.5 C53.5 3 50.5 1 48 3 C43 8 38 15 32 15 Z" 
-        fill="url(#chibiGrad)" />
-
-  <!-- Soft pink inner ears -->
-  <path d="M16.5 8.5 C14.5 14 13.5 18 11.5 21 C14.5 20.5 18 19 19.5 15.5 C18 11.5 17 9.5 16.5 8.5 Z" fill="#ffb4cf" opacity="0.9" />
-  <path d="M47.5 8.5 C49.5 14 50.5 18 52.5 21 C49.5 20.5 46 19 44.5 15.5 C46 11.5 47 9.5 47.5 8.5 Z" fill="#ffb4cf" opacity="0.9" />
-
-  <!-- Soft blush pills -->
-  <ellipse cx="14" cy="38" rx="4" ry="2.2" fill="#ff80bf" opacity="0.45" />
-  <ellipse cx="50" cy="38" rx="4" ry="2.2" fill="#ff80bf" opacity="0.45" />
-
-  <!-- Big sparkling anime eyes -->
-  <ellipse cx="22" cy="31.5" rx="4.2" ry="5.2" fill="#080911" />
-  <ellipse cx="42" cy="31.5" rx="4.2" ry="5.2" fill="#080911" />
-  <circle cx="20.5" cy="29.5" r="1.8" fill="#ffffff" />
-  <circle cx="23.5" cy="33.5" r="0.9" fill="#ffffff" />
-  <circle cx="40.5" cy="29.5" r="1.8" fill="#ffffff" />
-  <circle cx="43.5" cy="33.5" r="0.9" fill="#ffffff" />
-
-  <!-- Pink button nose -->
-  <path d="M30 36.5 C30.5 35.8 33.5 35.8 34 36.5 C33.5 38 30.5 38 30 36.5 Z" fill="#ff8bb5" />
-
-  <!-- Cute :3 mouth -->
-  <path d="M32 37.8 L32 39.5 C30.5 39.5 28.5 40.5 27 42" fill="none" stroke="#080911" stroke-width="2.2" stroke-linecap="round" />
-  <path d="M32 39.5 C33.5 39.5 35.5 40.5 37 42" fill="none" stroke="#080911" stroke-width="2.2" stroke-linecap="round" />
-
-  <!-- Whiskers -->
-  <path d="M11 34 C7 33 3 34 0 36" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
-  <path d="M10 38 C6 39 3 41 0 44" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
-  <path d="M53 34 C57 33 61 34 64 36" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
-  <path d="M54 38 C58 39 61 41 64 44" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity="0.8" />
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M0 14A14 14 0 0 1 14 0h36a14 14 0 0 1 14 14v36a14 14 0 0 1-14 14H14A14 14 0 0 1 0 50z
+           M22 10h20l6 20H16z
+           M30 15h4v10h-4z"
+        fill="#2dd4bf" />
 </svg>
