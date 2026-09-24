@@ -12,7 +12,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 1. Start Discord Bot in a dedicated background thread
+# 1. Prevent keep_alive from binding a separate port; uvicorn serves keep_alive.app on 7860
+import keep_alive
+keep_alive.run = lambda: None
+
+# 2. Start Discord Bot in a dedicated background thread
 import bot
 
 def _run_discord_bot():
@@ -25,8 +29,6 @@ def _run_discord_bot():
 bot_thread = threading.Thread(target=_run_discord_bot, daemon=True)
 bot_thread.start()
 
-# 2. Import Flask application from keep_alive
-import keep_alive
 from a2wsgi import WSGIMiddleware
 from fastapi import FastAPI
 import gradio as gr
