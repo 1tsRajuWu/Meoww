@@ -1181,6 +1181,74 @@ class HiddenMeansHidden(unittest.TestCase):
                 )
         self.assertIn("[hidden]", general)
 
+class TheCursorLayerIsTheOnlyAuthor(unittest.TestCase):
+    """One block in one sheet decides what the pointer looks like.
+
+    Eight components — ``.btn``, ``.top__menu``, ``.switch``, ``.chip``,
+    ``.system__toggle``, ``.showcase__item``, ``.mock-switch``,
+    ``.faq__question`` — each carried its own ``cursor: pointer``. Every one of
+    them is *right* about the hand and fatal about the layer: a class outranks
+    the ``button`` / ``label`` / ``[role="tab"]`` the layer names, so each of
+    those controls drew the system hand while the links beside it drew the paw.
+    Measured on the served page rather than reasoned about: ``a[href]`` computed
+    the paw, and the *Add to Discord* button — the one control the front door is
+    built around — computed plain ``pointer``.
+
+    A ninth declaration would bring it back, and a cursor is a bad thing to be
+    inconsistent about: it is the first thing a visitor's hand reads, and there
+    is no other cue that half the controls are drawn by a different author.
+    """
+
+    OWNERSHIP = "the *only* author of a cursor in these sheets"
+
+    def test_no_sheet_declares_a_cursor_above_or_beside_the_layer(self):
+        source = read(PUBLIC_SHEET)
+        self.assertIn(
+            self.OWNERSHIP,
+            source,
+            "the cursor layer no longer states that it is the only author, so "
+            "the next component is free to add a `cursor: pointer` of its own",
+        )
+        above, layer = source.split(self.OWNERSHIP, 1)
+        self.assertNotIn(
+            "cursor:",
+            _without_comments(above),
+            "static/meow.css declares a cursor above the layer, which outranks "
+            "it for whatever selector it names",
+        )
+        # And the layer is still the layer: a paw, a hand, and an I-beam.
+        for asset in ("cursor-default.svg", "cursor-pointer.svg"):
+            self.assertIn(asset, layer, f"the layer stopped shipping {asset}")
+        self.assertIn("cursor: text", layer, "the layer stopped giving fields an I-beam")
+
+    def test_the_other_public_sheets_leave_the_pointer_alone(self):
+        """A page sheet is the easiest place to add a ninth one by accident."""
+        for name in ("landing.css", "pages.css"):
+            source = _without_comments(read(os.path.join(ROOT, "static", name)))
+            with self.subTest(sheet=name):
+                self.assertNotIn(
+                    "cursor:",
+                    source,
+                    f"static/{name} sets a cursor of its own; the pointer is "
+                    "decided once, in the shared sheet, or not at all",
+                )
+
+    def test_a_switched_off_field_is_told_so_by_its_cursor(self):
+        """``input[type="text"]`` (0,1,1) outranks a bare ``:disabled`` (0,1,0).
+
+        Measured on a planted, disabled field: it computed the **I-beam** while
+        a disabled button computed ``not-allowed`` — the one state a visitor has
+        to be able to recognise from the pointer, and the one the layer's own
+        ordering was losing. The rule names the elements as well as the state.
+        """
+        layer = read(PUBLIC_SHEET).split(self.OWNERSHIP, 1)[1]
+        self.assertIn(
+            "input:disabled",
+            layer,
+            "the `not-allowed` rule names only the state, so a disabled text field "
+            "keeps the I-beam it inherited from `input[type=\"text\"]`",
+        )
+
 class FocusIsVisible(unittest.TestCase):
     """Nothing is reachable only with a mouse."""
 

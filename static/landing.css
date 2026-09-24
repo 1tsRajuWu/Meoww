@@ -141,7 +141,6 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-small);
-  cursor: pointer;
   transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
     background var(--fast) var(--ease);
 }
@@ -192,7 +191,6 @@
   color: var(--text-muted);
   font: inherit;
   font-size: var(--text-small);
-  cursor: pointer;
 }
 
 .system__toggle:hover { color: var(--text-primary); }
@@ -284,7 +282,6 @@
   color: var(--text-secondary);
   font: inherit;
   text-align: left;
-  cursor: pointer;
   transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 
@@ -398,7 +395,6 @@
   justify-content: flex-end;
   min-width: var(--tap-min);
   min-height: var(--tap-min);
-  cursor: pointer;
 }
 
 .mock-switch__track {
@@ -493,7 +489,6 @@
   font-size: 1.0625rem;
   font-weight: 550;
   text-align: left;
-  cursor: pointer;
 }
 
 .faq__question:hover { color: var(--accent-text); }

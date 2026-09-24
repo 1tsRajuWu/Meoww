@@ -567,7 +567,6 @@ main { flex: 1 0 auto; }
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  cursor: pointer;
 }
 
 .top__menu:hover { border-color: var(--line-strong); }
@@ -670,7 +669,6 @@ main { flex: 1 0 auto; }
   color: var(--text-primary);
   font: inherit;
   font-weight: 550;
-  cursor: pointer;
   text-align: center;
   transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
     color var(--fast) var(--ease), transform var(--fast) var(--ease);
@@ -710,7 +708,9 @@ main { flex: 1 0 auto; }
 
 .btn--danger { border-color: var(--danger); color: var(--danger); }
 .btn[disabled],
-.btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+/* The cursor for this state is the layer's, at the bottom of this sheet: a rule
+   beside the button would be a second author for one property. */
+.btn[aria-disabled="true"] { opacity: 0.5; }
 
 /* A quiet way onward, with the arrow doing the pointing. */
 .arrow-link {
@@ -906,7 +906,6 @@ main { flex: 1 0 auto; }
   align-items: center;
   gap: var(--space-3);
   min-height: var(--tap-min);
-  cursor: pointer;
 }
 
 .switch__track {
@@ -1204,13 +1203,24 @@ main { flex: 1 0 auto; }
 }
 
 /* --------------------------------------------------------------------------
-   Cursors. The pointer has to *look* like the page has controls, and the plain
-   system arrow never did here: a paw for the page, a paw with a finger for the
-   things that can be pressed. Relative to this stylesheet so the static
-   build's rewrite finds them; `pointer: fine` so a touchscreen never fetches a
-   cursor it will not use; and every url carries its fallback keyword, because
-   a cursor url a browser rejects with no fallback is a cursor that vanishes
-   silently — the exact failure `test_the_cat_cursor...` exists to catch.
+   Cursors — and this block is the *only* author of a cursor in these sheets.
+
+   The pointer has to *look* like the page has controls, and the plain system
+   arrow never did here: a paw for the page, a paw with a finger for the things
+   that can be pressed. Relative to this stylesheet so the static build's
+   rewrite finds them; `pointer: fine` so a touchscreen never fetches a cursor
+   it will not use; and every url carries its fallback keyword, because a cursor
+   url a browser rejects with no fallback is a cursor that vanishes silently.
+
+   **Only author** is not decoration, it is the whole failure this layer kept
+   having. Eight components — `.btn`, `.top__menu`, `.switch`, `.chip`,
+   `.system__toggle`, `.showcase__item`, `.mock-switch`, `.faq__question` —
+   each carried their own `cursor: pointer`, which is *correct* about the hand
+   and fatal about the layer: a class outranks `button`/`label`, so every one
+   of those controls drew the system hand while the links beside it drew the
+   paw. Measured on the served page: `a[href]` had the paw and the *Add to
+   Discord* button had `pointer`. The eight declarations are gone — the
+   elements are all covered here — and no sheet may add a ninth.
    -------------------------------------------------------------------------- */
 @media (pointer: fine) {
   html {
@@ -1229,7 +1239,13 @@ main { flex: 1 0 auto; }
     cursor: text;
   }
 
-  :disabled, [disabled], [aria-disabled="true"] {
+  /* Named by element as well as by state, because `input[type="text"]` above is
+     an attribute selector (0,1,1) and a bare `:disabled` (0,1,0) loses to it: a
+     switched-off text field drew the I-beam while a switched-off button drew
+     `not-allowed`, which is the one control on the page a visitor is most likely
+     to be told they cannot use. Measured both ways before and after. */
+  :disabled, [disabled], [aria-disabled="true"],
+  input:disabled, select:disabled, textarea:disabled, button:disabled {
     cursor: not-allowed;
   }
 }
