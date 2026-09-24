@@ -73,6 +73,207 @@
 }
 
 /* --------------------------------------------------------------------------
+   The operator console.
+
+   Eleven pages behind one door, so the components here are the ones a console
+   needs and nothing more: a row of state chips, a grouped rail, readings as a
+   list of labelled values, a table, and the tier's four actions. Every value is
+   drawn with the shared tokens, so a palette change stays a one-line change.
+
+   Two shapes here are deliberate. The **readings** (`.own-facts`) are a list
+   rather than a grid of cards because an operator scans for a name and a number,
+   and a grid of tiles makes eleven of them cost eleven eye movements. The
+   **actions** (`.own-action`) are full cards because each one carries the
+   sentence saying what it does to every server — the sentence is the point of
+   the control, not a caption under it.
+   -------------------------------------------------------------------------- */
+
+.own-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line);
+  margin-top: var(--space-5);
+}
+
+.own-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.own-chip__label {
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.own-chip__value { color: var(--text-primary); }
+.own-chip--ok { border-color: var(--accent); }
+.own-chip--warn { border-color: var(--danger); }
+.own-chip--warn .own-chip__value { color: var(--danger); }
+
+.own-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line);
+}
+
+.own-rail__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.own-rail__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding-inline: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+  text-decoration: none;
+}
+
+.own-rail__link:hover { border-color: var(--line-strong); color: var(--text-primary); }
+
+.own-rail__link.is-current {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--surface-sunken);
+}
+
+.own-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-5);
+  margin-block: var(--space-5);
+}
+
+.own-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  padding: var(--space-5);
+}
+
+.own-card h3 { margin-bottom: var(--space-4); }
+
+.own-facts { display: grid; gap: 2px; margin: 0; }
+
+.own-fact {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.own-fact dt {
+  color: var(--text-muted);
+  font-size: var(--text-small);
+  text-transform: capitalize;
+}
+
+.own-fact dd { margin: 0; color: var(--text-primary); }
+
+.own-table__scroll { overflow-x: auto; }
+
+.own-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: var(--space-5);
+  font-size: var(--text-small);
+}
+
+.own-table caption {
+  text-align: left;
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  padding-bottom: var(--space-3);
+}
+
+.own-table th,
+.own-table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4) var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+
+.own-table thead th {
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.own-table tbody th { font-weight: 500; color: var(--text-primary); }
+.own-table tbody tr.is-current th { border-left: 2px solid var(--accent); padding-left: var(--space-3); }
+
+.own-door {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  padding: var(--space-5);
+  margin-block: var(--space-5);
+}
+
+.own-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: var(--space-5);
+  margin-block: var(--space-5);
+}
+
+.own-action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  padding: var(--space-5);
+}
+
+.own-action.is-set { border-color: var(--line-strong); background: var(--surface-sunken); }
+.own-action .btn { align-self: start; }
+.own-action .btn:disabled { opacity: 0.5; }
+
+.own-change {
+  padding-block: var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+
+.own-change h3 { margin-bottom: var(--space-2); }
+.own-change__more { margin-top: var(--space-3); }
+.own-change__more summary { color: var(--text-secondary); font-size: var(--text-small); }
+.own-change__more p { margin-top: var(--space-3); color: var(--text-secondary); }
+
+@media (max-width: 760px) {
+  .own-grid { grid-template-columns: minmax(0, 1fr); }
+  .own-actions { grid-template-columns: minmax(0, 1fr); }
+  .own-fact { flex-direction: column; gap: var(--space-1); }
+}
+
+/* --------------------------------------------------------------------------
    A bar chart that is a measurement rather than decoration
    -------------------------------------------------------------------------- */
 

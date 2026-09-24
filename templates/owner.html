@@ -1,0 +1,565 @@
+{# ==========================================================================
+   owner.html — the operator console, served rather than bundled.
+
+   This address used to hand out the shell for a browser app in `console/`. The
+   app was archived with the rest of the pre-rebuild surfaces, and the shell with
+   it, so the address answered 500 (`TemplateNotFound`) for the one person who can
+   open it. It draws its own pages now, from the same readers the `/api/console/*`
+   endpoints answer with — which is the point rather than a convenience: a console
+   with a second implementation of "what is this server doing" is two answers to
+   one question, and this project has paid for that twice.
+
+   Three rules the markup follows, all of them this site's:
+
+     * **A reading is never invented.** Every number on these pages comes from a
+       reader that already exists; where a reader could not be read, the page says
+       so in words instead of drawing a zero. `facts()` below renders whatever
+       mapping it is handed and skips anything that is not a scalar, so a reader
+       that grows a field shows up here without an edit — and a field that is
+       *absent* is absent rather than a made-up default.
+     * **The action belongs to the button.** The tier's four actions are forms
+       that POST and redirect, not buttons waiting on a script: the most
+       consequential controls in this project must work while a page's
+       JavaScript does not, which is exactly when something is wrong.
+     * **Nothing here writes except God level.** The rest of the console reads
+       Discord and the database; changing a server's switches is its own
+       administrator's job, in their own dashboard, and this page says so rather
+       than offering a control that would be refused.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+{% block title %}{{ page_title }} — operator console{% endblock %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
+{% endblock %}
+
+{# A reader's own mapping, rendered as labelled readings. Scalars only: a list or
+   a nested mapping belongs in a table built for it, and drawing one as text is
+   how a page ends up printing `[object Object]`-shaped nothing. #}
+{% macro facts(title, mapping) %}
+{% if mapping is mapping %}
+<div class="own-card">
+  <h3>{{ title }}</h3>
+  <dl class="own-facts">
+    {% for key, value in mapping.items() %}
+    {% if value is string or value is number or value is boolean or value is none %}
+    <div class="own-fact">
+      <dt>{{ key | replace('_', ' ') }}</dt>
+      <dd class="mono">{% if value is none %}—{% else %}{{ value }}{% endif %}</dd>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </dl>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro chip(label, value, tone="") %}
+<span class="own-chip{% if tone %} own-chip--{{ tone }}{% endif %}">
+  <span class="own-chip__label">{{ label }}</span>
+  <span class="own-chip__value mono">{{ value }}</span>
+</span>
+{% endmacro %}
+
+{% block page %}
+<section class="band band--flush">
+  <div class="wrap">
+    <p class="micro">Operator console</p>
+    <h1>{{ page_title }}</h1>
+    <p class="lede">{{ page_lede }}</p>
+
+    {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+    {% if error %}<p class="notice notice--bad" role="alert">{{ error }}</p>{% endif %}
+    {% if god.paused.paused %}
+    <p class="notice notice--bad" role="alert">{{ god.paused_sentence }}</p>
+    {% endif %}
+
+    <div class="own-state">
+      {{ chip('Gateway', gateway.key, 'ok' if gateway.connected else 'warn') }}
+      {{ chip('Bot', 'ready' if bot.ready else 'not connected', 'ok' if bot.ready else 'warn') }}
+      {{ chip('Ping', (bot.ping_ms ~ ' ms') if bot.ping_ms else '—') }}
+      {{ chip('Servers', totals.servers) }}
+      {{ chip('Members', totals.members) }}
+      {{ chip('Uptime', (uptime_seconds // 3600) ~ 'h ' ~ ((uptime_seconds % 3600) // 60) ~ 'm') }}
+      {{ chip('God level', 'open · ' ~ (god.remaining_seconds // 60) ~ 'm left' if not god.locked else 'locked', 'warn' if god.locked else 'ok') }}
+    </div>
+
+    {# The rail. Grouped from `OWNER_GROUPS`, drawn from `_page_nav`, so a page
+       added to the table and not to a group is still reachable. #}
+    <nav class="own-rail" aria-label="Console pages">
+      {% for group in rail %}
+      <div class="own-rail__group">
+        {% if group.label %}<p class="micro">{{ group.label }}</p>{% endif %}
+        <div class="own-rail__row">
+          {% for item in group.pages %}
+          <a class="own-rail__link{% if item.current %} is-current{% endif %}" href="{{ item.url }}"
+             {% if item.current %}aria-current="page"{% endif %}>{{ item.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </nav>
+  </div>
+</section>
+
+{% if console_page == 'overview' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>The fleet's own sums</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>Servers</dt><dd class="mono">{{ totals.servers }}</dd></div>
+          <div class="own-fact"><dt>Members reached</dt><dd class="mono">{{ totals.members }}</dd></div>
+          <div class="own-fact"><dt>Switches on</dt><dd class="mono">{{ totals.on }} of {{ totals.slots }}</dd></div>
+          <div class="own-fact"><dt>Systems</dt><dd class="mono">{{ totals.systems }}</dd></div>
+          <div class="own-fact"><dt>Switchable</dt><dd class="mono">{{ totals.switchable }}</dd></div>
+          <div class="own-fact"><dt>Commands published</dt><dd class="mono">{{ totals.published }} of {{ totals.commands }}</dd></div>
+        </dl>
+      </div>
+      {{ facts('The gateway', gateway) }}
+      {{ facts('The bot', bot) }}
+    </div>
+
+    <h2>The biggest servers</h2>
+    {% if fleet %}
+    <div class="own-table__scroll">
+    <table class="own-table">
+      <caption class="visually-hidden">Every server, most populated first</caption>
+      <thead><tr><th scope="col">Server</th><th scope="col">Members</th><th scope="col">Switches</th><th scope="col">Nick</th></tr></thead>
+      <tbody>
+        {% for row in fleet[:8] %}
+        <tr>
+          <th scope="row"><a href="/owner/servers?guild_id={{ row.id }}">{{ row.name }}</a></th>
+          <td class="mono">{{ row.members }}</td>
+          <td class="mono">{{ row.on }} / {{ row.total }}</td>
+          <td>{{ row.nick or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="hint">All {{ totals.servers }} are on the <a href="/owner/servers">Servers</a> page, in this order.</p>
+    {% else %}
+    <p class="hint">
+      The bot is not in a server this process can see yet. Nothing is wrong with the console:
+      Discord has not answered since this process started, which is also the first seconds of
+      every restart.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'live' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    {% if selected %}
+    <p class="hint">Read on <strong>{{ selected.name }}</strong> — the biggest server the bot is in.
+      <a href="/owner/live?guild_id={{ fleet[-1].id }}">Read the smallest instead</a> if that is the one you meant.</p>
+    {% endif %}
+    {% if live %}
+      {% if live.read %}
+      <div class="own-grid">
+        {{ chip('In voice', live.people) }}
+        {{ chip('Alone', live.alone, 'warn' if live.alone else '') }}
+        {{ chip('Rooms', live.rooms | length) }}
+      </div>
+      {% if live.rooms %}
+      <table class="own-table">
+        <caption>Voice rooms somebody is in right now</caption>
+        <thead><tr><th scope="col">Room</th><th scope="col">People</th><th scope="col">Alone</th><th scope="col">Streaming</th></tr></thead>
+        <tbody>
+          {% for room in live.rooms %}
+          <tr>
+            <th scope="row">{{ room.name }}</th>
+            <td class="mono">{{ room.people }}</td>
+            <td class="mono">{{ 'yes' if room.alone else 'no' }}</td>
+            <td class="mono">{{ 'yes' if room.live else 'no' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="hint">Nobody is in a voice channel on this server right now, and that is a reading
+        rather than an error — the roster answered.</p>
+      {% endif %}
+      {% if live.radio is mapping %}{{ facts('The companion', live.radio) }}{% endif %}
+      {% else %}
+      <p class="notice notice--bad" role="alert">{{ live.why or 'The voice roster could not be read.' }}</p>
+      {% endif %}
+    {% else %}
+    <p class="hint">No server to read: the bot is not in one this process can see.</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'servers' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    {% if fleet %}
+    <div class="own-table__scroll">
+    <table class="own-table">
+      <caption>Every server, most populated first — open one to see its switches</caption>
+      <thead><tr><th scope="col">Server</th><th scope="col">Members</th><th scope="col">Switches</th><th scope="col">Read</th></tr></thead>
+      <tbody>
+        {% for row in fleet %}
+        <tr{% if selected and row.id == selected.id %} class="is-current"{% endif %}>
+          <th scope="row"><a href="/owner/servers?guild_id={{ row.id }}">{{ row.name }}</a></th>
+          <td class="mono">{{ row.members }}</td>
+          <td class="mono">{{ row.on }} / {{ row.total }}</td>
+          <td class="mono">{{ 'ok' if row.known else 'could not read' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {% if selected %}
+    <h2>{{ selected.name }}'s switches</h2>
+    {% if not systems_known %}
+    <p class="notice notice--bad" role="alert">
+      This server's switches could not be read, so nothing below is a claim about them.
+    </p>
+    {% endif %}
+    <table class="own-table">
+      <caption>Read from the same cache the server's own dashboard reads</caption>
+      <thead><tr><th scope="col">System</th><th scope="col">Category</th><th scope="col">Commands</th><th scope="col">State</th></tr></thead>
+      <tbody>
+        {% for system in systems %}
+        <tr>
+          <th scope="row">{{ system.icon }} {{ system.name }}</th>
+          <td>{{ system.category }}</td>
+          <td class="mono">{{ system.commands | length }}</td>
+          <td class="mono">
+            {{ 'on' if system.enabled else 'off' }}{% if not system.allowed %} · plan{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">
+      This console does not switch another server's systems: that is the administrator's own
+      dashboard, and a control here would be offered to somebody it would refuse.
+    </p>
+    {% else %}
+    <p class="hint">No server in hand — the bot is not in one this process can see.</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'systems' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <p class="hint">
+      Read across {{ matrix_read }} of {{ totals.servers }} servers. A system shown as off everywhere
+      because a server's states could not be read would be sending you to fix something that is running,
+      so the column says how many were read.
+    </p>
+    <table class="own-table">
+      <caption>Every system in the registry, most switched-on first</caption>
+      <thead><tr><th scope="col">System</th><th scope="col">Category</th><th scope="col">On</th><th scope="col">Read</th><th scope="col">Default</th></tr></thead>
+      <tbody>
+        {% for row in matrix %}
+        <tr>
+          <th scope="row">{{ row.icon }} {{ row.name }}</th>
+          <td>{{ row.category }}</td>
+          <td class="mono">{{ row.on }}</td>
+          <td class="mono">{{ row.read }}</td>
+          <td class="mono">{{ 'on' if row.default_enabled else 'off' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'commands' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <div class="own-grid">
+      {{ chip('In the registry', commands.registry) }}
+      {{ chip('Switchable systems', commands.switchable) }}
+      {{ chip('In the tree', commands.published) }}
+    </div>
+    <p class="notice{% if commands.publish.tone in ('never', 'unverified') %} notice--bad{% endif %}" role="status">
+      {{ commands.publish.text }}
+    </p>
+    {{ facts('The published copy', commands.publish) }}
+    <p class="hint">
+      The registry is how Discord's picker counts (one row per command); the tree is what this
+      deployment publishes, which is what a member can type.
+    </p>
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'economy' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    {% if selected %}<p class="hint">Read on <strong>{{ selected.name }}</strong>.</p>{% endif %}
+    {% if economy %}
+      <div class="own-grid">
+        {{ chip('Circulation', economy.circulation) }}
+        {{ chip('Holders', economy.top | length) }}
+      </div>
+      {% if economy.fee is mapping %}{{ facts('The bank fee', economy.fee) }}{% endif %}
+      <table class="own-table">
+        <caption>The largest holdings on this server</caption>
+        <thead><tr><th scope="col">Member</th><th scope="col">Held</th><th scope="col">Share</th></tr></thead>
+        <tbody>
+          {% for holder in economy.top %}
+          <tr>
+            <th scope="row">{{ holder.name or holder.user_id }}</th>
+            <td class="mono">{{ holder.net }}</td>
+            <td class="mono">{{ '%.2f' | format(holder.share or 0) }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+    <p class="notice notice--bad" role="alert">
+      This server's economy tables could not be read, so there is nothing here to show — which is
+      not the same as an empty economy, and the difference matters when the question is whether
+      anybody is holding anything.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'ops' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <div class="own-grid">
+      {{ facts('The monitor', health.uptime) }}
+      {{ facts('This process', health.site) }}
+      {{ facts('The configuration', health.config) }}
+    </div>
+    {% if health.config.named %}
+    <h2>Asking for attention</h2>
+    <ul class="list">
+      {% for row in health.config.named %}
+      <li class="list__row">
+        <span class="list__key mono">{{ row.name if row.name is defined else row }}</span>
+        <span class="list__note">{{ row.detail if row.detail is defined else '' }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'questions' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <div class="own-grid">
+      {{ chip('Open', inbox.open_count if inbox.open_count is defined else '—') }}
+      {{ chip('Answered', inbox.answered if inbox.answered is defined else '—') }}
+    </div>
+    {% if not inbox.available %}
+    <p class="notice notice--bad" role="alert">
+      The question box could not be read: {{ inbox.because or 'no reason was given' }}. That is not
+      the same as an empty box.
+    </p>
+    {% elif inbox.rows %}
+    <table class="own-table">
+      <caption>What strangers asked, newest first</caption>
+      <thead><tr><th scope="col">Question</th><th scope="col">Asked by</th><th scope="col">State</th></tr></thead>
+      <tbody>
+        {% for row in inbox.rows %}
+        <tr>
+          <th scope="row">{{ row.question or '—' }}</th>
+          <td>{{ row.asked_by or row.username or '—' }}</td>
+          <td class="mono">{{ row.state or ('answered' if row.answer else 'open') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">
+      Answering one is `/qna reply`, in the bot's own server, because the reply has to arrive as
+      the bot — a form here would be a second way to speak in its voice.
+    </p>
+    {% else %}
+    <p class="hint">
+      Nothing in the box. Read from the same table the bot's own inbox reads.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'access' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <div class="own-grid">
+      {{ facts('The doors', doors) }}
+    </div>
+    {% if ledger.available %}
+    <p class="hint">
+      {{ ledger.live }} live of {{ ledger.rows | length }} known, {{ ledger.revoked }} revoked, and a
+      session goes idle after {{ ledger.idle_ttl_seconds // 60 }} minutes. The id is masked here on
+      purpose: it is a bearer credential, and this page's job is to name a row rather than to hand
+      one out.
+    </p>
+    {% if ledger.rows %}
+    <table class="own-table">
+      <caption>Every session the ledger knows</caption>
+      <thead><tr><th scope="col">Session</th><th scope="col">Who</th><th scope="col">From</th><th scope="col">Signed in</th><th scope="col">State</th></tr></thead>
+      <tbody>
+        {% for row in ledger.rows %}
+        <tr{% if row.current %} class="is-current"{% endif %}>
+          <th scope="row" class="mono">{{ row.sid }}</th>
+          <td>{{ row.label or '—' }}</td>
+          <td class="mono">{{ row.ip or '—' }}</td>
+          <td class="mono">{{ row.when or '—' }}</td>
+          <td>
+            <span class="own-chip{% if row.current %} own-chip--ok{% endif %}">{{ 'this browser' if row.current else (row.state or '—') }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% else %}
+    <p class="notice notice--bad" role="alert">
+      The session ledger could not be read: {{ ledger.because or 'no reason was given' }}. That is
+      not the same as nobody being signed in.
+    </p>
+    {% endif %}
+    <div class="own-grid">
+      {% for name, window in limits.items() %}{{ facts(name ~ ' limit', window) }}{% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'changes' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    {% if changes_total %}<p class="hint">Showing {{ changes | length }} of {{ changes_total }} entries.</p>{% endif %}
+    {% for entry in changes %}
+    <article class="own-change">
+      <h3>{% if entry.icon %}<span aria-hidden="true">{{ entry.icon }}</span> {% endif %}{{ entry.version }}</h3>
+      {% if entry.lead %}<p class="lede">{{ entry.lead }}</p>{% endif %}
+      {% if entry.body %}
+      <details class="own-change__more">
+        <summary>What changed</summary>
+        <p>{{ entry.body }}</p>
+      </details>
+      {% endif %}
+    </article>
+    {% else %}
+    <p class="hint">No changelog entries were read.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if console_page == 'god' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    <div class="own-grid">
+      {{ chip('Tier', 'open' if not god.locked else 'locked', 'ok' if not god.locked else 'warn') }}
+      {{ chip('Closes in', (god.remaining_seconds // 60) ~ ' min' if not god.locked else '—') }}
+      {{ chip('Window', (god.unlock_seconds // 60) ~ ' min') }}
+      {{ chip('Paused', 'yes' if god.paused.paused else 'no', 'warn' if god.paused.paused else '') }}
+    </div>
+    <p class="hint">{{ god.paused_sentence }}</p>
+
+    {% if god.locked %}
+      {% if god.passkey_enabled %}
+      <form class="own-door" method="post" action="/owner/god">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="unlock">
+        <label class="field">
+          <span class="field__label">Owner passkey</span>
+          <input class="input" type="password" name="passkey" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn--primary" type="submit">Open god level for {{ god.unlock_seconds // 60 }} minutes</button>
+      </form>
+      <p class="hint">
+        The same key as the door, and the same window: an extra place to type a passkey is an extra
+        place to guess one. Opening this tier does not sign anybody out, and it closes on its own.
+      </p>
+      {% else %}
+      <p class="notice notice--bad" role="alert">
+        This host has no owner passkey set, so this tier cannot be opened at all. Setting it is one
+        environment variable on the deployment.
+      </p>
+      {% endif %}
+    {% else %}
+    <form method="post" action="/owner/god" class="own-door">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="lock">
+      <button class="btn btn--quiet" type="submit">Close god level now</button>
+    </form>
+    {% endif %}
+
+    <h2>The four actions</h2>
+    <p class="hint">
+      Each one acts on every server at once, and each is written to the audit trail with the reason
+      you give — which is why one of them will not go through without it.
+    </p>
+    <div class="own-actions">
+      {% for action in god.actions %}
+      <form class="own-action{% if action.is_set %} is-set{% endif %}" method="post" action="/owner/god">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="{{ action.id }}">
+        <h3>{{ action.label }}</h3>
+        <p>{{ action.blurb }}</p>
+        {% if action.is_set %}
+        <p class="hint">Already the case right now — sending it would change nothing.</p>
+        {% endif %}
+        {% if action.reason_required %}
+        <label class="field">
+          <span class="field__label">Reason (required)</span>
+          <input class="input" type="text" name="reason" maxlength="200" required>
+        </label>
+        {% endif %}
+        <button class="btn {% if action.is_set %}btn--quiet{% else %}btn--primary{% endif %}" type="submit"
+          {% if god.locked %}disabled{% endif %}>
+          {{ action.label }}
+        </button>
+        {% if god.locked %}<p class="hint">Locked — open the tier above first.</p>{% endif %}
+      </form>
+      {% endfor %}
+    </div>
+
+    <h2>What has happened</h2>
+    {% if not god.recent.read %}
+    <p class="notice notice--bad" role="alert">
+      The audit trail could not be read in this database, so nothing below is a claim about what has
+      or has not happened: the table it is written to is missing, which is the state a deployment is
+      in until its own setup has run once.
+    </p>
+    {% elif god.recent.rows %}
+    <table class="own-table">
+      <caption>The last few god-level actions, read from the audit trail</caption>
+      <thead><tr><th scope="col">When</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">Detail</th></tr></thead>
+      <tbody>
+        {% for row in god.recent.rows %}
+        <tr>
+          <th scope="row" class="mono">{{ row.when or '—' }}</th>
+          <td class="mono">{{ row.action }}</td>
+          <td>{{ row.actor_name or '—' }}</td>
+          <td>{{ row.detail or '—' }}{% if not row.ok %} · <span class="own-chip own-chip--warn">refused</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="hint">
+      Nothing yet. The trail outlives the process on purpose, so a deploy does not erase the answer
+      to "did somebody pause the bot last night?".
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

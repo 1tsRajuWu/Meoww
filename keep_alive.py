@@ -47,7 +47,7 @@ import html as _html
 import ipaddress
 from flask import (
     Flask, render_template, request, redirect, send_from_directory, session, jsonify,
-    url_for, Response,
+    url_for, Response, abort,
 )
 from utils import (
     ai_guard, alert_webhook, command_publish, command_scope, company, config_audit,
@@ -5171,6 +5171,68 @@ OWNER_GROUPS = (
     ("Owner", ("access", "changes", "god")),
 )
 
+#: Each page's own heading and its one-sentence answer to *why open this*.
+#:
+#: Declared beside the page table and the groups for the same reason they are
+#: here: the rail, the routes and the words have to agree. A page added above with
+#: no copy draws an empty heading, which is the failure mode to prefer over a
+#: missing page — but the point of writing them down together is that neither
+#: happens silently, and `tests/test_owner_console.py` walks the table.
+OWNER_PAGE_COPY = {
+    "overview": (
+        "The whole deployment",
+        "What is running, what is answering, and what is asking for attention — read from the "
+        "same functions the bot's own panels read, not from a screen built to look like them.",
+    ),
+    "live": (
+        "Live",
+        "The reading as it stands right now: the gateway, the bot's own heartbeat, and the "
+        "voice rooms one server is actually sitting in.",
+    ),
+    "servers": (
+        "Servers",
+        "Every server the bot is in, most populated first, with the switches of whichever one "
+        "is in hand.",
+    ),
+    "systems": (
+        "Systems",
+        "Every system in the registry, and how many of the servers have it switched on.",
+    ),
+    "commands": (
+        "Commands",
+        "What this deployment publishes, and what Discord came back with the last time it was "
+        "told.",
+    ),
+    "economy": (
+        "Economy",
+        "One server's two ledgers — what its members hold and what the bank charges — read from "
+        "the readers its own dashboard draws.",
+    ),
+    "ops": (
+        "Ops",
+        "The host: what the monitor saw, what the site guard made of this process, and what the "
+        "configuration is missing.",
+    ),
+    "questions": (
+        "Questions",
+        "What strangers asked the bot in their own servers, and whether each one has an answer.",
+    ),
+    "access": (
+        "Access",
+        "Which sessions exist, where each came from, and whether anybody is being refused right "
+        "now.",
+    ),
+    "changes": (
+        "Changes",
+        "The changelog this deployment ships, newest first.",
+    ),
+    "god": (
+        "God level",
+        "The four actions that are not about one server. They sit behind a second door and a "
+        "clock, and each of them is written to the audit trail with the reason it was asked for.",
+    ),
+}
+
 #: Where the bundled console app is built to (``console/`` builds into it).
 CONSOLE_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "console")
 
@@ -5232,21 +5294,384 @@ def owner_login():
     return _owner_login_page()
 
 
+def _owner_systems_matrix(fleet: list[dict]) -> tuple[list[dict], int]:
+    """Every system in the registry, and how many servers have it on.
+
+    One read per server rather than one per server per system: ``get_states``
+    caches per guild, and eleven calls per server would be eleven chances to read
+    a cache that moved underneath the page.
+
+    ``read`` is reported per row rather than swallowed, for the reason this file
+    keeps repeating: a system shown as *off everywhere* because the states could
+    not be read would send the operator to fix something that is running.
+    """
+    states_by_server: dict[int, dict | None] = {}
+    for row in fleet:
+        try:
+            states_by_server[row["id"]] = modules.get_states(row["id"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[CONSOLE] could not read module state for {row['id']}: {exc}", flush=True)
+            states_by_server[row["id"]] = None
+    read = sum(1 for states in states_by_server.values() if states is not None)
+    rows = []
+    for module in AVAILABLE_MODULES:
+        on = 0
+        for states in states_by_server.values():
+            if states is None:
+                continue
+            if bool(states.get(module["id"], features.default_enabled(module["id"]))):
+                on += 1
+        rows.append({
+            **module,
+            "on": on,
+            "read": read,
+            # The registry's own answer, so the page can say what a server that
+            # has never touched a switch would be doing.
+            "default_enabled": features.default_enabled(module["id"]),
+        })
+    # Most-switched-on first: the question this page answers is whether anything
+    # is still on anywhere, and the answer is at the top if it is.
+    rows.sort(key=lambda row: (-row["on"], row["name"].lower()))
+    return rows, read
+
+
+def _owner_recent(limit: int = 12) -> dict:
+    """The last few god-level actions, with the clock already readable.
+
+    The formatting belongs here rather than in the template: the trail stores an
+    epoch, and a page that prints `1758650000.12` beside a sentence is a page
+    whose reader has to do arithmetic to answer "was that today?".
+
+    **Readability is reported, not swallowed** — and this is the one place in this
+    rebuild where a defect was found by reading the page rather than the code. The
+    reader underneath returns an empty list both for "nothing has happened" and
+    "the audit table does not exist in this database", and those are different
+    answers: on a fresh deployment or a database that predates the table, a page
+    that said *Nothing yet* would be claiming the second thing with the first
+    one's sentence. So the flag comes back with the rows, and the page picks its
+    sentence from the flag.
+    """
+    raw, read = _loop_reading(db.recent_web_actions(guild_id=0, limit=40), [])
+    rows = []
+    for row in (raw or []):
+        if str(row.get("scope") or "") != "god":
+            continue
+        when = row.get("at")
+        rows.append({
+            **row,
+            "when": time.strftime("%d %b · %H:%M", time.localtime(float(when))) if when else "",
+        })
+        if len(rows) >= limit:
+            break
+    return {"rows": rows, "read": bool(read)}
+
+
+def _owner_ledger() -> dict:
+    """The session ledger, each row's clock already readable, for the Access page."""
+    reading = sessions.reading(current_sid=session.get(sessions.COOKIE_KEY))
+    rows = []
+    for row in reading.get("rows") or []:
+        started = row.get("started_at")
+        rows.append({
+            **row,
+            "when": time.strftime("%d %b · %H:%M", time.localtime(float(started))) if started else "",
+        })
+    return {**reading, "rows": rows}
+
+
+def _owner_context(page: str, guild_id=None) -> dict:
+    """Everything one console page is drawn from, computed in one place.
+
+    The console **reads** where it is not acting, and every reading below comes
+    from the function the matching ``/api/console/*`` endpoint already calls — so
+    the page an operator has open and the API a script would call cannot answer
+    differently about the same server, which is the defect this project keeps
+    meeting in its own history.
+
+    Not every page computes everything, and this is the one place the console
+    departs from the dashboard's rule on purpose. The dashboard pays for "every
+    page computes every rule" with one server and seven sections; the readings
+    here are per *fleet* — the systems matrix is a read per server, the economy is
+    two ledgers per server — so a page that computed all of them to draw one of
+    them would be a page nobody could open on a host that has been asleep. What
+    every page shares *is* computed every time: the fleet, its totals, the
+    gateway, the tier's own state and the server in hand.
+    """
+    fleet = _fleet_rows()
+    totals = _console_totals(fleet)
+    wanted = str(guild_id or "").strip()
+    selected = None
+    if fleet:
+        selected = next(
+            (row for row in fleet if _console_id(row["id"]) == wanted), None
+        ) or fleet[0]
+
+    title, lede = OWNER_PAGE_COPY.get(page, OWNER_PAGE_COPY["overview"])
+    pause_state = pause.state(refresh=True)
+    started, connected = _gateway_state()
+    nav = _page_nav(OWNER_PAGES, page, groups=OWNER_GROUPS)
+    # The rail is the groups with their pages, plus anything the groups did not
+    # place — so a page added to the table and not to a group is still reachable,
+    # which is the failure mode `_page_nav` documents one level down.
+    # The home page first, then the groups. `OWNER_GROUPS` deliberately leaves it
+    # out of every group — one page is the console's front door rather than a
+    # member of a set, and `tests/test_design_laws.py` holds that arithmetic — so
+    # the ungrouped bucket is not an overflow, it is the first row. Drawn last, the
+    # front page of the console was the final link in its own rail.
+    ungrouped = [item for item in nav if not item["group"]]
+    rail = [{"label": "", "pages": ungrouped}] if ungrouped else []
+    rail += [
+        {"label": label, "pages": [item for item in nav if item["group"] == label]}
+        for label, _ids in OWNER_GROUPS
+    ]
+
+    context = {
+        "console_page": page,
+        "page_title": title,
+        "page_lede": lede,
+        "page_anchor": _page_anchor(OWNER_PAGES, page),
+        "rail": rail,
+        "operator": session.get("discord_user") or {},
+        "csrf_token": get_csrf_token(),
+        "fleet": fleet,
+        "totals": totals,
+        "selected": selected,
+        "gateway": {**_badge_state(), "started": started, "key": _gateway_label(started, connected)},
+        "bot": {"name": _bot_display_name(), "ready": _bot_ready(), "ping_ms": _bot_ping_ms()},
+        "uptime_seconds": max(0, int(time.time() - PROCESS_STARTED_AT)),
+        "god": {
+            "locked": not _god_unlocked(),
+            "remaining_seconds": _god_remaining(),
+            "unlock_seconds": GOD_UNLOCK_SECONDS,
+            "passkey_enabled": bool(ADMIN_PASSKEY),
+            "paused": pause_state,
+            "paused_sentence": pause.describe(pause_state),
+            "actions": [
+                {
+                    "id": action_id,
+                    "label": label,
+                    "blurb": blurb,
+                    "reason_required": bool(needs_reason),
+                    # Whether it would change anything right now, so a control
+                    # that would do nothing says so instead of being pressed to
+                    # find out — the same flag the API hands the old app.
+                    "is_set": (
+                        (action_id == "pause" and pause_state["paused"])
+                        or (action_id == "resume" and not pause_state["paused"])
+                    ),
+                }
+                for action_id, label, blurb, needs_reason in GOD_ACTIONS
+            ],
+            "recent": _owner_recent(12),
+        },
+        # A sentence carried across a POST, read once. Popped rather than read, so
+        # a reload cannot re-announce an action that has already happened.
+        "notice": session.pop("owner_notice", ""),
+        "error": session.pop("owner_error", ""),
+    }
+
+    if page == "live" and selected:
+        context["live"] = _overview_live(selected["id"])
+    if page in ("servers", "systems") and selected:
+        context["systems"], context["systems_known"] = _console_systems_for(selected["id"])
+    if page == "systems":
+        context["matrix"], context["matrix_read"] = _owner_systems_matrix(fleet)
+    if page == "commands":
+        context["commands"] = {
+            "registry": features.command_count(),
+            "published": len(_command_tree_names()),
+            "publish": command_publish.describe(0, expected=features.command_count()),
+            "switchable": len(AVAILABLE_MODULES),
+        }
+    if page == "economy" and selected:
+        ledgers = _progression_context(selected["id"], "economy")
+        context["economy"] = ledgers["economy"]
+    if page == "ops":
+        context["health"] = {
+            "uptime": uptime_status.snapshot(),
+            "site": site_guard.health_json(),
+            # Presence, not values: `health_json` counts because `/health` is
+            # public; this console is not, so the names come with it.
+            "config": {**config_audit.health_json(), "named": config_audit.attention_json()},
+        }
+    if page == "questions":
+        context["inbox"] = qna.owner_inbox_sync(limit=20)
+    if page == "access":
+        context["ledger"] = _owner_ledger()
+        context["limits"] = {
+            "sign-in": _SIGN_IN.snapshot(),
+            "passkey": _PASSKEY.snapshot(),
+            "send": _SEND.snapshot(),
+        }
+        context["doors"] = {
+            "passkey_enabled": bool(ADMIN_PASSKEY),
+            "discord_elevation": OWNER_DISCORD_ELEVATION,
+            "visitor_address_signed": bool(OWNER_PROXY_SECRET),
+            "ledger_writable": sessions.writable(),
+        }
+    if page == "changes":
+        entries, total = hub.read_changelog(HUB_CHANGELOG, limit=hub.CHANGES_SHOWN)
+        context["changes"] = entries
+        context["changes_total"] = total
+    return context
+
+
+def _god_open(entered: str) -> dict:
+    """Open the tier for this browser, and say what happened — once, for both doors.
+
+    The same credential as the front door and the same limiter window: an extra
+    place to type a passkey is an extra place to guess one. Extracted from the JSON
+    endpoint because the served console asks the same question, and two
+    implementations of one check is how a door and the API behind it come to
+    disagree about what "wrong passkey" means.
+    """
+    if not ADMIN_PASSKEY:
+        return {
+            "ok": False,
+            "status": 409,
+            "error": "No owner passkey is configured in this deployment, so this tier cannot be opened.",
+        }
+    if _passkey_attempts_left() <= 0:
+        return {
+            "ok": False,
+            "status": 429,
+            "error": "Too many attempts. Wait a few minutes and try again.",
+        }
+    if not entered or not secrets.compare_digest(entered, ADMIN_PASSKEY):
+        _record_passkey_failure()
+        _god_audit("god_unlock", ok=False, detail="wrong passkey")
+        # `locked: True` is not decoration: the browser app reads a 403 as "your
+        # session is dead" unless it carries that flag, so a mistyped passkey
+        # answered with "Your sign-in is no longer valid" — a sentence that is
+        # false and hides the server's own message.
+        return {
+            "ok": False,
+            "status": 403,
+            "error": "That is not the owner passkey.",
+            "locked": True,
+        }
+    session["god_until"] = time.time() + GOD_UNLOCK_SECONDS
+    _god_audit("god_unlock", ok=True, detail=f"open for {GOD_UNLOCK_SECONDS // 60} minutes")
+    return {
+        "ok": True,
+        "status": 200,
+        "said": "God level is open for this browser.",
+        "remaining_seconds": _god_remaining(),
+    }
+
+
+def _god_close() -> dict:
+    """Close the tier now rather than waiting for the clock.
+
+    An operator who is finished should not have to remember that a page is still
+    armed; this is what makes the unlock a thing you hold rather than a thing you
+    did.
+    """
+    was_open = _god_unlocked()
+    session.pop("god_until", None)
+    if was_open:
+        _god_audit("god_lock", ok=True, detail="closed early")
+    return {"ok": True, "status": 200, "said": "God level is closed."}
+
+
+def _god_perform(action: str, reason: str) -> dict:
+    """One fleet-wide action, performed once, reported to whoever asked.
+
+    Extracted from the JSON endpoint for the reason ``_god_open`` was: the served
+    console and the API must not disagree about what "turn every system off" does.
+    The sentences are built here too, because both callers print them — and a
+    message written twice is the drift this file keeps writing laws about.
+    """
+    if action not in GOD_ACTION_IDS:
+        return {"ok": False, "status": 400, "error": "Unknown god action"}
+
+    needs_reason = next(spec[3] for spec in GOD_ACTIONS if spec[0] == action)
+    if needs_reason and not reason:
+        return {
+            "ok": False,
+            "status": 400,
+            "error": "Give a reason — it is what the next person to read the trail will have.",
+        }
+
+    _actor_id, actor_name = _god_actor()
+
+    if action in ("pause", "resume"):
+        paused = action == "pause"
+        state_after = pause.set_state(paused, actor=actor_name, reason=reason)
+        _god_audit(
+            "god_pause" if paused else "god_resume",
+            ok=True,
+            detail=reason or "no reason given",
+        )
+        return {
+            "ok": True,
+            "status": 200,
+            "paused": state_after,
+            "said": pause.describe(state_after),
+        }
+
+    # The two fleet switches. Written server by server so a server that refuses
+    # is named rather than lost inside a bulk write: `modules.set_enabled`
+    # persists first and then updates the cache, and a failure on one guild must
+    # not stop the rest or pretend it happened.
+    enabled = action == "fleet_on"
+    fleet_ids = _god_fleet_ids()
+    if not fleet_ids:
+        return {
+            "ok": False,
+            "status": 409,
+            "error": "The bot is not in any server right now, so there is nothing to switch.",
+        }
+    changed = 0
+    failed: list[str] = []
+    for guild_id in fleet_ids:
+        for module in AVAILABLE_MODULES:
+            try:
+                modules.set_enabled(guild_id, module["id"], enabled)
+                changed += 1
+            except Exception as exc:  # noqa: BLE001
+                failed.append(f"{guild_id}:{module['id']} ({type(exc).__name__})")
+
+    _god_audit(
+        "god_fleet_on" if enabled else "god_fleet_off",
+        ok=not failed,
+        detail=(reason or "no reason given")
+        + f" — {len(fleet_ids)} servers, {changed} switches"
+        + (f", {len(failed)} refused" if failed else ""),
+    )
+    return {
+        "ok": True,
+        "status": 200,
+        "changed": changed,
+        "servers": len(fleet_ids),
+        "failed": failed[:20],
+        "error": (
+            f"{len(failed)} switch(es) were refused — see the audit trail for which."
+            if failed
+            else None
+        ),
+        "said": (
+            f"Every system is now {'on' if enabled else 'off'} on all {len(fleet_ids)} "
+            f"server{'s' if len(fleet_ids) != 1 else ''}."
+            if not failed
+            else None
+        ),
+    }
+
+
 @app.route("/owner")
 @app.route("/owner/<path:sub>")
 def owner_console(sub: str = ""):
-    """The operator console's shell. Operator only — see the note above.
+    """One page of the operator console. Operator only — see the note above.
 
-    This served four server-rendered pages. It now serves one HTML file: the
-    shell for the bundled app in ``console/``, which owns every ``/owner`` path
-    and draws its content from the ``/api/console/*`` endpoints below.
+    This served a bundled browser app, and it now serves the console again: one
+    page per entry in ``OWNER_PAGES``, rendered from the same readers the
+    ``/api/console/*`` endpoints answer with. The app is archived with the rest of
+    the pre-rebuild surfaces, so the address that used to hand out its shell — and
+    answered ``TemplateNotFound`` once the shell went — draws its own pages.
 
-    Two things stay here rather than moving into the bundle, and both are the
-    same reason: the server is the only party that knows them. The **CSRF token**
-    is minted against this session, and Flask's session cookie is ``HttpOnly``,
-    so a script could never read either — it has to be handed the token. And the
-    **scope test** is the page's first line, unchanged: a one-time link is a real
-    sign-in that belongs to one server, so it is sent to a place it can act
+    The **scope test** is the page's first line, unchanged: a one-time link is a
+    real sign-in that belongs to one server, so it is sent to a place it can act
     instead of being given a fleet it may not touch.
     """
     if not is_authenticated():
@@ -5262,16 +5687,64 @@ def owner_console(sub: str = ""):
         # nobody is dropped onto a server they did not choose.
         return redirect("/servers" if _visible_guilds() else "/dashboard")
 
+    page = (sub or "overview").strip("/") or "overview"
+    if page not in OWNER_PAGE_COPY:
+        # An address that names no page of this console is a wrong address, and
+        # the styled 404 already says so with ways onward.
+        abort(404)
     return render_template(
-        "console.html",
-        csrf_token=get_csrf_token(),
-        operator=session.get("discord_user") or {},
-        bot_name=_bot_display_name(),
-        asset_stamp=_console_asset_stamp(),
-        built=_console_built(),
-        gateway=_badge_state(),
-        pages=_page_nav(OWNER_PAGES, "overview", groups=OWNER_GROUPS),
+        "owner.html",
+        **{**_site_context(), **_owner_context(page, request.args.get("guild_id"))},
     )
+
+
+@app.route("/owner/god", methods=["POST"])
+def owner_god_action():
+    """The god level's own door and its four actions, from the page itself.
+
+    Three requests arrive here — *unlock*, *lock*, and one of the four fleet-wide
+    actions — and each of them goes through the same helper the JSON API uses, so
+    the served console cannot perform a variant of an action the API would refuse.
+
+    A form rather than a fetch, and that is a decision rather than a preference:
+    the actions are the most consequential controls this project has, and a
+    control that only works while a script loaded is a control that fails exactly
+    when something is wrong. CSRF is checked, the tier's clock is checked, and the
+    answer is a sentence on the page it came from (POST, then redirect, so a reload
+    cannot repeat an action — the one repeat that would be genuinely dangerous).
+    """
+    if not is_authenticated():
+        return redirect("/owner/login")
+    if not _principal().is_operator:
+        return redirect("/owner/login")
+    if not validate_csrf():
+        session["owner_error"] = "That form had expired. Nothing was done — try again."
+        return redirect("/owner/god")
+
+    action = str(request.form.get("action") or "").strip()
+    reason = str(request.form.get("reason") or "").strip()
+
+    if action == "unlock":
+        outcome = _god_open(str(request.form.get("passkey") or ""))
+    elif action == "lock":
+        outcome = _god_close()
+    elif action in GOD_ACTION_IDS:
+        if not _god_unlocked():
+            outcome = {
+                "ok": False,
+                "status": 403,
+                "error": "God level is locked. Unlock it with the owner passkey first.",
+            }
+        else:
+            outcome = _god_perform(action, reason)
+    else:
+        outcome = {"ok": False, "status": 400, "error": "Unknown god action"}
+
+    if outcome.get("ok") and not outcome.get("error"):
+        session["owner_notice"] = outcome.get("said") or "Done."
+    else:
+        session["owner_error"] = outcome.get("error") or "That did not work."
+    return redirect("/owner/god")
 
 
 # ---------------------------------------------------------------------------
@@ -6816,38 +7289,22 @@ def api_console_god_unlock():
     if denied:
         return denied
 
-    if not ADMIN_PASSKEY:
-        return jsonify({
-            "success": False,
-            "error": "No owner passkey is configured in this deployment, so this tier cannot be opened.",
-        }), 409
-    if _passkey_attempts_left() <= 0:
-        return jsonify({"success": False, "error": "Too many attempts. Wait a few minutes and try again."}), 429
-
     data = request.get_json(silent=True) or {}
-    entered = str(data.get("passkey") or "")
-    if not entered or not secrets.compare_digest(entered, ADMIN_PASSKEY):
-        _record_passkey_failure()
-        _god_audit("god_unlock", ok=False, detail="wrong passkey")
-        # `locked: True` is not decoration: the console reads a 403 as "your
+    outcome = _god_open(str(data.get("passkey") or ""))
+    if not outcome.get("ok"):
+        payload = {"success": False, "error": outcome["error"]}
+        # `locked: True` is not decoration: the browser app reads a 403 as "your
         # session is dead" *unless* it carries that flag, so a mistyped passkey
-        # here answered with "Your sign-in is no longer valid. Reload to sign in
-        # again." — a sentence that is false, sends the operator to reload a page
-        # that is working, and hides the server's own message. The tier is still
-        # locked, which is exactly what the flag claims.
-        return jsonify({
-            "success": False,
-            "error": "That is not the owner passkey.",
-            "locked": True,
-        }), 403
-
-    session["god_until"] = time.time() + GOD_UNLOCK_SECONDS
-    _god_audit("god_unlock", ok=True, detail=f"open for {GOD_UNLOCK_SECONDS // 60} minutes")
+        # answered with "Your sign-in is no longer valid" — a sentence that is
+        # false and hides the server's own message.
+        if outcome.get("locked"):
+            payload["locked"] = True
+        return jsonify(payload), outcome["status"]
     return jsonify({
         "success": True,
         "locked": False,
-        "remaining_seconds": _god_remaining(),
-        "said": "God level is open for this browser.",
+        "remaining_seconds": outcome["remaining_seconds"],
+        "said": outcome["said"],
     })
 
 
@@ -6862,10 +7319,7 @@ def api_console_god_lock():
     denied = _require_operator_api()
     if denied:
         return denied
-    was_open = _god_unlocked()
-    session.pop("god_until", None)
-    if was_open:
-        _god_audit("god_lock", ok=True, detail="closed early")
+    _god_close()
     return jsonify({"success": True, "locked": True, "remaining_seconds": 0})
 
 
@@ -6882,78 +7336,24 @@ def api_console_god_act():
         return denied
 
     data = request.get_json(silent=True) or {}
-    action = str(data.get("action") or "")
-    reason = str(data.get("reason") or "").strip()
-    if action not in GOD_ACTION_IDS:
-        return jsonify({"success": False, "error": "Unknown god action"}), 400
-
-    needs_reason = next(a[3] for a in GOD_ACTIONS if a[0] == action)
-    if needs_reason and not reason:
-        return jsonify({
-            "success": False,
-            "error": "Give a reason — it is what the next person to read the trail will have.",
-        }), 400
-
-    _actor_id, actor_name = _god_actor()
-
-    if action in ("pause", "resume"):
-        paused = action == "pause"
-        state_after = pause.set_state(paused, actor=actor_name, reason=reason)
-        _god_audit(
-            "god_pause" if paused else "god_resume",
-            ok=True,
-            detail=reason or "no reason given",
-        )
+    outcome = _god_perform(
+        str(data.get("action") or ""), str(data.get("reason") or "").strip()
+    )
+    if not outcome.get("ok"):
+        return jsonify({"success": False, "error": outcome["error"]}), outcome["status"]
+    if outcome.get("paused") is not None:
         return jsonify({
             "success": True,
-            "paused": state_after,
-            "said": pause.describe(state_after),
+            "paused": outcome["paused"],
+            "said": outcome["said"],
         })
-
-    # The two fleet switches. Written server by server so a server that refuses
-    # is named rather than lost inside a bulk write: `modules.set_enabled`
-    # persists first and then updates the cache, and a failure on one guild must
-    # not stop the rest or pretend it happened.
-    enabled = action == "fleet_on"
-    fleet_ids = _god_fleet_ids()
-    if not fleet_ids:
-        return jsonify({
-            "success": False,
-            "error": "The bot is not in any server right now, so there is nothing to switch.",
-        }), 409
-    changed = 0
-    failed: list[str] = []
-    for guild_id in fleet_ids:
-        for module in AVAILABLE_MODULES:
-            try:
-                modules.set_enabled(guild_id, module["id"], enabled)
-                changed += 1
-            except Exception as exc:  # noqa: BLE001
-                failed.append(f"{guild_id}:{module['id']} ({type(exc).__name__})")
-
-    _god_audit(
-        "god_fleet_on" if enabled else "god_fleet_off",
-        ok=not failed,
-        detail=(reason or "no reason given")
-        + f" — {len(fleet_ids)} servers, {changed} switches"
-        + (f", {len(failed)} refused" if failed else ""),
-    )
     return jsonify({
-        "success": not failed,
-        "changed": changed,
-        "servers": len(fleet_ids),
-        "failed": failed[:20],
-        "error": (
-            f"{len(failed)} switch(es) were refused — see the audit trail for which."
-            if failed
-            else None
-        ),
-        "said": (
-            f"Every system is now {'on' if enabled else 'off'} on all {len(fleet_ids)} "
-            f"server{'s' if len(fleet_ids) != 1 else ''}."
-            if not failed
-            else None
-        ),
+        "success": not outcome["failed"],
+        "changed": outcome["changed"],
+        "servers": outcome["servers"],
+        "failed": outcome["failed"],
+        "error": outcome["error"],
+        "said": outcome["said"],
     })
 
 
