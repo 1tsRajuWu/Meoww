@@ -8444,7 +8444,14 @@ def api_identity():
             problem = identity.image_problem(data)
             if problem:
                 return jsonify({"success": False, "error": problem}), 400
-            wants[field] = data
+            # Shrunk here rather than only on the way into the database, because
+            # these bytes are sent to Discord as well — and both copies are
+            # counted against this host's egress. A picture past the edge, or
+            # past the small-file bound, comes back re-encoded; anything Pillow
+            # cannot read (including the magic-byte-only fixtures the tests use)
+            # comes back exactly as uploaded.
+            edge = identity.AVATAR_MAX_EDGE if field == "avatar" else identity.BANNER_MAX_EDGE
+            wants[field] = identity.tame_image(data, max_edge=edge)
         elif form.get(f"clear_{field}"):
             wants[field] = None
 

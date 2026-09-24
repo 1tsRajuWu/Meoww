@@ -754,6 +754,37 @@ async def setup():
 
         await db.execute(_qna.CREATE_TABLE)
 
+        # One-time repair of the fixtures that reached production — last, because
+        # it is the only migration here that deletes rows from a table this
+        # function also creates. This is the other half of what
+        # ``tests/__init__.py`` describes: ``test_scheduler`` inserted 3,200 rows
+        # through the *default* database path, the bot running on that same
+        # checkout uploaded the result as the backup, and the deploy restores
+        # from it — so the live database carries three thousand queued messages
+        # for a server that does not exist, and has carried them through every
+        # restore since.
+        #
+        # They are invisible in Discord (the delivery loop works one guild at a
+        # time, and no guild matches them) and they are not free: every one of
+        # them travels in every backup, and the backup is uploaded after every
+        # change. Removing them is the cheapest bytes in the whole file.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'fixture_rows_v1'"
+        ) as cur:
+            _fixtures_cleared = await cur.fetchone()
+        if not _fixtures_cleared:
+            removed = await _prune_fixture_rows(db)
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) "
+                "VALUES (0, 'fixture_rows_v1', '1')"
+            )
+            if removed:
+                print(
+                    f"[DB] Pruned {removed:,} queued message(s) for a server that "
+                    "cannot exist — test fixtures that reached the live database.",
+                    flush=True,
+                )
+
         await db.commit()
 
 async def get_setting(guild_id: int, key: str, default=None):
@@ -1762,6 +1793,42 @@ async def _carry_legacy_module(db) -> None:
         "WHERE module_name IN ('radio', 'qna') AND enabled = 1",
         (LEGACY_MODULE_ID,),
     )
+
+
+#: The shortest a real Discord guild id can be. Snowflakes have been seventeen
+#: digits since 2016 and gain a digit every few years; a shorter number is a
+#: fixture, a placeholder, or somebody's test.
+SNOWFLAKE_MIN_DIGITS = 17
+
+
+async def _prune_fixture_rows(db) -> int:
+    """Delete queued messages whose server cannot exist. Returns how many went.
+
+    Kept as its own function rather than inlined into ``setup`` so the rule can
+    be read, and tested, on its own — see :data:`SNOWFLAKE_MIN_DIGITS` for why
+    the test is the shape of an id rather than one particular fixture number.
+    """
+    doomed = (
+        "guild_id IS NULL OR LENGTH(CAST(guild_id AS TEXT)) < :min_digits"
+    )
+    async with db.execute(
+        f"SELECT COUNT(*) FROM scheduled_messages WHERE {doomed}",
+        {"min_digits": SNOWFLAKE_MIN_DIGITS},
+    ) as cur:
+        row = await cur.fetchone()
+    count = int(row[0] or 0) if row else 0
+    if count:
+        await db.execute(
+            f"DELETE FROM scheduled_messages WHERE {doomed}",
+            {"min_digits": SNOWFLAKE_MIN_DIGITS},
+        )
+        # It deletes, so it commits. The first version of this relied on the
+        # caller's transaction, which meant a caller that never committed got a
+        # count of rows it had not actually removed — and the test that caught it
+        # was reading the table rather than the return value, which is the only
+        # way that shows up.
+        await db.commit()
+    return count
 
 
 async def _carry_radio_rename(db) -> None:

@@ -9,9 +9,12 @@ what is left alone, and what is refused before Discord is asked at all.
 """
 import asyncio
 import io
+import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
+
+from PIL import Image
 
 import keep_alive
 from tests.support import TempDatabaseMixin
@@ -395,6 +398,123 @@ class ThePanelIsRendered(unittest.TestCase):
     def test_the_command_panel_explains_why_the_list_is_per_server(self):
         self.assertIn("Commands in this server", self.commands_page)
         self.assertIn("not in this server's picker at all", self.commands_page)
+
+
+def _gradient(size: tuple[int, int], fmt: str = "JPEG") -> bytes:
+    """A photograph-shaped picture: smooth, so it compresses like one."""
+    image = Image.linear_gradient("L").resize(size).convert("RGB")
+    out = io.BytesIO()
+    image.save(out, format=fmt)
+    return out.getvalue()
+
+
+def _noisy_png(size: tuple[int, int]) -> bytes:
+    """The other extreme: entropy, which PNG cannot squeeze at all."""
+    image = Image.frombytes("RGBA", size, os.urandom(size[0] * size[1] * 4))
+    out = io.BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+class WhatAPictureIsKeptAt(unittest.TestCase):
+    """A stored picture is shrunk once, and the small one is what is kept.
+
+    These bytes are counted twice on the way out of this process — once to
+    Discord inside the member edit, once to Supabase inside the ``bot.db`` that
+    is uploaded after every change and snapshotted hourly — and the picture is
+    the part of that file gzip cannot help with, because a JPEG is already
+    compressed. So an unbounded upload makes every future backup bigger for
+    good, and this is where the bound is applied.
+    """
+
+    def test_a_photograph_past_the_edge_comes_back_smaller_and_inside_it(self):
+        original = _gradient((1200, 1200))
+        tamed = identity.tame_image(original, max_edge=identity.AVATAR_MAX_EDGE)
+        self.assertLess(len(tamed), len(original) / 2, "it was not actually shrunk")
+        with Image.open(io.BytesIO(tamed)) as picture:
+            self.assertLessEqual(max(picture.size), identity.AVATAR_MAX_EDGE)
+
+    def test_a_banner_keeps_more_of_its_width_than_an_avatar(self):
+        original = _gradient((2048, 1024))
+        tamed = identity.tame_image(original, max_edge=identity.BANNER_MAX_EDGE)
+        with Image.open(io.BytesIO(tamed)) as picture:
+            self.assertEqual(max(picture.size), identity.BANNER_MAX_EDGE)
+            self.assertGreater(picture.size[0], picture.size[1], "the wide shape was lost")
+
+    def test_bytes_that_are_not_a_picture_come_back_untouched(self):
+        """The validator above is a magic-byte check, so this is a real arrival.
+
+        A file that says PNG and decodes to nothing must be stored as it was:
+        guessing at it would store a picture the server never chose.
+        """
+        payload = b"\x89PNG\r\n\x1a\n" + b"0" * 40
+        self.assertIs(identity.tame_image(payload, max_edge=identity.AVATAR_MAX_EDGE), payload)
+
+    def test_a_picture_that_is_already_small_is_not_re_encoded(self):
+        payload = _gradient((64, 64))
+        self.assertLess(len(payload), identity.ALREADY_SMALL_BYTES)
+        self.assertIs(identity.tame_image(payload, max_edge=identity.AVATAR_MAX_EDGE), payload)
+
+    def test_an_animation_is_not_flattened_to_its_first_frame(self):
+        frames = [Image.new("P", (64, 64), 1), Image.new("P", (64, 64), 2)]
+        out = io.BytesIO()
+        frames[0].save(out, format="GIF", save_all=True, append_images=frames[1:], duration=100)
+        payload = out.getvalue()
+        self.assertIs(identity.tame_image(payload, max_edge=identity.AVATAR_MAX_EDGE), payload)
+
+    def test_transparency_survives_the_re_encode(self):
+        original = _noisy_png((600, 600))
+        tamed = identity.tame_image(original, max_edge=identity.AVATAR_MAX_EDGE)
+        self.assertLessEqual(len(tamed), len(original))
+        with Image.open(io.BytesIO(tamed)) as picture:
+            self.assertIn("A", picture.mode, "the transparency was replaced with a background")
+            self.assertLessEqual(max(picture.size), identity.AVATAR_MAX_EDGE)
+
+    def test_shrinking_an_already_shrunk_picture_is_a_no_op(self):
+        """The route tames, and ``write`` tames: that must not cost quality twice."""
+        once = identity.tame_image(_gradient((1200, 1200)), max_edge=identity.AVATAR_MAX_EDGE)
+        self.assertEqual(
+            identity.tame_image(once, max_edge=identity.AVATAR_MAX_EDGE), once
+        )
+
+    def test_the_record_is_the_bound_however_it_is_written(self):
+        """``write`` is the last door before the file every backup carries."""
+        identity.write(GUILD_ID, nick=None, bio=None, avatar=_gradient((1200, 1200)))
+        stored = identity.read(GUILD_ID)["avatar"]
+        with Image.open(io.BytesIO(stored)) as picture:
+            self.assertLessEqual(max(picture.size), identity.AVATAR_MAX_EDGE)
+
+
+class TheUploadedPictureIsSentSmall(TheEndpoint):
+    """What Discord is given, and what is kept, are the same small picture."""
+
+    def test_discord_and_the_record_both_get_the_shrunk_picture(self):
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        original = _gradient((1200, 1200))
+        response = self.multipart(
+            guild_id=str(GUILD_ID), avatar=(io.BytesIO(original), "pic.jpg")
+        )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        applied = self.member.calls[0]["avatar"]
+        self.assertLess(len(applied), len(original) / 2)
+        with Image.open(io.BytesIO(applied)) as picture:
+            self.assertLessEqual(max(picture.size), identity.AVATAR_MAX_EDGE)
+        self.assertEqual(identity.read(GUILD_ID)["avatar"], applied, "two different pictures")
+
+    def test_a_picture_it_cannot_improve_is_applied_exactly_as_uploaded(self):
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        payload = b"\x89PNG\r\n\x1a\n" + b"0" * 40
+        self.assertEqual(
+            self.multipart(guild_id=str(GUILD_ID), avatar=(io.BytesIO(payload), "p.png")).status_code,
+            200,
+        )
+        self.assertEqual(self.member.calls, [{"avatar": payload}])
+
+    def test_discord_is_still_told_nothing_about_a_picture_it_was_not_given(self):
+        """The shrink lives in one branch, and it must not have widened the form."""
+        self.sign_in(scope="guild", guild_id=GUILD_ID)
+        self.assertEqual(self.save(guild_id=GUILD_ID, nick="Meow").status_code, 200)
+        self.assertEqual(self.member.calls, [{"nick": "Meow"}])
 
 
 if __name__ == "__main__":

@@ -24,6 +24,10 @@ the bot had lost its picture.
 """
 from __future__ import annotations
 
+import io
+
+from PIL import Image
+
 from utils import db
 
 #: Leave this field as it is. Distinct from ``None``, which clears it.
@@ -32,6 +36,24 @@ KEEP = object()
 #: Discord's own ceiling for an uploaded avatar, kept well under it so a phone
 #: photo does not become a 10 MB base64 body.
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+#: The longest edge a stored avatar is kept at. Discord draws a server's icon far
+#: smaller than this, and the record is only ever shown as a small circle on the
+#: dashboard beside the form that set it.
+AVATAR_MAX_EDGE = 512
+
+#: The banner is the wide one, so it keeps more of its width — but not the
+#: multi-megabyte original.
+BANNER_MAX_EDGE = 1024
+
+#: Pictures at or under this, already inside the edge, are stored exactly as
+#: they arrived: re-encoding a file that is already a thumbnail costs quality and
+#: saves bytes nobody was worried about.
+ALREADY_SMALL_BYTES = 48 * 1024
+
+#: What a re-encode is written at. High enough that nobody can tell it was
+#: re-encoded, low enough to be a fraction of the original.
+JPEG_QUALITY = 85
 
 #: What a server may call the bot. Discord truncates a nickname past this.
 MAX_NICK = 32
@@ -72,6 +94,56 @@ def image_problem(data: bytes | None) -> str | None:
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return None
     return "That is not a PNG, JPEG, GIF or WEBP image."
+
+
+def tame_image(data: bytes | None, *, max_edge: int) -> bytes | None:
+    """A stored picture, shrunk to something worth uploading over and over.
+
+    Two copies of these bytes leave this process on every save and are counted
+    twice on the invoice: one to Discord, as base64 inside the member edit, and
+    one to Supabase, inside the ``bot.db`` that is uploaded after every change
+    and snapshotted hourly. A phone photograph inside that file is also the part
+    of it that *cannot* be compressed — a JPEG is already compressed — so an
+    unbounded picture makes every future backup bigger for good.
+
+    So the picture is re-encoded once, here, and both copies are the small one.
+    Three things it refuses to do, because a picture this host cannot improve is
+    still a picture the server asked for:
+
+    * **Bytes that are not a picture it can read** are returned untouched. The
+      check above is a magic-byte check, so a file that *says* PNG and decodes
+      to nothing reaches here, and guessing at it would store nothing at all.
+    * **An animation** is left alone. Flattening the first frame of a GIF would
+      silently delete the thing that was uploaded.
+    * **A re-encode that did not come out smaller** is discarded. The original
+      is the answer when shrinking is not on offer.
+    """
+    if not data:
+        return data
+    try:
+        with Image.open(io.BytesIO(data)) as picture:
+            picture.load()
+            if getattr(picture, "n_frames", 1) > 1:
+                return data
+            width, height = picture.size
+            if max(width, height) <= max_edge and len(data) <= ALREADY_SMALL_BYTES:
+                return data
+            keeps_alpha = picture.mode in ("RGBA", "LA") or (
+                picture.mode == "P" and "transparency" in picture.info
+            )
+            if max(width, height) > max_edge:
+                picture.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            if keeps_alpha:
+                picture.save(out, format="PNG", optimize=True)
+            else:
+                picture.convert("RGB").save(
+                    out, format="JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True
+                )
+            packed = out.getvalue()
+    except Exception:
+        return data
+    return packed if len(packed) < len(data) else data
 
 
 def name_problem(nick: str | None) -> str | None:
@@ -129,7 +201,16 @@ def write(
 
     Returns ``False`` when the write failed, so a caller can report a failure
     rather than claiming a change that would vanish on the next read.
+
+    Both pictures pass :func:`tame_image` on the way in. This is the last door
+    before the file every backup carries, and a bound that only the HTTP route
+    remembers to apply is not a bound: the same helper is called there, so this
+    second pass is a no-op for a picture that was already shrunk.
     """
+    if avatar is not KEEP and avatar is not None:
+        avatar = tame_image(avatar, max_edge=AVATAR_MAX_EDGE)
+    if banner is not KEEP and banner is not None:
+        banner = tame_image(banner, max_edge=BANNER_MAX_EDGE)
     if avatar is KEEP or banner is KEEP:
         current = read(guild_id)
         if avatar is KEEP:
