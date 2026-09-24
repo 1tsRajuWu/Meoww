@@ -14,11 +14,23 @@ load_dotenv()
 # Force port 7860 for Hugging Face Spaces
 os.environ["PORT"] = "7860"
 
-# 1. Start Flask web server immediately (<50ms)
+# 1. Satisfy ZeroGPU requirement on Hugging Face Spaces
+try:
+    import spaces
+
+    @spaces.GPU
+    def _zero_gpu_worker():
+        return True
+
+    print("[HF-SPACES] ZeroGPU function registered successfully.", flush=True)
+except Exception as e:
+    print(f"[HF-SPACES] Note on spaces: {e}", flush=True)
+
+# 2. Start Flask web server immediately (<50ms)
 import keep_alive
 keep_alive.keep_alive()
 
-# 2. Run Discord Bot on the main thread
+# 3. Run Discord Bot on the main thread
 import bot
 
 if __name__ == "__main__":

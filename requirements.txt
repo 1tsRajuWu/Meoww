@@ -11,3 +11,4 @@ Pillow>=10.2.0
 # a self-contained binary for hosts that have none on PATH. yt-dlp is gone with
 # the extractor: radio is a direct stream and nothing here resolves anything.
 imageio-ffmpeg>=0.5.1
+spaces
