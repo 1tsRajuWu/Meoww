@@ -1233,6 +1233,16 @@ async def report_duplicate_instance() -> str | None:
         owner = await asyncio.to_thread(cloud_sync.other_live_copy)
         if not owner:
             return None
+        # Rolling deploy grace check: during zero-downtime rolling deploys (e.g. on
+        # Hugging Face or container hosts), the previous container is in the process of
+        # shutting down. We wait 45 seconds before broadcasting a false-alarm embed.
+        print(f"[INSTANCE] Notice: lease held by '{owner}'. Waiting 45s rolling deploy grace period...", flush=True)
+        await asyncio.sleep(45)
+        owner = await asyncio.to_thread(cloud_sync.other_live_copy)
+        if not owner:
+            print("[INSTANCE] Rolling deploy peer exited cleanly. Sole primary instance active.", flush=True)
+            return None
+
         print(
             f"[INSTANCE] ⚠️ another copy of this bot is running ({owner}) — "
             "commands will fail at random until one of them stops.",
