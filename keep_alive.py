@@ -82,12 +82,16 @@ class LogTee:
         except Exception:
             pass
 
-    def reconfigure(self, **kwargs):
-        if hasattr(self.target, "reconfigure"):
-            try:
-                self.target.reconfigure(**kwargs)
-            except Exception:
-                pass
+    def isatty(self):
+        return getattr(self.target, "isatty", lambda: False)()
+
+    def fileno(self):
+        if hasattr(self.target, "fileno"):
+            return self.target.fileno()
+        raise OSError("fileno not supported")
+
+    def __getattr__(self, name):
+        return getattr(self.target, name)
 
 try:
     sys.stdout.reconfigure(line_buffering=True)

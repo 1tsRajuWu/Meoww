@@ -12,3 +12,4 @@ Pillow>=10.2.0
 # the extractor: radio is a direct stream and nothing here resolves anything.
 imageio-ffmpeg>=0.5.1
 spaces
+a2wsgi>=1.10.0
