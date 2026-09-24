@@ -130,7 +130,13 @@ class NeedsAgreement(TempDatabaseMixin, unittest.TestCase):
     def test_the_page_carries_both_answers_at_the_same_weight(self):
         self._sign_in()
         body = self.client.get("/agree").get_data(as_text=True)
-        buttons = re.findall(r"<button[^>]*>", body)
+        # The two answers, and not the page frame's own buttons: the shared
+        # header carries a menu toggle and the theme popover, so counting every
+        # <button> on the page counts the site rather than the decision. What
+        # this test is about is the pair inside the decision block.
+        decision = re.search(r'<div class="decision">(.*?)</div>', body, re.S)
+        self.assertIsNotNone(decision, "the decision block is missing")
+        buttons = re.findall(r"<button[^>]*>", decision.group(1))
         self.assertEqual(len(buttons), 2, "one of the two answers is missing")
         classes = {re.search(r'class="([^"]+)"', button).group(1) for button in buttons}
         self.assertEqual(len(classes), 1, f"the two answers are styled differently: {classes}")

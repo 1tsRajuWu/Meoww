@@ -10,7 +10,9 @@ what is left alone, and what is refused before Discord is asked at all.
 import asyncio
 import io
 import os
+import struct
 import unittest
+import zlib
 from types import SimpleNamespace
 from unittest import mock
 
@@ -73,6 +75,56 @@ class Validation(unittest.TestCase):
     def test_no_value_at_all_is_not_a_problem(self):
         self.assertIsNone(identity.name_problem(None))
         self.assertIsNone(identity.bio_problem(None))
+
+
+def _png_that_declares(width: int, height: int) -> bytes:
+    """A real one-pixel PNG whose header has been rewritten to say it is enormous.
+
+    The IHDR checksum is fixed to match, so the file identifies as a PNG of that
+    size while carrying no such picture — which is exactly the shape a
+    decompression bomb has, minus the bytes. Enough for the guard, which reads
+    the header and nothing else, and a few dozen bytes rather than the hundreds
+    of megabytes a real picture of this size would cost to build here.
+    """
+    out = io.BytesIO()
+    Image.new("L", (1, 1), 0).save(out, format="PNG")
+    data = bytearray(out.getvalue())
+    self_check = bytes(data[12:16])
+    assert self_check == b"IHDR", self_check
+    data[16:24] = struct.pack(">II", width, height)
+    data[29:33] = struct.pack(">I", zlib.crc32(b"IHDR" + bytes(data[16:29])) & 0xFFFFFFFF)
+    return bytes(data)
+
+
+class PicturesThatWouldCostTooMuch(unittest.TestCase):
+    """A file's size is not the memory it costs to look at.
+
+    Four megabytes is the bound on the *file*, and a PNG is compressed: one flat
+    colour four megabytes long can declare a bitmap of thousands of megapixels,
+    and ``Image.load()`` allocates all of it before ``thumbnail`` ever runs. The
+    header is what knows, so the header is read and the pixels never are.
+    """
+
+    def test_a_picture_past_the_ceiling_is_refused_with_its_own_size(self):
+        problem = identity.image_problem(_png_that_declares(9_000, 9_000))
+        self.assertIsNotNone(problem)
+        self.assertIn("pixels", problem)
+        self.assertIn("81 million", problem)
+        self.assertIn(f"{identity.MAX_IMAGE_PIXELS // 1_000_000} million", problem)
+
+    def test_a_picture_inside_the_ceiling_is_still_taken(self):
+        out = io.BytesIO()
+        Image.new("RGB", (32, 32), "red").save(out, format="PNG")
+        self.assertIsNone(identity.image_problem(out.getvalue()))
+
+    def test_taming_a_picture_past_the_ceiling_never_decodes_it(self):
+        over = _png_that_declares(9_000, 9_000)
+        with mock.patch.object(Image.Image, "load", side_effect=AssertionError("decoded")):
+            self.assertEqual(identity.tame_image(over, max_edge=512), over)
+
+    def test_the_ceiling_takes_a_phone_photograph(self):
+        """4032×3024 is the picture this bound must never be the reason for."""
+        self.assertLess(4032 * 3024, identity.MAX_IMAGE_PIXELS)
 
 
 class Applying(unittest.IsolatedAsyncioTestCase):

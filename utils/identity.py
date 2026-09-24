@@ -37,6 +37,17 @@ KEEP = object()
 #: photo does not become a 10 MB base64 body.
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
+#: The most pixels a stored picture may *decode* to. ``MAX_IMAGE_BYTES`` bounds
+#: the file, and that is not the same bound: a PNG is compressed, so four
+#: megabytes of one flat colour can open as thousands of megapixels, and
+#: ``Image.load()`` allocates the whole bitmap before ``thumbnail`` ever runs. A
+#: ceiling on the bytes is not a ceiling on the memory those bytes cost to look
+#: at, and the host this runs on is a container with a few hundred megabytes to
+#: spend — two uploads a request is all it takes. Discord itself refuses an
+#: avatar past 4096 px a side (about 17 M pixels), so this is generous for
+#: anything a server would really upload and still far below what a bomb needs.
+MAX_IMAGE_PIXELS = 32_000_000
+
 #: The longest edge a stored avatar is kept at. Discord draws a server's icon far
 #: smaller than this, and the record is only ever shown as a small circle on the
 #: dashboard beside the form that set it.
@@ -81,6 +92,11 @@ def image_problem(data: bytes | None) -> str | None:
     ``avatar`` and ``banner`` are sent as base64 and Discord answers a bare
     "Invalid Form Body" for anything it cannot decode, which tells an
     administrator nothing about which box to fix.
+
+    The *pixel* ceiling is this host's rather than Discord's (see
+    ``MAX_IMAGE_PIXELS``): a four-megabyte file can declare a bitmap this
+    container cannot allocate, and the header says so before anything is
+    decoded.
     """
     if not data:
         return "That file arrived empty — pick the image again."
@@ -90,10 +106,37 @@ def image_problem(data: bytes | None) -> str | None:
             f"{MAX_IMAGE_BYTES // 1024 // 1024} MB."
         )
     if any(data.startswith(magic) for magic, _ in _MAGIC):
+        pass
+    elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        pass
+    else:
+        return "That is not a PNG, JPEG, GIF or WEBP image."
+    # The signature says what the file *is*; the header says what it costs to
+    # look at, and only the second one can refuse a bomb. ``Image.open`` reads
+    # the header rather than the pixels, so this answers without decoding
+    # anything — which is the whole point, because the decode is the cost.
+    try:
+        with Image.open(io.BytesIO(data)) as picture:
+            width, height = picture.size
+    except Image.DecompressionBombError:
+        return (
+            "That image is too large to open safely — crop it or shrink it "
+            "before uploading it."
+        )
+    except Exception:
+        # A real signature on a file that will not open: the sentence above is
+        # what speaks, and refusing here would also refuse the magic-byte-only
+        # fixtures the suite uses on purpose.
         return None
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return None
-    return "That is not a PNG, JPEG, GIF or WEBP image."
+    if width * height > MAX_IMAGE_PIXELS:
+        millions = MAX_IMAGE_PIXELS // 1_000_000
+        return (
+            f"That image is {width:,}×{height:,} pixels "
+            f"({width * height / 1_000_000:.0f} million); the most this host "
+            f"will store is {millions} million. Crop it or shrink it and try "
+            "again."
+        )
+    return None
 
 
 def tame_image(data: bytes | None, *, max_edge: int) -> bytes | None:
@@ -107,7 +150,7 @@ def tame_image(data: bytes | None, *, max_edge: int) -> bytes | None:
     unbounded picture makes every future backup bigger for good.
 
     So the picture is re-encoded once, here, and both copies are the small one.
-    Three things it refuses to do, because a picture this host cannot improve is
+    Four things it refuses to do, because a picture this host cannot improve is
     still a picture the server asked for:
 
     * **Bytes that are not a picture it can read** are returned untouched. The
@@ -117,15 +160,26 @@ def tame_image(data: bytes | None, *, max_edge: int) -> bytes | None:
       silently delete the thing that was uploaded.
     * **A re-encode that did not come out smaller** is discarded. The original
       is the answer when shrinking is not on offer.
+    * **A picture past ``MAX_IMAGE_PIXELS``** is never decoded at all — the
+      header is read, the bytes come back untouched, and the allocation a
+      compressed bomb hides is the one cost this function must not pay.
     """
     if not data:
         return data
     try:
         with Image.open(io.BytesIO(data)) as picture:
+            width, height = picture.size
+            if width * height > MAX_IMAGE_PIXELS:
+                # Refused *before* the decode rather than after it: this
+                # returns the upload untouched, so nothing here allocates the
+                # bitmap that makes a small file expensive. The HTTP route
+                # refuses these in ``image_problem`` with a sentence; a caller
+                # that reaches this one anyway (the bot's own upload commands)
+                # gets its bytes back rather than an out-of-memory host.
+                return data
             picture.load()
             if getattr(picture, "n_frames", 1) > 1:
                 return data
-            width, height = picture.size
             if max(width, height) <= max_edge and len(data) <= ALREADY_SMALL_BYTES:
                 return data
             keeps_alpha = picture.mode in ("RGBA", "LA") or (

@@ -1,5 +1,5 @@
 {% extends "site_base.html" %}
-{% block title %}Before you go on — {{ bot_name }}{% endblock %}
+{% block title %}Before you carry on — {{ bot_name }}{% endblock %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
@@ -8,16 +8,16 @@
 {% block page %}
 <section class="auth">
   <div class="wrap wrap--narrow">
-    <p class="micro">Before you go on</p>
+    <p class="micro">Before you carry on</p>
     <h1>{{ documents | length }} documents, one decision</h1>
     <p class="lede">
       You are signed in, and the dashboard is about to act on a server — so this is the
       moment to say what you are agreeing to. Both answers below are the same size and
-      neither is preselected.
+      neither is chosen for you.
     </p>
 
     {% if notice %}
-    <p class="notice {{ 'notice--bad' if notice_bad else '' }}" role="alert">{{ notice }}</p>
+    <p class="notice {{ 'notice--bad' if notice_bad else '' }}" role="{% if notice_bad %}alert{% else %}status{% endif %}">{{ notice }}</p>
     {% endif %}
 
     <ul class="doc-list">
@@ -50,7 +50,12 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="next" value="{{ next_url }}">
       <div class="decision">
-        <button class="btn btn--primary" type="submit" name="decision" value="accept">
+        {# One class for both answers, and that is the rule rather than a
+           preference: the accept button carried `btn--primary` for one rebuild,
+           which drew one answer as the accent action and the other as a plain
+           one. `consent.py` states it — declining is "not a smaller button" —
+           and `WhatThePageNeverDoes` fails on a page where it is. #}
+        <button class="btn" type="submit" name="decision" value="accept">
           I agree — take me to the {{ 'console' if next_url.startswith('/owner') else 'dashboard' }}
         </button>
         <button class="btn" type="submit" name="decision" value="decline">

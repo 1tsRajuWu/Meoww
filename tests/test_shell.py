@@ -26,6 +26,17 @@ Kept as a file rather than deleted so the reason travels with the repository:
 this is the third suite to pin the archived shell, and the next person to move a
 page should know these existed.
 
+**How the skip is asked for is the whole difference between a retired suite and
+a red build.** This used to call `pytest.skip(..., allow_module_level=True)`,
+and the check in `.github/workflows/tests.yml` runs `unittest discover` — which
+reads that as `_pytest.outcomes.Skipped` escaping an import and reports the
+module as a *load error*, so a suite retired on purpose turned the job red while
+every live test passed. It also imported `pytest`, which is not in
+`requirements.txt`: on the runner the import failed before the skip line was
+ever reached. The retirement is asked for by the module's own `setUpModule`
+below — `unittest`'s documented hook, no third-party import, and the one shape
+that a test runner reads the same way whichever address it reaches the file by.
+
 The properties it was written for:
 
 Four properties, each one an edit away from being quietly undone, and each one
@@ -56,18 +67,30 @@ import re
 import unittest
 from pathlib import Path
 
-import pytest
-
 import keep_alive
 
 #: See the module docstring: the document this reads is archived with the
 #: pre-rebuild dashboard, and every property it pinned is pinned elsewhere.
-pytest.skip(
+RETIRED = (
     "pins the archived standalone dashboard shell; the same properties are held "
     "by tests/test_dashboard_pages.py, tests/test_dashboard.py and "
     "tests/test_design_laws.py — see this module's docstring",
-    allow_module_level=True,
 )
+
+
+def setUpModule():
+    """Retire the module **by fixture**, which is the one hook every runner reads.
+
+    A ``raise unittest.SkipTest`` at import time is the same idea one level too
+    early: the module is *imported* to be classified, so a runner that only
+    catches the skip after a successful import — ``unittest``'s own
+    ``loadTestsFromName``, which is what ``python -m unittest tests.test_shell``
+    uses — reports the whole file as a load error. It also made the skip count
+    depend on how the file happened to be reached. Raising here instead means
+    the import always succeeds, every runner classifies the module as skipped,
+    and the suite's own skip arithmetic stays honest: one module, one skip.
+    """
+    raise unittest.SkipTest(RETIRED)
 
 ROOT = Path(__file__).resolve().parent.parent
 
