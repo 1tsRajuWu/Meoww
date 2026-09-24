@@ -10209,9 +10209,15 @@ def run():
         )
 
 
+_SERVER_STARTED = False
+
 def keep_alive(bot=None):
-    global BOT_INSTANCE
+    global BOT_INSTANCE, _SERVER_STARTED
     BOT_INSTANCE = bot
+    if _SERVER_STARTED:
+        return
+    _SERVER_STARTED = True
     t = Thread(target=run)
     t.daemon = True
     t.start()
+
