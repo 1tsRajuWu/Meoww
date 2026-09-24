@@ -339,6 +339,28 @@ a save rather than a loss, and the shrunken-database guard
 (`SHRINK_GRACE_TICKS`, `CLOUD_SYNC_ALLOW_SHRINK`) is what stops a wiped local file
 from being mistaken for the truth and uploaded over the good copy.
 
+**3b. And the backup is the biggest thing this host sends, so it is the place
+the bandwidth goes.** The whole database is uploaded after every change
+(`CLOUD_SYNC_INTERVAL`, five minutes) plus an hourly snapshot, which is fine on a
+host with a generous allowance and ruinous on one with a cap — a 2.5 MB
+`bot.db` on a five-minute timer is 730 MB a day before anybody opens a page.
+Three things keep it down, and they compound: the snapshot is **compacted**
+(`VACUUM INTO`, so the pages a deleted row left behind stop being carried
+forward), the payload is **gzipped** (`_pack_blob`, about 3x on SQLite pages),
+and the objects keep their names — the reader decides by the gzip signature, so
+the bucket needs no migration and a `bot.db` written by an older release still
+restores. Measured on this project's own database: **2,543,616 → 1,150,976
+(compacted) → 730,680 bytes (gzipped)**, a 3.48x reduction, times every change
+and every snapshot. The same diet applies to what leaves over HTTP:
+`utils/compression.py` gzips the text answers this process writes (a dashboard
+page is 60 KB → 8 KB; the market board 13.5 KB → 2.6 KB), which matters because
+the published site's worker forwards the browser's `Accept-Encoding` and the
+edge has nothing left to squeeze. The other half of that bill is the *frequency*
+of what a page asks for: nothing polled from a hidden tab counts at all, and the
+market board polls at 15 s — the floor `utils/market.py` already declares as the
+fastest its prices can change — rather than the 8 s it used to, so one open tab
+costs about 16 MB a day instead of 152.
+
 What this does *not* cover: anything written in the last moments before a hard
 kill with no warning, and any deployment where `SUPABASE_URL` /
 `SUPABASE_SERVICE_KEY` were never set — without them there is no backup at all,

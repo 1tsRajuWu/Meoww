@@ -1,0 +1,22 @@
+name: 24/7 Space Keep-Alive
+
+on:
+  schedule:
+    # Run every 20 minutes to ensure Hugging Face Space never reaches the 48h sleep threshold
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-space:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Hugging Face Space
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://1tsrajowo-meow.hf.space/health" || true)
+          echo "Hugging Face Space /health responded with HTTP $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "Space is online and keep-alive ping succeeded."
+          else
+            echo "Space responded with HTTP $STATUS (or woke up from idle)."
+          fi

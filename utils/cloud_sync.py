@@ -589,15 +589,56 @@ _upload_requested = False
 
 
 def _snapshot_bytes(path: str) -> bytes | None:
-    """A transactionally consistent copy of the database, WAL included.
+    """A consistent copy of the database, WAL included — and compacted.
 
-    Reading the file directly is not enough in WAL mode: every row committed
-    since the last checkpoint lives in ``bot.db-wal``, so a raw read uploads a
-    database that is *missing the newest progress* — and the next restart
-    restores that older state, which is exactly what "my coins went back"
-    looks like. SQLite's own backup API copies a consistent snapshot instead,
-    and it works while the bot is writing.
+    Consistent first, because it is the whole point. Reading the file directly
+    is not enough in WAL mode: every row committed since the last checkpoint
+    lives in ``bot.db-wal``, so a raw read uploads a database that is *missing
+    the newest progress* — and the next restart restores that older state, which
+    is exactly what ""my coins went back"" looks like.
+
+    Compacted as well, because this copy is not a file on a disk — it is the
+    payload of an upload that happens after every change, and its size is money.
+    ``VACUUM INTO`` writes a database holding exactly the rows that are there,
+    while the backup API copies the file page for page *including the pages a
+    deleted row left behind*. Those free pages would travel in every backup
+    forever: a table that prunes itself — the market's candles, the queue's
+    finished jobs, the test fixtures removed at boot — would keep costing its
+    old size, because nothing shrinks a file it is only ever copied.
+
+    ``VACUUM INTO`` is the same read-transaction guarantee as the backup API
+    (SQLite's own documentation offers it as the way to copy a live database),
+    it is byte-for-byte repeatable — which the change detection depends on, and
+    which was verified rather than assumed — and it *shrinks*. The provider is
+    not on every supported SQLite, so a host that cannot do it falls back to the
+    page-for-page copy rather than losing its backups.
     """
+    fd, temp = tempfile.mkstemp(prefix="meow-snapshot-", suffix=".db")
+    os.close(fd)
+    # ``VACUUM INTO`` refuses a target that already exists, and ``mkstemp``
+    # exists to have created one.
+    _remove(temp)
+    try:
+        source = sqlite3.connect(path, timeout=15.0)
+        try:
+            source.execute("VACUUM INTO ?", (temp,))
+        finally:
+            source.close()
+        with open(temp, "rb") as f:
+            return f.read()
+    except Exception as exc:
+        print(
+            f"[CLOUD SYNC] ⚠️ Could not compact the snapshot ({exc}); "
+            "copying the file as it is.",
+            flush=True,
+        )
+        return _snapshot_bytes_uncompacted(path)
+    finally:
+        _remove(temp)
+
+
+def _snapshot_bytes_uncompacted(path: str) -> bytes | None:
+    """SQLite's backup API: consistent, complete, and the size of the file."""
     fd, temp = tempfile.mkstemp(prefix="meow-snapshot-", suffix=".db")
     os.close(fd)
     try:

@@ -798,6 +798,50 @@ class TheBackupRoundTripsPacked(TempDatabaseMixin, unittest.IsolatedAsyncioTestC
         cs.SUPABASE_KEY = self._orig_key
         self.release_temp_database()
 
+    def test_the_snapshot_is_compacted_rather_than_copied_page_for_page(self):
+        """Deleted rows must stop costing bytes the moment they are deleted.
+
+        The backup API copies the file as it is, free pages included, so a table
+        that prunes itself — the market's candles, the queue's finished jobs, the
+        fixtures removed at boot — keeps costing its old size in every upload
+        forever. This compares the two implementations on one file rather than
+        measuring the file, because what is being asserted is that the *payload*
+        is compact, whatever the file on disk looks like afterwards.
+        """
+        fill = "x" * 2000
+        conn = sqlite3.connect(cs.db_path())
+        for _ in range(200):
+            conn.execute(
+                "INSERT INTO scheduled_messages (guild_id, payload, status) "
+                "VALUES (777001, ?, 'pending')",
+                (fill,),
+            )
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute("DELETE FROM scheduled_messages")
+        conn.commit()
+        conn.close()
+
+        copied = cs._snapshot_bytes_uncompacted(cs.db_path())
+        compacted = cs._snapshot_bytes(cs.db_path())
+        self.assertGreater(len(copied), 300_000, "the fixture never grew the file")
+        self.assertLess(len(compacted) * 2, len(copied), "the pages were copied, not reclaimed")
+
+        temp = f"{cs.db_path()}.audit"
+        with open(temp, "wb") as handle:
+            handle.write(compacted)
+        try:
+            check = sqlite3.connect(temp)
+            self.assertEqual(check.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual(
+                check.execute("SELECT COUNT(*) FROM scheduled_messages").fetchone()[0], 0
+            )
+            check.close()
+        finally:
+            os.remove(temp)
+
     def test_the_snapshot_that_ships_is_the_snapshot_that_restores(self):
         _make_db(cs.db_path())
         with self.bucket.patch():

@@ -527,8 +527,34 @@
             report();
         }
 
+        /* The reading is fetched, so the interval is a cost rather than a
+           convenience: every tick is a request this host answers and is billed
+           for. A hidden tab asks for nothing — the page behind another window,
+           the laptop that was closed, the session the browser restored last
+           week — and it asks again the moment it is looked at, so nobody is
+           shown a stale reading after coming back to it. */
         read();
-        setInterval(read, 30000);
+        var timer = null;
+        const start = () => {
+            if (timer === null) timer = setInterval(() => {
+                if (!document.hidden) read();
+            }, 30000);
+        };
+        const stop = () => {
+            if (timer !== null) {
+                clearInterval(timer);
+                timer = null;
+            }
+        };
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                stop();
+            } else {
+                read();
+                start();
+            }
+        });
+        if (!document.hidden) start();
     }
 
     /* ── go ─────────────────────────────────────────────────────────────── */

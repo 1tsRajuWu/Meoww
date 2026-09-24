@@ -30,6 +30,62 @@
     document.documentElement.classList.remove("no-js");
 
     /* ---------------------------------------------------------------------
+       How often, and only while somebody is looking
+       ---------------------------------------------------------------------
+       The board is one JSON object of every instrument, and it is fetched by
+       the page rather than pushed to it, so the interval *is* the cost: every
+       tick is bytes this host sends and is billed for.
+
+       Two rules, both of which used to be missing:
+
+       * **`QUOTE_POLL_MS` is not faster than the prices themselves.** The bot
+         refreshes quotes at most once every `REFRESH_MIN_INTERVAL_SECONDS` (15),
+         so an eight-second poll asked twice as often as the numbers could
+         change and re-sent an identical board for half of those answers. There
+         is nothing to gain below that floor.
+       * **A hidden tab asks for nothing.** An open tab is not a reader. A window
+         behind another window, a laptop that was closed, a browser that restored
+         last week's session — each of those kept asking this host for the whole
+         board every eight seconds for as long as it stayed open, all night, and
+         none of it was looked at. The timer stops while the page is hidden and
+         fires immediately when it is shown again, so a reader who comes back
+         gets today's numbers rather than the one from whenever they left. */
+    var QUOTE_POLL_MS = 15000;
+    var CANDLE_POLL_MS = 60000;
+
+    /* Poll `fn` on `ms`, but only while the page is visible. Returns the timer
+       handle so a caller can stop it; the bootstrap does not.
+
+       `document.hidden` rather than a focus check: focus moves between windows
+       of the same tab and between a window and its own devtools, which is not
+       the question. Hidden is the browser's own answer to "can anybody see
+       this", and every browser on the supported list has it. */
+    function pollWhileVisible(fn, ms) {
+        var timer = null;
+        var start = function () {
+            if (timer === null) timer = window.setInterval(function () {
+                if (!document.hidden) fn();
+            }, ms);
+        };
+        var stop = function () {
+            if (timer !== null) {
+                window.clearInterval(timer);
+                timer = null;
+            }
+        };
+        document.addEventListener("visibilitychange", function () {
+            if (document.hidden) {
+                stop();
+            } else {
+                fn();
+                start();
+            }
+        });
+        if (!document.hidden) start();
+        return { start: start, stop: stop };
+    }
+
+    /* ---------------------------------------------------------------------
        Boot
        --------------------------------------------------------------------- */
     function boot() {
@@ -756,6 +812,6 @@
 
     loadQuotes();
     startChart();
-    setInterval(loadQuotes, 8000);
-    setInterval(loadCandles, 60000);
+    pollWhileVisible(loadQuotes, QUOTE_POLL_MS);
+    pollWhileVisible(loadCandles, CANDLE_POLL_MS);
 })();
