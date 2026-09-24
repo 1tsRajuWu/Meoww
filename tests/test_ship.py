@@ -519,6 +519,50 @@ class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
                          (ship.selected(["meowdev"])[0], ship.SPACE))
 
 
+class AVerificationDoesNotClaimWhatItDidNotBuild(unittest.TestCase):
+    """The byte claim needs a build of *this commit*, and a verify run has none.
+
+    Observed on the run that shipped the hub: ``--verify-only`` reported
+    ``meow-bot`` as serving other bytes than this build's, because the ``_site/``
+    on disk had been built at 01:17 and the sheet changed at 01:46 — while a fresh
+    build of the same commit matched the live host byte for byte (251780b583db on
+    both). Cloudflare publishes the public site from its own build, so the local
+    directory is not the artifact that was uploaded, and a red check with nothing
+    behind it is precisely what makes the next red one unread.
+    """
+
+    def test_a_verify_only_run_does_not_compare_bytes_it_did_not_build(self):
+        with mock.patch.object(ship, "production_commit", return_value=SHA[:7]), \
+             mock.patch.object(ship, "asset_matches_build",
+                               return_value=(False, "answered with other bytes")) as asked, \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
+             contextlib.redirect_stdout(io.StringIO()) as printed:
+            code = ship.report(ship.HOSTS, SHA, wait=False)
+        self.assertEqual(code, 0, "a stale local directory failed a verification run")
+        self.assertEqual(asked.call_count, 0,
+                         "a verification compared bytes it did not build")
+        self.assertIn("bytes not compared", printed.getvalue())
+
+    def test_the_note_says_what_would_make_the_claim_available(self):
+        """A dropped claim has to name the command that answers it."""
+        with mock.patch.object(ship, "production_commit", return_value=SHA[:7]):
+            ok, note = ship.verify_host(ship.HOSTS[0], SHA, built=False)
+        self.assertTrue(ok)
+        self.assertIn(ship.HOSTS[0].project, note)
+        self.assertIn(f"production is {SHA[:7]}", note)
+
+    def test_a_shipping_run_still_compares_them(self):
+        """The claim is dropped for a verification, not for the publish itself."""
+        with mock.patch.object(ship, "production_commit", return_value="75e32e4"), \
+             mock.patch.object(ship, "asset_matches_build",
+                               return_value=(True, "static/meow.css is this build's (0c595c784ac5)")) as asked, \
+             mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
+             mock.patch.object(ship, "ATTEMPTS", 1):
+            code = ship.report(ship.HOSTS, SHA, wait=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(asked.call_count, len(ship.HOSTS))
+
+
 class TheDocNamesTheSameAddresses(unittest.TestCase):
     def test_every_address_this_check_asks_is_named_in_the_deployment_doc(self):
         """A host added here and not there is the next one to be forgotten."""

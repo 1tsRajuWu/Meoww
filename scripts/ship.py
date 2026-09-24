@@ -54,7 +54,11 @@ site is fresh — the file it fetches is each host's own stylesheet
 (``static/meow.css`` for the site and the console, ``static/hub.css`` for the
 hub, where the accent token lives), and a sheet only changes when the sheet does.
 The freshness claim is the first check's, and the two are reported apart so
-neither is taken for the other.
+neither is taken for the other. It also only makes that claim about a directory
+*this run* built: ``--verify-only`` builds nothing, and for ``meow-bot`` the
+deployment is Cloudflare's build rather than this machine's, so comparing the
+host against a stale ``_site/`` would report the host as stale when it is only
+the directory — a false red, which is how a warning stops being read.
 
 Nothing here pushes: commit and push first, or use the push flow, because an
 upload stamped with a hash that is not on the remote is the failure the refusals
@@ -481,15 +485,32 @@ def verify_gateway(space: Space) -> tuple[bool, str]:
     )
 
 
-def verify(address: Host | Space, sha: str) -> tuple[bool, str]:
-    """The claims available about one address, reported together."""
+def verify(address: Host | Space, sha: str, *, built: bool) -> tuple[bool, str]:
+    """The claims available about one address, reported together.
+
+    ``built`` says whether this run produced the directory the byte check reads,
+    and it is the difference between a check and a coincidence. See
+    :func:`verify_host`.
+    """
     if isinstance(address, Space):
         return verify_gateway(address)
-    return verify_host(address, sha)
+    return verify_host(address, sha, built=built)
 
 
-def verify_host(host: Host, sha: str) -> tuple[bool, str]:
-    """Both claims about one Pages host: which commit, and which bytes."""
+def verify_host(host: Host, sha: str, *, built: bool) -> tuple[bool, str]:
+    """Both claims about one Pages host: which commit, and which bytes.
+
+    The byte claim is only made when *this run* built the directory it reads. A
+    ``--verify-only`` run builds nothing, so for ``meow-bot`` — which Cloudflare
+    publishes from its own build, not from anything here — the comparison would be
+    against whatever a previous run left in ``_site/``, and a directory older than
+    the commit reports the deployment as stale when it is only this machine that
+    is. That is not a hypothetical: it happened on the run that shipped the hub,
+    where a fresh build of the same commit matched the host byte for byte while a
+    stale ``_site/`` did not, and a red check with nothing behind it is how this
+    file's own warnings get ignored. So the claim is dropped, in words, rather
+    than answered from the wrong side.
+    """
     landed = production_commit(host.project)
     if landed is None:
         return False, "Cloudflare reported no production deployment for this project"
@@ -497,6 +518,12 @@ def verify_host(host: Host, sha: str) -> tuple[bool, str]:
     # two agree when what the deployment names is this commit and no other.
     if not landed.startswith(sha[:7]):
         return False, f"production is {landed}, not {sha[:7]}"
+    if not built:
+        return True, (
+            f"production is {landed} · bytes not compared: this run built nothing, "
+            "and the byte claim is about a build of this commit "
+            "(`--only " + host.project + "` builds one and checks it)"
+        )
     matched, note = asset_matches_build(host, sha)
     if not matched:
         return False, note
@@ -514,7 +541,8 @@ def ship(
     if verify_only:
         print(
             f"Verifying {sha[:7]} on {', '.join(address.name for address in addresses(hosts))}\n"
-            "(nothing will be built or uploaded)\n"
+            "(nothing will be built or uploaded, so the byte claim is not made —\n"
+            " it proves a build of this commit, and `--only <project>` builds one)\n"
         )
         return report(hosts, sha, wait=False)
     print(f"Shipping {sha[:7]} ({', '.join(host.project for host in hosts)})\n")
@@ -557,7 +585,7 @@ def report(hosts: tuple[Host, ...], sha: str, *, wait: bool) -> int:
     for attempt in range(1, attempts + 1):
         unmet = []
         for address in checked:
-            ok, note = verify(address, sha)
+            ok, note = verify(address, sha, built=wait)
             mark = "✓" if ok else "✗"
             print(f"  {mark} {address.name:<{width}} {note}")
             if not ok:
