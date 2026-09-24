@@ -30,6 +30,9 @@
       free trial's.
       {% endif %}
     </p>
+    <p class="hint">
+      If paid plans ever come to this deployment, this page will say so first.
+    </p>
     {% endif %}
   </div>
 </section>
@@ -98,12 +101,24 @@
       </div>
     </div>
 
+    {% if not plans_enforced %}
+    <p class="notice">
+      Limits are not switched on yet — the numbers above describe what will be
+      enforced, not what is taken away today.
+    </p>
+    {% endif %}
+
     {% if not checkout_ready %}
     <p class="hint tiles">
       Selling is switched on but no checkout link is configured, so no button above takes
       money. A store that has not been set up must not look like one that has.
     </p>
     {% endif %}
+
+    <p class="hint tiles">
+      Checkout by Lemon Squeezy — the store takes the card; this bot only ever
+      receives a licence mark.
+    </p>
   </div>
 </section>
 {% endif %}
@@ -113,7 +128,7 @@
     <div class="band__head">
       <div>
         <p class="micro">{{ '02' if selling else '01' }} — What is in it</p>
-        <h2>Every system, listed</h2>
+        <h2>Every system with a switch, listed</h2>
       </div>
       <p class="small muted">Read from the registry, so this page cannot sell a feature the bot does not have.</p>
     </div>
@@ -127,6 +142,10 @@
       </li>
       {% endfor %}
     </ul>
+    <p class="hint tiles">
+      That is {{ features | length }} of the {{ system_count }} — System &amp; Server
+      Control has no switch and is always on.
+    </p>
   </div>
 </section>
 

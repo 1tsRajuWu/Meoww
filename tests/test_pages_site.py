@@ -120,31 +120,42 @@ class TheCatalogueIsARowWide(unittest.TestCase):
     """
 
     TEMPLATE = ROOT / "templates" / "radio.html"
-    SHEET = ROOT / "static" / "meow.css"
+    SHEET = ROOT / "static" / "pages.css"
 
     def test_the_radioPage_puts_its_catalogue_in_a_wide_row(self):
+        """The template half: the rows exist, and nothing narrows their wrap.
+
+        The rebuild dropped the panel row the squeeze happened in — there is no
+        two-column shape left to fall into — so what is checkable now is that
+        the catalogue still wears its row class and that no `wrap--narrow` (the
+        only narrowing this design has) wraps the page.
+        """
         markup = self.TEMPLATE.read_text(encoding="utf-8")
         self.assertIn(
-            'class="lp-panels lp-panels-wide"',
+            'class="radio-row"',
+            markup,
+            "the catalogue's rows left the page",
+        )
+        self.assertNotIn(
+            "wrap--narrow",
             markup,
             "the catalogue is back in a half-width column beside a card",
         )
 
     def test_the_sheet_gives_that_row_one_column_and_its_rows_two(self):
-        """One column for the section, two for the rows — and both declared."""
+        """The sheet half: the rows are laid across the width — declared.
+
+        Dropping the rule is silent: the page still renders, just badly, which
+        is the half of the pair this test holds.
+        """
         sheet = self.SHEET.read_text(encoding="utf-8")
-        halves = sheet.split(".lp-panels-wide {", 1)
-        self.assertEqual(len(halves), 2, "the sheet does not declare .lp-panels-wide")
+        halves = sheet.split(".radio-row {", 1)
+        self.assertEqual(len(halves), 2, "the sheet does not lay out .radio-row")
         body = halves[1].split("}", 1)[0]
         self.assertIn(
-            "grid-template-columns: minmax(0, 1fr)",
+            "grid-template-columns",
             body,
-            "the wide row does not say it is one column, so the grid still splits it",
-        )
-        wide_rows = re.search(r"\.lp-panels-wide ul\.lp-rows \{[^}]*columns: 2", sheet)
-        self.assertIsNotNone(
-            wide_rows,
-            "the catalogue's rows are not laid out across the width the class won",
+            "the catalogue's rows are not laid out across the width",
         )
 
 
@@ -326,8 +337,10 @@ class BuiltSiteCase(unittest.TestCase):
         """
         css_path = Path(self.out) / "static" / "meow.css"
         css = css_path.read_text(encoding="utf-8")
+        # The rebuilt sheet draws no custom cursor, so the presence assertion
+        # went with it; the silent-failure half stays — a cursor url that
+        # 404s *is* the system arrow, with no error anybody can see.
         cursor_urls = re.findall(r"cursor:\s*url\((['\"]?)([^'\")]+)\1\)", css)
-        self.assertTrue(cursor_urls, "the stylesheet no longer styles a cursor")
         for _quote, url in cursor_urls:
             resolved = (css_path.parent / url.split("?")[0]).resolve()
             self.assertTrue(resolved.is_file(), f"{url} does not exist next to the stylesheet")
@@ -349,7 +362,10 @@ class BuiltSiteCase(unittest.TestCase):
         # `/start` is where the two grants are offered side by side now — the copy
         # that compares them moved there with the rest of the get-started content,
         # and the front door keeps only the default link.
-        for name in ("index.html", "start.html", "pricing.html"):
+        # pricing.html carries only the site-wide footer's default link and
+        # describes no pair; the choice is offered where the copy compares the
+        # two grants — the front door's step and /start's ways-in.
+        for name in ("index.html", "start.html"):
             with self.subTest(page=name):
                 urls = re.findall(
                     r"https://discord\.com/oauth2/authorize\?[^\"'\s]+", self.pages[name]
@@ -386,20 +402,36 @@ class BuiltSiteCase(unittest.TestCase):
         An em dash, not a zero: *nobody has read this* and *this is empty* are
         different claims, and only one of them is true here.
         """
-        # On `/systems`, which is where the two preview cards live: the front door
-        # kept the live *counts* (`_home_stats`, four numbers in a band) and the
-        # cards went with the rest of the detail.
+        # On `/systems`, which is where the deployment's own readings live: the
+        # front door kept the live *counts* and the cards went with the rest of
+        # the detail. The tiles are identified by their labels now — the
+        # `data-figure` hook went to the archive with the script that read it.
         systems = self.pages["systems.html"]
-        tiles = re.findall(r'data-figure="activity:[a-z_]+">([^<]*)<', systems)
+        tiles = re.findall(
+            r'tile__value">([^<]*)</span>\s*<span class="tile__label">'
+            r'(?:messages|voice hours|people seen|channels used)</span>',
+            systems,
+        )
         self.assertTrue(tiles, "the activity tiles left the site")
         for value in tiles:
             self.assertEqual(value, "—", f"a built page carries a local reading: {value}")
         # ...and the control tiles are the two that are facts about the code, so
         # they are present and counted from the registry rather than blanked.
-        self.assertIn(f'data-figure="control:systems">{features.system_count()}<', systems)
-        self.assertIn(f'data-figure="control:commands">{features.command_count()}<', systems)
+        self.assertRegex(
+            systems,
+            rf'tile__value">{features.system_count()}</span>\s*'
+            rf'<span class="tile__label">systems</span>',
+        )
+        self.assertRegex(
+            systems,
+            rf'tile__value">{features.entry_count()}</span>\s*'
+            rf'<span class="tile__label">commands</span>',
+        )
         # The front door must not have grown a second, unfiltered copy of them.
-        self.assertNotIn("data-figure=\"activity:", self.pages["index.html"])
+        self.assertNotRegex(
+            self.pages["index.html"],
+            r'tile__label">(?:messages|voice hours|people seen|channels used)</span>',
+        )
 
     def test_the_front_page_and_the_reference_agree_on_how_many_of_each(self):
         """One bot, one answer — the defect this page had in production.
@@ -418,10 +450,16 @@ class BuiltSiteCase(unittest.TestCase):
         self.assertIn(f"{systems} systems,", index)
         self.assertIn(f"{switchable} switchable", index)
         # The hero's figure card is the *total*, not the switchable subset — which
-        # is how this page came to advertise eleven of twelve systems.
-        self.assertIn(f"<b>{systems}</b>", index)
-        # ...and the reference page agrees with it, from the same registry.
-        self.assertIn(f"{systems} systems,", self.pages["systems.html"])
+        # is how this page came to advertise eleven of twelve systems. It is a
+        # `data-count` figure now, so that is what the card is checked by.
+        self.assertRegex(
+            index,
+            rf'data-count="{systems}">{systems}</dd>\s*'
+            rf'<dt class="figure__label">systems</dt>',
+        )
+        # ...and the reference page agrees with it, from the same registry —
+        # stated in its own lede ("15 systems and 110 commands").
+        self.assertIn(f"{systems} systems", self.pages["systems.html"])
         self.assertIn(f"{commands} commands", self.pages["systems.html"])
         self.assertNotIn(f'data-figure="control:commands">{commands + 10}<', index)
 
@@ -444,7 +482,7 @@ class BuiltSiteCase(unittest.TestCase):
     def test_the_pricing_page_says_that_nothing_can_be_bought_yet(self):
         """No checkout is configured for this build, so that is what it must say."""
         pricing = self.pages["pricing.html"]
-        self.assertIn("No billing yet", pricing)
+        self.assertIn("There is no paid tier", pricing)
         self.assertNotIn("lemonsqueezy.com", pricing)
 
     def _rebuild(self, **env):
@@ -602,7 +640,7 @@ class BuiltSiteWithCheckout(unittest.TestCase):
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         self.assertIn(self.CHECKOUT_PRO, pricing)
         self.assertIn(self.CHECKOUT_ENTERPRISE, pricing)
-        self.assertNotIn("No billing yet", pricing)
+        self.assertNotIn("There is no paid tier", pricing)
         self.assertIn("Checkout by Lemon Squeezy", pricing)
         self.assertNotIn('href="#"', pricing)
 
@@ -631,13 +669,15 @@ class BuiltSiteWithCheckout(unittest.TestCase):
         pricing, out = self._build(PLAN_CHECKOUT="0")
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         self.assertNotIn("lemonsqueezy.com", pricing, "a Buy link survived the switch")
-        self.assertIn("No billing yet", pricing)
+        self.assertIn("There is no paid tier", pricing)
         self.assertNotIn("Checkout by Lemon Squeezy", pricing)
         for ghost in ("₹499", "₹1,499", ">Pro<", ">Enterprise<"):
             self.assertNotIn(ghost, pricing, f"a configured store still shows {ghost}")
         # What a visitor is left with is the product, still addable and still
-        # fully described — including the systems this page used to sell.
-        for system in ("Support Tickets", "Activity Tracker", "Real-time dashboard"):
+        # fully described — including the systems this page used to sell. (The
+        # old third item, "Real-time dashboard", was a feature name rather than
+        # a registry system; the two real ones are here under their own names.)
+        for system in ("Support Tickets", "Activity Tracker"):
             self.assertIn(system, pricing)
         self.assertIn("discord.com/oauth2/authorize", pricing)
 

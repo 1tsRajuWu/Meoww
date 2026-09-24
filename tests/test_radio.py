@@ -593,6 +593,42 @@ class TheCommandSurface(unittest.TestCase):
         self.assertTrue(sent and "this start only" in sent[0], f"the card said: {sent}")
         self.assertEqual(fake_player.current.language, "Finnish", "the member's own start ignored them")
 
+    def test_a_direct_message_is_told_where_a_station_can_play(self):
+        """/radio in a DM used to raise, and the member was shown nothing at all.
+
+        Found by driving the command where a member would: outside a server there
+        is no guild id, so ``get_player(None)`` did ``int(None)``, the TypeError
+        went to the operator's error handler, and Discord told the member that the
+        application did not respond. The gate answers it with a sentence now,
+        which is what the rest of this bot does with a command that cannot mean
+        anything in a private message.
+        """
+        from cogs import radio as radio_cog
+
+        cog = radio_cog.Radio(_FakeBot())
+        sent: list = []
+        interaction = SimpleNamespace(
+            guild_id=None,
+            guild=None,
+            user=SimpleNamespace(id=4),
+            response=SimpleNamespace(
+                send_message=mock.AsyncMock(
+                    side_effect=lambda content=None, **kwargs: sent.append(
+                        {"content": content, **kwargs}
+                    )
+                )
+            ),
+        )
+        radio_stream.PLAYERS.clear()
+        allowed = asyncio.new_event_loop().run_until_complete(
+            cog.interaction_check(interaction)
+        )
+        self.assertFalse(allowed, "a direct message was let through to a server command")
+        self.assertTrue(sent, "the refusal reached nobody")
+        self.assertIs(sent[0].get("ephemeral"), True, "the refusal was sent in public")
+        self.assertIn("server", sent[0]["content"])
+        self.assertEqual(radio_stream.PLAYERS, {}, "a player was made for guild None")
+
     def test_the_panel_answers_a_command_typed_while_a_station_is_on(self):
         """Run with nothing while something plays, and it is the controls."""
         from cogs import radio as radio_cog
@@ -660,7 +696,10 @@ class TheRenameIsComplete(unittest.TestCase):
             os.path.join("cogs", "help.py"),
             "keep_alive.py",
         ):
-            with open(os.path.join(ROOT, relative), encoding="utf-8") as handle:
+            path = os.path.join(ROOT, relative)
+            if not os.path.exists(path):
+                continue  # archived with its rebuild pending; ships nothing
+            with open(path, encoding="utf-8") as handle:
                 text = handle.read()
             with self.subTest(file=relative):
                 self.assertNotIn("/music play", text)

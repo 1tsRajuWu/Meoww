@@ -804,14 +804,14 @@ class TheLoginPageForTheOperator(unittest.TestCase):
     def test_the_public_login_page_does_not_expose_the_passkey(self):
         with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "s3cret"):
             body = self.client.get("/login").get_data(as_text=True)
-        self.assertNotIn("Admin Passkey", body)
+        self.assertNotIn("Operator passkey", body)
         self.assertIn("Open Dashboard", body)
         self.assertNotIn('action="/login"', body)
 
     def test_the_owner_login_offers_the_passkey(self):
         with mock.patch.object(keep_alive, "ADMIN_PASSKEY", "s3cret"):
             body = self.client.get("/owner/login").get_data(as_text=True)
-        self.assertIn("Admin Passkey", body)
+        self.assertIn("Operator passkey", body)
         self.assertIn('action="/owner/login"', body)
 
     def test_the_front_page_sends_a_signed_in_session_to_the_dashboard(self):

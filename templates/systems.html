@@ -115,7 +115,7 @@
     {# Which of the two counts a reader is looking at, by name: a page that
        prints a total over a shorter list has to say what the difference is. #}
     <p class="hint tiles">
-      {{ always_on | length }} of them are always on: {{ always_on | join(', ') }}.
+      {{ always_on | length }} of them {{ 'is' if (always_on | length) == 1 else 'are' }} always on: {{ always_on | join(', ') }}.
     </p>
   </div>
 </section>

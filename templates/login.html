@@ -28,8 +28,8 @@
         <div class="auth__method">
           <h2>Sign in with Discord</h2>
           <p>
-            Asks for your name and your server list, and keeps only the servers where you hold
-            Manage Server or Administrator and the bot is present. Re-checked on every
+            Asks for your name and your server list, and keeps only the servers where you
+            are the owner or an Administrator and the bot is present. Re-checked on every
             request, so losing the permission loses the access.
           </p>
           <a class="btn btn--primary" href="/login/discord">Continue with Discord</a>
@@ -41,6 +41,7 @@
             This deployment has no Discord client credentials configured, so the button that
             would use them is not shown. {% if oauth_hint %}{{ oauth_hint }}{% endif %}
           </p>
+          <p class="hint">The URL to register: <code>{{ oauth_callback }}</code></p>
         </div>
         {% endif %}
 

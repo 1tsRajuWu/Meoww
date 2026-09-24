@@ -273,30 +273,52 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
         response = keep_alive.app.test_client().get("/systems")
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
-        for key in ("messages_text", "voice_text", "people_text", "channels_text"):
-            with self.subTest(key=key):
-                self.assertIn(
-                    f'data-figure="activity:{key}">{keep_alive.NOT_READ}<',
+        for label in ("messages", "voice hours", "people seen", "channels used"):
+            with self.subTest(label=label):
+                self.assertRegex(
                     body,
-                    f"the {key} tile claims a reading the database could not give",
+                    rf'tile__value">{re.escape(keep_alive.NOT_READ)}</span>\s*'
+                    rf'<span class="tile__label">{re.escape(label)}</span>',
+                    f"the {label} tile claims a reading the database could not give",
                 )
 
     def test_the_script_does_not_turn_an_absent_window_into_a_zero(self):
         """The other renderer, read as the rule rather than as an instance.
 
-        The card is painted twice — by the server above and by the page's own
-        script — and the script's fallback was `"0"`, so an unread window was
-        spelled as a measurement by whichever renderer ran last. Both fall back
-        to the same em dash the control figures already used.
+        The card used to be painted twice — by the server and by a refresh
+        script whose fallback was `"0"`, so an unread window was spelled as a
+        measurement by whichever renderer ran last. The refresh script went to
+        the archive with the live figures it drove; what repaints now is the
+        shared counter, and it only reaches elements carrying `data-count`.
+        The rule therefore holds in two places: an unread tile must be outside
+        the counter's reach, and the counter's own fallback must not be a zero.
         """
-        source = (ROOT / "static" / "figures.js").read_text(encoding="utf-8")
-        activity = re.search(r'\["messages_text".*?\]\.forEach\(.*?\n\s*\}\);', source, re.S)
-        self.assertIsNotNone(activity, "the activity tiles moved; re-point this test")
-        self.assertNotIn(
-            '"0"', activity.group(0),
-            "an absent window is spelled as a zero by the page's own script",
+        response = keep_alive.app.test_client().get("/systems")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        for label in ("messages", "voice hours", "people seen", "channels used"):
+            with self.subTest(label=label):
+                tile = re.search(
+                    rf'<span class="tile__value"[^>]*>[^<]*</span>\s*'
+                    rf'<span class="tile__label">{re.escape(label)}</span>',
+                    body,
+                )
+                self.assertIsNotNone(tile, f"the {label} tile left the page")
+                self.assertNotIn(
+                    "data-count", tile.group(0),
+                    f"the {label} tile is inside the counter's reach without a reading",
+                )
+        source = (ROOT / "static" / "motion.js").read_text(encoding="utf-8")
+        counter = re.search(
+            r'querySelectorAll\("\[data-count\]"\).*?node\.textContent = final;',
+            source,
+            re.S,
         )
-        self.assertIn("\\u2014", activity.group(0))
+        self.assertIsNotNone(counter, "the counter moved; re-point this test")
+        self.assertNotIn(
+            '"0"', counter.group(0),
+            "an absent figure would be spelled as a zero by the page's own script",
+        )
 
 
 class TheReadingIsCachedForAMinute(unittest.TestCase):

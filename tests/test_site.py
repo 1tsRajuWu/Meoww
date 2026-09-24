@@ -20,9 +20,14 @@ from utils import figures, webdocs
 ROOT = Path(__file__).resolve().parent.parent
 PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market.html", "pricing.html")
 
-#: The three that share a layout. They reach the stylesheet and the reveal script
+#: The pages that share a layout. They reach the stylesheet and the reveal script
 #: through `site_base.html`, so what is asserted of them is that they reach it.
-SITE_PAGES = ("home.html", "systems.html", "start.html")
+#: (dashboard.html and market.html arrive with their rebuild; until then they are
+#: absent, and the loop below checks only what exists.)
+SITE_PAGES = (
+    "home.html", "systems.html", "start.html",
+    "legal.html", "login.html", "servers.html", "pricing.html",
+)
 BASE_TEMPLATE = "site_base.html"
 
 
@@ -127,7 +132,7 @@ class TheLandingPage(unittest.TestCase):
             "systems",                  # how many there are
             'href="/login"',            # a way in
             "/privacy", "/terms",       # the policies
-            'class="landing"',          # which surface this page is
+            'class="page-home"',        # which surface this page is
             "/static/meow.css",         # the shared design system
         ):
             self.assertIn(fragment, body, fragment)
@@ -180,28 +185,44 @@ class TheLandingPage(unittest.TestCase):
         asleep.guilds = []
         with mock.patch.object(keep_alive, "BOT_INSTANCE", asleep):
             front = self.client.get("/").get_data(as_text=True)
-            # The two preview cards, which are on `/systems`: this is the page that
-            # asks a database and a gateway for figures, and the one where an
-            # absent reading could be printed as a measurement.
+            # The deployment's own readings: this is the page that asks a
+            # database and a gateway for figures, and the one where an absent
+            # reading could be printed as a measurement.
             body = self.client.get("/systems").get_data(as_text=True)
+        import re
+
         self.assertIn("Starting up", front)
-        for key in ("servers", "members"):
-            with self.subTest(key=key):
-                self.assertIn(
-                    f'data-figure="control:{key}">{keep_alive.NOT_READ}</b>', body,
-                    f"a sleeping host did not say it had no reading for {key}",
+        for label in ("servers", "members reached"):
+            with self.subTest(label=label):
+                tile = re.search(
+                    rf'<span class="tile__value"[^>]*>([^<]*)</span>\s*'
+                    rf'<span class="tile__label">{re.escape(label)}</span>',
+                    body,
                 )
-                self.assertNotRegex(
-                    body, rf'data-figure="control:{key}">\d',
-                    f"a sleeping host counted {key}s nobody told it about",
+                self.assertIsNotNone(tile, f"the {label} tile left the page")
+                self.assertEqual(
+                    tile.group(1).strip(), keep_alive.NOT_READ,
+                    f"a sleeping host did not say it had no reading for {label}",
                 )
         # What it does know without the gateway is still on the page. The front
         # door's own band omits what it cannot read rather than printing a zero,
         # which is the same rule one page earlier — so the registry's two counts
         # are what is left of it there.
-        self.assertIn("systems</span>", front)
-        self.assertRegex(body, r'data-figure="control:commands">\d+</b>')
-        self.assertNotIn("servers</span>", front)
+        self.assertRegex(
+            front,
+            r'data-count="\d+">\d+</dd>\s*<dt class="figure__label">systems</dt>',
+        )
+        self.assertRegex(
+            front,
+            r'data-count="\d+">\d+</dd>\s*<dt class="figure__label">commands</dt>',
+        )
+        self.assertNotIn('<dt class="figure__label">servers</dt>', front)
+        self.assertNotIn('<dt class="figure__label">members reached</dt>', front)
+        self.assertRegex(
+            body,
+            r'<span class="tile__value">\d+</span>\s*'
+            r'<span class="tile__label">commands</span>',
+        )
 
     def test_the_status_line_tells_the_three_states_apart(self):
         connected = mock.Mock()
@@ -286,8 +307,8 @@ class ThePricingPage(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Free", body)
-        self.assertIn("No billing yet", body)
-        self.assertIn("Everything included", body)
+        self.assertIn("There is no paid tier", body)
+        self.assertIn("the whole bot is in it", body)
         self.assertIn("Support Tickets", body)
         self.assertIn("/static/meow.css", body)
 
@@ -308,7 +329,7 @@ class ThePricingPage(unittest.TestCase):
             body = self.client.get("/pricing").get_data(as_text=True)
         self.assertIn("Pro", body)
         self.assertIn("Enterprise", body)
-        self.assertNotIn("No billing yet", body)
+        self.assertNotIn("There is no paid tier", body)
 
 
 class TheSiteIsOneDesign(unittest.TestCase):
@@ -326,7 +347,10 @@ class TheSiteIsOneDesign(unittest.TestCase):
         # asked of them is that they reach it; the link itself is asserted on the
         # layout, once, where it now lives.
         for page in PAGES:
-            markup = (ROOT / "templates" / page).read_text(encoding="utf-8")
+            path = ROOT / "templates" / page
+            if not path.exists():
+                continue  # archived with its rebuild pending; nothing to wear
+            markup = path.read_text(encoding="utf-8")
             if page in SITE_PAGES:
                 self.assertIn(
                     '{% extends "site_base.html" %}', markup,
@@ -363,7 +387,10 @@ class TheSiteIsOneDesign(unittest.TestCase):
             r"|url\(\s*['\"]?([^)'\"]+)"
         )
         for page in PAGES:
-            source = (ROOT / "templates" / page).read_text(encoding="utf-8")
+            path = ROOT / "templates" / page
+            if not path.exists():
+                continue  # archived with its rebuild pending; loads nothing
+            source = path.read_text(encoding="utf-8")
             for match in loaders.finditer(source):
                 url = next(group for group in match.groups() if group)
                 if not url.startswith(("http://", "https://")):

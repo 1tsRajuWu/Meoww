@@ -1856,14 +1856,16 @@ def _gateway_counts() -> dict:
     counts = {
         # Servers and members are facts about *this* deployment and can only come
         # from the gateway. Systems and commands are facts about the code and
-        # come from the registry, in the units every other surface uses — the
-        # tree is not read for them, because the count someone is shown should
-        # not depend on whether a gateway happened to be awake. See
-        # :func:`utils.features.command_count` for what that cost the last time.
+        # come from the registry, in the units every other surface prints —
+        # ``entry_count``, what a visitor can type, because these figures land on
+        # pages whose prose says "110 commands" right beside them and a tile
+        # answering "95" to the same word is the two-numbers failure again. The
+        # tree is not read for them either way: the count someone is shown should
+        # not depend on whether a gateway happened to be awake.
         "servers": None,
         "members": None,
         "systems": features.system_count(),
-        "commands": features.command_count(),
+        "commands": features.entry_count(),
         "connected": False,
     }
     started, connected = _gateway_state()
@@ -1912,7 +1914,11 @@ def _home_stats() -> list[dict]:
             ]
         except Exception as exc:
             print(f"[HOME] could not read the live figures: {exc}", flush=True)
-    stats.append({"value": f"{features.command_count():,}", "label": "commands"})
+    # ``entry_count``, not ``command_count``: this figure sits in the panel
+    # directly above a line that says "{{ entry_count }} commands", and printing
+    # the picker's smaller 95 under the word "commands" there made the hero
+    # argue with itself — the exact defect the prose was already unified against.
+    stats.append({"value": f"{features.entry_count():,}", "label": "commands"})
     return stats
 
 
