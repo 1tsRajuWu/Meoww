@@ -6,7 +6,7 @@ This test verifies that:
 3. Activity data is properly stored and retrieved
 """
 import unittest
-from unittest.mock import Mock, AsyncMock, MagicMock
+from unittest.mock import Mock
 import discord
 from discord.ext import commands
 from cogs import tracker

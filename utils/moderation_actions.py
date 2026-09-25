@@ -615,12 +615,3 @@ async def banned(guild, *, limit: int = ROSTER_LIMIT) -> list[dict]:
         print(f"[PANEL] could not read the ban list: {exc}", flush=True)
         return []
     return rows
-
-
-async def warning_rows(guild_id, user_id) -> list[dict]:
-    """One member's warnings, newest first, for the panel's own list."""
-    try:
-        return await db.get_warnings(int(guild_id), int(user_id))
-    except Exception as exc:  # noqa: BLE001
-        print(f"[PANEL] could not read warnings: {exc}", flush=True)
-        return []

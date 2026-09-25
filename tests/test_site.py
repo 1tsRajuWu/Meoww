@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 import keep_alive
-from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
+from tests.test_dashboard import _DashboardFixture, make_bot
 from utils import brand, figures, webdocs
 
 ROOT = Path(__file__).resolve().parent.parent

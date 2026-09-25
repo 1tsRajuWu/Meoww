@@ -651,10 +651,6 @@
    room — the name is the row, and the count is what the row is for. */
 .cmdx__meta { color: var(--text-muted); font-size: var(--text-small); white-space: nowrap; }
 
-@media (max-width: 620px) {
-  .cmdx__meta { display: none; }
-}
-
 .cmdx__summary::after {
   content: "+";
   color: var(--text-muted);

@@ -35,10 +35,6 @@ def defaults() -> dict[str, bool]:
     return {f.id: f.enabled_by_default for f in features.FEATURES if f.toggleable}
 
 
-def is_known(module_id: str) -> bool:
-    return features.is_toggleable(module_id)
-
-
 def _load_from_db(guild_id: int) -> dict[str, bool]:
     """Merge saved rows over the defaults, ignoring retired module ids."""
     states = defaults()

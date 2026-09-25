@@ -7,9 +7,7 @@ back what was there rather than allowing `@everyone` to talk again — which on 
 server that had deliberately locked a channel would be handing out a permission
 nobody asked for.
 """
-import datetime
 import os
-import sys
 import unittest
 from unittest import mock
 

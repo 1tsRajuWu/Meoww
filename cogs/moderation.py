@@ -15,7 +15,6 @@ ACTION_CONFIG = {
     "Unban":  ("✅",  0x2ECC71, "Unbanned", "\u001b[1;32m"),   # green
 }
 
-RESET = "\u001b[0m"
 
 #: The guard lives in ``utils.moderation_actions`` now, because the website became
 #: a second caller of these commands' powers and a guard with two definitions is

@@ -31,7 +31,7 @@ from pathlib import Path
 from unittest import mock
 
 import keep_alive
-from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot, page_href
+from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, page_href
 from utils import uptime_status
 
 

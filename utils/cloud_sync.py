@@ -977,11 +977,6 @@ def _backup_inner() -> bool:
     return True
 
 
-def _db_looks_empty() -> bool:
-    """True when no member has any level or economy row."""
-    return _total_rows() == 0
-
-
 # --------------------------------------------------------------------------- #
 # Background loop
 # --------------------------------------------------------------------------- #

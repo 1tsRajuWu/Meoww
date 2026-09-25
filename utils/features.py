@@ -300,18 +300,13 @@ FEATURES: tuple[Feature, ...] = (
     # broken. A `/legacy` group would have been the louder change and the bigger
     # lie: the commands would still work, nobody would know where they went.
     #
-    # **What this system is called is a decision, not a leftover.** It read
-    # *Legacy — Radio & Anonymous Q&A* under a `Legacy` category with a filing
-    # cabinet for a mark, and `/systems` prints its name in the sentence
-    # "{name} arrives switched off" — so the page told a visitor that *Radio* was
-    # legacy and had been switched off, which reads as a service being retired.
-    # Nothing is retired: off is the default state the switch beside it declares,
-    # and one command offers both. So the name now says what the system is and
-    # the default is left to the sentence that states it. The **id** is
-    # deliberately still `legacy` — it is a command choice value, a per-server row
-    # in the database and a `/systems#cmd-legacy` anchor, so renaming it is a
-    # migration with real cost and no reader-visible reward; the rule this module
-    # already keeps for `MEOW_*` is the rendered surfaces, not the code.
+    # **The name is a decision, not a leftover.** It read *Legacy — Radio &
+    # Anonymous Q&A* under a `Legacy` category, and `/systems` prints
+    # "{name} arrives switched off" — so the page told a visitor Radio was legacy
+    # and switched off, which reads as a service being retired. Nothing is: off is
+    # the default the switch beside it declares. The **id** stays `legacy` — a
+    # command choice value, a per-server row and a `/systems#cmd-legacy` anchor —
+    # so renaming it is a migration with no reader-visible reward.
     Feature(
         id="legacy",
         name="Radio & Anonymous Q&A",
@@ -614,11 +609,6 @@ def get(feature_id: str) -> Feature | None:
         if feature.id == feature_id:
             return feature
     return None
-
-
-def is_toggleable(module_id: str) -> bool:
-    feature = get(module_id)
-    return bool(feature and feature.toggleable)
 
 
 def default_enabled(module_id: str) -> bool:

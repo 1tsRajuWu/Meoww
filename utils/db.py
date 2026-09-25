@@ -1053,8 +1053,7 @@ def read_guild_modules_sync(guild_id: int) -> dict:
     return modules
 
 #: The two balances a member holds. A whitelist rather than a free string,
-#: because these names reach an f-string in an UPDATE below — the same rule, and
-#: the same reason, as ``cogs/economy.py``'s ``ALLOWED_ECONOMY_FIELDS``.
+#: because these names reach an f-string in an UPDATE below.
 ECONOMY_BALANCE_FIELDS = ("wallet", "bank")
 
 #: The largest single movement the operator's console will make. A bound rather
@@ -1641,23 +1640,6 @@ async def blocked_guild(guild_id) -> dict | None:
         return None
     return {"reason": str(row[0] or ""), "added_at": float(row[1] or 0), "added_by": str(row[2] or "")}
 
-
-async def blocked_guilds() -> list[dict]:
-    """The whole list, newest first."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            'SELECT guild_id, reason, added_at, added_by FROM guild_blocklist ORDER BY added_at DESC'
-        ) as cursor:
-            rows = await cursor.fetchall()
-    return [
-        {
-            "guild_id": str(row[0]),
-            "reason": str(row[1] or ""),
-            "added_at": float(row[2] or 0),
-            "added_by": str(row[3] or ""),
-        }
-        for row in rows
-    ]
 
 
 # ── What the website did ─────────────────────────────────────────────────────

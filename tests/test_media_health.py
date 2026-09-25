@@ -16,7 +16,6 @@ tests keep that target honest: it is the last one, it is only one, it names the 
 it opened, its station is a setting rather than a constant, and the station it opens
 is not asked about twice by the scan that finds the same URL in the catalogue.
 """
-import asyncio
 import json
 import os
 import tempfile

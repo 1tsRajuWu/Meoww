@@ -856,12 +856,6 @@ def ad_free_stations() -> list[Station]:
     return [station for station in CATALOGUE if station.ad_free]
 
 
-def same_language(station: Station, language: str) -> bool:
-    """Whether this station is in that language — the one reader of the field."""
-    wanted = _flat(language)
-    return bool(wanted) and _flat(station.language) == wanted
-
-
 def option_label(station: Station) -> str:
     """What one suggestion looks like, inside Discord's 100-character label cap.
 

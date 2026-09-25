@@ -528,10 +528,6 @@ PERIODS: dict[str, Period] = {
 DEFAULT_PERIOD = "week"
 
 
-def period_choices() -> list[str]:
-    return list(PERIODS)
-
-
 @dataclass(frozen=True)
 class Candle:
     """One point of price history.

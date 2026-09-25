@@ -14,9 +14,6 @@ DB_PATH = db.DB_PATH
 # Unlimited economy: players can earn and hold as much money as they want!
 _bot_instance: commands.Bot | None = None
 
-async def setup_tables():
-    # Tables are now created in utils/db.setup() to avoid duplication
-    pass
 
 async def sanitize_economy_balances(bot: commands.Bot):
     """Unlimited economy balances for all members."""
@@ -106,17 +103,6 @@ async def settle_bet(user_id: int, guild_id: int, bet: int, multiplier: float) -
     return await asyncio.to_thread(db.run_atomic, _settle)
 
 
-ALLOWED_ECONOMY_FIELDS = {"wallet", "bank", "last_daily", "last_weekly", "last_work"}
-
-async def set_field(user_id: int, guild_id: int, field: str, value):
-    if field not in ALLOWED_ECONOMY_FIELDS:
-        raise ValueError(f"Security violation: Invalid economy field {field}")
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute(
-            f"UPDATE economy SET {field}=? WHERE user_id=? AND guild_id=?",
-            (value, user_id, guild_id)
-        )
-        await conn.commit()
 
 WORK_JOBS = [
     ("🧑‍💻 Coding", 150, 350),

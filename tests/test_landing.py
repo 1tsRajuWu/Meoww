@@ -32,18 +32,11 @@ SITE_PAGES = (FRONT, SYSTEMS, START)
 BASE = ROOT / "templates" / "site_base.html"
 HEADER = ROOT / "templates" / "site_header.html"
 
-#: The front door, under its old name, for the assertions that are about it
-#: specifically rather than about the site.
-LANDING = FRONT
 MOTION = ROOT / "static" / "motion.js"
 SHEET = ROOT / "static" / "meow.css"
 #: The landing page's own sheet, which now carries the rules that used to be
 #: borrowed from `/systems` — the figures band among them.
 LANDING_SHEET = ROOT / "static" / "landing.css"
-#: The shared coordinated-motion module the interactive sections drive.
-ANIM = ROOT / "static" / "anim.js"
-#: The landing page's own behaviour.
-LANDING_SCRIPT = ROOT / "static" / "landing.js"
 
 
 def _all_markup() -> str:

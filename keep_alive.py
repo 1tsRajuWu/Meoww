@@ -3068,14 +3068,6 @@ def pricing_page():
 HUB_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hub", "static")
 #: The project's own changelog, read as the hub's "what changed" page.
 HUB_CHANGELOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CHANGELOG.md")
-#: ``route`` -> the file `scripts/build_hub.py` turns it into. The paths are the
-#: live app's own, and the builder rewrites each to a relative file, so a page's
-#: address is written once in ``utils.hub.HUB_PAGES`` and both hosts agree.
-HUB_PAGES_FOR_BUILD = tuple(
-    (path, "index.html" if page == "overview" else f"{page}.html")
-    for page, _label, path, _icon, _group, _blurb in hub.HUB_PAGES
-)
-
 
 @app.route("/hub/static/<path:name>")
 def hub_static(name: str):

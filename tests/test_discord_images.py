@@ -20,7 +20,6 @@ could be turned into an outbound-request gadget: the host check and the whitelis
 are the tests that matter most here.
 """
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 import keep_alive

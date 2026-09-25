@@ -131,11 +131,6 @@ class _Interaction:
         self.response = _Response()
 
 
-def _modal_field(modal) -> str:
-    """The report text a modal carries, filled in the way a member would."""
-    return modal.what_happened.value
-
-
 @mock.patch.dict(os.environ, {"BOT_SERVER_GUILD_ID": str(BOT_SERVER)})
 class BugReportTargets(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     """Which channel a report goes to, resolved through the real settings store."""

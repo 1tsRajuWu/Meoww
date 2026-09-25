@@ -824,7 +824,6 @@ def seed_sessions() -> int:
     deployment runs. Keyed to an address that is documentation-only (RFC 5737),
     so nothing here can name a real visitor.
     """
-    from utils import ratelimit as _ratelimit
 
     written = 0
     # Two rows, as somebody's phone and an old link would have left them. The

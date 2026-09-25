@@ -22,7 +22,6 @@ choices for the same reason, and this module follows it rather than re-deciding.
 """
 from __future__ import annotations
 
-import datetime
 import hashlib
 import os
 import re
@@ -59,7 +58,6 @@ HUB_PAGES = (
 )
 
 HUB_PAGE_IDS = tuple(page for page, _l, _p, _i, _g, _b in HUB_PAGES)
-HUB_PAGE_BY_PATH = {path: page for page, _l, path, _i, _g, _b in HUB_PAGES}
 HUB_PAGE_TITLES = {page: label for page, label, _p, _i, _g, _b in HUB_PAGES}
 HUB_PAGE_LEDES = {page: blurb for page, _l, _p, _i, _g, blurb in HUB_PAGES}
 
@@ -711,11 +709,6 @@ def search_index(systems: dict, commands: dict) -> list[dict]:
             "copy": f"/{command['name']}",
         })
     return entries
-
-
-def build_stamp() -> str:
-    """Today, for the pages that cite the day they were rendered."""
-    return datetime.date.today().isoformat()
 
 
 #: Where the hub keeps the two files it owns.

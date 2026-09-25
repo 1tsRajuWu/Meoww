@@ -237,10 +237,6 @@ def invalidate(guild_id: int | None = None) -> None:
                 _CACHE.clear()
 
 
-def is_paid(guild_id: int | None) -> bool:
-    return plan_for(guild_id).id != FREE.id
-
-
 # --------------------------------------------------------------------------- #
 # What that plan allows
 # --------------------------------------------------------------------------- #
@@ -278,16 +274,6 @@ def scheduled_cap(guild_id: int | None, default: int) -> int:
     if plan.scheduled_per_server is None:
         return default
     return max(0, int(plan.scheduled_per_server))
-
-
-def servers_allowed(guild_id: int | None) -> int | None:
-    """Servers one licence may cover — ``None`` for unlimited.
-
-    Displayed rather than enforced here: the store counts activations against
-    the licence, so the cap is Lemon Squeezy's own rule and this number is what
-    the plan *says*, which is what the page and the command report.
-    """
-    return plan_for(guild_id).servers
 
 
 # --------------------------------------------------------------------------- #

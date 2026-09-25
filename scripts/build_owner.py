@@ -461,7 +461,9 @@ def build(
     for asset in STATIC_ASSETS:
         src = os.path.join(static_src, asset)
         if os.path.exists(src):
-            shutil.copy2(src, os.path.join(static_out, asset))
+            dst = os.path.join(static_out, asset)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
 
     # Copy console bundle
     console_src = os.path.join(static_src, "console")

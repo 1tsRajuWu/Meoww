@@ -8,7 +8,6 @@ that is not a flavour is refused rather than guessed at — a typo must not sile
 change how every card in somebody's server looks.
 """
 import unittest
-from types import SimpleNamespace
 
 from tests.support import TempDatabaseMixin
 from utils import db, flavor

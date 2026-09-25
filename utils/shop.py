@@ -104,7 +104,6 @@ EFFECT_XP = "xp"
 EFFECT_COINS = "coins"
 EFFECT_LUCK = "luck"
 EFFECT_SHIELD = "shield"
-TIMED_EFFECTS = (EFFECT_XP, EFFECT_COINS, EFFECT_LUCK, EFFECT_SHIELD)
 
 
 @dataclass(frozen=True)
@@ -511,18 +510,6 @@ def invalidate(user_id: int | None = None, guild_id: int | None = None) -> None:
 # Mixing them up is exactly the bug this comment exists to prevent: an aiosqlite
 # cursor's ``execute``/``fetchall`` are coroutines, not the sync objects that
 # db.run_atomic hands out.
-
-def active_effects_on(
-    cursor, user_id: int, guild_id: int, now: float
-) -> dict[str, tuple[float, float]]:
-    """Read active effects on a synchronous cursor: ``{key: (value, expires_ts)}``."""
-    cursor.execute(
-        "SELECT effect, value, expires_ts FROM item_effects "
-        "WHERE user_id=? AND guild_id=? AND expires_ts > ?",
-        (user_id, guild_id, now),
-    )
-    return {row[0]: (float(row[1] or 0.0), float(row[2] or 0.0)) for row in cursor.fetchall()}
-
 
 def grant_on(cursor, user_id: int, guild_id: int, item: Item, now: float) -> None:
     """Start or extend an item's timed effects on a synchronous cursor.

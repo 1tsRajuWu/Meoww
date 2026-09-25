@@ -62,16 +62,6 @@ DEFAULT_STAY = True
 #: and ``''`` is not. The storage keeps the empty string.
 LANGUAGE_ANY = "any"
 
-#: Why a pick is what it is. ``named`` and ``country`` are somebody choosing
-#: now; ``memory`` is the server's own earlier choice; ``shuffled`` is the bot
-#: choosing.
-REASONS = ("named", "country", "memory", "shuffled")
-
-#: The ways a request produces no station at all. Each one is a different
-#: sentence on the card, and they are different problems: a typo, a rule the
-#: server set, and a table with nothing that fits.
-REFUSALS = ("unknown", "strict", "empty")
-
 
 @dataclass(frozen=True)
 class Choice:

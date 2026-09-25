@@ -303,11 +303,11 @@ COMMAND_ACCESS: dict[str, str] = {
     # activation on it, which is why this is not the operator's OWNER tier. The
     # key is the proof of purchase, so there is nothing here to guess at.
     "bot plan": ADMIN,
-    # Offering Radio & Anonymous Q&A to a server is the same shape of decision
-    # as the plan: *this* server's feature set, made by whoever administers it.
-    # The two commands the switch offers are everyone's to run once it is on, and
-    # their own rows below are unchanged — a switch that widened what a member
-    # may do would be a different command entirely.
+    # The legacy systems are the same shape of decision as the plan: *this*
+    # server's feature set, made by whoever administers it. The two commands it
+    # switches are everyone's to run once it is on, and their own rows below are
+    # unchanged — a switch that widened what a member may do would be a different
+    # command entirely.
     "bot legacy": ADMIN,
     "dbstatus": ADMIN,
     # -- Activity Tracker: admin-only for management ---------------------- #

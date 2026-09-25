@@ -7,7 +7,6 @@ These tests verify that the Supabase storage helpers behave correctly
 against a fake Supabase endpoint.
 """
 import unittest
-from unittest import mock
 
 from utils import cloud_sync
 

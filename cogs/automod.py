@@ -24,7 +24,6 @@ from utils import db, modlog
 from utils.style import WARN
 
 INVITE_REGEX = re.compile(r"(discord\.gg|discordapp\.com/invite|discord\.com/invite)/\S+", re.IGNORECASE)
-LINK_REGEX = re.compile(r"https?://\S+", re.IGNORECASE)
 
 #: One sentence, in every notice an automatic action leaves behind. A member who
 #: disagrees with a bot needs a door, and it has to be named where they are

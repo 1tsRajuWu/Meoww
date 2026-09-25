@@ -6,15 +6,13 @@ two doors must agree on — who may be touched at all, whether a refused action 
 written down as refused, and whether a web action can be told from a command in
 the record — and about the roster being a *reading* rather than an invention.
 """
-import asyncio
 import datetime
 import os
-import re
 import unittest
 from unittest import mock
 
 from tests.support import TempDatabaseMixin
-from utils import db, moderation_actions as actions, server_control
+from utils import db, moderation_actions as actions
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

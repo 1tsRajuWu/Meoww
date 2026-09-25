@@ -503,10 +503,9 @@ class TheSignInRoutes(_DashboardFixture):
         second half of this test is still that a switch flipped by hand joins it
         rather than replacing it.
 
-        The name is read out of the registry rather than typed here. This test's
-        whole subject is that the row *names* what it is counting, and a literal
-        would go on passing on a row naming a system the registry no longer has —
-        which is exactly what this was doing while that system was called *Legacy*.
+        The name is read from the registry rather than typed here: a literal would
+        go on passing on a row naming a system the registry no longer has, which is
+        what this was doing while that system was called *Legacy*.
         """
         self.sign_in(guild_id=GUILD_ID, scope="global")
         before = self.client.get("/servers").get_data(as_text=True)
@@ -515,20 +514,14 @@ class TheSignInRoutes(_DashboardFixture):
         import keep_alive as ka
         from utils import features
 
-        off_by_default = [
-            features.get(module_id).name
-            for module_id in sorted(features.DEFAULT_DISABLED_MODULES)
-        ]
-
         total = len(ka.AVAILABLE_MODULES)
         self.assertIn(f"{total - 1} of {total} systems on", before)
         self.assertIn("off:", before)
-        for name in off_by_default:
-            self.assertTrue(
-                name in before or name.replace("&", "&amp;") in before,
-                f"the system a server starts without should be named, not just "
-                f"counted: {name}",
-            )
+        name = features.ships_off()[0]["name"]
+        self.assertTrue(
+            name in before or name.replace("&", "&amp;") in before,
+            f"the system a server starts without should be named: {name}",
+        )
 
         # Turn one system off the way the dashboard does, then ask again.
         self.assertTrue(

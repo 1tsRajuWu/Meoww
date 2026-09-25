@@ -582,22 +582,6 @@ def note(verdict: Verdict) -> str | None:
     return describe(verdict)
 
 
-def _sentence(verdict: Verdict) -> str:
-    """How bad this is, in one sentence, for a card and for the console."""
-    if verdict.dead:
-        return (
-            f"**{len(verdict.dead)}** of {verdict.checked} media targets are dead. "
-            "Every one of them is drawn as an empty box or a silent card, and "
-            "nothing in Discord says why."
-        )
-    if verdict.unchecked:
-        return (
-            f"**{len(verdict.unchecked)}** of {verdict.checked} targets could not "
-            "be asked about, so this pass proves nothing about them."
-        )
-    return f"All {verdict.checked} media targets answered with real media."
-
-
 def card_body(verdict: Verdict) -> str:
     """The findings as text: one block per dead target, with where it lives."""
     lines = []

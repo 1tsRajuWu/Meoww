@@ -467,17 +467,6 @@ _RADIO_REMEDIES: dict[str, str] = {
 }
 
 
-def radio_reported(kind: str) -> int:
-    """How many times a kind has already been reported in this process."""
-    return _radio_reported.get(kind, 0)
-
-
-def forget_radio_reports() -> None:
-    """Let the next fault be reported again. For tests, and for an operator who
-    wants the card back after fixing something and watching it fail again."""
-    _radio_reported.clear()
-
-
 async def radio_alert(bot, fault, *, player=None) -> bool:
     """Say that playback broke, once per reason, with the evidence attached.
 
