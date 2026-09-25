@@ -430,10 +430,18 @@ class ThePanel(_DashboardFixture):
             session["csrf_token"] = CSRF
 
     def test_the_panel_renders_the_monitors_the_snapshot_holds(self):
+        """The rows, by name and ratio, under the rebuilt page's own heading.
+
+        The heading this asked for — "System status" — was the pre-rebuild
+        card's, and the law read the page by the words it had been written
+        against rather than by the reading it is about. The card is "The uptime
+        watch" now; the monitors, their ratios and the 30-day column are the
+        claim, and they are asserted exactly as before.
+        """
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
         self._sign_in()
         page = self.client.get(page_href("status")).get_data(as_text=True)
-        self.assertIn("System status", page)
+        self.assertIn("The uptime watch", page)
         self.assertIn("Meow Bot", page)
         self.assertIn("Public site", page)
         self.assertIn("99.97%", page)
@@ -513,30 +521,49 @@ class ThePanel(_DashboardFixture):
         self.assertIn(uptime_status.ENV_KEY, detail)
 
     def test_the_panel_is_built_from_the_pages_own_snapshot(self):
-        """The view hands the template the same block `/api/uptime` serves."""
-        uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
-        self._sign_in()
-        page = self.client.get(page_href("status")).get_data(as_text=True)
-        self.assertIn("Status", page)
-        self.assertIn("/api/uptime", page, "the refresh button's endpoint is not on the page")
+        """The rows on the page are the snapshot's rows, not a second reading.
 
-    def test_the_panel_keeps_up_without_being_asked(self):
-        """The reading has an age, so the age has to move on by itself.
-
-        This panel is rendered from a snapshot rather than fetched live, which
-        is what keeps it off UptimeRobot's API — and it is also why the line
-        beside the heading is *"read 2 minutes ago"*: a sentence about now,
-        computed once when the page was rendered. Nothing asked again, so it
-        said that for as long as the tab stayed open, and a panel whose age has
-        stopped moving is indistinguishable from one that has stopped working.
-        The refresh has to be a timer, and it has to read a route that answers
-        from the snapshot rather than one that spends somebody's rate limit.
+        It used to be pinned by the refresh button's endpoint appearing in the
+        markup, and the rebuild removed the button: the card is a snapshot taken
+        when the page was rendered, says so, and tells the reader to reload. What
+        the law is about survives without it — the page draws
+        ``uptime_status.snapshot()`` rather than asking UptimeRobot again — so it
+        is asserted against the snapshot itself: every monitor the module holds
+        is on the page with the ratio the module computed for it.
         """
         uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
         self._sign_in()
         page = self.client.get(page_href("status")).get_data(as_text=True)
-        self.assertIn("setInterval", page, "nothing re-reads the reading, so its age freezes")
-        self.assertIn("/api/uptime", page)
+        snapshot = uptime_status.snapshot()
+        self.assertTrue(snapshot["monitors"], "the module holds no reading to compare")
+        for monitor in snapshot["monitors"]:
+            with self.subTest(monitor=monitor["name"]):
+                self.assertIn(monitor["name"], page)
+                self.assertIn(f"{monitor['ratios']['30d']}%", page)
+
+    def test_the_panel_says_it_is_a_snapshot_rather_than_pretending_to_live(self):
+        """The age that froze is gone, and the honest answer took its place.
+
+        This page used to carry *"read 2 minutes ago"* and a timer that re-read
+        it, because an age that has stopped moving is indistinguishable from a
+        poller that has died. The rebuild kept the timer off the dashboard — it is
+        the console's Ops page that keeps up — and answered the same risk in the
+        one way that cannot freeze: the card states that it was taken when the
+        page was rendered and asks the reader to reload. So there is nothing to
+        keep ticking, and nothing on the page may claim a live reading, which is
+        what makes this the *stronger* half of the pair it replaces.
+        """
+        uptime_status.record(uptime_status.check(fetch=lambda payload: ANSWER))
+        self._sign_in()
+        page = self.client.get(page_href("status")).get_data(as_text=True)
+        self.assertIn("snapshot", page, "the card no longer says when it was taken")
+        self.assertIn("reload", page, "nothing tells the reader how to take a fresh one")
+        self.assertNotIn(
+            "setInterval",
+            page,
+            "the dashboard is polling again — an age or a timer that stops is "
+            "indistinguishable from a reading that stopped working",
+        )
 
 
 class TheConsoleKeepsUpToo(_DashboardFixture):
@@ -605,8 +632,15 @@ class TheConsoleKeepsUpToo(_DashboardFixture):
         root = Path(__file__).resolve().parents[1]
         client = (root / "console" / "src" / "api.ts").read_text(encoding="utf-8")
         self.assertIn('headers.set("X-CSRF-Token"', client)
-        # …and the token really is on the page for it to send.
-        self.assertIn('id="console-boot"', self.client.get("/owner").get_data(as_text=True))
+        # …and the token really is on the page for it to send. Read off the shell
+        # that carries the boot payload rather than off `/owner`, which stopped
+        # serving it: the operator address renders `templates/owner.html` now —
+        # the rebuilt panel, whose writes are forms carrying their own hidden
+        # token — and the console shell is the one page that publishes
+        # `csrfToken` for a client to send as a header.
+        shell = (root / "templates" / "console.html").read_text(encoding="utf-8")
+        self.assertIn('id="console-boot"', shell)
+        self.assertIn('"csrfToken": csrf_token', shell)
 
     def test_neither_the_shell_nor_the_bundle_spells_the_setting(self):
         """The sentence is the module's to compose — checked in the shipped code.

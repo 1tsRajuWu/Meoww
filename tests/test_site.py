@@ -691,12 +691,30 @@ class TheSiteIsOneDesign(unittest.TestCase):
 
         ``.nav a`` (a class *and* a type) outranks ``.btn--primary`` (a class), so
         "Add to Discord" rendered its label in the nav's grey on the accent fill —
-        about 2.2:1, on the primary call to action.
+        about 2.2:1, on the primary call to action. The fix that shipped set the
+        ink back in a second rule, which repaired the page and left the ink and
+        its fill in two declarations — the shape a contrast guard cannot see. The
+        rule is one `:not()` now, so the *filled* button is scoped out instead of
+        given an ink of its own, and the ink stays with the fill in `.btn--
+        primary`, where the rest of the site keeps it. Asserted as that pair,
+        because asserting the old two-rule spelling is what this law did while
+        the better fix was already in the sheet.
         """
         sheet = (ROOT / "static" / "meow.css").read_text(encoding="utf-8")
-        self.assertIn(".nav a.btn {", sheet)
-        self.assertIn(".nav a.btn--primary {", sheet)
-        self.assertIn("color: var(--text-invert)", sheet.split(".nav a.btn--primary {")[1])
+        self.assertIn(".nav a.btn:not(.btn--primary) {", sheet)
+        self.assertNotIn(
+            ".nav a.btn--primary {",
+            sheet,
+            "the filled button has an ink of its own again, one declaration away "
+            "from the fill it is measured against",
+        )
+        filled = sheet.split(".btn--primary {", 1)[1].split("}")[0]
+        self.assertIn("background: var(--accent)", filled)
+        self.assertIn(
+            "color: var(--text-invert)",
+            filled,
+            "the ink and the fill it must clear have to be one declaration",
+        )
 
     def test_motion_is_switched_off_when_it_is_asked_to_be(self):
         sheet = (ROOT / "static" / "meow.css").read_text(encoding="utf-8")

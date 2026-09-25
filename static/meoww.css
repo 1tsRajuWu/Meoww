@@ -933,11 +933,19 @@ code, kbd, samp {
    answer that is in the document whether or not it is open. */
 .mw-faq { border-bottom: 1px solid var(--mw-line); }
 .mw-faq:last-child { border-bottom: 0; }
+/* Three tracks rather than one flex line. A row here is a name, a count that may
+   or may not be there, and the marker — and `justify-content: space-between`,
+   which is what this was, hands the free space to all three of them at once. The
+   count then sat wherever its own width left it, so down a list of fourteen
+   systems the counts began at four different x positions, and a name long enough
+   to wrap pushed its own count onto a second line beside it. The name takes the
+   only flexible track, the count its own column, the marker is pinned to the
+   last: every count is right-aligned on one line and the marker never moves. */
 .mw-faq__q {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--mw-space-3);
+  column-gap: var(--mw-space-3);
   min-height: var(--mw-tap);
   padding: var(--mw-space-3) var(--mw-space-4);
   color: var(--mw-text);
@@ -945,8 +953,10 @@ code, kbd, samp {
   cursor: pointer;
   list-style: none;
 }
+.mw-faq__q > .mw-row__name { grid-column: 1; }
+.mw-faq__q > .mw-row__count { grid-column: 2; text-align: right; }
 .mw-faq__q::-webkit-details-marker { display: none; }
-.mw-faq__q::after { content: "+"; color: var(--mw-muted); font-size: 1.1rem; }
+.mw-faq__q::after { grid-column: 3; content: "+"; color: var(--mw-muted); font-size: 1.1rem; }
 .mw-faq[open] .mw-faq__q::after { content: "–"; }
 .mw-faq__a { padding: 0 var(--mw-space-4) var(--mw-space-4); color: var(--mw-muted); font-size: var(--mw-text-small); }
 .mw-faq__a p:last-child { margin-bottom: 0; }
@@ -1250,6 +1260,21 @@ code, kbd, samp {
     backdrop-filter: blur(10px);
   }
   .mw-foot { padding-bottom: 88px; }
+  /* Four columns of footer into a 390px screen is how the brand column — the one
+     track whose minimum is 0 — came to be fourteen pixels wide: its own sentence
+     wrapped one word per line and printed across the list beside it, and the
+     three link groups squeezed into 14px-wide targets. The brand takes the whole
+     width and the lists pair up under it. */
+  .mw-foot__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mw-foot__grid > :first-child { grid-column: 1 / -1; }
+  /* A finger, not a cursor. The footer's links and the secondary action beside a
+     primary one were 22px and 27px of text with nothing around them — a third of
+     the target the button next to them gets, in the one place a phone user reads
+     the page's map of itself. `--mw-tap` is the product's own number for this. */
+  .mw-foot__list { gap: 0; }
+  .mw-foot__list a,
+  .mw-link,
+  .mw-pages__link { display: inline-flex; align-items: center; min-height: var(--mw-tap); }
 }
 
 /* --------------------------------------------------------------------------

@@ -104,7 +104,7 @@
       {% for group in command_groups %}
       <details class="mw-faq" id="cmd-{{ group.id }}">
         <summary class="mw-faq__q">
-          {{ group.icon }} {{ group.name }}
+          <span class="mw-row__name">{{ group.icon }} {{ group.name }}</span>
           <span class="mw-row__count mono">{{ group.rows | length }} cmd · {{ group.category }}</span>
         </summary>
         <div class="mw-faq__a">

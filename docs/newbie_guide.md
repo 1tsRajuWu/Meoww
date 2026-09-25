@@ -1,12 +1,12 @@
-# 🐱 Newbie Developer Guide: Navigating & Hacking Meoww
+# 🐱 Newbie Developer Guide: Navigating & Hacking DaCat
 
-Welcome to the **Meoww** codebase! If you are a new or beginner developer feeling overwhelmed by all the files, tests, and directories, **this guide is for you**.
+Welcome to the **DaCat** codebase! If you are a new or beginner developer feeling overwhelmed by all the files, tests, and directories, **this guide is for you**.
 
 ---
 
 ## 🧭 The 30-Second Mental Model
 
-At its core, **Meoww** is composed of four main parts:
+At its core, **DaCat** is composed of four main parts:
 
 ```
 ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐

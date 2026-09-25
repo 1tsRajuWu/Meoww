@@ -2,8 +2,8 @@
    meoww/_switch.html — **the** switch, written once.
 
    There is exactly one interactive control in this product and this is it. It
-   has two callers and they are genuinely different things, which is why the
-   partial has two modes rather than two files:
+   has three callers and they are genuinely different things, which is why the
+   partial has modes and a skin rather than three files:
 
      * `mode="write"` — the dashboard's own switch. It is a `<form>` that POSTs
        to the endpoint that already owns the write, so it works with no script at
@@ -20,6 +20,23 @@
        `<button>` nobody can see is not merely useless in the tab order, it is an
        element inside an `aria-hidden` block holding focus, which is the one
        thing that attribute promises cannot happen.
+     * `skin="console"` — the operator control panel's switch, which is the same
+       form with the same fields drawn in that surface's own parts
+       (`.dash-switch`, which `static/pages.css` styles — it had been styled
+       there and used nowhere, because the dashboard moved onto this partial and
+       the console's pages came later). It exists *here* rather than as a second
+       macro in `owner.html`, and that is a law rather than a preference:
+       `tests/test_meoww_site.py::TheOneAuthorRules` walks the template tree and
+       refuses a second file containing `role="switch"`, and it refused the first
+       draft of that page, which had written its own.
+
+       Two states the front door cannot have come with it. A server whose
+       switches could not be read has no state to draw — the console says
+       `unknown` and disables the button, because a switch that writes a guess is
+       worse than no switch — and a system a server's plan withholds says `plan`
+       for the same reason. `state` overrides the word and `blocked` is the
+       sentence that explains the disabled control, so the console's own facts
+       stay in the console's own file and this one keeps only the control.
 
    The direction of the reuse is deliberate and it runs *from* the dashboard,
    not towards it: the form existed first, its attributes are what the laws
@@ -27,27 +44,29 @@
    marketing toggle that the real one was then bent to match — is how one
    control ends up with two implementations, two states and two ideas of what
    "on" means.
-
-   State is `aria-checked`, in the markup, in both modes: the light that means
-   *this is on* is drawn from it, a reader is told by it, and a page with no
-   script still says something true about every row.
    ========================================================================== #}
 
-{% macro switch(module, mode="demo", action="", hidden="", inert=False) %}
+{% macro switch(module, mode="demo", action="", hidden="", inert=False, skin="site", state="", blocked="") %}
 {# In demo mode the state shown is the *default* one — the state a server that
    has never been configured sees. The row carries it (`enabled`, from the
    registry's own `default_enabled`), so the grid and `/systems` cannot disagree
    about which systems ship off. With no state on the row at all the fallback is
    "on", which is only correct for a registry where nothing ships off. #}
 {%- set demo_on = module.enabled if module.enabled is defined else true -%}
+{# The two class vocabularies, named once each. `console` is not a different
+   control: it is the same form, the same hidden fields and the same
+   `aria-checked`, drawn in the parts `pages.css` gives that surface. #}
+{%- set site = skin != "console" -%}
+{%- set on_now = module.enabled and not blocked -%}
 {%- if mode == "write" -%}
-<form class="mw-switch-form" method="post" action="{{ action }}" data-module="{{ module.id }}">
+<form class="{{ 'mw-switch-form' if site else 'dash-switch' }}" method="post" action="{{ action }}" data-module="{{ module.id }}">
   {{ hidden | safe }}
   <input type="hidden" name="module" value="{{ module.id }}">
   {% if not module.enabled %}<input type="hidden" name="enabled" value="1">{% endif %}
-  <button class="mw-switch" type="submit" role="switch"
-          aria-checked="{{ 'true' if module.enabled else 'false' }}">
-    <span class="mw-switch__state">{{ 'On' if module.enabled else 'Off' }}</span>
+  <button class="{{ 'mw-switch' if site else 'dash-switch__btn' }}{% if not site and on_now %} is-on{% endif %}" type="submit" role="switch"
+          aria-checked="{{ 'true' if on_now else 'false' }}"
+          {%- if blocked %} disabled title="{{ blocked }}"{% endif %}>
+    <span class="{{ 'mw-switch__state' if site else 'dash-switch__state' }}">{{ state or ('On' if module.enabled else 'Off') }}</span>
     <span class="visually-hidden">{{ module.name }}</span>
   </button>
 </form>

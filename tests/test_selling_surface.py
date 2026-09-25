@@ -138,64 +138,36 @@ class NothingIsOfferedWhileNothingIsForSale(unittest.TestCase):
                     f"{label} ({name}) never offers Pricing, even when it is for sale",
                 )
 
-    def test_the_command_palette_does_not_offer_a_page_that_has_nothing_on_it(self):
-        """The palette is a script literal, so it is in the gated template too.
+    def test_the_page_list_appends_the_shop_entry_rather_than_wrapping_it(self):
+        """The shape half, re-pointed at the list that replaced the palette.
 
-        It is the one money link that is not an `<a>` — a route name reached
-        from a JS entry — so the `href` assertion above cannot see it and it
-        needs its own. It was the last one left after the topbar's button was
-        gated.
+        This was `test_the_gate_wraps_whole_statements_and_never_a_comma`, and
+        its subject left the product: the dashboard's command palette was a
+        JavaScript array literal in the template, and a `{% if selling %}` placed
+        *between* its elements left `}, ];` behind in the off direction — a syntax
+        error that took the whole page script with it, with no error anywhere a
+        server-side assertion looks. The palette went with the rebuild (the
+        dashboard renders forms and no script at all), and the gates that remain
+        are the two navs, where the risk is the same one in a different list:
+        the frames build their destination list as one expression, and a
+        conditional spliced into the middle of it would break the off direction
+        rather than hide a link.
+
+        So what is asserted is the shape — the shop entry is *appended* as a
+        whole list item, after the closing bracket, and never wrapped around one
+        of the entries already in it. The render half, which is what a visitor
+        sees, is `test_no_template_links_to_pricing_while_it_is_off` above.
         """
-        off = _render("dashboard.html", selling=False)
-        self.assertNotIn('window.location.assign("/pricing")', off)
-        on = _render("dashboard.html", selling=True)
-        self.assertIn('window.location.assign("/pricing")', on)
-
-    def test_the_gate_wraps_whole_statements_and_never_a_comma(self):
-        """The one place this gate can kill the page rather than hide a link.
-
-        The palette is built in the dashboard's own script, so a `{% if selling %}`
-        placed between the elements of a JavaScript array literal leaves `}, ];`
-        behind in the *off* direction — a syntax error that takes the entire
-        script with it, which on that page means no composer, no switches, no
-        palette, and no error anywhere a server-side assertion looks.
-
-        The rule that keeps it safe is a rule about shape, so that is what is
-        asserted: inside a script block a selling gate opens where a statement
-        opened and hands nothing to a shared list. A test that instead matched
-        the entries it happened to contain is what drifted out of date the last
-        time this script was restructured.
-        """
-        source = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        scripts = [m.span() for m in re.finditer(r"<script>(.*?)</script>", source, re.S)]
-        gated = [
-            m
-            for m in re.finditer(r"\{%-?\s*if\s+selling\s*-?%\}", source)
-            if any(start <= m.start() < stop for start, stop in scripts)
-        ]
-        self.assertTrue(gated, "the script's selling gate is gone; re-point this test")
-        for gate in gated:
-            closes = re.search(r"\{%-?\s*endif\s*-?%\}", source[gate.end():])
-            self.assertIsNotNone(closes, "a selling gate in the script is never closed")
-            end = gate.end() + closes.end()
-            self.assertTrue(
-                source[: gate.start()].rstrip().endswith(";"),
-                "a selling gate inside the script must open at a statement "
-                "boundary: one that opens inside a comma-separated list leaves a "
-                "dangling comma when it renders off, which is a syntax error in "
-                "the whole page script",
-            )
-            self.assertFalse(
-                source[end:].lstrip().startswith(","),
-                "a selling gate inside the script must own its whole statement: "
-                "one that leaves the separator outside ends the list `}, ];` when "
-                "it renders off",
-            )
-        # And the array it sits beside carries no conditional of its own, because
-        # an array literal is data: the gate belongs in the pushes below it.
-        array = re.search(r"const actions = \[(.*?)\n\s*\];", source, re.S)
-        self.assertIsNotNone(array, "the palette's action array moved")
-        self.assertNotIn("{%", array.group(1), "a conditional moved into the array")
+        for name in ("meoww/base.html", "site_base.html"):
+            with self.subTest(template=name):
+                source = (ROOT / "templates" / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    "+ ([('pricing', 'Pricing', '/pricing')] if selling else [])",
+                    source,
+                    f"{name} no longer appends the shop entry as a whole list "
+                    "item, so a gate inside the list is how the off direction "
+                    "starts breaking the list rather than shortening it",
+                )
 
     def test_no_rupee_price_survives_anywhere_while_it_is_off(self):
         """`₹0` beside a `/mo` on the free card is a price tag on nothing.

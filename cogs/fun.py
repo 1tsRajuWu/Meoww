@@ -661,7 +661,7 @@ class Fun(commands.Cog):
     @customquote_group.command(name="add", description="Add a custom quote to this server's collection!")
     @app_commands.describe(
         quote="The quote text",
-        author="Who said it (e.g. @Meoww, Raj, etc.)",
+        author="Who said it (e.g. @DaCat, Raj, etc.)",
         source="Context or where it was said (e.g. 'Late night VC', 'Minecraft')",
         category="Quote category"
     )

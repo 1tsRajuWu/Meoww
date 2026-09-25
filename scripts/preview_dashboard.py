@@ -873,6 +873,17 @@ for _rule, _name, _view in (
     ("/privacy", "policy_privacy", keep_alive.policy_privacy),
     ("/terms", "policy_terms", keep_alive.policy_terms),
     ("/login", "login", keep_alive.login),
+    # The four the frame's own footer links to, each of which the harness used to
+    # answer with Flask's 404: a preview whose every page carries navigation that
+    # dead-ends is a preview that cannot show what a reader sees, and the pages
+    # behind them are where the product explains itself. `/support` is here for
+    # the same reason `/health` is — it is linked from shipped copy, and its
+    # answer is a redirect to the donation page rather than a document.
+    ("/systems", "systems_page", keep_alive.systems_page),
+    ("/start", "start_page", keep_alive.start_page),
+    ("/radio", "radio_page", keep_alive.radio_page),
+    ("/ai", "policy_ai", keep_alive.policy_ai),
+    ("/support", "route_support_redirect", keep_alive.route_support_redirect),
     # The dashboard's own topbar links to Pricing, and the landing page links to
     # it twice; the harness answered both with Flask's 404, so the one control a
     # person is most likely to click from the preview was the one that did not
@@ -1092,8 +1103,16 @@ def dashboard(sub: str = "overview"):
         page_anchor=keep_alive._page_anchor(keep_alive.DASHBOARD_PAGES, page),
         page_url=page_url,
         rail=keep_alive._dashboard_rail(nav),
-        dash_notice="",
-        dash_error="",
+        # The sentence the last write left for this render — popped, exactly as the
+        # route pops it, so a reload cannot re-announce an action that already
+        # happened. These were the literals ``""``, which is why every form on this
+        # page reported nothing: `_form_door` puts the endpoint's own words in the
+        # session and production hands them to the template, so a switch that moved
+        # and a switch that was refused both came back identical here — and a knob
+        # that moves with no confirmation reads as a knob that did not move, which
+        # is the opposite of what this harness exists to show.
+        dash_notice=session.pop("dash_notice", ""),
+        dash_error=session.pop("dash_error", ""),
         economy_view=economy_reading,
         level_view=level_reading,
         economy_display=keep_alive._economy_display(economy_reading),
@@ -1423,40 +1442,59 @@ for _rule in keep_alive.app.url_map.iter_rules():
         )
 
 
-@app.route("/owner")
-@app.route("/owner/<path:sub>")
-def owner_console(sub: str = ""):
-    """The console's shell, plus the session the console's own API requires.
+def _sign_in() -> None:
+    """Sign this harness's own browser in, the way a real sign-in does.
 
-    Production gates `/owner` and every `/api/console/*` route on the operator's
-    session. This harness has no sign-in at all, so the preview signs itself in —
-    which is honest rather than a hole: the process binds to loopback, it is the
-    operator's own machine, and without it the app would load, fetch its first
-    reading, be answered 401, and show a sign-in error instead of the page this
-    harness exists to make lookable-at.
+    Four keys and one ledger row, in one place, because the *ledger row* is the
+    half that was missing: ``keep_alive.is_authenticated`` asks Flask's cookie
+    whether this server signed the session **and** ``utils.sessions`` whether the
+    row is still believed, and the preview's session cookie outlives the process
+    that minted it — the harness makes its own copy of the database at import, so
+    the sid in a returning browser's cookie names a row the new process has never
+    heard of and every delegated write answers ``401 Unauthorized``. That is not a
+    rare state: it is what every second run of this file looks like in a browser
+    that has already been here, and the shape it took was a rates form that
+    reported *Unauthorized* on a page that had just shown the saved rates.
+
+    ``keep_alive._record_session`` is the fix rather than a new sid written here:
+    it keeps a live sid (so the Access page does not grow a second row for one
+    browser) and replaces a dead one, which is the same rule production follows
+    when the passkey is entered twice.
     """
     session["authenticated"] = True
     session["auth_scope"] = "global"
     session["csrf_token"] = "preview-token"
-    # …and into the ledger, by the same call a real sign-in makes, so the Access
-    # page lists this browser as itself rather than as a row nobody can name.
     keep_alive._record_session(label="this browser")
-    return render_template(
-        "console.html",
-        csrf_token="preview-token",
-        operator={},
-        bot_name=keep_alive._bot_display_name(),
-        asset_stamp=keep_alive._console_asset_stamp(),
-        built=keep_alive._console_built(),
-        gateway=keep_alive._badge_state(),
-        # The real nav builder, groups and all, rather than a second copy of the
-        # comprehension: this list *is* the rail, so a harness that assembled it
-        # by hand would show a rail that is missing whatever was added last — and
-        # the grouping is exactly the kind of thing that goes missing silently.
-        pages=keep_alive._page_nav(
-            keep_alive.OWNER_PAGES, "overview", groups=keep_alive.OWNER_GROUPS
-        ),
-    )
+
+
+@app.route("/owner")
+@app.route("/owner/<path:sub>")
+def owner_console(sub: str = ""):
+    """The console's own pages, plus the session its API requires — *delegated*.
+
+    Production gates `/owner` and every `/api/console/*` route on the operator's
+    session. This harness has no sign-in at all, so the preview signs itself in —
+    which is honest rather than a hole: the process binds to loopback, it is the
+    operator's own machine, and without it the app would load, be answered 401,
+    and show a sign-in error instead of the page this harness exists to make
+    lookable-at.
+
+    What it draws is ``keep_alive.owner_console`` itself, for the reason this
+    file delegates `/api/level-settings` and the console's own API: a second copy
+    of a page's context is a copy that goes stale silently, and the console is
+    the surface where *"the preview shows what production would"* matters most —
+    it is the one screen an operator opens on purpose.
+
+    It used to render ``templates/console.html``: the shell of the bundled React
+    app, which `/owner` no longer serves at all. So the address a playtest opens
+    to look at the operator's console drew the *archived* one — every control it
+    appeared to offer belonged to an app the backend had already stopped routing,
+    and none of the panel that replaced it could be looked at. The archived shell
+    is still in the tree (its own laws read it), which is exactly why rendering
+    it here was so easy to leave behind: it answered 200.
+    """
+    _sign_in()
+    return keep_alive.owner_console(sub)
 
 
 @app.route("/logout", methods=["GET", "POST"])
@@ -1680,6 +1718,25 @@ def _sync_module_cards(guild_id) -> None:
     for module in MODULES:
         if module["id"] in states:
             module["enabled"] = bool(states[module["id"]])
+
+
+@app.route("/api/level-settings", methods=["POST"])
+def api_level_settings():
+    """The rates form, answered by the endpoint that owns the write.
+
+    Delegated rather than restated, like ``/``, ``/login`` and the console's own
+    API: the clamps, the two refusals and the sentence are ``keep_alive``'s, so a
+    preview can never show a band the bot would not pay. A hand-built copy here
+    would be the third place "50 coins a minute" could be written down.
+
+    The sign-in is the harness's, not production's — the same one
+    ``owner_console`` performs, and for the same reason. The real route is gated
+    on a session this process cannot obtain, and without it the one control on
+    ``/dashboard/leveling`` would answer 401 in the one tool whose job is showing
+    what the page does.
+    """
+    _sign_in()
+    return keep_alive.api_level_settings()
 
 
 @app.route("/api/toggle", methods=["POST"])

@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Meoww">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="DaCat">
   <!--
-    Meoww — the mark is the product's own letter, not a picture of a bot.
+    DaCat — the mark is the product's own letter, not a picture of a bot.
 
-    It is drawn as a **badge**: an accent tile with an `M` knocked out of it.
+    It is drawn as a **badge**: an accent tile with a `D` knocked out of it.
     That is a decision about failure modes rather than about looks, and this
     project has already paid for it once — a mark whose colours belong to the
     page is illegible on whichever palette nobody checked, and the generation
@@ -13,11 +13,14 @@
 
     The letter is a true hole (`fill-rule="evenodd"`), not a shape painted in
     the background colour: a hole works on any ground, a painted shape works on
-    exactly one. The tile's radius matches the sheet's largest corner, so the
-    mark and the panels around it are drawn from the same geometry.
+    exactly one. The bowl's counter is the inner subpath, which evenodd turns
+    into a second hole, so the letter reads at a glance instead of filling in as
+    a blob. The tile's radius matches the sheet's largest corner, so the mark and
+    the panels around it are drawn from the same geometry.
   -->
   <path fill-rule="evenodd" clip-rule="evenodd"
         d="M0 14A14 14 0 0 1 14 0h36a14 14 0 0 1 14 14v36a14 14 0 0 1-14 14H14A14 14 0 0 1 0 50z
-           M16 18h7l9 12 9-12h7v28h-7V29l-9 12-9-12v17h-7z"
+           M20 16h14c10 0 18 7 18 16s-8 16-18 16H20z
+           M27 23v18h7c5 0 10-4 10-9s-5-9-10-9z"
         fill="#ff5d3a" />
 </svg>

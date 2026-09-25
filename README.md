@@ -5,7 +5,7 @@
 # the space's own page announced a product that no longer exists under a colour
 # the product no longer has. The card's palette is a closed vocabulary (there is
 # no "teal" to ask for), so it is the nearest pair of allowed words.
-title: Meoww
+title: DaCat
 emoji: 🐾
 colorFrom: green
 colorTo: blue
@@ -16,7 +16,7 @@ pinned: false
 
 <div align="center">
 
-# Meoww
+# DaCat
 
 [![Tests](https://github.com/1tsRajOwO/meow-discord-bot/actions/workflows/tests.yml/badge.svg)](https://github.com/1tsRajOwO/meow-discord-bot/actions/workflows/tests.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)

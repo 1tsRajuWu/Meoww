@@ -642,11 +642,19 @@ main { flex: 1 0 auto; }
 
 .top__actions { display: flex; align-items: center; gap: var(--space-2); }
 
-/* A button inside the nav keeps its own label colour: `.nav a` is a class and a
-   type, so it outranks `.btn--primary` on its own, and the primary call to
-   action rendered its label in the nav's grey on the accent fill. */
-.nav a.btn { color: var(--text-primary); }
-.nav a.btn--primary { color: var(--text-invert); }
+/* A button inside the nav keeps its own label colour — and the *filled* one is
+   scoped out of that rule rather than given a second rule of its own.
+
+   Two reasons, and the second is the one worth writing down. `.nav a` is a class
+   and a type, so it outranks `.btn--primary` by itself, and the primary call to
+   action rendered its label in the nav's grey on the accent fill; the fix was a
+   second rule that set the ink back. That fixed the page and left the ink and its
+   fill in two declarations, which is the shape a contrast guard cannot see: a
+   rule that paints only `color` with no `background` of its own has to be
+   measured against the page, and dark ink on the page is 1.01:1. `:not()` puts
+   the fill and the ink back in one declaration, in `.btn--primary`, where the
+   rest of the site already keeps them. */
+.nav a.btn:not(.btn--primary) { color: var(--text-primary); }
 
 .top__menu {
   display: none;

@@ -44,7 +44,7 @@ from __future__ import annotations
 #: Discord application name and falls back to this, so renaming the application
 #: in the developer portal is what actually moves every page: this is the answer
 #: for a process that has not connected yet, or has no application to read.
-NAME = "Meoww"
+NAME = "DaCat"
 
 #: What it is, in one line — the sentence a `og:description` or a footer wants.
 TAGLINE = "One bot that runs the server."
@@ -52,7 +52,7 @@ TAGLINE = "One bot that runs the server."
 #: The letter the header's tile draws before the wordmark. Derived from the name
 #: by the law at the bottom of `tests/test_brand.py`, so an initial that no longer
 #: matches is a failure rather than a detail.
-INITIAL = "M"
+INITIAL = "D"
 
 #: The name this product used before the rebrand. Nothing a person reads may
 #: still say it; the law asserts that over the templates, and the two places that

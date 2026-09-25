@@ -230,13 +230,28 @@ class TheAuditFixesAreInTheShippedPages(unittest.TestCase):
             "innerHTML is only ever used to empty a container, never to fill one",
         )
 
-    def test_the_composer_keeps_a_draft_across_an_expired_session(self):
+    def test_the_composer_does_not_need_a_script_to_hold_a_message(self):
+        """Retired, and the claim it was written for is now the stronger one.
+
+        This pinned a `sessionStorage` draft — a key written on every keystroke
+        and restored after an expired sign-in — as the answer to "a long message
+        must not be lost when the tab is sent back to the door". The rebuild
+        answered the same risk by removing the mechanism the loss could happen
+        in: the composer is a `<form method="post">` whose fields are the
+        browser's own, and there is **no page script at all** in
+        `templates/dashboard.html` (zero `<script>` elements, asserted below),
+        so there is nothing to keep in a draft store and nothing that can forget
+        to save one. `tests/test_dashboard.py` pins the form, its fields and its
+        endpoint; `tests/test_design_laws.py::FieldsAreNamed` pins that every
+        field is labelled.
+        """
         html = _read("templates/dashboard.html")
-        self.assertIn("sessionStorage.setItem(DRAFT_KEY", html)
-        self.assertIn("dropDraft();", html, "a sent or cleared composer drops it")
-        self.assertGreaterEqual(
-            html.count("saveDraft();"), 3,
-            "every request helper has to save before it redirects to sign in",
+        self.assertNotIn(
+            "<script",
+            html,
+            "a script is back on the dashboard, so this law needs a subject "
+            "again: a write that needs one is a write that is unavailable "
+            "exactly when something is wrong",
         )
 
 
@@ -250,7 +265,16 @@ class ThePagesStayReadable(unittest.TestCase):
     """
 
     #: Every surface these pages paint text on, lightest last (the worst case).
-    SURFACES = ("#090c10", "#131821", "#0e131b")
+    #:
+    #: Two palettes, because two are live: the pre-rebuild grounds are what the
+    #: market, the sign-in doors and the per-server dashboard still paint, and
+    #: `#0a0a0d`/`#131318`/`#0b0b0f` are the rebuilt frame's — so a colour has to
+    #: clear the floor on all six rather than on whichever set the last rebuild
+    #: left behind. The worst of the six is what is reported.
+    SURFACES = (
+        "#090c10", "#131821", "#0e131b",
+        "#0a0a0d", "#131318", "#0b0b0f",
+    )
     #: The pages, and the shared stylesheet they all link.
     #:
     #: ``static/meow.css`` is in this list because it is where most of the site's
@@ -262,15 +286,18 @@ class ThePagesStayReadable(unittest.TestCase):
         "templates/market.html",
         "templates/login.html",
         "static/meow.css",
-        # The dashboard's own rules moved out of the template into this sheet.
-        # It is in the list for the same reason `meow.css` is: the page no
-        # longer holds most of its own colour, so a guard that read only the
-        # template would go on passing while checking very little of it.
-        "static/dashboard.css",
-        # The landing page and the market moved theirs out the same way, and
-        # for the same reason: reading below the fold of a template whose sheet
-        # holds the colour is a guard that checks almost nothing.
-        "static/landing.css",
+        # The frame the rebuilt pages are drawn in, and the sheet that now holds
+        # most of the site's colour — the front door, `/systems`, `/start`, the
+        # radio page and the policies hold no palette of their own at all, so a
+        # guard that read only their templates would go on passing while
+        # checking almost nothing. This is `static/dashboard.css`'s slot, one
+        # rebuild later.
+        "static/meoww.css",
+        # The interiors' rules moved out of the dashboard's template into this
+        # sheet, which is the second half of the same pair: `meoww.css` for the
+        # frame, `pages.css` for what sits inside it.
+        "static/pages.css",
+        # The market moved its own out the same way, and for the same reason.
         "static/market.css",
     )
     FLOOR = 4.5
@@ -316,7 +343,12 @@ class ThePagesStayReadable(unittest.TestCase):
                 continue
             for value in re.findall(r"(?<![-\w])color:\s*(var\(--[\w-]+\)|#[0-9a-fA-F]{3,6})", rule):
                 color = variables.get(value[4:-1]) if value.startswith("var(") else value
-                if not color or color.lower() in ("#090c10", "#090c11"):
+                # The two page grounds, and nothing else: `--accent-ink` is the
+                # ink that goes *on* a filled control, and it is deliberately the
+                # page's own black (`--text-invert` is the light palette's
+                # white) — measured against the page it is 1:1 by construction,
+                # which is a fact about the pairing rather than about the ink.
+                if not color or color.lower() in ("#090c10", "#090c11", "#0a0a0d"):
                     continue  # unresolvable, or the page colour itself
                 worst = min(cls._ratio(color, surface) for surface in cls.SURFACES)
                 if worst < cls.FLOOR:

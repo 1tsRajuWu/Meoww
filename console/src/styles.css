@@ -1,0 +1,3319 @@
+/* The console's design system: four themes, one token set, no framework.
+ *
+ * Written by hand on purpose. The surface is one shell and six pages, and a
+ * utility framework would have been a build dependency, a class-name dialect and
+ * a second way to say "panel" — for a page that is read by one person who already
+ * knows what it says. Tokens first, then layout, then components, in that order,
+ * so a change to a colour is a change in one block.
+ *
+ * The rules this file is written to, all of them checkable — and checked, by
+ * ``tests/test_design_laws.py``, against this file rather than against anybody's
+ * opinion about it:
+ *
+ * 1. **60-30-10.** ``--bg`` is the 60 (the page itself), ``--panel``/``--panel-2``
+ *    are the 30 (every surface that sits on the page), and ``--accent`` is the 10 —
+ *    spent on what can be *acted on* and on the one reading that matters most on a
+ *    page, never on decoration.
+ * 2. **A scale, not a pile of one-offs.** Every size in here is a ``--type-*``
+ *    token; body text is ≥16px because that is the size a paragraph is read at
+ *    rather than the size a table is scanned at, and a literal ``font-size`` in a
+ *    component is how a scale turns back into a pile.
+ * 3. **One hue.** ``--accent`` is the only decorative colour; ``--good``, ``--warn``
+ *    and ``--danger`` are *states* and may only be used where a state is being
+ *    reported. A page with four accents has none.
+ * 4. **Nothing is reachable only with a mouse.** One global ``:focus-visible``, at
+ *    least 44×44 for anything a finger is meant to hit (Fitts's law, and the number
+ *    is a token so it cannot drift), and every icon-only control carries a label.
+ * 5. **Motion follows the hand.** A spring for anything the operator is driving; a
+ *    duration only for an entrance, and ``prefers-reduced-motion`` turns the rest
+ *    off.
+ */
+
+/* ------------------------------------------------------------------- tokens */
+
+:root,
+[data-theme="midnight"] {
+  /* The 60. One background, one value, and the whole page sits on it. */
+  --bg: #08080a;
+  /* The 30. Surfaces *on* the page: the rail, the cards, the inputs. */
+  --panel: #101014;
+  --panel-2: #17171d;
+  --line: #24242c;
+  --text: #f3f3f6;
+  /* Small print. Chosen against ``--panel`` rather than against ``--bg`` — the
+     card is what it is usually read on, and this is the token that carries the
+     smallest type on the page. */
+  --dim: #9b9ba8;
+  /* The 10. Interactive, or the one thing on a page the eye should land on. */
+  --accent: #7c8cff;
+  --accent-ink: #0a0a12;
+  /* States, and only states. Success, attention, failure — nothing decorative
+     may use these three words. */
+  --good: #39d98a;
+  --warn: #f5b451;
+  --danger: #ff6b6b;
+  --glow: 0 0 0 1px rgb(124 140 255 / 0.25), 0 18px 40px -22px rgb(124 140 255 / 0.55);
+  --shadow: 0 18px 44px -30px rgb(0 0 0 / 0.9);
+  --theme-gradient: linear-gradient(135deg, #7c8cff 0%, #8b5cf6 50%, #ec4899 100%);
+  /* Neutral overlays, which are *not* palette: a hairline on a dark surface is
+     white at low alpha and a scrim is the page dimmed behind a dialog. None of
+     these is a colour this product chose, which is exactly why they belong here
+     as named values — the sheet used to carry twelve raw ``rgba(...)`` literals
+     in component rules, and a fifth theme would have had to find them all. */
+  --hairline-faint: rgb(255 255 255 / 0.06);
+  --hairline-soft: rgb(255 255 255 / 0.08);
+  --hairline-strong: rgb(255 255 255 / 0.16);
+  --shine: rgb(255 255 255 / 0.2);
+  --scrim-soft: rgb(0 0 0 / 0.25);
+  --scrim: rgb(4 5 8 / 0.75);
+  --shade: rgb(0 0 0 / 0.6);
+  --shade-deep: rgb(0 0 0 / 0.85);
+
+  /* The scale. Tier 1 — the only place a literal appears — so a heading and a
+     label cannot drift a pixel apart between two pages, and a change to the
+     rhythm is a change in one block rather than in forty rules. Type is a scale
+     rather than a set of one-offs, tracking is stated once (uppercase runs take
+     the wide one, display takes the tight one) and every duration here is a
+     *fallback*: anything following the operator's hand is a spring, not a time.
+
+     ``--type-body`` is 16px and that is the floor, not a preference: it is the
+     size a sentence is read at. Anything smaller exists only for type that is
+     *not* prose — an eyebrow, a table cell, a note under a figure. */
+  --type-micro: 12px;
+  --type-eyebrow: 12px;
+  --type-meta: 13px;
+  --type-body: 16px;
+  --type-label: 16px;
+  --type-title: 20px;
+  --type-subhead: 24px;
+  --type-heading: 34px;
+  --type-figure: 36px;
+  --type-figure-sm: 26px;
+  --tracking-eyebrow: 0.16em;
+  --tracking-figure: -0.035em;
+  --tracking-tight: -0.025em;
+  --hairline: 1px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  /* The spacing scale. Four-based, so two elements from different rules can
+     still line up — and stated as tokens because a hand-picked 13px of gap is
+     how a layout stops having a rhythm. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  /* Fitts's law, as a number. Nothing a finger is meant to hit may be smaller
+     than this in both directions, and it lives here so that it cannot be
+     quietly shrunk in one component at a time. */
+  --target-min: 44px;
+  --duration-quick: 0.18s;
+  --duration-panel: 0.28s;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="sakura"] {
+  --bg: #140d12;
+  --panel: #1d1319;
+  --panel-2: #251820;
+  --line: #362430;
+  --text: #fbeff5;
+  --dim: #b39aa8;
+  --accent: #ff74c1;
+  --accent-ink: #1a0a13;
+  --good: #7fe0a8;
+  --warn: #ffc46b;
+  --danger: #ff7b8f;
+  --glow: 0 0 0 1px rgb(255 116 193 / 0.25), 0 18px 40px -22px rgb(255 116 193 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #ff74c1 0%, #f472b6 100%);
+}
+
+[data-theme="forest"] {
+  --bg: #0a1210;
+  --panel: #101a17;
+  --panel-2: #16231f;
+  --line: #22332d;
+  --text: #eef6f1;
+  --dim: #9bb3a8;
+  --accent: #2fa06b;
+  --accent-ink: #04140c;
+  --good: #4fd394;
+  --warn: #d9b45c;
+  --danger: #e2706a;
+  --glow: 0 0 0 1px rgb(47 160 107 / 0.28), 0 18px 40px -22px rgb(47 160 107 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #2fa06b 0%, #34d399 100%);
+}
+
+[data-theme="ember"] {
+  --bg: #140e0a;
+  --panel: #1d1510;
+  --panel-2: #271c14;
+  --line: #38291d;
+  --text: #fdf1e7;
+  --dim: #bda795;
+  --accent: #ff8a3d;
+  --accent-ink: #1a0d04;
+  --good: #8fd07a;
+  --warn: #ffc247;
+  --danger: #ff7a5c;
+  --glow: 0 0 0 1px rgb(255 138 61 / 0.28), 0 18px 40px -22px rgb(255 138 61 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #ff8a3d 0%, #fbbf24 100%);
+}
+
+[data-theme="sunset"] {
+  --bg: #140a10;
+  --panel: #1e1018;
+  --panel-2: #281520;
+  --line: #3d1f2f;
+  --text: #fff0f4;
+  --dim: #c79ea9;
+  --accent: #ff6b8b;
+  --accent-ink: #1a050c;
+  --good: #4fd394;
+  --warn: #ffc247;
+  --danger: #ff6b6b;
+  --glow: 0 0 0 1px rgb(255 107 139 / 0.28), 0 18px 40px -22px rgb(255 107 139 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #ff416c 0%, #ff4b2b 50%, #ffaa00 100%);
+}
+
+[data-theme="plasma"] {
+  --bg: #120a1c;
+  --panel: #1c102b;
+  --panel-2: #26163b;
+  --line: #3a225a;
+  --text: #f6f0ff;
+  --dim: #bca3dc;
+  --accent: #ff52a2;
+  --accent-ink: #180415;
+  --good: #39d98a;
+  --warn: #f5b451;
+  --danger: #ff6b6b;
+  --glow: 0 0 0 1px rgb(255 82 162 / 0.28), 0 18px 40px -22px rgb(255 82 162 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #8a2387 0%, #e94057 50%, #f27121 100%);
+}
+
+[data-theme="aurora"] {
+  --bg: #061313;
+  --panel: #0c1d1d;
+  --panel-2: #132727;
+  --line: #1e3c3c;
+  --text: #ecfaf8;
+  --dim: #8ebbb8;
+  --accent: #00f0a8;
+  --accent-ink: #021610;
+  --good: #39d98a;
+  --warn: #f5b451;
+  --danger: #ff6b6b;
+  --glow: 0 0 0 1px rgb(0 240 168 / 0.28), 0 18px 40px -22px rgb(0 240 168 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #00f260 0%, #0575e6 50%, #00c6ff 100%);
+}
+
+[data-theme="cosmic"] {
+  --bg: #10091e;
+  --panel: #19102c;
+  --panel-2: #22163b;
+  --line: #36245c;
+  --text: #f4efff;
+  --dim: #b5a3db;
+  --accent: #b86bff;
+  --accent-ink: #130522;
+  --good: #39d98a;
+  --warn: #f5b451;
+  --danger: #ff6b6b;
+  --glow: 0 0 0 1px rgb(184 107 255 / 0.28), 0 18px 40px -22px rgb(184 107 255 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #7928ca 0%, #ff0080 50%, #00dfd8 100%);
+}
+
+[data-theme="synthwave"] {
+  --bg: #0e0a1a;
+  --panel: #17102a;
+  --panel-2: #201738;
+  --line: #342658;
+  --text: #f7efff;
+  --dim: #baa3dc;
+  --accent: #00f5ff;
+  --accent-ink: #031418;
+  --good: #39d98a;
+  --warn: #f5b451;
+  --danger: #ff6b6b;
+  --glow: 0 0 0 1px rgb(0 245 255 / 0.28), 0 18px 40px -22px rgb(0 245 255 / 0.5);
+  --theme-gradient: linear-gradient(135deg, #00ffff 0%, #ff007f 50%, #7928ca 100%);
+}
+
+/* -------------------------------------------------------------------- reset */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  /* One family for everything, the system one: a second webfont was never
+     needed for six pages, and no third-party origin may be contacted. */
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: var(--type-body);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A soft wash behind everything, so a large dark panel is not a flat rectangle. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(70% 50% at 12% -8%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%),
+    radial-gradient(60% 44% at 96% 0%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 72%);
+  opacity: 0.7;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+ul,
+pre {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+code,
+pre,
+kbd {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+code {
+  /* Relative on purpose: inline code sits inside whatever size the sentence
+     around it is set at, so a fixed size here is how a code span ends up larger
+     than the line it lives in. */
+  font-size: 0.9em;
+  color: var(--accent);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* One focus ring for the whole console.
+ *
+ * A single rule rather than one per component, and ``:focus-visible`` rather
+ * than ``:focus``: the ring is for somebody driving this with a keyboard, and
+ * drawing it on every mouse click is how a page teaches its user that the ring
+ * is noise. It is the accent colour plus a 2px gap so it reads on both the page
+ * and a raised card — see ``tests/test_design_laws.py``, which fails if a
+ * stylesheet in this project suppresses an outline without replacing it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.console-skip {
+  position: absolute;
+  left: -9999px;
+}
+
+.console-skip:focus {
+  left: 12px;
+  top: 12px;
+  z-index: 50;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+/* -------------------------------------------------------------------- shell */
+
+.shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 246px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 26px 18px;
+  border-right: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel) 70%, transparent);
+  backdrop-filter: blur(14px);
+  /* Nothing may spill out of this column. The rail is a fixed 100vh box and its
+     content is taller than that on a laptop — the nav has seven groups and the
+     foot is pinned to the bottom — so without this the footer *escaped* the box
+     and painted over the page beside it, which is how the appearance swatches
+     and the Cursor button ended up sitting on top of the Overview's own action
+     buttons. Clipping is the fix rather than a taller box: the rail has to fit
+     the viewport, and the list below scrolls inside it instead. */
+  overflow: hidden;
+}
+
+/* The brand and the foot are fixed-size; only the page list gives way. */
+.rail__brand,
+.rail__foot {
+  flex: 0 0 auto;
+}
+
+/* The scrim under the drawer, which only exists below the width where the rail
+   becomes a drawer (see the media query at the foot of this file): on a wide
+   screen the rail is a column of the page and there is nothing to dismiss. */
+.rail__scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: var(--scrim-soft);
+}
+
+.rail__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rail__brand strong {
+  display: block;
+  font-size: var(--type-body);
+  letter-spacing: -0.01em;
+}
+
+.rail__brand span {
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* A heading, then its links. The heading is *small type* on purpose: it labels
+ * a group rather than competing with the links it labels, which is the whole
+ * point of grouping nine destinations (see ``OWNER_GROUPS``). */
+.rail__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rail__group + .rail__group {
+  margin-top: var(--space-4);
+}
+
+.rail__group-label {
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+.rail__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* The one flexible child: it takes the room that is left, and is allowed to be
+     shorter than its content so it can scroll rather than push the foot out of
+     the column. ``min-height: 0`` is what actually permits that — a flex item
+     defaults to refusing to shrink below its content. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-right: 2px;
+}
+
+.rail__link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: var(--dim);
+  font-weight: 500;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+
+.rail__link:hover {
+  color: var(--text);
+  background: color-mix(in oklab, var(--panel-2) 70%, transparent);
+}
+
+.rail__link.is-current {
+  color: var(--text);
+}
+
+.rail__marker {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 34%, transparent);
+  z-index: -1;
+}
+
+.rail__foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rail__search {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: var(--target-min);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rail__search:hover {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+}
+
+.rail__search kbd {
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  font-size: var(--type-micro);
+}
+
+.rail__themes {
+  display: flex;
+  gap: 2px;
+  /* The four dots are a control, not an ornament: the button is a full target
+     and the dot is drawn inside it, because a 22px circle is a 22px circle to
+     a finger no matter how pretty it is. */
+  margin: 0 -8px;
+}
+
+.swatch {
+  position: relative;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.16s ease;
+}
+
+.swatch::before {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.swatch:hover {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.swatch.is-current::before {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.swatch--midnight::before {
+  background: linear-gradient(140deg, #7c8cff, #16161c 70%);
+}
+
+.swatch--sakura::before {
+  background: linear-gradient(140deg, #ff74c1, #1d1319 70%);
+}
+
+.swatch--forest::before {
+  background: linear-gradient(140deg, #2fa06b, #101a17 70%);
+}
+
+.swatch--ember::before {
+  background: linear-gradient(140deg, #ff8a3d, #1d1510 70%);
+}
+
+.swatch--sunset::before {
+  background: linear-gradient(140deg, #ff416c, #ffaa00);
+}
+
+.swatch--plasma::before {
+  background: linear-gradient(140deg, #8a2387, #e94057 50%, #f27121);
+}
+
+.swatch--aurora::before {
+  background: linear-gradient(140deg, #00f260, #0575e6 50%, #00c6ff);
+}
+
+.swatch--cosmic::before {
+  background: linear-gradient(140deg, #7928ca, #ff0080 50%, #00dfd8);
+}
+
+.swatch--synthwave::before {
+  background: linear-gradient(140deg, #00ffff, #ff007f 50%, #7928ca);
+}
+
+.main {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 28px;
+  backdrop-filter: blur(14px);
+  background: color-mix(in oklab, var(--bg) 78%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+.topbar__who {
+  color: var(--dim);
+  font-size: var(--type-meta);
+}
+
+.topbar__menu {
+  display: none;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+/* Where you are, said in words. The rail marks the current page with an
+ * ``aria-current`` and a moving pill; this is the same fact as text, because the
+ * page's own heading is the only other place it appears and a heading is read
+ * *after* the topbar. Small, dim, and never a second ``h1`` — see the design-law
+ * test, which fails on a page with more than one. */
+.topbar__crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+  font-size: var(--type-meta);
+}
+
+.topbar__crumb b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- the page */
+
+.page {
+  padding: 26px 28px 72px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.page__head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  /* A hairline under the masthead, so every page opens with the same rule
+     rather than with a heading floating on a gradient. */
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.page__title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.page__avatar {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.page__head h1 {
+  font-size: var(--type-heading);
+  letter-spacing: var(--tracking-tight);
+  font-weight: 650;
+  /* The masthead is *display* type, which in this console means uppercase and
+     tightly tracked — the one place a page raises its voice, and the reason the
+     eyebrow above it exists: a wide-tracked label that names the reading, over a
+     shouted word that names the page. */
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+
+.eyebrow {
+  display: block;
+  font-size: var(--type-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--dim);
+  margin-bottom: var(--space-1);
+}
+
+.readstamp {
+  font-size: var(--type-micro);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.card {
+  position: relative;
+  grid-column: span 6;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid var(--hairline-soft);
+  background: color-mix(in oklab, var(--panel) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: 0 16px 36px -12px var(--shade), inset 0 1px 0 var(--hairline-strong);
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--hairline-strong));
+  box-shadow:
+    0 20px 45px -12px var(--scrim),
+    0 0 30px -10px color-mix(in oklab, var(--accent) 30%, transparent),
+    inset 0 1px 0 var(--shine);
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 60% at 0% 0%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 60%);
+  opacity: 0.8;
+}
+
+.card--span-2 { grid-column: span 2; }
+.card--span-3 { grid-column: span 3; }
+.card--span-4 { grid-column: span 4; }
+.card--span-6 { grid-column: span 6; }
+
+.card--warn { border-color: color-mix(in oklab, var(--warn) 45%, var(--line)); }
+.card--danger { border-color: color-mix(in oklab, var(--danger) 45%, var(--line)); }
+
+.card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  /* Sized, not squeezed: with no basis the text column gave way to the action
+     beside it, and on a phone the hint wrapped into a one-word-per-line ribbon
+     about 180px wide. A basis of 18rem makes the pair wrap when they cannot
+     share a line — the action drops below the title — and lets the text take
+     the rest of the row when they can. */
+  flex-wrap: wrap;
+}
+
+.card__head > :first-child {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.card__title {
+  font-size: var(--type-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.card__hint,
+.card__body {
+  color: var(--dim);
+  font-size: var(--type-meta);
+  margin-top: 3px;
+}
+
+/* A caveat under a card's body: the sentence that qualifies everything above it.
+   Held off by a hairline and the scale's own rhythm, because it is a footnote to
+   the card and not one more line of it. This name came to the console unruled,
+   so the caveats rendered at body size and full brightness — the qualifier read
+   as the claim, which on the Access page is the difference between "this host
+   cannot write to the ledger" and a ledger that is simply empty. */
+.card__foot {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--hairline) solid var(--line);
+  color: var(--dim);
+  font-size: var(--type-meta);
+  line-height: 1.6;
+}
+
+.card__action {
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------- small parts */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 18px;
+}
+
+.stats--tight {
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 14px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A figure that was not read. Dimmed rather than hidden: the reader should see
+   that a number belongs here and that nobody took it, and the tooltip carries
+   the reason. The em dash is the whole mark — a `0` in this position is the
+   defect this exists to prevent. */
+.stat--unread .stat__value {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.stat--unread .stat__label {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.stat__value {
+  font-size: var(--type-figure);
+  font-weight: 600;
+  letter-spacing: var(--tracking-figure);
+  /* Tabular figures are the difference between a column of numbers and a
+     column of numbers that jitters every time one of them changes — which, on a
+     page that re-reads every fifteen seconds, is the whole page. */
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.stats--tight .stat__value {
+  font-size: var(--type-figure-sm);
+}
+
+.stat__label {
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.stat__sub {
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+/* ── the Access page ──────────────────────────────────────────────────────── */
+.sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* The list-row treatment the Live page's `.alone__row` already uses, token for
+   token: a panel-2 glass row at `--radius-sm`, because these are rows *inside* a
+   card rather than cards of their own. They read `--radius-2` and `--surface-2`
+   for a while — Discord's palette names, from the markup this replaced — which
+   this sheet has never defined, so the radius was ignored and the row had no
+   background at all: two declarations that were valid CSS and did nothing. */
+.session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+
+/* The one row that is this browser. A hairline on the left rather than a
+   different background: the reader has to be able to tell it apart at a glance
+   while scanning a list, and it must not look like a *different kind* of row. */
+.session--current {
+  border-left: 2px solid var(--accent);
+}
+
+.session__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session__scope {
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.session__you {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.session__meta {
+  color: var(--dim);
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  /* An agent string is attacker-controlled text: one line, and clipped rather
+     than wrapped — a 4 KB User-Agent must not be able to reshape the page. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60ch;
+}
+
+.session__side {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.windows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.window__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.window__name {
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.window__hint {
+  color: var(--dim);
+  font-size: var(--type-meta);
+}
+
+.window__blocked {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--danger);
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 16px;
+  align-items: baseline;
+}
+
+.rows dt {
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.rows dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rows a {
+  color: var(--accent);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: var(--type-micro);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill--good { color: var(--good); border-color: color-mix(in oklab, var(--good) 40%, var(--line)); }
+.pill--warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, var(--line)); }
+.pill--danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 40%, var(--line)); }
+.pill--accent { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--line)); }
+
+.pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* Fitts's law, as a floor rather than a hope: the padding below sets the
+     comfortable size, and this makes sure nothing shrinks past what a thumb can
+     actually hit. */
+  min-height: var(--target-min);
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel-2) 80%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+}
+
+.btn--primary {
+  background: var(--theme-gradient, var(--accent));
+  color: var(--accent-ink);
+  border-color: transparent;
+  box-shadow: var(--glow);
+}
+
+.btn--primary:hover {
+  background: var(--theme-gradient, var(--accent));
+  filter: brightness(1.12);
+  border-color: transparent;
+}
+
+.btn--ghost {
+  background: transparent;
+}
+
+/* The one action on this page that a re-invite cannot undo, drawn in the token
+   the sheet reserves for exactly that. The border and the text carry it rather
+   than a filled red panel: `--danger` is a *state* (see the palette's own note),
+   and a solid danger button is the thing that reads as the primary action. */
+.btn--danger {
+  color: var(--danger);
+  border-color: color-mix(in oklab, var(--danger) 40%, var(--line));
+  background: transparent;
+}
+
+.btn--danger:hover {
+  border-color: color-mix(in oklab, var(--danger) 65%, var(--line));
+}
+
+/* A button that cannot be clicked must not look clickable, and must not lift on
+   hover — the switch below has said this since it was written, and these buttons
+   are the first ones here that go disabled outside a busy state of their own. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  transform: none;
+  border-color: var(--line);
+}
+
+.input {
+  flex: 1;
+  min-width: 200px;
+  min-height: var(--target-min);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 60%, transparent);
+  color: var(--text);
+  font: inherit;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 50%, transparent);
+}
+
+.segmented__item {
+  min-height: calc(var(--target-min) - 6px);
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--type-micro);
+  cursor: pointer;
+  transition: color 0.16s ease, background 0.16s ease;
+}
+
+.segmented__item:hover { color: var(--text); }
+
+.segmented__item.is-current {
+  color: var(--text);
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+.switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 70%, transparent);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.switch--on {
+  background: color-mix(in oklab, var(--accent) 70%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 60%, transparent);
+}
+
+.switch--busy { opacity: 0.6; cursor: progress; }
+
+.switch:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.switch--on .switch__knob {
+  background: var(--accent-ink);
+  transform: translateX(18px);
+}
+
+.meter {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--line) 80%, transparent);
+  overflow: hidden;
+}
+
+.meter__fill {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 55%, var(--good)));
+}
+
+.meter__fill.is-empty { background: var(--danger); }
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bars__row {
+  display: grid;
+  grid-template-columns: 120px 1fr 32px;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--type-micro);
+}
+
+.bars__name {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bars__track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--line) 75%, transparent);
+  overflow: hidden;
+}
+
+.bars__fill {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--accent) 80%, transparent), var(--accent));
+}
+
+.bars__value {
+  text-align: right;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.plain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar__count {
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+/* A second toolbar in the same card sits under the first at the scale's own
+   rhythm. The one case of that in the app used to state the 12px in the markup,
+   which is a spacing decision the sheet could not see. */
+.toolbar + .toolbar {
+  margin-top: var(--space-3);
+}
+
+.quick {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.quick__note,
+.fineprint {
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+.fineprint {
+  grid-column: 1 / -1;
+}
+
+/* -------------------------------------------------------------- the fleet */
+
+.fleet {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fleet-row {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.fleet-row:hover {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  transform: translateY(-1px);
+}
+
+.fleet-row__link {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 2fr) minmax(140px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.fleet-row__avatar img,
+.fleet-row__initial {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-weight: 600;
+}
+
+.fleet-row__name {
+  min-width: 0;
+}
+
+.fleet-row__name strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-row__name small,
+.fleet-row__systems small {
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+.fleet-row__systems {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fleet-row__names {
+  padding: 0 16px 14px 76px;
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+/* -------------------------------------------------------------- a server */
+
+.systems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.systems__item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  transition: background 0.18s ease;
+}
+
+.systems__item:hover {
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+
+.systems__item.is-on .systems__text strong {
+  color: var(--text);
+}
+
+.systems__text {
+  min-width: 0;
+}
+
+.systems__text strong {
+  display: block;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.systems__text small {
+  display: block;
+  color: var(--dim);
+  font-size: var(--type-micro);
+  opacity: 0.85;
+}
+
+.systems__meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.systems__icon {
+  font-size: var(--type-title);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------- the matrix */
+
+.matrix__scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  min-width: 560px;
+}
+
+.matrix th,
+.matrix td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: var(--type-meta);
+  font-weight: 500;
+}
+
+.matrix thead th {
+  color: var(--dim);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.matrix tbody th {
+  font-weight: 600;
+}
+
+.matrix tbody th small {
+  display: block;
+  color: var(--dim);
+  font-size: var(--type-micro);
+  font-weight: 400;
+}
+
+.matrix td {
+  text-align: center;
+}
+
+.matrix__unknown {
+  color: var(--warn);
+}
+
+/* -------------------------------------------------------- the command list */
+
+/* The same table as the matrix, one column per server, with the cell being a
+   word rather than a knob: this page reports where a command stands, and asking
+   the operator to read an "on/off" from a switch they cannot move would be a
+   control that lies about being one. */
+.cmds tbody th code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--type-micro);
+}
+
+.cmds__system {
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.cmds__dot {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: var(--type-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cmds__dot.is-on {
+  color: var(--good);
+  border-color: color-mix(in oklab, var(--good) 34%, var(--line));
+}
+
+.cmds__dot.is-off {
+  color: var(--warn);
+  border-color: color-mix(in oklab, var(--warn) 40%, var(--line));
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+}
+
+.input--select {
+  flex: 0 1 190px;
+  min-width: 150px;
+}
+
+/* ------------------------------------------------------------------- log */
+
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 460px;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 70%, transparent);
+  font-size: var(--type-micro);
+  line-height: 1.6;
+}
+
+.log__line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: color-mix(in oklab, var(--text) 82%, transparent);
+}
+
+.log__line.is-warn { color: var(--warn); }
+.log__line.is-bad { color: var(--danger); }
+
+/* --------------------------------------------------------------- changes */
+
+.changes {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.change {
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.change header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.change__icon {
+  font-size: var(--type-title);
+}
+
+.change h2 {
+  font-size: var(--type-body);
+  letter-spacing: -0.01em;
+}
+
+.change__lead {
+  color: var(--text);
+  font-size: var(--type-meta);
+  opacity: 0.92;
+}
+
+.change__body {
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: var(--type-meta);
+  white-space: pre-wrap;
+  /* A window onto the notes, not a scroll box of their own. `overflow: auto`
+     used to sit here, which put forty inner scrolling areas inside the page's
+     one: the wheel stopped at the entry under the pointer and the page would
+     not move, with no visible scrollbar to say why. Clipped instead, and the
+     button below opens the rest. */
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.change__body.is-open {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.change__more {
+  margin-top: 8px;
+}
+
+/* ------------------------------------------------------------- questions */
+
+/* The anonymous box, one row per question.
+ *
+ * A list rather than a card per question, because the page is read as a queue:
+ * the name is the first thing on each line (it is the reason the screen exists —
+ * the channel saw `anon 4F2A` and this is the only place that name appears), the
+ * question is the second, and the box to answer it is the third. Nothing here is
+ * a new palette value: the accent stripe is the same one `.alone__row` uses for
+ * "this is the thing being reported". */
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 55%, transparent);
+}
+
+/* Wraps, for the lesson `.card__head` already learned: the when-column beside a
+   long name crushes the name into a ribbon on a narrow window. */
+.question__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.question__handle {
+  display: block;
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--accent);
+}
+
+.question__who {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-meta);
+  color: var(--dim);
+}
+
+.question__who strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.question__when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--type-micro);
+  color: var(--dim);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.question__ask {
+  font-size: var(--type-body);
+  line-height: 1.6;
+  /* The same ceiling the prose elsewhere on this surface is held to: past about
+     seventy characters the eye loses its place on the way back. */
+  max-width: 72ch;
+  /* A question is typed by a person and can contain one long unbroken word — a
+     URL, a nickname. Without this it pushes the row wider than its own box. */
+  overflow-wrap: anywhere;
+}
+
+.question__relay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+  color: color-mix(in oklab, var(--warn) 78%, var(--text));
+}
+
+.question__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.question__label {
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--dim);
+}
+
+/* `flex: 0 0 auto` overrides `.input`'s `flex: 1`, which in this column would
+   make the box grow to fill the card instead of being a three-row box. */
+.question__answer {
+  flex: 0 0 auto;
+  min-width: 0;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.question__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.question__count {
+  font-size: var(--type-micro);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.question__tally {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* --------------------------------------------------------------- palette */
+
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  background: var(--scrim);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.palette__panel {
+  width: min(620px, 92vw);
+  border-radius: 20px;
+  border: 1px solid var(--hairline-strong);
+  background: color-mix(in oklab, var(--panel) 84%, transparent);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  box-shadow: 
+    0 40px 90px -20px var(--shade-deep),
+    0 0 35px -10px color-mix(in oklab, var(--accent) 35%, transparent),
+    inset 0 1px 0 var(--shine);
+  overflow: hidden;
+}
+
+.palette__input {
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 16px 18px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--type-body);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+/* The one place an outline is suppressed, and it is replaced rather than
+   removed: this input *is* the dialog's whole first row, so a 2px ring floating
+   inside it reads as a ring around nothing. Typing here lights the rule under
+   the input instead — same colour, same meaning, drawn where the eye already
+   is. (``:focus`` as well as ``:focus-visible``: the pointer can put a caret in
+   a text field, and a text field with no visible focus at all is the state a
+   keyboard user cannot recover from.) */
+.palette__input:focus,
+.palette__input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--accent);
+  box-shadow: 0 2px 0 -1px var(--accent);
+}
+
+.palette__list {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 8px;
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 10px 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette__item.is-current {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+.palette__hint,
+.palette__none {
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+.palette__none {
+  padding: 14px 12px;
+}
+
+.palette__foot {
+  display: flex;
+  gap: 16px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+/* ---------------------------------------------------------------- toasts */
+
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(420px, 88vw);
+}
+
+.toast {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  box-shadow: var(--shadow);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+
+.toast--good { border-color: color-mix(in oklab, var(--good) 45%, var(--line)); }
+.toast--warn { border-color: color-mix(in oklab, var(--warn) 45%, var(--line)); }
+.toast--danger { border-color: color-mix(in oklab, var(--danger) 50%, var(--line)); }
+
+/* ---------------------------------------------------------------- cursor */
+
+.cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-quick) ease;
+}
+
+/* Over a field the layer steps back: the browser's own I-beam is on the point
+   already, saying precisely, and the script says so by putting `is-text` on the
+   host. `filter` rather than `opacity`, because the script reveals this layer by
+   writing `opacity` inline, and a rule that a second mechanism can cancel is the
+   defect the cursor block below is written to remove. */
+.cursor.is-text {
+  filter: brightness(0.7) saturate(0.6);
+}
+
+/* No centre dot and no trailing ring. `Cursor.tsx` used to build the pair under
+   the chosen entity, this sheet hid both in every style the picker offers, and
+   neither was ever given a width or a height — so the two cost a node and a
+   write a frame to paint nothing at 0x0. Removing them is the judgement
+   `cursor-style-sparkle` already states: "zero center dot, zero ring". */
+
+/* Ambient glow trailing layer */
+.meow-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 520px;
+  height: 520px;
+  margin: -260px 0 0 -260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 14%, transparent), transparent 62%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.5s ease;
+  will-change: transform;
+}
+.meow-glow.is-on { opacity: 1; }
+
+/* Click ripple */
+.meow-click-fx {
+  position: fixed;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  pointer-events: none;
+  z-index: 75;
+  border-radius: 50%;
+  border: 1.5px solid var(--cursor-accent, var(--accent));
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 35%, transparent) 0%, transparent 75%);
+  box-shadow: 0 0 12px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+  animation: meow-click-ripple 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes meow-click-ripple {
+  0%   { opacity: 0.95; transform: scale(0.2); }
+  50%  { opacity: 0.6; }
+  100% { opacity: 0;    transform: scale(2.2); }
+}
+
+/* All custom cursor shape entities are hidden by default; only the active cursor style displays */
+.meow-cursor .sparkle-cluster,
+.meow-cursor .sparkle-particle,
+.meow-cursor .sword-entity,
+.meow-cursor .radar-hud,
+.meow-cursor .blob-drop,
+.meow-cursor .vortex-container {
+  display: none;
+}
+
+.meow-cursor.cursor-style-sparkle .sparkle-cluster,
+.meow-cursor.cursor-style-sparkle .sparkle-particle {
+  display: block;
+}
+
+.meow-cursor.cursor-style-sword .sword-entity {
+  display: block;
+}
+
+.meow-cursor.cursor-style-radar .radar-hud {
+  display: block;
+}
+
+.meow-cursor.cursor-style-blob .blob-drop {
+  display: block;
+}
+
+.meow-cursor.cursor-style-vortex .vortex-container {
+  display: block;
+}
+
+/* --------------------------------------------------------------------------
+   What moves the cursor, and what must never move it
+   --------------------------------------------------------------------------
+   The pointer layer is positioned by script and *shaped* by this sheet, and the
+   two have to be told apart by property, because they were not:
+   `Cursor.tsx` wrote `style.transform = translate3d(x, y, …)` and this sheet
+   animates `transform` too. An animation outranks an inline declaration and a
+   plain declaration loses to one, so the position was cancelled rather than
+   composed — `console-sparkle-twinkle` animated `transform`, and the swarm sat
+   twinkling in the top-left corner of the viewport instead of at the pointer.
+   Measured on the served page: the pointer at (600, 400), the particles at
+   (-9, -9). Every `.is-link`/`.is-down` rule that said `transform: scale(…)` was
+   dead for the same reason.
+
+   So the split is now explicit: **the script owns `translate`** (the pointer's
+   position) and **this sheet owns `transform`** (the shape, the spin, the bob).
+   They are separate properties, they compose in that order — position, then
+   shape, around the element's own origin — and neither can cancel the other.
+   `tests/test_design_laws.py` fails on a cursor rule that writes `translate` on
+   an element the pointer positions.
+   -------------------------------------------------------------------------- */
+
+/* 1. Magic Sparkle Swarm */
+.sparkle-particle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  pointer-events: none;
+  clip-path: polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%);
+  background: var(--cursor-accent, var(--accent));
+  box-shadow: 0 0 10px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent)), 0 0 16px var(--text);
+  filter: drop-shadow(0 0 6px var(--cursor-accent, var(--accent)));
+  transform-origin: center center;
+  animation: console-sparkle-twinkle 1.8s ease-in-out infinite alternate;
+}
+@keyframes console-sparkle-twinkle {
+  0%   { transform: scale(0.6) rotate(0deg); opacity: 0.5; }
+  50%  { transform: scale(1.3) rotate(90deg); opacity: 1; }
+  100% { transform: scale(0.7) rotate(180deg); opacity: 0.6; }
+}
+.sparkle-particle:nth-child(1) { width: 14px; height: 14px; animation-delay: 0s; }
+.sparkle-particle:nth-child(2) { width: 10px; height: 10px; animation-delay: 0.3s; }
+.sparkle-particle:nth-child(3) { width: 16px; height: 16px; animation-delay: 0.6s; }
+.sparkle-particle:nth-child(4) { width: 8px;  height: 8px;  animation-delay: 0.9s; }
+.sparkle-particle:nth-child(5) { width: 12px; height: 12px; animation-delay: 1.2s; }
+.sparkle-particle:nth-child(6) { width: 9px;  height: 9px;  animation-delay: 1.5s; }
+
+.meow-cursor.cursor-style-sparkle.is-link .sparkle-particle {
+  filter: drop-shadow(0 0 12px var(--cursor-accent, var(--accent))) brightness(1.3);
+  animation: console-sparkle-vortex 0.9s linear infinite;
+}
+@keyframes console-sparkle-vortex {
+  from { transform: rotate(0deg) scale(1.4); }
+  to   { transform: rotate(360deg) scale(1.4); }
+}
+/* `animation: none` first, and it is not decoration: the twinkle above animates
+   the very property this rule sets, and an animation outranks a normal
+   declaration — so the starburst below was written, shipped and never drawn
+   until the animation was cancelled here. Same shape as the position bug the
+   block above describes, one layer in. */
+.meow-cursor.cursor-style-sparkle.is-down .sparkle-particle {
+  animation: none;
+  transform: scale(2.2) rotate(45deg);
+  filter: drop-shadow(0 0 20px var(--text)) brightness(1.6);
+}
+
+/* 2. Cyber Pixel Blade */
+.sword-entity {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 28px;
+  transform-origin: 0 0;
+  animation: console-pixel-sword-bob 2.2s ease-in-out infinite alternate;
+}
+@keyframes console-pixel-sword-bob {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(2px, 3px) rotate(3deg); }
+}
+.sword-blade {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  background: var(--cursor-grad, linear-gradient(135deg, var(--cursor-accent, var(--accent)), var(--text)));
+  clip-path: polygon(0 0, 100% 35%, 65% 100%, 35% 65%, 45% 45%);
+  filter: drop-shadow(0 0 8px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent)));
+  border-radius: 2px;
+}
+.sword-hilt {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 10px;
+  height: 10px;
+  background: var(--text);
+  clip-path: polygon(0 100%, 100% 0, 80% 0, 0% 80%);
+  box-shadow: 0 0 6px var(--text);
+}
+.meow-cursor.cursor-style-sword.is-link .sword-entity {
+  animation: none;
+  transform: scale(1.35) rotate(-15deg);
+  filter: drop-shadow(0 0 16px var(--cursor-accent, var(--accent))) brightness(1.3);
+}
+.meow-cursor.cursor-style-sword.is-down .sword-entity {
+  animation: console-sword-slash 0.16s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+}
+@keyframes console-sword-slash {
+  0%   { transform: rotate(-30deg) scale(1.1); }
+  50%  { transform: rotate(75deg) scale(1.4) translate(8px, -4px); filter: brightness(1.8) drop-shadow(0 0 24px var(--text)); }
+  100% { transform: rotate(15deg) scale(1); }
+}
+
+/* 3. Tactical Radar HUD */
+.radar-hud {
+  position: absolute;
+  top: -24px;
+  left: -24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in oklab, var(--cursor-accent, var(--accent)) 50%, transparent);
+  background: radial-gradient(circle, color-mix(in oklab, var(--cursor-accent, var(--accent)) 8%, transparent) 0%, transparent 70%);
+}
+.radar-sweep-beam {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 270deg, color-mix(in oklab, var(--cursor-accent, var(--accent)) 50%, transparent) 360deg);
+  animation: console-radar-beam-spin 2.4s linear infinite;
+}
+@keyframes console-radar-beam-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.radar-center-pip {
+  position: absolute;
+  top: calc(50% - 2px);
+  left: calc(50% - 2px);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 8px var(--cursor-accent, var(--accent));
+}
+.radar-bracket {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--cursor-accent, var(--accent));
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s;
+}
+.radar-bracket.tl { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.radar-bracket.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; }
+.radar-bracket.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; }
+.radar-bracket.br { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+.meow-cursor.cursor-style-radar.is-link .radar-hud {
+  border-color: var(--danger);
+  box-shadow: 0 0 16px color-mix(in oklab, var(--danger) 40%, transparent);
+}
+.meow-cursor.cursor-style-radar.is-link .radar-bracket {
+  border-color: var(--danger);
+}
+.meow-cursor.cursor-style-radar.is-link .radar-bracket.tl { transform: translate(10px, 10px); }
+.meow-cursor.cursor-style-radar.is-link .radar-bracket.tr { transform: translate(-10px, 10px); }
+.meow-cursor.cursor-style-radar.is-link .radar-bracket.bl { transform: translate(10px, -10px); }
+.meow-cursor.cursor-style-radar.is-link .radar-bracket.br { transform: translate(-10px, -10px); }
+.meow-cursor.cursor-style-radar.is-link .radar-sweep-beam {
+  animation-duration: 0.8s;
+}
+.meow-cursor.cursor-style-radar.is-down .radar-hud {
+  transform: scale(0.8);
+  box-shadow: 0 0 28px var(--cursor-accent, var(--accent));
+}
+
+/* 4. Fluid Velocity Blob */
+.blob-drop {
+  position: absolute;
+  top: -14px;
+  left: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 60% 40% 55% 45% / 50% 60% 40% 55%;
+  background: var(--cursor-grad, linear-gradient(135deg, var(--cursor-accent, var(--accent)), var(--text)));
+  box-shadow: 0 0 16px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent)), inset 0 2px 4px color-mix(in oklab, var(--text) 60%, transparent);
+  filter: drop-shadow(0 0 8px var(--cursor-accent, var(--accent)));
+  transition: width 0.15s ease, height 0.15s ease, border-radius 0.3s ease;
+  animation: console-blob-idle-wobble 4s ease-in-out infinite alternate;
+}
+@keyframes console-blob-idle-wobble {
+  0%   { border-radius: 60% 40% 55% 45% / 50% 60% 40% 55%; }
+  50%  { border-radius: 45% 55% 40% 60% / 60% 45% 55% 40%; }
+  100% { border-radius: 55% 45% 60% 40% / 45% 55% 45% 55%; }
+}
+.blob-shine {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  width: 6px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--text) 85%, transparent);
+}
+.meow-cursor.cursor-style-blob.is-link .blob-drop {
+  transform: scale(1.4);
+  box-shadow: 0 0 28px var(--cursor-accent, var(--accent)), inset 0 3px 6px color-mix(in oklab, var(--text) 80%, transparent);
+}
+.meow-cursor.cursor-style-blob.is-down .blob-drop {
+  transform: scale(1.6, 0.6);
+}
+
+/* 5. Quantum Sacred Vortex */
+.vortex-container {
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  width: 40px;
+  height: 40px;
+}
+.vortex-inner-rune {
+  position: absolute;
+  inset: 10px;
+  border: 1.5px solid var(--cursor-accent, var(--accent));
+  clip-path: polygon(50% 0%, 100% 86%, 0% 86%);
+  animation: console-vortex-spin-cw 2.2s linear infinite;
+  box-shadow: 0 0 10px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+}
+.vortex-outer-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--cursor-accent, var(--accent)) 50%, transparent);
+  border-top-color: var(--text);
+  border-bottom-color: var(--cursor-accent, var(--accent));
+  animation: console-vortex-spin-ccw 4.2s linear infinite;
+  box-shadow: 0 0 14px var(--cursor-glow, color-mix(in oklab, var(--cursor-accent, var(--accent)) 40%, transparent));
+}
+.vortex-tachyon {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 8px var(--cursor-accent, var(--accent));
+}
+.vortex-tachyon.t1 { top: -2.5px; left: calc(50% - 2.5px); }
+.vortex-tachyon.t2 { bottom: 5px; left: 3px; }
+.vortex-tachyon.t3 { bottom: 5px; right: 3px; }
+
+@keyframes console-vortex-spin-cw {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes console-vortex-spin-ccw {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+.meow-cursor.cursor-style-vortex.is-link .vortex-inner-rune {
+  animation-duration: 0.7s;
+  border-color: var(--text);
+}
+/* The ring is the one element here that spins on its own, so its warp is stated
+   with the individual `scale` property rather than `transform`: the spin is an
+   animation on `transform` and would outrank a normal declaration, which is how
+   this rule came to be written and never seen. */
+.meow-cursor.cursor-style-vortex.is-link .vortex-outer-ring {
+  animation-duration: 1.1s;
+  scale: 1.35;
+  box-shadow: 0 0 28px var(--cursor-accent, var(--accent));
+}
+.meow-cursor.cursor-style-vortex.is-down .vortex-container {
+  transform: scale(0.3);
+  transition: transform 0.1s cubic-bezier(0.8, 0, 0.2, 1);
+}
+
+/* 6. Classic System */
+.meow-cursor.cursor-style-system,
+html[data-cursor-style="system"] .meow-cursor,
+html[data-cursor-style="system"] .meow-glow {
+  display: none !important;
+}
+
+/* Appearance & Cursor Customizer */
+.rail__customizer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.rail__cursor-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--type-micro);
+  cursor: pointer;
+  min-height: var(--target-min);
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.rail__cursor-btn:hover,
+.rail__cursor-btn.is-active {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--line));
+  background: color-mix(in oklab, var(--panel-2) 90%, transparent);
+}
+
+/* Rendered in a portal on `document.body` (see `Shell.tsx`) and *placed* from the
+   Cursor button's rect, so `left` / `bottom` / `width` arrive as inline styles.
+   They have to: the panel opens beside the rail, the rail clips
+   (`.rail { overflow: hidden }`), and a positioned descendant of a clipping box
+   is a descendant that gets clipped. `position: fixed` plus a body-level parent
+   is the only arrangement where "beside the rail" means what it says. */
+.customizer-popover {
+  position: fixed;
+  max-height: min(580px, calc(100vh - 36px));
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.customizer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.customizer-title {
+  font-size: var(--type-meta);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.customizer-close {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--type-title);
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.customizer-close:hover {
+  color: var(--text);
+}
+
+.customizer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.customizer-label {
+  font-size: var(--type-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--dim);
+}
+
+.customizer-themes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.customizer-theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--type-micro);
+  cursor: pointer;
+  min-height: var(--target-min);
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.customizer-theme-btn:hover,
+.customizer-theme-btn.is-current {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+}
+
+.customizer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.customizer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-height: var(--target-min);
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.customizer-item:hover,
+.customizer-item.is-current {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+  background: color-mix(in oklab, var(--panel-2) 85%, var(--accent) 15%);
+}
+
+.customizer-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.customizer-item__name {
+  font-size: var(--type-meta);
+  font-weight: 500;
+}
+
+.customizer-item__desc {
+  font-size: var(--type-micro);
+  color: var(--dim);
+}
+
+.customizer-item__check {
+  color: var(--accent);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.customizer-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.customizer-color-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+  min-height: var(--target-min);
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.customizer-color-btn:hover,
+.customizer-color-btn.is-current {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+}
+
+.customizer-color-chip {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline-strong);
+  flex-shrink: 0;
+}
+
+.customizer-color-name {
+  flex: 1;
+  text-align: left;
+  font-size: var(--type-meta);
+}
+
+.customizer-color-check {
+  color: var(--accent);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+/* ------------------------------------------- what the deployment was not given */
+
+.config-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.config-missing__head {
+  margin-bottom: 4px;
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+/* One line per setting, collapsed. Five names are scannable; five sentences of
+   consequence are a wall, and a wall is what nobody reads. */
+.config-missing__item {
+  border-radius: 10px;
+}
+
+.config-missing__item > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.config-missing__item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-missing__item > summary::before {
+  content: "+";
+  color: var(--dim);
+  font-size: var(--type-micro);
+  line-height: 1;
+  /* The marker turns as the row opens. `content` swapping between "+" and "−"
+     cannot be transitioned — a different glyph is not a different value — so the
+     sign stays and the rotation carries the motion instead. */
+  transition: transform 0.22s ease;
+}
+
+.config-missing__item[open] > summary::before {
+  transform: rotate(135deg);
+}
+
+/* The body fades in as the row opens. A `<details>` that snaps is the
+   browser's own chrome rather than this product's, and the paragraph is
+   re-rendered when the element opens — which restarts the animation, so the
+   whole effect is CSS. */
+.config-missing__item[open] > p {
+  animation: config-open 0.26s ease both;
+}
+
+@keyframes config-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.config-missing__item > summary:hover {
+  background: var(--panel-2);
+}
+
+.config-missing__item code {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: var(--type-micro);
+}
+
+.config-missing__kind {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: var(--type-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.config-missing__item > p {
+  margin: 2px 0 8px;
+  padding: 0 8px 0 24px;
+  color: var(--dim);
+  font-size: var(--type-meta);
+  line-height: 1.55;
+}
+
+.config-missing__foot {
+  margin-top: 4px;
+  color: var(--dim);
+  font-size: var(--type-micro);
+}
+
+/* --------------------------------------------------- skeleton / empty / fail */
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton__row {
+  height: 14px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+.empty,
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  color: var(--dim);
+}
+
+.empty__mark {
+  font-size: var(--type-subhead);
+  color: var(--accent);
+}
+
+.empty h3,
+.failure strong {
+  color: var(--text);
+  font-size: var(--type-meta);
+}
+
+.failure {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--danger) 45%, var(--line));
+  grid-column: 1 / -1;
+}
+
+/* The bundle loaded on its own, without the shell that gives it a session.
+   Told plainly rather than rendered as an empty page — see `main.tsx`. */
+.console-orphan {
+  max-width: 34rem;
+  margin: 12vh auto;
+  padding: 0 24px;
+}
+
+.console-orphan h1 {
+  font-size: var(--type-subhead);
+  margin-bottom: 10px;
+}
+
+.console-orphan p {
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+.console-orphan a {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------- HUD & Telemetry */
+
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.gauge__visual {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gauge__svg {
+  transform: rotate(-90deg);
+}
+
+.gauge__bg {
+  fill: none;
+  stroke: var(--hairline-soft);
+}
+
+.gauge__val {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.gauge__pct {
+  position: absolute;
+  font-size: var(--type-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.gauge__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gauge__label {
+  font-size: var(--type-meta);
+  font-weight: 600;
+}
+
+.gauge__sub {
+  font-size: var(--type-micro);
+  color: var(--dim);
+}
+
+.live-pulse {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--scrim-soft);
+  border: 1px solid var(--hairline-faint);
+}
+
+.live-pulse__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.live-pulse__label {
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.live-pulse__val {
+  font-size: var(--type-micro);
+  font-weight: 600;
+  color: var(--good);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-pulse__track {
+  width: 100%;
+  height: 36px;
+  overflow: hidden;
+}
+
+.live-pulse__svg {
+  width: 100%;
+  height: 100%;
+}
+
+.live-pulse__grid {
+  stroke: var(--hairline-soft);
+  stroke-dasharray: 4 4;
+}
+
+/* The trace itself. Its colour and width are attributes on the path, but the
+   corners are the sheet's business: the polyline is read at 2px and lands on a
+   baseline between two spikes, and a mitre join puts a spike's point out past
+   the line it turns on. Round joins, the cap `.gauge__val` already uses — one
+   reading of "the drawn line" rather than two. */
+.live-pulse__line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The pair of dials under the Overview's counters. It is a row that wraps: the
+   card is four columns wide and the two dials share it, dropping one per line
+   only when the window is too narrow for both.
+
+   It read `.telemetry-row` before — the class of a *column* of label/value/bar
+   rows, a component this app stopped rendering but whose rules were left behind
+   — and the row was laid out one dial under the other in a card with half its
+   width empty. The markup had said what it wanted in an inline style, including
+   a `flex-wrap` that only means anything in a row; the sheet said column, and
+   the sheet won. */
+.gauges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--hairline) solid var(--line);
+}
+
+/* ------------------------------------------------------------------ live */
+/* One server, right now: what exists, who is in it, and where the talking is.
+   The page is read in a glance and then left, so everything here is a row of
+   facts with a hairline between them rather than a card per reading. */
+
+/* The honest half of the page: every reading the deployment could not take, in
+   its own band above the cards. A zero in a card is a measurement; this is what
+   is printed instead when there was no measurement to make. */
+.gaps {
+  grid-column: 1 / -1;
+  padding: var(--space-3) var(--space-4);
+  border: var(--hairline) solid color-mix(in oklab, var(--warn) 45%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--warn) 8%, transparent);
+}
+
+.gaps__head {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--type-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--warn);
+}
+
+.gaps ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-body);
+  color: color-mix(in oklab, var(--text) 78%, var(--dim));
+  /* 92ch was two and a half sentences of prose per line — past the 75-character
+     ceiling the laws set, and past the point where the eye loses its place on
+     the way back. It reads as a list of findings, so it is set like one. */
+  max-width: 72ch;
+}
+
+/* A column of cards inside the grid, for the two narrow panels that have to
+   stack: the grid places this once and the cards inside it need no spans. */
+.stack-col {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* Voice rooms. Occupied first (the component sorts them), a hairline between
+   each, and the room's own count on the right of its name — which is the one
+   number an operator is looking for. */
+.rooms {
+  display: flex;
+  flex-direction: column;
+}
+
+.room {
+  padding: var(--space-3) 0;
+  border-top: var(--hairline) solid color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+.room:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.room--live .room__name {
+  color: var(--text);
+}
+
+.room__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.room__name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--type-label);
+  font-weight: 550;
+  color: color-mix(in oklab, var(--text) 72%, var(--dim));
+}
+
+.room__sigil {
+  font-size: var(--type-meta);
+  opacity: 0.75;
+}
+
+.room__count {
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.room--live .room__count {
+  color: var(--accent);
+}
+
+.room__category,
+.room__empty {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-meta);
+  color: var(--dim);
+}
+
+.room__people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  border: var(--hairline) solid var(--line);
+  background: color-mix(in oklab, var(--panel-2) 70%, transparent);
+  font-size: var(--type-meta);
+}
+
+.person__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+.person__bot {
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.person__flag {
+  padding: 0 5px;
+  border-radius: 999px;
+  border: var(--hairline) solid color-mix(in oklab, var(--accent) 35%, var(--line));
+  color: var(--accent);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Channel names in the matrix: the sigil is the only thing that says "this one
+   takes messages" without a legend. */
+.chan {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chan__sigil {
+  color: var(--dim);
+}
+
+.chan__note {
+  margin-left: var(--space-1);
+  font-size: var(--type-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+.matrix td.dim {
+  color: var(--dim);
+}
+
+.matrix td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ranked talkers: a numbered line per person, with the voice time as the
+   second value rather than a second table. */
+.talkers {
+  display: flex;
+  flex-direction: column;
+}
+
+.talkers li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 8px 0;
+  border-top: var(--hairline) solid color-mix(in oklab, var(--line) 70%, transparent);
+  font-size: var(--type-body);
+}
+
+.talkers li:first-child {
+  border-top: 0;
+}
+
+.talkers__rank {
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.talkers__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talkers__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.talkers__sub {
+  font-size: var(--type-meta);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What each column is. Prose on a page of numbers is worth exactly one place,
+   and this is it. */
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--type-body);
+  color: color-mix(in oklab, var(--text) 70%, var(--dim));
+  line-height: 1.65;
+}
+
+.notes b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The stat strip on the Live page: the four figures the page exists for, under
+   a bracket at each corner — the same corner-stroke motif the reference panel
+   uses for a box that is a reading rather than a container. */
+.stats--bracket {
+  position: relative;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border: var(--hairline) solid color-mix(in oklab, var(--line) 90%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--panel-2) 45%, transparent);
+}
+
+/* A strip of labels this short must not wrap: a two-line label under one figure
+   beside a one-line label under the next makes one row of numbers look like two. */
+.stats--bracket .stat__label {
+  font-size: var(--type-eyebrow);
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+}
+
+.stats--bracket::before,
+.stats--bracket::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: var(--hairline) solid color-mix(in oklab, var(--accent) 60%, transparent);
+  pointer-events: none;
+}
+
+.stats--bracket::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: var(--radius-md);
+}
+
+.stats--bracket::after {
+  right: -1px;
+  bottom: -1px;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: var(--radius-md);
+}
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 1180px) {
+  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .card--span-3 { grid-column: span 2; }
+  .card--span-2 { grid-column: span 2; }
+  .stack-col { grid-column: span 4; }
+}
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+
+  .rail {
+    position: fixed;
+    z-index: 30;
+    inset: 0 40% 0 0;
+    height: 100vh;
+    transform: translateX(-102%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    background: var(--panel);
+  }
+
+  .rail--open { transform: none; }
+
+  .rail__scrim { display: block; }
+
+  .topbar__menu { display: inline-flex; }
+}
+
+@media (max-width: 720px) {
+  .page { padding: 20px 16px 60px; }
+  .topbar { padding: 12px 16px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .stack-col { grid-column: 1 / -1; }
+  .talkers li { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .talkers__sub { display: none; }
+  .card { grid-column: 1 / -1 !important; }
+
+  .fleet-row__link {
+    grid-template-columns: 40px minmax(0, 1fr);
+    row-gap: 10px;
+  }
+
+  .fleet-row__systems,
+  .fleet-row__off {
+    grid-column: 2;
+  }
+
+  .fleet-row__names { padding-left: 16px; }
+  .bars__row { grid-template-columns: 92px 1fr 28px; }
+}
+
+/* ------------------------------------------------------- the voice companion */
+
+/* "Alone in voice" — one row per room whose only occupant is one person.
+ *
+ * Three columns, and the middle one is the *room* rather than the person: the
+ * question this card answers is "is anybody on their own, and where", and a row
+ * that named the person twice would make the reader parse it to find the room. */
+.alone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alone__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+
+.alone__who {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alone__where {
+  color: var(--dim);
+  font-size: var(--type-meta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alone__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+}
+
+.alone__foot {
+  margin: var(--space-4) 0 0;
+  color: var(--dim);
+  font-size: var(--type-meta);
+  line-height: 1.6;
+}
+
+/* "Live right now" — who is streaming, and the honest note that the bot cannot
+ * watch it. The dot is the same one the voice roster uses for a live flag, so
+ * "live" looks like live everywhere on this surface. */
+.live-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-list li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-areas: "dot name" "dot where";
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+
+.live-list__dot {
+  grid-area: dot;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--good);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.live-list__name {
+  grid-area: name;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-list__where {
+  grid-area: where;
+  color: var(--dim);
+  font-size: var(--type-meta);
+}
+
+@media (max-width: 720px) {
+  .alone__row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+  }
+}
+
+/* ------------------------------------------------------- the god level page */
+
+/* The four fleet actions, one row each. A row rather than a grid of buttons
+   because each one carries a sentence about what it would do — the sentence is
+   the part that stops a hurried press, and a button with its explanation
+   underneath reads as a caption rather than as a choice. */
+.god-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.god-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 12px 14px;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--panel) 60%, transparent);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.god-action:hover {
+  border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
+}
+
+.god-action__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.god-action__text strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-body);
+  font-weight: 600;
+}
+
+.god-action__text span {
+  color: var(--dim);
+  font-size: var(--type-meta);
+  line-height: 1.55;
+}
+
+.god-action .btn { flex-shrink: 0; }
+
+/* The fleet's own sizes, as pills: what the two switches above would touch. */
+.god-fleet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The trail: one line per action, in the order the table returns them (newest
+   first), because that is the order somebody reads it in after an incident. */
+.god-trail {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.god-trail li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 7.5rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--type-meta);
+  color: var(--dim);
+}
+
+.god-trail__action {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.god-trail__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.god-trail__who { white-space: nowrap; }
+
+/* The two dots the trail draws — the same 8px language the session rows use,
+   because "did it work" is the same question in both lists. */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.dot--good { background: var(--good); }
+.dot--danger { background: var(--danger); }
+
+/* A caveat in the console's own voice, and the one place it is a warning rather
+   than a footnote: an unreadable pause flag is a reading the reader must not
+   take as "running" without knowing it was not read. */
+.card__hint[data-tone="warn"] { color: var(--warn); }
+
+@media (max-width: 720px) {
+  .god-action { flex-direction: column; align-items: stretch; }
+  .god-trail li { grid-template-columns: 8px minmax(0, 1fr); }
+  .god-trail__detail,
+  .god-trail__who { grid-column: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .cursor { display: none; }
+}

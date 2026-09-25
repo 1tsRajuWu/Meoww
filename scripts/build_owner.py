@@ -475,11 +475,12 @@ def build(
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
 
-    # Copy console bundle
-    console_src = os.path.join(static_src, "console")
-    console_out = os.path.join(static_out, "console")
-    if os.path.exists(console_src):
-        shutil.copytree(console_src, console_out, dirs_exist_ok=True)
+    # The console bundle is deliberately **not** copied here: `/owner` renders one
+    # page per entry in `OWNER_PAGES` now. It used to copy `static/console/` under
+    # `os.path.exists`, which made what this host ships depend on whatever happened
+    # to be sitting in `static/` on the machine that ran the build — an archived
+    # bundle published here with no page asking for it. `tests/test_owner_site.py`
+    # asserts the built directory carries none.
 
     # Write worker and configuration files
     proxy_secret = config_audit.get("OWNER_PROXY_SECRET")

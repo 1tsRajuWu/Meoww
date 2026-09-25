@@ -454,78 +454,29 @@ class ThePayloadBoundaryKnowsEveryEndpoint(unittest.TestCase):
         )
 
 
-class TheShellItServes(_DashboardFixture):
-    """What the one HTML file has to carry, since it carries everything else."""
-
-    def setUp(self):
-        super().setUp()
-        self.sign_in(scope="global")
-        self.page = self.client.get("/owner").get_data(as_text=True)
-
-    def test_it_loads_the_built_app_and_its_stylesheet(self):
-        self.assertIn("/static/console/app.js", self.page)
-        self.assertIn("/static/console/app.css", self.page)
-
-    def test_the_assets_are_stamped_so_a_new_build_is_not_cached_forever(self):
-        self.assertIn(f"app.js?v={keep_alive._console_asset_stamp()}", self.page)
-
-    def test_the_csrf_token_is_reachable_without_an_inline_script(self):
-        """The token has to be handed to the app, and a JSON block is the way.
-
-        The session cookie is `HttpOnly`, so the bundle can never read the token
-        itself. Putting it in a `<script>` would spend this page's `unsafe-inline`
-        allowance on a value the browser should never execute.
-        """
-        self.assertIn('id="console-boot"', self.page)
-        self.assertIn('type="application/json"', self.page)
-        self.assertNotIn("csrfToken =", self.page)
-
-    def test_the_boot_payload_is_valid_json_and_names_the_pages(self):
-        start = self.page.index('id="console-boot"')
-        payload = self.page[start:].split(">", 1)[1].split("</script>", 1)[0]
-        boot = json.loads(payload)
-        self.assertTrue(boot["csrfToken"])
-        self.assertEqual([page["id"] for page in boot["pages"]], [p[0] for p in keep_alive.OWNER_PAGES])
-        self.assertIn("gateway", boot)
-
-    def test_the_gateway_state_is_server_rendered_rather_than_guessed(self):
-        """So the first paint is true, before the app has fetched anything."""
-        start = self.page.index('id="console-boot"')
-        boot = json.loads(self.page[start:].split(">", 1)[1].split("</script>", 1)[0])
-        self.assertEqual(boot["gateway"], keep_alive._badge_state())
-
-    def test_an_unbuilt_checkout_says_so_instead_of_rendering_nothing(self):
-        with _no_bundle():
-            page = self.client.get("/owner").get_data(as_text=True)
-        self.assertIn("Console not built", page)
-        self.assertNotIn("/static/console/app.js", page)
-
-    def test_the_missing_page_does_not_count_the_rail(self):
-        """A count written beside a list is the one claim nobody can check.
-
-        The words on the not-a-page screen said *"There are five pages, all in
-        the rail"* — written when the rail had five and left alone while it grew
-        to ten. The sentence says where the pages are now instead of how many
-        there are, so there is nothing left in it to go stale.
-        """
-        source = (CONSOLE / "src" / "pages" / "Missing.tsx").read_text(encoding="utf-8")
-        # The copy a reader is shown, not the file: the docstring above quotes
-        # the old sentence on purpose, and a law that a comment can break would
-        # push the history out of the file that explains it.
-        shown = re.findall(r'body="([^"]*)"', source)
-        self.assertTrue(shown, "the missing page has no body copy to read")
-        for said in shown:
-            with self.subTest(said=said[:48]):
-                self.assertNotRegex(
-                    said,
-                    r"\b(one|two|three|four|five|six|seven|eight|nine|ten)\s+pages?\b",
-                    "a page count in prose is a count that drifts",
-                )
-        self.assertIn("the rail", source)
-        # And the rail it points at is the one the shell draws, from the server's
-        # own list rather than from a copy kept in the app.
-        self.assertGreater(len(keep_alive.OWNER_PAGES), 5)
-
+# --------------------------------------------------------------------------- #
+# RETIRED — `TheShellItServes`, and where what it held now lives.
+#
+# Six tests stood here and every one of them was a claim about the archived
+# React console's shell: that `/owner` loaded `static/console/app.js` and its
+# stylesheet, that both carried a build stamp, that the CSRF token reached the
+# app through a `console-boot` JSON block rather than an inline script, that the
+# boot payload named every page and carried the gateway's own state, that an
+# unbuilt checkout said so, and that the app's not-a-page screen did not restate
+# the size of the rail. `/owner` serves server-rendered pages again — by request,
+# because the bundled app was reported as a console that looked like the
+# dashboard and could not be driven from a keyboard — so five of them were
+# claims about a file no route serves, and the sixth read a `.tsx` inside an
+# archive that is not part of the build.
+#
+# What they protected is not dropped, and it is worth naming where it went:
+# every page in `OWNER_PAGES` answering with its own heading and lede, a write
+# that is a form carrying its CSRF token, a refusal happening *before* anything
+# is done, and `/owner` refusing anybody but the operator are all pinned in
+# `tests/test_owner_console.py`, against the pages that are actually served. The
+# bundle-stamp claims stay in this file, under `TheBundleMatchesItsSources`,
+# which still reads the archive it was written for.
+# --------------------------------------------------------------------------- #
 
 class TheConsoleApi(_DashboardFixture):
     """The data the app draws, checked against the functions that produce it."""
@@ -2216,19 +2167,6 @@ class ThePreviewHarnessShowsAConsole(_DashboardFixture):
             self.assertEqual(asyncio.run(qna.get(row["id"]))["status"], qna.ANSWERED)
         finally:
             keep_alive.db.DB_PATH = saved
-
-
-class _no_bundle:
-    """Pretend the app was never built, for the unbuilt-shell test."""
-
-    def __enter__(self):
-        self.saved = keep_alive._console_built
-        keep_alive._console_built = lambda: False
-        return self
-
-    def __exit__(self, *exc):
-        keep_alive._console_built = self.saved
-        return False
 
 
 class _planted_log_line:

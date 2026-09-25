@@ -21,13 +21,71 @@
        that POST and redirect, not buttons waiting on a script: the most
        consequential controls in this project must work while a page's
        JavaScript does not, which is exactly when something is wrong.
-     * **Nothing here writes except God level.** The rest of the console reads
-       Discord and the database; changing a server's switches is its own
-       administrator's job, in their own dashboard, and this page says so rather
-       than offering a control that would be refused.
+     * **Nothing is reported that did not happen.** Every write here is the same
+       write the matching dashboard form makes, through the same endpoint and the
+       same readers (a switch is `/api/toggle`, an economy adjustment is
+       `db.move_economy_sync`), and the sentence that comes back is the server's
+       own. That is why this page carries controls at all: it began as a reading
+       surface on the argument that a server's switches are its own
+       administrator's job, and the operator's answer to that was that they had
+       no way to fix a fleet-wide problem from here — including the one failure
+       only they can see, a server whose command picker Discord has cached.
    ========================================================================== #}
 {% extends "site_base.html" %}
+{# **The** switch, imported rather than written here. This page draws it in its
+   own parts (`skin="console"`) and adds the two states the front door cannot
+   have, and that is the whole of what it owns: a second `role="switch"` in this
+   tree is a second implementation of one control, which
+   `tests/test_meoww_site.py::TheOneAuthorRules` refuses — and did refuse the
+   first draft of this page. #}
+{% from "meoww/_switch.html" import switch as mw_switch %}
 {% block title %}{{ page_title }} — operator console{% endblock %}
+
+{# The hidden field every write on this console needs: the token the endpoint
+   checks, the server it is about, where the reader goes back to, and the
+   sentence to show when it worked. One macro so a dozen forms cannot disagree
+   about the shape of a write — the same rule the dashboard's `guard` is written
+   to, and for the same reason: eleven forms with eleven shapes is eleven ways
+   for one of them to post without the server it names.
+
+   `console_guild` rather than a raw id, because a snowflake that crosses as a
+   number comes back rounded (see `_console_id`) — and `page_url` carries the
+   server too, so a flip on a small server lands back on *that* server rather
+   than on the biggest one. #}
+{% macro guard(notice, guild='') %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="guild_id" value="{{ guild or console_guild }}">
+  <input type="hidden" name="dash_return" value="{{ page_url }}">
+  <input type="hidden" name="dash_notice" value="{{ notice }}">
+{% endmacro %}
+
+{# One system's switch on one server, as a call into the partial above — so it
+   works with the page's script absent, which on this surface is the point rather
+   than a fallback: the console's most consequential controls must work while a
+   page's JavaScript does not, because that is exactly when something is wrong.
+
+   What this wrapper owns is only what belongs to *this* surface: which server the
+   write is about (a cell in the matrix is a server, so the control names both the
+   system and where it is being flipped), the guard fields every console write
+   carries, and the two states the front door cannot have — a server whose
+   switches could not be read, and a system its plan withholds. Both disable the
+   button and say why, because a control whose press writes a guess is worse than
+   no control at all. #}
+{% macro switch(mod, guild='', on=false, known=true, allowed=true, label='') %}
+  {%- set blocked = '' -%}
+  {%- if not known -%}
+    {%- set blocked = "This server's switches could not be read, so a flip here would be writing a guess." -%}
+  {%- elif not allowed -%}
+    {%- set blocked = 'This system is part of a plan this server does not have.' -%}
+  {%- endif -%}
+  {{ mw_switch(
+       {'id': mod.id, 'name': label or mod.name, 'enabled': on and known},
+       mode='write', action='/api/toggle',
+       hidden=guard(mod.name ~ (' switched off' if on else ' switched on'), guild),
+       skin='console',
+       state=('unknown' if not known else ('plan' if not allowed else ('On' if on else 'Off'))),
+       blocked=blocked) }}
+{% endmacro %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
@@ -62,7 +120,7 @@
 {% endmacro %}
 
 {% block page %}
-<section class="band band--flush">
+<section class="band band--flush own-hero">
   <div class="wrap">
     <p class="micro">Operator console</p>
     <h1>{{ page_title }}</h1>
@@ -126,7 +184,7 @@
     <div class="own-table__scroll">
     <table class="own-table">
       <caption class="visually-hidden">Every server, most populated first</caption>
-      <thead><tr><th scope="col">Server</th><th scope="col">Members</th><th scope="col">Switches</th><th scope="col">Nick</th></tr></thead>
+      <thead><tr><th scope="col">Server</th><th scope="col">Members</th><th scope="col">Switches</th><th scope="col">Nick</th><th scope="col">Action</th></tr></thead>
       <tbody>
         {% for row in fleet[:8] %}
         <tr>
@@ -134,12 +192,27 @@
           <td class="mono">{{ row.members }}</td>
           <td class="mono">{{ row.on }} / {{ row.total }}</td>
           <td>{{ row.nick or '—' }}</td>
+          <td>
+            {# The one failure visible from here and nowhere else: a command list
+               Discord's own client cached and will not reread. A form rather
+               than a button with a handler, so it works with this page's script
+               absent — which on this surface is the point. #}
+            <form method="post" action="/api/console/server-action">
+              {# Double quotes for the Jinja string because the sentence has an
+                 apostrophe: an entity here would come back out of `value="…"`
+                 escaped a second time and reach the operator as `&#39;`. #}
+              {{ guard("Asked Discord to republish that server's command list — its own client caches the picker, so give it a minute.", guild=row.id) }}
+              <input type="hidden" name="action" value="resync">
+              <button class="btn btn--quiet" type="submit">Republish</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     </div>
-    <p class="hint">All {{ totals.servers }} are on the <a href="/owner/servers">Servers</a> page, in this order.</p>
+    <p class="hint">Republish fixes one server's stale command picker without touching the others.
+      All {{ totals.servers }} are on the <a href="/owner/servers">Servers</a> page, in this order.</p>
     {% else %}
     <p class="hint">
       The bot is not in a server this process can see yet. Nothing is wrong with the console:
@@ -224,6 +297,7 @@
       This server's switches could not be read, so nothing below is a claim about them.
     </p>
     {% endif %}
+    <div class="own-table__scroll">
     <table class="own-table">
       <caption>Read from the same cache the server's own dashboard reads</caption>
       <thead><tr><th scope="col">System</th><th scope="col">Category</th><th scope="col">Commands</th><th scope="col">State</th></tr></thead>
@@ -233,16 +307,20 @@
           <th scope="row">{{ system.icon }} {{ system.name }}</th>
           <td>{{ system.category }}</td>
           <td class="mono">{{ system.commands | length }}</td>
-          <td class="mono">
-            {{ 'on' if system.enabled else 'off' }}{% if not system.allowed %} · plan{% endif %}
+          <td>
+            {{ switch(system, console_guild, on=system.enabled, known=systems_known,
+                      allowed=system.allowed,
+                      label=system.name ~ ' in ' ~ (selected.name if selected else 'this server')) }}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     <p class="hint">
-      This console does not switch another server's systems: that is the administrator's own
-      dashboard, and a control here would be offered to somebody it would refuse.
+      Each switch posts to <code>/api/toggle</code> with this server's id — the same write the
+      server's own dashboard makes, so the two cannot disagree about what is on. A system a plan
+      withholds says <em>plan</em> rather than switching on and being refused.
     </p>
     {% else %}
     <p class="hint">No server in hand — the bot is not in one this process can see.</p>
@@ -257,23 +335,49 @@
     <p class="hint">
       Read across {{ matrix_read }} of {{ totals.servers }} servers. A system shown as off everywhere
       because a server's states could not be read would be sending you to fix something that is running,
-      so the column says how many were read.
+      so the column says how many were read — and a cell whose state is unknown says so rather than
+      offering a switch that would write a guess.
     </p>
-    <table class="own-table">
-      <caption>Every system in the registry, most switched-on first</caption>
-      <thead><tr><th scope="col">System</th><th scope="col">Category</th><th scope="col">On</th><th scope="col">Read</th><th scope="col">Default</th></tr></thead>
+    <div class="own-table__scroll">
+    <table class="own-table own-table--matrix">
+      <caption>Every system, by server — each cell is that server's own switch</caption>
+      <thead>
+        <tr>
+          <th scope="col">System</th>
+          {% for cell in matrix_cells %}<th scope="col">{{ cell.server }}</th>{% endfor %}
+          <th scope="col">On</th>
+          <th scope="col">Default</th>
+        </tr>
+      </thead>
       <tbody>
         {% for row in matrix %}
         <tr>
-          <th scope="row">{{ row.icon }} {{ row.name }}</th>
-          <td>{{ row.category }}</td>
-          <td class="mono">{{ row.on }}</td>
-          <td class="mono">{{ row.read }}</td>
+          <th scope="row">{{ row.icon }} {{ row.name }}<br><span class="small muted">{{ row.commands | length }} commands</span></th>
+          {% for cell in row.cells %}
+          <td class="own-cell">
+            {% if cell.known %}
+              {{ switch(row, cell.guild_id, on=cell.enabled, allowed=cell.allowed,
+                        label=row.name ~ ' in ' ~ cell.server) }}
+            {% else %}
+              {# No control at all, because there is no state to draw: a disabled
+                 switch here would be a picture of one, and this project draws
+                 one switch. The word is the cell's whole reading. #}
+              <span class="muted">unknown</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+          <td class="mono">{{ row.on }} / {{ matrix_read }}</td>
           <td class="mono">{{ 'on' if row.default_enabled else 'off' }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
+    <p class="hint">
+      Every cell posts to <code>/api/toggle</code> — the same write the per-server dashboard uses,
+      so a switch here and a switch there are one implementation rather than two that can drift.
+      Switching one on also queues a republish of that server's command list.
+    </p>
   </div>
 </section>
 {% endif %}
@@ -328,6 +432,50 @@
       anybody is holding anything.
     </p>
     {% endif %}
+
+    {% if selected %}
+    <h2>Move coins</h2>
+    <p class="hint">
+      The same endpoint <code>/eco-admin</code> in Discord writes to, and it refuses the same
+      people. A debit larger than the balance is answered with the number that refused it rather
+      than a silently clamped balance, and every move is written to the output tail the Ops page
+      reads — so this is not a second, quieter way to change a balance.
+    </p>
+    <form class="own-card own-form" method="post" action="/api/console/economy/adjust">
+      {{ guard('Coins moved.') }}
+      <label class="field">
+        <span class="field__label">Member id</span>
+        <input class="input mono" type="text" name="user_id" inputmode="numeric" pattern="[0-9]{17,20}"
+               placeholder="17 or 18 digits" required>
+        <span class="hint">Paste the id itself — not a mention, not a name.</span>
+      </label>
+      <label class="field">
+        <span class="field__label">What to do</span>
+        <select class="input" name="action" required>
+          {% for action in economy_actions %}
+          <option value="{{ action }}">{{ action | replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">Coins</span>
+        <input class="input mono" type="number" name="amount" min="1" max="{{ economy_ceiling }}"
+               step="1" placeholder="0">
+        <span class="hint">Whole coins, up to {{ '{:,}'.format(economy_ceiling) }}. Leave empty for <em>set</em>.</span>
+      </label>
+      <div class="own-form__pair">
+        <label class="field">
+          <span class="field__label">Wallet, for <em>set</em></span>
+          <input class="input mono" type="number" name="wallet" min="0" max="{{ economy_ceiling }}" step="1">
+        </label>
+        <label class="field">
+          <span class="field__label">Bank, for <em>set</em></span>
+          <input class="input mono" type="number" name="bank" min="0" max="{{ economy_ceiling }}" step="1">
+        </label>
+      </div>
+      <button class="btn btn--primary" type="submit">Apply to {{ selected.name }}</button>
+    </form>
+    {% endif %}
   </div>
 </section>
 {% endif %}
@@ -359,8 +507,9 @@
 <section class="band" id="{{ page_anchor }}">
   <div class="wrap">
     <div class="own-grid">
-      {{ chip('Open', inbox.open_count if inbox.open_count is defined else '—') }}
+      {{ chip('Open', inbox.open if inbox.open is defined else '—') }}
       {{ chip('Answered', inbox.answered if inbox.answered is defined else '—') }}
+      {{ chip('Shown', inbox.shown if inbox.shown is defined else '—') }}
     </div>
     {% if not inbox.available %}
     <p class="notice notice--bad" role="alert">
@@ -368,23 +517,34 @@
       the same as an empty box.
     </p>
     {% elif inbox.rows %}
-    <table class="own-table">
-      <caption>What strangers asked, newest first</caption>
-      <thead><tr><th scope="col">Question</th><th scope="col">Asked by</th><th scope="col">State</th></tr></thead>
-      <tbody>
-        {% for row in inbox.rows %}
-        <tr>
-          <th scope="row">{{ row.question or '—' }}</th>
-          <td>{{ row.asked_by or row.username or '—' }}</td>
-          <td class="mono">{{ row.state or ('answered' if row.answer else 'open') }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
     <p class="hint">
-      Answering one is `/qna reply`, in the bot's own server, because the reply has to arrive as
-      the bot — a form here would be a second way to speak in its voice.
+      A reply is a DM, sent as the bot — so answering one here is the same call <code>/qna reply</code>
+      makes, through the same claim-then-send order. That order is what stops an asker being messaged
+      twice, so this is a door onto one implementation rather than a second copy of it.
     </p>
+    {% for row in inbox.rows %}
+    <article class="own-card own-question">
+      <h3>{{ row.question or '—' }}</h3>
+      <dl class="own-facts">
+        <div class="own-fact"><dt>asked by</dt><dd class="mono">{{ row.asker or 'unknown' }}</dd></div>
+        <div class="own-fact"><dt>server</dt><dd>{{ row.server or '—' }}</dd></div>
+        <div class="own-fact"><dt>when</dt><dd class="mono">{{ row.asked or '—' }}</dd></div>
+        <div class="own-fact"><dt>relayed</dt>
+          <dd>{% if row.relayed %}yes{% else %}no{% if row.relay_detail %} — {{ row.relay_detail }}{% endif %}{% endif %}</dd>
+        </div>
+      </dl>
+      <form method="post" action="/api/console/questions/reply">
+        {{ guard('Answered — it is on its way as a DM.') }}
+        <input type="hidden" name="id" value="{{ row.id }}">
+        <label class="field">
+          <span class="field__label">Answer</span>
+          <textarea class="input" name="answer" rows="3" maxlength="1000" required
+                    placeholder="What the asker is DMed"></textarea>
+        </label>
+        <button class="btn btn--primary" type="submit">Answer {{ row.asker or 'this asker' }}</button>
+      </form>
+    </article>
+    {% endfor %}
     {% else %}
     <p class="hint">
       Nothing in the box. Read from the same table the bot's own inbox reads.
@@ -408,9 +568,10 @@
       one out.
     </p>
     {% if ledger.rows %}
+    <div class="own-table__scroll">
     <table class="own-table">
       <caption>Every session the ledger knows</caption>
-      <thead><tr><th scope="col">Session</th><th scope="col">Who</th><th scope="col">From</th><th scope="col">Signed in</th><th scope="col">State</th></tr></thead>
+      <thead><tr><th scope="col">Session</th><th scope="col">Who</th><th scope="col">From</th><th scope="col">Signed in</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
       <tbody>
         {% for row in ledger.rows %}
         <tr{% if row.current %} class="is-current"{% endif %}>
@@ -421,10 +582,33 @@
           <td>
             <span class="own-chip{% if row.current %} own-chip--ok{% endif %}">{{ 'this browser' if row.current else (row.state or '—') }}</span>
           </td>
+          <td>
+            {% if row.current %}
+              {# Signing this browser out from this page would sign the reader
+                 out of the page that tells them so — `/logout` is the word
+                 they already know, and it is a link rather than a button so
+                 nothing here can be pressed by accident. #}
+              <a class="btn btn--quiet" href="/logout">Sign out</a>
+            {% elif row.state == 'live' %}
+              <form method="post" action="/api/console/access/revoke">
+                {{ guard('Ended that session.') }}
+                <input type="hidden" name="id" value="{{ row.id }}">
+                <button class="btn btn--quiet" type="submit">End it</button>
+              </form>
+            {% else %}
+              <span class="hint">already {{ row.state }}</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
+    <form method="post" action="/api/console/access/revoke" class="own-door">
+      {{ guard('Every other session is closed — this one stays open.') }}
+      <input type="hidden" name="all" value="1">
+      <button class="btn" type="submit">End every session except this one</button>
+    </form>
     {% endif %}
     {% else %}
     <p class="notice notice--bad" role="alert">

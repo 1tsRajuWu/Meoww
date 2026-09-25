@@ -26,8 +26,16 @@
 <section class="mw-band mw-band--head">
   <div class="mw-wrap">
     <p class="mw-micro">Pricing</p>
+    {# One heading element with two possible sentences inside it, rather than
+       one element per branch: the page names itself once, and a page that
+       renders one of two headings is a page whose *markup* still carries both —
+       which is what `OneHeadingPerPage` reads, and it cannot tell a page that
+       chose one from a page that has grown a second subject. #}
+    <h1 class="mw-display">
+      {% if selling %}The whole bot. <em>Priced by how many servers run it.</em>
+      {% else %}Free. <em>And the whole bot is in it.</em>{% endif %}
+    </h1>
     {% if selling %}
-    <h1 class="mw-display">The whole bot. <em>Priced by how many servers run it.</em></h1>
     <p class="mw-lede">
       Every tier gets every system — nothing is held back to make a tier look bigger. What a
       subscription changes is scale: how many servers it covers, and how many scheduled
@@ -35,7 +43,6 @@
       rendered from, so it cannot promise one the bot does not keep.
     </p>
     {% else %}
-    <h1 class="mw-display">Free. <em>And the whole bot is in it.</em></h1>
     <p class="mw-lede">
       There is no paid tier on this deployment, because there is nothing on it to pay for:
       everything the registry declares is already in the bot for every server that runs it —

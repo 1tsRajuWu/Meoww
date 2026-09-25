@@ -693,4 +693,8 @@
     .mk-hud { padding: 10px var(--space-4); }
     .mk-hud-links { display: none; }
     .mk-chart-wrap { height: 46vh; }
+    /* The watch star is the one control on this page a reader presses with a
+       thumb, and 26px square is two thirds of the 44px the rest of the site
+       gives a target. The glyph stays 13px: it is the box around it that grows. */
+    .mk-watch-toggle { width: var(--tap-min); height: var(--tap-min); }
 }

@@ -219,7 +219,7 @@
           {# The market board is not a dashboard page — it is a public surface with no
              session at all — but it is where the charts are, and the overview is
              where somebody looks for them. #}
-          <li class="list__row">
+          <li class="list__row list__row--prose">
             <span class="list__key"><a href="/market">The market board</a></span>
             <span class="list__note">Live prices and the candle charts.</span>
             <span class="list__meta mono">/market</span>
@@ -233,23 +233,37 @@
         </ul>
       </div>
 
+      {# The front page reports which systems are off; this card is where they can
+         be turned back on without a trip to another page. Every row carries the
+         *same* switch the Systems page carries, from the one shared partial and
+         the one endpoint — the overview is not a second control, it is the same
+         control somewhere a person actually starts. #}
       <div class="own-card">
         <h3>This server's systems</h3>
         <p class="hint">
           {{ active_count }} of {{ total_count }} are on. Off means the commands are
-          not offered here either.
+          not offered here either, so each row carries the switch that changes it.
         </p>
         <ul class="list">
-          {% for module in modules if not module.enabled %}
-          <li class="list__row">
-            <span class="list__key">{{ module.name }}</span>
+          {% for module in modules %}
+          <li class="list__row list__row--prose">
+            <span class="list__key">{{ module.icon }} {{ module.name }}</span>
             <span class="list__note">{{ module.desc }}</span>
+            {{ module_switch(module) }}
           </li>
           {% else %}
-          <li class="list__row"><span class="list__note">Every system is on here.</span></li>
+          <li class="list__row">
+            <span class="list__note">
+              The registry could not be read for this render, so this list would be a
+              guess rather than a reading.
+            </span>
+          </li>
           {% endfor %}
         </ul>
-        <p class="hint"><a href="/dashboard/systems{{ guild_query }}">Open the systems</a></p>
+        <p class="hint">
+          <a href="/dashboard/systems{{ guild_query }}">Open the systems</a> for each
+          one's commands and what it is for.
+        </p>
       </div>
     </div>
 
@@ -341,7 +355,7 @@
         <h3>What the bot may do here</h3>
         <ul class="list">
           {% for ability in management.abilities %}
-          <li class="list__row">
+          <li class="list__row list__row--prose">
             <span class="list__key">{{ ability.label }}</span>
             <span class="list__note">{{ ability.why }}</span>
             {{ chip('held' if ability.ok else 'missing', '', 'ok' if ability.ok else 'warn') }}
@@ -445,7 +459,7 @@
           {% if management.recent %}
           <ul class="list">
             {% for row in management.recent %}
-            <li class="list__row">
+            <li class="list__row list__row--prose">
               <span class="list__key">{{ row.action }}{% if row.target %} → {{ row.target }}{% endif %}</span>
               <span class="list__note">{{ row.detail or '' }}</span>
               <span class="list__meta mono">{{ row.actor_name or row.actor_id }}{% if row.when_text %} · {{ row.when_text }}{% endif %}</span>
@@ -539,7 +553,7 @@
       <h3>Recent actions here</h3>
       <ul class="list">
         {% for row in management.recent %}
-        <li class="list__row">
+        <li class="list__row list__row--prose">
           <span class="list__key">{{ row.action }}</span>
           <span class="list__note">{{ row.detail or '' }}</span>
           <span class="list__meta mono">{{ row.actor_name or row.actor_id }}{% if row.when_text %} · {{ row.when_text }}{% endif %}</span>
@@ -660,6 +674,84 @@
           defaults. The bot reads the same numbers either way.
           {% endif %}
         </p>
+      </div>
+
+      {# The rates above are a reading; this is the decision behind them. It writes
+         the same row `/levelsettings` writes, through the same clamps, so a rate
+         saved here is a rate the bot pays — and the *first* save is the one that
+         gives the server a row of its own instead of the deployment's defaults,
+         which is why the copy says so rather than saying "updated".
+
+         Every two-state control is a dropdown rather than a checkbox, so that
+         each one is a field the endpoint can read without guessing what its
+         absence meant: a box that is not ticked sends nothing at all, and a
+         settings form has no way to say "unchanged" and "off" with the same
+         silence. #}
+      <div class="own-card">
+        <h3>Change the rates</h3>
+        <p class="hint">
+          Saving any of these gives this server a row of its own — until then it is
+          running on the deployment's defaults, and the bot reads whichever applies.
+        </p>
+        <form method="post" action="/api/level-settings" data-reveal>
+          {{ guard('The rates are saved.') }}
+          <div class="row">
+            <label for="level-text-xp">XP per message</label>
+            <input id="level-text-xp" type="number" name="text_xp"
+                   min="1" max="1000" required
+                   value="{{ level_display.text_xp }}">
+          </div>
+          <div class="row">
+            <label for="level-min-coins">Coins per message, least</label>
+            <input id="level-min-coins" type="number" name="text_min_coins"
+                   min="1" max="100000" required
+                   value="{{ level_display.text_min_coins }}">
+          </div>
+          <div class="row">
+            <label for="level-max-coins">Coins per message, most</label>
+            <input id="level-max-coins" type="number" name="text_max_coins"
+                   min="1" max="100000" required
+                   value="{{ level_display.text_max_coins }}">
+          </div>
+          <div class="row">
+            <label for="level-vc-coins">Coins a minute in voice</label>
+            <input id="level-vc-coins" type="number" name="vc_coins_per_min"
+                   min="1" max="50" required
+                   value="{{ level_display.vc_coins_per_min }}">
+          </div>
+          <div class="row">
+            <label for="level-vc-xp">XP a minute in voice</label>
+            <input id="level-vc-xp" type="number" name="vc_xp_per_min"
+                   min="1" max="25" required
+                   value="{{ level_display.vc_xp_per_min }}">
+          </div>
+          <div class="row">
+            <label for="level-channel">Where level-ups are announced</label>
+            <select id="level-channel" name="channel_id">
+              <option value="">The bot's own channel</option>
+              {% for channel in channel_choices if channel.kind == 'text' %}
+              <option value="{{ channel.id }}"
+                      {% if level_display.channel_id and channel.id == level_display.channel_id | string %}selected{% endif %}
+                      {% if not channel.can_send %}disabled{% endif %}>#{{ channel.name }}{% if not channel.can_send %} — the bot cannot post there{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="row">
+            <label for="level-enabled">Pay rewards in this server</label>
+            <select id="level-enabled" name="enabled">
+              <option value="1"{% if level_display.enabled %} selected{% endif %}>On</option>
+              <option value="0"{% if not level_display.enabled %} selected{% endif %}>Off</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="level-dm">Level-up notices</label>
+            <select id="level-dm" name="dm_notifications">
+              <option value="0"{% if not level_display.dm %} selected{% endif %}>In the channel</option>
+              <option value="1"{% if level_display.dm %} selected{% endif %}>In DMs as well</option>
+            </select>
+          </div>
+          <button class="btn btn--primary" type="submit">Save the rates</button>
+        </form>
       </div>
 
       <div class="own-card">
@@ -1074,6 +1166,14 @@
         case this reading exists for — it is Discord's answer, not this server's
         opinion, and it is re-read on every load rather than remembered by the page.
       </p>
+      {# The page diagnoses a disagreement and this is the fix for it, on the one
+         page that reports it: the same resync the console's own Servers page asks
+         for, through the endpoint that already owns the write. #}
+      <form method="post" action="/api/server-action">
+        {{ guard("Asked Discord to republish this server's command list — its own client caches the picker, so give it a minute.") }}
+        <input type="hidden" name="action" value="resync">
+        <button class="btn" type="submit">Republish the list</button>
+      </form>
     </div>
 
     <div class="own-card">
@@ -1114,7 +1214,50 @@
       <div class="own-card">
         <h3>The uptime watch</h3>
         {{ facts('', system_status) }}
+        {# The rows, not only the counts. `facts()` renders a mapping's *scalars* and
+           skips a list on purpose — a list belongs in a table built for it — and
+           the monitor rows are a list, so the names and their 30-day ratios went
+           missing the moment this card started drawing the snapshot's mapping:
+           the panel still said "2 monitors, 1 up" and could no longer say which.
+           A count with no name is the reading nobody can act on. #}
+        {% if system_status.monitors %}
+        <div class="own-table__scroll">
+          <table class="own-table">
+            <caption>Every monitor this deployment watches</caption>
+            <thead>
+              <tr><th scope="col">Monitor</th><th scope="col">State</th>
+                  <th scope="col">30d</th><th scope="col">Answer</th></tr>
+            </thead>
+            <tbody>
+              {% for monitor in system_status.monitors %}
+              <tr>
+                <th scope="row">
+                  {{ monitor.name }}
+                  {% if monitor.url %}<span class="mono small"> {{ monitor.url }}</span>{% endif %}
+                </th>
+                <td>{{ monitor.label }}</td>
+                <td class="mono">
+                  {%- if monitor.ratios.get('30d') is number %}{{ monitor.ratios['30d'] }}%
+                  {%- else %}—{% endif %}
+                </td>
+                <td class="mono">
+                  {%- if monitor.paused %}paused
+                  {%- elif monitor.response_ms %}{{ monitor.response_ms }} ms
+                  {%- else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
         <p class="hint">{{ system_status.detail }}</p>
+        <p class="hint">
+          This card is a snapshot, taken when the page was rendered: nothing here
+          polls while the tab is open, so <strong>reload</strong> to take a fresh
+          reading. The console's own Ops page is the surface that keeps up on its
+          own.
+        </p>
       </div>
       <div class="own-card">
         <h3>The site check</h3>

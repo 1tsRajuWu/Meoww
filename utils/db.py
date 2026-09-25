@@ -1341,6 +1341,100 @@ def read_guild_levels_sync(guild_id: int, limit: int = 25) -> dict:
     }
 
 
+def set_level_settings_sync(guild_id: int, **changes) -> dict:
+    """Write this server's leveling rules — the row ``/levelsettings`` writes.
+
+    **The clamps are the cog's**, with the same numbers in the same order,
+    because a dashboard that accepted a rate the bot then refused to apply would
+    be a page agreeing only with itself. ``text_max_coins`` is raised to meet
+    ``text_min_coins`` rather than the write being refused (the bot does the
+    same), the two per-message figures cannot fall below
+    :data:`levels.MIN_REWARD_RATE`, and the voice rates are bounded by the two
+    ceilings in :mod:`utils.levels` that the cog's own reader already enforces.
+
+    Only the fields named in ``changes`` move; everything else keeps what is
+    stored, or the deployment's default when the server has never saved a row —
+    which is why the current reading is taken first rather than the row being
+    rebuilt from the request. The row is **created** here when it does not exist:
+    unlike :func:`read_guild_levels_sync`, this is somebody asking for the
+    settings to be saved, so creating the row is the thing that was asked for.
+
+    Returns the settings now in force, in the reader's own field names and with
+    ``stored=True``, so the page that posted can tell the operator what it
+    actually stored rather than what it hoped it had.
+    """
+    guild_id = int(guild_id)
+    current = read_guild_levels_sync(guild_id)["settings"]
+    merged = {
+        "enabled": bool(current.get("enabled", True)),
+        "channel_id": int(current.get("channel_id") or 0),
+        "dm_notifications": bool(current.get("dm_notifications", False)),
+        "text_min_coins": int(current.get("text_min_coins", 4)),
+        "text_max_coins": int(current.get("text_max_coins", 10)),
+        "text_xp": int(current.get("text_xp", 15)),
+        "vc_coins_per_min": int(current.get("vc_coins_per_min", 2)),
+        "vc_xp_per_min": int(current.get("vc_xp_per_min", 3)),
+    }
+
+    for field, value in changes.items():
+        if field not in merged:
+            raise ValueError(f"{field} is not a leveling setting")
+        if field in ("enabled", "dm_notifications"):
+            merged[field] = bool(value)
+            continue
+        number = int(value)
+        if number < 0:
+            raise ValueError(f"{field} cannot be negative")
+        merged[field] = number
+
+    merged["text_min_coins"] = max(levels.MIN_REWARD_RATE, merged["text_min_coins"])
+    merged["text_max_coins"] = max(merged["text_min_coins"], merged["text_max_coins"])
+    merged["text_xp"] = max(levels.MIN_REWARD_RATE, merged["text_xp"])
+    merged["vc_coins_per_min"] = max(
+        levels.MIN_REWARD_RATE,
+        min(levels.MAX_VC_COINS_PER_MIN, merged["vc_coins_per_min"]),
+    )
+    merged["vc_xp_per_min"] = max(
+        levels.MIN_REWARD_RATE,
+        min(levels.MAX_VC_XP_PER_MIN, merged["vc_xp_per_min"]),
+    )
+    merged["channel_id"] = max(0, merged["channel_id"])
+
+    row = (
+        guild_id,
+        int(merged["enabled"]),
+        merged["channel_id"],
+        int(merged["dm_notifications"]),
+        merged["text_min_coins"],
+        merged["text_max_coins"],
+        merged["text_xp"],
+        merged["vc_coins_per_min"],
+        merged["vc_xp_per_min"],
+    )
+
+    def work(cur):
+        cur.execute(
+            "INSERT INTO level_settings "
+            "(guild_id, enabled, channel_id, dm_notifications, text_min_coins, "
+            " text_max_coins, text_xp, vc_coins_per_min, vc_xp_per_min) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET "
+            "enabled = excluded.enabled, channel_id = excluded.channel_id, "
+            "dm_notifications = excluded.dm_notifications, "
+            "text_min_coins = excluded.text_min_coins, "
+            "text_max_coins = excluded.text_max_coins, "
+            "text_xp = excluded.text_xp, "
+            "vc_coins_per_min = excluded.vc_coins_per_min, "
+            "vc_xp_per_min = excluded.vc_xp_per_min",
+            row,
+        )
+        return True
+
+    run_atomic(work)
+    merged["stored"] = True
+    return merged
+
+
 def move_economy_sync(guild_id: int, user_id: int, field: str, delta: int) -> dict:
     """Credit or debit one balance, and never *claim* a debit that did not happen.
 

@@ -9,6 +9,8 @@ from cogs.economy import update_wallet
 from utils.style import send_card, display_names, member_cache_complete
 from utils.levels import (
     MAX_LEVEL,
+    MAX_VC_COINS_PER_MIN,
+    MAX_VC_XP_PER_MIN,
     MAX_XP,
     calculate_level_from_xp,
     clamp_xp,
@@ -17,11 +19,11 @@ from utils.levels import (
 
 DB_PATH = db.DB_PATH
 
-#: Ceilings on the configurable per-minute voice rates. Those settings are the
-#: *ceiling* a perfect channel reaches, not a flat salary, so an absurd legacy
-#: value is bounded here instead of being rewritten behind the admin's back.
-MAX_VC_COINS_PER_MIN = 50
-MAX_VC_XP_PER_MIN = 25
+# The two voice-rate ceilings are imported rather than defined here: the
+# dashboard's own settings form writes the same row through
+# ``db.set_level_settings_sync``, and a second copy of "50" in either place is
+# how the page and the bot would end up disagreeing about the rule they are both
+# reporting. They live beside the XP curve in ``utils/levels.py``.
 
 # -----------------------------------------------------------------------------
 # XP & Level Formula Mechanics

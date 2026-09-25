@@ -1136,15 +1136,27 @@ def _json_or_form() -> dict:
 def _safe_dash_return(value) -> str:
     """The page a form asked to be sent back to, or ``/dashboard``.
 
-    A relative path **inside the dashboard**, and nothing else: this value rides
-    in a hidden field, which makes it a request rather than a fact, and an open
+    A relative path **inside this app**, and nothing else: this value rides in a
+    hidden field, which makes it a request rather than a fact, and an open
     redirect built out of a form field is how a page ends up sending somebody to
     a host it does not own.
+
+    Two prefixes are allowed rather than one because both surfaces now write the
+    same way — the operator console's switches and the dashboard's are forms that
+    post to the same endpoints, and a console form that could only name a
+    ``/dashboard`` return would land the operator on somebody else's server page
+    after every flip. Neither prefix can leave the host: both are literal starts
+    of a path, ``//`` is rejected before either is considered (it is a protocol-
+    relative URL, which ``startswith("/owner")`` would otherwise accept as
+    ``//evil.example``), and a backslash is rejected because a browser treats it
+    as a slash.
     """
     text = (value or "").strip()
-    if not text.startswith("/dashboard") or text.startswith("//") or "\\" in text:
+    if text.startswith("//") or "\\" in text:
         return "/dashboard"
-    return text
+    if text.startswith("/owner") or text.startswith("/dashboard"):
+        return text
+    return "/dashboard"
 
 
 def _form_door(view):
@@ -1155,8 +1167,17 @@ def _form_door(view):
     a browser, which is a tab full of ``{"success": false, …}``. Rather than a
     second implementation behind a form-shaped door, the form posts to the **same
     endpoint** and this turns the same answer into a redirect carrying its
-    sentence: the server's own refusal, or the success wording the page supplied
-    in ``dash_notice``.
+    sentence: the server's own refusal, or — when the endpoint reports what
+    actually happened in ``said`` — that sentence, falling back to the wording
+    the page supplied in ``dash_notice``.
+
+    ``said`` outranks the form's ``dash_notice`` deliberately: the form can only
+    guess at the outcome before posting ("Answered — it is on its way as a DM"),
+    while ``said`` is written after the fact, so a blank reply box or a DM Discord
+    refused would otherwise be reported to the operator as a delivery that
+    happened. The form's wording remains the floor for endpoints that answer
+    with no sentence of their own — the switches, which say which system moved
+    on the page that moved it.
 
     A form post is recognised by ``dash_return`` rather than by ``request.form``
     alone, because ``/api/identity`` is multipart for the console's app as well and
@@ -1179,11 +1200,19 @@ def _form_door(view):
         if not isinstance(payload, dict):
             payload = {}
         error = str(payload.get("error") or "")
+        # Whichever page asked for the redirect is the one that reads its own
+        # keys: the console pops ``owner_notice``/``owner_error`` and the
+        # dashboard pops ``dash_notice``/``dash_error``, so writing only the
+        # dashboard's pair would send an operator back to a console page that
+        # had been handed a sentence it never reads.
+        to_console = _safe_dash_return(target).startswith("/owner")
+        notice_key = "owner_notice" if to_console else "dash_notice"
+        error_key = "owner_error" if to_console else "dash_error"
         if status >= 400 or error:
-            session["dash_error"] = error or "That did not go through."
+            session[error_key] = error or "That did not go through."
         else:
-            session["dash_notice"] = (
-                request.form.get("dash_notice") or payload.get("said") or "Saved."
+            session[notice_key] = (
+                payload.get("said") or request.form.get("dash_notice") or "Saved."
             )
         return redirect(_safe_dash_return(target))
 
@@ -1317,15 +1346,19 @@ GATED_PREFIXES = (
     "/api/scheduled",
     "/api/schedule-message",
     "/api/console/",
-    # Two reads that were gated by *default* rather than by declaration, which is
+    # Paths that were gated by *default* rather than by declaration, which is
     # the safe direction and still the wrong one: the split decides whether the
     # agreement stands in front of a path and whether it is served `noindex`, and
-    # a list nobody wrote a name into cannot be read as a decision. Both of these
-    # are the dashboard's own pickers (`_require_auth_api` is what actually stops
-    # a stranger), so declaring them changes no behaviour — it makes the sentence
+    # a list nobody wrote a name into cannot be read as a decision. All of these
+    # are the dashboard's own (`_require_auth_api` is what actually stops a
+    # stranger), so declaring them changes no behaviour — it makes the sentence
     # true rather than accidental.
     "/api/command-scope",
     "/api/channels",
+    # …the leveling rates, which is the same case arriving by the other door: the
+    # write is the dashboard's own form, and the gate it already had is the same
+    # one the switches answer with.
+    "/api/level-settings",
     # The members and server panels: the same authority as the toggles (a
     # session's principal, re-checked per request), and they belong behind the
     # agreement for the same reason — these are actions *as* the bot against
@@ -2173,24 +2206,6 @@ def _inline_json(value) -> str:
     return json.dumps(value, separators=(",", ":")).replace("<", "\\u003c")
 
 
-def _try_payload() -> str:
-    """The systems as data, for the landing page's interactive panel."""
-    payload = json.dumps(
-        [
-            {
-                "id": module["id"],
-                "name": module["name"],
-                "icon": module["icon"],
-                "category": module["category"],
-                "commands": [str(c) for c in (module.get("commands") or [])],
-            }
-            for module in AVAILABLE_MODULES
-        ],
-        separators=(",", ":"),
-    )
-    return payload.replace("<", "\\u003c")
-
-
 def _needs_figures(*groups: list[dict]) -> bool:
     """Whether the page was drawn *without* a reading.
 
@@ -2808,10 +2823,6 @@ def _systems_page():
         # until this: `/api/figures` answers the same numbers through the Pages
         # proxy, and the page now asks for the ones it is missing.
         figures_url=_figures_url() if _needs_figures(control_tiles, activity_tiles) else "",
-        # The same registry the list above is built from, as data — so the
-        # interactive panel cannot advertise a system the bot does not have, and
-        # cannot disagree with the static list beside it.
-        try_payload=_try_payload(),
         meta_description=(
             f"Every system in {_bot_display_name()}: the commands each one declares, "
             "what switching one off does to a single server's picker, and the "
@@ -4531,15 +4542,20 @@ def _stamped_schedule(guild, messages) -> list[dict]:
 
 
 def _channel_choices(guild_id, page) -> list[dict]:
-    """Every channel a message could land in, for the two pages that send one.
+    """Every channel a message could land in, for the pages that send one.
 
     Discord's own model decides the list: a text channel and a *voice* channel both
     take a message (``discord.VoiceChannel`` is ``Messageable``), while forums,
     categories and stages are left out because they take a thread or nothing. The
     bot's own permissions decide ``can_send``, so a channel it cannot post to is
     offered as such rather than quietly accepted and refused a moment later.
+
+    The leveling page is on this list because a level-up announcement is a
+    message: the picker that decides where it lands is this one. Its own form
+    filters the voice rooms out, and does it there rather than here because the
+    two pages that *compose* a message can legitimately address one.
     """
-    if not guild_id or page not in ("composer", "schedule"):
+    if not guild_id or page not in ("composer", "schedule", "leveling"):
         return []
     guild = _live_guild(guild_id)
     if guild is None:
@@ -4614,6 +4630,14 @@ def _level_display(reading):
         "stored": bool(settings.get("stored")),
         "channel_id": settings.get("channel_id") or 0,
         "dm": bool(settings.get("dm_notifications")),
+        # The same figures as raw numbers, for the form that changes them. The two
+        # strings above are what the page *reads*; a control has to start at the
+        # value, not at a sentence about it.
+        "enabled": bool(settings.get("enabled", True)),
+        "text_min_coins": int(settings.get("text_min_coins", 4)),
+        "text_max_coins": int(settings.get("text_max_coins", 10)),
+        "vc_coins_per_min": int(settings.get("vc_coins_per_min", 2)),
+        "vc_xp_per_min": int(settings.get("vc_xp_per_min", 3)),
         "top": [
             {
                 **earner,
@@ -5475,6 +5499,7 @@ def _server_action_result(data):
 
 
 @app.route("/api/console/server-action", methods=["POST"])
+@_form_door
 def api_console_server_action():
     """The operator's own controls over a server as a whole.
 
@@ -5489,7 +5514,7 @@ def api_console_server_action():
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     guild_id = _int_or_none(data.get("guild_id"))
     action = str(data.get("action") or "")
     if not guild_id:
@@ -5843,7 +5868,7 @@ def owner_login():
 
 
 def _owner_systems_matrix(fleet: list[dict]) -> tuple[list[dict], int]:
-    """Every system in the registry, and how many servers have it on.
+    """Every system in the registry, how many servers have it on — and each one's cell.
 
     One read per server rather than one per server per system: ``get_states``
     caches per guild, and eleven calls per server would be eleven chances to read
@@ -5852,6 +5877,15 @@ def _owner_systems_matrix(fleet: list[dict]) -> tuple[list[dict], int]:
     ``read`` is reported per row rather than swallowed, for the reason this file
     keeps repeating: a system shown as *off everywhere* because the states could
     not be read would send the operator to fix something that is running.
+
+    **Every row carries a cell per server** (``cells``), because the count alone
+    is a number nobody can act on: *"on in 3 of 5"* tells an operator that two
+    servers have a system off and gives them nowhere to switch it on. Each cell
+    carries the server's id **as text** — a snowflake in a hidden field that
+    crosses as a number comes back rounded, which is how a switch aimed at one
+    server writes to another (``_console_id`` documents that defect from the live
+    console) — plus whether that server's states could be read at all, so a cell
+    whose state is unknown draws *unknown* rather than a confident off.
     """
     states_by_server: dict[int, dict | None] = {}
     for row in fleet:
@@ -5864,11 +5898,25 @@ def _owner_systems_matrix(fleet: list[dict]) -> tuple[list[dict], int]:
     rows = []
     for module in AVAILABLE_MODULES:
         on = 0
-        for states in states_by_server.values():
-            if states is None:
-                continue
-            if bool(states.get(module["id"], features.default_enabled(module["id"]))):
+        cells = []
+        for row in fleet:
+            states = states_by_server[row["id"]]
+            known = states is not None
+            value = bool(states.get(module["id"], features.default_enabled(module["id"]))) if known else False
+            if known and value:
                 on += 1
+            cells.append({
+                "guild_id": _console_id(row["id"]),
+                "server": row["name"],
+                "enabled": value,
+                # A state the cache could not answer is neither on nor off, and
+                # the switch says so rather than offering a toggle whose press
+                # would be writing a guess into the database.
+                "known": known,
+                # A system a plan withholds cannot be switched on, and pressing
+                # it anyway gets a refusal — so the cell says why up front.
+                "allowed": bool(plans.feature_allowed(row["id"], module["id"])),
+            })
         rows.append({
             **module,
             "on": on,
@@ -5876,6 +5924,7 @@ def _owner_systems_matrix(fleet: list[dict]) -> tuple[list[dict], int]:
             # The registry's own answer, so the page can say what a server that
             # has never touched a switch would be doing.
             "default_enabled": features.default_enabled(module["id"]),
+            "cells": cells,
         })
     # Most-switched-on first: the question this page answers is whether anything
     # is still on anywhere, and the answer is at the top if it is.
@@ -5973,11 +6022,26 @@ def _owner_context(page: str, guild_id=None) -> dict:
         for label, _ids in OWNER_GROUPS
     ]
 
+    # Where a form on *this* page is sent back to, once. The console's controls
+    # are forms that post to the same endpoints the JSON API answers, so the
+    # redirect has to carry the server in hand — otherwise flipping a switch on a
+    # small server lands back on the biggest one, and the operator watches a
+    # switch they did not touch. `_console_id` rather than the raw int for the
+    # reason that function documents: this value is read back out of a query
+    # string by the same matcher that picks the row.
+    page_path = "/owner" + ("" if page == "overview" else f"/{page}")
+    page_url = page_path + (f"?guild_id={_console_id(selected['id'])}" if selected else "")
+
     context = {
         "console_page": page,
         "page_title": title,
         "page_lede": lede,
         "page_anchor": _page_anchor(OWNER_PAGES, page),
+        "page_url": page_url,
+        # The server every form on this page names, as text — a snowflake field
+        # that crosses as a number comes back rounded, which is how a switch for
+        # one server writes to another.
+        "console_guild": _console_id(selected["id"]) if selected else "",
         "rail": rail,
         "operator": session.get("discord_user") or {},
         "csrf_token": get_csrf_token(),
@@ -6024,6 +6088,12 @@ def _owner_context(page: str, guild_id=None) -> dict:
         context["systems"], context["systems_known"] = _console_systems_for(selected["id"])
     if page == "systems":
         context["matrix"], context["matrix_read"] = _owner_systems_matrix(fleet)
+        # The column heads, taken from the first row rather than read from the
+        # fleet in the template: if the registry were ever empty there would be
+        # no rows and therefore no cells, and a header built by indexing row 0
+        # would raise on a page whose whole job is to draw an empty registry
+        # honestly.
+        context["matrix_cells"] = context["matrix"][0]["cells"] if context["matrix"] else []
     if page == "commands":
         context["commands"] = {
             "registry": features.command_count(),
@@ -6034,6 +6104,12 @@ def _owner_context(page: str, guild_id=None) -> dict:
     if page == "economy" and selected:
         ledgers = _progression_context(selected["id"], "economy")
         context["economy"] = ledgers["economy"]
+        # The four moves the adjust endpoint accepts, plus `set`, and the bound
+        # `move_economy_sync` enforces — read here rather than typed in the
+        # template, because the ceiling is a database constant and a form that
+        # advertised a different one would offer a number the write refuses.
+        context["economy_actions"] = sorted(ECONOMY_ACTIONS) + ["set"]
+        context["economy_ceiling"] = db.MAX_ECONOMY_ADJUSTMENT
     if page == "ops":
         context["health"] = {
             "uptime": uptime_status.snapshot(),
@@ -7506,6 +7582,7 @@ def api_console_economy():
 
 
 @app.route("/api/console/economy/adjust", methods=["POST"])
+@_form_door
 def api_console_economy_adjust():
     """Move coins, or refuse in words that name the number that refused them.
 
@@ -7523,7 +7600,7 @@ def api_console_economy_adjust():
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     row = _console_economy_server(data.get("guild_id"))
     if row is None:
         return _console_no_server()
@@ -7964,6 +8041,7 @@ def api_console_access():
 
 
 @app.route("/api/console/access/revoke", methods=["POST"])
+@_form_door
 def api_console_access_revoke():
     """End one session, or every session except the one asking.
 
@@ -7980,7 +8058,7 @@ def api_console_access_revoke():
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     mine = session.get(sessions.COOKIE_KEY)
 
     if data.get("all"):
@@ -8090,6 +8168,7 @@ def api_console_questions():
 
 
 @app.route("/api/console/questions/reply", methods=["POST"])
+@_form_door
 def api_console_questions_reply():
     """Answer one question from the console — the same DM ``/qna reply`` sends.
 
@@ -8110,7 +8189,7 @@ def api_console_questions_reply():
     if denied:
         return denied
 
-    data = request.get_json(silent=True) or {}
+    data = _json_or_form()
     question_id = _int_or_none(data.get("id"))
     if question_id is None:
         return jsonify({"success": False, "error": "Which question?"}), 400
@@ -8313,6 +8392,125 @@ def api_command_scope():
         # landed, was still behind its settle, or had been refused outright.
         "publish": command_publish.describe(guild_id, expected=summary["available"]),
         **summary,
+    })
+
+
+#: What each rate is called in a sentence, for a refusal that names the box the
+#: operator actually typed in rather than the column it is stored in.
+_LEVEL_RATE_LABELS = {
+    "text_min_coins": "The lowest coins per message",
+    "text_max_coins": "The highest coins per message",
+    "text_xp": "XP per message",
+    "vc_coins_per_min": "Coins per minute in voice",
+    "vc_xp_per_min": "XP per minute in voice",
+}
+
+
+def _level_settings_sentence(settings: dict) -> str:
+    """What was stored, in the page's own words — the figures, not a claim.
+
+    The rate clamps are real: a maximum below the minimum is raised, and the
+    voice pair is bounded. So the sentence quotes the row that was written rather
+    than the numbers that were typed, which is the only way "saved" can be
+    checked against the page underneath it.
+    """
+    band = f"{settings['text_min_coins']}-{settings['text_max_coins']} 🪙"
+    return (
+        f"Saved. A message here earns {band} and {settings['text_xp']} XP; "
+        f"a minute in voice earns {settings['vc_coins_per_min']} 🪙 and "
+        f"{settings['vc_xp_per_min']} XP. Rewards are "
+        f"{'on' if settings['enabled'] else 'off'} for this server."
+    )
+
+
+@app.route("/api/level-settings", methods=["POST"])
+@_form_door
+def api_level_settings():
+    """Change what being in this server earns — the row ``/levelsettings`` writes.
+
+    One row and eight fields, written through :func:`db.set_level_settings_sync`,
+    which applies the *cog's* clamps, so a rate set here is a rate the bot will
+    actually pay. The page has printed these figures as a reading since it was
+    written; this is the control that makes the reading a decision.
+
+    Only the fields present in the request move, so a script can change one rate
+    without restating the other seven — while the page's own form always sends
+    every field, which is what makes an unticked box mean *off* rather than
+    *unchanged*.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = _json_or_form()
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server to save these for."}), 400
+
+    changes = {}
+    for field in _LEVEL_RATE_LABELS:
+        if field not in data or data.get(field) in (None, ""):
+            continue
+        value = _int_or_none(data.get(field))
+        if value is None:
+            return jsonify({
+                "success": False,
+                "error": f"{_LEVEL_RATE_LABELS[field]} has to be a whole number.",
+            }), 400
+        changes[field] = value
+
+    # A form sends a box as "1" when it is ticked and sends nothing at all when
+    # it is not, so presence is the whole answer — the same rule the systems grid
+    # uses, spelled out here because ``bool("0")`` is true and a script may
+    # legitimately send "0".
+    for field in ("enabled", "dm_notifications"):
+        if field in data:
+            changes[field] = str(data.get(field)).strip().lower() not in (
+                "", "0", "false", "off", "no")
+
+    if "channel_id" in data:
+        raw = str(data.get("channel_id") or "").strip()
+        channel_id = 0 if not raw else _int_or_none(raw)
+        if channel_id is None:
+            return jsonify({
+                "success": False,
+                "error": "That is not a channel id — pick a channel from the list.",
+            }), 400
+        changes["channel_id"] = channel_id
+
+    if not changes:
+        return jsonify({"success": False, "error": "Nothing to change."}), 400
+
+    try:
+        stored = db.set_level_settings_sync(guild_id, **changes)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except sqlite3.Error:
+        return jsonify({
+            "success": False,
+            "error": (
+                "The database refused that write, so nothing was saved — the rates "
+                "below are the ones still in force."
+            ),
+        }), 500
+
+    session["guild_id"] = guild_id
+    return jsonify({
+        "success": True,
+        "said": _level_settings_sentence(stored),
+        "settings": {
+            "enabled": stored["enabled"],
+            "channel_id": _console_id(stored["channel_id"]) if stored["channel_id"] else "",
+            "dm_notifications": stored["dm_notifications"],
+            "text_min_coins": stored["text_min_coins"],
+            "text_max_coins": stored["text_max_coins"],
+            "text_xp": stored["text_xp"],
+            "vc_coins_per_min": stored["vc_coins_per_min"],
+            "vc_xp_per_min": stored["vc_xp_per_min"],
+        },
     })
 
 

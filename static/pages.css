@@ -77,6 +77,29 @@
 .list__note { color: var(--text-secondary); }
 .list__meta { font-size: var(--text-small); color: var(--text-muted); white-space: nowrap; }
 
+/* A row whose second field is a **sentence** rather than a value: the systems
+   card, "where to go next", the permission list, the audit trail.
+
+   The row above gives its first column `minmax(0, 1fr)` so that a value can sit
+   at the right edge, and for `Lobby | 2 people · live` that is the right shape.
+   Put prose in the second field instead and the flexible track starves: measured
+   on the dashboard at 1280, the name's column resolved to **0px** and
+   `🏆 Leveling & XP` printed one word per line *on top of* the sentence beside
+   it, because a 0-wide box still paints its text. Thirteen rows of the front
+   page were unreadable, and the page had no other symptom.
+
+   So a prose row says so: the name and whatever trails it — the switch, the
+   permission chip, the actor of an audit line — share the first line, and the
+   sentence gets one of its own underneath, which is also the shape the Systems
+   page draws a module in. */
+.list__row--prose {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  row-gap: 6px;
+}
+.list__row--prose .list__note { grid-column: 1 / -1; }
+.list__row--prose > :not(.list__key):not(.list__note) { grid-area: 1 / 2; justify-self: end; }
+
 .list--pair .list__row { grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); }
 
 @media (max-width: 760px) {
@@ -99,6 +122,15 @@
    sentence saying what it does to every server — the sentence is the point of
    the control, not a caption under it.
    -------------------------------------------------------------------------- */
+
+/* The console's opening is a `.band`, not a `.page-head`: its heading is
+   deliberately the display scale, because this is the operator's front door and
+   not an inner page. What it was missing is the one thing `.page-head` also
+   provides — the gap under the heading. `meow.css` sets `margin: 0` on every
+   heading, `.page-head .lede` puts `--space-4` back, and this page's lede had
+   nothing at all: the sentence touched the descenders above it at every width,
+   which is what "cramped" looks like before anyone measures it. */
+.own-hero .lede { margin-top: var(--space-4); }
 
 .own-state {
   display: flex;
@@ -597,6 +629,17 @@
 
 .command:hover .command__copy,
 .command__copy:focus-visible { opacity: 1; }
+
+/* The copy button fading in is the *only* thing this sheet animates — one
+   transition, on a control that appears under a pointer — so it is also the
+   whole of what a reader who asked for less motion has to be spared.
+   `meow.css` and `meoww.css` each carry a block for their own animations; this
+   sheet had none, and one transition in a 837-line file reads as "not animated"
+   right up until somebody measures it with the setting on.
+   `tests/test_design_laws.py::MotionIsOptional` walks all three sheets. */
+@media (prefers-reduced-motion: reduce) {
+  .command__copy { transition: none; }
+}
 
 .command__copy:hover { color: var(--text-primary); border-color: var(--line-strong); }
 

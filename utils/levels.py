@@ -49,6 +49,26 @@ def total_xp_for_level(level: int) -> int:
 MAX_XP = total_xp_for_level(MAX_LEVEL)
 
 
+# ---------------------------------------------------------------------------
+# Ceilings on the configurable reward rates
+# ---------------------------------------------------------------------------
+# These live here, beside the XP curve, because two writers now clamp against
+# them: `/levelsettings` in the cog and `db.set_level_settings_sync`, which the
+# dashboard's own form calls. A second copy of "50" in either place is how the
+# page and the bot end up disagreeing about the rule they are both reporting.
+#
+# The voice figures are a *ceiling* a perfect minute reaches rather than a flat
+# salary, so an absurd legacy value is bounded rather than rewritten behind the
+# admin's back.
+MAX_VC_COINS_PER_MIN = 50
+MAX_VC_XP_PER_MIN = 25
+
+#: Per-message figures. The coin band has no upper bound in the bot's own
+#: command, and this does not add one: it only refuses values that cannot be
+#: coins at all (see ``set_level_settings_sync``).
+MIN_REWARD_RATE = 1
+
+
 def calculate_level_from_xp(total_xp: int) -> tuple[int, int, int]:
     """Return ``(level, xp_into_level, xp_needed_for_next)`` for a total XP.
 

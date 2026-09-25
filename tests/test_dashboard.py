@@ -1467,6 +1467,128 @@ class TheTwoLedgers(_DashboardFixture):
                 # posts to the same endpoint the Systems page posts to.
                 self.assertIn("data-module=", section)
 
+    # --------------------------------------------------------------------- #
+    # The rates the page prints are also the decision behind them
+    # --------------------------------------------------------------------- #
+    def stored_level_settings(self):
+        """The row the bot reads, from the table itself rather than from a page."""
+        import sqlite3
+
+        from utils import db
+
+        conn = sqlite3.connect(db.DB_PATH)
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM level_settings WHERE guild_id = ?", (GUILD_ID,)
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def post_rates(self, **fields):
+        """The rates form's own fields, posted the way a browser sends them."""
+        body = {
+            "csrf_token": CSRF,
+            "guild_id": str(GUILD_ID),
+            "dash_return": f"{page_href('leveling')}?guild_id={GUILD_ID}",
+            "dash_notice": "The rates are saved.",
+        }
+        body.update({key: str(value) for key, value in fields.items()})
+        response = self.client.post("/api/level-settings", data=body)
+        followed = self.client.get(response.headers["Location"]).get_data(as_text=True)
+        return response, followed
+
+    def test_the_rates_form_writes_the_row_the_bot_reads(self):
+        """A rate saved here is a rate `/levelsettings` reads back.
+
+        This form is the first writer this row has ever had outside the Discord
+        command, and it goes through ``db.set_level_settings_sync``, which applies
+        the *cog's* clamps — the coin band's top is raised to meet its bottom
+        exactly as the bot's own command does it — and the sentence the page shows
+        quotes the row that was actually written rather than the numbers that were
+        typed into it.
+        """
+        self.sign_in()
+        self.assertIsNone(
+            self.stored_level_settings(),
+            "the fixture already saved a row, so the new-server path is untested here",
+        )
+        response, followed = self.post_rates(
+            text_min_coins=6, text_max_coins=4, text_xp=18,
+            vc_coins_per_min=4, vc_xp_per_min=5,
+            channel_id="", enabled=1, dm_notifications=0,
+        )
+        self.assertEqual(response.status_code, 302)
+        row = self.stored_level_settings()
+        self.assertEqual(row["text_min_coins"], 6)
+        self.assertEqual(
+            row["text_max_coins"], 6,
+            "the band's top was not raised to meet its bottom, so the bot would "
+            "pay a range the page never showed",
+        )
+        self.assertIn("6-6", followed, "the notice does not quote what was stored")
+        self.assertIn("18 XP", followed)
+        self.assertIn("Rewards are on", followed)
+
+    def test_a_rate_the_bot_would_bound_is_bounded_here_too(self):
+        """The ceilings are ``utils.levels``', which the cog imports.
+
+        A second copy of "50" in the page's own code is how the page ends up
+        promising a rate the bot then refuses to pay, so the figures are asserted
+        against the shared constants rather than against a literal.
+        """
+        from utils import levels
+
+        self.sign_in()
+        self.post_rates(vc_coins_per_min=9000, vc_xp_per_min=9000, enabled=1)
+        row = self.stored_level_settings()
+        self.assertEqual(row["vc_coins_per_min"], levels.MAX_VC_COINS_PER_MIN)
+        self.assertEqual(row["vc_xp_per_min"], levels.MAX_VC_XP_PER_MIN)
+
+    def test_a_rate_that_is_not_a_number_is_refused_and_writes_nothing(self):
+        """Half a form is not a save, and the refusal names the box that was typed in.
+
+        The message says *XP per message* rather than ``text_xp``: the operator is
+        looking at a label, not at a column. Everything else in the same post is
+        discarded, so a form refused over one field cannot leave the other seven
+        applied.
+        """
+        self.sign_in()
+        self.post_rates(text_xp=18, enabled=1)
+        _response, followed = self.post_rates(
+            text_xp="lots", text_min_coins=9, enabled=1
+        )
+        self.assertIn("XP per message has to be a whole number.", followed)
+        row = self.stored_level_settings()
+        self.assertEqual(row["text_xp"], 18, "the row was changed by a refused post")
+        self.assertNotEqual(
+            row["text_min_coins"], 9, "a refused form wrote the fields before the bad one"
+        )
+
+    def test_the_form_is_the_write_and_carries_every_field(self):
+        """No field may depend on the page's script, so every one is in the markup.
+
+        Each control is a ``<select>`` or an input with a name: a settings form
+        whose off state was a checkbox would send *nothing* for "off", which is
+        indistinguishable from "leave this alone" on the endpoint that receives
+        it.
+        """
+        html = self.open_page("leveling")
+        form = re.search(
+            r'<form method="post" action="/api/level-settings".*?</form>', html, re.S
+        )
+        self.assertIsNotNone(form, "the leveling page has no rates form")
+        body = form.group(0)
+        for name in (
+            "csrf_token", "guild_id", "dash_return", "dash_notice",
+            "text_min_coins", "text_max_coins", "text_xp",
+            "vc_coins_per_min", "vc_xp_per_min", "channel_id",
+            "enabled", "dm_notifications",
+        ):
+            with self.subTest(field=name):
+                self.assertIn(f'name="{name}"', body, name)
+
 
 if __name__ == "__main__":
     unittest.main()
