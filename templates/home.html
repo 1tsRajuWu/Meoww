@@ -188,7 +188,9 @@
             {% else %}
             <div class="mock__rows">
               {% for point in page.points %}
-              <div class="mock__row">
+              {# `--point` because this row is a sentence with a dot in front of it,
+                 not the name/note/switch triple the grid above assumes. #}
+              <div class="mock__row mock__row--point">
                 <span class="mock__row-dot" aria-hidden="true"></span>
                 <span class="mock__row-name mock__row-name--soft">{{ point }}</span>
               </div>

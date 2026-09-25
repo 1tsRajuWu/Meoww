@@ -88,75 +88,46 @@
   </div>
 </section>
 
-{# The chart that used to sit here is gone, and it is worth writing down why
-   rather than leaving the gap unexplained: fifteen bars of command counts said
-   nothing the list below does not say per row, and a chart whose whole content
-   is a number already printed three lines under it is the shape this page keeps
-   being cut back to. `_system_bars()` went with it. #}
+{# --------------------------------------------------------------------------
+   03 — The list, and the commands under it: one band, because this page used
+   to carry the same fifteen rows twice.
+
+   There was a `<ul class="list">` here naming every system with its count and
+   its category, and directly under it the command reference — one collapsed
+   group per system, in the same order, under the same icons, from the same
+   registry. Two readers of one list, and a list kept in two places is the copy
+   that goes stale; the law in `tests/test_site.py` was written about exactly
+   that failure one page over. The band above this one names four systems and
+   links here for the rest precisely so that this is the *one* place that lists
+   all fifteen, so the second copy could not stay.
+
+   What the inert list knew and the reference did not is now on each group's own
+   summary line — the registry's category, and which system has no switch — so
+   merging them loses nothing a reader could see before.
+
+   And the list is expandable rather than a wall: one collapsed <details> per
+   system, which is also the one pattern that stays minimal with scripting off,
+   because a keyboard opens it and no script is asked to render or cap anything.
+   The search box starts `hidden` and is un-hidden by motion.js — a control that
+   does nothing without its file is not shown to the reader who does not have it.
+
+   An opened group shows eight names and folds the rest behind one press
+   (`+N more`). Nothing is dropped — every row is still in the document, which is
+   what lets the search reach one inside a folded tail, and what keeps the
+   `/systems#cmd-<id>` anchors everyone pastes still landing on an open group.
+
+   The chart that used to sit above this is gone, and it is worth writing down
+   why rather than leaving the gap unexplained: fifteen bars of command counts
+   said nothing the rows below do not say per row, and a chart whose whole
+   content is a number already printed three lines under it is the shape this
+   page keeps being cut back to. `_system_bars()` went with it.
+   -------------------------------------------------------------------------- #}
 <section class="band" id="all">
   <div class="wrap">
     <div class="band__head">
       <div>
         <p class="micro">03 — The list</p>
         <h2>{{ system_count }} systems</h2>
-      </div>
-      <p class="small muted">Switchable means the server's own switches can turn it off; always-on means nothing works without it.</p>
-    </div>
-
-    <ul class="list">
-      {% for module in features %}
-      <li class="list__row">
-        <span class="list__key">{{ module.icon }} {{ module.name }}</span>
-        <span class="list__note">{{ module.commands | length }} command{{ '' if (module.commands | length) == 1 else 's' }}</span>
-        <span class="list__meta mono">{{ module.category }}</span>
-      </li>
-      {% endfor %}
-    </ul>
-
-    {# Which of the two counts a reader is looking at, by name: a page that
-       prints a total over a shorter list has to say what the difference is. #}
-    <p class="hint tiles">
-      {{ always_on | length }} of them {{ 'is' if (always_on | length) == 1 else 'are' }} always on: {{ always_on | join(', ') }}.
-    </p>
-
-    {# And the third state, in the registry's own sentence rather than a summary
-       of one. A system that ships *off* is the one a visitor is most likely to
-       be refused by, and "switchable like the rest" is what this page used to
-       say about the only system of the fifteen that is not. #}
-    {% for system in ships_off %}
-    <p class="hint tiles">
-      {{ system.icon }} {{ system.name }} arrives switched off — an administrator offers it to a
-      server before its commands answer at all. {{ system.desc }}
-    </p>
-    {% endfor %}
-  </div>
-</section>
-
-{# --------------------------------------------------------------------------
-   04 — Every command, grouped by the system that gates it.
-
-   The front door used to carry all hundred and ten rows; it is here instead,
-   one collapsed <details> per system, because a wall of names on the page that
-   is supposed to answer “what is this?” in five seconds is a wall whether it
-   is capped or not. Collapsed groups are also the one pattern that stays
-   minimal with scripting off: a keyboard opens them, and no script is asked
-   to render or cap anything. The search box starts `hidden` and is un-hidden
-   by motion.js — a control that does nothing without its file is not shown
-   to the reader who does not have it.
-
-   An opened group shows eight names and folds the rest behind one press
-   (`+N more`), which is the whole of this pass: the section's own head was
-   three lines of copy defending a count, and an opened economy group was
-   seventeen rows on a page whose answer to *what is this* is the list above
-   it. Nothing is dropped — every row is still in the document, which is what
-   lets the search reach one inside a folded tail.
-   -------------------------------------------------------------------------- #}
-<section class="band" id="commands">
-  <div class="wrap">
-    <div class="band__head">
-      <div>
-        <p class="micro">04 — Commands</p>
-        <h2>Every command, by system</h2>
       </div>
       <p class="small muted">
         {{ entry_count }} names, one row each — `/market buy` is its own.
@@ -178,8 +149,13 @@
 
       {% for group in command_groups %}
       <details class="cmdx__group" id="cmd-{{ group.id }}" data-command-group>
+        {# The category and the always-on fact, which the inert list used to carry
+           in columns of its own — on this line they cost a reader nothing and
+           save the page a second list of the same fifteen rows. #}
         <summary class="cmdx__summary">
           <span class="cmdx__name">{{ group.icon }} {{ group.name }}</span>
+          <span class="cmdx__meta mono">{{ group.category }}</span>
+          {% if not group.toggleable %}<span class="tag">always on</span>{% endif %}
           <span class="cmdx__count mono">{{ group.rows | length }} cmd</span>
         </summary>
         <ul class="console__list">
@@ -200,6 +176,27 @@
         No command matches that. The search covers all {{ entry_count }} names.
       </p>
     </div>
+
+    {# The legend the summary line above now uses, and the two counts it names:
+       a page that prints a total over a list has to say which row is the
+       difference, and `always_on` is the registry's own answer rather than a
+       second list kept beside the first. #}
+    <p class="hint tiles">
+      Switchable means the server's own switches can turn it off; always-on means nothing works
+      without it. {{ always_on | length }} of them {{ 'is' if (always_on | length) == 1 else 'are' }}
+      always on: {{ always_on | join(', ') }}.
+    </p>
+
+    {# And the third state, in the registry's own sentence rather than a summary
+       of one. A system that ships *off* is the one a visitor is most likely to
+       be refused by, and "switchable like the rest" is what this page used to
+       say about the only system of the fifteen that is not. #}
+    {% for system in ships_off %}
+    <p class="hint tiles">
+      {{ system.icon }} {{ system.name }} arrives switched off — an administrator offers it to a
+      server before its commands answer at all. {{ system.desc }}
+    </p>
+    {% endfor %}
   </div>
 </section>
 

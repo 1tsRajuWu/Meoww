@@ -175,19 +175,40 @@ class TheLandingPage(unittest.TestCase):
         law did not move with the list by accident — this is the page that now
         names every system, so it is the page that has to be drawn from the
         registry rather than typed.
+
+        **And this page was carrying the same fifteen rows twice**, which is the
+        failure the paragraph above is about, happening one page over: an inert
+        `<ul class="list">` of every system with its count and category, and then
+        directly under it the command reference — one collapsed group per system,
+        in the same order, under the same icons, out of the same registry. So the
+        law reads *one* list per system and then counts it: a search of the whole
+        document passes just as happily on two copies as on one, which is how the
+        duplicate survived a green suite, and the band that held the second copy
+        must not come back.
         """
         from utils import features
 
         body = self.client.get("/systems").get_data(as_text=True)
-        # *The list*, not the page. Three other bands on this page name systems
-        # too — the command-weight bars, the command groups, the always-on
-        # sentence — so a law that searched the whole document would pass on a
-        # list that had quietly lost a row, which is the defect it is here for.
-        start = body.index('class="list"')
-        rows = body[start : body.index("</ul>", start)]
-        for module in features.dashboard_modules():
+        self.assertIn('id="all"', body, "the band that lists the systems went")
+        self.assertNotIn(
+            'id="commands"',
+            body,
+            "/systems grew a second band listing the same systems again",
+        )
+        # One `cmdx__group` per system, in the registry's own order, so a lost row
+        # and an extra row are different failures and both are caught. The nested
+        # `cmdx__rest` folds inside a group and carries its own class, so it
+        # cannot be mistaken for one of these.
+        groups = re.split(r'<details class="cmdx__group"', body)[1:]
+        self.assertEqual(
+            len(groups),
+            len(features.FEATURES),
+            "the page lists a different number of systems than the registry declares",
+        )
+        for module, group in zip(features.FEATURES, groups):
+            self.assertIn(f'id="cmd-{module.id}"', group, module.id)
             # Rendered, so "&" arrives as the entity.
-            self.assertIn(module["name"].replace("&", "&amp;"), rows, module["id"])
+            self.assertIn(module.name.replace("&", "&amp;"), group, module.id)
 
     def test_the_front_door_carries_no_list_it_would_have_to_keep_in_step(self):
         """What left the page, asserted as *absence* rather than by length.

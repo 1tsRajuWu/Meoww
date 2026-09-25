@@ -281,6 +281,15 @@
   font-size: 0.9375rem;
 }
 
+/* The *points* rows: the panels whose body is three sentences rather than a live
+   fact, because the dashboard page they name is not a thing a static host can
+   draw. They are two children in a grid written for three, and that put the dot
+   in the name column and the sentence in the note column — measured on the built
+   page, a 6px dot and the sentence it was marking sat **379px apart**, with the
+   text starting wherever the row happened to end. A dot is a marker for the text
+   beside it or it is decoration, so this shape states its own two columns. */
+.mock__row--point { grid-template-columns: auto minmax(0, 1fr); }
+
 .mock__row-name { color: var(--text-primary); }
 .mock__row-name--soft { color: var(--text-secondary); }
 .mock__row-note { font-size: var(--text-small); color: var(--text-muted); white-space: nowrap; }

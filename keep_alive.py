@@ -2496,6 +2496,15 @@ def _command_groups() -> list[dict]:
             "id": feature.id,
             "icon": feature.icon,
             "name": feature.name,
+            # The two facts the page's *other* systems list used to carry, on the
+            # row that now carries the name too. They are read from the registry
+            # rather than written into the template for the reason every other
+            # reader here exists — a category retyped in a template is a second
+            # copy of the registry, and the copy is the one that goes stale — and
+            # they are here rather than in a list of their own because the two
+            # lists were the same fifteen rows, in the same order, twice.
+            "category": feature.category,
+            "toggleable": bool(feature.toggleable),
             "rows": rows,
         })
     return groups
