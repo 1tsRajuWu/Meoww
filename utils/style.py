@@ -739,22 +739,29 @@ class Panel(LayoutView):
                 self._footer_at = index + (len(head) - placed)
 
     def add_row(self, *items: discord.ui.Item):
-        """Append an ActionRow (buttons/selects) inside the card, at the bottom.
+        """Append action rows (buttons/selects) inside the card, at the bottom.
 
         Deliberately *below* the footer: a row is a control strip rather than
         content, and putting the footer under the buttons would make the quiet
         line the last thing on an interactive card instead of the last thing
         said.
+
+        **One call may become several rows**, because Discord's own rule for a
+        row is one select or up to five buttons (see :func:`legal_rows`):
+        ``add_row(select, button)`` is two rows, and a caller who hands over
+        seven buttons gets two. Splitting here rather than at send time means the
+        card is right from the moment it is built, and answers the last row it
+        made.
         """
-        row = ActionRow()
-        for item in items:
-            row.add_item(item)
+        rows = [ActionRow(*group) for group in _legal_groups(list(items))]
+        if not rows:
+            return None
         adder = getattr(self.container, "add_item", None)
-        if callable(adder):
+        if not callable(adder):
+            adder = self.add_item
+        for row in rows:
             adder(row)
-        else:
-            self.add_item(row)
-        return row
+        return rows[-1]
 
 
 def card(
@@ -951,6 +958,112 @@ def embeds_to_layout(
 
 
 # --------------------------------------------------------------------------- #
+# The one row shape Discord refuses
+# --------------------------------------------------------------------------- #
+# An ActionRow is either **one** select — which takes the row's whole width — or
+# up to five buttons. Discord enforces that when the message is sent, and it says
+# so in the only place a builder cannot see: the response to the request, as
+# `50035 COMPONENT_LAYOUT_WIDTH_EXCEEDED` naming the component that overflowed.
+# Nothing before the network call can catch it, because the layout is perfectly
+# valid Python either way — which is how the `/help` panel spent its whole life
+# answering every member with "An unexpected error occurred". Its category menu
+# and its bug button were added to a single row; Discord's own answer was
+# `components.0.components.3.components.1`, the button beside the menu.
+#
+# So the rule gets an implementation rather than a comment: every row that
+# reaches Discord from this module is measured first, and a row that would be
+# refused is rebuilt as the rows it should have been. Repair rather than refuse,
+# for the same reason `_clamp` trims instead of raising — the member is waiting
+# for an answer, and a card that is one row taller is an answer.
+MAX_ROW_BUTTONS = 5
+
+#: Every select kind shares ``BaseSelect`` (``Select``, ``UserSelect``,
+#: ``RoleSelect``, ``ChannelSelect``, ``MentionableSelect``), so one isinstance
+#: covers all five. Read defensively: an older library that lacks the base class
+#: still gets the string select, which is the kind this project builds.
+SELECT_TYPES = tuple(
+    kind for kind in (getattr(discord.ui, "BaseSelect", None), discord.ui.Select) if kind
+)
+
+
+def _is_select(item) -> bool:
+    return isinstance(item, SELECT_TYPES)
+
+
+def _legal_groups(items: list) -> list[list]:
+    """The rows ``items`` are allowed to be: one select each, five buttons each."""
+    items = list(items)
+    if not items:
+        return []
+    selects = [item for item in items if _is_select(item)]
+    others = [item for item in items if not _is_select(item)]
+    if not (len(selects) > 1 or (selects and others)):
+        if len(items) <= (1 if selects else MAX_ROW_BUTTONS):
+            return [items]
+    groups = [[item] for item in selects]
+    groups += [
+        others[start : start + MAX_ROW_BUTTONS]
+        for start in range(0, len(others), MAX_ROW_BUTTONS)
+    ]
+    return [group for group in groups if group]
+
+
+def _repaired_row(row) -> list:
+    """Legal replacements for one ActionRow, or ``[row]`` when it already is one."""
+    items = list(getattr(row, "children", ()) or ())
+    groups = _legal_groups(items)
+    if len(groups) == 1 and len(groups[0]) == len(items):
+        return [row]
+    return [ActionRow(*group) for group in groups]
+
+
+def _legalise(holder) -> int:
+    """Rebuild refused rows anywhere under ``holder``. Answers how many were rebuilt."""
+    children = list(getattr(holder, "children", ()) or ())
+    if not children:
+        return 0
+    ordered: list = []
+    rebuilt = 0
+    for child in children:
+        if isinstance(child, ActionRow):
+            replacement = _repaired_row(child)
+            if len(replacement) == 1 and replacement[0] is child:
+                ordered.append(child)
+            else:
+                ordered.extend(replacement)
+                rebuilt += 1
+        else:
+            rebuilt += _legalise(child)
+            ordered.append(child)
+    if rebuilt and len(ordered) != len(children):
+        clear = getattr(holder, "clear_items", None)
+        add = getattr(holder, "add_item", None)
+        if callable(clear) and callable(add):
+            clear()
+            for item in ordered:
+                add(item)
+    return rebuilt
+
+
+def legal_rows(view) -> int:
+    """Make a Components V2 layout's rows ones Discord will accept.
+
+    Call it before anything is sent or serialised. Answers the number of rows
+    rebuilt, and says so in the host log when it changed anything, because a
+    silent repair is a caller who never learns their row was refused.
+    """
+    rebuilt = _legalise(view)
+    if rebuilt:
+        print(
+            f"[STYLE] Rebuilt {rebuilt} ActionRow(s) Discord would have refused "
+            f"with 50035 COMPONENT_LAYOUT_WIDTH_EXCEEDED — a row holds one select "
+            f"or up to {MAX_ROW_BUTTONS} buttons, never both.",
+            flush=True,
+        )
+    return rebuilt
+
+
+# --------------------------------------------------------------------------- #
 # Sending helpers
 # --------------------------------------------------------------------------- #
 async def send_panel(target, view: LayoutView, *, ephemeral: bool = False, allowed_mentions=None):
@@ -959,6 +1072,7 @@ async def send_panel(target, view: LayoutView, *, ephemeral: bool = False, allow
     Mentions are suppressed unless the caller passes ``allowed_mentions`` — see
     the note on ``NO_PINGS`` for why V2 cards must not ping by accident.
     """
+    legal_rows(view)
     kwargs = {"view": view, "allowed_mentions": allowed_mentions or NO_PINGS}
     if isinstance(target, discord.Interaction):
         if ephemeral:
@@ -1076,6 +1190,8 @@ async def _dispatch_send(target, payload: dict, ephemeral: bool):
     """Low-level send to an Interaction (response/followup) or any Messageable."""
     clean = {k: v for k, v in payload.items() if v is not None}
     clean.setdefault("allowed_mentions", NO_PINGS)
+    if isinstance(clean.get("view"), LayoutView):
+        legal_rows(clean["view"])
     if _is_interaction(target):
         if ephemeral:
             clean["ephemeral"] = True
@@ -1094,6 +1210,11 @@ async def _dispatch_edit(target, payload: dict):
     """
     clean = dict(payload)
     clean.setdefault("allowed_mentions", NO_PINGS)
+    # An edit is the other way a layout reaches Discord, and the `/help` panel
+    # edits itself in place when a category is picked — so the same rule has to
+    # hold here, or the panel is refused one click after it was sent.
+    if isinstance(clean.get("view"), LayoutView):
+        legal_rows(clean["view"])
     if _is_interaction(target):
         if target.response.is_done():
             return await target.edit_original_response(**clean)

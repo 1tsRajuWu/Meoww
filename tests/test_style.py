@@ -736,6 +736,108 @@ class ContentAddedLater(unittest.TestCase):
         self.assertEqual([n for n in children if n.get("type") == 14], [])
 
 
+def _action_rows(view) -> list:
+    """Every ActionRow in a layout, however deep it is nested."""
+    found: list = []
+
+    def walk(node):
+        for child in getattr(node, "children", []) or []:
+            if isinstance(child, discord.ui.ActionRow):
+                found.append(child)
+            walk(child)
+
+    walk(view)
+    return found
+
+
+def _row_is_legal(row) -> bool:
+    """Discord's rule for one row: one select, or up to five buttons."""
+    items = list(row.children)
+    selects = [item for item in items if isinstance(item, style.SELECT_TYPES)]
+    if selects:
+        return len(items) == 1
+    return len(items) <= style.MAX_ROW_BUTTONS
+
+
+def _select():
+    return discord.ui.Select(
+        placeholder="pick", options=[discord.SelectOption(label="one", value="1")]
+    )
+
+
+class TheRowDiscordRefuses(unittest.IsolatedAsyncioTestCase):
+    """One row per select, five buttons per row, and never the two together.
+
+    Discord enforces this when the message is *sent*, as ``50035
+    COMPONENT_LAYOUT_WIDTH_EXCEEDED`` naming the component that overflowed — so
+    nothing on this side raises, and the only symptom is a command that always
+    answers "An unexpected error occurred". That was every ``/help`` in
+    production: the panel added its category menu and its bug button to one row,
+    and Discord's own answer to the payload was
+    ``components.0.components.3.components.1`` — the button beside the menu.
+
+    The rule lives in one seam (:func:`style.legal_rows`) and these laws are what
+    prove the seam is really on the path a card takes, rather than merely
+    existing.
+    """
+
+    def _refused_view(self):
+        """The exact shape `/help` sent: a select and a button in one row."""
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        row = discord.ui.ActionRow()
+        row.add_item(_select())
+        row.add_item(discord.ui.Button(label="Report a bug"))
+        container.add_item(row)
+        view.add_item(container)
+        return view
+
+    def test_the_shape_that_was_refused_is_recognised_as_refused(self):
+        """A guard on the guard: this really is the illegal row."""
+        rows = _action_rows(self._refused_view())
+        self.assertEqual([len(r.children) for r in rows], [2])
+        self.assertFalse(_row_is_legal(rows[0]), "the row must be the one Discord refuses")
+
+    async def test_a_select_beside_a_button_is_sent_as_two_rows(self):
+        target = _SendTarget()
+        await style.send_panel(target, self._refused_view())
+        rows = _action_rows(target.calls[0]["view"])
+        self.assertEqual([len(row.children) for row in rows], [1, 1])
+        self.assertTrue(all(_row_is_legal(row) for row in rows))
+
+    async def test_an_edit_is_repaired_too(self):
+        """The panel edits itself when a category is picked, so the seam has to
+        hold on the edit path as well — or it is refused one click after it was
+        sent."""
+        target = _EditTarget()
+        await style.edit_card(target, view=self._refused_view())
+        rows = _action_rows(target.calls[0]["view"])
+        self.assertEqual([len(row.children) for row in rows], [1, 1])
+
+    async def test_a_card_rebuilt_from_an_embed_is_repaired_too(self):
+        target = _SendTarget()
+        panel = style.card(body="hello")
+        panel.add_row(_select(), discord.ui.Button(label="one"), discord.ui.Button(label="two"))
+        await style.send_panel(target, panel)
+        rows = _action_rows(target.calls[0]["view"])
+        self.assertTrue(all(_row_is_legal(row) for row in rows), rows)
+
+    def test_seven_buttons_become_two_rows(self):
+        panel = style.card(body="hello")
+        panel.add_row(*[discord.ui.Button(label=f"b{i}") for i in range(7)])
+        rows = _action_rows(panel)
+        self.assertEqual([len(row.children) for row in rows], [style.MAX_ROW_BUTTONS, 2])
+
+    def test_a_legal_layout_is_left_exactly_as_it_was(self):
+        """A repair that fired on every card would be a rewrite nobody asked for."""
+        panel = style.card(body="hello")
+        row = panel.add_row(discord.ui.Button(label="one"))
+        before = _action_rows(panel)
+        self.assertEqual(style.legal_rows(panel), 0)
+        self.assertEqual(_action_rows(panel), before)
+        self.assertIs(_action_rows(panel)[0], row)
+
+
 class RegistryIndependence(unittest.TestCase):
     def test_style_exports_survive(self):
         """The panels/helpers other cogs import must keep existing."""

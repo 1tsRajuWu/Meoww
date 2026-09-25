@@ -15,6 +15,7 @@ Two failures are pinned here.
 import asyncio
 import contextlib
 import io
+import re
 import tokenize
 import unittest
 from pathlib import Path
@@ -556,16 +557,23 @@ class RetiredCommandsAreDeleted(unittest.IsolatedAsyncioTestCase):
         Being on this list is the *only* way a command leaves Discord's picker:
         a retired name has no local counterpart, so it is neither missing nor
         stale, and nothing else would ever remove it.
+
+        A **subset** rather than an equality, because the list is meant to grow:
+        it was an equality until the archived music player's names were added to
+        it, and an equality would have forbidden the one change that fixes a
+        command still sitting in every server's picker. The other direction — the
+        list may not grow to *cover* anything that is not archived, and no name on
+        it may still be a live command — is held by
+        :class:`EveryArchivedCommandIsDeclaredRetired`, which reads the archive
+        and the live tree rather than a hand-kept copy of either.
         """
-        self.assertEqual(
-            commands_sync.RETIRED_COMMANDS,
-            {
-                "upload", "upload-big", "pin-upload-info",
-                "dashboard", "setavatar", "setbanner", "sync", "updatedb",
-                "addlevelrole", "removelevelrole", "privacy", "tos", "meowfee",
-                "activity-top", "activity-channel",
-            },
-        )
+        required = {
+            "upload", "upload-big", "pin-upload-info",
+            "dashboard", "setavatar", "setbanner", "sync", "updatedb",
+            "addlevelrole", "removelevelrole", "privacy", "tos", "meowfee",
+            "activity-top", "activity-channel",
+        }
+        self.assertEqual(required - commands_sync.RETIRED_COMMANDS, set())
 
     def test_a_slot_can_be_freed_so_a_new_command_fits(self):
         """The 100-command ceiling is why this list has to be complete.
@@ -892,20 +900,40 @@ class ASwitchBurstCostsOnePublish(unittest.IsolatedAsyncioTestCase):
             "retry_after": None, "summary": "up to date", "detail": "",
         }
 
+    #: A settle window wide enough that eleven clicks cannot outlast it. The
+    #: window is real time, so a loaded machine measuring a 0.3s one could finish
+    #: the clicking *after* it expired and see two publishes — which is the code
+    #: working, reported as a broken law. The margin here is ~200x, and the wait
+    #: below is the pass finishing rather than a guess at how long it takes.
+    SETTLE = 1.0
+
     def _patched(self):
         return (
-            mock.patch.object(bot_module, "RESYNC_SETTLE_SECONDS", 0.3),
+            mock.patch.object(bot_module, "RESYNC_SETTLE_SECONDS", self.SETTLE),
             mock.patch.object(bot_module, "_sync_guild", new=self._fake_sync),
         )
+
+    async def _done(self, *, timeout: float = 10.0) -> None:
+        """Wait for the queued pass to finish, rather than for a fixed sleep."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if not bot_module._resync_tasks and not self.in_flight_tasks():
+                return
+            await asyncio.sleep(0.01)
+        self.fail("the publish never finished")
+
+    def in_flight_tasks(self) -> list:
+        """Tasks still running, ignoring the ones that are already done."""
+        return [task for task in bot_module._resync_tasks.values() if not task.done()]
 
     async def test_eleven_switches_clicked_fast_are_one_publish(self):
         settle, sync = self._patched()
         with settle, sync:
             for _ in range(11):
                 await bot_module._kick_guild_resync(self.bot, self.guild)
-                await asyncio.sleep(0.01)  # a person clicking, not a tight loop
+                await asyncio.sleep(0.005)  # a person clicking, not a tight loop
             self.state = {"market": False, "economy": False}
-            await asyncio.sleep(0.5)
+            await self._done()
 
         self.assertEqual(
             len(self.publishes), 1,
@@ -929,7 +957,7 @@ class ASwitchBurstCostsOnePublish(unittest.IsolatedAsyncioTestCase):
             self.state = {"market": False, "economy": True}
             await bot_module._kick_guild_resync(self.bot, self.guild)
             self.release.set()
-            await asyncio.sleep(0.6)
+            await self._done()
 
         self.assertEqual(
             len(self.publishes), 2,
@@ -951,7 +979,7 @@ class ASwitchBurstCostsOnePublish(unittest.IsolatedAsyncioTestCase):
                 bot_module._resync_tasks[self.GUILD_ID], queued,
                 "a click while one was already queued started another pass",
             )
-            await asyncio.sleep(0.5)
+            await self._done()
         self.assertEqual(len(self.publishes), 1)
 
 
@@ -1411,4 +1439,96 @@ class ThePruneItself(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             ("global", "11"), http.deleted,
             "the republish that follows a switch has to trim the shared lane",
+        )
+
+
+#: Where the retired cogs live, and the two ways one declares a top-level command.
+_ARCHIVE = Path(__file__).resolve().parent.parent / "deleted_features"
+_DECLARATION = re.compile(
+    r"@(?:app_commands\.(?:command|group)|commands\.(?:hybrid_command|command))\s*\(|"
+    r"app_commands\.Group\s*\("
+)
+_DECLARED_NAME = re.compile(r"""name\s*=\s*["']([^"']+)["']""")
+
+
+def _archived_commands() -> dict[str, str]:
+    """``{name: the archived file that declared it}`` for every retired cog."""
+    found: dict[str, str] = {}
+    for path in sorted(_ARCHIVE.rglob("*.py")):
+        if path.name.startswith("test_") or "tests" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in _DECLARATION.finditer(text):
+            name = _DECLARED_NAME.search(text[match.start() : match.start() + 400])
+            if name:
+                found.setdefault(name.group(1), str(path.relative_to(_ARCHIVE.parent)))
+    return found
+
+
+class EveryArchivedCommandIsDeclaredRetired(unittest.IsolatedAsyncioTestCase):
+    """Archiving a cog removes it from the tree and from nothing else.
+
+    Discord keeps the registration, so the picker keeps offering the command, and
+    a member who clicks it gets "An unexpected error occurred" — because the
+    interaction arrives for a command the bot no longer has. The publisher cannot
+    clean that up on its own: a name the feature registry does not declare is
+    never removed (that rule is what stops a typo upstream from deleting a
+    working command), and the only door left is :data:`RETIRED_COMMANDS`, which
+    was maintained by hand and by memory.
+
+    It was wrong. `/music` and `/play` — the pre-stream player, archived in
+    ``deleted_features/`` when the stations replaced it — were still registered in
+    **every** server months later, and both failed on click. The rule is checked
+    against the archive now instead of against anybody's recollection.
+    """
+
+    async def asyncSetUp(self):
+        self.bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+        for cog in features.cog_paths():
+            try:
+                await self.bot.load_extension(cog)
+            except Exception:  # pragma: no cover - another test reports the load
+                pass
+        self.live = {command.name for command in self.bot.tree.get_commands()}
+
+    async def asyncTearDown(self):
+        try:
+            await self.bot.close()
+        except Exception:
+            pass
+
+    def test_the_archive_was_actually_read(self):
+        """A regex that matched nothing would pass every assertion below."""
+        archived = _archived_commands()
+        self.assertGreater(len(archived), 15, f"the archive scan found {archived}")
+        self.assertIn("music", archived)
+
+    def test_every_archived_command_is_declared_retired(self):
+        missing = {
+            name: where
+            for name, where in _archived_commands().items()
+            if name not in self.live and name not in commands_sync.RETIRED_COMMANDS
+        }
+        self.assertEqual(
+            missing,
+            {},
+            "an archived command left off this list stays in the picker, failing "
+            f"for whoever clicks it: {missing}",
+        )
+
+    def test_no_declared_retirement_is_still_a_live_command(self):
+        """`/activity` is deliberately absent from the list: the group is that
+        name now, so it is an update rather than a retirement — and deleting it
+        would take the group with it."""
+        self.assertEqual(sorted(commands_sync.RETIRED_COMMANDS & self.live), [])
+
+    def test_the_two_commands_still_sitting_in_the_picker_are_on_the_list(self):
+        registered = [
+            {"name": "music", "id": "1"},
+            {"name": "play", "id": "2"},
+            {"name": "rank", "id": "3"},
+        ]
+        self.assertEqual(
+            sorted(commands_sync.retired(registered)),
+            [("music", "1"), ("play", "2")],
         )

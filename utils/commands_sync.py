@@ -126,10 +126,23 @@ def matches(local, remote) -> bool:
 #: is not in the local tree", which is the bulk-overwrite instinct that once
 #: cleared this guild down to a single command.
 #:
+#: **Every name a `deleted_features/` cog ever declared belongs here**, and that
+#: is a rule rather than a habit: archiving a cog removes it from the tree and
+#: from nothing else. Discord keeps the registration, so the picker keeps
+#: offering it, and a member who clicks it gets "An unexpected error occurred"
+#: because the interaction arrives for a command the bot no longer has. That is
+#: exactly how `/music` and `/play` — archived with the pre-stream player in
+#: ``deleted_features/radio_2026_09/`` — were still sitting in **every** server's
+#: picker, failing for anyone who tried them, months after the cogs behind them
+#: were gone. ``tests/test_command_sync.py`` holds the rule now: no archived
+#: cog's top-level command name may be left out of this set.
+#:
 #: ``upload``, ``upload-big`` and ``pin-upload-info`` were the big-file upload
 #: feature, retired on 2026-09-14 (archived in ``deleted_features/``). Once a
 #: deploy has deleted them this list is history rather than a to-do: it simply
-#: stops matching anything.
+#: stops matching anything — which is also true of the music player's names
+#: below, the ones already swept. Being on the list is not a claim that Discord
+#: still holds the name; it is permission to delete it if it does.
 #:
 #: The rest were **folded away and left behind in Discord**. `/dashboard` became
 #: the ⚡ button on the `/help` panel; `/setavatar`, `/setbanner`, `/sync` and
@@ -152,6 +165,14 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         "dashboard", "setavatar", "setbanner", "sync", "updatedb",
         "addlevelrole", "removelevelrole", "privacy", "tos", "meowfee",
         "activity-top", "activity-channel",
+        # The music player that `deleted_features/cogs/music.py` was: a queue in
+        # one voice channel, replaced by `/radio`'s stations in
+        # `deleted_features/radio_2026_09/` and then by `cogs/radio.py`. Both
+        # archives are here, because both of them once registered commands.
+        "music", "play", "247", "pause", "resume", "skip", "stop", "queue",
+        "nowplaying", "volume", "filter", "songinfo", "lyrics",
+        # The other archived cogs, which draw their own groups.
+        "reactionrole-add", "giveaway", "tempvoice", "welcome", "color",
     }
 )
 

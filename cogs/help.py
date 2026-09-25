@@ -614,10 +614,22 @@ class HelpLayout(discord.ui.LayoutView):
         parts.append(body)
         if gallery:
             parts.append(discord.ui.MediaGallery(*[discord.MediaGalleryItem(u) for u in gallery[:4]]))
-        row = discord.ui.ActionRow()
-        row.add_item(HelpSelectMenu())
-        row.add_item(BugReportButton())
-        parts.append(row)
+        # The category menu and the bug button are **two rows**, and that is a
+        # Discord rule rather than a taste: an ActionRow is either one select
+        # (which takes the row's whole width) or up to five buttons, and a row
+        # holding both is refused with `50035 COMPONENT_LAYOUT_WIDTH_EXCEEDED`.
+        # Discord names the offender as `components.0.components.3.components.1`
+        # — the button beside the menu — and the member sees only "An unexpected
+        # error occurred", because a refused interaction response is a failed
+        # command. That is what happened to every `/help` in production, and it
+        # is why the panel is built as separate rows here instead of one strip.
+        # `utils.style.legal_rows` now holds the same rule for every other card.
+        menu_row = discord.ui.ActionRow()
+        menu_row.add_item(HelpSelectMenu())
+        parts.append(menu_row)
+        bug_row = discord.ui.ActionRow()
+        bug_row.add_item(BugReportButton())
+        parts.append(bug_row)
         if dashboard:
             link_row = discord.ui.ActionRow()
             link_row.add_item(

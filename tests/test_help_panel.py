@@ -23,7 +23,7 @@ from discord.ext import commands
 
 import keep_alive
 from cogs import help as help_cog
-from utils import features
+from utils import features, style
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -155,6 +155,74 @@ class TestTheSignInLinkIsDeliveredPrivately(unittest.IsolatedAsyncioTestCase):
             sent[0]["ephemeral"],
             "the panel everybody can use is not made private by this",
         )
+
+
+def _action_rows(view) -> list:
+    """Every ActionRow in the panel, however deep it is nested."""
+    found: list = []
+
+    def walk(node):
+        for child in getattr(node, "children", []) or []:
+            if isinstance(child, discord.ui.ActionRow):
+                found.append(child)
+            walk(child)
+
+    walk(view)
+    return found
+
+
+def _row_is_legal(row) -> bool:
+    """Discord's rule for one row: one select, or up to five buttons."""
+    items = list(row.children)
+    selects = [item for item in items if isinstance(item, style.SELECT_TYPES)]
+    if selects:
+        return len(items) == 1
+    return len(items) <= style.MAX_ROW_BUTTONS
+
+
+class TestEveryRowOfThePanelIsOneDiscordAccepts(unittest.TestCase):
+    """The panel's rows, held to Discord's own rule for a row.
+
+    A row is **one select or up to five buttons**, and Discord enforces that when
+    the message is sent — as ``50035 COMPONENT_LAYOUT_WIDTH_EXCEEDED``, naming
+    the component that overflowed. The panel used to add its category menu and
+    its bug button to a single row, so Discord refused the whole payload, the
+    member saw "An unexpected error occurred", and the only place the reason
+    existed was Discord's response body: ``components.0.components.3.components.1``,
+    the button beside the menu. The rule is asserted on the **built view** rather
+    than on the source, because the source looks correct either way and only the
+    serialised rows are what Discord measures.
+    """
+
+    def _panel(self, *, dashboard: str | None = None):
+        return help_cog.HelpLayout(
+            thumbnail="https://cdn.example/avatar.png",
+            gallery=["https://cdn.example/banner.png"],
+            dashboard=dashboard,
+        )
+
+    def test_the_category_menu_and_the_bug_button_are_in_different_rows(self):
+        menu = bug = None
+        for row in _action_rows(self._panel(dashboard="https://dash.example/login?token=x")):
+            for item in row.children:
+                if isinstance(item, help_cog.HelpSelectMenu):
+                    menu = row
+                if isinstance(item, help_cog.BugReportButton):
+                    bug = row
+        self.assertIsNotNone(menu, "the panel still carries its category menu")
+        self.assertIsNotNone(bug, "the panel still carries its bug button")
+        self.assertIsNot(menu, bug, "one row holding both is the payload Discord refused")
+        self.assertEqual(len(list(menu.children)), 1)
+
+    def test_every_row_the_panel_builds_is_a_shape_discord_accepts(self):
+        for dashboard in (None, "https://dash.example/login?token=x"):
+            rows = _action_rows(self._panel(dashboard=dashboard))
+            self.assertGreaterEqual(len(rows), 2, "a panel with no rows has nothing to check")
+            for row in rows:
+                self.assertTrue(
+                    _row_is_legal(row),
+                    f"Discord refuses this row: {[type(i).__name__ for i in row.children]}",
+                )
 
 
 class TestThePanelAdvertisesRealCommands(unittest.IsolatedAsyncioTestCase):

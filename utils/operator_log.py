@@ -895,6 +895,68 @@ def _joined_at(guild) -> str:
 _REASON_LIMIT: int = 300
 
 
+def discord_field_errors(error, *, limit: int = 400) -> str:
+    """Which field Discord refused, in Discord's own words — or ``""``.
+
+    A refused payload answers ``400`` with a tree of field errors beside the
+    message: ``components.0.components.2.components.1`` for a button that
+    overflowed its row, ``placeholder`` for a text input past Discord's 100
+    characters. discord.py keeps that tree (``_errors``) and also folds it into
+    ``str(error)`` as ``In <path>: <message>`` — so it was never *absent* from
+    this project's reports, only unreadable in them: the sentence naming the
+    field arrives after ``400 Bad Request (error code: 50035): Invalid Form
+    Body``, and ``_reason`` and ``bot.py`` both join it onto that one line. The
+    `/help` panel answered every member with "An unexpected error occurred" for
+    as long as it did with the reason sitting in the log the whole time, which is
+    why this is now its own line on the card and its own sentence in the command
+    log.
+
+    What this adds to what the flattening keeps: the machine-readable ``code``
+    (``COMPONENT_LAYOUT_WIDTH_EXCEEDED``), which discord.py drops, and one field
+    per line rather than a sentence wrapped around the status text.
+
+    Read defensively — the tree is a parse of somebody else's response, and the
+    one place a *missing* key must not raise is the reporting path.
+    """
+    raw = getattr(error, "_errors", None)
+    if not raw:
+        raw = getattr(error, "errors", None)
+    if not raw:
+        return ""
+    found: list[str] = []
+
+    if isinstance(raw, dict) and all(isinstance(value, str) for value in raw.values()):
+        # Already flattened (a caller that handed over ``HTTPException.text``'s
+        # table): the keys are the paths.
+        found = [f"{path} → {value}" for path, value in list(raw.items())[:6]]
+        return "; ".join(found)[:limit]
+
+    def walk(node, path: str) -> None:
+        if len(found) >= 6:
+            return
+        if isinstance(node, list):
+            for entry in node:
+                walk(entry, path)
+            return
+        if not isinstance(node, dict):
+            return
+        codes = node.get("_errors")
+        if isinstance(codes, list):
+            for one in codes:
+                if isinstance(one, dict):
+                    code = one.get("code", "invalid")
+                    message = str(one.get("message", ""))[:120]
+                    found.append(f"{path or 'payload'} → {code}" + (f" ({message})" if message else ""))
+                else:
+                    found.append(f"{path or 'payload'} → {one}")
+        for key, child in node.items():
+            if key != "_errors":
+                walk(child, f"{path}.{key}" if path else str(key))
+
+    walk(raw, "")
+    return "; ".join(found)[:limit]
+
+
 def _reason(error) -> str:
     """What went wrong, named — the one field a failure entry is worth having for.
 
@@ -907,6 +969,9 @@ def _reason(error) -> str:
     somebody typed can quote it back, and this log promises never to copy the
     values typed into a command. The full traceback goes to the error channel
     through ``bot.py``'s report, which is where a message may legitimately live.
+
+    A refused request gets its refused *field* appended, because "Invalid Form
+    Body" names nothing a reader can act on (see :func:`discord_field_errors`).
     """
     original = getattr(error, "original", None)
     cause = original if isinstance(original, BaseException) else error
@@ -914,7 +979,9 @@ def _reason(error) -> str:
     if not isinstance(cause, discord.DiscordException):
         return f"`{name}`"
     detail = " ".join(str(cause).split())
-    return f"`{name}` — {detail[:_REASON_LIMIT]}" if detail else f"`{name}`"
+    said = f"`{name}` — {detail[:_REASON_LIMIT]}" if detail else f"`{name}`"
+    refused = discord_field_errors(cause)
+    return f"{said} — refused: {refused}" if refused else said
 
 
 async def command_failed(bot, interaction: discord.Interaction, error) -> bool:

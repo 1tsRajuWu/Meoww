@@ -1853,9 +1853,20 @@ def _error_embed(
     where: str,
     seen: int,
     first_at: float,
+    refused: str = "",
 ) -> discord.Embed:
-    """The failure card, built the same way whether it is posted or updated."""
+    """The failure card, built the same way whether it is posted or updated.
+
+    ``refused`` is Discord's own answer to *which field* it rejected, when there
+    is one. A refused payload reports ``Invalid Form Body`` and nothing a reader
+    can act on, so without it a card like this one names a command that broke and
+    leaves the reader to reproduce the payload against the live API to find out
+    why (see :func:`utils.operator_log.discord_field_errors`).
+    """
     body = [f"**{type(error).__name__}**: {str(error)[:600]}", ""]
+    if refused:
+        body.append(f"**Discord refused:** {refused}")
+        body.append("")
     if seen > 1:
         since = datetime.datetime.fromtimestamp(first_at, datetime.timezone.utc)
         body.append(f"Seen **{seen}** times since {since:%H:%M} UTC")
@@ -1905,6 +1916,7 @@ async def _report_error_to_channel(interaction: discord.Interaction, error: Base
         # Where the command was *run*, which is not where this card is going.
         where = getattr(interaction.channel, "mention", None) or "a channel that is gone"
         signature = (guild.id, command, type(error).__name__)
+        refused = operator_log.discord_field_errors(error)
         now = time.time()
 
         # Forget cards whose window has closed, so a long-running bot cannot hold
@@ -1918,7 +1930,8 @@ async def _report_error_to_channel(interaction: discord.Interaction, error: Base
             card["count"] += 1
             card["at"] = now
             embed = _error_embed(
-                command, error, interaction.user.mention, where, card["count"], card["first"]
+                command, error, interaction.user.mention, where, card["count"], card["first"],
+                refused=refused,
             )
             try:
                 await style.edit_card(card["message"], embed=embed)
@@ -1931,7 +1944,8 @@ async def _report_error_to_channel(interaction: discord.Interaction, error: Base
 
         message = await style.send_card(
             channel,
-            embed=_error_embed(command, error, interaction.user.mention, where, 1, now),
+            embed=_error_embed(command, error, interaction.user.mention, where, 1, now,
+                               refused=refused),
         )
         _ERROR_CARDS[signature] = {"count": 1, "at": now, "first": now, "message": message}
     except Exception as e:
@@ -1957,8 +1971,10 @@ def _report_error(error: BaseException, interaction: discord.Interaction | None 
             command = interaction.command.qualified_name if interaction.command else "unknown"
             guild = interaction.guild.name if interaction.guild else "DMs"
             where = f"/{command} by {interaction.user} in {guild}"
+        refused = operator_log.discord_field_errors(error)
         payload = _json.dumps({
             "content": f"⚠️ **{type(error).__name__}** — {where}\n```{str(error)[:1500]}```"
+            + (f"\nDiscord refused: {refused}" if refused else "")
         }).encode("utf-8")
 
         def _send():
@@ -1994,8 +2010,15 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         if not interaction.response.is_done():
             await interaction.response.send_message("❌ Permission denied. You cannot execute this command.", ephemeral=True)
     else:
-        # Don't leak stack traces to users, log it instead.
-        print(f"Error in command {interaction.command.name if interaction.command else 'Unknown'}: {error}")
+        # Don't leak stack traces to users, log it instead. Discord's answer to
+        # *which field* it refused goes on the same line: a rejected payload's
+        # message is only "Invalid Form Body", and the field that was actually
+        # wrong — a button sharing a row with a select, a placeholder over 100
+        # characters — is the difference between a five-minute fix and an
+        # afternoon spent guessing (see `operator_log.discord_field_errors`).
+        refused = operator_log.discord_field_errors(error)
+        named = interaction.command.name if interaction.command else "Unknown"
+        print(f"Error in command {named}: {error}" + (f" — refused: {refused}" if refused else ""))
         _report_error(error, interaction)
         await _report_error_to_channel(interaction, error)
         # The same failure, in the channel an operator actually watches. This is

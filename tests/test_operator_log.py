@@ -18,6 +18,7 @@ none of that may be able to break the thing being logged. The rules pinned here:
 import asyncio
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import discord
@@ -1258,6 +1259,106 @@ class GuildJoinHandler(unittest.TestCase):
             "try:", before.rsplit("operator_log.guild_joined", 1)[-1],
             "a failed publish must not stop the join path",
         )
+
+
+def _refused_payload(errors=None) -> discord.HTTPException:
+    """A 400 from Discord, built the way a refused payload arrives."""
+    response = SimpleNamespace(status=400, reason="Bad Request")
+    data: dict = {"message": "Invalid Form Body", "code": 50035}
+    if errors is not None:
+        data["errors"] = errors
+    return discord.HTTPException(response, data)
+
+
+#: Discord's tree for the payload `/help` sent: a button beside a select in one
+#: row. Copied from the live response rather than invented — the path and the code
+#: are the two things a reader needs, and a made-up path would pin neither.
+_ROW_OVERFLOW = {
+    "components": {
+        "0": {
+            "components": {
+                "3": {
+                    "components": {
+                        "1": {
+                            "_errors": [
+                                {
+                                    "code": "COMPONENT_LAYOUT_WIDTH_EXCEEDED",
+                                    "message": "The specified component exceeds the maximum width",
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+class ARefusedPayloadNamesTheField(unittest.TestCase):
+    """Discord's own answer to *which field*, on a line of its own.
+
+    discord.py folds the field errors into ``str(error)`` as ``In <path>:
+    <message>``, so the reason for a refusal was never missing from this
+    project's reports — it was unreadable inside them, joined onto the line that
+    reads ``400 Bad Request (error code: 50035): Invalid Form Body``. The `/help`
+    panel answered every member with "An unexpected error occurred" while that
+    sentence sat in the log the whole time, and finding it meant rebuilding the
+    payload by hand against the live API. These laws hold the field to its own
+    line, with the code Discord's own flattening throws away.
+    """
+
+    def test_the_refused_field_is_read_out_of_discords_tree(self):
+        said = operator_log.discord_field_errors(_refused_payload(_ROW_OVERFLOW))
+        self.assertIn("components.0.components.3.components.1", said)
+        self.assertIn("COMPONENT_LAYOUT_WIDTH_EXCEEDED", said)
+        self.assertIn("exceeds the maximum width", said)
+
+    def test_the_code_discord_sends_survives(self):
+        """The flattening keeps the sentence and drops the code; the code is
+        what a reader greps for."""
+        said = operator_log.discord_field_errors(_refused_payload(_ROW_OVERFLOW))
+        self.assertNotIn("\n", said, "one field per line, not a wrapped sentence")
+        self.assertIn("→ COMPONENT_LAYOUT_WIDTH_EXCEEDED", said)
+
+    def test_a_failure_with_nothing_to_read_says_nothing(self):
+        self.assertEqual(operator_log.discord_field_errors(_refused_payload()), "")
+        self.assertEqual(operator_log.discord_field_errors(RuntimeError("boom")), "")
+        self.assertEqual(operator_log.discord_field_errors(None), "")
+
+    def test_a_malformed_tree_is_not_a_second_failure(self):
+        """The reporting path is the one place a missing key must not raise."""
+        junk = SimpleNamespace(
+            _errors={"components": {"0": ["nonsense"]}},
+        )
+        self.assertIsInstance(operator_log.discord_field_errors(junk), str)
+        for shape in ("text", [], 7, {"a": None}):
+            self.assertIsInstance(
+                operator_log.discord_field_errors(SimpleNamespace(_errors=shape)), str
+            )
+
+    def test_an_already_flattened_table_is_read_as_paths(self):
+        """A caller who has only the flattened table still gets an answer."""
+        said = operator_log.discord_field_errors(
+            SimpleNamespace(_errors={"components.0.components.1": "nope"})
+        )
+        self.assertIn("components.0.components.1", said)
+
+    def test_the_reason_line_the_operator_reads_carries_it(self):
+        said = operator_log._reason(_refused_payload(_ROW_OVERFLOW))
+        self.assertIn("Invalid Form Body", said)
+        self.assertIn("COMPONENT_LAYOUT_WIDTH_EXCEEDED", said)
+
+    def test_the_failure_card_carries_it(self):
+        """The server-facing card, which is where a member's failure is read."""
+        refused = operator_log.discord_field_errors(_refused_payload(_ROW_OVERFLOW))
+        embed = bot_module._error_embed(
+            "help", _refused_payload(_ROW_OVERFLOW), "@someone", "#general", 1, 0.0,
+            refused=refused,
+        )
+        self.assertIn("COMPONENT_LAYOUT_WIDTH_EXCEEDED", embed.description)
+        plain = bot_module._error_embed("help", RuntimeError("x"), "@someone", "#general", 1, 0.0)
+        self.assertNotIn("Discord refused", plain.description)
 
 
 if __name__ == "__main__":
