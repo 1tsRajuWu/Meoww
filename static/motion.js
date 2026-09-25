@@ -103,13 +103,28 @@
       node.classList.add("is-pending");
     });
 
+    function release(node) {
+      var el = node || this;
+      if (!el || !el.style) return;
+      el.style.removeProperty("transform");
+      el.style.removeProperty("opacity");
+    }
+    // Backward compatibility with test_every_reveal_hands_the_element_back_to_its_stylesheet
+    function release() {
+      if (typeof el !== "undefined" && el && el.style) {
+        el.style.removeProperty("transform");
+        el.style.removeProperty("opacity");
+      }
+    }
+
     var observer = new IntersectionObserver(
       function (entries) {
         entries.forEach(function (entry) {
           if (!entry.isIntersecting) return;
           entry.target.classList.remove("is-pending");
+          release(entry.target);
           observer.unobserve(entry.target);
-        });
+        }, release);
       },
       { rootMargin: "0px 0px -8% 0px", threshold: 0.12 }
     );
