@@ -287,29 +287,41 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.structure",
         help_key="structure",
     ),
-    # The systems that shipped before this bot became a server-management
-    # product, kept whole and switched **off**.
+    # Radio and the anonymous question box: **off by default**, one flag per
+    # server.
     #
-    # "Kept, and off by default, and one flag per server" is not a new mechanism:
-    # it is what this registry already does. `enabled_by_default=False` is the
-    # default state, `command_scope.is_available` already removes a disabled
-    # command from *that server's* picker rather than merely refusing it, and
-    # `modules.set_enabled` already writes the per-server flag. So demoting a
-    # system is a registry edit — and because the commands keep their own names,
-    # nothing goes into `commands_sync.RETIRED_COMMANDS` and no server's muscle
-    # memory is broken. A `/legacy` group would have been the louder change and
-    # the bigger lie: the commands would still work, nobody would know where they
-    # went.
+    # "Off by default, and one flag per server" is not a new mechanism: it is
+    # what this registry already does. `enabled_by_default=False` is the default
+    # state, `command_scope.is_available` already removes a disabled command from
+    # *that server's* picker rather than merely refusing it, and
+    # `modules.set_enabled` already writes the per-server flag. So offering them
+    # is a registry edit — and because the commands keep their own names, nothing
+    # goes into `commands_sync.RETIRED_COMMANDS` and no server's muscle memory is
+    # broken. A `/legacy` group would have been the louder change and the bigger
+    # lie: the commands would still work, nobody would know where they went.
+    #
+    # **What this system is called is a decision, not a leftover.** It read
+    # *Legacy — Radio & Anonymous Q&A* under a `Legacy` category with a filing
+    # cabinet for a mark, and `/systems` prints its name in the sentence
+    # "{name} arrives switched off" — so the page told a visitor that *Radio* was
+    # legacy and had been switched off, which reads as a service being retired.
+    # Nothing is retired: off is the default state the switch beside it declares,
+    # and one command offers both. So the name now says what the system is and
+    # the default is left to the sentence that states it. The **id** is
+    # deliberately still `legacy` — it is a command choice value, a per-server row
+    # in the database and a `/systems#cmd-legacy` anchor, so renaming it is a
+    # migration with real cost and no reader-visible reward; the rule this module
+    # already keeps for `MEOW_*` is the rendered surfaces, not the code.
     Feature(
         id="legacy",
-        name="Legacy — Radio & Anonymous Q&A",
-        icon="🗄️",
-        category="Legacy",
+        name="Radio & Anonymous Q&A",
+        icon="📻",
+        category="Community",
         description=(
-            "The two systems that came before the management tier, preserved "
-            "exactly as they were and switched off until an administrator asks "
-            "for them. Radio plays any station the table holds; the question box "
-            "still relays a member's question with nobody's name on it."
+            "Off in every server to begin with: switched off until an "
+            "administrator asks for them, and one flag offers both. Radio plays "
+            "any station the table holds, and the question box relays a member's "
+            "question with nobody's name on it."
         ),
         # Two roots, one switch: the brief is explicit that this is one flag a
         # server turns on, not two more things to configure.

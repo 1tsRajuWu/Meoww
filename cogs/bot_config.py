@@ -608,14 +608,14 @@ class BotConfig(commands.Cog):
 
     @operator_group.command(
         name="legacy",
-        description="This server's legacy systems — Radio and Anonymous Q&A: show them, or switch them.",
+        description="Radio and Anonymous Q&A for this server: show them, or switch them.",
     )
     @app_commands.describe(
-        state="On: offer Radio and the question box in this server again. Off: hide both (the default).",
+        state="On: offer Radio and the question box in this server. Off: hide both (the default).",
     )
     @app_commands.choices(
         state=[
-            app_commands.Choice(name="🗄️ On — offer both again", value="on"),
+            app_commands.Choice(name="📻 On — offer both", value="on"),
             app_commands.Choice(name="🚫 Off — hide both (the default)", value="off"),
         ]
     )
@@ -625,14 +625,14 @@ class BotConfig(commands.Cog):
         interaction: discord.Interaction,
         state: app_commands.Choice[str] | None = None,
     ):
-        """The one switch that keeps the systems this bot grew up on reachable.
+        """The one switch that offers Radio and the anonymous question box.
 
-        Radio and Anonymous Q&A are **kept** rather than deleted, and off is where
-        they start: a server that never used either loses nothing, and a server
-        that did gets them back rather than waking up to two commands that are
-        simply gone. One flag for both, because they left the active set for the
-        same reason and because "two more things to configure" is the opposite of
-        what somebody asking for an off switch wants.
+        Off is where both start: a server that never wanted either loses nothing,
+        and a server that wants one turns it on once and keeps it. One flag for
+        both, because they are one decision, and because "two more things to
+        configure" is the opposite of what somebody asking for an off switch
+        wants. The switch is named `legacy` and stays named that — it is a command
+        value servers have in their picker, not a page anybody reads.
 
         Off is the *declared* state, not a refusal at run time, and the difference
         is the picker: a server whose switch is off does not offer the commands at
@@ -653,7 +653,7 @@ class BotConfig(commands.Cog):
 
         feature = features.get("legacy")
         roots = sorted({line.split(" ")[0] for line in (feature.commands if feature else ())})
-        listed = " and ".join(roots) or "The legacy commands"
+        listed = " and ".join(roots) or "The radio and question commands"
 
         changed = state is not None
         if changed:
@@ -671,9 +671,8 @@ class BotConfig(commands.Cog):
 
         if on:
             body = (
-                f"🗄️ **Legacy systems: on.** {listed} are in this server's picker, "
-                "exactly as they were — nothing about either of them changed while "
-                "they were off."
+                f"📻 **Radio & Anonymous Q&A: on.** {listed} are in this "
+                "server's picker."
             )
             if changed:
                 body += (
@@ -684,10 +683,9 @@ class BotConfig(commands.Cog):
                 body += "\n-# `/bot legacy state:Off` hides them here."
         else:
             body = (
-                f"🗄️ **Legacy systems: off.** {listed} are not offered in this "
-                "server — Radio and Anonymous Q&A left the active set when the bot "
-                "became a management product, and off is where they start for every "
-                "server."
+                f"📻 **Radio & Anonymous Q&A: off.** {listed} are not offered in "
+                "this server — both are off in every server to begin with, and this "
+                "is the switch that offers them."
             )
             body += (
                 "\n-# `/bot legacy state:On` offers both again."

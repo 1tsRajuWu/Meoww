@@ -253,12 +253,11 @@ HELP_MODULES = {
         "emoji": "🧱"
     },
     "legacy": {
-        "title": "🗄️ Legacy — Radio & Anonymous Q&A",
+        "title": "📻 Radio & Anonymous Q&A",
         "desc": (
-            "Two systems that shipped before this bot became a management product, "
-            "preserved exactly and switched **off**. One flag turns both on, and "
-            "nothing else about them changed — a server that relied on either gets "
-            "what it had.\n\n"
+            "Off in every server to begin with: switched **off** until an "
+            "administrator asks for them, and one flag turns both on. A server "
+            "that relied on either turns it on once and keeps it.\n\n"
             "> `/bot legacy state:on` — the switch, for this server only *(admin)*\n\n"
             "**Radio** (📻) — 24/7 stations by genre, language, mood or country, "
             "played as direct streams that ask no media platform for anything. "
@@ -276,7 +275,7 @@ HELP_MODULES = {
             "> `/qna inbox` / `/qna reply` — the queue and the reply *(bot's own server)*"
         ),
         "color": 0x5865F2,
-        "emoji": "🗄️"
+        "emoji": "📻"
     }
 }
 
@@ -294,7 +293,7 @@ HELP_HOME_BODY = (
     "- 🎫 **Tickets** — private staff support\n"
     "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
     "- 🧱 **Server Structure** — channels and roles, with a confirmation on anything big\n"
-    "- 🗄️ **Legacy** — Radio and Anonymous Q&A, kept and switched off"
+    "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names"
 )
 
 # The category *structure* comes from the feature registry; the prose below

@@ -497,26 +497,38 @@ class TheSignInRoutes(_DashboardFixture):
     def test_the_servers_list_says_what_each_one_is_running(self):
         """Choosing which server to fix is otherwise a guess from a list of names.
 
-        A server starts with one system off — the legacy module — so the row names
-        it before anything is switched by hand. That is not a special case to
+        A server starts with one system off — Radio & Anonymous Q&A — so the row
+        names it before anything is switched by hand. That is not a special case to
         exempt: the count and the name are what make the row readable, and the
         second half of this test is still that a switch flipped by hand joins it
         rather than replacing it.
+
+        The name is read out of the registry rather than typed here. This test's
+        whole subject is that the row *names* what it is counting, and a literal
+        would go on passing on a row naming a system the registry no longer has —
+        which is exactly what this was doing while that system was called *Legacy*.
         """
         self.sign_in(guild_id=GUILD_ID, scope="global")
         before = self.client.get("/servers").get_data(as_text=True)
         self.assertIn("systems on", before)
 
         import keep_alive as ka
+        from utils import features
+
+        off_by_default = [
+            features.get(module_id).name
+            for module_id in sorted(features.DEFAULT_DISABLED_MODULES)
+        ]
 
         total = len(ka.AVAILABLE_MODULES)
         self.assertIn(f"{total - 1} of {total} systems on", before)
         self.assertIn("off:", before)
-        self.assertIn(
-            "Legacy",
-            before,
-            "the one system a server starts without should be named, not just counted",
-        )
+        for name in off_by_default:
+            self.assertTrue(
+                name in before or name.replace("&", "&amp;") in before,
+                f"the system a server starts without should be named, not just "
+                f"counted: {name}",
+            )
 
         # Turn one system off the way the dashboard does, then ask again.
         self.assertTrue(
