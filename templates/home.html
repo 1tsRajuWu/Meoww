@@ -9,11 +9,24 @@
 
 {% block page %}
 {# --------------------------------------------------------------------------
-   01 — One claim, one sentence, two ways in.
+   01 — One claim, one sentence, two ways in, and the product itself beside it.
 
-   What used to be here was a paragraph explaining the product to itself. A
-   front door says what this is and offers the door; everything else on the page
-   is something a reader can open, and it stays closed until they do.
+   What used to be here was a paragraph explaining the product to itself. What
+   is here is what a front door is for: a headline read in one glance, one
+   sentence under it, the two doors, and the panel — which is the dashboard's
+   own overview rather than a picture of one, drawn from this bot's registry,
+   with the switch each system really has.
+
+   Three things about the panel are decisions rather than decoration. It is
+   **tighter than the page's display type**: the first version drew the headline
+   at the shared display size over two lines and pushed everything below the
+   fold. It carries the **brand mark in its own window bar**, so it reads as a
+   screenshot of this product and not as a card of facts. And its switches are
+   `aria-hidden` drawings rather than controls, because the tour further down is
+   where a visitor flips one — so the panel's last line says exactly that, and
+   says where the figures beside them come from. It used to say *nothing here is
+   connected*, which was true of the first draft and read as an admission once
+   the panel began counting this deployment's own machines.
    -------------------------------------------------------------------------- #}
 <section class="hero">
   <div class="wrap hero__inner">
@@ -24,8 +37,8 @@
         <span class="hero__title-accent">Every system.</span>
       </h1>
       <p class="lede">
-        Moderation, tickets, levels, an economy and a live market — each one
-        switched per server, from one dashboard.
+        Moderation, tickets, levels, an economy and a live market — switched per
+        server from one dashboard.
       </p>
       <div class="row hero__actions">
         {% if invite_url %}
@@ -33,27 +46,42 @@
         {% else %}
         <a class="btn btn--primary" href="{{ enter_url }}">{{ enter_label }}</a>
         {% endif %}
-        <a class="arrow-link" href="#systems">See what is in it</a>
+        <a class="arrow-link" href="/systems">See what is in it</a>
       </div>
       <p class="hero__meta mono">{{ system_count }} systems · {{ entry_count }} commands · free</p>
     </div>
 
     {# The panel is the product rather than a picture of it: what a visitor sees
-       here is what an administrator opens after the invite. #}
+       here is what an administrator opens after the invite — the same four
+       figure cards `/systems` opens with, from the same reader. The switches
+       carry the tour's own markup and are not wired, so they read as the drawing
+       they are; the panel's last line says which half is which. #}
     <aside class="preview" aria-labelledby="preview-heading">
       <div class="preview__bar">
+        <span class="brand__mark preview__mark" aria-hidden="true">{{ bot_initial }}</span>
         <span class="micro">Dashboard</span>
-        <span class="hint">
-          <span class="dot {{ status.dot }}" aria-hidden="true"></span> {{ status.label }}
+        <span class="preview__state">
+          <span class="dot {{ status.dot }}" aria-hidden="true"></span>
+          <span class="micro">{{ status.label }}</span>
         </span>
       </div>
 
       <div class="preview__body">
         <h2 class="visually-hidden" id="preview-heading">This deployment at a glance</h2>
         <dl class="figures">
-          {% for figure in stats %}
+          {% for figure in hero_figures %}
           <div class="figure">
+            {# Two of these four are the deployment's own and two are the
+               registry's, and the markup does not decide which: `_tile` marks
+               the ones still holding no reading, and only those carry the hook
+               the page fills from `/api/figures`. A card with a number in it
+               keeps `data-count`, so `motion.js` counts it up and nothing
+               overwrites it afterwards. #}
+            {% if figure.waiting %}
+            <dd class="figure__value" data-figure="control:{{ figure.key }}">{{ figure.value }}</dd>
+            {% else %}
             <dd class="figure__value" data-count="{{ figure.value }}">{{ figure.value }}</dd>
+            {% endif %}
             <dt class="figure__label">{{ figure.label }}</dt>
           </div>
           {% endfor %}
@@ -62,105 +90,34 @@
         <div class="preview__rows">
           {% for system in systems[:4] %}
           <div class="preview__row">
-            <span class="preview__name">{{ system.name }}</span>
+            <span class="preview__name">{{ system.icon }} {{ system.name }}</span>
             <span class="mono preview__count">{{ system.command_count }} cmd</span>
+            {# The registry's own answer, drawn: a system a server cannot switch
+               off gets the tag, and the rest get the switch they have. #}
+            {% if system.toggleable %}
+            <span class="mock-switch" role="switch" aria-checked="true" tabindex="-1"
+                  aria-label="Preview switch for {{ system.name }}">
+              <span class="mock-switch__track"></span>
+            </span>
+            {% else %}
+            <span class="tag">always on</span>
+            {% endif %}
           </div>
           {% endfor %}
           <div class="preview__row preview__row--more">
             <span class="preview__name">and {{ systems | length - 4 }} more</span>
-            <a class="mono" href="#systems">see all</a>
+            <a class="mono" href="/systems">see all</a>
           </div>
         </div>
+
+        <p class="hint preview__note">{{ panel_note }}</p>
       </div>
     </aside>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   02 — What is inside: one line each, opened in place, filtered in the open.
-   -------------------------------------------------------------------------- #}
-<section class="band" id="systems">
-  <div class="wrap">
-    <div class="band__head">
-      <div>
-        <p class="micro">Systems</p>
-        <h2>{{ systems | length }} systems, {{ switchable_count }} switchable</h2>
-      </div>
-    </div>
-
-    <div class="explorer" data-explorer>
-      <div class="explorer__bar">
-        <label class="field explorer__search">
-          <span class="visually-hidden">Find a system</span>
-          <input class="input" type="search" id="system-search" data-explorer-search
-                 placeholder="Search: economy, radio, tickets…" autocomplete="off">
-        </label>
-        <div class="chips" role="group" aria-label="Filter by kind">
-          <button class="chip" type="button" data-explorer-kind="" aria-pressed="true">All</button>
-          {% for category in categories %}
-          <button class="chip" type="button" data-explorer-kind="{{ category.name }}" aria-pressed="false">
-            {{ category.name }}
-          </button>
-          {% endfor %}
-        </div>
-      </div>
-
-      <p class="small muted explorer__status" data-explorer-status role="status">
-        Showing all {{ systems | length }} systems.
-      </p>
-
-      <ul class="explorer__list">
-        {% for system in systems %}
-        <li class="system" data-system data-kind="{{ system.category }}"
-            data-search="{{ system.name }} {{ system.category }} {{ system.id }} {{ system.desc }}">
-          <div class="system__row">
-            <span class="system__name">{{ system.icon }} {{ system.name }}</span>
-            <span class="system__meta mono">
-              {{ system.command_count }} cmd · {{ 'switchable' if system.toggleable else 'always on' }}
-            </span>
-            <button class="system__toggle" type="button"
-                    data-drawer aria-controls="system-{{ system.id }}" aria-expanded="false">
-              Details
-              <span class="system__chev" aria-hidden="true">+</span>
-            </button>
-          </div>
-          <div class="drawer" id="system-{{ system.id }}" data-open="false">
-            <div class="drawer__inner">
-              <div class="system__detail">
-                <p>{{ system.desc }}</p>
-                {% if system.commands %}
-                <div class="system__commands">
-                  {% for command in system.commands[:8] %}
-                  <code>{{ command.split(' — ')[0] }}</code>
-                  {% endfor %}
-                  {% if system.commands | length > 8 %}
-                  <a class="hint" href="/systems#cmd-{{ system.id }}">+{{ system.commands | length - 8 }} more →</a>
-                  {% endif %}
-                </div>
-                {% endif %}
-                <p class="hint">
-                  {% if system.toggleable %}
-                  Switching it off leaves that server's picker and nothing else.
-                  {% else %}
-                  Always on — nothing else works without it.
-                  {% endif %}
-                </p>
-              </div>
-            </div>
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
-
-      <p class="hint explorer__empty" hidden data-explorer-empty>
-        Nothing matches that. Clear the box to see them all again.
-      </p>
-    </div>
-  </div>
-</section>
-
-{# --------------------------------------------------------------------------
-   04 — The dashboard's own pages, one window with a rail.
+   02 — The dashboard's own pages, one window with a rail.
    -------------------------------------------------------------------------- #}
 <section class="band" id="dashboard">
   <div class="wrap">
@@ -254,7 +211,7 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   05 — Getting it running: three lines, in order.
+   03 — Getting it running: three lines, in order.
    -------------------------------------------------------------------------- #}
 <section class="band" id="start">
   <div class="wrap">
@@ -302,7 +259,7 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   06 — The questions.
+   04 — The questions.
    -------------------------------------------------------------------------- #}
 <section class="band" id="questions">
   <div class="wrap">

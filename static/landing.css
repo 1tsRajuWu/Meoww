@@ -2,31 +2,49 @@
    landing.css — the front door's own sheet.
 
    It loads after `meow.css` and adds only what one page needs: the hero and its
-   preview panel, the systems explorer, the command list, the page table, the
-   steps and the questions. Everything it draws with — colour, type, space,
-   motion — is a token from the shared sheet, so a change of palette stays a
-   one-line change in one file.
+   preview panel, the page table, the steps and the questions. The systems list
+   and the command reference both live on `/systems` with sheets of their own, so
+   nothing here draws a list of either. Everything it draws with — colour, type,
+   space, motion — is a token from the shared sheet, so a change of palette stays
+   a one-line change in one file.
 
    The page's shape, in one sentence: **two columns at the top, then a spine of
    numbered sections, each separated by a hairline rather than boxed in a card.**
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
-   Hero
+   Hero — the claim on the left, the product on the right.
+
+   The headline is deliberately *not* the shared display size. Measured at
+   1440×900 with it, the hero was 688px of a 900px viewport: the claim filled
+   the screen and the panel beside it was read as a card of facts rather than
+   as the dashboard. A step down in type and two steps in on the padding is
+   what puts the first system row and its switch above the fold, which is the
+   only reason the panel is here.
+
+   A second pass measured what the first one left: the headline still drew at
+   59.5px against a 17px lede, and because the two columns were top-aligned the
+   copy ran out 91px above the panel — a hole under the buttons, in the middle
+   of the composition, on the first screen a visitor sees. So the type scale is
+   down one more step (46px at 1440) and **the two columns are centred against
+   each other**: whichever of them is taller, neither is left hanging above the
+   other's baseline. Those are the two numbers the eye reads as "unfinished".
    -------------------------------------------------------------------------- */
 
-.hero { padding-block: calc(var(--space-8) + var(--space-5)) var(--space-8); }
+.hero { padding-block: var(--space-6); }
 
 .hero__inner {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.86fr);
-  gap: var(--space-8) var(--space-7);
-  align-items: start;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: var(--space-6) var(--space-6);
+  align-items: center;
 }
 
 .hero__title {
-  margin-block: var(--space-5) var(--space-5);
-  max-width: 18ch;
+  margin-block: var(--space-4);
+  max-width: 16ch;
+  font-size: clamp(1.875rem, 3.4vw, 2.875rem);
+  line-height: 1.06;
 }
 
 .hero__title-accent {
@@ -34,12 +52,12 @@
   color: var(--accent);
 }
 
-.hero__copy .lede { font-size: 1.125rem; max-width: 46ch; }
+.hero__copy .lede { font-size: 1.0625rem; max-width: 44ch; }
 
-.hero__actions { margin-top: var(--space-6); }
+.hero__actions { margin-top: var(--space-5); }
 
 .hero__meta {
-  margin: var(--space-6) 0 0;
+  margin: var(--space-5) 0 0;
   font-size: var(--text-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -57,30 +75,67 @@
   overflow: hidden;
 }
 
+/* The panel's own window bar: the mark, the page it is showing, and the
+   gateway's state. The dashboard starts with its chrome, so a panel claiming
+   to be the product has to start there too — the version before this one began
+   with a bare label, which is most of why it read as a placeholder. */
 .preview__bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line);
   background: var(--surface-sunken);
 }
 
-.preview__body { padding: var(--space-5); }
+.preview__mark { width: 22px; height: 22px; border-radius: 6px; font-size: 0.75rem; }
 
+.preview__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.preview__body { padding: var(--space-4) var(--space-5); }
+
+/* Four cards, and they divide the row rather than fitting into it: at 1440 the
+   panel's body is 456px, so `repeat(4, minmax(0, 1fr))` gives each card 99px
+   and `1,284` (88px at the size below) sits in it. `auto-fit` was the first
+   version and it fails on a phone: the same 346px panel made three columns of
+   81px, so the fourth card — *117 commands* — wrapped onto a line of its own
+   and `1,284` overflowed its cell by 7px, which took the page's own `.wrap`
+   with it. Measured at 390px, not guessed. Two columns is what four cards are
+   on a phone, and beneath the breakpoint the row is *stated* rather than left
+   to a width to work out. */
 .figures {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: var(--space-4);
-  margin: 0 0 var(--space-5);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-4);
+  /* Bottom-aligned, which matters because one of the four labels is two words:
+     *Members reached* wraps at this width, and without this the two wrapped
+     labels push their own numbers down and the row of figures reads as four
+     baselines rather than one. The numbers line up; the labels grow upward. */
+  align-items: end;
+}
+
+/* Where the four cards become two. 560px is the panel's own width — below it
+   the hero is one column and the panel spans the page — and it leaves a 2×2
+   block with room for the labels, so the phone reads four figures in two equal
+   rows instead of three and a stray. */
+@media (max-width: 560px) {
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .figure { display: flex; flex-direction: column-reverse; gap: 2px; }
 
 .figure__value {
   margin: 0;
-  font-size: 1.75rem;
+  /* Shrinkable, because the widest figure this card can hold is *1,284* and a
+     fixed size is what overflowed an 81px cell on a phone. */
+  font-size: clamp(1.25rem, 5vw, 1.5rem);
   font-weight: 600;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -95,162 +150,39 @@
 
 .preview__rows { border-top: 1px solid var(--line); }
 
+/* Name, count, control — the dashboard's own row shape, one line each. The
+   panel's five rows are what the hero is selling, so they stay; the height the
+   panel gives back is taken from the air around them. */
 .preview__row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
   padding-block: var(--space-2);
   border-bottom: 1px solid var(--line);
   font-size: 0.9375rem;
 }
 
-.preview__name { color: var(--text-secondary); }
+.preview__name {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .preview__count { font-size: var(--text-small); color: var(--text-muted); }
+
+/* The panel's switch is a drawing of one, so it does not need the tour's
+   thumb-sized hit area — down there the whole row is what a thumb lands on. */
+.preview .mock-switch { min-width: 0; min-height: 0; }
+
+.preview__row--more { grid-template-columns: minmax(0, 1fr) auto; }
 .preview__row--more .preview__name { color: var(--text-muted); font-size: var(--text-small); }
-.preview__note { margin: var(--space-4) 0 0; }
+.preview__note { margin: var(--space-3) 0 0; }
 
 @media (max-width: 960px) {
   .hero__inner { grid-template-columns: minmax(0, 1fr); }
   .hero { padding-block: var(--space-7) var(--space-6); }
-}
-
-/* --------------------------------------------------------------------------
-   The systems explorer
-   -------------------------------------------------------------------------- */
-
-.explorer__bar {
-  display: grid;
-  grid-template-columns: minmax(220px, 20rem) minmax(0, 1fr);
-  gap: var(--space-5);
-  align-items: end;
-  margin-bottom: var(--space-4);
-}
-
-.chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--tap-min);
-  padding: var(--space-1) var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-small);
-  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
-    background var(--fast) var(--ease);
-}
-
-.chip:hover { border-color: var(--line-strong); color: var(--text-primary); }
-
-.chip[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: rgb(var(--accent-rgb) / 10%);
-  color: var(--accent-text);
-}
-
-.chip__count { font-variant-numeric: tabular-nums; color: var(--text-muted); }
-.chip[aria-pressed="true"] .chip__count { color: inherit; }
-
-.explorer__status { margin-bottom: var(--space-4); }
-
-.explorer__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--line);
-}
-
-/* Two facts and a control. A list is a list: hairlines between rows rather than
-   a card per row, which is what turns fourteen systems into a wall of boxes. */
-.system { border-bottom: 1px solid var(--line); }
-
-.system__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, auto);
-  gap: var(--space-4);
-  align-items: center;
-  padding-block: var(--space-3);
-}
-
-.system__name { font-size: 1.0625rem; font-weight: 550; }
-.system__meta { font-size: var(--text-small); color: var(--text-muted); }
-
-.system__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--tap-min);
-  padding: 0 var(--space-2);
-  background: transparent;
-  border: 0;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--text-small);
-}
-
-.system__toggle:hover { color: var(--text-primary); }
-
-.system__chev {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  font-size: 0.875rem;
-  line-height: 1;
-  transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease);
-}
-
-.system__toggle[aria-expanded="true"] .system__chev {
-  transform: rotate(45deg);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.system__detail {
-  padding: var(--space-5) 0 var(--space-5);
-  color: var(--text-secondary);
-}
-
-.system__detail p { max-width: 62ch; }
-
-.system__commands {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-block: var(--space-3);
-}
-
-.system__commands code { font-size: var(--text-small); }
-
-.explorer__empty { margin-top: var(--space-4); }
-
-/* On a phone the row was three stacked lines — name, facts, control — which is
-   a hundred and fourteen pixels for two words and a switch. The control moves
-   up beside the name and the facts take the second line: same three things, a
-   third less height, fourteen times over. */
-@media (max-width: 760px) {
-  .explorer__bar { grid-template-columns: minmax(0, 1fr); }
-  .system__row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-1) var(--space-4);
-    padding-block: var(--space-3);
-  }
-  .system__name { grid-column: 1; grid-row: 1; }
-  .system__toggle { grid-column: 2; grid-row: 1; }
-  .system__meta { grid-column: 1 / -1; grid-row: 2; }
-}
-
-/* The command list moved to /systems with the page it belonged to; only the
-   touch floor for the explorer's own toggle lived in that block, and it stays. */
-@media (pointer: coarse) {
-  .system__toggle { min-height: var(--tap-min); }
 }
 
 /* --------------------------------------------------------------------------

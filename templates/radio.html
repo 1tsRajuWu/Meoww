@@ -13,11 +13,15 @@
   <div class="wrap">
     <p class="micro">Radio</p>
     <h1>A station, not a search box</h1>
+    {# Two sentences, and the counts first: a visitor skimming for *does it play
+       my language* should meet the numbers before the argument. The argument is
+       one clause long because the full version of it — how a media-platform
+       resolver gets a bot served a challenge instead of a stream — is a paragraph
+       that nobody reads and that the reader cannot act on either way. #}
     <p class="lede">
       {{ station_rows | length }} stations in {{ station_languages | length }} languages across
-      {{ station_countries | length }} countries, every one of them fetched before it was written
-      down. Nothing here resolves a song through a media platform, so nobody can decide
-      this bot is a robot and answer with a check instead of a stream.
+      {{ station_countries | length }} countries — each one fetched and checked before it was
+      written down, and none of them resolved through a media platform.
     </p>
   </div>
 </section>
@@ -29,13 +33,17 @@
         <p class="micro">01 — The command</p>
         <h2>One group, three faces</h2>
       </div>
+      {# What was here was a paragraph: Discord's hundred-command budget, the name
+         of the switch, and a second telling of the switched-off gate that the
+         closing band already states. A heading's note is a caption, not a
+         section — the three faces below are the detail. The command that opens
+         the gate stays in it: the closing band is where a reader learns the
+         system arrives off, and this is the line that tells them what to type.
+         `tests/test_pages_site.py` holds the pair together. #}
       <p class="small muted">
-        One <code>/radio</code> group rather than a command per station: Discord allows 100
-        commands, and three of them are all this needs. <strong>They answer once an
-        administrator turns the legacy module on for the server</strong>: radio and the
-        anonymous question box ship switched off, and <code>/bot legacy state:On</code> is
-        the one command that offers both. Until then <code>/radio</code> says which switch
-        is off, rather than failing quietly.
+        One <code>/radio</code> group rather than a command per station. It answers once an
+        administrator runs <code>/bot legacy state:On</code> — until then it says which switch
+        is off.
       </p>
     </div>
 
@@ -77,8 +85,7 @@
         <h2>Verified stations</h2>
       </div>
       <p class="small muted">
-        A country row is kept only when the station corroborates it, and a tag comes from a
-        closed vocabulary so a filter cannot quietly stop matching.
+        A country is kept only when the station corroborates it.
       </p>
     </div>
 
@@ -141,9 +148,8 @@
         <button class="btn btn--ghost" type="button" data-station-more hidden
                 aria-expanded="false">Show all {{ station_rows | length }}</button>
         <p class="hint" data-station-cap>
-          Showing the first {{ station_preview }} of {{ station_rows | length }}. Ask for the
-          rest in Discord — <code>/radio play</code> searches the whole table, by name,
-          country or language.
+          Showing the first {{ station_preview }} of {{ station_rows | length }} —
+          <code>/radio play</code> searches all of them, by name, country or language.
         </p>
       </div>
     </div>
@@ -165,25 +171,22 @@
         <span class="list__key">“The music is short.”</span>
         <span class="list__note">
           A live source that reports itself finished was cut. The bot asks the engine what
-          ended, retries inside a bounded budget, and says so out loud if it cannot hold the
-          socket — rather than leaving a silent gap that looks like a broken command.
+          ended, retries inside a budget, and says so rather than leaving a silent gap.
         </span>
       </li>
       <li class="list__row">
         <span class="list__key">“Music is broken here.”</span>
         <span class="list__note">
-          Every reason is checked before joining a channel: the ffmpeg binary, an Opus
-          library if the host has one, and the voice library discord.py refuses to open a
-          connection without. Each missing piece is reported separately, because each one is
-          a different fix.
+          Every reason is checked before joining: the ffmpeg binary, an Opus library if the
+          host has one, and the voice library. Each missing piece is named separately,
+          because each one is a different fix.
         </span>
       </li>
       <li class="list__row">
         <span class="list__key">The one thing it will not claim</span>
         <span class="list__note">
-          It cannot tell whether a station is reachable from your network — only whether it
-          is reachable from this host. A station that answers this deployment can still
-          refuse yours, and the card says so instead of pretending otherwise.
+          Whether a station is reachable is only known from this host. One that answers here
+          can still refuse your network, and the card says so.
         </span>
       </li>
     </ul>

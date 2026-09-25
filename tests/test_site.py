@@ -166,13 +166,63 @@ class TheLandingPage(unittest.TestCase):
         self.assertIn("/dashboard", response.headers["Location"])
 
     def test_the_systems_on_the_page_are_the_registrys_own_list(self):
-        """A hand-written copy is what let a removed module keep showing."""
+        """A hand-written copy is what let a removed module keep showing.
+
+        The list is on `/systems`, not on the front door: the band that used to
+        carry all fifteen systems under the hero was a third of the page's height
+        (`#systems` measured 1,549 of 5,000 pixels) and a second place to keep one
+        list, and a list kept in two places is the copy that goes stale. The
+        law did not move with the list by accident — this is the page that now
+        names every system, so it is the page that has to be drawn from the
+        registry rather than typed.
+        """
         from utils import features
 
-        body = self.client.get("/").get_data(as_text=True)
+        body = self.client.get("/systems").get_data(as_text=True)
+        # *The list*, not the page. Three other bands on this page name systems
+        # too — the command-weight bars, the command groups, the always-on
+        # sentence — so a law that searched the whole document would pass on a
+        # list that had quietly lost a row, which is the defect it is here for.
+        start = body.index('class="list"')
+        rows = body[start : body.index("</ul>", start)]
         for module in features.dashboard_modules():
             # Rendered, so "&" arrives as the entity.
-            self.assertIn(module["name"].replace("&", "&amp;"), body, module["id"])
+            self.assertIn(module["name"].replace("&", "&amp;"), rows, module["id"])
+
+    def test_the_front_door_carries_no_list_it_would_have_to_keep_in_step(self):
+        """What left the page, asserted as *absence* rather than by length.
+
+        A front door that still rendered the registry row by row would be the
+        section back with a shorter heading, and the failure it would restore is
+        quiet: two lists, one registry, and the day they disagree is a day nobody
+        notices. The panel beside the hero is the exception and stays — it names
+        four systems and links to the rest.
+        """
+        front = self.client.get("/").get_data(as_text=True)
+        self.assertNotIn('id="systems"', front, "the front door grew the band back")
+        self.assertNotIn("data-explorer", front, "the front door filters a list of its own")
+        self.assertIn("href=\"/systems\"", front, "and nothing on it reaches the list")
+
+    def test_no_link_on_the_front_door_goes_to_a_fragment_it_has_not_got(self):
+        """The way this change fails is silence.
+
+        A fragment is never sent to the server, so a link to a section that has
+        left the page scrolls nowhere, logs nothing and throws nothing — the
+        browser stays exactly where it is and the reader concludes the link is
+        dead. Both of the front door's own links into the systems band were
+        rewritten to `/systems` when the band went; this is what would have
+        caught it if they had not been, and what catches the next one.
+        """
+        front = self.client.get("/").get_data(as_text=True)
+        ids = set(re.findall(r'\bid="([^"]+)"', front))
+        targets = set(re.findall(r'href="#([^"]+)"', front))
+        self.assertTrue(targets, "no in-page link was found, so nothing is checked")
+        missing = sorted(target for target in targets if target not in ids)
+        self.assertEqual(
+            missing,
+            [],
+            f"the front door links to #{missing} and no element carries that id",
+        )
 
     def test_no_figure_is_invented_while_the_bot_is_asleep(self):
         """A cold host must not render a confident "0 servers".
@@ -182,8 +232,9 @@ class TheLandingPage(unittest.TestCase):
         of the label beside the number as well as of the number — so it passed
         for the wrong reason and would have gone on passing if the tile had
         started reading `0` above it. What it means to check is that the two
-        figures only the gateway can answer are *absent* rather than zero, and
-        that the two the registry always knows are still there.
+        figures only the gateway can answer are *dashed* rather than zeroed, on
+        both pages that draw them, and that the two the registry always knows
+        are still counted.
         """
         asleep = mock.Mock()
         asleep._has_started = False
@@ -210,25 +261,78 @@ class TheLandingPage(unittest.TestCase):
                     tile.group(1).strip(), keep_alive.NOT_READ,
                     f"a sleeping host did not say it had no reading for {label}",
                 )
-        # What it does know without the gateway is still on the page. The front
-        # door's own band omits what it cannot read rather than printing a zero,
-        # which is the same rule one page earlier — so the registry's two counts
-        # are what is left of it there.
-        self.assertRegex(
-            front,
-            r'data-count="\d+">\d+</dd>\s*<dt class="figure__label">systems</dt>',
-        )
-        self.assertRegex(
-            front,
-            r'data-count="\d+">\d+</dd>\s*<dt class="figure__label">commands</dt>',
-        )
-        self.assertNotIn('<dt class="figure__label">servers</dt>', front)
-        self.assertNotIn('<dt class="figure__label">members reached</dt>', front)
+        # What it does know without the gateway is still on the page, and the
+        # same two rules hold one page earlier: the registry's counts are
+        # *counted*, and the two figures only a gateway can answer are dashes.
+        #
+        # This used to be an absence — the front door's hero panel drew the
+        # registry's two cards and nothing else, so the law could say *servers is
+        # not on this page at all*. The panel now draws the same four cards
+        # `/systems` opens with, from the same reader, which is a stronger claim
+        # to hold: the two live ones are **present and dashed**, which is what a
+        # visitor of a sleeping host reads, and it would catch a zero here where
+        # the old wording could not.
+        for label in ("systems", "commands"):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    front,
+                    rf'data-count="\d+">\d+</dd>\s*'
+                    rf'<dt class="figure__label">{label}</dt>',
+                )
+        for label in ("servers", "members reached"):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    front,
+                    rf'<dd class="figure__value"[^>]*>—</dd>\s*'
+                    rf'<dt class="figure__label">{re.escape(label)}</dt>',
+                    f"the front door did not say it had no reading for {label}",
+                )
         self.assertRegex(
             body,
-            r'<span class="tile__value">\d+</span>\s*'
+            r'<span class="tile__value"[^>]*>\d+</span>\s*'
             r'<span class="tile__label">commands</span>',
         )
+
+    def test_the_panels_four_cards_state_their_phone_shape(self):
+        """`auto-fit` arrived at a layout nobody chose, and a phone showed it.
+
+        Measured at 390px in a browser: four cards of `minmax(76px, 1fr)` inside
+        a 346px panel made three columns of 81px, so *117 commands* wrapped onto
+        a line of its own and `1,284` overflowed its cell by 7px — which took
+        the page's own `.wrap` over the viewport with it. The row is *stated* at
+        both sizes now: four cards on a desktop, two on a phone, and a value
+        that may shrink for the widest figure the card can hold.
+        """
+        sheet = (ROOT / "static" / "landing.css").read_text(encoding="utf-8")
+        self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr))", sheet)
+        phone = sheet.split("@media (max-width: 560px)")[1]
+        self.assertIn(".figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }", phone)
+        self.assertIn("font-size: clamp(1.25rem, 5vw, 1.5rem)", sheet)
+
+    def test_the_front_door_asks_for_one_permission_and_says_so_twice(self):
+        """The step and the first question disagreed about the same button.
+
+        Read on the served page: step 01 said *"The invite asks for
+        Administrator"*, and the question right below it answered *"No. The
+        invite asks for what the systems you keep need"* — one URL, two
+        permission claims, on one screen, for a visitor deciding whether to
+        install. The link the page offers really does carry `permissions=8`
+        (`discord_auth.INVITE_PERMISSIONS` is the Administrator bitfield, and
+        the minimal one is the second link beside it), so the answer is the one
+        that was wrong.
+        """
+        front = self.client.get("/").get_data(as_text=True)
+        self.assertIn("asks for Administrator", front)
+        answers = [answer for question, answer in keep_alive.LANDING_QUESTIONS
+                   if "administrator" in question.lower()]
+        self.assertTrue(answers, "the front door stopped answering its own question")
+        for answer in answers:
+            self.assertIn("Administrator", answer, answer)
+            self.assertNotIn(
+                "asks for what the systems you keep need",
+                answer,
+                "the answer claims a permission the invite button does not ask for",
+            )
 
     def test_the_status_line_tells_the_three_states_apart(self):
         connected = mock.Mock()

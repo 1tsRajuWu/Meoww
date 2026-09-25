@@ -453,11 +453,14 @@ class BuiltSiteCase(unittest.TestCase):
             "the radio page describes a system that ships off without saying so",
         )
         # And the same fact, where a reader counts systems: the registry's own
-        # sentence for it, on the page that lists all fifteen.
+        # sentence for it, on the page that lists all fifteen. That page is
+        # `/systems` now — the front door's own fifteen-row band was a third of
+        # its height and a second copy of one list, so it names four systems in
+        # the panel beside its hero and links here for the rest.
         self.assertIn(
             "switched off until an administrator asks for them",
-            self.pages["index.html"],
-            "the front page lists the legacy system as though it were on",
+            self.pages["systems.html"],
+            "/systems lists the legacy system as though it were switched on",
         )
 
     def test_the_radio_page_lists_the_radio_commands(self):
@@ -617,10 +620,14 @@ class BuiltSiteCase(unittest.TestCase):
         # On `/systems`, which is where the deployment's own readings live: the
         # front door kept the live *counts* and the cards went with the rest of
         # the detail. The tiles are identified by their labels now — the
-        # `data-figure` hook went to the archive with the script that read it.
+        # `data-figure` hook went to the archive with the script that read it —
+        # and the tag is read with its attributes, because a cell that is
+        # *waiting* for a reading carries the key it is waiting on. The value is
+        # what this law is about; whether the cell is marked as waiting is the
+        # next paragraph's business.
         systems = self.pages["systems.html"]
         tiles = re.findall(
-            r'tile__value">([^<]*)</span>\s*<span class="tile__label">'
+            r'tile__value"[^>]*>([^<]*)</span>\s*<span class="tile__label">'
             r'(?:messages|voice hours|people seen|channels used)</span>',
             systems,
         )
@@ -659,8 +666,16 @@ class BuiltSiteCase(unittest.TestCase):
         systems, commands = features.system_count(), features.entry_count()
         switchable = len(features.dashboard_modules())
         self.assertLess(switchable, systems, "the split this page explains has gone")
-        self.assertIn(f"{systems} systems,", index)
-        self.assertIn(f"{switchable} switchable", index)
+        # The counts the front door states, and the *split* stated rather than
+        # left to be discovered. This used to read the heading of the band that
+        # listed all fifteen ("15 systems, 14 switchable"); that band is gone and
+        # the same three figures are in the hero's meta line, in the panel's own
+        # figure cards and in the third step — so the claim is re-anchored rather
+        # than dropped, because two pages disagreeing about one word is the defect
+        # this test exists for.
+        self.assertIn(f"{systems} systems", index)
+        self.assertIn(f"{commands} commands", index)
+        self.assertIn(f"{switchable} of {systems} systems have a switch", index)
         # The hero's figure card is the *total*, not the switchable subset — which
         # is how this page came to advertise eleven of twelve systems. It is a
         # `data-count` figure now, so that is what the card is checked by.

@@ -944,7 +944,14 @@ class PreviewHarness(unittest.TestCase):
 
         browser = client.get("/", headers={"User-Agent": "Mozilla/5.0"})
         self.assertEqual(browser.status_code, 200)
-        self.assertIn("Meow", browser.get_data(as_text=True))
+        # The name the process answers with, not a literal. This line spelled
+        # *Meow*, and after the rebrand it kept passing for the wrong reason: the
+        # front door's systems band printed the economy's registry description,
+        # which still calls the house account **Meow Bank**, so the old word was
+        # on the page while the brand was not on it. The band left the page and
+        # the pin went red — which is the one thing a passing-for-the-wrong-reason
+        # assertion can do for you. Read the name the pages are drawn with.
+        self.assertIn(keep_alive._bot_display_name(), browser.get_data(as_text=True))
 
         monitor = client.get("/", headers={"User-Agent": "curl/8.4.0"})
         self.assertEqual(monitor.status_code, 200)

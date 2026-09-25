@@ -87,7 +87,14 @@
     {{ theme_menu() }}
   </header>
 
-  <main id="main">
+  {# The one request a *published* copy makes. It is a file with no process
+     behind it, so a page that counts something the bot knows — the servers it
+     is in, the people it reaches — has nothing to draw and used to ship an em
+     dash nobody could resolve. The page says where to ask (`figures_url`) and
+     which cells are waiting (`data-figure`); the host that already has the
+     answer passes no URL at all, because re-asking a question you answered
+     server-side is a request per reader for numbers that are on the page. #}
+  <main id="main"{% if figures_url %} data-figures-url="{{ figures_url }}"{% endif %}>
     {% block page %}{% endblock %}
   </main>
 

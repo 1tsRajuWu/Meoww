@@ -12,11 +12,23 @@
 
 /* --------------------------------------------------------------------------
    A page's opening: a micro-label, a big line, a sentence.
+
+   The heading is **not** the shared display size, and that is the decision this
+   block exists to record. `meow.css` draws `h1` at `--text-display`, which is a
+   front door's scale — at 1440 it measured 76.5px over two lines, over a lede at
+   18px, with 88px of padding above it: a 472px band for a title and a sentence,
+   and an *inner* page shouting louder than the page that introduced the product.
+   These pages are for reading, so the heading is the front door's hero scale
+   (46px at the same width) and the space above it is a caption's, not a cover's.
    -------------------------------------------------------------------------- */
 
-.page-head { padding-block: var(--space-8) var(--space-6); }
-.page-head h1 { max-width: 26ch; }
-.page-head .lede { margin-top: var(--space-5); }
+.page-head { padding-block: var(--space-6) var(--space-5); }
+.page-head h1 {
+  max-width: 26ch;
+  font-size: clamp(1.875rem, 3.4vw, 2.875rem);
+  line-height: 1.08;
+}
+.page-head .lede { margin-top: var(--space-4); }
 
 /* --------------------------------------------------------------------------
    Metrics and tiles
@@ -272,34 +284,6 @@
   .own-actions { grid-template-columns: minmax(0, 1fr); }
   .own-fact { flex-direction: column; gap: var(--space-1); }
 }
-
-/* --------------------------------------------------------------------------
-   A bar chart that is a measurement rather than decoration
-   -------------------------------------------------------------------------- */
-
-.bars { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
-
-.bar {
-  display: grid;
-  grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr) 3.5rem;
-  gap: var(--space-4);
-  align-items: center;
-  padding-block: var(--space-2);
-  border-bottom: 1px solid var(--line);
-}
-
-.bar__name { font-size: 0.9375rem; }
-.bar__track { height: 6px; background: var(--surface-sunken); border-radius: 3px; overflow: hidden; }
-
-.bar__fill {
-  display: block;
-  height: 100%;
-  width: var(--bar, 0%);
-  background: var(--accent);
-  border-radius: 3px;
-}
-
-.bar__value { font-size: var(--text-small); color: var(--text-muted); text-align: right; }
 
 /* --------------------------------------------------------------------------
    Steps
@@ -679,6 +663,20 @@
 .cmdx__group[open] .console__list { border-top: 1px solid var(--line); }
 
 .cmdx__empty { margin-top: var(--space-4); }
+
+/* The folded tail of a group: eight names, then the rest behind one press.
+   A nested <details> rather than a cap the script applies, because every row
+   has to stay in the document for the search above the list to reach one —
+   which is also why the tail opens itself when a term matches inside it. */
+.cmdx__rest { border-top: 1px solid var(--line); }
+
+.cmdx__rest-summary {
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+
+.cmdx__rest[open] > .cmdx__rest-summary { color: var(--text-secondary); }
 
 /* --------------------------------------------------------------------------
    The dashboard's own components. The vocabulary above (`.own-card`, `.own-rail`,

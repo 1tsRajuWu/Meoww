@@ -266,9 +266,14 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
         it prints for a reading it never took is not a zero.
 
         `/systems` rather than `/`, because that is where the two preview cards
-        live — the front door kept the four headline counts, which are rendered
-        into a `<dl>` and counted up by `motion.js`, and the cards went with the
-        rest of the detail when the landing page became three pages.
+        live — the front door draws the same four control cards into a `<dl>` and
+        counts the two of them the registry answers for with `motion.js`, and the
+        activity cards went with the rest of the detail when the landing page
+        became three pages.
+
+        The tag is read with its attributes because a cell that is *waiting* for
+        a reading carries the key it waits on (`data-figure`, which `/api/figures`
+        answers); the value is what this law is about.
         """
         response = keep_alive.app.test_client().get("/systems")
         self.assertEqual(response.status_code, 200)
@@ -277,7 +282,7 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
             with self.subTest(label=label):
                 self.assertRegex(
                     body,
-                    rf'tile__value">{re.escape(keep_alive.NOT_READ)}</span>\s*'
+                    rf'tile__value"[^>]*>{re.escape(keep_alive.NOT_READ)}</span>\s*'
                     rf'<span class="tile__label">{re.escape(label)}</span>',
                     f"the {label} tile claims a reading the database could not give",
                 )

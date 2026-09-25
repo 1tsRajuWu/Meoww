@@ -324,8 +324,9 @@
    * so everything this file adds is enhancement: un-hide the tools (they ship
    * `hidden`, because a search box whose file did not load is a control that
    * does nothing), filter rows inside every group, hide the groups that emptied,
-   * open the ones that matched while a term is typed, and land the deep link
-   * the front door's “+N more →” sends (`#cmd-<id>`).
+   * open the ones that matched while a term is typed — including the folded
+   * tail a group hides behind `+N more` — and land a deep link straight at a
+   * group (`/systems#cmd-<id>`).
    * ----------------------------------------------------------------------- */
   function wireCommandExplorer() {
     var root = doc.querySelector("[data-command-explorer]");
@@ -359,6 +360,20 @@
            closing what the reader just found is a filter that argues. */
         if (term && shownInGroup > 0) group.open = true;
       });
+      /* ...and the same for a folded tail, on the same terms and for the same
+         reason: a match the reader cannot see is a search that found nothing,
+         so a tail holding one is opened — and, like the group around it, left
+         open when the box is cleared. */
+      if (term) {
+        groups.forEach(function (group) {
+          Array.prototype.slice.call(group.querySelectorAll("[data-command-rest]"))
+            .forEach(function (tail) {
+              var hits = Array.prototype.slice.call(tail.querySelectorAll("[data-command]"))
+                .some(function (row) { return !row.hidden; });
+              if (hits) tail.open = true;
+            });
+        });
+      }
 
       if (status) {
         status.hidden = !term;
@@ -382,14 +397,24 @@
     if (expand) {
       expand.addEventListener("click", function () {
         var allOpen = groups.every(function (group) { return group.hidden || group.open; });
-        groups.forEach(function (group) { if (!group.hidden) group.open = !allOpen; });
+        groups.forEach(function (group) {
+          if (group.hidden) return;
+          group.open = !allOpen;
+          /* *Expand all* has to mean all of it: the folded tails come with the
+             groups that hold them, or the button reveals eight names per system
+             and calls it everything. */
+          Array.prototype.slice.call(group.querySelectorAll("[data-command-rest]"))
+            .forEach(function (tail) { tail.open = !allOpen; });
+        });
         apply();
       });
     }
 
-    /* The front door links here as `/systems#cmd-economy`. A closed <details>
-       still scrolls to its summary, but the reader would arrive at a group that
-       looks empty — so the hash names the group and it opens before they land. */
+    /* `/systems#cmd-economy` is an address a reader can paste. A closed
+       <details> still scrolls to its summary, but they would arrive at a group
+       that looks empty — so the hash names the group and it opens before they
+       land. (The front door used to be the author of every one of these; it
+       links to the page now, and the anchors stay for anyone who has one.) */
     if (window.location.hash) {
       try {
         var target = doc.querySelector(window.location.hash);
@@ -519,12 +544,73 @@
     apply();
   }
 
+  /* --------------------------------------------------------------------------
+   * The published copy's one reading.
+   *
+   * `/systems` counts two kinds of thing. The registry's counts — how many
+   * systems, how many commands — are true of every copy of this bot and are
+   * printed by whoever rendered the page. The other two, *servers* and *members
+   * reached*, belong to the running deployment, and on Cloudflare Pages there is
+   * no running deployment: the page is a file, so those two shipped as an em
+   * dash that no visitor could resolve, on a band whose own heading reads
+   * *Counted, not claimed*.
+   *
+   * The endpoint that answers them is one request away — the built copy's
+   * `/api/figures` is reverse-proxied back to the machine, which is what
+   * `scripts/build_site.py --proxy` is for — so the host that drew the dashes
+   * asks for the figures it is missing and swaps them in. Three rules:
+   *
+   *   * only cells the server marked as waiting (`data-figure`) are written, so
+   *     a page that already has its numbers is never overwritten;
+   *   * a figure the answer does not carry is left exactly as it was, because a
+   *     dash is an honest "nobody read this" and a blank is not;
+   *   * a failed read changes nothing at all — the dash stays, which is what it
+   *     already said.
+   * ----------------------------------------------------------------------- */
+  function wireFigures() {
+    var host = doc.querySelector("[data-figures-url]");
+    if (!host || !window.fetch) return;
+
+    var url = host.getAttribute("data-figures-url");
+    var cells = Array.prototype.slice.call(doc.querySelectorAll("[data-figure]"));
+    if (!url || !cells.length) return;
+
+    /* The key names the field it wants, in the payload's own spelling:
+       `control:servers` is `text.servers`, and `activity:week:messages_text` is
+       that window's `messages_text`. Nothing here reformats a name, because a
+       reader that composes `messages` into `messages_text` is a second place
+       that has to know what the endpoint calls things. */
+    function reading(payload, name) {
+      var parts = name.split(":");
+      if (parts[0] === "control") return (payload.text || {})[parts[1]];
+      if (parts[0] === "activity") {
+        var period = (payload.periods || []).filter(function (window_) {
+          return window_.id === parts[1];
+        })[0];
+        return period ? period[parts[2]] : null;
+      }
+      return null;
+    }
+
+    fetch(url, { headers: { Accept: "application/json" } })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (payload) {
+        if (!payload) return;
+        cells.forEach(function (cell) {
+          var value = reading(payload, cell.getAttribute("data-figure"));
+          if (typeof value === "string" && value) cell.textContent = value;
+        });
+      })
+      .catch(function () { /* the dashes stay, which is what they said */ });
+  }
+
   function boot() {
     wireMenu();
     wireDrawers();
     wireReveals();
     wireCounters();
     wireCopy();
+    wireFigures();
     wireCommandExplorer();
     wireStationExplorer();
     wirePointer();

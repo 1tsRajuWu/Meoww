@@ -5,6 +5,17 @@
 <link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
 {% endblock %}
 
+{# One command row, written once. The list at the top of a group and the tail
+   behind the "+N more" are the same row, and two copies of a row is how the
+   Copy button or its search text comes to differ between them. #}
+{% macro command_row(row) %}
+<li class="command" data-command data-search="{{ row.search }}">
+  <code class="command__name">{{ row.name }}</code>
+  <button class="command__copy" type="button" data-copy="{{ row.name }}"
+          data-copy-label="Copied">Copy</button>
+</li>
+{% endmacro %}
+
 {% block page %}
 <section class="page-head band band--flush">
   <div class="wrap">
@@ -33,7 +44,11 @@
     <div class="tiles">
       {% for tile in control_tiles %}
       <div class="tile">
-        <span class="tile__value">{{ tile.value }}</span>
+        {# `data-figure` names the value this tile is waiting for, and a tile
+           that has one is only ever a tile holding no reading: the host renders
+           the numbers it can (`_needs_figures`), so a hook beside a number would
+           invite the reader to overwrite a count that is already right. #}
+        <span class="tile__value"{% if tile.waiting %} data-figure="control:{{ tile.key }}"{% endif %}>{{ tile.value }}</span>
         <span class="tile__label">{{ tile.label }}</span>
       </div>
       {% endfor %}
@@ -61,7 +76,10 @@
     <div class="tiles">
       {% for tile in activity_tiles %}
       <div class="tile">
-        <span class="tile__value">{{ tile.value }}</span>
+        {# The window is named in the key: `activity:today:messages` finds the
+           period the card is drawn from, so the tiles and a fresh reading can
+           never be about two different windows. #}
+        <span class="tile__value"{% if tile.waiting %} data-figure="activity:{{ activity_period_id }}:{{ tile.key }}"{% endif %}>{{ tile.value }}</span>
         <span class="tile__label">{{ tile.label }}</span>
       </div>
       {% endfor %}
@@ -70,33 +88,16 @@
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
-      <div>
-        <p class="micro">03 — Command weight</p>
-        <h2>Which system is the big one</h2>
-      </div>
-      <p class="small muted">Commands declared, against the largest system.</p>
-    </div>
-
-    <ul class="bars">
-      {% for bar in system_bars %}
-      <li class="bar">
-        <span class="bar__name">{{ bar.icon }} {{ bar.name }}</span>
-        <span class="bar__track"><span class="bar__fill" style="--bar: {{ bar.pct }}%"></span></span>
-        <span class="bar__value mono">{{ bar.commands }}</span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-</section>
-
+{# The chart that used to sit here is gone, and it is worth writing down why
+   rather than leaving the gap unexplained: fifteen bars of command counts said
+   nothing the list below does not say per row, and a chart whose whole content
+   is a number already printed three lines under it is the shape this page keeps
+   being cut back to. `_system_bars()` went with it. #}
 <section class="band" id="all">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">04 — The list</p>
+        <p class="micro">03 — The list</p>
         <h2>{{ system_count }} systems</h2>
       </div>
       <p class="small muted">Switchable means the server's own switches can turn it off; always-on means nothing works without it.</p>
@@ -117,11 +118,22 @@
     <p class="hint tiles">
       {{ always_on | length }} of them {{ 'is' if (always_on | length) == 1 else 'are' }} always on: {{ always_on | join(', ') }}.
     </p>
+
+    {# And the third state, in the registry's own sentence rather than a summary
+       of one. A system that ships *off* is the one a visitor is most likely to
+       be refused by, and "switchable like the rest" is what this page used to
+       say about the only system of the fifteen that is not. #}
+    {% for system in ships_off %}
+    <p class="hint tiles">
+      {{ system.icon }} {{ system.name }} arrives switched off — an administrator offers it to a
+      server before its commands answer at all. {{ system.desc }}
+    </p>
+    {% endfor %}
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   05 — Every command, grouped by the system that gates it.
+   04 — Every command, grouped by the system that gates it.
 
    The front door used to carry all hundred and ten rows; it is here instead,
    one collapsed <details> per system, because a wall of names on the page that
@@ -131,18 +143,23 @@
    to render or cap anything. The search box starts `hidden` and is un-hidden
    by motion.js — a control that does nothing without its file is not shown
    to the reader who does not have it.
+
+   An opened group shows eight names and folds the rest behind one press
+   (`+N more`), which is the whole of this pass: the section's own head was
+   three lines of copy defending a count, and an opened economy group was
+   seventeen rows on a page whose answer to *what is this* is the list above
+   it. Nothing is dropped — every row is still in the document, which is what
+   lets the search reach one inside a folded tail.
    -------------------------------------------------------------------------- #}
 <section class="band" id="commands">
   <div class="wrap">
     <div class="band__head">
       <div>
-        <p class="micro">05 — Commands</p>
+        <p class="micro">04 — Commands</p>
         <h2>Every command, by system</h2>
       </div>
       <p class="small muted">
-        {{ entry_count }} names here, counted one row each, so `/market buy` is its
-        own. Discord's picker holds {{ command_count }}, because it counts
-        `/market` once.
+        {{ entry_count }} names, one row each — `/market buy` is its own.
       </p>
     </div>
 
@@ -166,20 +183,21 @@
           <span class="cmdx__count mono">{{ group.rows | length }} cmd</span>
         </summary>
         <ul class="console__list">
-          {% for row in group.rows %}
-          <li class="command" data-command data-search="{{ row.search }}">
-            <code class="command__name">{{ row.name }}</code>
-            <button class="command__copy" type="button" data-copy="{{ row.name }}"
-                    data-copy-label="Copied">Copy</button>
-          </li>
-          {% endfor %}
+          {% for row in group.rows[:8] %}{{ command_row(row) }}{% endfor %}
         </ul>
+        {% if group.rows | length > 8 %}
+        <details class="cmdx__rest" data-command-rest>
+          <summary class="cmdx__rest-summary mono">the other {{ group.rows | length - 8 }}</summary>
+          <ul class="console__list">
+            {% for row in group.rows[8:] %}{{ command_row(row) }}{% endfor %}
+          </ul>
+        </details>
+        {% endif %}
       </details>
       {% endfor %}
 
       <p class="hint cmdx__empty" data-command-empty hidden>
-        No command matches that. The search covers all {{ entry_count }} names, their
-        descriptions and their system.
+        No command matches that. The search covers all {{ entry_count }} names.
       </p>
     </div>
   </div>

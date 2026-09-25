@@ -2004,37 +2004,6 @@ def _public_figures(*, read_tracker: bool = True) -> dict:
     return figures.snapshot(gateway=_gateway_counts(), read_tracker=read_tracker)
 
 
-def _home_stats() -> list[dict]:
-    """The figures on the landing page, and only the ones that are true.
-
-    The registry always knows how many systems exist and which commands they
-    declare, so those two are always shown. Servers and members can only come
-    from the gateway — and on a host that sleeps, a cold start would otherwise
-    render a confident **0 servers**, which reads as a bot nobody uses rather
-    than as a process that has not woken up yet. So they are simply absent until
-    there is something to say, and the status line above them says why.
-    """
-    stats = [{"value": f"{features.system_count():,}", "label": "systems"}]
-    started, _connected = _gateway_state()
-    if started and BOT_INSTANCE is not None:
-        try:
-            guilds = list(BOT_INSTANCE.guilds)
-            members = sum(g.member_count or 0 for g in guilds)
-            stats = [
-                {"value": f"{len(guilds):,}", "label": "servers"},
-                {"value": f"{members:,}", "label": "members reached"},
-                *stats,
-            ]
-        except Exception as exc:
-            print(f"[HOME] could not read the live figures: {exc}", flush=True)
-    # ``entry_count``, not ``command_count``: this figure sits in the panel
-    # directly above a line that says "{{ entry_count }} commands", and printing
-    # the picker's smaller 95 under the word "commands" there made the hero
-    # argue with itself — the exact defect the prose was already unified against.
-    stats.append({"value": f"{features.entry_count():,}", "label": "commands"})
-    return stats
-
-
 def _static_site() -> bool:
     """Is this the published copy rather than a running process?
 
@@ -2162,40 +2131,36 @@ def _try_payload() -> str:
     return payload.replace("<", "\\u003c")
 
 
-def _system_bars() -> list[dict]:
-    """The system list as a chart: one bar per system, sized by its commands.
+def _needs_figures(*groups: list[dict]) -> bool:
+    """Whether the page was drawn *without* a reading.
 
-    The card's chart used to be nine hand-written heights — decoration that
-    looked like a measurement, which is the one thing this project keeps
-    removing. These are real: the registry knows exactly how many commands each
-    system declares, so the chart is that count, and a bar can be clicked to say
-    which system it is.
-
-    Height is relative to the largest system rather than to the total, so the
-    shape stays readable on a deployment with one system enabled and on one with
-    eleven: the question the chart answers is "which of these is the big one?"
+    True when anything on it is still the dash :data:`NOT_READ` stands for, which
+    is what a build of the published site looks like: a file, no process, no
+    gateway to count, so *servers* and *members reached* have no value to print.
+    The host answers the same question `False` for, because it renders the
+    numbers itself — and that is the whole point of the check: a page asks the
+    machine only for the readings it does not already have, rather than asking
+    again for an answer that is on it.
     """
-    bars = [
-        {
-            "id": feature.id,
-            "name": feature.name,
-            "icon": feature.icon,
-            "commands": len(feature.commands),
-        }
-        for feature in features.FEATURES
-    ]
-    top = max((bar["commands"] for bar in bars), default=0) or 1
-    for bar in bars:
-        # A floor, so a system with one command is still a bar rather than a
-        # line at zero height that reads as "off".
-        bar["pct"] = max(8, round(bar["commands"] * 100 / top))
-    return bars
+    return any(tile["waiting"] for group in groups for tile in group)
 
 
 #: A figure that was never read. An em dash, not a zero: the modules above go to
 #: some trouble to report "I do not know" separately from "none", and a card that
 #: printed `0 servers` for a sleeping host would undo that in the last step.
 NOT_READ = "—"
+
+
+def _tile(key: str, label: str, value: str) -> dict:
+    """One figure card, and whether it is waiting on a reading.
+
+    ``waiting`` is written where the value was computed rather than worked out
+    again in a template, because it is the difference between a cell the
+    published copy has to ask for and one it already has. A card that carried
+    the hook with a number in it would invite a reader to overwrite a count the
+    host had already made, which is the second author one value must not have.
+    """
+    return {"key": key, "label": label, "value": value, "waiting": value == NOT_READ}
 
 
 def _control_tiles(live: dict) -> list[dict]:
@@ -2206,10 +2171,14 @@ def _control_tiles(live: dict) -> list[dict]:
     started, so a visitor learned nothing about whether anybody uses it. Servers
     and the people in them are the numbers that answer that, and they are the
     ones a cold host can only say "not yet" about.
+
+    The front door's panel draws these same four, which is why the labels are
+    the registry's words rather than the hero's copy: two pages naming one
+    figure differently is how a product comes to look like two.
     """
     text = live.get("text") or {}
     return [
-        {"key": key, "label": label, "value": text.get(key) or NOT_READ}
+        _tile(key, label, text.get(key) or NOT_READ)
         for key, label in (
             ("servers", "servers"),
             ("members", "members reached"),
@@ -2237,7 +2206,7 @@ def _activity_tiles(live: dict, period_id: str) -> list[dict]:
         # build of the published site — this used to print **0 messages** under a
         # card whose own module goes out of its way to report "I have no reading"
         # separately from "none". Zero is a measurement, and this was not one.
-        {"key": key, "label": label, "value": window.get(key) or NOT_READ}
+        _tile(key, label, window.get(key) or NOT_READ)
         for key, label in (
             ("messages_text", "messages"),
             ("voice_text", "voice hours"),
@@ -2314,6 +2283,11 @@ def _site_context() -> dict:
         # a total and then a shorter list has to say what the difference is; the
         # alternative is a reader counting cards and finding one missing.
         "always_on": features.always_on_names(),
+        # ...and the other half of the same sentence: the systems that arrive
+        # *off*. The front door's own fifteen-row band used to carry this in a
+        # drawer, which is why a page that only described `/radio` as switchable
+        # left a visitor to find out by being refused.
+        "ships_off": features.ships_off(),
         **_invite_context(),
     }
 
@@ -2437,8 +2411,16 @@ LANDING_TOUR = {
 LANDING_QUESTIONS = (
     (
         "Does the bot need administrator permission?",
-        "No. The invite asks for what the systems you keep need, and there is a "
-        "smaller link beside it.",
+        # The answer has to agree with the step two bands up, because a visitor
+        # reads both before deciding: the invite the page offers really does ask
+        # for Administrator (`discord_auth.INVITE_PERMISSIONS`), and the smaller
+        # grant is the second link beside it. The answer here used to say the
+        # invite asks "for what the systems you keep need", which is true of the
+        # minimal link and false of the one the button uses — two permissions
+        # claimed for one URL, on one page, in the same screen.
+        "Not to work. The invite asks for Administrator — one bit, and the reason no "
+        "feature ever answers “Missing Permissions” — with a smaller grant beside "
+        "it if you would rather hand over less.",
     ),
     (
         "What happens when I switch a system off?",
@@ -2467,11 +2449,13 @@ LANDING_QUESTIONS = (
 
 
 def _landing_systems() -> list[dict]:
-    """Every system on the front door's explorer, from the registry itself.
+    """The systems the front door's preview panel names, from the registry itself.
 
-    All of them, not the switchable subset: the page's headline counts both, and
-    a list that quietly dropped the always-on ones would be the same defect the
-    figures band was fixed for — two numbers about one word, disagreeing.
+    All of them, not the switchable subset: the page's closing sentence counts
+    both, and a list that quietly dropped the always-on ones would be the same
+    defect the figures band was fixed for — two numbers about one word,
+    disagreeing. The panel draws the first four and links to `/systems` for the
+    rest, which is where the whole list lives.
     """
     return [
         {
@@ -2488,60 +2472,14 @@ def _landing_systems() -> list[dict]:
     ]
 
 
-def _landing_categories(systems: list[dict]) -> list[dict]:
-    """The filter chips, in the order the registry lists them.
-
-    Counted from the *switchable* systems, because that is the list the chips
-    filter — a chip reading "Economy 3" over a grid that hides one of them is a
-    number about nothing.
-    """
-    seen: dict[str, int] = {}
-    for system in systems:
-        if not system["toggleable"]:
-            continue
-        seen[system["category"]] = seen.get(system["category"], 0) + 1
-    return [{"name": name, "count": count} for name, count in seen.items()]
-
-
-def _landing_commands() -> list[dict]:
-    """Every command the front door's console can play back.
-
-    Read out of the registry rather than written here, so the page cannot offer a
-    command the bot does not have — and each row carries the system that gates it
-    and where that system is switched, which is what makes the card an *answer*
-    rather than a decoration. A command's own description, where the registry has
-    one, is split off the human-facing string: ``"/market buy — Buy an "
-    "instrument with coins"`` is a name and a sentence, and both are shown.
-    """
-    rows: list[dict] = []
-    for feature in features.FEATURES:
-        # One split of one string, in the registry, so this list and the figure
-        # printed above it cannot disagree about how many rows there are.
-        for name, note in features.feature_entries(feature):
-            rows.append({
-                "name": name,
-                "icon": feature.icon,
-                "system": feature.name,
-                "blurb": note,
-                "scope": "per server" if feature.toggleable else "always on",
-                "toggle": "/dashboard/systems",
-                "path": "/dashboard/systems",
-                # What the search box matches on, built here so the browser does
-                # not have to know how a command is spelled to find it.
-                "search": " ".join(
-                    part for part in (name, note, feature.name, feature.category, feature.id) if part
-                ).lower(),
-            })
-    return rows
-
-
 def _command_groups() -> list[dict]:
     """Every system with its full command list, as one collapsed group each.
 
-    The reference page's accordions, built from the same registry readers as
-    :func:`_landing_commands` so the two surfaces cannot disagree about what a
-    system contains. A group carries its ``feature.id`` because the front door
-    deep-links to it (``/systems#cmd-economy``) from a drawer's “+N more”.
+    The reference page's accordions, built from :func:`features.feature_entries`
+    — the one reader of what a system contains, so this page cannot disagree with
+    the figure printed above it. A group carries its ``feature.id`` because the
+    anchor is an address: ``/systems#cmd-economy`` opens that group, and anyone
+    who has one of those links keeps a working one.
     """
     groups: list[dict] = []
     for feature in features.FEATURES:
@@ -2584,35 +2522,25 @@ def _landing_context() -> dict:
 
     The page's whole claim is "this is what is in it, and here is what each piece
     does" — so every list on it comes from a registry rather than from prose: the
-    explorer and the console from :mod:`utils.features`, the tour from
+    systems the preview panel names from :mod:`utils.features`, the tour from
     :data:`DASHBOARD_PAGES`. That is what makes it impossible for the front door
-    to advertise a system, a command or a page that does not exist, which is the
-    defect this project has shipped twice.
+    to advertise a system or a page that does not exist, which is the defect this
+    project has shipped twice.
+
+    What is *not* read here is as much of a decision: the whole systems list and
+    the whole command list are one click away on `/systems`, which renders them
+    from the same registry, so this function does not build a second copy for a
+    band that would be a third of the page's height.
     """
     systems = _landing_systems()
-    commands = _landing_commands()
-    # The strip under the hero: real commands, deduplicated in registry order and
-    # capped, because the track is drawn twice for its seamless loop and a DOM
-    # with four hundred nodes in a decorative strip is a cost with no reader.
-    ticker = []
-    for command in commands:
-        if command["name"] not in ticker:
-            ticker.append(command["name"])
-        if len(ticker) >= 44:
-            break
     return {
         "systems": systems,
         "switchable_count": len(features.dashboard_modules()),
-        "categories": _landing_categories(systems),
-        "commands": commands,
         # ``entry_count`` is deliberately not here: it is a figure about the
         # registry, so it lives in :func:`_site_context` with the other one, and
         # the front door spreads that context before this mapping. Spelling it
         # here as well was a `TypeError` on the next request — two authors for
         # one name — which is the failure this pair of functions exists to avoid.
-        "commands_json": _inline_json(commands),
-        "explorer_json": _inline_json({"systems": systems}),
-        "ticker_commands": ticker,
         "tour": _landing_tour(),
         "faq": [{"question": question, "answer": answer} for question, answer in LANDING_QUESTIONS],
     }
@@ -2624,11 +2552,28 @@ def _home_page():
     It used to be the shortest of three pages, because every question lived one
     click away — the systems list on `/systems`, the steps on `/start`. That is a
     front door that explains nothing to a visitor who will not click twice, so
-    the answers moved here with the interactions that make them legible: filter
-    the registry, open a system, watch it go off, play back a command, walk the
-    dashboard's pages. `/systems` and `/start` remain, and remain the places the
-    detail lives; this page no longer needs them to mean anything.
+    the answers moved here with the interactions that make them legible: walk the
+    dashboard's pages, open a question. The two lists are the part that stayed
+    where they belong: `/systems` carries every system and every command, and
+    this page names four of them and links to it — a band of all fifteen under
+    the hero was a third of the front door's height and a second place to keep a
+    list, which is the copy that goes stale.
+
+    The panel beside the hero draws the *same four cards* `/systems` opens with,
+    from the same reader, rather than a second set of its own figures. What it
+    used to draw was `_home_stats()`: the registry's two counts, which the hero's
+    own meta line prints three inches away, and — on a host that had just woken —
+    nothing else, under a line that read *Sample data, nothing here is connected*.
+    Servers and members reached are the numbers a visitor cannot get anywhere else
+    on this page, so they are the ones the panel leads with, dashed rather than
+    zeroed until this deployment answers for itself.
     """
+    # Whether this copy has a process behind it: `utils.figures.deployment`
+    # refuses the tracker on a build machine, so the two cards it *can* fill in
+    # (`servers`, `members reached`) are the two the panel has to ask for.
+    live = _public_figures(read_tracker=not _static_site())
+    hero_figures = _control_tiles(live)
+    figures_url = _figures_url() if _needs_figures(hero_figures) else ""
     return render_template(
         "home.html",
         **_site_context(),
@@ -2637,7 +2582,18 @@ def _home_page():
         # `aria-current` and no script can disagree with it.
         current="home",
         status=_home_status(),
-        stats=_home_stats(),
+        hero_figures=hero_figures,
+        figures_url=figures_url,
+        # The panel's closing line, and the two things it has to be true about:
+        # which half of the panel is a drawing, and where the numbers came from.
+        # It used to read *Sample data — nothing here is connected*, which was
+        # honest about the first draft and became the one line a front door
+        # cannot afford the moment the panel started reading the deployment.
+        panel_note=(
+            "The switches are a drawing; the counts are read from this deployment."
+            if figures_url
+            else "The switches are a drawing; the counts are this deployment's own."
+        ),
         meta_description=(
             f"{_bot_display_name()} — moderation, tickets, leveling, an economy, "
             "a live market and per-server activity tracking, driven from a "
@@ -2670,6 +2626,10 @@ def _systems_page():
     # and because it is the window the weekly digest uses.
     opened = next((p for p in periods if p["id"] == "week"), periods[0] if periods else {})
     opened_id = opened.get("id") or "week"
+    # The two cards' figures, built here rather than inside the call: whether the
+    # page was drawn with them decides whether it asks the machine for them.
+    control_tiles = _control_tiles(live_figures)
+    activity_tiles = _activity_tiles(live_figures, opened_id)
     return render_template(
         "systems.html",
         **_site_context(),
@@ -2678,16 +2638,21 @@ def _systems_page():
         # preview cards draw. Read once here and again by `/api/figures` for the
         # published copy, from the same cached snapshot, so the page and the
         # endpoint cannot disagree about the same minute.
-        control_tiles=_control_tiles(live_figures),
-        activity_tiles=_activity_tiles(live_figures, opened_id),
+        control_tiles=control_tiles,
+        activity_tiles=activity_tiles,
         activity_periods=[
             {"id": p["id"], "label": p["label"], "selected": p["id"] == opened_id}
             for p in periods
         ],
-        system_bars=_system_bars(),
+        # Which window the activity tiles are drawn from, so the reader that
+        # fills them in can name the same one: `activity:<period>:<key>`.
+        activity_period_id=opened_id,
         command_groups=_command_groups(),
-        figures_json=_inline_json(live_figures),
-        figures_url=_figures_url(),
+        # Empty unless this copy was drawn without a reading — the published site
+        # is a file with no process behind it, and its two dashes were permanent
+        # until this: `/api/figures` answers the same numbers through the Pages
+        # proxy, and the page now asks for the ones it is missing.
+        figures_url=_figures_url() if _needs_figures(control_tiles, activity_tiles) else "",
         # The same registry the list above is built from, as data — so the
         # interactive panel cannot advertise a system the bot does not have, and
         # cannot disagree with the static list beside it.

@@ -634,6 +634,24 @@ def dashboard_modules() -> list[dict]:
     ]
 
 
+def ships_off() -> list[dict]:
+    """The systems a server has to ask for, in the registry's own sentence.
+
+    The third answer to *which of these is not like the others*: most systems
+    arrive on and can be switched off, :func:`always_on_names` names the ones
+    that cannot be switched off at all, and these arrive **off**. A visitor who
+    installs the bot and is refused by `/radio` has been told nothing by a page
+    that described the system only as *switchable like the rest*, so the page
+    that lists every system prints this — on the page the reader is counting
+    systems on, which is where a total over a shorter list gets explained.
+
+    The sentence is the feature's own ``description`` rather than a summary of
+    it, for the reason every other reader here exists: a registry edit moves the
+    page with it and the two cannot drift.
+    """
+    return [module for module in dashboard_modules() if module["id"] in DEFAULT_DISABLED_MODULES]
+
+
 def validate() -> list[str]:
     """Return a list of registry problems (empty means healthy).
 
