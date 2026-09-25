@@ -78,7 +78,7 @@ class TheScan(unittest.TestCase):
 
     def test_api_endpoints_and_pages_are_not_media(self):
         self.assertFalse(media_health._is_media_url("https://api.thecatapi.com/v1/images/search"))
-        self.assertFalse(media_health._is_media_url("https://meow-bot.pages.dev/dashboard"))
+        self.assertFalse(media_health._is_media_url("https://dacat.pages.dev/dashboard"))
         self.assertTrue(media_health._is_media_url("https://i.imgur.com/2s8K6Hh.jpeg"))
         self.assertTrue(media_health._is_media_url("https://media.tenor.com/anything/at/all"))
 

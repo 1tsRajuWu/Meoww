@@ -32,7 +32,7 @@ FIELD_LIMIT = 1024
 #: Where the live chart page is served. The same host as the dashboard, because
 #: that is the process that already has the market in memory.
 DASHBOARD_BASE = config_audit.get(
-    "DASHBOARD_BASE_URL", "https://meow-bot.pages.dev"
+    "DASHBOARD_BASE_URL", "https://dacatdashboard.pages.dev"
 ).rstrip("/")
 
 
@@ -170,7 +170,7 @@ class Market(commands.Cog):
                 await interaction.response.send_message(
                     "⚠️ The **Market** is currently **turned off** on this server.\n"
                     "An administrator can re-enable it in the "
-                    "[Web Dashboard](https://meow-bot.pages.dev/dashboard).",
+                    "[Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
                     ephemeral=True,
                 )
                 return False

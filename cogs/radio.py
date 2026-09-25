@@ -97,7 +97,7 @@ class Radio(commands.Cog):
                     "⚠️ **Radio is part of the legacy module**, which is currently "
                     "**turned off** on this server.\nAn administrator can turn it on with "
                     "`/bot legacy state:On`, or in the "
-                    "[Web Dashboard](https://meow-bot.pages.dev/dashboard).",
+                    "[Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
                     ephemeral=True,
                 )
                 return False

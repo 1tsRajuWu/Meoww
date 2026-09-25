@@ -1285,7 +1285,7 @@ PREVIEW_UPTIME: dict = {
         {
             "id": "803978678",
             "name": "Public site",
-            "url": "https://meow-bot.pages.dev",
+            "url": "https://dacat.pages.dev",
             "status": 0,
             "label": "paused",
             "up": False,

@@ -179,7 +179,7 @@ class TheFieldList(unittest.TestCase):
             "ip": "203.0.113.7", "country": "SG", "hits": 3,
         }
         with mock.patch.object(alert_webhook, "send") as send:
-            alert_webhook.guard_event("honeytoken", event, label="meow-bot.pages.dev")
+            alert_webhook.guard_event("honeytoken", event, label="dacat.pages.dev")
         kwargs = send.call_args.kwargs
         self.assertEqual(kwargs["severity"], "alert")
         names = [name for name, _ in kwargs["fields"]]

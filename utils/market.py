@@ -207,7 +207,7 @@ CRYPTO = "crypto"
 STOCK = "stock"
 
 HTTP_HEADERS = {
-    "User-Agent": "MeowDiscordBot/2.0 (+https://meow-bot.pages.dev)",
+    "User-Agent": "MeowDiscordBot/2.0 (+https://dacat.pages.dev)",
     "Accept": "application/json,text/csv,*/*",
 }
 #: Nasdaq's public chart endpoint closes the connection to a bot-style

@@ -64,8 +64,10 @@ from utils import ai_guard, brand  # noqa: E402 — needs ROOT on the path first
 #: here: the console, the legal pages, the health line.
 DEFAULT_LIVE_APP = build_site.DEFAULT_LIVE_APP
 
-#: The hub's public address, used only to write sitemap.xml.
-DEFAULT_HUB_URL = "https://meowdev.pages.dev"
+#: The hub's public address, used only to write sitemap.xml. The hub has no
+#: hostname of its own any more — its pages are proxied by the public site's
+#: worker — so the address a sitemap would name is the site's, under `/hub`.
+DEFAULT_HUB_URL = "https://dacat.pages.dev/hub"
 
 #: ``route`` -> the file it becomes. The routes come from ``utils.hub`` so the
 #: rail, the Flask app, the command palette and this builder all read one list.

@@ -37,7 +37,7 @@ from utils import discord_auth, features
 
 ROOT = Path(__file__).resolve().parent.parent
 LIVE = "https://bot.example.test"
-SITE = "https://meow-bot.pages.dev"
+SITE = "https://dacat.pages.dev"
 
 
 class RewriteUrlCase(unittest.TestCase):

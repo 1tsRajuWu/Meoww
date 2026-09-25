@@ -482,7 +482,7 @@ class TheForwardedResponseKeepsItsType(unittest.TestCase):
     itself — the failure was in the *interpretation*, which is why nothing on the
     server side looked wrong. Measured before the fix: `text/html; charset=utf-8`
     from Flask on 127.0.0.1, and no ``Content-Type`` header at all from
-    ``meow-owner.pages.dev/owner/login``.
+    ``dacatowner.pages.dev/owner/login``.
     """
 
     NORMAL_HEADERS = [

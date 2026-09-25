@@ -530,7 +530,7 @@ SETTINGS: tuple[Setting, ...] = (
         "OWNER_PUBLIC_SITE_URL", TUNING,
         "where the owner host sends a path it does not serve — the public site, "
         "which is the host whose build has the assets those pages ask for",
-        "the compiled default (https://meow-bot.pages.dev) is used. Set it when "
+        "the compiled default (https://dacat.pages.dev) is used. Set it when "
         "the public site moves: the owner host answers only the console's own "
         "paths, and every other one is redirected here.",
         scope=BUILD,

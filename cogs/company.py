@@ -176,7 +176,7 @@ class Company(commands.Cog):
                 await interaction.response.send_message(
                     "⚠️ The **Voice Company** system is currently **turned off** on this "
                     "server.\nAn administrator can re-enable it in the "
-                    "[Web Dashboard](https://meow-bot.pages.dev/dashboard).",
+                    "[Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
                     ephemeral=True,
                 )
                 return False

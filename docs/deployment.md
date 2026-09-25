@@ -71,12 +71,22 @@ this file.
   - Sync interval: Every 25 seconds
 
 ### 4. Cloudflare Pages (the public site)
-- Project: `meow-bot` → https://meow-bot.pages.dev
+- Project: `dacat` → https://dacat.pages.dev
 - Source: this GitHub repository, connected through Pages' own Git integration,
   deploying on every push to `main`. `Site` in GitHub Actions builds the same
   output but **cannot publish** — its token has `Pages Read` and not
   `Pages Write` — so the Git integration is what actually ships the site, and a
   failing `Site` run is not a failing deploy.
+- **The Git integration is a dashboard setting, and it did not come across with
+the name.** The three projects this replaced (`meow-bot`, `meow-owner`,
+`meowdev`) were deleted after the four below were verified, and a Cloudflare
+project cannot be renamed or have its Git source moved from the CLI — so until
+somebody connects `dacat` to `1tsRajOwO/Meow` in the Pages dashboard (build
+command `pip install -r requirements.txt && python scripts/build_site.py --out
+_site --proxy`, output `_site`), **this host does not publish on push** and
+`python scripts/ship.py --only dacat` is how a commit reaches it. That is the
+same deliberate path the other three have always needed, and the check below says
+which of the two happened.
 - **A failing workflow is not a failing deploy, and the workflow is failing.**
   Every run of `Site` *and* `tests` on this account stops before a job starts
   (`recent account payments have failed or your spending limit needs to be
@@ -87,20 +97,21 @@ this file.
   when a push has to be *proved* to have landed:
 
   ```bash
-  python scripts/ship.py                  # build, upload and verify all three
-  python scripts/ship.py --dry-run        # build all three, upload nothing
-  python scripts/ship.py --verify-only    # upload nothing; did the push arrive?
-  python scripts/ship.py --only meow-owner
-  python scripts/ship.py --only meowdev   # the developer hub — see §6
+  python scripts/ship.py                    # build, upload and verify all four
+  python scripts/ship.py --dry-run          # build all four, upload nothing
+  python scripts/ship.py --verify-only      # upload nothing; did the push arrive?
+  python scripts/ship.py --only dacatowner
+  python scripts/ship.py --only dacatmarket # one host, when only it changed
   ```
 
-  `--verify-only` reports what each of the four addresses serves, and a host that
-  is *behind* is the honest answer rather than a failure of the check: `meow-bot`
-  publishes itself on push within seconds, while `meow-owner` and `meowdev` (no
-  Git integration, below) stay where they were last deployed — so a docs-only
-  commit legitimately leaves them a commit behind, and `--only meow-owner` is the
-  fix when the console changed. The fourth address is the machine (§6), which
-  nothing here uploads; it is checked in every run regardless of `--only`.
+  `--verify-only` reports what each of the five addresses serves, and a host that
+  is *behind* is the honest answer rather than a failure of the check: `dacat`
+  publishes itself on push within seconds *once its Git integration is
+  connected*, while the other three (no Git integration at all, below) stay where
+  they were last deployed — so a docs-only commit legitimately leaves them a
+  commit behind, and `--only dacatowner` is the fix when the console changed. The
+  fifth address is the machine (§9), which nothing here uploads; it is checked in
+  every run regardless of `--only`.
 
   It refuses to build from a dirty tracked file or from a commit that is not on
   `origin/main` — a deployment carries the commit it was built from, and both of
@@ -168,12 +179,12 @@ older one, and only the first answer tells you what is published now.
 ```bash
 # Every one of these must be 404: the source is not a web page.
 for p in /bot.py /utils/cloud_sync.py /cogs/economy.py /render.yaml /.env.example; do
-  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://meow-bot.pages.dev$p?cachebust=$RANDOM"
+  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://dacat.pages.dev$p?cachebust=$RANDOM"
 done
 
 # These must NOT be 404: the proxy is running.
 for p in /login /health; do
-  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://meow-bot.pages.dev$p"
+  printf '%-24s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://dacat.pages.dev$p"
 done
 # /dashboard and /servers answer 302 -> /login when signed out, which is correct.
 ```
@@ -211,9 +222,9 @@ shortly after boot).
 
 ### 5. Cloudflare Pages (the owner console)
 
-- Project: `meow-owner` → https://meow-owner.pages.dev
+- Project: `dacatowner` → https://dacatowner.pages.dev
 - Source: **no Git integration.** `wrangler pages project list` reports a Git
-  provider for `meow-bot` and none for this project, and every deployment it has
+  provider for `dacat` and none for this project, and every deployment it has
   carries a commit stamped by hand — so a push to `main` updates the public site
   and leaves this one untouched. That is the whole mechanism behind "the changes
   are not showing": the console bundle here was built from `ed5dee8` while the
@@ -224,7 +235,7 @@ Deploy it deliberately, after `npm run build` inside `console/` — which
 
 ```bash
 cd console && npm run build   # writes static/console/
-cd .. && python scripts/ship.py --only meow-owner
+cd .. && python scripts/ship.py --only dacatowner
 ```
 
 The three commands it replaces, for when one of them has to be run on its own:
@@ -232,25 +243,26 @@ The three commands it replaces, for when one of them has to be run on its own:
 ```bash
 cd console && npm run build          # writes static/console/
 python scripts/build_owner.py        # writes _owner/ with that bundle inside
-npx wrangler pages deploy _owner --project-name=meow-owner --branch=main
+npx wrangler pages deploy _owner --project-name=dacatowner --branch=main
 ```
 
 Two ways to stop doing that by hand, in order of preference:
 
 1. **Connect the project to the repository** in the Cloudflare dashboard with
-   build command `pip install -r requirements.txt && python scripts/build_owner.py --out _owner`
+   build command `pip install -r requirements.txt && python scripts/build_owner.py --host owner --out _owner`
    and build output directory `_owner`. A Pages build image has no Node, which
    is exactly why `static/console/` is committed: the build copies the bundle
    rather than compiling it.
-2. **Add a publish step to `.github/workflows/site.yml`** for
-   `wrangler pages deploy _owner --project-name=meow-owner`. It needs
-   `CLOUDFLARE_API_TOKEN` with **Pages: Edit**; the token this repository has
-   been using cannot publish at all (`Pages Read` only), which is why the
-   `Site` job builds and does not deploy.
+2. **`Site` already has the job** (`deploy-owner`, and one for each of the other
+   two hosts). It needs `CLOUDFLARE_API_TOKEN` with **Pages: Edit**; the token
+   this repository has been using cannot publish at all (`Pages Read` only),
+   which is why those jobs build, check their worker and then stop short of the
+   upload — with a warning naming the secret rather than a green run that means
+   nothing.
 
 The same console is *also* served by the bot itself at
-`https://meow-bot.pages.dev/owner` (the site's worker proxies `/owner` to
-Render, and Render redeploys on every push), so a hand-deployed `meow-owner` is a
+`https://dacat.pages.dev/owner` (the site's worker proxies `/owner` to
+Render, and Render redeploys on every push), so a hand-deployed `dacatowner` is a
 second, cacheable copy of one app — worth knowing when the two disagree, and the
 reason the answer is "deploy it" rather than "the console is wrong".
 
@@ -259,7 +271,7 @@ reason the answer is "deploy it" rather than "the console is wrong".
 `_owner/_worker.js` answers a **short prefix list** — `/owner`, `/api/console`,
 `/api/toggle`, `/api/toggle-all`, `/api/command-scope`, `/api/image`,
 `/login/discord`, `/logout`, and `/static/` from its own CDN — and **301s every
-other path to `OWNER_PUBLIC_SITE_URL`** (default `https://meow-bot.pages.dev`),
+other path to `OWNER_PUBLIC_SITE_URL`** (default `https://dacat.pages.dev`),
 with the path and query string preserved. The root is the console sought directly
 (`/` → `/owner`), so a bookmark to the bare hostname lands on the fleet.
 
@@ -277,7 +289,7 @@ console actually calls out of `console/src/` and fails if one is not covered, an
 reads the prefix list back out of the generated worker, so the two cannot drift.
 
 Moving the public site? Set `OWNER_PUBLIC_SITE_URL` for this build as well; the
-compiled default is the `meow-bot` host.
+compiled default is the `dacat` host.
 
 #### The strongest setting to add, and it is not in this repository
 
@@ -298,45 +310,132 @@ not a substitute for either — and the Render host deliberately keeps serving
 `/owner` with only the passkey, so that a mistake in an edge policy cannot lock
 the operator out of their own console.
 
-### 6. Cloudflare Pages (the developer hub)
+### 6. Cloudflare Pages (the per-server dashboard)
 
-- Project: `meowdev` → https://meowdev.pages.dev
-- Source: **no Git integration**, and until recently no publish path anywhere
-  else either. `Site` builds `_site` and `_owner` and has no job for `_hub`, so
-  this host changed only when somebody remembered to build and upload it by hand
-  — which is exactly how it stayed a whole rebrand behind the other two: a violet
-  `--accent` (the token is declared in `hub/static/hub.css`), an ambient glow
-  spelling the same violet as three `rgba()` channels, and a 404 that announced
-  the pre-rebrand name. Nothing in this repository could see any of it.
+- Project: `dacatdashboard` → https://dacatdashboard.pages.dev
+- Root: `/dashboard` — a bookmark to the bare hostname lands on the dashboard
+  rather than on a redirect.
+- What it serves: the eleven pages under `/dashboard` (overview, systems,
+  members, one server, economy, leveling, composer, schedule, identity, commands,
+  status), `/servers` (the picker), the public sign-in (`/login`,
+  `/login/discord`, `/logout`), the clickwrap every session passes through
+  (`/agree`), and the endpoints those pages read and write — `/api/toggle`,
+  `/api/toggle-all`, `/api/member-action`, `/api/member-warnings`,
+  `/api/server-action`, `/api/channels`, `/api/level-settings`, `/api/identity`,
+  `/api/uptime`, `/api/figures`, `/api/scheduled`, `/api/schedule-message`,
+  `/api/send-message`, `/api/mentionables`, `/api/command-scope`, `/api/image`.
+  The list lives in `scripts/build_owner.py::DASHBOARD_PREFIXES` and is what the
+  host *is*: a path that is not on it 301s to the public site.
+- Nothing here is a copy of the app. Every one of those paths is proxied to the
+  machine, so the dashboard a member reads on this host is rendered by the same
+  Flask process with the same session as the one on the backend; a static copy of
+  a signed-in surface is the one shape this project refuses.
+- Source: **no Git integration**, so it changes only when it is deployed:
 
-Ship it the same way as the other two:
+  ```bash
+  python scripts/ship.py --only dacatdashboard
+  ```
 
-```bash
-python scripts/ship.py --only meowdev
-```
+#### The one setting that is not in this repository, and it gates sign-in
 
-#### The release check names all four addresses
+`keep_alive.oauth_redirect_uri()` builds `{DASHBOARD_BASE_URL}/login/discord/callback`,
+and on the machine that default is now **this host**. Discord only accepts a
+redirect URI that is *listed on the application*, so until
+`https://dacatdashboard.pages.dev/login/discord/callback` is added under OAuth2 →
+Redirects in the Discord Developer Portal, the "Sign in with Discord" button ends
+at `invalid_redirect_uri` — a dead end on the sign-in page, which is why it is
+written down here rather than discovered there. The old entry
+(`https://meow-bot.pages.dev/login/discord/callback`) points at a project that no
+longer exists and can be removed once the new one is in. `DASHBOARD_BASE_URL` on
+the Space overrides the default, and a deployment that has moved hosts sets it —
+that variable is also what the bot's own `[Web Dashboard](…)` links are built
+from, so one value moves the messages and the sign-in together.
 
-Three of them are Pages projects that `scripts/ship.py` builds and uploads. The
-fourth is the machine the other three proxy to, and it is not uploaded from here
-at all:
+### 7. Cloudflare Pages (the market)
+
+- Project: `dacatmarket` → https://dacatmarket.pages.dev
+- Root: `/market`. Two prefixes and no door: `/market` (the board, and a
+  symbol's own page under `/market/<symbol>`) and `/api/market` (quotes and
+  candles). Nothing on this host signs anybody in, which is what makes it the one
+  address here a crawler is invited into — its `robots.txt` allows it.
+- Source: **no Git integration**; `python scripts/ship.py --only dacatmarket`.
+
+### 8. The developer hub, now at /hub on the public site
+
+The hub — seven reader-facing pages about what the bot is, what it is doing and
+what changed — used to be a fifth Cloudflare project of its own (`meowdev`). It
+is not one any more, and the reason is written down because it cost real time:
+that project was built by `scripts/build_hub.py` and mentioned by no workflow and
+no release path, so a rebrand reached the hosts that *were* in the flow and left
+it serving a violet palette and a 404 announcing the retired name on a public
+address, with nothing anywhere able to see it.
+
+Its pages are the **application's own** (`/hub` and `/hub/<page>` are Flask
+views rendering from `utils/hub.py`), so the public site's worker proxies them —
+`/hub` and `/hub/*` are in `build_site.PROXIED_ROUTES` and in the worker's
+`_routes.json` — and they now answer on one of the four addresses `ship.py`
+builds, uploads and asks. Two consequences worth knowing:
+
+- They are rendered by the machine rather than served from the edge, so they
+  carry the same availability as the rest of the proxied pages.
+- `scripts/build_hub.py` is deliberately **kept**: it renders the same pages
+  through the same app and rewrites every URL relative to a host root, so if the
+  hub ever wants an edge-cached copy under `/hub/`, that is a build step rather
+  than a rewrite.
+
+#### The three projects that were retired, and what replaced each
+
+They were deleted after the four above were deployed and verified, because a
+Pages project cannot be renamed and a stale duplicate is how this account grew a
+second, never-starting bot once before.
+
+| Retired project | Was | Now |
+| --- | --- | --- |
+| `meow-bot` (meow-bot.pages.dev) | the public site, with the Git integration | `dacat` — same build (`scripts/build_site.py --out _site --proxy`), Git integration to be reconnected in the dashboard |
+| `meow-owner` (meow-owner.pages.dev) | the operator console | `dacatowner` — same build (`scripts/build_owner.py --host owner --out _owner`) |
+| `meowdev` (meowdev.pages.dev) | the developer hub | `https://dacat.pages.dev/hub`, proxied by the public site (§8); the static builder stays in the repository |
+
+Two things followed the rename and are easy to miss: the bot's own messages now
+link `https://dacatdashboard.pages.dev/dashboard` (they were hard-coded to the
+retired host, so every one of them would have been a dead link at the moment the
+project was deleted), and the Discord redirect URI above has to be registered for
+the new dashboard host.
+
+### 9. The machine (Hugging Face Space)
+
+- The machine: https://1tsrajowo-meow.hf.space — the Discord gateway, the
+  database, and the API the four Pages hosts above proxy to. `app.py` is the
+  Space's front page, and it lists the four doors on it.
+  *(Deliberately not written as `- Address: …`: that line belongs to the Render
+  service above, and `tests/test_config_audit.py` counts it.)*
+- Source: `.github/workflows/sync_hf.yml` force-pushes `main` to it, or a hand
+  push; nothing in `scripts/ship.py` uploads it, and **no deployment of it
+  carries a commit stamp**, so *which commit are you serving* is not a question
+  anything can ask it.
+- What is asked instead: its `/health`, whose `service` field is built from
+  `utils/brand.py`. A rebrand moves the check and the answer together, so a
+  machine still announcing the retired name fails the release — which is the
+  drift this check exists for, and it has been caught by it (the monitor on that
+  address read `"service":"dacat"` while the pages had already moved; the live
+  Space answered `meoww-gateway` on 2026-09-26, one rebrand behind, until the next
+  push to it).
+
+#### The release check names all five addresses
+
+Four of them are Pages projects that `scripts/ship.py` builds and uploads. The
+fifth is the machine they proxy to, and it is not uploaded from here at all:
 
 | Address | What deploys it | What *is it current* means there |
 | --- | --- | --- |
-| https://meow-bot.pages.dev | Cloudflare's Git integration on push; `ship.py` when a push has to be *proved* | production is this commit, and `/static/meow.css` is this build's bytes |
-| https://meow-owner.pages.dev | `python scripts/ship.py --only meow-owner` | the same two claims, against `_owner` |
-| https://meowdev.pages.dev | `python scripts/ship.py --only meowdev` | the same two claims, against `_hub` and its own sheet |
+| https://dacat.pages.dev | Cloudflare's Git integration on push *(to be reconnected)*; `ship.py` when a push has to be *proved* | production is this commit, and `/static/meow.css` is this build's bytes |
+| https://dacatowner.pages.dev | `python scripts/ship.py --only dacatowner` | the same two claims, against `_owner` |
+| https://dacatdashboard.pages.dev | `python scripts/ship.py --only dacatdashboard` | the same two claims, against `_dash` |
+| https://dacatmarket.pages.dev | `python scripts/ship.py --only dacatmarket` | the same two claims, against `_market` |
 | https://1tsrajowo-meow.hf.space | `.github/workflows/sync_hf.yml` force-pushes `main` to it (or a hand push) | only that `/health` answers *and* names this product |
 
 The last row is deliberately weaker than the others, because it is the only claim
-available on that host: the Space carries no commit stamp, so *which commit are
-you serving* is not a question anything can answer about it, and the check says
-so in words rather than borrowing the Pages hosts' verdict. What it *can* answer
-is its own name — `/health`'s `service` field is built from `utils/brand.py`, so a
-rebrand moves the check and the answer together — and a machine still announcing
-the retired name fails the release. That is the drift this row exists for: the
-monitor on that address had been reading `"service":"meow-bot"` while the
-product's pages had already moved.
+available on that host: the Space carries no commit stamp, so its verdict says in
+words what it measured rather than borrowing the Pages hosts' answer.
 
 ## Free, and online without you
 
@@ -368,7 +467,7 @@ total over the allowance and both are suspended — the failure looks like "the 
 died" and has nothing to do with the bot. That is the price of the duplicate in
 §2, and the reason the dashboard's service list is worth a glance after any
 Blueprint sync: a name the account does not have does not fail the sync, it
-quietly spends the budget building a second bot. The public site and the owner console
+quietly spends the budget building a second bot. The four Pages hosts
 are on Cloudflare Pages, which has no such budget, so there is nothing to add
 there and nothing to keep awake.
 

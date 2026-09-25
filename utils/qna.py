@@ -560,7 +560,7 @@ def post(url: str, payload: dict, *, timeout: float = TIMEOUT) -> tuple[bool, st
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "MeowBot/1.0 (+https://meow-bot.pages.dev)",
+                "User-Agent": "MeowBot/1.0 (+https://dacat.pages.dev)",
             },
             method="POST",
         )

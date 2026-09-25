@@ -41,6 +41,13 @@ _hub/
 # The owner console built for its own host (scripts/build_owner.py).
 _owner/
 
+# The per-server dashboard and the market built for their own hosts — the same
+# builder as _owner/ above, with a different prefix list (`--host dashboard`,
+# `--host market`). Generated for the same reason: a committed build directory
+# is a copy that goes stale quietly, and nothing outside these builds reads it.
+_dash/
+_market/
+
 # The card preview built for looking at, not for shipping
 # (scripts/preview_cards.py). Generated: it renders whatever the working tree
 # currently builds, and a committed copy would be a screenshot of a past diff.

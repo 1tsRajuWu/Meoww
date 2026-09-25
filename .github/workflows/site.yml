@@ -96,7 +96,7 @@ jobs:
           # *project* sites use, and it is still what the rewriting in
           # build_site.py is written to survive, which keeps the output
           # deployable to either.
-          SITE_URL: ${{ vars.SITE_URL || 'https://meow-bot.pages.dev' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://dacat.pages.dev' }}
           # Where the paid cards send a buyer. Public checkout links, so they
           # live in repository *variables* rather than secrets; set them once and
           # both hosts sell the same thing. Without them this copy of the page
@@ -184,7 +184,7 @@ jobs:
       #
       # What it must not be is *quiet*, and the first version was nothing else: a
       # single `::notice`, which does not appear on the checks list at all. Four
-      # consecutive `Site` runs reported success while `meow-bot.pages.dev`
+      # consecutive `Site` runs reported success while `dacat.pages.dev`
       # served commit `0af327e` — from before all four of them — and nothing in any
       # of those runs said so. Every build guard passed, because every build guard
       # is about the build, which was fine. The one signal reaching a person read
@@ -204,7 +204,7 @@ jobs:
               echo "## Published: **no**"
               echo
               echo "This commit built and passed every check, and it never reached"
-              echo "<https://meow-bot.pages.dev>. The \`CLOUDFLARE_API_TOKEN\`"
+              echo "<https://dacat.pages.dev>. The \`CLOUDFLARE_API_TOKEN\`"
               echo "secret is not set, so the publish step was skipped and the live"
               echo "copy still serves an older commit."
               echo
@@ -251,10 +251,10 @@ jobs:
             https://api.cloudflare.com/client/v4/user/tokens/verify || echo 000)
           read_status=$(curl -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot" || echo 000)
+            "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/dacat" || echo 000)
           publish_status=$(curl -sS -o /tmp/cf-upload.json -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot/upload-token" || echo 000)
+            "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/dacat/upload-token" || echo 000)
 
           if [ "$publish_status" != "200" ]; then
             if [ "$read_status" = "200" ]; then
@@ -295,7 +295,7 @@ jobs:
           # The message is a fixed string rather than the head commit subject:
           # that value reaches a shell here, and a subject containing a quote or a
           # newline is a command injection in a workflow that holds a token.
-          command: pages deploy _site --project-name=meow-bot --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"
+          command: pages deploy _site --project-name=dacat --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"
 
       - name: Check the deployment actually landed on this commit
         # `wrangler pages deploy` exiting 0 means Cloudflare *accepted* the upload.
@@ -319,7 +319,7 @@ jobs:
           landed=""
           for attempt in 1 2 3 4 5; do
             landed=$(curl -sS -H "Authorization: Bearer $TOKEN" \
-              "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/meow-bot/deployments?per_page=10" \
+              "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/dacat/deployments?per_page=10" \
               | python3 -c 'import json,sys; rows=(json.load(sys.stdin).get("result") or []); prod=[r for r in rows if r.get("environment")=="production"]; meta=((prod[0].get("deployment_trigger") or {}).get("metadata") or {}) if prod else {}; print(meta.get("commit_hash") or "")' 2>/dev/null || echo "")
             if [ "$landed" = "$EXPECTED" ]; then
               break
@@ -330,7 +330,7 @@ jobs:
             echo "::error title=The site did not take this commit::The newest production deployment reports commit '${landed}', not ${EXPECTED}. The upload was accepted but the live site is not this commit — check the deployment in the Cloudflare dashboard before trusting the URL."
             exit 1
           fi
-          echo "Published ${EXPECTED} to https://meow-bot.pages.dev"
+          echo "Published ${EXPECTED} to https://dacat.pages.dev"
 
   deploy-owner:
     needs: build
@@ -350,9 +350,9 @@ jobs:
       - name: Build the owner console
         env:
           DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || '1548380269776605324' }}
-          SITE_URL: ${{ vars.SITE_URL || 'https://meow-bot.pages.dev' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://dacat.pages.dev' }}
           LIVE_APP: ${{ vars.LIVE_APP || 'https://1tsrajowo-meow.hf.space' }}
-        run: python scripts/build_owner.py --out _owner
+        run: python scripts/build_owner.py --host owner --out _owner
 
       - name: Check the build produced a worker
         run: test -f _owner/_worker.js
@@ -375,7 +375,7 @@ jobs:
         run: |
           if [ -z "$TOKEN" ] || [ -z "$ACCOUNT_ID" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=This commit did not publish the owner console::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set, so _owner was built and its worker checked, but meow-owner.pages.dev still serves an older commit. gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
+            echo "::warning title=This commit did not publish the owner console::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set, so _owner was built and its worker checked, but dacatowner.pages.dev still serves an older commit. gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
             exit 0
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
@@ -386,4 +386,106 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy _owner --project-name=meow-owner --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"
+          command: pages deploy _owner --project-name=dacatowner --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"
+
+  # The two hosts added last, as jobs of their own rather than as a matrix.
+  #
+  # A matrix would be shorter and is the wrong shape here: the command each host
+  # is built by has to be *readable in this file*, because `tests/test_ship.py`
+  # compares it, string for string, with the builder `scripts/ship.py` uploads —
+  # and `--host ${{ matrix.host }}` is a command this repository cannot check. The
+  # duplication is two build commands, and what it buys is that the two places
+  # that produce these directories cannot drift into disagreeing about them. That
+  # is not hypothetical either: it is the drift this project has paid for twice.
+  #
+  # Neither of these hosts has a Git integration, so nothing else updates them —
+  # which is why they are here at all rather than only in `ship.py`.
+  deploy-dashboard:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the per-server dashboard host
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://dacat.pages.dev' }}
+          LIVE_APP: ${{ vars.LIVE_APP || 'https://1tsrajowo-meow.hf.space' }}
+        run: python scripts/build_owner.py --host dashboard
+
+      - name: Check the build produced a worker
+        run: test -f _dash/_worker.js
+
+      - name: Is Cloudflare configured?
+        id: cf
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT_ID" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=This commit did not publish the dashboard::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set, so _dash was built and its worker checked, but dacatdashboard.pages.dev still serves an older commit. gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the dashboard to Cloudflare Pages
+        if: steps.cf.outputs.configured == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _dash --project-name=dacatdashboard --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"
+
+  deploy-market:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the market host
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://dacat.pages.dev' }}
+          LIVE_APP: ${{ vars.LIVE_APP || 'https://1tsrajowo-meow.hf.space' }}
+        run: python scripts/build_owner.py --host market
+
+      - name: Check the build produced a worker
+        run: test -f _market/_worker.js
+
+      - name: Is Cloudflare configured?
+        id: cf
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT_ID" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=This commit did not publish the market::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set, so _market was built and its worker checked, but dacatmarket.pages.dev still serves an older commit. gh secret set CLOUDFLARE_API_TOKEN --repo ${GITHUB_REPOSITORY}"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the market to Cloudflare Pages
+        if: steps.cf.outputs.configured == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _market --project-name=dacatmarket --branch=main --commit-hash=${{ github.sha }} --commit-message="Deployed from GitHub Actions"

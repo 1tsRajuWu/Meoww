@@ -111,7 +111,7 @@ from utils import config_audit
 #: The site's own address. ``SITE_URL`` is the variable the build already reads,
 #: so a deployment that renamed its host has one place to say so.
 SITE_ENV = "SITE_URL"
-DEFAULT_SITE = "https://meow-bot.pages.dev"
+DEFAULT_SITE = "https://dacat.pages.dev"
 
 #: A short deadline: this runs in a background loop, and a host that has not
 #: answered in ten seconds is reported as unreachable rather than waited on.

@@ -399,7 +399,7 @@ class TheEndpoint(unittest.TestCase):
 
     def test_the_site_may_call_it_and_a_stranger_may_not(self):
         """A refused fetch is invisible, so the allowance has to be exact."""
-        allowed = "https://meow-bot.pages.dev"
+        allowed = "https://dacat.pages.dev"
         with mock.patch.object(keep_alive.site_guard, "site_url", return_value=allowed):
             permitted = self.client.get("/api/figures", headers={"Origin": allowed})
             other = self.client.get("/api/figures", headers={"Origin": "https://not-us.test"})

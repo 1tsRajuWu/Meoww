@@ -121,7 +121,7 @@ function Router({
         label: "Open the public site",
         hint: "another surface",
         run: () => {
-          window.open("https://meow-bot.pages.dev", "_blank", "noopener");
+          window.open("https://dacat.pages.dev", "_blank", "noopener");
         },
       },
       {

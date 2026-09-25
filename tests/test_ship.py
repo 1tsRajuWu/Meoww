@@ -22,14 +22,17 @@ purpose: the workflow and this script build the same directories, and two places
 that must agree are exactly where this repository keeps finding drift.
 
 Two more things are pinned here, and both of them are about a host not being
-checked. **The developer hub has a publish path in this file because it had none
-anywhere else**: no workflow built ``_hub``, nothing uploaded it and nothing asked
-it what it served, so it sat an entire rebrand behind — a violet palette and a 404
-announcing the retired name on a public address — while the other two hosts moved.
-And **the machine is checked too, as the machine**: the Hugging Face Space is
-pushed to rather than uploaded and carries no commit stamp, so it is asked the one
-question that is available to it — whether it is up and wearing this release's
-name — rather than being given the Pages hosts' check with a different URL.
+checked. **The hub is on the public site's address rather than on a project of its
+own**: it was ``meowdev``, a fifth Cloudflare project with no job in any workflow
+and no entry in any release path — and that is exactly how it sat an entire
+rebrand behind, a violet palette and a 404 announcing the retired name on a public
+address, while the hosts that *were* in the release flow moved. Its pages are the
+application's own, so the public host proxies them, and the laws below hold that
+rather than a fifth upload. And **the machine is checked too, as the machine**: the
+Hugging Face Space is pushed to rather than uploaded and carries no commit stamp,
+so it is asked the one question that is available to it — whether it is up and
+wearing this release's name — rather than being given the Pages hosts' check with
+a different URL.
 """
 import contextlib
 import io
@@ -39,8 +42,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts import ship
-from utils import brand
+from scripts import build_site, ship
+from utils import brand, hub
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "site.yml"
@@ -196,16 +199,18 @@ class EveryHostCarriesTheCommitItWasBuiltFrom(unittest.TestCase):
         ``tests/test_site_workflow.py`` reads it that way: PyYAML is not a
         dependency of this project.
 
-        Only the hosts the workflow mentions are compared, and that is not the
-        check weakening: the hub is deliberately *not* in the workflow (it has no
-        job there, which is how it fell a rebrand behind), so the agreement that
-        matters is between the two the workflow does build — and if a hub job is
-        ever added, this test picks it up on the next run rather than failing on
-        the fact that it exists.
+        All four are compared, and that is the point: a host the workflow builds
+        and this script builds differently is a host whose published bytes depend
+        on which one ran, and the hub is the cautionary tale rather than an
+        exception — it was in *neither* path, which is how it fell a rebrand
+        behind. The workflow cannot publish on this account (its token has Pages
+        Read and not Pages Write), but it is the other place these directories are
+        produced, so the two have to agree about how.
         """
         workflow = WORKFLOW.read_text(encoding="utf-8")
         shared = [host for host in ship.HOSTS if host.builder[0] in workflow]
-        self.assertEqual({host.project for host in shared}, {"meow-bot", "meow-owner"})
+        self.assertEqual({host.project for host in shared},
+                         {"dacat", "dacatowner", "dacatdashboard", "dacatmarket"})
         for host in shared:
             self.assertIn(" ".join(host.builder), workflow,
                           f"{host.project} is built differently by the workflow")
@@ -344,7 +349,7 @@ class TheDeploymentListIsReadAsWranglerWritesIt(unittest.TestCase):
     def _rows(self, payload):
         with mock.patch.object(ship, "run",
                                return_value=_Result(stdout=json.dumps(payload))):
-            return ship.production_commit("meow-bot")
+            return ship.production_commit("dacat")
 
     def test_a_preview_row_is_not_production(self):
         self.assertEqual(
@@ -370,23 +375,32 @@ class TheDeploymentListIsReadAsWranglerWritesIt(unittest.TestCase):
 
     def test_unreadable_json_is_no_answer(self):
         with mock.patch.object(ship, "run", return_value=_Result(stdout="not json")):
-            self.assertIsNone(ship.production_commit("meow-bot"))
+            self.assertIsNone(ship.production_commit("dacat"))
 
 
 class OnlyTheHostsThisRepositoryHas(unittest.TestCase):
     def test_no_flag_is_every_host(self):
+        """Four surfaces, four projects, and no fifth one to forget."""
         self.assertEqual([host.project for host in ship.selected([])],
-                         ["meow-bot", "meow-owner", "meowdev"])
+                         ["dacat", "dacatowner", "dacatdashboard", "dacatmarket"])
+
+    def test_every_probe_is_a_file_its_own_builder_starts_from(self):
+        """A probe naming a file no builder produces is a check that cannot pass."""
+        sources = {host.project: "static" for host in ship.HOSTS}
+        for host in ship.HOSTS:
+            source = os.path.join(ship.ROOT, sources[host.project], os.path.basename(host.probe))
+            self.assertTrue(os.path.isfile(source),
+                            f"{host.project}'s probe is {host.probe}, which is not a file its build has")
 
     def test_a_named_host_is_the_one_that_ships(self):
-        self.assertEqual([host.project for host in ship.selected(["meow-owner"])],
-                         ["meow-owner"])
+        self.assertEqual([host.project for host in ship.selected(["dacatowner"])],
+                         ["dacatowner"])
 
     def test_a_name_that_is_not_a_host_is_refused_with_the_list(self):
         with self.assertRaises(ship.Refused) as refusal:
             ship.selected(["meow-web"])
-        self.assertIn("meow-bot", str(refusal.exception))
-        self.assertIn("meow-owner", str(refusal.exception))
+        self.assertIn("dacat", str(refusal.exception))
+        self.assertIn("dacatowner", str(refusal.exception))
 
     def test_the_projects_are_the_ones_the_sites_announce(self):
         """The address each host verifies against is the project it deploys."""
@@ -394,66 +408,66 @@ class OnlyTheHostsThisRepositoryHas(unittest.TestCase):
             self.assertEqual(host.url, f"https://{host.project}.pages.dev")
 
 
-class TheHubHasAPublishPathHere(unittest.TestCase):
-    """The hub shipped by nothing, and that is exactly how it fell behind.
+class TheHubIsServedOnOneOfTheAddressesThisFileChecks(unittest.TestCase):
+    """The hub is no longer a project, and this is the shape that replaced it.
 
-    ``Site`` builds ``_site`` and ``_owner``; no workflow builds ``_hub``, and no
-    release path mentioned it — so a rebrand reached two hosts of three, and the
-    third kept serving a violet palette and a 404 announcing the retired name on
-    a public address with nothing anywhere to say so.
+    ``meowdev`` was a fifth Cloudflare project built by ``scripts/build_hub.py``
+    and mentioned by no workflow, which is how its pages sat an entire rebrand
+    behind the others: a host with no path in the release flow is a host the next
+    rebrand forgets, and nothing in this repository could see the drift.
+
+    The seven pages are the **application's** own (``/hub`` and ``/hub/<page>``
+    are Flask views rendering from ``utils/hub.py``), so the public site's worker
+    proxies them and they answer on one of the four addresses this file builds,
+    uploads and asks. Three laws, one per half of that claim.
     """
 
-    def hub(self) -> ship.Host:
-        return next(host for host in ship.HOSTS if host.project == "meowdev")
+    def test_the_hub_is_not_a_host_this_script_uploads(self):
+        """A project that is not deployed here does not need a fifth entry."""
+        self.assertNotIn("meowdev", [host.project for host in ship.HOSTS])
+        self.assertNotIn("hub", [host.out for host in ship.HOSTS])
 
-    def test_the_hub_is_built_and_uploaded_by_this_script(self):
-        hub = self.hub()
-        self.assertEqual(hub.out, "_hub")
-        self.assertEqual(hub.builder, ("scripts/build_hub.py", "--out", "_hub"))
-        self.assertEqual(hub.url, "https://meowdev.pages.dev")
+    def test_the_hub_pages_are_the_applications_own_routes(self):
+        """Under ``/hub``, which is what makes one proxy rule enough for all of them.
 
-    def test_the_hub_is_a_directory_a_builder_actually_fills(self):
-        """The upload's directory is the build's directory, and it has to exist."""
+        A page at ``/systems`` would be a *second* answer to a question the public
+        site already answers statically; a page elsewhere would need a rule of its
+        own here, and a list of rules is a list that goes stale.
+        """
+        for _page, _label, path, _icon, _group, _blurb in hub.HUB_PAGES:
+            self.assertTrue(path == "/hub" or path.startswith("/hub/"),
+                            f"the hub page {path} is not under /hub")
+
+    def test_the_public_sites_worker_proxies_it(self):
+        """Both gates, because a prefix in one and not the other is a 404.
+
+        The worker's own ``DYNAMIC_PREFIXES`` decides what it proxies, and
+        ``_routes.json`` decides whether the worker runs at all — the second has
+        bitten this project once already, when `/agree` was proxied by a worker
+        that Cloudflare never invoked.
+        """
+        self.assertIn("/hub", build_site.PROXIED_ROUTES)
+        self.assertIn('"/hub"', build_site._worker_file("backend.test"))
+        included = json.loads(build_site._routes_file())["include"]
+        self.assertIn("/hub", included)
+        self.assertIn("/hub/*", included)
+
+    def test_the_subpath_build_is_still_in_the_repository(self):
+        """The static copy is kept, not deleted: a subpath build is a real option.
+
+        ``scripts/build_hub.py`` renders the same pages through the same app and
+        rewrites every URL relative to a host root, so the day the hub wants an
+        edge-cached copy under ``/hub/`` the work is a build step rather than a
+        rewrite. What it cannot be any more is a *seventh* address: the accent
+        token this check used to hash out of the hub now travels with the site.
+        """
         self.assertTrue(os.path.isfile(os.path.join(ship.ROOT, "scripts", "build_hub.py")))
-        self.assertTrue(
-            os.path.isdir(self.hub().directory),
-            "_hub is not built, so `wrangler pages deploy _hub` would upload a directory "
-            "that is not there",
-        )
-
-    def test_the_hub_is_asked_for_a_file_only_the_hub_has(self):
-        """A probe has to be a file *that* host serves.
-
-        ``static/meow.css`` is the site's sheet: the hub's build copies only its
-        own assets, so asking the hub for the site's would report *the build has no
-        static/meow.css* on every run — a red release check with nothing behind it,
-        which is how a check stops being read.
-        """
-        hub = self.hub()
-        self.assertEqual(hub.probe, "static/hub.css")
-        self.assertNotEqual(hub.probe, ship.PROBE)
-
-    def test_every_probe_is_a_file_its_own_builder_starts_from(self):
-        """A probe naming a file no builder produces is a check that cannot pass."""
-        sources = {"meow-bot": "static", "meow-owner": "static", "meowdev": "hub/static"}
-        for host in ship.HOSTS:
-            source = os.path.join(ship.ROOT, sources[host.project], os.path.basename(host.probe))
-            self.assertTrue(os.path.isfile(source),
-                            f"{host.project}'s probe is {host.probe}, which is not a file its build has")
-
-    def test_the_hub_probe_is_the_file_a_rebrand_moves(self):
-        """And that is why this probe can see the drift the hub had: its accent is in it.
-
-        The token is declared in ``hub/static/hub.css``, so the bytes the check
-        hashes are the bytes the brand is written into — the same reason
-        ``tests/test_brand.py`` holds that sheet to ``brand.ACCENT_HEX``.
-        """
         sheet = (ROOT / "hub" / "static" / "hub.css").read_text(encoding="utf-8")
         self.assertIn(brand.ACCENT_HEX, sheet)
 
 
 class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
-    """The fourth address gets the question it can answer, not the other one.
+    """The fifth address gets the question it can answer, not the other one.
 
     Nothing in this file uploads the Space: ``.github/workflows/sync_hf.yml``
     force-pushes ``main`` to it and no deployment of it carries a commit stamp, so
@@ -467,15 +481,16 @@ class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
         with mock.patch.object(ship, "served_bytes", return_value=(body, "")):
             return ship.verify_gateway(ship.SPACE)
 
-    def test_the_release_report_names_all_four_addresses(self):
-        """A host nobody asks is a host nobody notices is behind, four times."""
+    def test_the_release_report_names_all_five_addresses(self):
+        """A host nobody asks is a host nobody notices is behind, five times."""
         with mock.patch.object(ship, "production_commit", return_value="75e32e4"), \
              mock.patch.object(ship, "asset_matches_build", return_value=(True, "ok")), \
              mock.patch.object(ship, "verify_gateway", return_value=GATEWAY_UP), \
              contextlib.redirect_stdout(io.StringIO()) as printed:
             code = ship.report(ship.HOSTS, SHA, wait=False)
         self.assertEqual(code, 0)
-        for name in ("meow-bot", "meow-owner", "meowdev", ship.SPACE.name):
+        for name in ("dacat", "dacatowner", "dacatdashboard", "dacatmarket",
+                     ship.SPACE.name):
             self.assertIn(name, printed.getvalue(), f"{name} was not checked")
 
     def test_a_healthy_gateway_passes_and_says_what_it_did_not_prove(self):
@@ -488,9 +503,9 @@ class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
 
     def test_a_machine_announcing_the_retired_name_fails_the_release(self):
         """Measured, not hypothetical: this is what the live Space answered."""
-        ok, note = self._payload(b'{"status":"healthy","service":"meow-bot"}')
+        ok, note = self._payload(b'{"status":"healthy","service":"dacat"}')
         self.assertFalse(ok)
-        self.assertIn("meow-bot", note)
+        self.assertIn("dacat", note)
         self.assertIn(brand.GATEWAY_SERVICE, note)
 
     def test_a_machine_that_does_not_answer_names_what_updates_it(self):
@@ -515,15 +530,15 @@ class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
 
     def test_the_machine_is_checked_even_when_only_one_host_is_named(self):
         """Which host an upload was aimed at has no bearing on what is served."""
-        self.assertEqual(ship.addresses(ship.selected(["meowdev"])),
-                         (ship.selected(["meowdev"])[0], ship.SPACE))
+        self.assertEqual(ship.addresses(ship.selected(["dacatmarket"])),
+                         (ship.selected(["dacatmarket"])[0], ship.SPACE))
 
 
 class AVerificationDoesNotClaimWhatItDidNotBuild(unittest.TestCase):
     """The byte claim needs a build of *this commit*, and a verify run has none.
 
     Observed on the run that shipped the hub: ``--verify-only`` reported
-    ``meow-bot`` as serving other bytes than this build's, because the ``_site/``
+    ``dacat`` as serving other bytes than this build's, because the ``_site/``
     on disk had been built at 01:17 and the sheet changed at 01:46 — while a fresh
     build of the same commit matched the live host byte for byte (251780b583db on
     both). Cloudflare publishes the public site from its own build, so the local

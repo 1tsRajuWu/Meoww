@@ -411,7 +411,11 @@ def dashboard_base_url() -> str:
     if config_audit.is_set("RENDER"):
         return "https://meow-discord-bot.onrender.com"
     if config_audit.is_set("SPACE_ID") or config_audit.is_set("RAILWAY_ENVIRONMENT"):
-        return "https://meow-bot.pages.dev"
+        # The dashboard has an address of its own now, and this is the host the
+        # member-facing sign-in happens on — so it is also the redirect Discord
+        # is told about. A deployment that has moved sets `DASHBOARD_BASE_URL`,
+        # which is read above; this is the fallback for the machine itself.
+        return "https://dacatdashboard.pages.dev"
     # Anywhere else the dashboard is a local one, and the admin is on the same
     # machine as the process that minted the token.
     return f"http://localhost:{config_audit.get('PORT', '8080')}"

@@ -77,7 +77,7 @@ export function Changes() {
             <Pill>Dashboard</Pill> one server at a time, for that server's own admins
           </li>
           <li>
-            <Pill>Site</Pill> public, read-only, at meow-bot.pages.dev
+            <Pill>Site</Pill> public, read-only, at dacat.pages.dev
           </li>
         </ul>
       </Card>

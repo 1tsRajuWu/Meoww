@@ -207,7 +207,8 @@ FAVICON_FOR: dict[str, str] = {theme: "favicon.svg" for theme in THEMES}
 #: buys nothing a visitor can see.
 INTERNAL_NAMES: tuple[str, ...] = (
     "MEOW_* environment variables",
-    "the meow-bot, meow-owner and meowdev Pages projects",
+    "the meow-* Pages projects, retired with their names (the four that replaced "
+    "them are dacat, dacatowner, dacatdashboard and dacatmarket)",
     "the meow_bank table",
     "the /meow and /meowsound commands",
     "the meow-theme localStorage key",

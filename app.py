@@ -46,9 +46,18 @@ from utils import brand  # noqa: E402 — the card reads one author instead of a
 #: Where the rest of the product is. This address is infrastructure; these are the
 #: doors a visitor arriving here would actually want, and naming them is the
 #: difference between a page that explains itself and a dead end.
-_SITE = "https://meow-bot.pages.dev"
-_CONSOLE = "https://meow-owner.pages.dev"
-_HUB = "https://meowdev.pages.dev"
+#:
+#: Four addresses, one per surface, and they are the *renamed* projects: the
+#: three this space used to link (`meow-bot`, `meow-owner`, `meowdev`) were
+#: retired when the product took its own name, so a table still sending people to
+#: them would be four dead links on the page that exists to say where everything
+#: is. The hub is no longer a project at all — it is `/hub` on the site's own
+#: address, served through that host's worker.
+_SITE = "https://dacat.pages.dev"
+_CONSOLE = "https://dacatowner.pages.dev"
+_DASHBOARD = "https://dacatdashboard.pages.dev"
+_MARKET = "https://dacatmarket.pages.dev"
+_HUB = f"{_SITE}/hub"
 
 
 # 1. ZeroGPU Function Decorator bound to a Gradio event
@@ -101,7 +110,9 @@ This address is the machine behind the bot: the Discord gateway held open around
 
 | Where | What is there |
 | --- | --- |
-| [{_SITE}]({_SITE}) | The site, the system matrix, and the per-server dashboard |
+| [{_SITE.replace('https://', '')}]({_SITE}) | The front door: what this is, the system matrix, and how to install it |
+| [{_DASHBOARD.replace('https://', '')}]({_DASHBOARD}) | The per-server dashboard, for anyone who runs the bot on a server |
+| [{_MARKET.replace('https://', '')}]({_MARKET}) | The market: the board, a symbol's own page, and the calculator |
 | [{_CONSOLE.replace('https://', '')}]({_CONSOLE}) | The operator's console, for the owner |
 | [{_HUB.replace('https://', '')}]({_HUB}) | Every system, every command, and what changed |
 

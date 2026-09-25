@@ -1,6 +1,6 @@
 """The owner site's build: a proxy that has to carry the pages' own assets.
 
-``meow-owner.pages.dev`` is not a second site with its own pages — it is a
+``dacatowner.pages.dev`` is not a second site with its own pages — it is a
 Cloudflare Pages project whose worker reverse-proxies everything to the bot's
 host, with **one** exception: ``/static/``, which it answers from the CDN. So
 every page this host serves is rendered by the backend and then loaded *here*,
@@ -81,7 +81,7 @@ class EveryAssetThisHostServesIsCopied(unittest.TestCase):
             missing,
             [],
             "these assets are referenced by a template this host serves but are not "
-            "copied into it, so they 404 on meow-owner.pages.dev and only there: "
+            "copied into it, so they 404 on dacatowner.pages.dev and only there: "
             + ", ".join(missing),
         )
 
@@ -131,7 +131,7 @@ class TheBuiltDirectoryIsTheSite(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.dir = tempfile.mkdtemp(prefix="meow-owner-")
+        cls.dir = tempfile.mkdtemp(prefix="dacatowner-")
         build_owner.build(cls.dir, build_owner.DEFAULT_LIVE_APP)
         cls.root = Path(cls.dir)
 
@@ -437,7 +437,7 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
         if not node:
             self.skipTest("node is not installed")
 
-        out = Path(tempfile.mkdtemp(prefix="meow-owner-routes-"))
+        out = Path(tempfile.mkdtemp(prefix="dacatowner-routes-"))
         try:
             build_owner.build(str(out), "backend.test", "public.test")
             worker_js = out / "_worker.js"
@@ -532,7 +532,7 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
 
     def test_the_public_site_address_comes_from_the_environment(self):
         """A build that hardcoded its own answer would move neither link."""
-        out = tempfile.mkdtemp(prefix="meow-owner-public-")
+        out = tempfile.mkdtemp(prefix="dacatowner-public-")
         said = io.StringIO()
         try:
             with mock.patch.dict(os.environ, {"OWNER_PUBLIC_SITE_URL": "https://site.test/"}):
@@ -546,7 +546,7 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
 
     def test_the_build_says_what_this_host_does(self):
         """The contract is printed, so a deploy log answers the question."""
-        out = tempfile.mkdtemp(prefix="meow-owner-said-")
+        out = tempfile.mkdtemp(prefix="dacatowner-said-")
         said = io.StringIO()
         try:
             with mock.patch.dict(os.environ, {}, clear=False):
@@ -555,7 +555,7 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
                     build_owner.build(out, build_owner.DEFAULT_LIVE_APP)
         finally:
             shutil.rmtree(out, ignore_errors=True)
-        self.assertIn("meow-bot.pages.dev", said.getvalue())
+        self.assertIn("dacat.pages.dev", said.getvalue())
         self.assertIn("/api/console", said.getvalue())
 
 
@@ -606,7 +606,7 @@ class TheWorkerNamesTheVisitorItForwarded(unittest.TestCase):
         self.assertIn('const OWNER_PROXY_SECRET = "a\\"b\\\\c";', worker)
 
     def _build_with(self, secret: str) -> tuple[str, str]:
-        out = tempfile.mkdtemp(prefix="meow-owner-secret-")
+        out = tempfile.mkdtemp(prefix="dacatowner-secret-")
         said = io.StringIO()
         try:
             with mock.patch.dict(os.environ, {"OWNER_PROXY_SECRET": secret}):

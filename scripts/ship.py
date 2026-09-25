@@ -1,33 +1,38 @@
 """Ship every static host in one command, and check that the whole product took it.
 
-There are three Cloudflare Pages projects behind this repository — ``meow-bot``
-for the public site, ``meow-owner`` for the operator console and ``meowdev`` for
-the developer hub — and all three are built here and uploaded here, because the
-thing that was supposed to do it does not run. Every workflow run on this
-repository's GitHub account fails before a job starts (*"The job was not started
-because recent account payments have failed or your spending limit needs to be
+There are four Cloudflare Pages projects behind this repository, one per surface
+— ``dacat`` for the public site, ``dacatowner`` for the operator console,
+``dacatdashboard`` for the per-server dashboard and ``dacatmarket`` for the
+market — and all four are built here and uploaded here, because the thing that
+was supposed to do it does not run. Every workflow run on this repository's
+GitHub account fails before a job starts (*"The job was not started because
+recent account payments have failed or your spending limit needs to be
 increased"*), so ``Site`` never builds and never publishes, and the only path
 that has ever actually shipped a commit is somebody typing ``wrangler pages
 deploy`` by hand. Four commands, in the right order, with the right
 ``--commit-hash`` on each — which is exactly the kind of procedure that gets
 half-remembered at the moment it matters.
 
-**And the hub is here because it had no publish path at all.** ``Site`` has a job
-for ``_site`` and one for ``_owner`` and none for ``_hub``, so the hub changed
-only when somebody remembered it by hand — which is how it sat an entire rebrand
-behind, still serving a violet palette and a 404 that said the retired name,
-while the other two hosts moved. A host with no path in this file is a host the
-next rebrand forgets, so every Pages project this repository builds now ships
-from here and is checked here.
+**And the two hosts added last are here for the reason the hub taught this
+project.** ``Site`` has a job for ``_site`` and one for ``_owner`` and none for
+the other two, so a host with no path in this file is a host the next rebrand
+forgets — that is not a guess, it is how the developer hub once sat an entire
+rebrand behind while the other hosts moved. Every Pages project this repository
+deploys now ships from here and is checked here, and the hub is no longer one of
+them: its seven pages are served by the **public site** through the same worker
+that proxies the other dynamic paths, so they live on an address this file
+already checks rather than on a fifth project nothing else mentions. Its own
+static build stays in the repository (``scripts/build_hub.py``) for the day a
+subpath build is wanted.
 
-**There is a fourth address, and it is not one this script uploads.** The machine
-itself — the Hugging Face Space the other three proxy to — is *pushed* to rather
+**There is a fifth address, and it is not one this script uploads.** The machine
+itself — the Hugging Face Space the other four proxy to — is *pushed* to rather
 than uploaded (``.github/workflows/sync_hf.yml`` force-pushes ``main``), and no
 deployment of it carries a commit stamp, so the byte check that proves a Pages
 host took this build has no analogue there. What it can be held to is the one
 claim it makes about itself: its ``/health`` answers with this product's name, so a
 machine still announcing the retired one is a host a whole rebrand behind. The
-report therefore names all four addresses, and each is asked the question that is
+report therefore names all five addresses, and each is asked the question that is
 actually available to it — never a stand-in for it.
 
 So this is that procedure, with the checks that make it worth trusting:
@@ -51,26 +56,27 @@ compares its bytes with the ones this build produced.
 **And it is honest about the shape of the second claim.** What the byte check
 proves is that the host is answering with this build's artifact, not that the
 site is fresh — the file it fetches is each host's own stylesheet
-(``static/meow.css`` for the site and the console, ``static/hub.css`` for the
-hub, where the accent token lives), and a sheet only changes when the sheet does.
+(``static/meow.css`` for the site and the console, where the accent token
+lives), and a sheet only changes when the sheet does.
 The freshness claim is the first check's, and the two are reported apart so
 neither is taken for the other. It also only makes that claim about a directory
-*this run* built: ``--verify-only`` builds nothing, and for ``meow-bot`` the
+*this run* built: ``--verify-only`` builds nothing, and for ``dacat`` the
 deployment is Cloudflare's build rather than this machine's, so comparing the
 host against a stale ``_site/`` would report the host as stale when it is only
 the directory — a false red, which is how a warning stops being read.
 
 Nothing here pushes: commit and push first, or use the push flow, because an
 upload stamped with a hash that is not on the remote is the failure the refusals
-above exist to prevent. ``--dry-run`` builds all three hosts and stops.
+above exist to prevent. ``--dry-run`` builds all four hosts and stops.
 
 **One of the projects publishes without this script, and that is why
-``--verify-only`` exists.** ``meow-bot`` is connected to the repository through
+``--verify-only`` exists.** ``dacat`` is connected to the repository through
 Cloudflare's own Git integration, so a push to ``main`` is built and published
 by Cloudflare within seconds, off the repository rather than off this machine —
 measured, not assumed: nine seconds after one push the production deployment
-already carried it. ``meow-owner`` and ``meowdev`` have no Git integration at
-all, so they change only when somebody deploys them. An upload of ``meow-bot``
+already carried it. ``dacatowner``, ``dacatdashboard`` and
+``dacatmarket`` have no Git integration at all, so they change only when
+somebody deploys them. An upload of ``dacat``
 from here is therefore a second, deliberate copy of the same commit, which is
 worth having when the point is to publish *this* tree rather than to wait — and
 worth skipping when the point is only to know whether the push arrived, which is
@@ -80,12 +86,12 @@ the usual case:
 
 Usage::
 
-    python scripts/ship.py                  # build, upload and verify all three
-    python scripts/ship.py --dry-run        # build all three, upload nothing
-    python scripts/ship.py --verify-only    # upload nothing; check the push landed
-    python scripts/ship.py --only meowdev   # one host, when only it changed
+    python scripts/ship.py                    # build, upload and verify all four
+    python scripts/ship.py --dry-run          # build all four, upload nothing
+    python scripts/ship.py --verify-only      # upload nothing; check the push landed
+    python scripts/ship.py --only dacatmarket # one host, when only it changed
 
-``--verify-only`` asks all four addresses however narrow ``--only`` is: which host
+``--verify-only`` asks all five addresses however narrow ``--only`` is: which host
 an upload was aimed at has no bearing on what the product is serving.
 """
 from __future__ import annotations
@@ -153,9 +159,11 @@ class Host:
     builder: tuple[str, ...]
     url: str
     #: The file *this* host answers the byte check with. Per-host rather than one
-    #: shared constant, because a host only serves its own build: asking the hub
-    #: for the site's sheet would report *the build has no static/meow.css* on
-    #: every run — a red check for a reason that has nothing to do with a deploy.
+    #: shared constant, because a host only serves its own build: asking a build
+    #: that copies its own assets for the site's sheet would report *the build has
+    #: no static/meow.css* on every run — a red check for a reason that has
+    #: nothing to do with a deploy. All four hosts copy the shared sheet today,
+    #: which is why one constant is enough here again.
     probe: str = PROBE
 
     @property
@@ -170,39 +178,54 @@ class Host:
 
 HOSTS: tuple[Host, ...] = (
     Host(
-        project="meow-bot",
+        project="dacat",
         out="_site",
         # ``--proxy`` keeps the dynamic URLs relative so Pages' worker can
         # reverse-proxy them; without it the built pages point at the Render
         # service by absolute URL and the worker is bypassed.
         builder=("scripts/build_site.py", "--out", "_site", "--proxy"),
-        url="https://meow-bot.pages.dev",
+        url="https://dacat.pages.dev",
     ),
     Host(
-        project="meow-owner",
+        project="dacatowner",
         out="_owner",
-        builder=("scripts/build_owner.py", "--out", "_owner"),
-        url="https://meow-owner.pages.dev",
+        builder=("scripts/build_owner.py", "--host", "owner", "--out", "_owner"),
+        url="https://dacatowner.pages.dev",
+    ),
+    # The two addresses added after the first rebuild, and the reason they are
+    # two entries of one builder rather than two scripts: a proxy host is a
+    # *list* of paths and a root, and the list is the whole of what makes it
+    # different. Each is asked for its own file below, because a host only serves
+    # its own build.
+    Host(
+        project="dacatdashboard",
+        out="_dash",
+        builder=("scripts/build_owner.py", "--host", "dashboard"),
+        url="https://dacatdashboard.pages.dev",
     ),
     Host(
-        project="meowdev",
-        out="_hub",
-        builder=("scripts/build_hub.py", "--out", "_hub"),
-        url="https://meowdev.pages.dev",
-        # Its own sheet, and precisely the file a rebrand moves: the accent token
-        # is declared in `hub/static/hub.css`, so the bytes hashed here are the
-        # bytes the brand is written into. That is what makes the hub's staleness
-        # — a whole rebrand of it, unnoticed — a thing this check can see.
-        probe="static/hub.css",
+        project="dacatmarket",
+        out="_market",
+        builder=("scripts/build_owner.py", "--host", "market"),
+        url="https://dacatmarket.pages.dev",
     ),
 )
+
+#: The hub used to be a fifth entry here — ``meowdev``, built by
+#: ``scripts/build_hub.py`` — and it is deliberately not one now. Its seven pages
+#: are served by the public site's own worker (``/hub`` is one of the prefixes
+#: ``scripts/build_site.py`` proxies), so they answer on an address this file
+#: already builds, uploads and checks, and the old project was retired with the
+#: other two. What the hub taught — *a host with no publish path is a host the
+#: next rebrand forgets* — is why the two hosts above exist as entries rather
+#: than as a note somewhere.
 
 
 @dataclasses.dataclass(frozen=True)
 class Space:
     """The machine, and the one claim that can be made about it.
 
-    This is the address the three Pages hosts proxy to: the Discord gateway, the
+    This is the address the four Pages hosts proxy to: the Discord gateway, the
     database and the API. Nothing in this file builds or uploads it —
     ``.github/workflows/sync_hf.yml`` force-pushes ``main`` to it — and no
     deployment of it carries a commit stamp, so *which commit is it serving* is
@@ -221,7 +244,7 @@ class Space:
 
 
 #: The machine. Named here so the release report can name it too: a product
-#: checked at three addresses and deployed at four has one host nobody looks at.
+#: checked at five addresses and deployed at four has one host nobody looks at.
 SPACE = Space(name="1tsrajowo-meow.hf.space", url="https://1tsrajowo-meow.hf.space")
 
 
@@ -501,12 +524,12 @@ def verify_host(host: Host, sha: str, *, built: bool) -> tuple[bool, str]:
     """Both claims about one Pages host: which commit, and which bytes.
 
     The byte claim is only made when *this run* built the directory it reads. A
-    ``--verify-only`` run builds nothing, so for ``meow-bot`` — which Cloudflare
+    ``--verify-only`` run builds nothing, so for ``dacat`` — which Cloudflare
     publishes from its own build, not from anything here — the comparison would be
     against whatever a previous run left in ``_site/``, and a directory older than
     the commit reports the deployment as stale when it is only this machine that
-    is. That is not a hypothetical: it happened on the run that shipped the hub,
-    where a fresh build of the same commit matched the host byte for byte while a
+    is. That is not a hypothetical: it happened on a run that shipped two hosts
+    of one commit, where a fresh build matched its host byte for byte while a
     stale ``_site/`` did not, and a red check with nothing behind it is how this
     file's own warnings get ignored. So the claim is dropped, in words, rather
     than answered from the wrong side.
@@ -606,9 +629,9 @@ def report(hosts: tuple[Host, ...], sha: str, *, wait: bool) -> int:
         )
     else:
         # Nothing was uploaded here, so *unpublished* is the ordinary reading
-        # rather than an alarm: `meow-owner` and `meowdev` have no Git
+        # rather than an alarm: three of the four projects have no Git
         # integration, so they change only when somebody deploys them, and the
-        # public host's build is Cloudflare's rather than this machine's.
+        # public host's build may be Cloudflare's rather than this machine's.
         advice = (
             "\n\nNothing in this run uploaded anything, so this is the state of the"
             "\naddresses rather than a failed publish. A Pages host that is behind"
@@ -646,7 +669,7 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         metavar="PROJECT",
         help=(
-            "one host instead of all three "
+            "one host instead of all four "
             f"({', '.join(h.project for h in HOSTS)}). Every address is checked "
             "either way, the Space included"
         ),
@@ -654,7 +677,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="build all three hosts and stop; upload nothing and verify nothing",
+        help="build all four hosts and stop; upload nothing and verify nothing",
     )
     parser.add_argument(
         "--verify-only",

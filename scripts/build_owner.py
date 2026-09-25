@@ -1,15 +1,24 @@
-"""Build the dedicated owner console site for Cloudflare Pages (meow-owner).
+"""Build the addresses that proxy one slice of the live application each.
 
-Why a dedicated owner site
+Three hosts, one worker
+-----------------------
+The public site (dacat.pages.dev) is for community members and server admins.
+Three addresses in front of the same backend each answer a different slice, and
+their lists are the whole of what separates them:
+
+* ``dacatowner.pages.dev``    — the operator console, root = ``/owner``.
+* ``dacatdashboard.pages.dev`` — the per-server dashboard, root = ``/dashboard``.
+* ``dacatmarket.pages.dev``    — the market, root = ``/market``, and the only one
+  of the three a crawler is invited into, because it is the only one with a
+  public page on it.
+
+Why dedicated hosts at all
 --------------------------
-The public site (meow-bot.pages.dev) is for community members and server admins.
-The operator console (meow-owner.pages.dev) is exclusively for the bot owner to
-manage the whole fleet, system toggles, ops telemetry, and changes.
-
-Having a separate site allows:
-1. Complete removal of the "Admin Passkey" field from the public /login page.
-2. A single, dedicated portal for the owner at https://meow-owner.pages.dev.
-3. Edge-caching of all static console bundles while proxying API calls to the backend.
+1. The console's sign-in is not the members' sign-in: the public site has no
+   "Admin Passkey" field, and the operator's door is at an address of its own.
+2. A single, dedicated portal for the owner, with a root that *is* the console.
+3. Edge-caching of the static assets while every dynamic path is proxied to the
+   backend, which is the only shape available to a host that serves a session.
 
 What this build must **not** do is make that host a second copy of the whole
 application, twice learned:
@@ -38,6 +47,7 @@ import json
 import os
 import shutil
 import sys
+from typing import NamedTuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -50,7 +60,7 @@ DEFAULT_LIVE_APP = "https://1tsrajowo-meow.hf.space"
 #: its worker forwards the dynamic routes back to the same backend this host
 #: proxies. So a bookmark to `/dashboard` here becomes a page that renders,
 #: instead of a page this host serves and cannot dress.
-DEFAULT_PUBLIC_SITE = "https://meow-bot.pages.dev"
+DEFAULT_PUBLIC_SITE = "https://dacat.pages.dev"
 DEFAULT_OUT = os.path.join(ROOT, "_owner")
 
 #: The prefixes this host serves — the same list the worker is built from, kept
@@ -87,6 +97,59 @@ CONSOLE_PREFIXES = (
     # names `/agree`, because it is the backend that puts it in a `Location`
     # header. See the flow test in `tests/test_owner_site.py`.
     "/agree",
+)
+
+#: The prefixes the **dashboard** host serves. This table exists rather than a
+#: second builder because the worker above is one file whose whole value is its
+#: list, and two copies of 250 lines is two places for a list to go stale. What
+#: differs between the hosts is only *which paths are theirs* and *what their
+#: root means*.
+#:
+#: The dashboard is the member-facing surface, so its doors are the public ones:
+#: `/login` (the passkey form), the Discord pair, `/servers` (the picker) and the
+#: clickwrap every session passes through. The console's list deliberately leaves
+#: `/login` out — on that domain it was a second entrance nobody was guarding —
+#: and here it is the only door there is.
+DASHBOARD_PREFIXES = (
+    "/dashboard",
+    # Which server the session is about. The rail's links carry `?guild_id=`, but
+    # the picker posts here and a bookmark may carry nothing at all, so a
+    # signed-in reader is answered instead of being 301'd to a marketing page.
+    "/servers",
+    "/login",
+    "/login/discord",
+    "/logout",
+    "/agree",
+    # Every read and write the eleven pages make, named one at a time. Named
+    # rather than wildcarded because a prefix list is a *contract*: a path that is
+    # not here 301s to the public site, so an endpoint the pages start calling has
+    # to be added deliberately rather than inherited.
+    "/api/toggle",
+    "/api/toggle-all",
+    "/api/member-action",
+    "/api/member-warnings",
+    "/api/server-action",
+    "/api/channels",
+    "/api/level-settings",
+    "/api/identity",
+    "/api/uptime",
+    "/api/figures",
+    "/api/scheduled",
+    "/api/schedule-message",
+    "/api/send-message",
+    "/api/mentionables",
+    "/api/command-scope",
+    "/api/image",
+)
+
+#: The prefixes the **market** host serves. The market is the one public,
+#: unauthenticated surface with prices on it — a calculator rather than a broker,
+#: as its own template says — so this list is two entries and no door: there is
+#: nothing on this host to sign in to, and a session endpoint here would be a door
+#: on a room that has none.
+MARKET_PREFIXES = (
+    "/market",
+    "/api/market",
 )
 
 #: Every file under ``static/`` that a page *this host serves* asks for by name.
@@ -162,13 +225,15 @@ def _js_string(value: str) -> str:
     return json.dumps(value)
 
 
-def _worker_file(
-    backend_host: str = "1tsrajowo-meow.hf.space",
-    proxy_secret: str = "",
-    public_site: str = "meow-bot.pages.dev",
-) -> str:
-    return f"""/**
- * Cloudflare Pages Advanced Mode Worker for meow-owner.pages.dev
+
+#: The JS header and the prefix array the **owner** host's worker carries,
+#: kept as text rather than re-typed by a generator: every entry in this list
+#: is an argument for its own existence, and the argument is the half a
+#: regenerated list loses. The other two hosts' lists below are generated from
+#: the same shape, so a fourth host is a table entry rather than a fourth
+#: worker.
+_OWNER_WORKER_HEADER = '''/**
+ * Cloudflare Pages Advanced Mode Worker for dacatowner.pages.dev
  *
  * The operator's console, and **only** the console.
  *
@@ -192,23 +257,9 @@ def _worker_file(
  * host those pages belong to. `/static/` is still answered here — the bundle and
  * the sign-in page's own assets live here — and it is now the *only* asset
  * contract this build has to keep.
- */
-const BACKEND_HOST = "{backend_host}";
-const PUBLIC_SITE_HOST = "{public_site}";
+ */'''
 
-// Shared with the backend's OWNER_PROXY_SECRET. Empty means no stamp is sent,
-// and the backend then falls back to the address Cloudflare connected from.
-const OWNER_PROXY_SECRET = {_js_string(proxy_secret)};
-
-// What this host serves. A prefix list rather than a route table, because the
-// backend owns the routes and this file should not have to be edited every time
-// one is added inside the console — but a *short* list, because the value of the
-// list is what is missing from it. `tests/test_owner_site.py` derives the paths
-// the bundled console actually calls out of `console/src/`, and the *sign-in
-// flow* out of the backend's own redirects, and fails if one of them is not
-// covered here.
-const CONSOLE_PREFIXES = [
-  "/owner",
+_OWNER_PREFIXES_JS = '''  "/owner",
   "/api/console",
   // The console's own switches: the reused dashboard endpoints it posts to
   // rather than reimplementing. `/api/toggle` and `/api/toggle-all` write, and
@@ -237,7 +288,37 @@ const CONSOLE_PREFIXES = [
   // site: the operator landed on another host, signed out, at a page offering no
   // passkey field. The flow test in `tests/test_owner_site.py` derives this from
   // `keep_alive._door_target` so the next door is covered by existing.
-  "/agree"
+  "/agree"'''
+
+
+def _worker_file(
+    backend_host: str = "1tsrajowo-meow.hf.space",
+    proxy_secret: str = "",
+    public_site: str = "dacat.pages.dev",
+    *,
+    host_label: str = "dacatowner.pages.dev",
+    root_path: str = "/owner",
+    prefixes_js: str = "",
+    header: str = "",
+) -> str:
+    prefixes_js = prefixes_js or _OWNER_PREFIXES_JS
+    header = header or _OWNER_WORKER_HEADER
+    return f"""{header}const BACKEND_HOST = "{backend_host}";
+const PUBLIC_SITE_HOST = "{public_site}";
+
+// Shared with the backend's OWNER_PROXY_SECRET. Empty means no stamp is sent,
+// and the backend then falls back to the address Cloudflare connected from.
+const OWNER_PROXY_SECRET = {_js_string(proxy_secret)};
+
+// What this host serves. A prefix list rather than a route table, because the
+// backend owns the routes and this file should not have to be edited every time
+// one is added inside the console — but a *short* list, because the value of the
+// list is what is missing from it. `tests/test_owner_site.py` derives the paths
+// the bundled console actually calls out of `console/src/`, and the *sign-in
+// flow* out of the backend's own redirects, and fails if one of them is not
+// covered here.
+const CONSOLE_PREFIXES = [
+{prefixes_js}
 ];
 
 // The two paths that *are* the console without saying so. They are not prefixes
@@ -305,7 +386,7 @@ export default {{
     // fleet rather than on a redirect — which is what the guard above this line
     // used to answer it with, because the root was not in any list it consulted.
     if (isRoot) {{
-      backendUrl.pathname = "/owner";
+      backendUrl.pathname = "{root_path}";
     }}
 
     // The visitor's headers, minus the ones that describe a *hop*. A client that
@@ -377,13 +458,13 @@ export default {{
         const locUrl = new URL(location, backendUrl.origin);
         if (locUrl.hostname === BACKEND_HOST) {{
           let targetPath = locUrl.pathname;
-          if (targetPath === "/owner") {{
+          if (targetPath === "{root_path}") {{
             targetPath = "/";
           }}
           resHeaders.set("Location", targetPath + locUrl.search + locUrl.hash);
         }}
       }} catch {{
-        if (location === "/owner") {{
+        if (location === "{root_path}") {{
           resHeaders.set("Location", "/");
         }}
       }}
@@ -412,18 +493,21 @@ def _routes_file() -> str:
 """
 
 
-def _headers_file() -> str:
-    """The console host's headers, including the reservation and `noindex`.
+def _headers_file(private: bool = True) -> str:
+    """A proxy host's headers, including the reservation and `noindex`.
 
-    The owner console is the one surface here where `noindex` is not a
-    preference: every page on this host is either a sign-in form or the
-    operator's own view of the fleet, and an index entry for either is only ever
-    useful to somebody assembling a list of them. The reservation travels the
-    same way it does everywhere else — from ``utils/ai_guard``, so the console
-    cannot end up as the one host that permits training by omission.
+    The console and the dashboard are the two surfaces where `noindex` is not a
+    preference: every page there is either a sign-in form or somebody's own view
+    of their server, and an index entry for either is only ever useful to
+    somebody assembling a list of them. The **market** is the exception in this
+    file — it is a public page with a per-instrument page under it, and a market
+    nobody can find is a market with no readers — so which shape a host gets is
+    the same fact as whether its list has a door in it. The reservation travels
+    the same way it does everywhere else, from ``utils/ai_guard``, so neither
+    host can end up as the one that permits training by omission.
     """
     reservation = "".join(
-        f"  {name}: {value}\n" for name, value in ai_guard.headers(private=True).items()
+        f"  {name}: {value}\n" for name, value in ai_guard.headers(private=private).items()
     )
     return (
         "/*\n"
@@ -450,11 +534,106 @@ def _host_of(url: str, fallback: str) -> str:
     return text.replace("https://", "").replace("http://", "").split("/")[0] or fallback
 
 
-def build(
-    out_dir: str,
+#: The four hosts this repository publishes, three of which are the same worker
+#: over different lists. A table rather than three scripts: the worker is one
+#: file because its whole value is *which paths are this host's*, and a second
+#: copy of 250 lines is a second place for that list to go stale — which is the
+#: defect the console host's own history is made of.
+class ProxyHost(NamedTuple):
+    """One Cloudflare Pages project that proxies a slice of the application."""
+
+    key: str
+    project: str
+    label: str
+    #: What this host's `/` means to the backend. The console learned this the
+    #: hard way: the root was in no list, so the guard caught the last request of
+    #: a *successful* sign-in and 301'd it to the marketing site.
+    root: str
+    prefixes: tuple[str, ...]
+    #: Whether a crawler may index it. True for the one host with a public page
+    #: on it; the other two are a sign-in form and somebody's server.
+    indexable: bool
+    out: str
+
+
+PROXY_HOSTS: dict[str, ProxyHost] = {
+    "owner": ProxyHost(
+        key="owner",
+        project="dacatowner",
+        label="the operator console",
+        root="/owner",
+        prefixes=CONSOLE_PREFIXES,
+        indexable=False,
+        out=DEFAULT_OUT,
+    ),
+    "dashboard": ProxyHost(
+        key="dashboard",
+        project="dacatdashboard",
+        label="the per-server dashboard",
+        root="/dashboard",
+        prefixes=DASHBOARD_PREFIXES,
+        indexable=False,
+        out=os.path.join(ROOT, "_dash"),
+    ),
+    "market": ProxyHost(
+        key="market",
+        project="dacatmarket",
+        label="the market",
+        root="/market",
+        prefixes=MARKET_PREFIXES,
+        indexable=True,
+        out=os.path.join(ROOT, "_market"),
+    ),
+}
+
+#: The JS header for the two hosts whose reasoning is short enough to write down
+#: here rather than in a file of its own. The console's is a page of history and
+#: lives above as text, because it is the record of two defects and not a caption.
+_SHORT_HEADERS = {
+    "dashboard": """/**
+ * Cloudflare Pages Advanced Mode Worker for {host}
+ *
+ * The per-server dashboard, and nothing else. This host exists so the dashboard
+ * has an address of its own rather than only being a path on the marketing site
+ * — and it is a *proxy*, not a copy: every page under `/dashboard` is the
+ * application's own, rendered with the session the visitor actually has. A
+ * static copy of a signed-in surface is the one shape this project refuses, for
+ * the reason its own template gives: a control that looks real and does nothing
+ * is a lie, and so is a dashboard with no server behind it.
+ *
+ * `/login` is served here and that is deliberate — the opposite of the console
+ * host, where it is the door the console must *not* answer, because on that
+ * domain it was a second entrance nobody was guarding. Here it is the only one.
+ */""",
+    "market": """/**
+ * Cloudflare Pages Advanced Mode Worker for {host}
+ *
+ * The market, and nothing else. `/market` is the project's one public,
+ * unauthenticated surface with prices on it — a calculator rather than a broker,
+ * as the page itself says — so this list has no door in it and this host has
+ * nothing to sign in to.
+ */""",
+}
+
+
+def _prefixes_js(prefixes: tuple[str, ...]) -> str:
+    """A JS array literal for one host's prefix list, with its comments.
+
+    Generated rather than typed so the Python tuple and the JavaScript cannot
+    disagree — the law that reads the list back out of the built worker compares
+    it with the tuple, and the two were kept in step by hand until now.
+    """
+    return "\n".join(f'  "{path}",' for path in prefixes).rstrip(",") + ","
+
+
+def build_proxy(
+    host: ProxyHost,
+    out_dir: str = "",
     live_app: str = DEFAULT_LIVE_APP,
     public_site: str = "",
 ) -> None:
+    """Build one proxy host: worker, routes, headers, and its own two files."""
+    out_dir = out_dir or host.out
     backend_host = _host_of(live_app, "1tsrajowo-meow.hf.space")
 
     if os.path.abspath(out_dir) == ROOT:
@@ -486,16 +665,27 @@ def build(
     proxy_secret = config_audit.get("OWNER_PROXY_SECRET")
     public_host = _host_of(
         public_site or config_audit.get("OWNER_PUBLIC_SITE_URL"),
-        _host_of(DEFAULT_PUBLIC_SITE, "meow-bot.pages.dev"),
+        _host_of(DEFAULT_PUBLIC_SITE, "dacat.pages.dev"),
     )
+    header = _SHORT_HEADERS.get(host.key, "").format(host=host.project + ".pages.dev")
     with open(os.path.join(out_dir, "_worker.js"), "w", encoding="utf-8") as f:
-        f.write(_worker_file(backend_host, proxy_secret, public_host))
+        f.write(
+            _worker_file(
+                backend_host,
+                proxy_secret,
+                public_host,
+                host_label=host.project + ".pages.dev",
+                root_path=host.root,
+                prefixes_js=_prefixes_js(host.prefixes),
+                header=header,
+            )
+        )
 
     with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as f:
         f.write(_routes_file())
 
     with open(os.path.join(out_dir, "_headers"), "w", encoding="utf-8") as f:
-        f.write(_headers_file())
+        f.write(_headers_file(private=not host.indexable))
 
     # This host serves the console and nothing else, so its directives are the
     # private shape: `Disallow: /` for everybody, named crawlers and traps
@@ -504,13 +694,13 @@ def build(
     # meant the console's own address was governed by a file that never heard of
     # it.
     with open(os.path.join(out_dir, "robots.txt"), "w", encoding="utf-8") as f:
-        f.write(ai_guard.robots_txt(private=True))
+        f.write(ai_guard.robots_txt(private=not host.indexable))
     with open(os.path.join(out_dir, "ai.txt"), "w", encoding="utf-8") as f:
         f.write(ai_guard.ai_txt())
 
-    print(f"Built meow-owner site into {out_dir}")
+    print(f"Built {host.project} ({host.label}) into {out_dir}")
     print(
-        f"This host serves the console ({', '.join(CONSOLE_PREFIXES)}...); "
+        f"This host serves {host.label} ({', '.join(host.prefixes)}...); "
         f"every other path is redirected to https://{public_host}."
     )
     if not proxy_secret:
@@ -523,17 +713,32 @@ def build(
         )
 
 
+def build(
+    out_dir: str,
+    live_app: str = DEFAULT_LIVE_APP,
+    public_site: str = "",
+) -> None:
+    """The owner host, by the name ``scripts/ship.py`` and the laws call it."""
+    build_proxy(PROXY_HOSTS["owner"], out_dir, live_app, public_site)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the owner console site.")
-    parser.add_argument("--out", default=DEFAULT_OUT, help="Output directory")
+    parser = argparse.ArgumentParser(description="Build a proxy host's Cloudflare Pages site.")
+    parser.add_argument(
+        "--host",
+        default="owner",
+        choices=sorted(PROXY_HOSTS),
+        help="Which proxy host to build (owner, dashboard, market)",
+    )
+    parser.add_argument("--out", default="", help="Output directory (default: the host's own)")
     parser.add_argument("--live-app", default=DEFAULT_LIVE_APP, help="Live app URL")
     parser.add_argument(
         "--public-site",
         default="",
-        help="Where paths that are not the console are redirected (default: the built-in public site)",
+        help="Where paths that are not this host's are redirected (default: the built-in public site)",
     )
     args = parser.parse_args()
-    build(args.out, args.live_app, args.public_site)
+    build_proxy(PROXY_HOSTS[args.host], args.out, args.live_app, args.public_site)
 
 
 if __name__ == "__main__":

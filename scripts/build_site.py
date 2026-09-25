@@ -116,6 +116,16 @@ PROXIED_ROUTES = (
     "/api",
     "/market",
     "/health",
+    # The hub — seven reader-facing pages about what the bot is and what it is
+    # doing — is proxied rather than built here, and that is a decision with a
+    # history worth keeping. It used to be a fifth Cloudflare project of its own
+    # (``meowdev``), which is precisely how it sat an entire rebrand behind: a
+    # host with no path in the release flow is a host the next rebrand forgets.
+    # The pages themselves are the *application's* — ``/hub`` and ``/hub/<page>``
+    # are Flask views rendering from ``utils/hub.py`` — so proxying them puts
+    # them on the address that is built, uploaded and checked four times a
+    # release, with no second copy of a page to keep in step.
+    "/hub",
 )
 
 
@@ -378,7 +388,13 @@ const DYNAMIC_PREFIXES = [
      moment they were first asked to accept the terms, and nothing else could
      ever ask them: the gate is at the door by design, on purpose, so missing
      this path made the clickwrap a page nobody could reach. */
-  "/agree"
+  "/agree",
+  /* The hub, which used to answer on a project of its own (meowdev) and now
+     answers here. Seven pages rendered by the application from
+     `utils/hub.py` — what is running, every command, the deployment, the
+     changelog — and one read-only endpoint (`/api/status`, under `/api/*`
+     above) that the pages refresh themselves from. */
+  "/hub"
 ];
 
 export default {{
@@ -474,7 +490,9 @@ def _routes_file() -> str:
     "/market",
     "/market/*",
     "/health",
-    "/agree"
+    "/agree",
+    "/hub",
+    "/hub/*"
   ],
   "exclude": [
     "/static/*"

@@ -54,7 +54,7 @@ ANSWER = {
         {
             "id": 803978678,
             "friendly_name": "Public site",
-            "url": "https://meow-bot.pages.dev",
+            "url": "https://dacat.pages.dev",
             "type": 1,
             "status": 0,
             "average_response_time": "0",
