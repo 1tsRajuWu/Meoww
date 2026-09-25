@@ -1,6 +1,6 @@
 """Discord Components V2 layouts — the richest message UI Discord currently allows.
 
-This module is the single source of truth for how Meow renders messages.
+This module is the single source of truth for how DaCat renders messages.
 Everything routes through Components V2 (`LayoutView` + `Container` +
 `Section` / `TextDisplay` / `Separator` / `MediaGallery` / `Thumbnail` /
 `ActionRow`), which is the maximum-fidelity UI Discord currently exposes.

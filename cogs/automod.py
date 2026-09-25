@@ -76,7 +76,7 @@ def _audit_embed(
         color=WARN,
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_author(name="Meow Moderation Log", icon_url=member.display_avatar.url)
+    embed.set_author(name="DaCat Moderation Log", icon_url=member.display_avatar.url)
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="👤 Member", value=f"{member.mention}\n`{member.name}`", inline=True)
     embed.add_field(name="📍 Channel", value=getattr(channel, "mention", "—"), inline=True)

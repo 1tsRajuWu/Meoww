@@ -9,7 +9,7 @@
  *   it reported "removed 10,000" for a wallet holding 50. So the server refuses
  *   an over-withdrawal, this page shows its sentence, and there is no path here
  *   that rounds a balance down and says it worked.
- * * **Three numbers, not one.** Wallet + bank is what *members* hold; the Meow
+ * * **Three numbers, not one.** Wallet + bank is what *members* hold; the DaCat
  *   Fee is banked rather than burned (`utils/meowfee.py`), so coins that have
  *   left every member's balance are still in the server. A card that printed one
  *   total and called it "in circulation" would be a number that does not add up.
@@ -101,11 +101,11 @@ export function Economy({
           <Stat value={compact(data.totals.circulation)} label="members hold" index={0} />
           <Stat value={compact(data.totals.wallet)} label="in wallets" index={1} />
           <Stat value={compact(data.totals.bank)} label="in banks" index={2} />
-          <Stat value={compact(data.totals.meow_bank)} label="Meow Bank" index={3} />
+          <Stat value={compact(data.totals.meow_bank)} label="DaCat Bank" index={3} />
         </div>
       </Card>
 
-      <Card span={2} index={2} title="Meow Fee" hint="Charged on a transfer, on top of what was promised.">
+      <Card span={2} index={2} title="DaCat Fee" hint="Charged on a transfer, on top of what was promised.">
         <dl className="rows">
           <dt>Fee</dt>
           <dd>

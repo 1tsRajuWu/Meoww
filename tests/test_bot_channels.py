@@ -13,7 +13,7 @@ from unittest import mock
 
 import bot as bot_module
 from tests.support import TempDatabaseMixin
-from utils import bot_channels, db, version
+from utils import bot_channels, brand, db, version
 
 BOT_PY = Path(__file__).resolve().parent.parent / "bot.py"
 HELP_PY = Path(__file__).resolve().parent.parent / "cogs" / "help.py"
@@ -525,7 +525,7 @@ class TheDigestReachesEveryServer(TempDatabaseMixin, unittest.IsolatedAsyncioTes
         self.assertEqual(len(self.new_update.sink.messages), 1)
         for message in (self.home_update.sink.messages[0], self.new_update.sink.messages[0]):
             self.assertIsNotNone(message["embed"])
-            self.assertEqual(message["embed"].title, "🆕 Bot Updated — Meow")
+            self.assertEqual(message["embed"].title, f"🆕 Bot Updated — {brand.NAME}")
 
     async def test_the_ping_is_the_right_role_for_each_server(self):
         await self._boot()

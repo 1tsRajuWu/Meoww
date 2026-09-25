@@ -82,7 +82,7 @@ FEATURES: tuple[Feature, ...] = (
         category="Economy",
         description=(
             "Daily streak rewards, gambling, slots, blackjack, coinflip, shop, "
-            "inventory items, and the Meow Fee on transfers into Meow Bank."
+            "inventory items, and the DaCat Fee on transfers into DaCat Bank."
         ),
         gate_commands=(
             "balance", "daily", "weekly", "work", "rob", "pay", "deposit",

@@ -1,7 +1,7 @@
-"""The Meow Fee: what it costs, where it goes, and how to switch it off.
+"""The DaCat Fee: what it costs, where it goes, and how to switch it off.
 
 The fee is the one place coins leave a member's wallet for somewhere that is
-*not* another member and *not* the void — Meow Bank. So these tests care about
+*not* another member and *not* the void — DaCat Bank. So these tests care about
 three things above all: the arithmetic is the arithmetic (2%, floor of one, a
 real ceiling), the bank actually receives what the sender paid, and no path
 mints or destroys a coin while the fee is moving. The last one is checked by
@@ -335,7 +335,7 @@ class TestPaying(_Commands):
         # Refused either by the pre-check (which now names the fee) or by the
         # transaction's own guard. Both are correct; silence is not.
         self.assertTrue(
-            "Meow Fee" in refusals[0] or "changed" in refusals[0], refusals[0]
+            "DaCat Fee" in refusals[0] or "changed" in refusals[0], refusals[0]
         )
 
     async def test_the_bank_receives_exactly_the_fees_collected(self):
@@ -366,7 +366,7 @@ class TestRobbing(_Commands):
         self.assertEqual(_wallet(SENDER), 5_000 + taken - meowfee.fee_for(taken))
         self.assertEqual(_bank(), meowfee.fee_for(taken))
         self.assertEqual(before, _wallet(SENDER) + _wallet(TARGET) + _bank())
-        self.assertIn("Meow Fee", card.description)
+        self.assertIn("DaCat Fee", card.description)
 
     async def test_the_victim_loses_the_same_amount_with_or_without_the_fee(self):
         """The fee comes out of the robber's proceeds, never the victim's."""
@@ -394,10 +394,10 @@ class TestRobbing(_Commands):
 class TestTheCommand(_Commands):
     async def test_no_argument_shows_the_state_the_bank_and_the_maths(self):
         card = await self.meowfee_command(None)
-        self.assertIn("Meow Fee", card.title)
+        self.assertIn("DaCat Fee", card.title)
         self.assertIn("on", card.description)
         self.assertIn(meowfee.fee_label(), card.description)
-        self.assertTrue(any("Meow Bank" in name for name in card.fields), card.fields)
+        self.assertTrue(any("DaCat Bank" in name for name in card.fields), card.fields)
 
     async def test_turning_it_off_says_so_and_keeps_the_bank(self):
         _seed(SENDER, 1_000)

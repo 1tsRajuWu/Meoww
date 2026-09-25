@@ -154,7 +154,7 @@ class ServerControl(commands.Cog):
         )
         if guild.icon:
             embed.set_thumbnail(url=guild.icon.url)
-        embed.set_author(name="Meow — Server Information", icon_url=guild.me.display_avatar.url)
+        embed.set_author(name="DaCat — Server Information", icon_url=guild.me.display_avatar.url)
 
         embed.add_field(
             name="👥 Members",
@@ -201,7 +201,7 @@ class ServerControl(commands.Cog):
             color=member.color if member.color.value != 0 else 0x5865F2,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_author(name="Meow — User Profile", icon_url=interaction.guild.me.display_avatar.url)
+        embed.set_author(name="DaCat — User Profile", icon_url=interaction.guild.me.display_avatar.url)
         embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.add_field(
@@ -241,7 +241,7 @@ class ServerControl(commands.Cog):
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="Meow Security")
+        embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="unlock", description="Unlock this channel for all members.")
@@ -254,7 +254,7 @@ class ServerControl(commands.Cog):
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="Meow Security")
+        embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="lockdown-server", description="Lock ALL text channels in the server.")
@@ -275,7 +275,7 @@ class ServerControl(commands.Cog):
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="Meow Security")
+        embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="unlock-server", description="Unlock ALL text channels in the server.")
@@ -296,7 +296,7 @@ class ServerControl(commands.Cog):
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="Meow Security")
+        embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="slowmode", description="Set slowmode delay for this channel (seconds, 0 to disable).")
@@ -419,7 +419,7 @@ class ServerControl(commands.Cog):
             timestamp=discord.utils.utcnow(),
         )
         embed.set_author(
-            name="Meow — System",
+            name="DaCat — System",
             icon_url=interaction.guild.me.display_avatar.url,
         )
 

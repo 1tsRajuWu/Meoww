@@ -424,12 +424,12 @@ class TheLedgerPagesAreReadings(_PageRender):
                          "wallet_text": "1,250", "bank_text": "4,000", "share_text": "92.9%"}],
             },
             economy_fee={"label": "2%", "enabled": True, "cap": 500,
-                         "stored": True, "describe": "2% of a transfer goes to Meow Bank."},
+                         "stored": True, "describe": "2% of a transfer goes to DaCat Bank."},
         )
         self.assertIn("In wallets", html)
         self.assertIn("1,550", html)
         self.assertIn("4,100", html)
-        self.assertIn("Meow Bank", html)
+        self.assertIn("DaCat Bank", html)
         self.assertIn("2%", html)
         self.assertIn("raj", html)
         self.assertIn("5,250", html)

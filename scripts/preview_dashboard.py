@@ -272,7 +272,7 @@ CHANNELS = [
 
 MEMBERS = [
     {"id": "1542296506290143349", "label": "RAJ", "sub": "@raj", "kind": "user"},
-    {"id": "1542296506290143350", "label": "Meow", "sub": "@meow", "kind": "user"},
+    {"id": "1542296506290143350", "label": "DaCat", "sub": "@dacat", "kind": "user"},
     {"id": "1542296506290143351", "label": "Bob", "sub": "@bob", "kind": "user"},
     {"id": "1542296506290143352", "label": "Bobette", "sub": "@bobette", "kind": "user"},
 ]
@@ -293,7 +293,7 @@ SPECIAL = [
 #: server that was asked for: it used to render the first one whatever the query
 #: said, which made the switcher look broken in the one place it gets checked.
 GUILDS = [
-    {"id": 777001, "name": "Meow Server", "members": 1627},
+    {"id": 777001, "name": "DaCat Server", "members": 1627},
     {"id": 777002, "name": "Second Server", "members": 42},
 ]
 
@@ -449,7 +449,7 @@ class _PreviewServer:
         self.icon = None
         # No dedicated bot member: `_identity_member` falls back to the bot's own
         # user, which this harness also does not have, and both paths answer ""
-        # rather than raising. A fabricated "Meow" here would be a nickname the
+        # rather than raising. A fabricated "DaCat" here would be a nickname the
         # preview invented about a gateway it does not have.
         self.me = None
         self._members = {int(m["id"]): _PreviewMentionable(m, "@") for m in MEMBERS}
@@ -1213,7 +1213,7 @@ def _preview_overview(guild_id: int) -> dict:
 #: mixed rather than uniform — a list of five identical rows hides every branch.
 PREVIEW_MEMBERS = (
     {"id": 424242424242424242, "display_name": "Wren", "bot": False, "timeout_seconds": 0, "top_role": "@admin"},
-    {"id": 515151515151515151, "display_name": "Meow", "bot": True, "timeout_seconds": 0, "top_role": "@bot"},
+    {"id": 515151515151515151, "display_name": "DaCat", "bot": True, "timeout_seconds": 0, "top_role": "@bot"},
     {"id": 626262626262626262, "display_name": "Kite", "bot": False, "timeout_seconds": 5400, "top_role": "@everyone"},
     {"id": 737373737373737373, "display_name": "Sorrel", "bot": False, "timeout_seconds": 0, "top_role": "@mod"},
 )
@@ -1272,7 +1272,7 @@ PREVIEW_UPTIME: dict = {
     "monitors": [
         {
             "id": "803978677",
-            "name": "Meow Bot",
+            "name": "DaCat Bot",
             "url": "https://meow-discord-bot.onrender.com",
             "status": 2,
             "label": "up",
@@ -2042,7 +2042,7 @@ def _seed_queue():
         "repeat_minutes": 0,
         "source": "schedule",
         "status": "pending",
-        "created_by_name": "Meow",
+        "created_by_name": "DaCat",
         "last_run_at": None,
         "last_error": "",
         "results": [],

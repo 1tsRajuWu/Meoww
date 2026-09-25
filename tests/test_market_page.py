@@ -135,6 +135,72 @@ class TestMarketPageRenders(unittest.TestCase):
                 self.assertIn(f'data-instrument="{symbol} ', html)
                 self.assertIn(f'href="/market/{symbol}"', html)
 
+    def test_the_rail_folds_every_instrument_and_opens_only_the_pages_own(self):
+        """Seventy-two rows in one flat list ran the rail the whole length of the page.
+
+        Reported: the instrument list was a single run that reached past the
+        bottom of the viewport and kept going, so a reader on a phone scrolled
+        about two thousand pixels of prices to reach the watchlist — a rail that
+        reads as a progress bar down the side of the page rather than as a list.
+        Each registry group is a `<details>` now and the group holding *this*
+        page's instrument is the one that arrives open.
+
+        Asserted as relations rather than as a shape, because a fold is a claim
+        about the list: the count in a summary has to be the number of rows
+        actually inside it (a count nobody can check against its own list is the
+        worst version of this control), every instrument the registry declares
+        has to still be on the page (a fold that drops one is a broker that
+        stopped listing it), and the open fold has to be the one containing the
+        symbol the page is about. The bound on the open fold's height is the whole
+        point of it, so it is read out of the page's own stylesheet.
+        """
+        for symbol in ("BTC", "AAPL"):
+            with self.subTest(symbol=symbol):
+                html = render_page(symbol)
+                folds = re.findall(
+                    r'<details class="mk-group"([^>]*)>\s*'
+                    r'<summary class="mk-group-title">\s*'
+                    r'<span class="mk-group-name">([^<]+)</span>\s*'
+                    r'<span class="mk-group-count">(\d+)</span>\s*</summary>\s*'
+                    r'(<div class="mk-list">.*?)</details>',
+                    html,
+                    re.DOTALL,
+                )
+                self.assertGreater(len(folds), 1, "the rail is one list again, not folds")
+
+                total = 0
+                opened = []
+                for attrs, label, count, body in folds:
+                    rows = len(re.findall(r'data-instrument="', body))
+                    total += rows
+                    with self.subTest(group=label):
+                        self.assertEqual(
+                            int(count), rows, f"{label} says {count} and holds {rows}"
+                        )
+                    if "open" in attrs:
+                        opened.append(label)
+                self.assertEqual(
+                    total,
+                    len(market_module.INSTRUMENTS),
+                    "an instrument the registry declares is missing from the rail",
+                )
+                self.assertEqual(
+                    opened,
+                    [
+                        label
+                        for _attrs, label, _count, body in folds
+                        if f'data-instrument="{symbol} ' in body
+                    ],
+                    "the fold that arrived open is not the one this page is about",
+                )
+
+                block = re.search(r"\.mk-list\s*\{(.*?)\}", page_styles(html), re.DOTALL)
+                self.assertIsNotNone(block, "the rail's list is no longer styled")
+                self.assertRegex(
+                    block.group(1), r"max-height:\s*\S+", "an unbounded fold is a page again"
+                )
+                self.assertRegex(block.group(1), r"overflow-y:\s*auto")
+
     def test_both_apis_are_called(self):
         script = page_script()
         self.assertIn("/api/market/quotes", script)

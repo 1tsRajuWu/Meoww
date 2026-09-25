@@ -83,7 +83,7 @@ A community bot for moderation, tickets with transcripts, leveling, an economy w
 
 ### Detailed Description
 ```markdown
-Meow is a moderation and community bot that stays out of your way. It brings 14 systems and 96 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, building and clearing away the server's own channels and roles with a recorded case for every change, and a per-channel activity tracker keeping a 365-day window. Four ship switched off in every server until an administrator turns them on — a live market with real-time quotes, a starboard, a voice companion that sits with somebody alone in a voice channel, and the legacy pair of an anonymous question box that relays what you ask without your name and DMs the answer back with radio in a voice channel with stations in any genre or language; one command offers those last two together, `/bot legacy`.
+DaCat is a moderation and community bot that stays out of your way. It brings 14 systems and 96 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, building and clearing away the server's own channels and roles with a recorded case for every change, and a per-channel activity tracker keeping a 365-day window. Four ship switched off in every server until an administrator turns them on — a live market with real-time quotes, a starboard, a voice companion that sits with somebody alone in a voice channel, and the legacy pair of an anonymous question box that relays what you ask without your name and DMs the answer back with radio in a voice channel with stations in any genre or language; one command offers those last two together, `/bot legacy`.
 
 Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
 
@@ -117,9 +117,9 @@ Need assistance, found a bug, or have a suggestion? Join our support server or u
 Discord maintains clear guidelines for applications involving Artificial Intelligence:
 
 1. **Disclosure & Attribution**:
-   Discord requires transparency when applications involve AI. While Meow does not execute an LLM at runtime, its source and ongoing operations were built and maintained with the help of AI coding assistants and autonomous AI agents. This is explicitly disclosed in the listing copy, `PRIVACY.md` (Section 7), and `TERMS.md` (Section 8).
+   Discord requires transparency when applications involve AI. While DaCat does not execute an LLM at runtime, its source and ongoing operations were built and maintained with the help of AI coding assistants and autonomous AI agents. This is explicitly disclosed in the listing copy, `PRIVACY.md` (Section 7), and `TERMS.md` (Section 8).
 2. **Data Privacy & Sub-Processors**:
-   Discord policies strictly govern sending user messages or prompts to third-party AI APIs (such as OpenAI, Anthropic, or Google). Meow invokes **zero external AI model APIs at runtime**. No user prompts, channel text, or guild records are ever shared with AI providers or used for training (`docs/legal/sub-processors.md`).
+   Discord policies strictly govern sending user messages or prompts to third-party AI APIs (such as OpenAI, Anthropic, or Google). DaCat invokes **zero external AI model APIs at runtime**. No user prompts, channel text, or guild records are ever shared with AI providers or used for training (`docs/legal/sub-processors.md`).
 3. **Safety & Content Standards**:
    Automated moderation filters and economy rules are designed deterministically to maintain community safety and prevent abuse.
 4. **Least Privilege**:

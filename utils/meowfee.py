@@ -1,7 +1,7 @@
-"""The Meow Fee: a small cut on coins moving between members.
+"""The DaCat Fee: a small cut on coins moving between members.
 
 The market's treat fee is **burned** — the coins leave the economy. This one is
-**banked**: it lands in Meow Bank, the server's house account, in the very same
+**banked**: it lands in DaCat Bank, the server's house account, in the very same
 transaction that moves the money. That difference is why this fee is deliberately
 small, because a banked fee is not a sink. Every coin is still in the server, just
 no longer in the sender's wallet, so there is no inflation argument for making it
@@ -24,7 +24,10 @@ from __future__ import annotations
 
 from . import db
 
-#: The share of a transfer that goes to Meow Bank.
+#: The share of a transfer that goes to DaCat Bank. The *word* is the brand's,
+#: and the module, the table and the slash command that carry this fee keep the
+#: older spelling on purpose — renaming a stored key is a migration, and
+#: `brand.INTERNAL_NAMES` is where that list is written down.
 RATE = 0.02
 #: A transfer that happens owes at least this much — a fee that rounds away to
 #: nothing is not a fee, and a fraction of a coin cannot be paid.
@@ -41,7 +44,7 @@ BANK_TABLE = "meow_bank"
 
 
 def fee_for(coins: float) -> int:
-    """The Meow Fee owed on a transfer of ``coins``.
+    """The DaCat Fee owed on a transfer of ``coins``.
 
     Proportional, whole, never below :data:`MIN_FEE` and never above
     :data:`MAX_FEE`. A non-positive transfer owes nothing, because there is
@@ -60,7 +63,7 @@ def fee_label() -> str:
 def describe() -> str:
     """One sentence for a card, so no command has to restate the rules."""
     return (
-        f"**{fee_label()}** of a transfer goes to Meow Bank, at least "
+        f"**{fee_label()}** of a transfer goes to DaCat Bank, at least "
         f"{MIN_FEE} 🪙 and never more than {MAX_FEE:,} 🪙, charged on top of "
         "what the sender promised."
     )
@@ -91,7 +94,7 @@ async def set_enabled(guild_id: int, enabled: bool) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Meow Bank
+# DaCat Bank
 # --------------------------------------------------------------------------- #
 #: The table is created at boot *and* defensively on first use, because a
 #: database restored from a backup taken before this existed would otherwise
@@ -108,7 +111,7 @@ def ensure_bank_table(cursor) -> None:
 
 
 def credit(cursor, guild_id: int, coins: int) -> int:
-    """Add ``coins`` to the guild's Meow Bank and return the new balance.
+    """Add ``coins`` to the guild's DaCat Bank and return the new balance.
 
     Runs on the caller's cursor so it lands in the caller's transaction: the
     money leaves a wallet and reaches the bank together or not at all.
@@ -130,7 +133,7 @@ def credit(cursor, guild_id: int, coins: int) -> int:
 
 
 async def bank_balance(guild_id: int) -> int:
-    """What Meow Bank holds for this guild, or 0 if nothing was ever collected."""
+    """What DaCat Bank holds for this guild, or 0 if nothing was ever collected."""
     if not guild_id:
         return 0
     async with db.aiosqlite.connect(db.DB_PATH) as conn:

@@ -40,21 +40,45 @@ TEMPLATES = ROOT / "templates"
 KEEP_ALIVE = ROOT / "keep_alive.py"
 BUILD_OWNER = ROOT / "scripts" / "build_owner.py"
 
-#: The in-product vocabulary that is deliberately *not* the brand name. These are
-#: the words a rename reaches last, and the plan chose user-facing strings only:
-#: `/meow`, Meow Bank, the Meow Fee and the Meow Treat keep their names, because
-#: renaming them touches stored rows and every card that quotes a fee. Written as
-#: an explicit allow-list so the law below cannot be satisfied by adding a word
-#: to a regex.
+#: The in-product vocabulary that is *not* the brand name: the house account, the
+#: fee on a transfer and the fee on a fill. A first pass left these on the older
+#: name — renaming them looked like it reached stored rows and every card that
+#: quotes a fee — and the pass this list now records finished the job, because the
+#: *rows* are named inside the code (`meow_bank`, `meow_fee_enabled`) and only the
+#: words a person reads had to move. Written as an explicit allow-list so the law
+#: below cannot be satisfied by adding a word to a regex.
 KEPT_VOCABULARY = ("Bank", "Fee", "Treat")
 
-#: …and the subset of that vocabulary the *templates* actually render. The Meow
-#: Fee and the Meow Treat are named in the bot's own cards and in the docs rather
-#: than on a page, so asserting them here would be asserting that a page says
-#: something it has never said — which is how a law starts failing for the wrong
-#: reason. The bank is the one the site draws, on the market page and the economy
-#: panel, so it is the one this file can hold.
-RENDERED_VOCABULARY = ("Meow Bank",)
+#: …and the subset of that vocabulary the *templates* actually render. The fee and
+#: the treat are named in the bot's own cards and in the docs rather than on a
+#: page, so asserting them here would be asserting that a page says something it
+#: has never said — which is how a law starts failing for the wrong reason. The
+#: bank is the one the site draws, on the market page and the economy panel, so it
+#: is the one this file can hold.
+RENDERED_VOCABULARY = ("DaCat Bank",)
+
+#: The older spelling of that same vocabulary, which the rename finished. Named
+#: as a list rather than left to the one retired *brand* word above, because the
+#: failure this catches is a surface somebody forgot rather than a page somebody
+#: wrote: the vocabulary lived in six modules, two templates and one bundle, and
+#: "the brand is gone" was true for four rounds while all of them still said it.
+RETIRED_VOCABULARY = ("Meow Bank", "Meow Fee", "Meow Treat")
+
+#: Where those words were authored, and therefore where their absence is checked:
+#: the markup a browser is served, plus every module that authors a card, a page
+#: or a chart a person reads. Not the whole tree — the *identifiers* keep the
+#: spelling and are the reason this list is explicit.
+RENDERED_VOCABULARY_SOURCES = (
+    "cogs/economy.py",
+    "cogs/help.py",
+    "cogs/market.py",
+    "keep_alive.py",
+    "static/market.js",
+    "utils/chart.py",
+    "utils/market.py",
+    "utils/meowfee.py",
+    "utils/operator_log.py",
+)
 
 #: The retired brand name that should no longer appear on rendered pages.
 RETIRED_WORD = re.compile(r"Keystone")
@@ -108,17 +132,39 @@ class TheNameHasOneAuthor(unittest.TestCase):
             offenders,
             [],
             "these rendered surfaces still say the name this product had before "
-            "the rebrand (Meow Bank, the Meow Fee and the Meow Treat are kept on "
-            "purpose and are not matched):\n" + "\n".join(offenders),
+            "the rebrand:\n" + "\n".join(offenders),
+        )
+
+    def test_no_rendered_source_still_says_the_old_vocabulary(self):
+        """The half of a rename that a *word* check cannot see.
+
+        `RETIRED_WORD` above is the brand, and it was already gone while six
+        modules still said "Meow Bank" on every economy card — because a rename
+        that is only asserted against one word passes on the day somebody chose
+        a second one. This is the other word, checked where it is authored.
+        """
+        offenders = []
+        for name in RENDERED_VOCABULARY_SOURCES:
+            for number, line in enumerate(read(ROOT / name).splitlines(), start=1):
+                said = [word for word in RETIRED_VOCABULARY if word in line]
+                if said:
+                    offenders.append(f"{name}:{number}: {line.strip()[:90]}")
+        self.assertEqual(
+            offenders,
+            [],
+            "these surfaces a person reads still carry the vocabulary's older "
+            "spelling; the identifiers keep it on purpose, the words do not:\n"
+            + "\n".join(offenders),
         )
 
     def test_the_kept_vocabulary_is_actually_kept(self):
         """So the allow-list above cannot quietly become a to-do list.
 
-        The rule is "no rename of in-product vocabulary", and a law that only
-        forbids the old brand name would pass just as well if somebody had gone
-        through the economy renaming the bank — which is the change this file was
-        written to make deliberate rather than incidental.
+        The vocabulary moves with the brand and keeps its three product words:
+        a bank, a fee and a treat. A law that only forbids the older spelling
+        would pass just as well if somebody had gone through the economy deleting
+        the bank instead of renaming it — which is the change this file exists to
+        make deliberate rather than incidental.
         """
         rendered = "\n".join(read(path) for path in TEMPLATES.rglob("*.html"))
         # Collected and compared as a list rather than asserted one at a time:
@@ -128,8 +174,8 @@ class TheNameHasOneAuthor(unittest.TestCase):
         self.assertEqual(
             missing,
             [],
-            "these in-product names have gone from the markup; if that rename was "
-            "intended it needs its own migration and its own pass",
+            "these in-product names have gone from the markup; the vocabulary moves "
+            "with the brand, so vanishing is not how a rename lands here",
         )
 
 

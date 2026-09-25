@@ -1,4 +1,4 @@
-"""Meow Bank: loan math, atomicity, penalties, and the funny commands.
+"""DaCat Bank: loan math, atomicity, penalties, and the funny commands.
 
 The loan system used to be a single hardcoded rule with four defects that these
 tests pin:

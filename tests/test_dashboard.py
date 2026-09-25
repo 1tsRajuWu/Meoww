@@ -947,7 +947,7 @@ class PreviewHarness(unittest.TestCase):
         # The name the process answers with, not a literal. This line spelled
         # *Meow*, and after the rebrand it kept passing for the wrong reason: the
         # front door's systems band printed the economy's registry description,
-        # which still calls the house account **Meow Bank**, so the old word was
+        # which then called the house account **Meow Bank**, so the old word was
         # on the page while the brand was not on it. The band left the page and
         # the pin went red — which is the one thing a passing-for-the-wrong-reason
         # assertion can do for you. Read the name the pages are drawn with.
@@ -978,7 +978,7 @@ class PreviewHarness(unittest.TestCase):
         # An id that is not a server the bot is in falls back to the first one,
         # the way ``_resolve_guild_id`` does, rather than rendering no server.
         fallback = client.get("/dashboard?guild_id=nonsense").get_data(as_text=True)
-        self.assertIn('<span class="own-chip__value mono">Meow Server</span>', fallback)
+        self.assertIn('<span class="own-chip__value mono">DaCat Server</span>', fallback)
 
     def test_the_pickers_manage_button_actually_switches(self):
         """**Manage** posts and has to land in that server's dashboard.
@@ -1342,7 +1342,7 @@ class TheTwoLedgers(_DashboardFixture):
             conn.commit()
         html = self.open_page("economy")
         self.assertIn(meowfee.fee_label(), html)
-        self.assertIn("Meow Bank", html)
+        self.assertIn("DaCat Bank", html)
         self.assertIn("250", html, "the banked fees are not on the page")
 
     def test_an_empty_economy_says_nothing_has_been_earned(self):

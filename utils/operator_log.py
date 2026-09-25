@@ -161,7 +161,7 @@ async def _notice_missing(bot, role: str, kind: str) -> None:
             ),
             inline=False,
         )
-    embed.set_footer(text="Meow · server log")
+    embed.set_footer(text="DaCat · server log")
     try:
         await style.send_card(target, embed=embed, timeout=None)
     except Exception as exc:
@@ -217,7 +217,7 @@ async def report_second_instance(bot, owner: str) -> bool:
     # Not "reported once": this fires on every boot that finds the other copy,
     # which is the cadence that keeps a forgotten duplicate from being forgotten
     # again — and a boot is rare enough that it cannot become noise.
-    embed.set_footer(text="Meow · reported by the copy that found it")
+    embed.set_footer(text="DaCat · reported by the copy that found it")
     try:
         await style.send_card(target, embed=embed, timeout=None)
         return True
@@ -363,7 +363,7 @@ async def site_guard_alert(bot, verdict) -> bool:
         else ""
     )
     embed.set_footer(
-        text=f"Meow · asked {verdict.site}{' ' + how if how else ''} · {len(verdict.answers)} paths"
+        text=f"DaCat · asked {verdict.site}{' ' + how if how else ''} · {len(verdict.answers)} paths"
     )
     try:
         await style.send_card(target, embed=embed, timeout=None)
@@ -419,7 +419,7 @@ async def media_alert(bot, verdict, message: str) -> bool:
         ),
         inline=False,
     )
-    embed.set_footer(text="Meow · media watch · weekly")
+    embed.set_footer(text="DaCat · media watch · weekly")
     target = None
     for role in _INSTANCE_ROLES:
         target = await _channel(bot, role)
@@ -527,7 +527,7 @@ async def radio_alert(bot, fault, *, player=None) -> bool:
         value=_RADIO_REMEDIES.get(kind, "The card carries what was seen; this kind has no scripted remedy yet."),
         inline=False,
     )
-    embed.set_footer(text="Meow · radio · once per reason, not once per station")
+    embed.set_footer(text="DaCat · radio · once per reason, not once per station")
 
     target = None
     for role in _INSTANCE_ROLES:
@@ -689,7 +689,7 @@ async def ai_guard_alert(bot, event: dict, label: str = "") -> bool:
         ),
         inline=False,
     )
-    embed.set_footer(text="Meow · anti-AI guard · robots.txt + traps")
+    embed.set_footer(text="DaCat · anti-AI guard · robots.txt + traps")
     target = None
     for role in _INSTANCE_ROLES:
         target = await _channel(bot, role)
@@ -774,7 +774,7 @@ async def guild_joined(bot, guild) -> bool:
     embed.add_field(name="Owner", value=_member_value(getattr(guild, "owner", None)), inline=True)
     embed.add_field(name="Added by", value=await _added_by(guild), inline=True)
     embed.add_field(name="Servers now", value=str(len(getattr(bot, "guilds", []))), inline=True)
-    embed.set_footer(text="Meow · server log")
+    embed.set_footer(text="DaCat · server log")
     return await _post(bot, "guilds", f"join of {getattr(guild, 'name', '?')}", embed)
 
 
@@ -796,7 +796,7 @@ async def guild_left(bot, guild) -> bool:
         value="kicked, deleted, or banned — Discord reports these as one event",
         inline=False,
     )
-    embed.set_footer(text="Meow · server log")
+    embed.set_footer(text="DaCat · server log")
     return await _post(bot, "guilds", f"leaving {getattr(guild, 'name', '?')}", embed)
 
 
@@ -876,7 +876,7 @@ async def _announce_setup(bot, guild, newly, roles) -> bool:
         ),
         inline=False,
     )
-    embed.set_footer(text="Meow · appears once, when these channels are first bound")
+    embed.set_footer(text="DaCat · appears once, when these channels are first bound")
     await style.send_card(target, embed=embed, timeout=None)
     return True
 
@@ -1026,7 +1026,7 @@ async def command_failed(bot, interaction: discord.Interaction, error) -> bool:
         inline=True,
     )
     embed.set_author(name="/" + str(name).split(" ")[0])
-    embed.set_footer(text="Meow · command log")
+    embed.set_footer(text="DaCat · command log")
     return await _post(bot, "cmdlog", f"failed /{name}", embed)
 
 
@@ -1051,5 +1051,5 @@ async def command_used(bot, interaction: discord.Interaction, command) -> bool:
         inline=True,
     )
     embed.set_author(name="/" + str(getattr(command, "qualified_name", "unknown")).split(" ")[0])
-    embed.set_footer(text="Meow · command log")
+    embed.set_footer(text="DaCat · command log")
     return await _post(bot, "cmdlog", f"/{getattr(command, 'qualified_name', '?')}", embed)

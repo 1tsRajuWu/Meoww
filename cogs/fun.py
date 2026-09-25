@@ -179,7 +179,7 @@ def build_meme_embed(meme_data: dict, category: str = "random") -> discord.Embed
     )
     ups_str = f"{ups:,}" if isinstance(ups, int) and ups > 0 else "Top Rated"
     embed.set_footer(
-        text=f"👍 {ups_str} upvotes • Category: {category.title()} • Meow Memes"
+        text=f"👍 {ups_str} upvotes • Category: {category.title()} • DaCat Memes"
     )
     return embed
 
@@ -916,7 +916,7 @@ class Fun(commands.Cog):
     async def scam(self, interaction: discord.Interaction):
         schemes = [
             ("Free Nitro Generator 2026", "You clicked the link, your Discord account turned into a toaster, and your balance is unchanged. 🍞"),
-            ("MeowCoin Crypto ICO", "You invested 10,000 coins. The CEO fled to the Bahamas on a catamaran. 📉"),
+            ("DaCatCoin Crypto ICO", "You invested 10,000 coins. The CEO fled to the Bahamas on a catamaran. 📉"),
             ("Nigerian Cat Prince", "A royal cat promised you 10,000,000 coins if you send 100 first. You sent it. He meowed and blocked you. 🐾"),
             ("100% Winrate Casino Hack", "The bot owner detected your hacker shades and charged you 0 coins for looking ridiculous. 🕶️")
         ]
@@ -927,7 +927,7 @@ class Fun(commands.Cog):
             color=0xF39C12,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="Meow Scam Defense Network")
+        embed.set_footer(text="DaCat Scam Defense Network")
         await send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------

@@ -233,7 +233,7 @@ def render_market_chart(
         bits.append(f"price {_age(age_seconds)} old")
     footer = " • ".join(bits) or "no source"
     draw.text((26, height - 30), footer[:110], fill=MUTED[:3], font=small_font)
-    badge = "Meow Markets"
+    badge = "DaCat Markets"
     box = draw.textbbox((0, 0), badge, font=small_font)
     draw.text((width - 26 - (box[2] - box[0]), height - 30), badge, fill=MUTED[:3], font=small_font)
 

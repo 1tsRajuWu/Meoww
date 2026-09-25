@@ -94,7 +94,7 @@
         try {
             return JSON.parse(node.textContent || "{}");
         } catch (error) {
-            console.error("Meow Markets: could not read the boot payload", error);
+            console.error("DaCat Markets: could not read the boot payload", error);
             return { symbol: "", period: "" };
         }
     }
@@ -590,7 +590,10 @@
         if (!bar) return;
         var magnitude = Math.min(1, Math.abs(Number(change) || 0) / 10);
         bar.style.transform = "scaleX(" + magnitude.toFixed(3) + ")";
-        bar.style.background = Number(change) >= 0 ? "var(--green)" : "var(--red)";
+        /* An attribute rather than an inline colour, which is what makes the
+           sheet the one author of what up and down look like — and what lets the
+           bar keep its gradient and its travelling highlight. */
+        bar.setAttribute("data-tone", Number(change) >= 0 ? "up" : "down");
         var label = el("mk-move-label");
         if (label) label.textContent = "Period move " + pct(change);
     }
@@ -738,6 +741,13 @@
     function wireSearch() {
         var input = el("mk-search");
         if (!input) return;
+        /* Which groups the server left open, so clearing the search puts the rail
+           back the way it arrived rather than forcing every group open for the
+           rest of the visit. */
+        var groups = Array.prototype.slice.call(document.querySelectorAll("details.mk-group"));
+        groups.forEach(function (group) {
+            group.setAttribute("data-open-by-default", group.open ? "true" : "false");
+        });
         input.addEventListener("input", function () {
             var needle = input.value.trim().toLowerCase();
             var shown = 0;
@@ -746,6 +756,17 @@
                 var match = !needle || haystack.indexOf(needle) !== -1;
                 wrap.hidden = !match;
                 if (match) shown += 1;
+            });
+            /* A query is a request to look through *everything*. A match inside a
+               folded group is invisible, and a search whose result cannot be seen
+               reads as a search that found nothing — so a query opens every group
+               that holds a match, and clearing it folds them back. */
+            groups.forEach(function (group) {
+                if (!needle) {
+                    group.open = group.getAttribute("data-open-by-default") === "true";
+                    return;
+                }
+                group.open = !!group.querySelector("[data-instrument]:not([hidden])");
             });
             var empty = el("mk-search-empty");
             if (empty) empty.hidden = shown !== 0;
@@ -770,7 +791,7 @@
             ready = initChart();
         } catch (error) {
             // A library that loads but cannot draw must not take the numbers with it.
-            console.error("Meow Markets: chart init failed", error);
+            console.error("DaCat Markets: chart init failed", error);
             if (chartObj) {
                 try { chartObj.remove(); } catch (ignored) { /* already gone */ }
             }

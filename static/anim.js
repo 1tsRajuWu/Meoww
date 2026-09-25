@@ -1,5 +1,5 @@
 /* ===========================================================================
-   Meow — the shared motion foundation for the four surfaces
+   DaCat — the shared motion foundation for the four surfaces
    ===========================================================================
    `static/motion.js` owns the *declarative* primitives the pages opt into with
    `data-` attributes (reveals, clip-masked words, parallax, drawers, hover

@@ -351,7 +351,7 @@ class Market(commands.Cog):
             description=(
                 f"{status}\n"
                 "Fills happen at the observed price, both sides — **no spread**.\n"
-                f"The only charge is the **{market.treat_fee_label()} Meow Treat fee** 🐾, "
+                f"The only charge is the **{market.treat_fee_label()} DaCat Treat fee** 🐾, "
                 "itemised on every fill.\n"
                 f"`1 USD = {market.COINS_PER_USD:,} 🪙` • "
                 f"**{len(instruments)}** instruments"
@@ -439,7 +439,7 @@ class Market(commands.Cog):
                 ),
                 inline=False,
             )
-        embed.set_footer(text="Meow Markets • /market buy • /market sell • /market portfolio")
+        embed.set_footer(text="DaCat Markets • /market buy • /market sell • /market portfolio")
         await send_card(interaction, embed=embed)
 
     @market_group.command(name="quote", description="One instrument in detail.")
@@ -489,7 +489,7 @@ class Market(commands.Cog):
                 f"• Sell at **{fmt_coins(snapshot_quote.sell_coins())}** 🪙 per unit\n"
                 "• Both sides are the observed price — *no spread*, so your "
                 "return is the market's return.\n"
-                f"• 🐾 **{market.treat_fee_label()} Meow Treat fee** on each fill "
+                f"• 🐾 **{market.treat_fee_label()} DaCat Treat fee** on each fill "
                 f"(min 1 🪙) — **{market.treat_fee(10_000)}** 🪙 on a 10,000 🪙 fill."
             ),
             inline=False,
@@ -703,7 +703,7 @@ class Market(commands.Cog):
                 f"Spent **{fill.coins:,}** 🪙 at "
                 f"**{fmt_coins(fill.unit_price_coins)}** 🪙 per unit.\n"
                 f"*The observed market price — no spread. That outlay includes the "
-                f"**{fmt_coins(fill.treat_coins)}** 🪙 Meow Treat fee 🐾 "
+                f"**{fmt_coins(fill.treat_coins)}** 🪙 DaCat Treat fee 🐾 "
                 f"({market.treat_fee_label()}), and it is part of your cost basis.*"
             ),
             color=0x2ECC71,
@@ -816,7 +816,7 @@ class Market(commands.Cog):
                 f"Received **{fill.coins:,}** 🪙 at "
                 f"**{fmt_coins(fill.unit_price_coins)}** 🪙 per unit.\n"
                 f"*The observed market price — no spread, so this is real P/L, after "
-                f"the **{fmt_coins(fill.treat_coins)}** 🪙 Meow Treat fee 🐾.*"
+                f"the **{fmt_coins(fill.treat_coins)}** 🪙 DaCat Treat fee 🐾.*"
             ),
             color=0xED4245,
             timestamp=discord.utils.utcnow(),

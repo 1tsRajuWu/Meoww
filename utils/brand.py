@@ -212,8 +212,11 @@ INTERNAL_NAMES: tuple[str, ...] = (
     "the meow_bank table",
     "the /meow and /meowsound commands",
     "the meow-theme localStorage key",
-    "the window.MeowTheme global",
+    "the window.MeowTheme global and the window.Meow wake hook",
     "static/meow.css",
+    "the X-Meow-Client-IP and X-Meow-Proxy headers the Pages workers set, which "
+    "two hosts have to agree about",
+    "the Meow* HTTP User-Agents the bot sends when it fetches something",
 )
 
 

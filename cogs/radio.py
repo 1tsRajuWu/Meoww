@@ -279,7 +279,7 @@ class Radio(commands.Cog):
                 inline=True,
             )
         if player.requester:
-            embed.set_footer(text=f"started by {player.requester} · Meow radio")
+            embed.set_footer(text=f"started by {player.requester} · DaCat radio")
         return embed
 
     async def _send_panel(self, interaction, player) -> None:

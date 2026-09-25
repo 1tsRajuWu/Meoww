@@ -246,7 +246,7 @@ class Economy(commands.Cog):
         embed.add_field(name="👛 Wallet", value=f"**{wallet:,}** 🪙", inline=True)
         embed.add_field(name="🏦 Bank", value=f"**{bank:,}** 🪙", inline=True)
         embed.add_field(name="💎 Net Worth", value=f"**{wallet + bank:,}** 🪙", inline=False)
-        embed.set_footer(text="Meow Economy • Unlimited Wallet & Bank")
+        embed.set_footer(text="DaCat Economy • Unlimited Wallet & Bank")
         return embed
 
     @app_commands.command(name="balance", description="Check your or someone's balance.")
@@ -428,7 +428,7 @@ class Economy(commands.Cog):
         luck = await shop.luck_points(interaction.user.id, interaction.guild.id)
         success_chance = min(ROB_MAX_SUCCESS_CHANCE, ROB_SUCCESS_CHANCE + luck / 100.0)
 
-        # The loot is a transfer between members, so the Meow Fee applies to it
+        # The loot is a transfer between members, so the DaCat Fee applies to it
         # too — taken out of the robber's proceeds, never from the victim, who
         # loses the same amount either way. Read before the transaction for the
         # same reason as /pay.
@@ -458,7 +458,7 @@ class Economy(commands.Cog):
                 embed = discord.Embed(title="🚔 Caught!", description=f"{member.mention}'s wallet changed mid-robbery — you got nothing!", color=0xFF3333)
                 return await send_card(interaction, embed=embed)
             fee_note = (
-                f"> 🐾 **Meow Fee:** `{rob_fee:,}` 🪙 to Meow Bank — you keep `{payout:,}` 🪙\n"
+                f"> 🐾 **DaCat Fee:** `{rob_fee:,}` 🪙 to DaCat Bank — you keep `{payout:,}` 🪙\n"
                 if rob_fee else ""
             )
             embed = discord.Embed(
@@ -502,7 +502,7 @@ class Economy(commands.Cog):
         embed.set_footer(text=f"Rob cooldown: {ROB_COOLDOWN_SECONDS // 60} minutes • Success chance: {int(success_chance * 100)}%{luck_note}")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="pay", description="Transfer coins to another member (a small Meow Fee goes to Meow Bank).")
+    @app_commands.command(name="pay", description="Transfer coins to another member (a small DaCat Fee goes to DaCat Bank).")
     @app_commands.describe(member="Who to pay", amount="Amount to send")
     async def pay(self, interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, None]):
         if member.id == interaction.user.id:
@@ -516,7 +516,7 @@ class Economy(commands.Cog):
         await ensure_eco(member.id, interaction.guild.id)
         sender_eco = await get_eco(interaction.user.id, interaction.guild.id, is_owner=is_sender_owner)
 
-        # The Meow Fee is read *before* the transaction, because the switch lives
+        # The DaCat Fee is read *before* the transaction, because the switch lives
         # in another table and a transaction must not wait on a second
         # connection. It is charged on top of the amount, so the recipient
         # receives exactly what they were sent.
@@ -525,7 +525,7 @@ class Economy(commands.Cog):
 
         if sender_eco["wallet"] < total:
             short = (
-                f" (that is **{amount:,}** 🪙 plus the **{fee:,}** 🪙 Meow Fee)"
+                f" (that is **{amount:,}** 🪙 plus the **{fee:,}** 🪙 DaCat Fee)"
                 if fee else ""
             )
             return await interaction.response.send_message(
@@ -562,15 +562,15 @@ class Economy(commands.Cog):
         detail = f"✅ Sent **{amount:,}** 🪙 to {member.mention}!"
         if fee:
             detail += (
-                f"\n\n> 🐾 **Meow Fee:** `{fee:,}` 🪙 ({meowfee.fee_label()}) "
-                "to Meow Bank\n"
+                f"\n\n> 🐾 **DaCat Fee:** `{fee:,}` 🪙 ({meowfee.fee_label()}) "
+                "to DaCat Bank\n"
                 f"> 💸 **You paid:** `{total:,}` 🪙"
             )
         embed = discord.Embed(description=detail, color=0x2ECC71, timestamp=discord.utils.utcnow())
         await send_card(interaction, embed=embed)
 
     # Declared here rather than beside its other subcommands because a decorator
-    # needs the group to exist, and the Meow Fee below is the first command in this
+    # needs the group to exist, and the DaCat Fee below is the first command in this
     # class body that belongs to it. There must not be a second definition further
     # down: that would replace this one, and the fee with it.
     eco_admin = app_commands.Group(name="eco-admin", description="Admin & Owner economy management")
@@ -582,7 +582,7 @@ class Economy(commands.Cog):
     # decorator, so nothing user-facing depends on the attribute name.
     @eco_admin.command(
         name="fee",
-        description="See or change the Meow Fee on transfers.",
+        description="See or change the DaCat Fee on transfers.",
     )
     @app_commands.describe(state="Turn the fee on or off — leave empty to just look")
     @app_commands.choices(
@@ -597,7 +597,7 @@ class Economy(commands.Cog):
     ):
         if not interaction.guild:
             return await interaction.response.send_message(
-                "❌ Meow Bank is a server's own, so this only works in a server.",
+                "❌ DaCat Bank is a server's own, so this only works in a server.",
                 ephemeral=True,
             )
 
@@ -612,7 +612,7 @@ class Economy(commands.Cog):
                 for amount in (1_000, 10_000, 100_000)
             )
             embed = discord.Embed(
-                title="Meow Fee",
+                title="DaCat Fee",
                 description=(
                     f"The fee is currently **{'on' if enabled else 'off'}** in this "
                     "server.\n\n"
@@ -627,7 +627,7 @@ class Economy(commands.Cog):
                 timestamp=discord.utils.utcnow(),
             )
             embed.add_field(
-                name="🏦 Meow Bank",
+                name="🏦 DaCat Bank",
                 value=f"Holds **{bank:,}** 🪙 of collected fees.",
                 inline=False,
             )
@@ -645,15 +645,15 @@ class Economy(commands.Cog):
         await meowfee.set_enabled(guild_id, wanted)
         bank = await meowfee.bank_balance(guild_id)
         embed = discord.Embed(
-            title="Meow Fee " + ("On" if wanted else "Off"),
+            title="DaCat Fee " + ("On" if wanted else "Off"),
             description=(
                 (
                     f"The fee is **on** again — {meowfee.describe()}"
                     if wanted
                     else "The fee is **off**. Transfers and robberies now move the "
-                    "exact amount, and nothing goes to Meow Bank."
+                    "exact amount, and nothing goes to DaCat Bank."
                 )
-                + f"\n\n> 🏦 **Meow Bank** still holds **{bank:,}** 🪙."
+                + f"\n\n> 🏦 **DaCat Bank** still holds **{bank:,}** 🪙."
             ),
             color=0x2ECC71 if wanted else 0x5865F2,
             timestamp=discord.utils.utcnow(),
@@ -975,7 +975,7 @@ class Economy(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text="Meow Shop • /inventory shows your items and active perks")
+        embed.set_footer(text="DaCat Shop • /inventory shows your items and active perks")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="buy", description="Purchase an item from the community shop.")
@@ -1168,7 +1168,7 @@ class Economy(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text="Meow Economy • /shop to browse")
+        embed.set_footer(text="DaCat Economy • /shop to browse")
         await send_card(interaction, embed=embed)
 
     # -------------------------------------------------------------------------
@@ -1389,7 +1389,7 @@ class Economy(commands.Cog):
         lines.append("\n".join(credit_lines))
 
         embed = discord.Embed(
-            title="🏦 Meow National Bank — Loan Center",
+            title="🏦 DaCat National Bank — Loan Center",
             description="\n\n".join(lines),
             color=0x3498DB,
             timestamp=discord.utils.utcnow()
@@ -1398,7 +1398,7 @@ class Economy(commands.Cog):
         embed.set_footer(text="Missed loans add a 25% penalty and block new borrowing.")
         return embed
 
-    @app_commands.command(name="loan", description="Borrow coins from Meow Bank — your credit line grows with your level.")
+    @app_commands.command(name="loan", description="Borrow coins from DaCat Bank — your credit line grows with your level.")
     @app_commands.describe(
         amount="Coins to borrow (leave blank to see your credit line and active loan)",
         plan="Which plan to borrow on",
@@ -1502,7 +1502,7 @@ class Economy(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text=f"Meow Bank • {selected.name} • pay on time or eat a 25% penalty")
+        embed.set_footer(text=f"DaCat Bank • {selected.name} • pay on time or eat a 25% penalty")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="repay", description="Repay your bank loan — in full or a bit at a time.")
@@ -1641,7 +1641,7 @@ class Economy(commands.Cog):
                 timestamp=discord.utils.utcnow()
             )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(text="Meow Banking Services")
+        embed.set_footer(text="DaCat Banking Services")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="beg", description="Beg the streets for spare coins. Dignity optional.")

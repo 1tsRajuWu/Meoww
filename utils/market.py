@@ -39,9 +39,9 @@ rather than a conversion puzzle.
 
 The one thing taken is a **named, itemised fee**: ``MEOW_TREAT_FEE``, the house
 cat's cut, charged on top of a buy and out of a sell and banked into
-Meow Bank (the server's house account). It is printed on every receipt with the amount, so a member sees exactly
-what the treat cost and the fill price itself is never quietly worse than the
-market.
+**DaCat Bank** (the server's house account). It is printed on every receipt with the
+amount, so a member sees exactly what the treat cost and the fill price itself is
+never quietly worse than the market.
 
 **Trading is role-gated.** ``/market`` is restricted to the roles in
 ``access_role_ids()`` — by default the single role in
@@ -93,7 +93,7 @@ PREVIOUS_COINS_PER_USD = 250
 #: rather than a spread**: the price a fill happens at is still 1:1 with the
 #: observed market, and the treat is a separate line on every receipt — charged on
 #: top of a buy and taken out of a sell, with at least one treat on any fill, and
-#: **banked** into Meow Bank (the server's house account).
+#: **banked** into DaCat Bank (the server's house account).
 MEOW_TREAT_FEE = 0.0025
 
 
@@ -1449,7 +1449,7 @@ class Fill:
     realized: int = 0
     quantity_after: float = 0.0
     cost_after: float = 0.0
-    #: The Meow Treat fee taken on this fill. Also included in ``coins`` (a buy
+    #: The DaCat Treat fee taken on this fill. Also included in ``coins`` (a buy
     #: spends it, a sell pays it out of the proceeds) and kept separately so every
     #: receipt can itemise it instead of hiding it.
     treat_coins: int = 0
@@ -1693,7 +1693,7 @@ async def settle_buy(
         _record_on(
             cur, user_id, guild_id, instrument.symbol, "buy", quantity, unit_price, coins, 0, now
         )
-        # Bank the treat fee into Meow Bank, inside the same transaction.
+        # Bank the treat fee into DaCat Bank, inside the same transaction.
         meowfee.credit(cur, guild_id, treat)
 
         return Fill(
@@ -1794,7 +1794,7 @@ async def settle_sell(
             realized,
             now,
         )
-        # Bank the treat fee into Meow Bank, inside the same transaction.
+        # Bank the treat fee into DaCat Bank, inside the same transaction.
         meowfee.credit(cur, guild_id, treat)
 
         return Fill(

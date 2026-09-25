@@ -1,5 +1,5 @@
 """
-Real-Time Web Admin Dashboard & Keep-Alive Server for Meow Discord Bot.
+Real-Time Web Admin Dashboard & Keep-Alive Server for the DaCat Discord Bot.
 Enables administrators to toggle modules and features ON/OFF with 0-second (1:1 instant) latency.
 
 Code Architecture & Navigation:
@@ -7489,7 +7489,7 @@ def _console_no_server():
 
 
 def _fee_enabled_for(guild_id) -> bool:
-    """Whether this server charges the Meow Fee, without an event loop.
+    """Whether this server charges the DaCat Fee, without an event loop.
 
     ``meowfee.is_enabled`` is async and the Flask thread cannot await it, so the
     rule is restated over the sync read — and restated *exactly*: absent means
@@ -7708,7 +7708,7 @@ def api_console_commands():
     their own cards, rather than smoothed into a total.
 
     Per server, availability is ``command_scope``'s own rule — the same function
-    the publisher uses — so "off in Meow" here means what it means in Discord's
+    the publisher uses — so "off in DaCat" here means what it means in Discord's
     picker rather than a second opinion about it.
     """
     denied = _require_operator_api()
@@ -8227,7 +8227,7 @@ def api_console_questions_reply():
         }), 500
 
     # ``bold=False``: the sentence is authored for a Discord card, and this is the
-    # one surface where ``**Meow**`` would reach a person as four asterisks.
+    # one surface where ``**DaCat**`` would reach a person as four asterisks.
     said = qna_cog.answer_sentence(result, inbox="this list", bold=False)
     if result.get("ok"):
         print(

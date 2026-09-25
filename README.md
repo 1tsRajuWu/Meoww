@@ -278,9 +278,9 @@ fallback, the id is stable.
 | [`deleted_features/README.md`](deleted_features/README.md) | Retired features + how to restore one |
 
 <details>
-<summary><b>🪙 The Meow Fee (2% on transfers between members)</b></summary>
+<summary><b>🪙 The DaCat Fee (2% on transfers between members)</b></summary>
 
-Moving coins **between members** carries a small fee into **Meow Bank** (a
+Moving coins **between members** carries a small fee into **DaCat Bank** (a
 per-server house account), not burned: **2%**, minimum 1 🪙, maximum 500 🪙.
 Charged on `/pay` and successful `/rob` takings — never on your own
 `/deposit`/`/withdraw` or earnings. It's charged **on top**, so the recipient
@@ -297,7 +297,7 @@ exchange quotes** (Binance/TradingView, fallbacks behind them) with
 **1 USD = 1 coin** — the board reads like a price board. No API keys. If no
 source answers, trading **pauses** instead of filling at a stale price.
 Subcommands: `board · quote · chart · buy · sell · portfolio · history`.
-Fills are 1:1 with a 0.25% "Meow Treat" fee (min 1 coin, itemized). Trading is
+Fills are 1:1 with a 0.25% "DaCat Treat" fee (min 1 coin, itemized). Trading is
 **role-gated** (`MARKET_ROLE_IDS`); every instrument also has a live page at
 `<dashboard>/market/<SYMBOL>`. Limits: 100–250,000 coins/fill, 1M buyback/day,
 5s cooldown, 3-minute quote freshness.

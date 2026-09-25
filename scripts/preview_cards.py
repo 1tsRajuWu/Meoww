@@ -135,7 +135,7 @@ def _balance(mod):
         body="Your balance right now.",
         fields=[("Wallet", "1,240 🪙"), ("Bank", "8,600 🪙"), ("Net worth", "9,840 🪙")],
         accent=mod.SUCCESS,
-        footer="Meow Bank holds 3,100 🪙 of fees from this server",
+        footer="DaCat Bank holds 3,100 🪙 of fees from this server",
     )
 
 
@@ -149,7 +149,7 @@ def _help_category(mod):
             "> `/automod antispam <enabled>` — Toggle rapid-message flood protection"
         ),
         accent=0xE67E22,
-        footer="Browse a category anytime · Meow",
+        footer="Browse a category anytime · DaCat",
     )
 
 
@@ -167,7 +167,7 @@ def _alert(mod):
             ("What to do", "A hardcoded link is the one to change: put it through `utils/gifs`."),
         ],
         accent=mod.DANGER,
-        footer="Meow · media watch · weekly",
+        footer="DaCat · media watch · weekly",
     )
 
 
@@ -232,7 +232,7 @@ def _merged(mod):
     of the card with the closing line above the new content.
     """
     first = discord.Embed(title="🩺 Server health", description="All three readings answered.")
-    first.set_footer(text="Meow · uptime · weekly")
+    first.set_footer(text="DaCat · uptime · weekly")
     second = discord.Embed(
         title="Monitors",
         description="API 200 · Dashboard 200 · Public site 200",
@@ -248,7 +248,7 @@ def _converted_embed(mod):
         color=0x57F287,
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_author(name="Meow · Level System", icon_url="https://meow.test/icon.png")
+    embed.set_author(name="DaCat · Level System", icon_url="https://meow.test/icon.png")
     embed.add_field(name="XP", value="1,240 / 2,000")
     embed.add_field(name="Reward", value="120 🪙 and a new role")
     embed.set_footer(text="Hmm · levels")
@@ -468,7 +468,7 @@ def metrics_html(measured: dict) -> str:
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Meow · card preview</title>
+<title>DaCat · card preview</title>
 <style>
   :root {{
     --bg: #313338; --card: #2b2d31; --line: #3f4147; --text: #dbdee1;
@@ -539,7 +539,7 @@ PAGE = """<!doctype html>
   footer {{ color: var(--muted); font-size: 12px; text-align: center; padding: 0 32px 40px; }}
 </style></head><body>
 <header>
-  <h1>Meow · Components V2 card preview</h1>
+  <h1>DaCat · Components V2 card preview</h1>
   <p class="sub">Every card below is built by calling <code>utils/style.py</code> and read
   back out of <code>to_components()</code> — the same JSON Discord receives — so the page
   cannot disagree with the code. The “before” column is

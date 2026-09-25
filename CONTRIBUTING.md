@@ -1,4 +1,4 @@
-# Contributing to Meow Bot 🐾
+# Contributing to DaCat Bot 🐾
 
 New here? Perfect — this guide assumes it's your first time touching this repo.
 

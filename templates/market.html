@@ -111,30 +111,49 @@
                     </div>
                     {# Rendered by the server, so the list is on the page before any
                        script runs and a visitor with no script still gets the board.
-                       The prices beside them are filled in by the market script. #}
+                       The prices beside them are filled in by the market script.
+
+                       Each group is a `<details>` rather than a heading plus a
+                       list, and that is a layout decision with a number behind
+                       it: this rail holds every instrument the bot trades (72 as
+                       it ships), and laid out flat one group after another it ran
+                       the whole length of the page — a reader scrolling to the
+                       chart left the instrument they were looking at behind, and
+                       on a phone the rail was two thousand pixels of one list.
+
+                       So the current instrument's group is the only one open
+                       when the page arrives, and the rest are one press away.
+                       Native `<details>` and not a scripted accordion: it works
+                       with no script at all, which is the same rule the rest of
+                       this rail follows. The search opens every group, because a
+                       match inside a folded group is a search that looks broken. #}
                     {% for group in instrument_groups %}
-                    <div class="mk-panel-body" style="padding-bottom:0">
-                        <h3 class="mk-group-title">{{ group.label }}</h3>
-                    </div>
-                    <div class="mk-list" style="padding:0 8px 12px">
-                        {% for instrument in group.instruments %}
-                        <div class="mk-row-wrap" data-instrument="{{ instrument.symbol }} {{ instrument.name }} {{ group.label }}">
-                            <a class="mk-row" href="/market/{{ instrument.symbol }}" data-hover="y:-2"
-                               {% if instrument.symbol == symbol %}aria-current="page"{% endif %}>
-                                <span>
-                                    <span class="mk-row-sym">{{ instrument.symbol }}</span>
-                                    <span class="mk-row-name">{{ instrument.name }}</span>
-                                </span>
-                                <span class="mk-row-price">
-                                    <b data-price="{{ instrument.symbol }}">—</b>
-                                    <span data-change="{{ instrument.symbol }}">—</span>
-                                </span>
-                            </a>
-                            <button type="button" class="mk-watch-toggle" data-watch="{{ instrument.symbol }}"
-                                    aria-pressed="false" aria-label="Pin {{ instrument.symbol }} to the watchlist">☆</button>
+                    <details class="mk-group" data-group="{{ group.label }}"
+                             {% if symbol in group.instruments|map(attribute='symbol')|list %}open{% endif %}>
+                        <summary class="mk-group-title">
+                            <span class="mk-group-name">{{ group.label }}</span>
+                            <span class="mk-group-count">{{ group.instruments|length }}</span>
+                        </summary>
+                        <div class="mk-list">
+                            {% for instrument in group.instruments %}
+                            <div class="mk-row-wrap" data-instrument="{{ instrument.symbol }} {{ instrument.name }} {{ group.label }}">
+                                <a class="mk-row" href="/market/{{ instrument.symbol }}" data-hover="y:-2"
+                                   {% if instrument.symbol == symbol %}aria-current="page"{% endif %}>
+                                    <span>
+                                        <span class="mk-row-sym">{{ instrument.symbol }}</span>
+                                        <span class="mk-row-name">{{ instrument.name }}</span>
+                                    </span>
+                                    <span class="mk-row-price">
+                                        <b data-price="{{ instrument.symbol }}">—</b>
+                                        <span data-change="{{ instrument.symbol }}">—</span>
+                                    </span>
+                                </a>
+                                <button type="button" class="mk-watch-toggle" data-watch="{{ instrument.symbol }}"
+                                        aria-pressed="false" aria-label="Pin {{ instrument.symbol }} to the watchlist">☆</button>
+                            </div>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
-                    </div>
+                    </details>
                     {% endfor %}
                     <p class="mk-watch-empty" id="mk-search-empty" hidden>No instrument matches that.</p>
                 </section>
@@ -300,7 +319,7 @@
                         </button>
                         <div id="mk-how-fill">
                             <p class="mk-note">
-                                The treat is banked into Meow Bank, the server's own house account —
+                                The treat is banked into DaCat Bank, the server's own house account —
                                 which is itself one of the systems an administrator can switch off.
                                 When a price is older than the freshness window the trade is
                                 refused, because the alternative is filling at a number the bot
@@ -327,7 +346,7 @@
                     <div class="mk-panel-body mk-rows">
                         <div class="mk-line"><span>🐾 {{ treat_fee_label }}</span><b id="feeLabel">—</b></div>
                         <div class="mk-line"><span>Rate</span><b id="feeRate">—</b></div>
-                        <div class="mk-line"><span>Banked to</span><b>Meow Bank</b></div>
+                        <div class="mk-line"><span>Banked to</span><b>DaCat Bank</b></div>
                     </div>
                 </section>
 

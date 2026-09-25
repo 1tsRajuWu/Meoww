@@ -179,7 +179,7 @@ def _payload(entry: dict, fields: list[tuple[str, str]]) -> dict:
     embed: dict = {
         "title": entry["title"][:256],
         "color": _COLORS[entry["severity"]],
-        "footer": {"text": "Meow · out-of-band alert · silent by design"},
+        "footer": {"text": "DaCat · out-of-band alert · silent by design"},
     }
     if entry["detail"]:
         embed["description"] = entry["detail"][:4000]
@@ -189,7 +189,7 @@ def _payload(entry: dict, fields: list[tuple[str, str]]) -> dict:
             for name, value in fields[:25]
         ]
     return {
-        "username": "Meow Watch",
+        "username": "DaCat Watch",
         # The whole point of the flag: this lands in the channel without ringing
         # anybody's phone. Somebody watching the channel sees it immediately.
         "flags": SILENT,

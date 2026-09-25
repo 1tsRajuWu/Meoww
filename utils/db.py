@@ -333,7 +333,7 @@ async def setup():
             price_usd REAL,
             source TEXT
         )''')
-        # Meow Bank: the house account the Meow Fee is paid into. One row per
+        # DaCat Bank: the house account the DaCat Fee is paid into. One row per
         # guild, because a server's coins are its own. Created here as well as
         # defensively in ``utils/meowfee.py``: a database restored from a backup
         # taken before this table existed must be able to start an empty bank
@@ -1167,7 +1167,7 @@ def read_guild_economy_sync(guild_id: int, limit: int = 25) -> dict:
 
     Three figures rather than one, because they are three different claims:
     everything a member's wallet holds, everything in their bank, and the coins
-    **Meow Bank** has collected in fees. The last of those is the interesting
+    **DaCat Bank** has collected in fees. The last of those is the interesting
     one, and it is the one a page can get wrong by forgetting it exists — a fee
     is banked rather than burned (see ``utils/meowfee.py``), so coins that have
     left every member's balance are still in the server, and a total that

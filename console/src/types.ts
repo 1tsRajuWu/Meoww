@@ -204,7 +204,7 @@ export type EconomyPayload = {
     /** Wallet + bank. What members hold, which is not the same as what is in
      * the server — see `meow_bank`. */
     circulation: number;
-    /** Coins the Meow Fee has banked. Still in the server, no longer in a
+    /** Coins the DaCat Fee has banked. Still in the server, no longer in a
      * member's balance, so a total that omitted it would not add up. */
     meow_bank: number;
   };

@@ -1,4 +1,4 @@
-# Architecture — how Meow Bot fits together 🗺️
+# Architecture — how DaCat Bot fits together 🗺️
 
 A tour for new contributors. Nothing here is new information — it just connects
 the files so you know where to look.

@@ -295,7 +295,7 @@ class MarriageView(discord.ui.View):
         wedding_gif = await gifs.action_gif("wedding")
         if wedding_gif:
             embed.set_image(url=wedding_gif)
-        embed.set_footer(text="Meow Love & Marriage")
+        embed.set_footer(text="DaCat Love & Marriage")
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
@@ -470,7 +470,7 @@ class Social(commands.Cog):
                     inline=False
                 )
 
-        embed.set_footer(text="Meow Zoo • Run /sellanimals to exchange animals for coins")
+        embed.set_footer(text="DaCat Zoo • Run /sellanimals to exchange animals for coins")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="sellanimals", description="Sell caught zoo animals for coins.")
@@ -547,7 +547,7 @@ class Social(commands.Cog):
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="Meow Market")
+        embed.set_footer(text="DaCat Market")
         await send_card(interaction, embed=embed)
 
     # ---------------------------------------------------------

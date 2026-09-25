@@ -75,28 +75,28 @@ HELP_MODULES = {
         "title": "💰 Economy & Currency",
         "desc": (
             "Full community banking, daily rewards, work jobs, and trading currency. "
-            "Moving coins between members carries a small **Meow Fee** that lands in "
-            "Meow Bank, and an admin can switch it off.\n\n"
+            "Moving coins between members carries a small **DaCat Fee** that lands in "
+            "DaCat Bank, and an admin can switch it off.\n\n"
             "> `/balance [member]` — Check wallet & bank balance\n"
             "> `/daily` — Claim 24-hour daily coin reward\n"
             "> `/weekly` — Claim 7-day weekly bonus\n"
             "> `/work` — Work shifts across various jobs for coins\n"
-            "> `/pay <member> <amount>` — Transfer coins (a small Meow Fee goes to Meow Bank)\n"
+            "> `/pay <member> <amount>` — Transfer coins (a small DaCat Fee goes to DaCat Bank)\n"
             "> `/rob <member>` — Attempt a daring coin heist (the bank takes its cut of the loot)\n"
             "> `/deposit <amount>` — Deposit wallet coins into your bank\n"
             "> `/withdraw <amount>` — Withdraw bank coins into your wallet\n"
             "> `/richlist` — Server wealth leaderboard\n"
-            "> `/loan [amount] [plan]` — Borrow 🪙 from Meow Bank; your credit line grows with your level\n"
+            "> `/loan [amount] [plan]` — Borrow 🪙 from DaCat Bank; your credit line grows with your level\n"
             "> `/repay [amount]` — Pay a loan back in full or in part, from wallet or bank\n"
             "> `/beg` — Beg for spare coins (2-minute cooldown, no dignity required)\n"
             "> `/eco-admin add / remove / set / reset` — Admin currency management\n"
-            "> `/eco-admin fee` — See the Meow Fee and Meow Bank's balance, or turn the fee off (admin)"
+            "> `/eco-admin fee` — See the DaCat Fee and DaCat Bank's balance, or turn the fee off (admin)"
         ),
         "color": 0x2ECC71,
         "emoji": "💰"
     },
     "market": {
-        "title": "📈 Meow Markets",
+        "title": "📈 DaCat Markets",
         "desc": (
             "A real market, priced by real exchanges — Binance and TradingView, with "
             "Kraken, Coinbase and CNBC as backups. No invented numbers: if a price "
@@ -121,7 +121,7 @@ HELP_MODULES = {
             # dependencies. ``tests/test_market.py`` fails if they drift.
             "*1 USD = 1 coin • fills happen at the observed market price on both "
             "sides, so a real move is the same move here, and the only charge is "
-            "the 0.25% Meow Treat fee — at least 1 coin, itemised on every "
+            "the 0.25% DaCat Treat fee — at least 1 coin, itemised on every "
             "receipt, and burned.*"
         ),
         "color": 0x2ECC71,
@@ -603,7 +603,7 @@ class HelpLayout(discord.ui.LayoutView):
         dashboard: str | None = None,
     ):
         super().__init__(timeout=300)
-        heading = discord.ui.TextDisplay("## Meow Command Center", id=TITLE_ID)
+        heading = discord.ui.TextDisplay("## DaCat Command Center", id=TITLE_ID)
         body = discord.ui.TextDisplay(HELP_HOME_BODY, id=BODY_ID)
         thumb = discord.ui.Thumbnail(thumbnail) if thumbnail else None
         parts = []
@@ -641,7 +641,7 @@ class HelpLayout(discord.ui.LayoutView):
                 )
             )
             parts.append(link_row)
-        parts.append(discord.ui.TextDisplay("-# 🌐 [Website & Pricing](https://dacat.pages.dev)  ·  Tap a category anytime  ·  Meow"))
+        parts.append(discord.ui.TextDisplay("-# 🌐 [Website & Pricing](https://dacat.pages.dev)  ·  Tap a category anytime  ·  DaCat"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
 
 
@@ -651,7 +651,7 @@ class Help(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="help", description="Explore all features, commands, and modules in Meow.")
+    @app_commands.command(name="help", description="Explore all features, commands, and modules in DaCat.")
     @app_commands.describe(search="Search for a specific command, feature, or keyword")
     async def help_cmd(self, interaction: discord.Interaction, search: str | None = None):
         if search:

@@ -713,7 +713,7 @@ class TestSettlement(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
         The move is reproduced exactly — a position bought at 100 and sold at 110
         returns 10% of what the units cost — and the only thing between that and
-        the wallet is the Meow Treat fee, which is itemised on the receipt.
+        the wallet is the DaCat Treat fee, which is itemised on the receipt.
         """
         self._seed_wallet(25_000)
         buy_price = self.quote.buy_coins()

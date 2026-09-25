@@ -1,4 +1,4 @@
-"""Shared loan math for Meow Bank.
+"""Shared loan math for DaCat Bank.
 
 The bank used to be one hardcoded rule written inline in ``cogs/economy.py``:
 a flat 50,000 cap, 10% interest, 7 days. Nothing else could ask what a member's

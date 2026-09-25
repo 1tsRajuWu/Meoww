@@ -254,16 +254,91 @@
 
 .mk-search input::placeholder { color: var(--text-muted); }
 
+/* --------------------------------------------------------------------------
+   The instrument groups
+   --------------------------------------------------------------------------
+   A `<details>` per group, because the flat list was the rail's own worst
+   feature: 72 instruments in one column ran the whole page, so the chart and the
+   watchlist started below a wall of rows and a phone read about two thousand
+   pixels of prices before anything else.
+
+   The summary is the label with the group's count beside it — a folded section
+   that does not say how much is folded into it is a section nobody opens — and
+   the chevron turns when it opens, which is the only animation a `<details>`
+   needs. Native, so a visitor with no script still has every instrument: they
+   are one press away rather than gone. */
+.mk-group { border-top: 1px solid var(--line); }
+.mk-group:first-of-type { border-top: 0; }
+
 .mk-group-title {
-    padding: 0 var(--space-2) var(--space-2);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 10px var(--space-3);
     font-size: 11.5px;
     text-transform: uppercase;
     letter-spacing: 0.09em;
     font-weight: 700;
     color: var(--text-muted);
+    cursor: pointer;
+    list-style: none;
+    transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 
-.mk-list { display: grid; gap: 1px; }
+/* The browser's own triangle, off, in favour of a chevron that can turn. */
+.mk-group-title::-webkit-details-marker { display: none; }
+.mk-group-title::marker { content: ""; }
+
+.mk-group-title:hover { color: var(--text-primary); background: var(--surface-hover); }
+.mk-group-title:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.mk-group-name { flex: 1 1 auto; }
+
+.mk-group-count {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text-muted);
+    opacity: 0.75;
+}
+
+/* The chevron is drawn rather than typed, so it cannot arrive as a tofu box in
+   a font that has no glyph for it. */
+.mk-group-count::after {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 8px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 0.28s var(--ease);
+}
+
+.mk-group[open] .mk-group-count::after { transform: translateY(1px) rotate(225deg); }
+
+.mk-list {
+    display: grid;
+    gap: 1px;
+    padding: 0 8px 12px;
+    /* Bounded, so one long group is a panel rather than a page. */
+    max-height: min(46vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+
+/* Opening is animated, because a section that arrives is a section the reader
+   watches arrive — which is the difference between a fold and a page that
+   changed while they were looking at it. Closing is not: `<details>` drops its
+   content on the press, so a fade-out would be a rule that exists only in this
+   stylesheet. `transform` and `opacity` only, so it costs no layout. */
+.mk-group[open] > .mk-list { animation: mk-list-in 0.24s var(--ease) both; }
+
+@keyframes mk-list-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: none; }
+}
 
 .mk-row {
     display: grid;
@@ -569,13 +644,19 @@
    animation on a row that also changes colour is two layout passes a frame. */
 .mk-meter {
     position: relative;
-    height: 5px;
-    margin-top: var(--space-3);
+    height: 10px;
+    /* Room of its own: it sits between the panel's heading and the prints table,
+       and at the old `var(--space-3)` it read as the heading's underline. */
+    margin: var(--space-4) 0 var(--space-3);
     border-radius: var(--radius-pill);
-    background: var(--surface-hover);
+    background: var(--surface-sunken);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 45%), inset 0 0 0 1px var(--line);
     overflow: hidden;
 }
 
+/* The fill is a *bar*, not a line: a five-pixel pill read as a rule under the
+   heading, and a period move of a few tenths of a percent then had nothing at
+   all to look at. Ten pixels with rounded ends and a gradient is a reading. */
 .mk-meter i {
     position: absolute;
     inset: 0 auto 0 0;
@@ -583,8 +664,41 @@
     border-radius: var(--radius-pill);
     transform: scaleX(0);
     transform-origin: 0 50%;
-    background: var(--accent);
-    transition: transform 0.6s cubic-bezier(0.22, 0.61, 0.36, 1), background 0.3s var(--ease);
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, currentColor 55%, transparent),
+        currentColor
+    );
+    color: var(--accent);
+    box-shadow: 0 0 14px -4px currentColor;
+    transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1), color 0.35s var(--ease);
+}
+
+/* The tone is a reading, not a colour the script invents: `market.js` sets the
+   attribute and this sheet decides what up and down look like, so the page's own
+   palette stays the one place a colour is written. */
+.mk-meter i[data-tone="up"] { color: var(--green); }
+.mk-meter i[data-tone="down"] { color: var(--red); }
+
+/* A highlight that keeps travelling while the bar is on screen. `transform`
+   only, so it costs no layout, and it is the difference between a static
+   rectangle and something that reads as live. */
+.mk-meter i::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        100deg,
+        transparent 15%,
+        rgb(255 255 255 / 35%) 50%,
+        transparent 85%
+    );
+    animation: mk-meter-sheen 2.8s linear infinite;
+}
+
+@keyframes mk-meter-sheen {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
 }
 
 .mk-meter-label {
@@ -683,10 +797,15 @@
     .mk-call,
     .mk-watch-toggle,
     .mk-meter i,
+    .mk-group-count::after,
     .mk-hud-big,
     .mk-prints tr:hover td {
         transition: none;
     }
+    .mk-group[open] > .mk-list { animation: none; }
+    /* The travelling highlight is the one thing here that moves on its own, so
+       a reader who asked for less motion gets a still bar rather than none. */
+    .mk-meter i::after { animation: none; opacity: 0.25; }
 }
 
 @media (max-width: 620px) {
