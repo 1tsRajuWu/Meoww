@@ -124,8 +124,9 @@ class OneMotionSystem(unittest.TestCase):
         the reveal system is driven by.
         """
         dashboard = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("{% extends \"site_base.html\" %}", dashboard)
-        layout = (ROOT / "templates" / "site_base.html").read_text(encoding="utf-8")
+        found = re.search(r'\{%\s*extends "([^"]+)"\s*%\}', dashboard)
+        self.assertIsNotNone(found, "the dashboard extends no frame at all")
+        layout = (ROOT / "templates" / found.group(1)).read_text(encoding="utf-8")
         self.assertIn("motion.js", layout, "the layout stopped loading the reveal")
         self.assertIn("data-reveal", dashboard)
 

@@ -257,15 +257,27 @@ class ItHasToBeThereBeforeThePaint(unittest.TestCase):
         wire_at = body.index('document.addEventListener("DOMContentLoaded"')
         self.assertLess(apply_at, wire_at)
 
-    def test_every_shared_page_extends_that_base(self):
-        """A page that does not extend it gets no theme, and no error either."""
+    def test_every_shared_page_extends_a_base_that_loads_the_theme(self):
+        """A page that extends neither gets no theme, and no error either.
+
+        There are two frames now: the original `site_base.html` — the sign-in
+        doors, the market and the owner console — and `meoww/base.html`, which the
+        rebuilt public pages and the dashboard share. The law is about the same
+        thing it always was (the page must inherit a frame that applies the stored
+        palette before the first paint), so it reads the base the page *names* and
+        checks that file, rather than naming one of the two and calling the other
+        a defect.
+        """
         for name in SHARED:
             markup = (ROOT / "templates" / name).read_text(encoding="utf-8")
-            self.assertRegex(
-                markup,
-                r'\{%\s*extends "site_base\.html"\s*%\}',
-                f"{name} does not extend the shared base",
-            )
+            found = re.search(r'\{%\s*extends "([^"]+)"\s*%\}', markup)
+            self.assertIsNotNone(found, f"{name} extends no base at all")
+            base = ROOT / "templates" / found.group(1)
+            self.assertTrue(base.exists(), f"{name} extends {found.group(1)}, which does not exist")
+            head = base.read_text(encoding="utf-8").split("</head>", 1)[0]
+            tag = re.search(r"<script[^>]*theme\.js[^>]*>", head)
+            self.assertIsNotNone(tag, f"{found.group(1)} loads no theme script in its head")
+            self.assertNotIn("defer", tag.group(0), f"{found.group(1)} defers the theme script")
 
 
 class TheScriptIsSafe(unittest.TestCase):

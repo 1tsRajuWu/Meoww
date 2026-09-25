@@ -1,4 +1,4 @@
-/* Keystone Hub — behaviour.
+/* Meow Hub — behaviour.
  *
  * One file, no framework, no inline script anywhere (the hub is served under a
  * `script-src 'self'` policy). Every block below is guarded by whether its

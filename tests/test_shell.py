@@ -18,9 +18,8 @@ Each one is still pinned, where each now lives:
 * **A command palette is markup the page carries** — there is no palette any
   more: eleven addresses and a grouped rail replaced the scroll-and-search, and
   `tests/test_dashboard.py` drives the addresses themselves.
-* **The custom cursor may never be the only pointer** — unchanged, and still
-  pinned: `tests/test_design_laws.py::TheCursorLayerIsTheOnlyAuthor` and the
-  layer in `static/meow.css`.
+* **The pointer is the browser's own** — no sheet draws a cursor image, pinned
+  by `tests/test_design_laws.py::NoSheetDrawsItsOwnPointer`.
 
 Kept as a file rather than deleted so the reason travels with the repository:
 this is the third suite to pin the archived shell, and the next person to move a
@@ -338,13 +337,13 @@ class TheCursorCannotBeTheOnlyPointer(unittest.TestCase):
         self.sheet = _read("static/meow.css")
         self.script = _read("static/motion.js")
 
-    def test_both_cat_cursors_are_committed_assets(self):
-        for name in ("cursor-default.svg", "cursor-pointer.svg"):
-            self.assertTrue((ROOT / "static" / name).exists(), f"{name} is missing; the sheet points at it")
-
-    def test_the_sheet_uses_them_as_the_base_layer(self):
-        self.assertIn("/static/cursor-default.svg", self.sheet)
-        self.assertIn("/static/cursor-pointer.svg", self.sheet)
+    def test_the_sheet_leaves_the_pointer_to_the_browser(self):
+        self.assertNotIn(
+            "cursor: url(",
+            self.sheet,
+            "a cursor image is drawn over the browser's own pointer, and one it "
+            "refuses draws nothing at all",
+        )
 
     def test_hiding_the_pointer_is_scoped_to_the_class_the_script_adds(self):
         """No rule may ever hide the pointer on a page where nothing replaces it."""

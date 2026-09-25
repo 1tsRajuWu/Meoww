@@ -13,6 +13,6 @@
     <path d="M4 3 L4 25 L10.5 19.5 L16.5 28 L19.5 26 L13.5 17.5 L22 17.5 Z"
           fill="#fbfcfe" stroke="#090a0f" stroke-width="1.6" stroke-linejoin="round" />
     <polygon points="5.5,5.5 5.5,22 10.5,18 16.5,26 18,25 12,16.5 19,16.5" fill="#fbfcfe" />
-    <path d="M7.6 7.6 L11.4 7.6 L12.4 11.6 L6.6 11.6 Z" fill="#2dd4bf" />
+    <path d="M7.6 7.6 L11.4 7.6 L12.4 11.6 L6.6 11.6 Z" fill="#34d9c3" />
   </g>
 </svg>

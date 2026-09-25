@@ -129,7 +129,14 @@
 }
 
 .own-chip__value { color: var(--text-primary); }
-.own-chip--ok { border-color: var(--accent); }
+
+/* A state is drawn in a state colour. `ok` was the accent, which was right
+   while the accent *was* the good-state green; the accent is coral now and the
+   two readings have their own names, so an operator's "on" chip and a button
+   cannot arrive in the same colour. `--on` rather than `--good` because these
+   chips say what the deployment is *doing* (the bot is up, the door is open),
+   and `--on` is the name the dashboard's own switch reads from. */
+.own-chip--ok { border-color: var(--on); }
 .own-chip--warn { border-color: var(--danger); }
 .own-chip--warn .own-chip__value { color: var(--danger); }
 
@@ -718,12 +725,19 @@
   background: var(--text-muted);
 }
 
+/* The on-state is the product's *on* colour, not its accent — the same two
+   readings `meow.css` states at the top of the sheet: coral means *do this*,
+   green means *this is on*. This control is the server-side half of the switch
+   the public grid draws (`templates/meoww/_switch.html`), so a reader who left
+   the front door with its toggles green should find the identical reading here;
+   a dashboard whose switch lit up in the colour of the buttons beside it was
+   the last place on the machine where the old palette still showed. */
 .dash-switch__btn.is-on {
-  border-color: var(--accent);
+  border-color: var(--on);
   color: var(--text-primary);
 }
 
-.dash-switch__btn.is-on::before { background: var(--accent); }
+.dash-switch__btn.is-on::before { background: var(--on); }
 
 .dash-switch__state { font-weight: 550; }
 

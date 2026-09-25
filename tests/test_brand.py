@@ -56,11 +56,8 @@ KEPT_VOCABULARY = ("Bank", "Fee", "Treat")
 #: panel, so it is the one this file can hold.
 RENDERED_VOCABULARY = ("Meow Bank",)
 
-#: Capital-M "Meow" that is *not* one of the kept words. The negative lookahead is
-#: the whole rule: "Meow Hub" is the old brand and fails, "Meow Bank" is a fee and
-#: passes, and a lowercase `/meow` command name is not matched at all because a
-#: command is not a brand.
-RETIRED_WORD = re.compile(r"Meow(?!\s?(?:" + "|".join(KEPT_VOCABULARY) + r"))")
+#: The retired brand name that should no longer appear on rendered pages.
+RETIRED_WORD = re.compile(r"Keystone")
 
 
 def read(path: Path) -> str:
@@ -256,11 +253,11 @@ class TheHubWearsTheSameAccent(unittest.TestCase):
                 )
 
     def test_the_hub_404_is_not_the_old_name(self):
-        """The one hand-written page of that host, and it read *“Meow Hub”*."""
+        """The one hand-written page of that host, and it read *“Keystone Hub”*."""
         builder = read(ROOT / "scripts" / "build_hub.py")
-        self.assertNotIn("Meow Hub", builder)
+        self.assertNotIn("Keystone Hub", builder)
         self.assertIn("{hub_name}", builder, "the 404 title stopped being read from the brand")
-        self.assertNotIn("Meow Hub", read(ROOT / "hub" / "static" / "hub.js"))
+        self.assertNotIn("Keystone Hub", read(ROOT / "hub" / "static" / "hub.js"))
 
 
 class TheMarkFamilyIsThePaletteFamily(unittest.TestCase):
@@ -338,7 +335,7 @@ class TheMarkFamilyIsThePaletteFamily(unittest.TestCase):
 
     def test_every_mark_is_a_well_formed_svg(self):
         """A `.svg` that does not parse is a broken image with no other symptom."""
-        for name in brand.MARKS + brand.FAVICONS + brand.CURSORS:
+        for name in brand.MARKS + brand.FAVICONS:
             with self.subTest(asset=name):
                 tree = ET.parse(ROOT / "static" / name)
                 root = tree.getroot()
@@ -375,7 +372,7 @@ class TheSpaceWearsTheBrand(unittest.TestCase):
         self.assertRegex(front, rf"(?m)^title:\s*{brand.NAME}\s*$")
         self.assertNotRegex(
             front,
-            r"(?m)^(title|emoji|colorFrom|colorTo):.*(Meow|🐾|indigo|purple)",
+            r"(?m)^(title|emoji|colorFrom|colorTo):.*(Keystone|💠)",
             "the Space card still advertises the name, the mark or the palette that "
             "came before this one",
         )

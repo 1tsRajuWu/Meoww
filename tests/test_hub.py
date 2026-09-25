@@ -535,13 +535,11 @@ class TheBuiltHub(HubCase):
                      "404.html", "robots.txt", "sitemap.xml", ".nojekyll"):
             self.assertTrue(os.path.isfile(os.path.join(self._dir, name)), name)
 
-    def test_the_stylesheet_keeps_the_cursor_fetchable(self):
-        """A missing cursor image draws the system arrow and logs nothing."""
-        for name in ("cursor-default.svg", "cursor-pointer.svg", "logo.svg", "favicon.svg"):
+    def test_the_stylesheet_ships_the_marks_it_asks_for(self):
+        """A missing image draws nothing, and logs nothing."""
+        for name in ("logo.svg", "favicon.svg"):
             self.assertTrue(os.path.isfile(os.path.join(self._dir, "static", name)), name)
-        css = self._read("static/hub.css")
-        self.assertIn("cursor-default.svg", css)
-        self.assertIn("cursor-pointer.svg", css)
+        self.assertNotIn("cursor: url(", self._read("static/hub.css"))
 
     def test_the_build_refuses_to_point_a_host_at_the_repository(self):
         """The line between a website and a leak, and it has been crossed once."""

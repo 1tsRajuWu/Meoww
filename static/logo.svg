@@ -1,24 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Keystone">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Meoww">
   <!--
-    Keystone — the block an arch is named for: the wedge at the crown that locks
-    the span, held between the piers it presses against.
+    Meoww — the mark is the product's own letter, not a picture of a bot.
 
-    It is drawn as a **badge**: an accent tile with the keystone and its key slot
-    knocked out of it. That is a decision about failure modes rather than about
-    looks, and this project has already paid for it once — a mark whose colours
-    belong to the page is illegible on whichever palette nobody checked, and the
-    generation before this one shipped five themes asking for a logo file that
-    did not exist, which a browser reports as nothing at all. A mark that carries
-    its own ground is legible on the house black, on the light palette and on the
+    It is drawn as a **badge**: an accent tile with an `M` knocked out of it.
+    That is a decision about failure modes rather than about looks, and this
+    project has already paid for it once — a mark whose colours belong to the
+    page is illegible on whichever palette nobody checked, and the generation
+    before this one shipped five themes asking for a logo file that did not
+    exist, which a browser reports as nothing at all. A mark that carries its
+    own ground is legible on the house black, on the light palette and on the
     high-contrast one from a single file, so there is no list to keep in step.
 
-    The knockouts are true holes (`fill-rule="evenodd"`), not shapes painted in
+    The letter is a true hole (`fill-rule="evenodd"`), not a shape painted in
     the background colour: a hole works on any ground, a painted shape works on
-    exactly one.
+    exactly one. The tile's radius matches the sheet's largest corner, so the
+    mark and the panels around it are drawn from the same geometry.
   -->
   <path fill-rule="evenodd" clip-rule="evenodd"
         d="M0 14A14 14 0 0 1 14 0h36a14 14 0 0 1 14 14v36a14 14 0 0 1-14 14H14A14 14 0 0 1 0 50z
-           M22 10h20l6 20H16z
-           M30 15h4v10h-4z"
-        fill="#2dd4bf" />
+           M16 18h7l9 12 9-12h7v28h-7V29l-9 12-9-12v17h-7z"
+        fill="#ff5d3a" />
 </svg>

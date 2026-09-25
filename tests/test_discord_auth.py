@@ -497,15 +497,17 @@ class TheSignInRoutes(_DashboardFixture):
     def test_the_servers_list_says_what_each_one_is_running(self):
         """Choosing which server to fix is otherwise a guess from a list of names.
 
-        A server starts with one system off — Radio & Anonymous Q&A — so the row
-        names it before anything is switched by hand. That is not a special case to
+        A server starts with the systems that ship switched off — Market,
+        Starboard, Voice Company and Radio & Anonymous Q&A — so the row names
+        them before anything is switched by hand. That is not a special case to
         exempt: the count and the name are what make the row readable, and the
-        second half of this test is still that a switch flipped by hand joins it
-        rather than replacing it.
+        second half of this test is still that a switch flipped by hand joins them
+        rather than replacing them.
 
-        The name is read from the registry rather than typed here: a literal would
-        go on passing on a row naming a system the registry no longer has, which is
-        what this was doing while that system was called *Legacy*.
+        The count and the name are both read from the registry rather than typed
+        here: a literal would go on passing on a row naming a system the registry
+        no longer has or counting one it no longer ships with, which is what this
+        was doing while the only default-off system was called *Legacy*.
         """
         self.sign_in(guild_id=GUILD_ID, scope="global")
         before = self.client.get("/servers").get_data(as_text=True)
@@ -515,7 +517,10 @@ class TheSignInRoutes(_DashboardFixture):
         from utils import features
 
         total = len(ka.AVAILABLE_MODULES)
-        self.assertIn(f"{total - 1} of {total} systems on", before)
+        on_by_default = sum(
+            1 for f in features.FEATURES if f.toggleable and f.enabled_by_default
+        )
+        self.assertIn(f"{on_by_default} of {total} systems on", before)
         self.assertIn("off:", before)
         name = features.ships_off()[0]["name"]
         self.assertTrue(
@@ -524,14 +529,22 @@ class TheSignInRoutes(_DashboardFixture):
         )
 
         # Turn one system off the way the dashboard does, then ask again.
+        ticket = features.get("tickets")
+        self.assertIsNotNone(ticket)
         self.assertTrue(
-            ka.modules.set_enabled(GUILD_ID, "market", False), "the switch did not save"
+            ticket.enabled_by_default,
+            "the system flipped here has to start ON for the count to fall",
+        )
+        self.assertTrue(
+            ka.modules.set_enabled(GUILD_ID, ticket.id, False), "the switch did not save"
         )
         ka.modules.invalidate(GUILD_ID)
         after = self.client.get("/servers").get_data(as_text=True)
-        self.assertIn(f"{total - 2} of {total} systems on", after)
+        self.assertIn(f"{on_by_default - 1} of {total} systems on", after)
         self.assertIn("off:", after)
-        self.assertIn("Market", after, "the list should name what is off, not just count it")
+        self.assertIn(
+            ticket.name, after, "the list should name what is off, not just count it"
+        )
 
     def test_the_operator_can_switch_to_any_server(self):
         self.sign_in(guild_id=GUILD_ID, scope="global")

@@ -1,259 +1,267 @@
-{% extends "site_base.html" %}
-{% block title %}{{ bot_name }} — one bot, every system{% endblock %}
+{# ==========================================================================
+   home.html — the front door, rebuilt around the thing the product actually is.
 
-{% block page_css %}
-<link rel="stylesheet" href="/static/landing.css?v={{ asset_version('landing.css') }}">
-{% endblock %}
+   The old door explained the product to itself: a headline, a paragraph, and a
+   panel of four facts. This one is built on the argument that the dashboard is
+   the product, so the page shows the dashboard — and shows it *working*, with
+   the bot's real systems in it and switches a visitor can flip.
 
-{% block body_class %}page-home{% endblock %}
+   Three decisions worth writing down, because each one is a rule:
+
+     * **The window bleeds off the right edge and is tilted.** A screenshot that
+       fits inside its container reads as an illustration; one that runs past the
+       page reads as a window somebody left open. The tilt is 4° throughout — the
+       same angle in the resting state, in the entrance, and in every band below.
+     * **The switches are real `<button role="switch">` elements** from the one
+       shared partial, running on the same registry the dashboard's own grid runs
+       on. They are wired to local state and nothing else, and the grid ships
+       `hidden` so that a reader with no script is shown the drawing in the hero
+       rather than a row of controls that cannot answer.
+     * **The statistics are the deployment's own numbers**, printed below the
+       fold-line so they do not compete with the claim above them. A reading
+       nobody has taken yet is a dash and a `data-figure` hook — never a zero,
+       because a confident "0 servers" from a sleeping host reads as a bot
+       nobody uses.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+{% from "meoww/_switch.html" import switch %}
+{% from "meoww/_spine.html" import spine, mark %}
+{# This page's sections, once: the rail draws them and every band asks this list
+   for its own number. #}
+{% set sections = [
+  {'id': 'switches', 'label': 'The switches'},
+  {'id': 'deployment', 'label': 'This deployment'},
+  {'id': 'dashboard', 'label': 'The dashboard'},
+  {'id': 'start', 'label': 'Get started'},
+  {'id': 'questions', 'label': 'Questions'},
+] %}
+{% block title %}{{ bot_name }} — one dashboard, every system{% endblock %}
+{% block body_class %}mw-page-home{% endblock %}
+{% block spine %}{{ spine(sections) }}{% endblock %}
 
 {% block page %}
 {# --------------------------------------------------------------------------
-   01 — One claim, one sentence, two ways in, and the product itself beside it.
-
-   What used to be here was a paragraph explaining the product to itself. What
-   is here is what a front door is for: a headline read in one glance, one
-   sentence under it, the two doors, and the panel — which is the dashboard's
-   own overview rather than a picture of one, drawn from this bot's registry,
-   with the switch each system really has.
-
-   Three things about the panel are decisions rather than decoration. It is
-   **tighter than the page's display type**: the first version drew the headline
-   at the shared display size over two lines and pushed everything below the
-   fold. It carries the **brand mark in its own window bar**, so it reads as a
-   screenshot of this product and not as a card of facts. And its switches are
-   `aria-hidden` drawings rather than controls, because the tour further down is
-   where a visitor flips one — so the panel's last line says exactly that, and
-   says where the figures beside them come from. It used to say *nothing here is
-   connected*, which was true of the first draft and read as an admission once
-   the panel began counting this deployment's own machines.
+   01 — One claim, one sentence, two ways in, and the product beside it.
    -------------------------------------------------------------------------- #}
-<section class="hero">
-  <div class="wrap hero__inner">
-    <div class="hero__copy">
-      <p class="eyebrow"><span class="eyebrow__dot" aria-hidden="true"></span> A Discord bot</p>
-      <h1 class="hero__title">
-        One bot.
-        <span class="hero__title-accent">Every system.</span>
+<section class="mw-hero">
+  <div class="mw-wrap mw-hero__inner">
+    <div class="mw-hero__copy">
+      <p class="mw-micro">A Discord bot, with a dashboard</p>
+      <h1 class="mw-display mw-hero__title">
+        Run your server. <em>Not the other way around.</em>
       </h1>
-      <p class="lede">
-        Moderation, tickets, levels, an economy and a live market — switched per
-        server from one dashboard.
+      <p class="mw-lede">
+        Moderation, tickets, levels, an economy and a live market — every system
+        switched on or off per server, from one grid of switches.
       </p>
-      <div class="row hero__actions">
+      <div class="mw-hero__actions">
         {% if invite_url %}
-        <a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>
+        <a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>
         {% else %}
-        <a class="btn btn--primary" href="{{ enter_url }}">{{ enter_label }}</a>
+        <a class="mw-btn mw-btn--primary" href="{{ enter_url }}">{{ enter_label }} →</a>
         {% endif %}
-        <a class="arrow-link" href="/systems">See what is in it</a>
+        <a class="mw-link" href="/systems">See every system</a>
       </div>
-      <p class="hero__meta mono">{{ system_count }} systems · {{ entry_count }} commands · free</p>
+      <p class="mw-hint">
+        {{ system_count }} systems · {{ entry_count }} commands · {{ switchable_count }} with a switch · free
+      </p>
     </div>
 
-    {# The panel is the product rather than a picture of it: what a visitor sees
-       here is what an administrator opens after the invite — the same four
-       figure cards `/systems` opens with, from the same reader. The switches
-       carry the tour's own markup and are not wired, so they read as the drawing
-       they are; the panel's last line says which half is which. #}
-    <aside class="preview" aria-labelledby="preview-heading">
-      <div class="preview__bar">
-        <span class="brand__mark preview__mark" aria-hidden="true">{{ bot_initial }}</span>
-        <span class="micro">Dashboard</span>
-        <span class="preview__state">
-          <span class="dot {{ status.dot }}" aria-hidden="true"></span>
-          <span class="micro">{{ status.label }}</span>
-        </span>
-      </div>
-
-      <div class="preview__body">
-        <h2 class="visually-hidden" id="preview-heading">This deployment at a glance</h2>
-        <dl class="figures">
-          {% for figure in hero_figures %}
-          <div class="figure">
-            {# Two of these four are the deployment's own and two are the
-               registry's, and the markup does not decide which: `_tile` marks
-               the ones still holding no reading, and only those carry the hook
-               the page fills from `/api/figures`. A card with a number in it
-               keeps `data-count`, so `motion.js` counts it up and nothing
-               overwrites it afterwards. #}
-            {% if figure.waiting %}
-            <dd class="figure__value" data-figure="control:{{ figure.key }}">{{ figure.value }}</dd>
-            {% else %}
-            <dd class="figure__value" data-count="{{ figure.value }}">{{ figure.value }}</dd>
-            {% endif %}
-            <dt class="figure__label">{{ figure.label }}</dt>
-          </div>
-          {% endfor %}
-        </dl>
-
-        <div class="preview__rows">
-          {% for system in systems[:4] %}
-          <div class="preview__row">
-            <span class="preview__name">{{ system.icon }} {{ system.name }}</span>
-            <span class="mono preview__count">{{ system.command_count }} cmd</span>
-            {# The registry's own answer, drawn: a system a server cannot switch
-               off gets the tag, and the rest get the switch they have. #}
-            {% if system.toggleable %}
-            <span class="mock-switch" role="switch" aria-checked="true" tabindex="-1"
-                  aria-label="Preview switch for {{ system.name }}">
-              <span class="mock-switch__track"></span>
-            </span>
-            {% else %}
-            <span class="tag">always on</span>
-            {% endif %}
-          </div>
-          {% endfor %}
-          <div class="preview__row preview__row--more">
-            <span class="preview__name">and {{ systems | length - 4 }} more</span>
-            <a class="mono" href="/systems">see all</a>
-          </div>
+    {# The one entrance on this site. Every switch in the drawing carries its
+       state in the markup, so the rows read correctly before the script loads,
+       after it loads, and with it never loading at all. #}
+    <div class="mw-shot" data-mw-enter>
+      <div class="mw-shot__window">
+        <div class="mw-shot__bar">
+          <img class="mw-brand__mark" src="/static/logo.svg" alt="" width="20" height="20">
+          <span class="mw-shot__title">Dashboard</span>
+          <span class="mw-shot__spacer"></span>
+          <span class="mw-tag">{{ status.label }}</span>
         </div>
-
-        <p class="hint preview__note">{{ panel_note }}</p>
+        <div class="mw-shot__rows" aria-hidden="true">
+          {% for system in systems[:5] %}
+          <div class="mw-shot__row">
+            <span class="mw-shot__name">{{ system.icon }} {{ system.name }}</span>
+            <span class="mw-shot__count">{{ system.command_count }} cmd</span>
+            {% if system.toggleable %}
+            {# Drawn, not offered: this window is `aria-hidden`, so its switches
+               take no tab stop and a keyboard user is never walked through a
+               picture of a control. #}
+            {{ switch(system, inert=True) }}
+            {% else %}
+            <span class="mw-tag">always on</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
       </div>
-    </aside>
+    </div>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   02 — The dashboard's own pages, one window with a rail.
+   02 — The live grid. This is the component the dashboard reuses, not a
+   picture of it: same partial, same registry, same two states.
    -------------------------------------------------------------------------- #}
-<section class="band" id="dashboard">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="switches">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">The dashboard</p>
+        <p class="mw-micro">{{ mark(sections, 'switches') }}</p>
+        <h2>Try the grid</h2>
+      </div>
+      <p class="mw-hint">
+        <span data-mw-live-count>—</span> · off means the commands leave that
+        server's picker, and nothing else changes.
+      </p>
+    </div>
+
+    <div class="mw-list" data-mw-live hidden>
+      {% for system in systems[:7] %}
+      <div class="mw-live__row">
+        <div class="mw-live__text">
+          <span class="mw-row__name">{{ system.icon }} {{ system.name }}</span>
+          {# Singular chosen rather than appended: Support Tickets has one
+             command, and "1 commands" reads like a bug on the front page. #}
+          <span class="mw-live__desc">{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
+        </div>
+        {# A system the registry says has no switch is not given one here either:
+           the grid is the dashboard's own, so a row that cannot be switched off
+           in the dashboard cannot be switched off on this page. #}
+        {% if system.toggleable %}
+        {{ switch(system) }}
+        {% else %}
+        <span class="mw-tag">always on</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="mw-hint">
+      Nothing here is connected: this is the dashboard's own grid, drawn from the
+      same registry, on a page that is not signed in to your server.
+      <a href="/systems">Every system, and what switching one off does</a>.
+    </p>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   03 — The deployment's own numbers, below the claim rather than beside it.
+   -------------------------------------------------------------------------- #}
+<section class="mw-band" id="deployment">
+  <div class="mw-wrap">
+    <div class="mw-head">
+      <div>
+        <p class="mw-micro">{{ mark(sections, 'deployment') }}</p>
+        <h2>Counted, not claimed</h2>
+      </div>
+    </div>
+    <div class="mw-stats">
+      {% for figure in hero_figures %}
+      <div class="mw-stat">
+        {# Only the cells the host could not fill carry a hook; a card with a
+           number in it is never overwritten by a request afterwards. #}
+        <span class="mw-stat__value"{% if figure.waiting %} data-figure="control:{{ figure.key }}"{% endif %}>{{ figure.value }}</span>
+        <span class="mw-stat__label">{{ figure.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="mw-hint">A dash is a reading nobody has taken yet — not a zero.</p>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   04 — The dashboard's own pages: the first four as cards, the rest as one line.
+
+   It was every page as a card, and seven cards of three bullets each is the
+   page's argument made twice: this band exists to show what the dashboard *is*,
+   and a reader who wants the whole rail is one sign-in away from it. What the
+   line below does **not** do is drop anything — every page the registry declares
+   is still named on this page, four of them with their bullets — so the cut is a
+   rhythm decision rather than a claim about what the dashboard holds, and the law
+   in `tests/test_meoww_site.py` fails if a page goes missing from both.
+
+   The four are the registry's own first four, in its own order. A hand-picked
+   list of "the important ones" here would be a second author of a fact
+   `DASHBOARD_PAGES` already states, and the two would drift the day the rail is
+   reordered — the same defect the spine's section list exists to prevent.
+   -------------------------------------------------------------------------- #}
+<section class="mw-band" id="dashboard">
+  <div class="mw-wrap">
+    <div class="mw-head">
+      <div>
+        <p class="mw-micro">{{ mark(sections, 'dashboard') }}</p>
         <h2>What you get when you sign in</h2>
       </div>
+      <p class="mw-hint">Read from the registry, so this page cannot advertise a page the bot does not have.</p>
     </div>
 
-    <div class="showcase" data-showcase>
-      {# The rail is the dashboard's own page list, rendered from the same
-         registry the dashboard's rail renders from. #}
-      <div class="showcase__rail" role="tablist" aria-label="Dashboard pages">
-        {% for page in tour %}
-        <button class="showcase__item" type="button" role="tab"
-                id="tab-{{ page.id }}" aria-controls="view-{{ page.id }}"
-                aria-selected="{{ 'true' if loop.first else 'false' }}"
-                tabindex="{{ '0' if loop.first else '-1' }}">
-          <span class="showcase__label">{{ page.label }}</span>
-        </button>
-        {% endfor %}
+    <div class="mw-grid">
+      {% for page in tour[:4] %}
+      <div class="mw-card">
+        <p class="mw-micro">{{ page.label }}</p>
+        <h3>{{ page.path }}</h3>
+        <p class="mw-hint">{{ page.blurb }}</p>
+        <ul class="mw-prose">
+          {% for point in page.points %}<li class="mw-hint">{{ point }}</li>{% endfor %}
+        </ul>
       </div>
-
-      <div class="showcase__stage">
-        {% for page in tour %}
-        <section class="mock" id="view-{{ page.id }}" role="tabpanel"
-                 aria-labelledby="tab-{{ page.id }}"{% if not loop.first %} hidden{% endif %}>
-          <header class="mock__bar">
-            <span class="micro">{{ page.label }}</span>
-            <span class="tag">{{ page.path }}</span>
-          </header>
-
-          <div class="mock__body">
-            <p class="mock__blurb">{{ page.blurb }}</p>
-
-            {% if page.id == 'overview' %}
-            <div class="mock__tiles">
-              {% for figure in stats %}
-              <span class="mock__tile">
-                <span class="mock__tile-value">{{ figure.value }}</span>
-                <span class="mock__tile-label">{{ figure.label }}</span>
-              </span>
-              {% endfor %}
-            </div>
-            <p class="mock__line"><span class="dot {{ status.dot }}" aria-hidden="true"></span> {{ status.label }}</p>
-
-            {% elif page.id == 'systems' %}
-            <div class="mock__rows">
-              {% for system in systems[:4] %}
-              <div class="mock__row">
-                <span class="mock__row-name">{{ system.name }}</span>
-                <span class="mock__row-note">{{ system.command_count }} cmd</span>
-                {# An always-on system gets no switch here, because it has none in
-                   the dashboard either. #}
-                {% if system.toggleable %}
-                <span class="mock-switch" role="switch" aria-checked="true"
-                      aria-label="Preview switch for {{ system.name }}" tabindex="0">
-                  <span class="mock-switch__track"></span>
-                </span>
-                {% else %}
-                <span class="tag">always on</span>
-                {% endif %}
-              </div>
-              {% endfor %}
-            </div>
-
-            {% else %}
-            <div class="mock__rows">
-              {% for point in page.points %}
-              {# `--point` because this row is a sentence with a dot in front of it,
-                 not the name/note/switch triple the grid above assumes. #}
-              <div class="mock__row mock__row--point">
-                <span class="mock__row-dot" aria-hidden="true"></span>
-                <span class="mock__row-name mock__row-name--soft">{{ point }}</span>
-              </div>
-              {% endfor %}
-            </div>
-            {% endif %}
-          </div>
-
-          {# A `div`, not a `footer`: eleven of these plus the real one would be
-             twelve `contentinfo` landmarks on a page with one footer. #}
-          <div class="mock__foot">
-            <a class="arrow-link" href="{{ page.path }}">Open {{ page.path }}</a>
-            <span class="hint">Sample data — nothing here is connected.</span>
-          </div>
-        </section>
-        {% endfor %}
-      </div>
+      {% endfor %}
     </div>
+
+    {% if tour[4:] %}
+    <p class="mw-more">
+      and {{ tour[4:] | length }} more:
+      {% for page in tour[4:] %}<a href="{{ page.path }}">{{ page.label }}</a>{{ ', ' if not loop.last else '' }}{% endfor %}
+    </p>
+    {% endif %}
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   03 — Getting it running: three lines, in order.
+   05 — Three steps, in order, ending on what actually happens next.
    -------------------------------------------------------------------------- #}
-<section class="band" id="start">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="start">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">Get started</p>
-        <h2>Three steps</h2>
+        <p class="mw-micro">{{ mark(sections, 'start') }}</p>
+        <h2>Three steps, no account of ours in between</h2>
       </div>
     </div>
 
-    <ol class="steps">
-      <li class="step" data-reveal>
-        <span class="step__number mono" aria-hidden="true">01</span>
-        <h3 class="step__title">Add it</h3>
-        <p class="step__body">
+    {# One sentence a step, and the full version on `/start`: three paragraphs here
+       was the page's densest band — the steps are a summary on the front door and
+       a page of their own one click away, and the counts each of them used to
+       repeat are already stated once in the hero above. #}
+    <ol class="mw-steps">
+      <li class="mw-step">
+        <span class="mw-step__number">01</span>
+        <h3>Add it</h3>
+        <p>
           {% if invite_url %}
-          <a href="{{ invite_url }}">The invite</a> asks for Administrator, so no feature
-          ever arrives as “Missing Permissions”.
-          {% if invite_limited_url %}
-          <a href="{{ invite_limited_url }}">A smaller grant</a> is beside it.
-          {% endif %}
+          <a href="{{ invite_url }}">The invite</a> asks for Administrator, so nothing arrives
+          as “Missing Permissions”{% if invite_limited_url %} — or take
+          <a href="{{ invite_limited_url }}">a smaller grant</a> instead{% endif %}.
           {% else %}
           This deployment has no invite link configured yet.
           {% endif %}
         </p>
       </li>
-      <li class="step" data-reveal>
-        <span class="step__number mono" aria-hidden="true">02</span>
-        <h3 class="step__title">Sign in</h3>
-        <p class="step__body">
-          <a href="{{ enter_url }}">{{ enter_label }}</a> with Discord{% if oauth_enabled %} —
-          only the servers you own or administer{% endif %}.
+      <li class="mw-step">
+        <span class="mw-step__number">02</span>
+        <h3>Open the dashboard</h3>
+        <p>
+          Run <code>/help</code> and press the dashboard button: it mints a one-time link for
+          that server, and reaches no other.
         </p>
       </li>
-      <li class="step" data-reveal>
-        <span class="step__number mono" aria-hidden="true">03</span>
-        <h3 class="step__title">Switch off what you do not want</h3>
-        <p class="step__body">
-          {{ switchable_count }} of {{ systems | length }} systems have a switch. Off means
-          the commands leave that server's picker.
+      <li class="mw-step">
+        <span class="mw-step__number">03</span>
+        <h3>Switch off what you do not want</h3>
+        <p>
+          {{ switchable_count }} of {{ systems | length }} systems have a switch, and the
+          switch decides what that server's members can type.
         </p>
       </li>
     </ol>
@@ -261,47 +269,36 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   04 — The questions.
+   06 — The questions. `<details>` rather than a scripted drawer: a keyboard
+   opens it, a search engine reads it, and no file is asked to render anything.
    -------------------------------------------------------------------------- #}
-<section class="band" id="questions">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band mw-band--statement" id="questions">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">Questions</p>
+        <p class="mw-micro">{{ mark(sections, 'questions') }}</p>
         <h2>Before you add it</h2>
       </div>
     </div>
 
-    <ul class="faq">
+    <div class="mw-list">
       {% for item in faq %}
-      <li class="faq__item">
-        <button class="faq__question" type="button" data-drawer
-                aria-controls="faq-{{ loop.index }}" aria-expanded="false">
-          <span>{{ item.question }}</span>
-          <span class="faq__mark" aria-hidden="true">+</span>
-        </button>
-        <div class="drawer" id="faq-{{ loop.index }}" data-open="false">
-          <div class="drawer__inner">
-            <p class="faq__answer">{{ item.answer }}</p>
-          </div>
-        </div>
-      </li>
+      <details class="mw-faq">
+        <summary class="mw-faq__q">{{ item.question }}</summary>
+        <div class="mw-faq__a">{{ item.answer }}</div>
+      </details>
       {% endfor %}
-    </ul>
-  </div>
-</section>
-
-<section class="band band--closing">
-  <div class="wrap closing">
-    <h2 class="closing__title">Add it, sign in, switch off what you do not want.</h2>
-    <div class="row closing__actions">
-      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
-      <a class="arrow-link" href="/systems">Every system, in detail</a>
     </div>
   </div>
 </section>
-{% endblock %}
 
-{% block page_js %}
-<script src="/static/landing.js?v={{ asset_version('landing.js') }}" defer></script>
+<section class="mw-band">
+  <div class="mw-wrap mw-closing">
+    <h2 class="mw-closing__title mw-title">Add it, sign in, switch off what you do not want.</h2>
+    <div class="mw-hero__actions">
+      {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
+      <a class="mw-link" href="/start">What happens next</a>
+    </div>
+  </div>
+</section>
 {% endblock %}

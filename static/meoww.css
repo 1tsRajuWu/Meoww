@@ -1,0 +1,1235 @@
+/* ==========================================================================
+   meoww.css — the public design system, rebuilt around the dashboard.
+
+   This sheet is the front door's whole visual language. It replaces the
+   `aurora` vocabulary rather than extending it: nothing above this line on the
+   pages that load it, and no class it defines existed before it.
+
+   The language, and every rule below is one of these sentences:
+
+     * **Cool black, warm accent.** The ground is `#0a0a0d` — deliberately a
+       *cool* near-black, because the accent is a warm coral and a warm colour
+       on a neutral gray-black reads as a warning light while the same colour on
+       a cool ground reads as a decision somebody made.
+     * **Two readings, never one.** Coral means *do this* and is spent on one
+       primary action per band. The green means *this is on* and is spent on
+       every control that is on — which is why it cannot be the accent, because
+       a grid of switches drawn in the accent makes the button indistinguishable
+       from the state of a row.
+     * **The product is the proof.** The dashboard is the thing an administrator
+       opens, so the hero is that dashboard: real systems from the registry,
+       switches that really are switches, bleeding off the right edge because a
+       screenshot that fits its container looks like an illustration and one that
+       does not looks like a window somebody left open on the page.
+     * **Type is the design.** A condensed grotesque carries the headline and
+       every figure; a neutral one carries everything a person reads. The
+       display face is condensed because a headline that is *narrow* reads as
+       technical and a headline that is merely big reads as marketing.
+     * **One entrance, then silence.** Exactly one thing on this site animates on
+       load and every other answer is immediate, because a control that animates
+       is a control that feels slow. All motion is inside the opt-in block at the
+       foot of this file, so a visitor who asked for stillness gets stillness
+       rather than my having remembered.
+
+   Reduced motion and no scripting are both *states this page is designed in*,
+   not fallbacks: the resting geometry is in the rules below, the switches state
+   their own state in markup, and nothing a reader needs is drawn by a script.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Type — two OFL families, vendored, and the licence beside them
+   -------------------------------------------------------------------------- */
+
+/* Archivo, driven through its condensed width axis. One file, every weight
+   the display copy uses, and `font-stretch` below is what makes it *narrow*
+   rather than merely heavy. */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url("fonts/archivo-var-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url("fonts/archivo-var-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Inter, for everything a person reads. A bot's configuration screen has to be
+   scannable rather than stylized: the display face is the argument, this is the
+   apparatus. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/inter-var-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/inter-var-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* --------------------------------------------------------------------------
+   2. Tokens
+   -------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+
+  /* The ground, and the two panels above it. A card is legible because of its
+     hairline, not because it is lighter. */
+  --mw-bg: #0a0a0d;
+  --mw-panel: #131318;
+  --mw-panel-2: #1a1a21;
+  --mw-line: rgba(255, 255, 255, 0.08);
+  --mw-line-2: rgba(255, 255, 255, 0.14);
+
+  /* Text in three weights of importance and nothing else. */
+  --mw-text: #f2f3f5;
+  --mw-muted: #93969e;
+
+  /* Coral is *do this*. The green is *this is on*. They never trade places —
+     a law in `tests/test_meoww_site.py` reads both out of this file and says so,
+     which is the only way a rule about colour survives the next colour. */
+  --mw-accent: #ff5d3a;
+  --mw-accent-ink: #0a0a0d;
+  --mw-accent-quiet: rgba(255, 93, 58, 0.12);
+  /* The accent's own channels, for the one thing that needs a *tint* of it: the
+     halo under the spine's current waypoint. Declared beside the hex for the
+     reason `--mw-on-rgb` is: a glow built from a tint of some other colour is
+     how two authors end up disagreeing about one accent. */
+  --mw-accent-rgb: 255 93 58;
+  --mw-on: #34d399;
+  --mw-on-rgb: 52 211 153;
+
+  /* The two faces. `--mw-stretch` is the condensed axis of the display face,
+     named as a number because it is a decision rather than a detail. */
+  --mw-font-display: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mw-font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mw-stretch: 78%;
+
+  --mw-text-body: 17px;
+  --mw-text-small: 14px;
+  --mw-text-micro: 12px;
+  --mw-display: clamp(2.4rem, 4.6vw + 0.6rem, 4.4rem);
+  --mw-h2: clamp(1.5rem, 1.2vw + 1.1rem, 2.1rem);
+  --mw-h3: 1.0625rem;
+  --mw-track-display: -0.02em;
+  --mw-track-micro: 0.12em;
+
+  --mw-space-2: 8px;
+  --mw-space-3: 12px;
+  --mw-space-4: 18px;
+  --mw-space-5: 28px;
+  --mw-space-6: 40px;
+  --mw-space-7: 64px;
+  --mw-space-8: 96px;
+
+  --mw-radius-sm: 8px;
+  --mw-radius: 12px;
+  --mw-radius-lg: 18px;
+
+  /* The one left edge every band shares. A page assembled from sections that
+     each pick their own gutter is a page whose spine wobbles; this is that
+     number, and the law reads it off `.mw-wrap`. */
+  --mw-gutter: clamp(20px, 4vw, 56px);
+  --mw-measure: 62ch;
+  /* The reading column. Named because two things need it now: the wrap itself
+     and the spine, which is positioned against its edge rather than against a
+     second, hand-computed copy of this number. */
+  --mw-wrap-max: 1200px;
+
+  /* Fitts's law, as a number. */
+  --mw-tap: 44px;
+
+  /* One tilt and one bleed, named because the hero is the one place this sheet
+     is allowed to be asymmetrical. */
+  --mw-tilt: 4deg;
+  --mw-bleed: clamp(48px, 14vw, 260px);
+
+  --mw-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+
+  /* Motion, in two speeds and one curve — all of it inside the opt-in block. */
+  --mw-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --mw-fast: 140ms;
+  --mw-draw: 620ms;
+}
+
+/* The light palette, restating every name the sheet reads. Its accent is a dark
+   coral: the house coral is a light colour and would fail the text floor on a
+   light ground, which is why a fill and a line of text have never been allowed
+   to share one value in this project. */
+[data-theme="light"] {
+  color-scheme: light;
+  --mw-bg: #fbfaf8;
+  --mw-panel: #ffffff;
+  --mw-panel-2: #f2f0ec;
+  --mw-line: rgba(18, 19, 22, 0.12);
+  --mw-line-2: rgba(18, 19, 22, 0.22);
+  --mw-text: #121316;
+  --mw-muted: #5c6068;
+  --mw-accent: #c2410c;
+  --mw-accent-ink: #ffffff;
+  --mw-accent-quiet: rgba(194, 65, 12, 0.1);
+  --mw-accent-rgb: 194 65 12;
+  --mw-on: #15803d;
+  --mw-on-rgb: 21 128 61;
+  --mw-shadow: 0 20px 50px rgba(18, 19, 22, 0.14);
+}
+
+/* High contrast. The accents brighten rather than move, because the palette's
+   job is legibility and a different hue would be a different product. */
+[data-theme="contrast"] {
+  color-scheme: dark;
+  --mw-bg: #000000;
+  --mw-panel: #0a0a0a;
+  --mw-panel-2: #161616;
+  --mw-line: rgba(255, 255, 255, 0.4);
+  --mw-line-2: rgba(255, 255, 255, 0.6);
+  --mw-text: #ffffff;
+  --mw-muted: #dedede;
+  --mw-accent: #ff8a70;
+  --mw-accent-ink: #000000;
+  --mw-accent-quiet: rgba(255, 138, 112, 0.16);
+  --mw-accent-rgb: 255 138 112;
+  --mw-on: #7dffae;
+  --mw-on-rgb: 125 255 174;
+  --mw-shadow: 0 0 0 2px #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   3. Base
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: 88px;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--mw-bg);
+  color: var(--mw-text);
+  font-family: var(--mw-font-ui);
+  font-size: var(--mw-text-body);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: 1.14; }
+p { margin: 0 0 var(--mw-space-4); }
+
+/* Every heading that is *an argument* speaks in the condensed face; a heading
+   inside a card is apparatus and speaks in the reading face. */
+.mw-title,
+.mw-display,
+.mw-stat__value,
+.mw-shot__title {
+  font-family: var(--mw-font-display);
+  font-stretch: var(--mw-stretch);
+  font-weight: 700;
+  letter-spacing: var(--mw-track-display);
+  line-height: 0.98;
+  font-variant-numeric: tabular-nums;
+}
+
+.mw-display { font-size: var(--mw-display); }
+
+/* One link colour and one underline style, everywhere, so a link is a link. */
+a {
+  color: var(--mw-accent);
+  text-decoration: none;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+a:hover { text-decoration: underline; }
+
+img, svg { max-width: 100%; height: auto; }
+
+code, kbd, samp {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--mw-panel-2);
+  border: 1px solid var(--mw-line);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--mw-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.mw-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--mw-accent);
+  color: var(--mw-accent-ink);
+  padding: 10px 16px;
+  z-index: 20;
+  border-radius: 0 0 var(--mw-radius-sm) 0;
+}
+.mw-skip:focus { left: 0; }
+
+/* --------------------------------------------------------------------------
+   4. The shell — nav capped at three destinations plus the CTA (Hick), with
+      the theme control and the CTA top right (Jakob), and one left edge.
+   -------------------------------------------------------------------------- */
+
+.mw-shell { font-family: var(--mw-font-ui); }
+
+.mw-wrap {
+  width: 100%;
+  max-width: var(--mw-wrap-max);
+  margin: 0 auto;
+  padding-inline: var(--mw-gutter);
+}
+
+.mw-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--mw-bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--mw-line);
+}
+
+.mw-top__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-4);
+  min-height: 68px;
+}
+
+.mw-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--mw-text);
+  font-family: var(--mw-font-display);
+  font-stretch: var(--mw-stretch);
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: var(--mw-track-display);
+}
+.mw-brand:hover { text-decoration: none; }
+.mw-brand__mark { display: block; width: 28px; height: 28px; }
+.mw-brand__dot { color: var(--mw-accent); }
+
+/* The nav is the page's spine, not a menu: three destinations at most, in DOM
+   order, with the call to action last so the reading order and the visual order
+   agree. */
+/* Deliberately **not** positioned. The narrow screen's open menu is anchored to
+   the header (`.mw-top` is sticky and therefore already a containing block), and
+   a `position: relative` here quietly moved that anchor into this right-aligned
+   row — the panel then opened halfway across a 360px screen, from the Menu
+   button's own left edge, instead of from the page's. */
+.mw-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-4);
+  margin-left: auto;
+}
+
+.mw-nav__list {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mw-nav__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--mw-tap);
+  color: var(--mw-muted);
+  font-size: var(--mw-text-small);
+  font-weight: 500;
+}
+.mw-nav__link:hover { color: var(--mw-text); text-decoration: none; }
+.mw-nav__link[aria-current="page"] { color: var(--mw-text); }
+
+.mw-nav__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-3);
+}
+
+/* Two classes deep on purpose: `.mw-btn` is declared below this line and would
+   otherwise win the tie, which put a burger in the desktop header — a Menu
+   button beside a nav that is already on screen. */
+.mw-nav .mw-nav__toggle { display: none; }
+
+/* --------------------------------------------------------------------------
+   5. Primitives — buttons, cards, tags, the theme panel
+   -------------------------------------------------------------------------- */
+
+.mw-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--mw-tap);
+  padding: 0 20px;
+  border-radius: var(--mw-radius-sm);
+  border: 1px solid var(--mw-line-2);
+  background: transparent;
+  color: var(--mw-text);
+  font: inherit;
+  font-size: var(--mw-text-small);
+  font-weight: 600;
+  cursor: pointer;
+}
+.mw-btn:hover { border-color: var(--mw-text); text-decoration: none; }
+
+/* The one accent fill on a screen. It is the action; the green that means *on*
+   never appears here, which is the whole reason the two names exist. */
+.mw-btn--primary {
+  background: var(--mw-accent);
+  border-color: var(--mw-accent);
+  color: var(--mw-accent-ink);
+}
+.mw-btn--primary:hover { background: color-mix(in srgb, var(--mw-accent) 88%, #fff); border-color: transparent; }
+
+.mw-btn--ghost { border-color: var(--mw-line); color: var(--mw-muted); }
+.mw-btn--ghost:hover { color: var(--mw-text); }
+
+.mw-link { font-weight: 500; }
+
+.mw-micro {
+  margin: 0 0 var(--mw-space-2);
+  font-size: var(--mw-text-micro);
+  font-weight: 600;
+  letter-spacing: var(--mw-track-micro);
+  text-transform: uppercase;
+  color: var(--mw-muted);
+}
+
+.mw-lede { max-width: var(--mw-measure); color: var(--mw-muted); font-size: 1.0625rem; }
+.mw-hint { color: var(--mw-muted); font-size: var(--mw-text-small); }
+
+/* A group of three or more is a region, so it gets an edge: a border is how a
+   set announces that it is one set rather than four things that happen to be
+   near each other. */
+.mw-card {
+  background: var(--mw-panel);
+  border: 1px solid var(--mw-line);
+  border-radius: var(--mw-radius);
+  padding: var(--mw-space-5);
+}
+
+.mw-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--mw-line);
+  border-radius: 999px;
+  font-size: var(--mw-text-micro);
+  color: var(--mw-muted);
+  white-space: nowrap;
+}
+
+/* The theme control is the project's own partial — `theme.js` looks its ids up,
+   so its markup is shared with every other page rather than copied here — and
+   that means it arrives with names this sheet did not choose. They are drawn
+   here anyway: a control the new pages load and do not style is a control that
+   renders as plain text, which is exactly how a shared partial goes missing. */
+.mw-shell .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--mw-tap);
+  padding: 0 14px;
+  border: 1px solid var(--mw-line);
+  border-radius: var(--mw-radius-sm);
+  background: transparent;
+  color: var(--mw-muted);
+  font: inherit;
+  font-size: var(--mw-text-small);
+  font-weight: 500;
+  cursor: pointer;
+}
+.mw-shell .btn:hover { color: var(--mw-text); border-color: var(--mw-line-2); text-decoration: none; }
+.mw-shell .btn--quiet[aria-pressed="true"] { color: var(--mw-text); border-color: var(--mw-accent); }
+
+.mw-shell .theme-pop {
+  position: absolute;
+  right: var(--mw-gutter);
+  top: 62px;
+  z-index: 12;
+  display: none;
+  box-shadow: var(--mw-shadow);
+}
+.mw-shell .theme-pop[data-open="true"] { display: block; }
+.mw-shell .theme-pop .card {
+  background: var(--mw-panel);
+  border: 1px solid var(--mw-line);
+  border-radius: var(--mw-radius);
+  padding: var(--mw-space-4);
+  min-width: 220px;
+}
+.mw-shell .theme-pop__row { display: flex; flex-wrap: wrap; gap: 8px; }
+.mw-shell .hint { color: var(--mw-muted); font-size: var(--mw-text-small); margin: 0 0 10px; }
+
+/* --------------------------------------------------------------------------
+   6. The hero — copy on the left, the product bleeding off the right edge
+   -------------------------------------------------------------------------- */
+
+.mw-hero {
+  position: relative;
+  padding-block: var(--mw-space-8) var(--mw-space-7);
+  overflow: hidden;
+}
+
+.mw-hero__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
+  gap: var(--mw-space-6);
+  align-items: center;
+}
+
+.mw-hero__copy { max-width: 42ch; }
+.mw-hero__title { margin-bottom: var(--mw-space-4); }
+/* The turn in a sentence is the accent, and it is the same turn everywhere: the
+   hero's second sentence and every page head's second sentence are the same
+   device, so they are the same declaration. Italic would be the browser's
+   answer; coral is this product's. */
+.mw-hero__title em,
+.mw-band--head h1 em { font-style: normal; color: var(--mw-accent); }
+.mw-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mw-space-4);
+  margin-bottom: var(--mw-space-5);
+}
+
+/* The one entrance on this site. The resting state is written here — the tilt,
+   the position, the glow — so the page is complete before the animation runs
+   and identical after it. */
+/* How far the window runs past its own column, and therefore how much of it the
+   gutter clips. One property, two readers: it is the negative margin that makes
+   the window wider than the column, and it is the right padding that keeps the
+   rows' *content* — the switch at the end of every row — inside the visible
+   part of it. Tied together because a window whose edge is off-screen and a row
+   whose switch is sliced in half are the same measurement read two ways. */
+.mw-shot {
+  --mw-tilt-rest: var(--mw-tilt);
+  --mw-shot-overhang: var(--mw-bleed);
+  position: relative;
+  margin-right: calc(var(--mw-shot-overhang) * -1);
+  transform: rotate(var(--mw-tilt-rest));
+  transform-origin: 50% 50%;
+}
+
+.mw-shot__window {
+  background: linear-gradient(180deg, var(--mw-panel-2), var(--mw-panel));
+  border: 1px solid var(--mw-line-2);
+  border-radius: var(--mw-radius-lg);
+  box-shadow: var(--mw-shadow);
+  overflow: hidden;
+}
+
+.mw-shot__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px calc(var(--mw-shot-overhang) + 16px) 12px 16px;
+  border-bottom: 1px solid var(--mw-line);
+  background: var(--mw-panel);
+}
+.mw-shot__title { font-size: 0.95rem; letter-spacing: 0; font-stretch: 92%; }
+.mw-shot__spacer { margin-left: auto; }
+
+.mw-shot__rows { padding: 6px 0; }
+
+.mw-shot__row {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-3);
+  padding: 11px calc(var(--mw-shot-overhang) + 18px) 11px 18px;
+  border-bottom: 1px solid var(--mw-line);
+}
+.mw-shot__row:last-child { border-bottom: 0; }
+.mw-shot__name { font-size: var(--mw-text-small); font-weight: 500; }
+.mw-shot__count { margin-left: auto; color: var(--mw-muted); font-size: var(--mw-text-micro); }
+
+/* The toggles in the shot are drawings of switches rather than controls, so
+   they are `aria-hidden` in the markup and take no tab stop — and their state
+   is *in the markup*, which is what lets the page say something true with no
+   script at all. */
+.mw-shot__window .mw-switch { pointer-events: none; }
+
+/* A live stat strip, below the fold-line and out of the hero's way: three
+   readings from this deployment, separated by rules rather than boxed. */
+.mw-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mw-space-4) var(--mw-space-6);
+  margin-top: var(--mw-space-6);
+  padding-top: var(--mw-space-4);
+  border-top: 1px solid var(--mw-line);
+}
+.mw-stat { display: flex; align-items: baseline; gap: 8px; }
+.mw-stat__value { font-size: 1.5rem; font-stretch: 84%; }
+.mw-stat__label { color: var(--mw-muted); font-size: var(--mw-text-micro); letter-spacing: var(--mw-track-micro); text-transform: uppercase; }
+
+/* --------------------------------------------------------------------------
+   7. The switch — one control, drawn once
+   -------------------------------------------------------------------------- */
+
+/* Used by the marketing grid (a `<button>`, wired by `meoww.js`) and by the
+   dashboard's own form (`<button type="submit">` inside a POST) — the same
+   classes, the same states, the same two readings. The markup is emitted by
+   `templates/meoww/_switch.html` for both, so a change to a toggle state is a
+   change in one file. */
+/* The *target* is 44px tall and the *track* is 26px: Fitts's law is about what
+   a finger has to hit, and a control that grows to 44px tall would be a switch
+   drawn at the wrong size on every row. So the track and the knob are drawn by
+   the two pseudo-elements and the button itself is the hit area — which is also
+   why the button carries no background of its own. */
+.mw-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  min-height: var(--mw-tap);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.mw-switch::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 26px;
+  transform: translateY(-50%);
+  border: 1px solid var(--mw-line-2);
+  border-radius: 999px;
+  background: var(--mw-panel-2);
+}
+
+.mw-switch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  margin-top: -10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--mw-muted);
+}
+
+/* *This is on* — the green, and the glow that makes a grid of them readable at
+   a glance. It is never a button's fill. */
+.mw-switch[aria-checked="true"]::before {
+  background: rgb(var(--mw-on-rgb) / 22%);
+  border-color: var(--mw-on);
+  box-shadow: 0 0 0 3px rgb(var(--mw-on-rgb) / 12%), 0 0 18px rgb(var(--mw-on-rgb) / 30%);
+}
+.mw-switch[aria-checked="true"]::after {
+  transform: translateX(20px);
+  background: var(--mw-on);
+}
+.mw-switch[aria-checked="false"]::after { background: var(--mw-muted); }
+
+/* The dashboard's switch carries its state as a word as well as a colour: a
+   screen reader is told, and so is anybody who cannot separate the two greens
+   from the two greys. */
+/* The dashboard's own switch is a form; the form is a layout no-op. */
+.mw-switch-form { display: inline-flex; margin: 0; }
+
+.mw-switch__state { display: none; }
+.mw-shell .mw-switch__state,
+.mw-card .mw-switch__state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* --------------------------------------------------------------------------
+   8. Bands, cards, and the live toggle grid
+   -------------------------------------------------------------------------- */
+
+.mw-band { padding-block: var(--mw-space-7); }
+.mw-band + .mw-band { border-top: 1px solid var(--mw-line); }
+
+/* The first band is a page head: more room above it than between bands, because
+   the top bar is already a rule and a second one would read as a box. */
+.mw-band--head { padding-block: var(--mw-space-7) var(--mw-space-6); }
+
+/* A band whose rows are disclosures gets its intro *stated*.
+
+   The questions are the last argument on the front door and the only rows on it
+   that are `<details>` rather than panels, and at the shared spacing "Before you
+   add it" read as the caption of the first question rather than as the name of
+   the section: the heading sat a band-gap above a list whose first line was
+   another sentence at the same weight. So this band opens with more room than
+   its neighbours and the heading is given a hand's width of air before its
+   first row. What it is *not* given is a size of its own — the type scale is
+   three tokens and every heading on the site is one of them, and a fourth size
+   invented for a single band is how a scale stops being one. */
+.mw-band--statement {
+  padding-block: calc(var(--mw-space-8) + var(--mw-space-6)) var(--mw-space-7);
+}
+.mw-band--statement .mw-head {
+  margin-bottom: calc(var(--mw-space-7) + var(--mw-space-3));
+}
+
+/* Commands and stations, inside a disclosure: two columns of names, because a
+   list of a hundred and ten one-per-line is a page about scrolling. */
+.mw-commands {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px var(--mw-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mw-commands > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* The tags beside a name, as elements: a genre with a space in it wraps, and
+   `ad-free` must not break after its own hyphen. */
+.mw-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+/* Copy, kept from the page this replaced. Always drawn rather than revealed on
+   hover — a control that appears under a pointer does not exist on a touch
+   screen — and 44px tall like every other target here. */
+.mw-copy {
+  margin-left: auto;
+  min-height: var(--mw-tap);
+  padding: 0 10px;
+  border: 1px solid var(--mw-line);
+  border-radius: var(--mw-radius-sm);
+  background: transparent;
+  color: var(--mw-muted);
+  font: inherit;
+  font-size: var(--mw-text-micro);
+  cursor: pointer;
+}
+
+.mw-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--mw-space-4);
+  margin-bottom: var(--mw-space-6);
+}
+.mw-head h2 { font-size: var(--mw-h2); font-family: var(--mw-font-display); font-stretch: var(--mw-stretch); }
+
+.mw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--mw-space-4);
+}
+
+/* The tail of a summary: the names a card grid did not spend a panel on, as one
+   line of links. It is the rhythm's light beat — a band that is four cards reads
+   as four cards and a sentence, rather than as seven cards of three bullets and
+   a reader who has stopped reading. */
+.mw-more {
+  margin: var(--mw-space-5) 0 0;
+  color: var(--mw-muted);
+  font-size: var(--mw-text-small);
+}
+.mw-more a { color: var(--mw-text); }
+
+/* A list of rows inside a bordered region, with the last row's divider
+   dropped — a rule that stops at the edge is a rule that says where the set
+   ends (closure). */
+.mw-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--mw-line);
+  border-radius: var(--mw-radius);
+  background: var(--mw-panel);
+  overflow: hidden;
+}
+.mw-list > li {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-3);
+  padding: var(--mw-space-3) var(--mw-space-4);
+  border-bottom: 1px solid var(--mw-line);
+}
+.mw-list > li:last-child { border-bottom: 0; }
+
+.mw-row__name { font-weight: 500; }
+.mw-row__note { color: var(--mw-muted); font-size: var(--mw-text-small); }
+.mw-row__count { margin-left: auto; color: var(--mw-muted); font-size: var(--mw-text-micro); }
+
+/* The live grid: real switches a visitor can flip. It ships `hidden` and is
+   un-hidden by the script — a control that does nothing without its file is not
+   shown to the reader who does not have it. The *drawing* above it is what says
+   something with no script at all. */
+.mw-live__row {
+  display: flex;
+  align-items: center;
+  gap: var(--mw-space-3);
+  padding: var(--mw-space-3) var(--mw-space-4);
+  border-bottom: 1px solid var(--mw-line);
+}
+.mw-live__row:last-child { border-bottom: 0; }
+.mw-live__text { display: flex; flex-direction: column; gap: 2px; }
+.mw-live__desc { color: var(--mw-muted); font-size: var(--mw-text-small); }
+.mw-live__row .mw-switch { margin-left: auto; }
+[hidden] { display: none !important; }
+
+/* Three steps: numbered, left-reading, no boxes — the numbering is the region. */
+.mw-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--mw-space-5); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.mw-step__number { color: var(--mw-accent); font-size: var(--mw-text-small); font-weight: 600; }
+.mw-step h3 { margin: 6px 0 var(--mw-space-2); font-size: var(--mw-h3); }
+.mw-step p { color: var(--mw-muted); font-size: var(--mw-text-small); }
+
+/* Tiers read left and exactly one wears the accent. */
+.mw-tiers { display: grid; gap: var(--mw-space-4); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.mw-tier--lead { border-color: var(--mw-accent); }
+.mw-tier__price { font-family: var(--mw-font-display); font-stretch: var(--mw-stretch); font-size: 2rem; }
+
+/* Questions: `<details>`, so a keyboard opens one with no script at all, and an
+   answer that is in the document whether or not it is open. */
+.mw-faq { border-bottom: 1px solid var(--mw-line); }
+.mw-faq:last-child { border-bottom: 0; }
+.mw-faq__q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mw-space-3);
+  min-height: var(--mw-tap);
+  padding: var(--mw-space-3) var(--mw-space-4);
+  color: var(--mw-text);
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+.mw-faq__q::-webkit-details-marker { display: none; }
+.mw-faq__q::after { content: "+"; color: var(--mw-muted); font-size: 1.1rem; }
+.mw-faq[open] .mw-faq__q::after { content: "–"; }
+.mw-faq__a { padding: 0 var(--mw-space-4) var(--mw-space-4); color: var(--mw-muted); font-size: var(--mw-text-small); }
+.mw-faq__a p:last-child { margin-bottom: 0; }
+
+/* Prose, for the policies. */
+.mw-prose { max-width: var(--mw-measure); }
+.mw-prose h2 { margin-top: var(--mw-space-6); font-size: var(--mw-h3); }
+.mw-prose h3 { margin-top: var(--mw-space-5); font-size: 1rem; }
+.mw-prose li { margin-bottom: 6px; }
+.mw-prose__meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--mw-muted); font-size: var(--mw-text-small); }
+
+/* The closing band, and the one accent action in it. */
+.mw-closing { display: flex; flex-direction: column; align-items: flex-start; gap: var(--mw-space-4); }
+.mw-closing__title { font-size: var(--mw-h2); max-width: 26ch; }
+
+/* --------------------------------------------------------------------------
+   9. Footer — the conventional groups, so the nav cap orphans nothing
+   -------------------------------------------------------------------------- */
+
+.mw-foot { border-top: 1px solid var(--mw-line); padding-block: var(--mw-space-6) var(--mw-space-5); }
+.mw-foot__grid { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(auto-fit, minmax(140px, 1fr)); gap: var(--mw-space-5); }
+.mw-foot__title { font-size: var(--mw-text-micro); font-weight: 600; letter-spacing: var(--mw-track-micro); text-transform: uppercase; color: var(--mw-muted); margin-bottom: var(--mw-space-3); }
+.mw-foot__list { display: flex; flex-direction: column; gap: 6px; }
+.mw-foot__list a { color: var(--mw-muted); font-size: var(--mw-text-small); }
+.mw-foot__list a:hover { color: var(--mw-text); }
+.mw-foot__base { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--mw-space-3); margin-top: var(--mw-space-6); padding-top: var(--mw-space-4); border-top: 1px solid var(--mw-line); color: var(--mw-muted); font-size: var(--mw-text-micro); }
+
+/* --------------------------------------------------------------------------
+   12. The spine — the page's own table of contents, drawn in the left gutter
+   -------------------------------------------------------------------------- */
+
+/* A rail, its reading line, and the page's numbered waypoints as real links.
+   Three things about it are decisions rather than styling:
+
+     * **It is navigation that happens to be vertical.** Every mark is an `#`
+       link to a section that exists, so the rail earns its space: a reader who
+       wants "what happens next" clicks 04 instead of scrolling to find it.
+     * **It says where you are.** One waypoint is filled, one step larger and
+       haloed, the line above it is solid and the line below it is only a track.
+       A rail whose dots are all the same size is a decoration with numbers on
+       it, and this one is a position read — which is the whole reason
+       `static/spine.js` exists (the sheet cannot answer "which section" without
+       learning every page's ids; see that file's header).
+     * **The line is as long as the reader has read, not as long as a clock.**
+       `--mw-at` is the active waypoint's own place on the rail, set by the
+       script, so the line always ends exactly *at* the dot that is current —
+       and with no script it ends at nothing, which is the second half of the
+       same decision: a line drawn from page scroll leaves the dot it is naming
+       and claims a progress that is not this page's shape. */
+.mw-spine {
+  position: fixed;
+  top: 50%;
+  /* *Inside* the wrap's own left gutter rather than beside it.
+
+     The rail used to be drawn 34px outside the content box, and on a wide
+     monitor that put it a long way from the text and a long way from the
+     window's edge — an object floating in a field of nothing, which is exactly
+     how it was reported. So the dots now start at the content box's edge and
+     grow rightward into the wrap's own padding, where they read as that
+     column's margin note at every width. The gutter they grow into is
+     `--mw-gutter`, and it is ≥53.6px everywhere this rail is drawn (the width
+     rule just below is the floor where it is), so the 40px of dot and line
+     leaves the text its own space at every size. */
+  left: calc(50% - (var(--mw-wrap-max) / 2) + 4px);
+  translate: 0 -50%;
+  z-index: 6;
+  display: none;
+}
+
+/* Only where the gutter is wider than the wrap's own margin. Below this the
+   rail would sit on the text, and a table of contents drawn over the thing it
+   indexes is worse than no table of contents. */
+@media (min-width: 1340px) { .mw-spine { display: block; } }
+
+.mw-spine__rail,
+.mw-spine__fill {
+  position: absolute;
+  /* The centre of a 40px dot, minus half of a 3px line. */
+  left: calc(50% - 1.5px);
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+
+/* The track is a *dim tint of the same accent*, not a grey hairline.
+
+   Two readings are asked of this line: solid and bright above the current
+   waypoint, dim below it. One colour at two intensities says that in a glance —
+   the reader is looking at a single line that has been reached, rather than at
+   two different lines that happen to meet. It is also the only way this reads on
+   the light and contrast palettes, where `--mw-line-2` is a different creature
+   entirely (60% white in contrast mode) and the rail would invert itself. */
+.mw-spine__rail {
+  background: rgb(var(--mw-accent-rgb) / 22%);
+}
+
+/* Where the reader has read to. No animation and no timeline: the value comes
+   from the script, and with no script it is 0 — a track and no claim, rather
+   than a line lying about a position nobody has measured. */
+.mw-spine__fill {
+  background: var(--mw-accent);
+  transform: scaleY(var(--mw-at, 0));
+  transform-origin: top center;
+}
+
+.mw-spine__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mw-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mw-spine__mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Sized to be *read*, not merely found: at 34px with 12px numerals this was a
+     column of specks in the margin and the numbers were the smallest type on the
+     page. 40px and the UI size is the smallest thing here still worth looking
+     at, and it is what makes the current mark's fill legible from across a desk. */
+  width: 40px;
+  height: 40px;
+  color: var(--mw-muted);
+  font-size: var(--mw-text-small);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The circle is drawn by a pseudo-element rather than bordered onto the link,
+   because the current one is a step *larger* — and a larger box is a list that
+   re-lays itself out under the reader's eye. A 4px overhang grows the dot
+   without moving the four below it.
+
+   Its ring is a tint of the accent, like everything else on this rail: the
+   dots are stations *on* the line rather than five grey buttons beside it, and
+   a neutral hairline at this size read as a smudge of five smudges. What it is
+   not is the accent itself — that is still reserved for the one dot the reader
+   is at, which is how the fill keeps its meaning. */
+.mw-spine__mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(var(--mw-accent-rgb) / 24%);
+  border-radius: 50%;
+  background: var(--mw-panel);
+}
+
+.mw-spine__num { position: relative; line-height: 1; }
+
+/* A mark is a link, but not one that offers a *destination* — it offers a place
+   on this page. So it keeps the muted ink the rail is drawn in and takes the
+   accent on the edge under a pointer or a keyboard, where the label arrives
+   with it. */
+.mw-spine__mark:hover,
+.mw-spine__mark:focus-visible {
+  color: var(--mw-text);
+  text-decoration: none;
+}
+.mw-spine__mark:hover::before,
+.mw-spine__mark:focus-visible::before { border-color: var(--mw-accent); }
+
+/* *You are here.* Filled solid in the accent, one step bigger, haloed — three
+   readings of one fact, because "which of these five am I in" has to be
+   answerable at a glance from the corner of an eye and a difference of hue in a
+   small grey ring is not. The ink goes to `--mw-accent-ink` because what is
+   written on a coral fill is this page's own black, never white. */
+.mw-spine__mark.is-here {
+  color: var(--mw-accent-ink);
+}
+.mw-spine__mark.is-here::before {
+  inset: -4px;
+  border-color: var(--mw-accent);
+  background: var(--mw-accent);
+  box-shadow: 0 0 0 5px rgb(var(--mw-accent-rgb) / 22%);
+}
+
+/* The label arrives on a panel rather than straight onto the page, and that is
+   now a measurement rather than a style: the dots live in the wrap's own gutter,
+   so a label starting 10px past a 40px circle begins almost exactly on the
+   text's left edge — and "This deployment" runs 135px from there, across the
+   first column of the page it is indexing. An uppercase micro-label over body
+   copy is two texts in one place, so the panel behind it is opaque and whatever
+   it covers is covered. */
+.mw-spine__label {
+  position: absolute;
+  left: 100%;
+  margin-left: 10px;
+  padding: 4px 8px;
+  border: 1px solid var(--mw-line-2);
+  border-radius: 8px;
+  background: var(--mw-panel);
+  white-space: nowrap;
+  font-size: var(--mw-text-micro);
+  letter-spacing: var(--mw-track-micro);
+  text-transform: uppercase;
+  color: var(--mw-muted);
+  opacity: 0;
+}
+.mw-spine__mark:hover .mw-spine__label,
+.mw-spine__mark:focus-visible .mw-spine__label { opacity: 1; color: var(--mw-text); }
+
+/* `_trap.html`'s two decoys. It says `class="trap"` *because* the sheet is
+   what keeps them off the page, so a frame that includes it and does not draw
+   this rule publishes them as two coral links in the footer — which is what the
+   first build of this frame did. Off-screen rather than `display: none`, and
+   not a size below one pixel: a collector that treats a hidden node as "do not
+   follow" has to find a node here, or the directive naming these paths reads
+   as a mistake. */
+.trap {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* The thumb-zone action: one control, always reachable, only where the nav is
+   not (Fitts). */
+.mw-sticky { display: none; }
+.mw-sticky__inner { display: flex; align-items: center; gap: var(--mw-space-3); }
+.mw-sticky .mw-btn { flex: 1; }
+
+/* --------------------------------------------------------------------------
+   11. Narrow
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .mw-hero__inner { grid-template-columns: minmax(0, 1fr); }
+  .mw-hero__copy { max-width: none; }
+  /* The window keeps bleeding — it is the one thing on the page that says
+     *this is a product* — but it stops being a second column. */
+  .mw-shot { --mw-shot-overhang: calc(var(--mw-bleed) * 0.6); margin-top: var(--mw-space-5); }
+  .mw-nav__list { display: none; }
+  .mw-nav .mw-nav__toggle { display: inline-flex; }
+  /* One action, not two. The thumb zone below is the one that matters on a
+     phone, and both of them at once is how a 360px header row came to hold the
+     brand, a Menu button, the palette and a CTA that ran off the edge of the
+     screen with its own label cut in half. The palette stays: it is not the
+     action, and it is the one control with nowhere else to live. */
+  .mw-nav__actions > .mw-btn--primary { display: none; }
+  .mw-nav__toggle[aria-expanded="true"] + .mw-nav__list,
+  .mw-nav--open .mw-nav__list {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 68px;
+    padding: var(--mw-space-4) var(--mw-gutter);
+    background: var(--mw-panel);
+    border-bottom: 1px solid var(--mw-line-2);
+    /* The one overlay this frame can open: a panel over the page earns a real
+       shadow and an edge, or it reads as text that moved. */
+    box-shadow: var(--mw-shadow);
+  }
+  .mw-sticky {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9;
+    padding: 10px var(--mw-gutter);
+    background: color-mix(in srgb, var(--mw-bg) 92%, transparent);
+    border-top: 1px solid var(--mw-line);
+    backdrop-filter: blur(10px);
+  }
+  .mw-foot { padding-bottom: 88px; }
+}
+
+/* --------------------------------------------------------------------------
+   12. Motion — opt-in, and exactly one entrance
+   -------------------------------------------------------------------------- */
+
+/* Everything animated on this site is inside this block, which is why the
+   reduced-motion behaviour needs no second declaration: a visitor who asked for
+   stillness never loads the rules below at all. The law in
+   `tests/test_meoww_site.py` asserts that — no `animation` or `transition`
+   anywhere outside this `@media`, one element carrying `data-mw-enter`, and no
+   `IntersectionObserver` in the page's script, because a scroll reveal is how a
+   second entrance gets added. */
+@media (prefers-reduced-motion: no-preference) {
+  .mw-btn,
+  .mw-shell .btn,
+  .mw-nav__link,
+  .mw-faq__q { transition: color var(--mw-fast) var(--mw-ease), border-color var(--mw-fast) var(--mw-ease); }
+
+  /* A switch changes state under a finger, and a state change nobody can see
+     move is a state change nobody trusts — so this is motion too, and it lives
+     here with the rest of it rather than in the rules above. */
+  .mw-switch::before {
+    transition: background var(--mw-fast) var(--mw-ease), border-color var(--mw-fast) var(--mw-ease),
+      box-shadow var(--mw-fast) var(--mw-ease);
+  }
+  .mw-switch::after {
+    transition: transform var(--mw-fast) var(--mw-ease), background var(--mw-fast) var(--mw-ease);
+  }
+
+  /* The one entrance: the window tilts into its resting angle ... */
+  [data-mw-enter] {
+    animation: mw-in var(--mw-draw) var(--mw-ease) both;
+  }
+  /* ... and its switches come on in sequence. Their *state* is already in the
+     markup; only the glow arrives. The sequence order is the *nth* row rather
+     than a number written into the markup, because a stagger is a styling
+     decision and an inline custom property is an inline style. */
+  [data-mw-enter] .mw-shot__row .mw-switch::before {
+    animation: mw-on 300ms var(--mw-ease) both;
+    animation-delay: calc(180ms + (var(--mw-i, 0) * 90ms));
+  }
+  [data-mw-enter] .mw-shot__row:nth-child(1) { --mw-i: 0; }
+  [data-mw-enter] .mw-shot__row:nth-child(2) { --mw-i: 1; }
+  [data-mw-enter] .mw-shot__row:nth-child(3) { --mw-i: 2; }
+  [data-mw-enter] .mw-shot__row:nth-child(4) { --mw-i: 3; }
+  [data-mw-enter] .mw-shot__row:nth-child(5) { --mw-i: 4; }
+  [data-mw-enter] .mw-shot__row:nth-child(6) { --mw-i: 5; }
+
+  @keyframes mw-in {
+    from { transform: rotate(calc(var(--mw-tilt) + 2.5deg)) translateY(14px); opacity: 0; }
+    to { transform: rotate(var(--mw-tilt)) translateY(0); opacity: 1; }
+  }
+  @keyframes mw-on {
+    from { box-shadow: 0 0 0 3px rgb(var(--mw-on-rgb) / 0%); }
+    to { box-shadow: 0 0 0 3px rgb(var(--mw-on-rgb) / 12%), 0 0 18px rgb(var(--mw-on-rgb) / 30%); }
+  }
+
+  /* The window's status pill reads as *connected to something running* rather
+     than as a screenshot of a thing that ran once. The pulse is a brief
+     brightening of the dot the pill leads with, in the shape the market page's
+     tick uses (a short flash, then back to rest) rather than a swing back and
+     forth — a pill that breathes continuously is a pill nobody can stop looking
+     at, which is the failure mode of putting a living thing on a marketing page.
+
+     It is declared on the window itself, and that is not a technicality: the
+     window is the one element this site animates (`data-mw-enter`), and a
+     second element that moves is a second entrance, which is precisely what the
+     motion law refuses. */
+  [data-mw-enter] .mw-shot__bar .mw-tag::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--mw-on);
+    vertical-align: 1px;
+    animation: mw-alive 5s var(--mw-ease) infinite;
+  }
+  @keyframes mw-alive {
+    0%, 44%, 100% { background: var(--mw-on); box-shadow: 0 0 0 0 rgb(var(--mw-on-rgb) / 0%); }
+    50% { background: var(--mw-text); box-shadow: 0 0 0 3px rgb(var(--mw-on-rgb) / 26%); }
+  }
+
+  /* The rail's three arrivals: the label with the pointer or the keyboard, the
+     dot as it becomes the current one, and the line reaching it. They are here
+     rather than above because that is where every transition in this sheet
+     lives — and they are *transitions* rather than animations on purpose: none
+     of them arrives on its own, so a reader who has asked for less motion loses
+     the glide and keeps the state. */
+  .mw-spine__label { transition: opacity var(--mw-fast) var(--mw-ease); }
+  .mw-spine__mark::before {
+    transition: inset var(--mw-fast) var(--mw-ease), background var(--mw-fast) var(--mw-ease),
+      border-color var(--mw-fast) var(--mw-ease), box-shadow var(--mw-fast) var(--mw-ease);
+  }
+  .mw-spine__fill { transition: transform var(--mw-fast) var(--mw-ease); }
+}
+
+@media print {
+  .mw-top, .mw-sticky, .mw-shot { display: none; }
+}

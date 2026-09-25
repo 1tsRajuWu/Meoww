@@ -282,8 +282,8 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
             with self.subTest(label=label):
                 self.assertRegex(
                     body,
-                    rf'tile__value"[^>]*>{re.escape(keep_alive.NOT_READ)}</span>\s*'
-                    rf'<span class="tile__label">{re.escape(label)}</span>',
+                    rf'mw-stat__value"[^>]*>{re.escape(keep_alive.NOT_READ)}</span>\s*'
+                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
                     f"the {label} tile claims a reading the database could not give",
                 )
 
@@ -304,8 +304,8 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
         for label in ("messages", "voice hours", "people seen", "channels used"):
             with self.subTest(label=label):
                 tile = re.search(
-                    rf'<span class="tile__value"[^>]*>[^<]*</span>\s*'
-                    rf'<span class="tile__label">{re.escape(label)}</span>',
+                    rf'<span class="mw-stat__value"[^>]*>[^<]*</span>\s*'
+                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
                     body,
                 )
                 self.assertIsNotNone(tile, f"the {label} tile left the page")

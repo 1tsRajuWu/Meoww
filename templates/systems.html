@@ -1,30 +1,40 @@
-{% extends "site_base.html" %}
+{# ==========================================================================
+   systems.html — every system, and what switching one off does.
+
+   Rebuilt on the new frame, and the rebuild *removed* its script rather than
+   restyling it. What used to be here was a search box, two filter menus, a
+   "show all" button and a counter, all driven by `motion.js` over rows that had
+   to be in the document anyway — because a page that can only be read with its
+   file is a page that goes blank on the day the file is missing. Every one of
+   those controls was a `<details>` waiting to be written: a keyboard opens one,
+   a crawler reads it, and nothing is capped by anything but the reader.
+
+   Two things are still read from the registry rather than typed here, because a
+   page that states a system's arity is a page that goes on stating it after the
+   system changes: each group's own `<summary>` carries its category, its count
+   and whether it has a switch at all.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+{% from "meoww/_spine.html" import spine, mark %}
+{% set sections = [
+  {'id': 'deployment', 'label': 'This deployment'},
+  {'id': 'activity', 'label': 'Activity'},
+  {'id': 'all', 'label': 'The list'},
+] %}
 {% block title %}Every system — {{ bot_name }}{% endblock %}
-
-{% block page_css %}
-<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
-{% endblock %}
-
-{# One command row, written once. The list at the top of a group and the tail
-   behind the "+N more" are the same row, and two copies of a row is how the
-   Copy button or its search text comes to differ between them. #}
-{% macro command_row(row) %}
-<li class="command" data-command data-search="{{ row.search }}">
-  <code class="command__name">{{ row.name }}</code>
-  <button class="command__copy" type="button" data-copy="{{ row.name }}"
-          data-copy-label="Copied">Copy</button>
-</li>
-{% endmacro %}
+{% block body_class %}mw-page-systems{% endblock %}
+{% block spine %}{{ spine(sections) }}{% endblock %}
 
 {% block page %}
-<section class="page-head band band--flush">
-  <div class="wrap">
-    <p class="micro">Systems</p>
-    <h1>Every system, and what switching one off does</h1>
-    <p class="lede">
-      {{ system_count }} systems and {{ entry_count }} commands, read out of the bot's own
-      registry. A switch belongs to one server: turning one off takes its commands out of
-      that server's picker and leaves the others alone.
+<section class="mw-band mw-band--head">
+  <div class="mw-wrap">
+    <p class="mw-micro">Systems</p>
+    <h1 class="mw-display">Every system. <em>One switch each.</em></h1>
+    <p class="mw-lede">
+      {{ system_count }} systems, {{ entry_count }} commands, and one switch each. Turn a
+      system off and its commands leave that server's picker; the server next door never
+      notices. The numbers come from the bot's own registry rather than from this page, so
+      they cannot drift behind the bot they describe.
     </p>
   </div>
 </section>
@@ -32,183 +42,117 @@
 {# What this deployment is doing. A reading that was never taken is a dash rather
    than a zero, because a confident "0 servers" from a sleeping host reads as a
    bot nobody uses. #}
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="deployment">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">01 — This deployment</p>
+        <p class="mw-micro">{{ mark(sections, 'deployment') }}</p>
         <h2>Counted, not claimed</h2>
       </div>
     </div>
-
-    <div class="tiles">
+    <div class="mw-stats">
       {% for tile in control_tiles %}
-      <div class="tile">
-        {# `data-figure` names the value this tile is waiting for, and a tile
-           that has one is only ever a tile holding no reading: the host renders
-           the numbers it can (`_needs_figures`), so a hook beside a number would
-           invite the reader to overwrite a count that is already right. #}
-        <span class="tile__value"{% if tile.waiting %} data-figure="control:{{ tile.key }}"{% endif %}>{{ tile.value }}</span>
-        <span class="tile__label">{{ tile.label }}</span>
+      <div class="mw-stat">
+        <span class="mw-stat__value"{% if tile.waiting %} data-figure="control:{{ tile.key }}"{% endif %}>{{ tile.value }}</span>
+        <span class="mw-stat__label">{{ tile.label }}</span>
       </div>
       {% endfor %}
     </div>
   </div>
 </section>
 
-{# Activity, over the window the tracker keeps. The windows are named rather
-   than drawn as tabs: the readings for the other windows are not on this page,
-   and a tab that cannot change what is under it is a lie with a hover state. #}
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="activity">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">02 — Activity</p>
+        <p class="mw-micro">{{ mark(sections, 'activity') }}</p>
         <h2>What people actually did</h2>
       </div>
-      <p class="small muted">
+      <p class="mw-hint">
         {% for period in activity_periods %}
-        <span class="{{ 'mono' if period.selected else '' }}">{{ period.label }}</span>{{ ' · ' if not loop.last else '' }}
+        {{ period.label }}{{ ' · ' if not loop.last else '' }}
         {% endfor %}
       </p>
     </div>
-
-    <div class="tiles">
+    <div class="mw-stats">
       {% for tile in activity_tiles %}
-      <div class="tile">
-        {# The window is named in the key: `activity:today:messages` finds the
-           period the card is drawn from, so the tiles and a fresh reading can
-           never be about two different windows. #}
-        <span class="tile__value"{% if tile.waiting %} data-figure="activity:{{ activity_period_id }}:{{ tile.key }}"{% endif %}>{{ tile.value }}</span>
-        <span class="tile__label">{{ tile.label }}</span>
+      <div class="mw-stat">
+        {# The window is named in the key, so the tiles and a fresh reading can
+           never be about two different periods. #}
+        <span class="mw-stat__value"{% if tile.waiting %} data-figure="activity:{{ activity_period_id }}:{{ tile.key }}"{% endif %}>{{ tile.value }}</span>
+        <span class="mw-stat__label">{{ tile.label }}</span>
       </div>
       {% endfor %}
     </div>
-    <p class="hint">A dash is a reading nobody has taken yet — not a zero.</p>
+    <p class="mw-hint">A dash is a reading nobody has taken yet — not a zero.</p>
   </div>
 </section>
 
-{# --------------------------------------------------------------------------
-   03 — The list, and the commands under it: one band, because this page used
-   to carry the same fifteen rows twice.
-
-   There was a `<ul class="list">` here naming every system with its count and
-   its category, and directly under it the command reference — one collapsed
-   group per system, in the same order, under the same icons, from the same
-   registry. Two readers of one list, and a list kept in two places is the copy
-   that goes stale; the law in `tests/test_site.py` was written about exactly
-   that failure one page over. The band above this one names four systems and
-   links here for the rest precisely so that this is the *one* place that lists
-   all fifteen, so the second copy could not stay.
-
-   What the inert list knew and the reference did not is now on each group's own
-   summary line — the registry's category, and which system has no switch — so
-   merging them loses nothing a reader could see before.
-
-   And the list is expandable rather than a wall: one collapsed <details> per
-   system, which is also the one pattern that stays minimal with scripting off,
-   because a keyboard opens it and no script is asked to render or cap anything.
-   The search box starts `hidden` and is un-hidden by motion.js — a control that
-   does nothing without its file is not shown to the reader who does not have it.
-
-   An opened group shows eight names and folds the rest behind one press
-   (`+N more`). Nothing is dropped — every row is still in the document, which is
-   what lets the search reach one inside a folded tail, and what keeps the
-   `/systems#cmd-<id>` anchors everyone pastes still landing on an open group.
-
-   The chart that used to sit above this is gone, and it is worth writing down
-   why rather than leaving the gap unexplained: fifteen bars of command counts
-   said nothing the rows below do not say per row, and a chart whose whole
-   content is a number already printed three lines under it is the shape this
-   page keeps being cut back to. `_system_bars()` went with it.
-   -------------------------------------------------------------------------- #}
-<section class="band" id="all">
-  <div class="wrap">
-    <div class="band__head">
+{# The reference. One `<details>` per system, which is one group per registry
+   entry and therefore never more than seven rows without its own summary line. #}
+<section class="mw-band" id="all">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">03 — The list</p>
+        <p class="mw-micro">{{ mark(sections, 'all') }}</p>
         <h2>{{ system_count }} systems</h2>
       </div>
-      <p class="small muted">
-        {{ entry_count }} names, one row each — `/market buy` is its own.
-      </p>
+      <p class="mw-hint">{{ entry_count }} names, one row each — `/market buy` is its own.</p>
     </div>
 
-    <div class="cmdx" data-command-explorer>
-      <div class="cmdx__bar" data-command-tools hidden>
-        <label class="field console__search">
-          <span class="visually-hidden">Find a command</span>
-          <input class="input" type="search" data-command-search
-                 placeholder="Search all {{ entry_count }}: market, level, ticket…"
-                 autocomplete="off">
-        </label>
-        <button class="btn btn--ghost" type="button" data-command-expand
-                aria-expanded="false" hidden>Expand all</button>
-      </div>
-      <p class="hint cmdx__status" data-command-status role="status" hidden></p>
-
+    <div class="mw-list">
       {% for group in command_groups %}
-      <details class="cmdx__group" id="cmd-{{ group.id }}" data-command-group>
-        {# The category and the always-on fact, which the inert list used to carry
-           in columns of its own — on this line they cost a reader nothing and
-           save the page a second list of the same fifteen rows. #}
-        <summary class="cmdx__summary">
-          <span class="cmdx__name">{{ group.icon }} {{ group.name }}</span>
-          <span class="cmdx__meta mono">{{ group.category }}</span>
-          {% if not group.toggleable %}<span class="tag">always on</span>{% endif %}
-          <span class="cmdx__count mono">{{ group.rows | length }} cmd</span>
+      <details class="mw-faq" id="cmd-{{ group.id }}">
+        <summary class="mw-faq__q">
+          {{ group.icon }} {{ group.name }}
+          <span class="mw-row__count mono">{{ group.rows | length }} cmd · {{ group.category }}</span>
         </summary>
-        <ul class="console__list">
-          {% for row in group.rows[:8] %}{{ command_row(row) }}{% endfor %}
-        </ul>
-        {% if group.rows | length > 8 %}
-        <details class="cmdx__rest" data-command-rest>
-          <summary class="cmdx__rest-summary mono">the other {{ group.rows | length - 8 }}</summary>
-          <ul class="console__list">
-            {% for row in group.rows[8:] %}{{ command_row(row) }}{% endfor %}
+        <div class="mw-faq__a">
+          {% if not group.toggleable %}
+          <p class="mw-hint">Always on — nothing works without it, so it carries no switch.</p>
+          {% endif %}
+          <ul class="mw-commands">
+            {% for row in group.rows %}
+            {# The Copy button the previous page had, kept rather than dropped: an
+               arm's-reach affordance for the one thing this page is for. It is
+               drawn always rather than on hover, because a control revealed by a
+               pointer does not exist on a touch screen. `motion.js` wires it from
+               `data-copy`, which is the same hook it has always used. #}
+            <li>
+              <code>{{ row.name }}</code>
+              <button class="mw-copy" type="button" data-copy="{{ row.name }}"
+                      data-copy-label="Copied">Copy</button>
+            </li>
+            {% endfor %}
           </ul>
-        </details>
-        {% endif %}
+        </div>
       </details>
       {% endfor %}
-
-      <p class="hint cmdx__empty" data-command-empty hidden>
-        No command matches that. The search covers all {{ entry_count }} names.
-      </p>
     </div>
 
-    {# The legend the summary line above now uses, and the two counts it names:
-       a page that prints a total over a list has to say which row is the
-       difference, and `always_on` is the registry's own answer rather than a
-       second list kept beside the first. #}
-    <p class="hint tiles">
-      Switchable means the server's own switches can turn it off; always-on means nothing works
-      without it. {{ always_on | length }} of them {{ 'is' if (always_on | length) == 1 else 'are' }}
-      always on: {{ always_on | join(', ') }}.
+    <p class="mw-hint">
+      Switchable means the server's own switches can turn it off; always-on means nothing
+      works without it. {{ always_on | length }} of them
+      {{ 'is' if (always_on | length) == 1 else 'are' }} always on:
+      {{ always_on | join(', ') }}.
     </p>
 
-    {# And the third state, in the registry's own sentence rather than a summary
-       of one. A system that ships *off* is the one a visitor is most likely to
-       be refused by, and "switchable like the rest" is what this page used to
-       say about the only system of the fifteen that is not. #}
     {% for system in ships_off %}
-    <p class="hint tiles">
-      {{ system.icon }} {{ system.name }} arrives switched off — an administrator offers it to a
-      server before its commands answer at all. {{ system.desc }}
+    <p class="mw-hint">
+      {{ system.icon }} {{ system.name }} arrives switched off — an administrator offers it
+      to a server before its commands answer at all. {{ system.desc }}
     </p>
     {% endfor %}
   </div>
 </section>
 
-<section class="band band--closing">
-  <div class="wrap closing">
-    <h2 class="closing__title">Want the whole thing running your way?</h2>
-    <div class="row closing__actions">
-      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
-      <a class="arrow-link" href="/start">Getting started</a>
+<section class="mw-band">
+  <div class="mw-wrap mw-closing">
+    <h2 class="mw-closing__title mw-title">Want the whole thing running your way?</h2>
+    <div class="mw-hero__actions">
+      {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
+      <a class="mw-link" href="/start">Getting started</a>
     </div>
   </div>
 </section>
 {% endblock %}
-
-

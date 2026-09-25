@@ -1,0 +1,65 @@
+{# ==========================================================================
+   meoww/_spine.html — the page's own table of contents, drawn as a rail.
+
+   One list per page, and it is the **only** author of two things: which
+   sections a page has, and what number each one carries. Before this partial
+   the number was typed into every band's own micro label, and the pricing page
+   had already grown a conditional for it (`{{ '02' if selling else '01' }} —
+   what is in it`) — a hand-typed ordinal that changes with a flag is a number
+   with two authors, which is how the rail and the label would eventually
+   disagree about which section is third.
+
+   So a page declares its sections once:
+
+       {% set sections = [{'id': 'switches', 'label': 'The switches'}, ...] %}
+
+   ...the spine draws them, and each band asks the same list for its own line
+   with `mark(sections, 'switches')`. Move a section, and the rail, the number
+   in the band and the number on the rail move together.
+
+   Two details are load-bearing:
+
+     * **The rail is not the navigation.** Every mark is a real `#` link to its
+       section, so the spine is a table of contents that happens to be drawn
+       vertically — which is the only reason it earns the space it takes. The
+       IDs it points at are the page's own section IDs; a mark whose section is
+       missing is a link that scrolls nowhere, and `tests/test_meoww_site.py`
+       fails on one.
+     * **The number is decoration, the label is the name.** A screen reader
+       hears "The switches", not "zero one the switches", because the numeral is
+       `aria-hidden` and the label is the link's text.
+   ========================================================================== #}
+
+{% macro spine(sections) %}
+{# **One waypoint is not a table of contents.** A rail with a single mark cannot
+   answer the only question a rail is for — *where am I* — because the answer is
+   always the same dot, and the line above it and below it are the same line. So
+   a page that declares one section gets no rail rather than a rail that is
+   always right by accident, which is the shape `/pricing` reaches whenever the
+   deployment sells nothing: its tiers are a section only when there is a price
+   to put in them, and without them the page is a page head, one band, and a
+   closing line. The day a payment link appears, the same list has two entries
+   and the rail comes back without this file changing — which is the whole point
+   of the partial owning the decision. #}
+{% if sections | length > 1 %}
+<nav class="mw-spine" aria-label="Sections on this page">
+  <span class="mw-spine__rail" aria-hidden="true"></span>
+  <span class="mw-spine__fill" aria-hidden="true"></span>
+  <ol class="mw-spine__list">
+    {% for section in sections %}
+    <li>
+      <a class="mw-spine__mark" href="#{{ section.id }}">
+        <span class="mw-spine__num" aria-hidden="true">{{ '%02d' % loop.index }}</span>
+        <span class="mw-spine__label">{{ section.label }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+</nav>
+{% endif %}
+{% endmacro %}
+
+{# The band's own line: the number the rail draws beside it, plus the words the
+   page wrote. Empty for a key that is not in the list, which is the loud shape
+   of a mismatch rather than a wrong number. #}
+{% macro mark(sections, key) %}{% for section in sections %}{% if section.id == key %}{{ '%02d' % loop.index }} — {{ section.label }}{% endif %}{% endfor %}{% endmacro %}

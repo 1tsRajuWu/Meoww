@@ -89,8 +89,16 @@ PAGES = (
 #: ``DISCORD_CLIENT_ID``.
 PUBLIC_CLIENT_ID = "1548380269776605324"
 
-#: The stylesheet is rewritten too, because of ``url()``.
-CSS_ASSETS = ("meow.css",)
+#: The stylesheets that are rewritten too, because of ``url()``.
+#:
+#: Both are listed, and the second one is the reason this is a tuple rather than a
+#: name: `meoww.css` declares the two vendored families with `url("fonts/…")`,
+#: which is relative to the stylesheet — so a sheet that is copied without being
+#: rewritten asks for `static/fonts/…` from inside `static/`, which resolves to
+#: `static/static/fonts/…` and 404s. A missing face is the quietest failure on
+#: this site: the page renders, in somebody else's typeface, and nothing in any
+#: log says so.
+CSS_ASSETS = ("meow.css", "meoww.css")
 
 #: ``href|src|action="…"`` — every attribute that can carry a URL.
 _ATTR = re.compile(r'\b(href|src|action|poster)\s*=\s*"([^"]*)"', re.IGNORECASE)

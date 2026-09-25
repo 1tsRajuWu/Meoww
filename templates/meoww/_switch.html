@@ -1,0 +1,66 @@
+{# ==========================================================================
+   meoww/_switch.html — **the** switch, written once.
+
+   There is exactly one interactive control in this product and this is it. It
+   has two callers and they are genuinely different things, which is why the
+   partial has two modes rather than two files:
+
+     * `mode="write"` — the dashboard's own switch. It is a `<form>` that POSTs
+       to the endpoint that already owns the write, so it works with no script at
+       all, which matters most exactly when something is wrong. Every attribute
+       in it is pinned by `tests/test_dashboard_pages.py`: the endpoint, the
+       hidden `module`, the `enabled` flag that is *the absence of the field*
+       when a system is on (an unchecked box is not sent, and `bool("0")` is
+       true), and the `role="switch"` that tells a screen reader what it is.
+     * `mode="demo"` — the front door's grid. A `<button>` with the same
+       classes, the same two states and no action: the marketing page runs on
+       the same registry the dashboard does, but it is not signed in to anything
+       and it will not pretend to write. `inert=True` is for the one caller that
+       draws the grid as a *picture* — the hero's window is `aria-hidden`, and a
+       `<button>` nobody can see is not merely useless in the tab order, it is an
+       element inside an `aria-hidden` block holding focus, which is the one
+       thing that attribute promises cannot happen.
+
+   The direction of the reuse is deliberate and it runs *from* the dashboard,
+   not towards it: the form existed first, its attributes are what the laws
+   read, and the demo is the copy that had to fit them. The reverse — a pretty
+   marketing toggle that the real one was then bent to match — is how one
+   control ends up with two implementations, two states and two ideas of what
+   "on" means.
+
+   State is `aria-checked`, in the markup, in both modes: the light that means
+   *this is on* is drawn from it, a reader is told by it, and a page with no
+   script still says something true about every row.
+   ========================================================================== #}
+
+{% macro switch(module, mode="demo", action="", hidden="", inert=False) %}
+{# In demo mode the state shown is the *default* one — the state a server that
+   has never been configured sees. The row carries it (`enabled`, from the
+   registry's own `default_enabled`), so the grid and `/systems` cannot disagree
+   about which systems ship off. With no state on the row at all the fallback is
+   "on", which is only correct for a registry where nothing ships off. #}
+{%- set demo_on = module.enabled if module.enabled is defined else true -%}
+{%- if mode == "write" -%}
+<form class="mw-switch-form" method="post" action="{{ action }}" data-module="{{ module.id }}">
+  {{ hidden | safe }}
+  <input type="hidden" name="module" value="{{ module.id }}">
+  {% if not module.enabled %}<input type="hidden" name="enabled" value="1">{% endif %}
+  <button class="mw-switch" type="submit" role="switch"
+          aria-checked="{{ 'true' if module.enabled else 'false' }}">
+    <span class="mw-switch__state">{{ 'On' if module.enabled else 'Off' }}</span>
+    <span class="visually-hidden">{{ module.name }}</span>
+  </button>
+</form>
+{%- else -%}
+<button class="mw-switch" type="button" role="switch" data-mw-switch
+        {% if inert %}tabindex="-1" {% endif %}aria-checked="{{ 'true' if demo_on else 'false' }}"
+        {# The label names the control and stops there. It used to repeat the
+           state ("Market is on — 7 commands"), which is true in the markup and a
+           lie the moment a reader flips it: the demo's state is local, so the
+           one thing that can be trusted to describe it is `aria-checked`, which
+           is what a screen reader reads out beside this name. #}
+        aria-label="{{ module.name }}{% if module.command_count %} — {{ module.command_count }} command{{ '' if module.command_count == 1 else 's' }}{% endif %}">
+  <span class="mw-switch__state">{{ 'On' if demo_on else 'Off' }}</span>
+</button>
+{%- endif -%}
+{% endmacro %}

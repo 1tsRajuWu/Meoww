@@ -1,10 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Keystone">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Meoww">
   <!-- The same badge at 32px, with the geometry respaced for the size rather
-       than scaled: at this size a 1px gap between the wedge and the tile edge
-       closes up, so the wedge sits lower and the slot is a little wider. -->
+       than scaled: at this size the counters of a scaled-down `M` close up, so
+       the letter is drawn wider and its valley is shallower. -->
   <path fill-rule="evenodd" clip-rule="evenodd"
         d="M0 8a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z
-           M11 5h10l3 10H8z
-           M15 8.2h2v5h-2z"
-        fill="#2dd4bf" />
+           M8 9h4l4 5.5L20 9h4v14h-4v-8l-4 5.5-4-5.5v8H8z"
+        fill="#ff5d3a" />
 </svg>

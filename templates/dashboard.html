@@ -25,12 +25,21 @@
        `DASHBOARD_GROUPS` in the view, so a page added to the table is in the
        navigation before anybody remembers to add it there.
    ========================================================================== #}
-{% extends "site_base.html" %}
+{% extends "meoww/base.html" %}
 {% block title %}{{ page_title }} — {{ guild_name }} — {{ bot_name }}{% endblock %}
 
 {% block page_css %}
+{# The frame carries the shell and the new tokens. These two are the *interior*:
+   `pages.css` draws the rail, the palette, the composer, the queue, the ledgers
+   and the identity form, and it reads its palette out of `meow.css` — so both
+   are linked here rather than either being assumed. Moving the interior onto the
+   new system is its own pass, once the shell has been seen rendered. #}
+<link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
 <link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
 {% endblock %}
+
+{# The one switch in this product, imported rather than written here. #}
+{% from "meoww/_switch.html" import switch as mw_switch %}
 
 {# One hidden field per form, from the two values every write needs: the token the
    endpoint checks, the server it is about, where the reader goes back to, and the
@@ -67,22 +76,19 @@
 {% endif %}
 {% endmacro %}
 
-{# A system's own switch. Posts to the endpoint the JSON route uses, so one click
-   from a page and one call from a script are the same write — and turning one off
-   is the *absence* of `enabled`, because an unchecked HTML box is not sent at all
-   and `bool("0")` is true. #}
-{% macro module_switch(module) %}
-<form class="dash-switch" method="post" action="{{ toggle_url }}" data-module="{{ module.id }}">
-  {{ guard(module.name ~ (' switched off' if module.enabled else ' switched on')) }}
-  <input type="hidden" name="module" value="{{ module.id }}">
-  {% if not module.enabled %}<input type="hidden" name="enabled" value="1">{% endif %}
-  <button class="dash-switch__btn{{ ' is-on' if module.enabled }}" type="submit"
-          role="switch" aria-checked="{{ 'true' if module.enabled else 'false' }}">
-    <span class="dash-switch__state">{{ 'On' if module.enabled else 'Off' }}</span>
-    <span class="visually-hidden">{{ module.name }}</span>
-  </button>
-</form>
-{% endmacro %}
+{# A system's own switch — the project's *one* switch, from
+   `templates/meoww/_switch.html`, which the front door's grid also includes.
+   This wrapper owns the two facts that belong to this page and cannot belong to
+   the partial: which endpoint the write goes to, and the hidden fields every
+   write on this site needs. The markup, the classes, the two states and the
+   `role="switch"` are the partial's, so a change to a toggle state happens in
+   one file and both surfaces move.
+
+   Posts to the endpoint the JSON route uses, so one click from a page and one
+   call from a script are the same write — and turning one off is the *absence*
+   of `enabled`, because an unchecked box is not sent at all and `bool("0")` is
+   true. #}
+{% macro module_switch(module) %}{{ mw_switch(module, mode="write", action=toggle_url, hidden=guard(module.name ~ (' switched off' if module.enabled else ' switched on'))) }}{% endmacro %}
 
 {% block page %}
 <section class="page-head band band--flush">

@@ -8,9 +8,16 @@
 
    The language, and every rule below is one of these sentences:
 
-     * **Near-black, one accent.** The page is #0a0b0c, a raised panel is a
-       hairline and a slightly lighter black, and the accent is spent on the one
-       thing that can be acted on. Nothing is coloured to look interesting.
+     * **Near-black, one accent.** The page is #0a0a0d — a cool black, chosen
+       against the neutral gray-blacks of this product's neighbours so the coral
+       has something to be *warm* against — a raised panel is a hairline and a
+       slightly lighter black, and the accent is spent on the one thing that can
+       be acted on. Nothing is coloured to look interesting.
+     * **Two readings, never one.** Coral means *do this*; the green means *this
+       is on*. They are separate names because a toggle grid drawn entirely in
+       the accent makes the primary action indistinguishable from the state of a
+       row, and because "on" is the one thing on this site that has to be
+       readable at a glance.
      * **Type is the design.** A display line is set large, tight and heavy; body
        text is 17px and calm; a micro-label is monospace, uppercase and quiet,
        which is how a section announces itself without a box around it.
@@ -33,41 +40,88 @@
    1. Tokens
    -------------------------------------------------------------------------- */
 
+/* Self-hosted type — CSP is font-src 'self', so these travel with the sheet. */
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/poppins-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/poppins-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/poppins-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/poppins-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-500.woff2") format("woff2");
+}
+
 :root {
   /* Near-black, and two surfaces that are barely different from it. A card is
      legible because of its hairline, not because it is white. */
-  --bg: #0a0b0c;
-  --bg-deep: #050607;
-  --surface-card: #101314;
-  --surface-sunken: #0c0f10;
-  --surface-hover: #171b1c;
+  --bg: #0a0a0d;
+  --bg-deep: #050507;
+  --surface-card: #131318;
+  --surface-sunken: #0b0b0f;
+  --surface-hover: #1a1a21;
 
   /* Text in three weights of importance and nothing else. */
-  --text-primary: #f2f5f5;
-  --text-secondary: #c6cece;
-  --text-muted: #8b9797;
-  --text-invert: #0a0b0c;
+  --text-primary: #f2f3f5;
+  --text-secondary: #b9bcc4;
+  --text-muted: #93969e;
+  --text-invert: #0a0a0d;
 
   /* The one accent. `--accent` draws a fill and a ring; `--accent-text` is the
      shade anything *written* in the accent uses, because a fill and a line of
-     text are held to different floors and one number cannot pass both. The teal
-     clears both here (9.7:1 on the page, 14.7:1 for the text shade), and
+     text are held to different floors and one number cannot pass both. Coral
+     clears both here (6.5:1 on the page, 8.6:1 for the text shade), and
      `--accent-text-rgb` exists for a tint of the *text* shade — the fills' own
      channels are `--accent-rgb`, and a glow built from the wrong pair is one of
      the two-authors defects this palette split exists to prevent. */
-  --accent: #2dd4bf;
-  --accent-text: #8bf0e4;
-  --accent-rgb: 45 212 191;
-  --accent-text-rgb: 139 240 228;
+  --accent: #ff5d3a;
+  --accent-text: #ff8a70;
+  --accent-rgb: 255 93 58;
+  --accent-text-rgb: 255 138 112;
+  /* What is *written on* a coral fill. A fill is a light colour, so its label is
+     this page's own black — white on coral measures 3.0:1 and would fail the
+     floor a button's label is held to. */
+  --accent-ink: #0a0a0d;
+
+  /* The on-state green, and it is not the accent. A switch that is on says so in
+     this colour; the one thing a visitor can *do* says so in coral. Keeping them
+     apart is what lets a grid of thirty toggles stay readable. */
+  --on: #34d399;
+  --on-rgb: 52 211 153;
 
   /* States report a state or they are decoration. */
-  --good: #4ade80;
+  --good: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
 
   /* Hairlines: one for a separator, one for an edge that has to be seen. */
-  --line: #1f2526;
-  --line-strong: #333c3d;
+  --line: #24242c;
+  --line-strong: #34343e;
 
   /* Type. The root size is a token, so the whole scale moves when it moves. A
      display line is set tight; body text is set calm; the micro-label is the
@@ -78,16 +132,16 @@
   --text-h3: 1.125rem;
   --text-h2: 1.375rem;
   --text-h1: 1.75rem;
-  --text-display: clamp(2.5rem, 6.4vw, 4.5rem);
-  --leading-display: 1.02;
+  --text-display: clamp(2.75rem, 6vw + 0.5rem, 5.25rem);
+  --leading-display: 1.0;
   --leading-body: 1.62;
-  --tracking-display: -0.035em;
-  --tracking-micro: 0.16em;
+  --tracking-display: -0.045em;
+  --tracking-micro: 0.14em;
   /* The monospace voice the micro-labels and the market's figures speak in. A
      token because two sheets need the same stack: this one for `.mono`, and
      `static/market.css` for every price, ticker and byte count on that page —
      which read `--font-mono` against nothing at all until it was named here. */
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Space. Generous at the top end on purpose: the cheapest way to make a page
      look like a wall is to save four pixels on every gap. */
@@ -112,12 +166,12 @@
   --surface: var(--surface-card);
   --border: var(--line);
   --border-active: var(--line-strong);
-  --accent-hover: #14b8a6;
+  --accent-hover: #f04a26;
   --accent-quiet: rgb(var(--accent-rgb) / 10%);
   --green: var(--good);
   --red: var(--danger);
   --gold: var(--warn);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 
   /* One lift, for the one thing that floats above the page. */
   --shadow: 0 24px 60px rgb(0 0 0 / 55%);
@@ -151,17 +205,18 @@
   --text-primary: #121316;
   --text-secondary: #43474f;
   --text-muted: #6b7078;
-  /* The ink that goes on an accent fill, and the one palette where it was not
-     readable: white on #0d9488 measures **3.74:1**, below the 4.5:1 the two
-     palettes beside it clear (10.6:1 and 14.2:1), on the primary button's label
-     and on the brand mark's K. The house ink on the same fill is 5.59:1, and it
-     is what the dark palette already paints — so the light palette paints the
-     same pair rather than the same foreground. */
-  --text-invert: #0a0b0c;
-  --accent: #0d9488;
-  --accent-text: #0f766e;
-  --accent-rgb: 13 148 136;
-  --accent-text-rgb: 15 118 110;
+  /* The ink that goes on an accent fill. The light palette's accent is a *dark*
+     coral, so its label is white (5.2:1) — and the dark palette's is the reverse
+     of that pair for the same reason, because an accent fill and the ground it
+     sits on are two different contrast problems. */
+  --text-invert: #ffffff;
+  --accent: #c2410c;
+  --accent-text: #9a3412;
+  --accent-rgb: 194 65 12;
+  --accent-text-rgb: 154 52 18;
+  --accent-ink: #ffffff;
+  --on: #15803d;
+  --on-rgb: 21 128 61;
   --good: #15803d;
   --warn: #a16207;
   --danger: #b91c1c;
@@ -180,10 +235,13 @@
   --text-secondary: #f4f4f4;
   --text-muted: #dedede;
   --text-invert: #000000;
-  --accent: #5eead4;
-  --accent-text: #b6f7ec;
-  --accent-rgb: 94 234 212;
-  --accent-text-rgb: 182 247 236;
+  --accent: #ff8a70;
+  --accent-text: #ffc9b8;
+  --accent-rgb: 255 138 112;
+  --accent-text-rgb: 255 201 184;
+  --accent-ink: #000000;
+  --on: #7dffae;
+  --on-rgb: 125 255 174;
   --good: #7dffae;
   --warn: #ffd400;
   --danger: #ff9d9d;
@@ -211,11 +269,10 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text-primary);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--text-body);
   line-height: var(--leading-body);
-  font-feature-settings: "cv11", "ss01";
+  font-feature-settings: "ss01";
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
@@ -229,14 +286,14 @@ h4 {
   margin: 0;
   font-weight: 600;
   line-height: 1.14;
-  letter-spacing: -0.022em;
+  letter-spacing: -0.028em;
 }
 
 h1 {
   font-size: var(--text-display);
   line-height: var(--leading-display);
   letter-spacing: var(--tracking-display);
-  font-weight: 640;
+  font-weight: 500;
 }
 
 h2 { font-size: var(--text-h2); }
@@ -339,26 +396,27 @@ hr {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(60rem 32rem at 50% -12%, rgb(var(--accent-rgb) / 7%), transparent 70%),
+    radial-gradient(70rem 36rem at 78% -8%, rgb(var(--accent-rgb) / 5%), transparent 62%),
+    radial-gradient(48rem 28rem at 8% 12%, rgb(var(--accent-rgb) / 3%), transparent 58%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
 }
 
 .aurora__ribbon {
   position: absolute;
-  inset: -10%;
-  background: radial-gradient(34rem 24rem at 12% 6%, rgb(var(--accent-rgb) / 6%), transparent 68%);
-  filter: blur(30px);
+  inset: -8%;
+  background: radial-gradient(40rem 22rem at 70% 0%, rgb(var(--accent-rgb) / 4%), transparent 70%);
+  opacity: 0.85;
 }
 
 .aurora__grid {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 120px 120px;
-  opacity: 0.22;
-  mask-image: radial-gradient(72% 52% at 50% 0%, #000 10%, transparent 72%);
+    linear-gradient(rgb(255 255 255 / 2.2%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 2.2%) 1px, transparent 1px);
+  background-size: 96px 96px;
+  opacity: 0.35;
+  mask-image: radial-gradient(70% 48% at 50% 0%, #000 8%, transparent 72%);
 }
 
 /* --------------------------------------------------------------------------
@@ -525,7 +583,7 @@ main { flex: 1 0 auto; }
   min-height: var(--tap-min);
   color: var(--text-primary);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .brand:hover { text-decoration: none; }
@@ -535,14 +593,14 @@ main { flex: 1 0 auto; }
   height: 28px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--accent);
   color: var(--text-invert);
   font-weight: 700;
   font-size: 0.8125rem;
 }
 
-.brand__name { font-size: 1rem; }
+.brand__name { font-size: 1.0625rem; }
 
 .brand__dot { color: var(--accent); }
 
@@ -557,20 +615,23 @@ main { flex: 1 0 auto; }
   display: inline-flex;
   align-items: center;
   min-height: var(--tap-min);
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 0.9375rem;
-  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+  font-weight: 500;
+  transition: color var(--fast) var(--ease);
 }
 
 .nav__link:hover {
-  background: var(--surface-hover);
   color: var(--text-primary);
   text-decoration: none;
 }
 
-.nav__link[aria-current="page"] { color: var(--text-primary); }
+.nav__link[aria-current="page"] {
+  color: var(--text-primary);
+}
+
 .nav__link[aria-current="page"]::after {
   content: "";
   display: block;
@@ -1119,59 +1180,7 @@ main { flex: 1 0 auto; }
 }
 
 /* --------------------------------------------------------------------------
-   13. The pointer layer
-   --------------------------------------------------------------------------
-   The script writes the *position* every frame as `translate`, and this sheet
-   writes only `transform`: an animation of `transform` replaces an inline one,
-   so a layer whose position the sheet animates stops following the pointer. Two
-   properties, two jobs, and the states below leave `translate` alone. */
-
-.meow-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  pointer-events: none;
-  contain: strict;
-}
-
-.meow-glow {
-  position: absolute;
-  width: 320px;
-  height: 320px;
-  margin: -160px 0 0 -160px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgb(var(--accent-rgb) / 10%), transparent 66%);
-  opacity: 0;
-  transition: opacity var(--slow) var(--ease);
-}
-
-.sparkle-particle {
-  position: absolute;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0.5;
-}
-
-.sword-entity,
-.radar-hud,
-.blob-drop,
-.vortex-container { position: absolute; opacity: 0; }
-
-.is-on .meow-glow { opacity: 1; }
-.is-on .sparkle-particle { opacity: 0.65; }
-.is-on .sword-entity,
-.is-on .radar-hud,
-.is-on .blob-drop,
-.is-on .vortex-container { opacity: 0.85; }
-
-.is-link .meow-glow { background: radial-gradient(circle, rgb(var(--accent-rgb) / 18%), transparent 68%); }
-.is-down .meow-glow { transform: scale(0.88); }
-.is-text .meow-glow { opacity: 0.35; }
-
-/* --------------------------------------------------------------------------
-   14. Motion, and its off switch
+   13. Motion, and its off switch
    -------------------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1186,7 +1195,6 @@ main { flex: 1 0 auto; }
   }
 
   .aurora__ribbon { animation: none; }
-  .meow-layer { display: none; }
 }
 
 /* The resting state of a revealed block is *visible*: only the script — which
@@ -1220,62 +1228,14 @@ main { flex: 1 0 auto; }
 .drawer__inner { overflow: hidden; }
 
 /* --------------------------------------------------------------------------
-   15. Print
+   14. Print
    -------------------------------------------------------------------------- */
 
 @media print {
   .top,
   .foot,
-  .aurora,
-  .meow-layer { display: none; }
+  .aurora { display: none; }
 
   body { background: #fff; color: #000; }
 }
 
-/* --------------------------------------------------------------------------
-   Cursors — and this block is the *only* author of a cursor in these sheets.
-
-   The pointer has to *look* like the page has controls, and the plain system
-   arrow never did here: a paw for the page, a paw with a finger for the things
-   that can be pressed. Relative to this stylesheet so the static build's
-   rewrite finds them; `pointer: fine` so a touchscreen never fetches a cursor
-   it will not use; and every url carries its fallback keyword, because a cursor
-   url a browser rejects with no fallback is a cursor that vanishes silently.
-
-   **Only author** is not decoration, it is the whole failure this layer kept
-   having. Eight components — `.btn`, `.top__menu`, `.switch`, `.chip`,
-   `.system__toggle`, `.showcase__item`, `.mock-switch`, `.faq__question` —
-   each carried their own `cursor: pointer`, which is *correct* about the hand
-   and fatal about the layer: a class outranks `button`/`label`, so every one
-   of those controls drew the system hand while the links beside it drew the
-   paw. Measured on the served page: `a[href]` had the paw and the *Add to
-   Discord* button had `pointer`. The eight declarations are gone — the
-   elements are all covered here — and no sheet may add a ninth.
-   -------------------------------------------------------------------------- */
-@media (pointer: fine) {
-  html {
-    cursor: url('cursor-default.svg') 4 3, auto;
-  }
-
-  a, button, label, select, summary,
-  [role="button"], [role="tab"], [role="switch"], [role="checkbox"],
-  input[type="button"], input[type="submit"], input[type="checkbox"],
-  input[type="radio"], [data-copy], [data-drawer], [onclick] {
-    cursor: url('cursor-pointer.svg') 11 3, pointer;
-  }
-
-  input[type="text"], input[type="search"], input[type="password"],
-  input[type="email"], textarea, [contenteditable="true"] {
-    cursor: text;
-  }
-
-  /* Named by element as well as by state, because `input[type="text"]` above is
-     an attribute selector (0,1,1) and a bare `:disabled` (0,1,0) loses to it: a
-     switched-off text field drew the I-beam while a switched-off button drew
-     `not-allowed`, which is the one control on the page a visitor is most likely
-     to be told they cannot use. Measured both ways before and after. */
-  :disabled, [disabled], [aria-disabled="true"],
-  input:disabled, select:disabled, textarea:disabled, button:disabled {
-    cursor: not-allowed;
-  }
-}

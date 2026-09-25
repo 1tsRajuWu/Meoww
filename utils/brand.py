@@ -44,7 +44,7 @@ from __future__ import annotations
 #: Discord application name and falls back to this, so renaming the application
 #: in the developer portal is what actually moves every page: this is the answer
 #: for a process that has not connected yet, or has no application to read.
-NAME = "Keystone"
+NAME = "Meoww"
 
 #: What it is, in one line — the sentence a `og:description` or a footer wants.
 TAGLINE = "One bot that runs the server."
@@ -52,12 +52,12 @@ TAGLINE = "One bot that runs the server."
 #: The letter the header's tile draws before the wordmark. Derived from the name
 #: by the law at the bottom of `tests/test_brand.py`, so an initial that no longer
 #: matches is a failure rather than a detail.
-INITIAL = "K"
+INITIAL = "M"
 
 #: The name this product used before the rebrand. Nothing a person reads may
 #: still say it; the law asserts that over the templates, and the two places that
 #: are allowed to mention it are this line and the CHANGELOG's own history.
-RETIRED_NAME = "Meow Bot"
+RETIRED_NAME = "Keystone"
 
 #: What the machine calls itself when something asks. The Space's ``/health`` is
 #: served by `app.py` as a literal rather than rendered from a template, so the
@@ -71,28 +71,47 @@ GATEWAY_SERVICE = f"{NAME.lower()}-gateway"
 # --------------------------------------------------------------------------- #
 #: The value every card the bot sends carries, as Discord wants it: one integer,
 #: `0xRRGGBB`. Read by `utils/style.ACCENT` rather than typed again there.
-ACCENT = 0x2DD4BF
+ACCENT = 0xFF5D3A
 
 #: The same colour as the sheets state it. `ACCENT` and this *are* one fact, and
 #: the law asserts the sheet still spells it this way.
-ACCENT_HEX = "#2dd4bf"
+ACCENT_HEX = "#ff5d3a"
 
 #: `--accent-rgb`, for the glows and rings that need the channels separately.
-ACCENT_RGB = "45 212 191"
+ACCENT_RGB = "255 93 58"
+
+#: The **on-state** green, and it is not the accent. A toggle grid is the product
+#: this site is built around, and a switch has two readings that must never be
+#: mistakable for one another: *do this* (a coral fill, one per screen, the thing
+#: Von Restorff's law spends) and *this is on* (a green glow, on every control
+#: that is on, which is why it cannot be the accent — a screen of coral switches
+#: would make the primary action indistinguishable from the state of a row).
+#: It is the same value the semantic `good` token carries, because "on" and
+#: "working" are one reading in this product.
+ON_HEX = "#34d399"
+ON_RGB = "52 211 153"
 
 #: The shade anything *written* in the accent uses. A fill and a line of text are
 #: held to different contrast floors (3:1 against 4.5:1), so one value cannot
 #: pass both — which is why the sheet has carried two names since long before this
 #: rebrand, and why a rebrand has to move both.
-ACCENT_TEXT_HEX = "#8bf0e4"
-ACCENT_TEXT_RGB = "139 240 228"
+ACCENT_TEXT_HEX = "#ff8a70"
+ACCENT_TEXT_RGB = "255 138 112"
+
+#: The ink that goes on an accent **fill**. A coral fill is a light colour, so
+#: the label on the primary button is the page's own black — white on coral
+#: measures 3.0:1 and would fail the floor the button's label is held to,
+#: which is the same two-floors problem `--accent-text` exists for, one layer
+#: further in. It is :data:`BG_HEX` because that is what the dark palette
+#: already paints and the mark is drawn to sit on exactly this pair.
+ACCENT_INK_HEX = "#0a0a0d"
 
 #: The page ground. One literal, here, because a page's `<meta name="theme-color">`
 #: is served as markup rather than resolved from the sheet — the script is
 #: deliberately forbidden from rewriting it (see `tests/test_theme.py`), so the
 #: value needs an author that is not "whatever somebody typed into the head".
-BG_HEX = "#0a0b0c"
-BG_DEEP_HEX = "#050607"
+BG_HEX = "#0a0a0d"
+BG_DEEP_HEX = "#050507"
 
 #: The palettes that exist. `dark` is `:root` and has no block of its own, which
 #: is why it leads: a visitor who has chosen nothing gets a whole palette.
@@ -105,22 +124,26 @@ THEMES: tuple[str, ...] = ("dark", "light", "contrast")
 PALETTE: dict[str, str] = {
     "bg": BG_HEX,
     "bg-deep": BG_DEEP_HEX,
-    "surface-card": "#101314",
-    "surface-sunken": "#0c0f10",
-    "surface-hover": "#171b1c",
-    "text-primary": "#f2f5f5",
-    "text-secondary": "#c6cece",
-    "text-muted": "#8b9797",
+    "surface-card": "#131318",
+    "surface-sunken": "#0b0b0f",
+    "surface-hover": "#1a1a21",
+    "text-primary": "#f2f3f5",
+    "text-secondary": "#b9bcc4",
+    "text-muted": "#93969e",
     "text-invert": BG_HEX,
     "accent": ACCENT_HEX,
     "accent-text": ACCENT_TEXT_HEX,
     "accent-rgb": ACCENT_RGB,
     "accent-text-rgb": ACCENT_TEXT_RGB,
-    "good": "#4ade80",
+    "accent-ink": ACCENT_INK_HEX,
+    "accent-hover": "#f04a26",
+    "on": ON_HEX,
+    "on-rgb": ON_RGB,
+    "good": ON_HEX,
     "warn": "#fbbf24",
     "danger": "#f87171",
-    "line": "#1f2526",
-    "line-strong": "#333c3d",
+    "line": "#24242c",
+    "line-strong": "#34343e",
 }
 
 # --------------------------------------------------------------------------- #
@@ -142,10 +165,36 @@ PALETTE: dict[str, str] = {
 #: the three lists (this one, `utils/hub.py` and `scripts/build_owner.py`) to it.
 MARKS: tuple[str, ...] = ("logo.svg",)
 FAVICONS: tuple[str, ...] = ("favicon.svg",)
-CURSORS: tuple[str, ...] = ("cursor-default.svg", "cursor-pointer.svg")
+
+#: Self-hosted typefaces. CSP is `font-src 'self'`, so these files travel with
+#: every static host rather than being fetched from a CDN — and they are named
+#: here so `hub.SHARED_ASSETS` and the owner build cannot forget them.
+FONTS: tuple[str, ...] = (
+    # The two faces the design system was rebuilt on: Archivo driven through its
+    # condensed width axis for display copy and figures, Inter for everything a
+    # person reads. Both are OFL, both are variable, and both were vendored from
+    # Google's own distribution rather than a re-hosted copy — with the licence
+    # text travelling beside them (see `fonts/OFL.txt`), which is what OFL asks
+    # for and what a `font-src 'self'` policy needs.
+    "fonts/archivo-var-latin.woff2",
+    "fonts/archivo-var-latin-ext.woff2",
+    "fonts/inter-var-latin.woff2",
+    "fonts/inter-var-latin-ext.woff2",
+    "fonts/OFL-archivo.txt",
+    "fonts/OFL-inter.txt",
+    # The faces the old system shipped, kept because `/market`, the sign-in
+    # doors and the per-server dashboard still read them: a sheet that names a
+    # font this build stopped copying is a page that renders in the fallback with
+    # nothing in any log to say why.
+    "fonts/poppins-400.woff2",
+    "fonts/poppins-500.woff2",
+    "fonts/poppins-600.woff2",
+    "fonts/poppins-700.woff2",
+    "fonts/jetbrains-mono-500.woff2",
+)
 
 #: Everything the site and the two static hosts ship out of `static/`.
-ASSETS: tuple[str, ...] = MARKS + FAVICONS + CURSORS
+ASSETS: tuple[str, ...] = MARKS + FAVICONS + FONTS
 
 #: Which mark a palette draws. A palette with no entry here gets the default,
 #: which is the only safe fallback: a mark that does not exist is invisible.
@@ -195,11 +244,11 @@ def summary() -> dict:
         "initial": INITIAL,
         "accent": ACCENT_HEX,
         "accent_text": ACCENT_TEXT_HEX,
+        "on": ON_HEX,
         "bg": BG_HEX,
         "palette": dict(PALETTE),
         "themes": tuple(THEMES),
         "marks": tuple(MARKS),
         "favicons": tuple(FAVICONS),
-        "cursors": tuple(CURSORS),
         "retired": RETIRED_NAME,
     }

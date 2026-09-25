@@ -124,6 +124,16 @@ def _themed_logos() -> list[str]:
 #: for their own asset urls and fails if one of them is not copied.
 STATIC_ASSETS = [
     "meow.css",
+    # The rebuilt system. The dashboard this host signs into wears the new frame
+    # now, so both of its files are copied here for the same reason every other
+    # name in this list is: a page that links a stylesheet this build does not
+    # copy is a page that renders unstyled on one host, and only on that host.
+    "meoww.css",
+    "meoww.js",
+    # The frame the dashboard wears loads the rail's position read too. The
+    # dashboard draws no rail of its own, so the request is wasted there — but a
+    # 404 on this host is not, which is what the rest of this list is about.
+    "spine.js",
     "pages.css",
     "landing.css",
     "landing.js",

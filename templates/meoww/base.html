@@ -1,0 +1,191 @@
+{# ==========================================================================
+   meoww/base.html — the frame every rebuilt public page is drawn inside.
+
+   One document, so one place decides what a page loads and what the chrome
+   says. A page fills `{% block page %}` and may add to `{% block page_css %}`
+   and `{% block page_js %}`; nothing else about the frame is a page's business,
+   because the alternative is eight pages that each remember to link a
+   stylesheet — which is what the previous frame was, and why a page could go a
+   whole round with a class its sheet did not define.
+
+   The order in the head is load-bearing and each line is a decision:
+
+     * `theme.js` is **not** deferred. It applies the stored theme before the
+       first paint; deferred, a visitor who chose the light palette would watch
+       the dark one arrive and then be replaced. It is the project's own script
+       and it is loaded here for the same reason it is loaded everywhere else.
+     * `meoww.css` comes before any page sheet, so a page can override the
+       shared treatments rather than fight them.
+     * `motion.js` is deferred and shared rather than copied: the resolver that
+       fills the waiting figures (`[data-figure]`) is in it, and a second
+       implementation of "ask this host for the numbers it has not got" is
+       exactly the kind of two-authors defect this project keeps removing. It
+       finds nothing to do here — this frame emits no `data-reveal` and no
+       `data-count` — so the page's one entrance stays the one in the sheet.
+
+   The chrome is the three laws it has to keep:
+
+     * **Three destinations at most, and the call to action last.** The header
+       used to offer four or five. Everything the cap pushes out lives in the
+       footer's conventional groups, so nothing became unreachable — which is the
+       only version of a nav cap that is not a page quietly deleting itself.
+     * **The theme control and the action are top right.** That is where a
+       visitor looks for both, and neither is a discovery.
+     * **The narrow screen gets the same action in the thumb zone.** The list of
+       destinations is hidden below 900px — where the footer's groups carry every
+       page — and the one control that matters is pinned where a thumb is.
+   ========================================================================== #}
+{% from "_theme.html" import theme_button, theme_menu %}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ bot_name }}{% endblock %}</title>
+{% if meta_description %}<meta name="description" content="{{ meta_description }}">{% endif %}
+<meta name="theme-color" content="{{ brand.BG_HEX }}">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noai, noimageai">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
+<link rel="stylesheet" href="/static/meoww.css?v={{ asset_version('meoww.css') }}">
+{% block page_css %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="mw-skip" href="#main">Skip to content</a>
+
+<div class="mw-shell">
+  <header class="mw-top">
+    <div class="mw-wrap mw-top__inner">
+      <a class="mw-brand" href="/">
+        <img class="mw-brand__mark" src="/static/logo.svg" alt="" width="28" height="28">
+        <span>{{ bot_name }}<span class="mw-brand__dot">.</span></span>
+      </a>
+
+      <nav class="mw-nav" data-mw-nav aria-label="Main">
+        <button class="mw-btn mw-btn--ghost mw-nav__toggle" type="button"
+                data-mw-nav-toggle aria-expanded="false" aria-controls="mw-nav-list" hidden>
+          Menu
+        </button>
+
+        <ul class="mw-nav__list" id="mw-nav-list">
+          {% for item in [
+            ('systems', 'Systems', '/systems'),
+          ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
+          <li>
+            <a class="mw-nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>
+          </li>
+          {% endfor %}
+        </ul>
+
+        <div class="mw-nav__actions">
+          {{ theme_button() }}
+          {% if invite_url %}
+          <a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord</a>
+          {% else %}
+          <a class="mw-btn mw-btn--primary" href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+          {% endif %}
+        </div>
+      </nav>
+    </div>
+    {# The theme panel is the project's own partial, and it sits outside the flex
+       row on purpose: a panel that is a flex item reserves its width while it is
+       closed. #}
+    {{ theme_menu() }}
+  </header>
+
+  {# The page's own table of contents, as a rail in the gutter. A page opts in by
+     declaring its sections and calling `spine()`; one that does not (the
+     dashboard, which has its own rail) renders nothing here. It sits outside
+     `<main>` on purpose: it is navigation *about* the page rather than part of
+     what the page says, and a screen reader meets it before the content rather
+     than mid-paragraph. #}
+  {% block spine %}{% endblock %}
+
+  {# One request, and only on a published copy: the numbers this page is missing
+     are named in the markup (`data-figure`) and `motion.js` asks for exactly
+     those. A host that already knows the answers passes no URL at all. #}
+  <main id="main"{% if figures_url %} data-figures-url="{{ figures_url }}"{% endif %}>
+    {% block page %}{% endblock %}
+  </main>
+
+  <footer class="mw-foot">
+    <div class="mw-wrap">
+      <div class="mw-foot__grid">
+        <div>
+          <div class="mw-foot__title">{{ bot_name }}</div>
+          <p class="mw-hint">
+            {% if system_count %}
+            {{ system_count }} systems and {{ entry_count }} commands, each one switched
+            per server from one dashboard.
+            {% else %}
+            A Discord bot with a dashboard for every server that has it.
+            {% endif %}
+          </p>
+        </div>
+        <div>
+          <div class="mw-foot__title">The product</div>
+          <div class="mw-foot__list">
+            <a href="/systems">Every system</a>
+            <a href="/start">Getting started</a>
+            <a href="/radio">Radio</a>
+          </div>
+        </div>
+        <div>
+          <div class="mw-foot__title">Reading</div>
+          <div class="mw-foot__list">
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="/ai">AI &amp; crawling</a>
+            {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
+          </div>
+        </div>
+        <div>
+          <div class="mw-foot__title">Elsewhere</div>
+          <div class="mw-foot__list">
+            {% if invite_url %}<a href="{{ invite_url }}">Add to a server</a>{% endif %}
+            <a href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+            {% if kofi_url %}<a href="{{ kofi_url }}" rel="noopener">Support the bot</a>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="mw-foot__base">
+        <span>
+          {% if source_repository %}
+          <a href="{{ source_repository }}" rel="noopener">Source code</a> ·
+          {% else %}
+          The source is not published ·
+          {% endif %}
+          {% if retention_days %}Messages are kept {{ retention_days }} days{% else %}Nothing is kept longer than it is needed{% endif %}
+        </span>
+        <span>Not affiliated with Discord Inc.</span>
+      </div>
+
+      {% include "_trap.html" %}
+    </div>
+  </footer>
+
+  {# The thumb zone. Hidden above 900px, where the header's own action is always
+     on screen — two buttons offering one thing is one button too many. #}
+  <div class="mw-sticky">
+    <div class="mw-wrap mw-sticky__inner">
+      {% if invite_url %}
+      <a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord</a>
+      {% else %}
+      <a class="mw-btn mw-btn--primary" href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="/static/meoww.js?v={{ asset_version('meoww.js') }}" defer></script>
+{# The rail's position read. Last, and after `meoww.js`, because it is the only
+   script here that asks where the reader is: the page is readable, crawlable and
+   complete without it, and a page that draws no rail (the dashboard, the
+   policies) never runs any of it. #}
+<script src="/static/spine.js?v={{ asset_version('spine.js') }}" defer></script>
+<script src="/static/motion.js?v={{ asset_version('motion.js') }}" defer></script>
+{% block page_js %}{% endblock %}
+</body>
+</html>

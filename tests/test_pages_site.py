@@ -85,19 +85,18 @@ class RewriteUrlCase(unittest.TestCase):
             self.assertEqual(build_site.rewrite_url(url, LIVE), url)
 
     def test_a_stylesheet_resolves_its_assets_against_its_own_folder(self):
-        """The bug the cursor test above found: one prefix or none.
+        """One prefix or none.
 
-        ``meow.css`` sits in ``static/``, so ``static/cursor-default.svg``
-        inside it resolves to ``static/static/…`` and the cat cursor never
-        loads — with the system arrow as the only symptom.
+        ``meow.css`` sits in ``static/``, so ``static/logo.svg`` written inside
+        it resolves to ``static/static/…`` and the mark never loads.
         """
         self.assertEqual(
-            build_site.rewrite_url("/static/cursor-default.svg", LIVE, from_stylesheet=True),
-            "cursor-default.svg",
+            build_site.rewrite_url("/static/logo.svg", LIVE, from_stylesheet=True),
+            "logo.svg",
         )
         self.assertEqual(
-            build_site.rewrite_url("/static/cursor-default.svg", LIVE),
-            "static/cursor-default.svg",
+            build_site.rewrite_url("/static/logo.svg", LIVE),
+            "static/logo.svg",
         )
 
     def test_an_already_relative_url_is_not_double_rewritten(self):
@@ -127,12 +126,12 @@ class TheCatalogueIsARowWide(unittest.TestCase):
 
         The rebuild dropped the panel row the squeeze happened in — there is no
         two-column shape left to fall into — so what is checkable now is that
-        the catalogue still wears its row class and that no `wrap--narrow` (the
-        only narrowing this design has) wraps the page.
+        the catalogue is one list of rows in the frame's own vocabulary, and that
+        no `wrap--narrow` (the only narrowing this design has) wraps the page.
         """
         markup = self.TEMPLATE.read_text(encoding="utf-8")
         self.assertIn(
-            'class="radio-row"',
+            'class="mw-commands"',
             markup,
             "the catalogue's rows left the page",
         )
@@ -176,47 +175,40 @@ class TheCatalogueIsARowWide(unittest.TestCase):
             "on a 390px screen and every row becomes a card",
         )
 
-    def test_the_copys_reveal_names_the_row_the_button_is_actually_in(self):
-        """The station table's *Copy* ships at `opacity: 0` and needs a reveal.
+    def test_the_copy_button_sits_inside_the_row_it_copies_and_is_drawn(self):
+        """The two halves this law has always held together, holding together.
 
-        It had one — `.command:hover .command__copy` — but a station row is
-        `<li class="radio-row">`, not `.command`, so on a desktop pointer (fine
-        pointer, wider than the 860px sheet rule) the selector matched nothing
-        and all 308 buttons stayed invisible: no affordance at all, plus an
-        invisible control the width of a station name sitting inside every row,
-        which is where a click landed when a visitor missed the description.
-        The sheet is read against the row class the markup actually wears, so
-        the pair cannot drift apart again — neither half fails on its own, and
-        the button is the thing that pays for it.
+        It was written about a *reveal*: the station table's *Copy* rested at
+        `opacity: 0` and the rule that raised it named `.command`, while a station
+        row was `<li class="radio-row">` — so on a desktop pointer not one of the
+        308 buttons ever appeared, and an invisible control sitting in the middle
+        of every row was where a click landed.
+
+        The rebuild answered that by removing the question rather than the bug:
+        the control is drawn always, because a button revealed by a pointer is a
+        button that does not exist on a touch screen. So there is no reveal to
+        match any more, and what is asserted is what the rule was for — the
+        button is inside the row whose station it copies, it copies that
+        station's own name, and the sheet draws it as a 44px target.
         """
         markup = self.TEMPLATE.read_text(encoding="utf-8")
-        row_class = re.search(r'<li class="([\w-]+)"\s*\n?\s*data-station', markup)
-        self.assertIsNotNone(row_class, "the station rows lost their class")
         self.assertIn(
-            'class="command__copy"',
+            'data-copy="{{ station.name }}"',
             markup,
-            "the row no longer holds the copy control this law is about",
+            "the station row no longer copies its own name",
         )
-        sheet = self.SHEET.read_text(encoding="utf-8")
-        reveal = sheet.split("\n.command__copy {", 1)
-        self.assertEqual(len(reveal), 2, "the sheet does not state .command__copy")
+        self.assertIn('class="mw-copy"', markup, "the row lost its copy control")
+        sheet = (ROOT / "static" / "meoww.css").read_text(encoding="utf-8")
+        self.assertIn("\n.mw-copy {", sheet, "the sheet does not state .mw-copy")
         self.assertIn(
-            "opacity: 0",
-            reveal[1].split("}", 1)[0],
-            "the copy button no longer rests invisible, so nothing has to "
-            "reveal it and this law is reading a different design",
-        )
-        self.assertRegex(
-            sheet,
-            rf"\.{row_class.group(1)}:hover[^{{}}]*\{{[^{{}}]*opacity:\s*1",
-            f"no rule reveals the copy button from `.{row_class.group(1)}:hover`, "
-            "so on a desktop pointer the station table's 308 buttons are "
-            "invisible while still being clickable",
+            "min-height: var(--mw-tap)",
+            sheet.split("\n.mw-copy {", 1)[1].split("}", 1)[0],
+            "the copy control is not a finger-sized target",
         )
 
 
 class TheTableCanBeAskedAQuestion(unittest.TestCase):
-    """``/radio``'s catalogue is 308 rows, and it used to show 48 of them.
+    """``/radio``'s catalogue is 308 rows, and it used to be a wall of them.
 
     Measured on the served page at 390px: section 02 was **7,476px — two thirds
     of the page — one list, and 690 of the page's 1,097 words**, with no search,
@@ -225,71 +217,85 @@ class TheTableCanBeAskedAQuestion(unittest.TestCase):
     a visitor wanted were the ones that were not shown, and the only advice the
     page had was to go and type into Discord.
 
-    The rebuild keeps every row in the document and opens with two dozen, with
-    a search and the catalogue's own two menus in front of the rest. Three
-    things have to agree for that to stay true — the template that marks the
-    capped rows, the sheet that hides them, and the script that lifts the cap
-    when a visitor asks — so each pair is held to the other here, and the
-    number itself is asserted to have exactly one author.
+    The rebuild answered it without a script: every row is in one `<details>`,
+    which the browser opens, and the summary line names the count. So the pair
+    these laws hold together is no longer *template and sheet* (a cap needs both
+    to agree) but *template and catalogue* — the page draws the table it was
+    handed, offers nothing the table does not hold, and hides nothing behind a
+    file that might not load.
     """
 
     TEMPLATE = ROOT / "templates" / "radio.html"
     SHEET = ROOT / "static" / "pages.css"
     SCRIPT = ROOT / "static" / "motion.js"
 
-    def test_the_cap_is_written_once_and_the_sheet_only_reads_it(self):
-        """The template marks the rows beyond the cap; the sheet hides the mark.
+    def test_the_cap_left_with_the_script_and_every_row_stayed(self):
+        """One number, one author — and after the rebuild that number is *all*.
 
-        The alternative was ``:nth-child(25)`` in the sheet, which is the same
-        number written twice — and this page's own sentence ("Showing the first
-        24 of 308") is a third place it would have to be kept true. The template
-        writes it from ``station_preview``, so the count under the list and the
-        rows that are hidden come from one value.
+        The cap needed three things to agree: the template that marked the rows
+        beyond it (``loop.index > station_preview``), the sheet that hid the mark,
+        and the script that lifted it. Every one of those rows was in the document
+        anyway, so the cap only ever decided what a reader could *see*.
+
+        The rebuild holds the rule and drops the machinery: one `<details>` holds
+        every row, the browser opens it, and the summary line names the count. So
+        this asserts the stronger property directly — no row is marked as beyond
+        anything, and every station in the table is drawn.
         """
         markup = self.TEMPLATE.read_text(encoding="utf-8")
+        self.assertNotIn("station_preview", markup, "the script's cap came back")
         self.assertIn(
-            "loop.index > station_preview",
+            "for station in station_rows",
             markup,
-            "the rows beyond the cap are not marked, so nothing can hide them",
+            "the page stopped drawing one row per station",
         )
-        sheet = self.SHEET.read_text(encoding="utf-8")
-        halves = sheet.split('[data-capped="true"] [data-beyond]', 1)
-        self.assertEqual(
-            len(halves), 2,
-            "the sheet does not hide the rows the template marked as beyond the "
-            "cap, so the page opens with all 308 and the note under it lies",
-        )
-        self.assertIn("display: none", halves[1].split("}", 1)[0])
 
-    def test_the_tools_ship_hidden_and_the_script_is_what_opens_them(self):
+    def test_no_dead_control_is_shipped_to_the_reader_who_has_no_script(self):
         """A control that does nothing without its file is not shown.
 
-        The search and the two menus arrive `hidden` and ``motion.js`` un-hides
-        them, which is the rule the command reference already follows — and it
-        is also the whole with-scripting-off story: two dozen rows, a sentence
-        naming how many are not shown, and no dead boxes at the top.
+        The old page shipped its search box and two menus `hidden` and let
+        ``motion.js`` un-hide them, which was the right rule applied to a design
+        that needed a script to be readable. The rebuild removed the need instead:
+        the page is one disclosure and no filtering at all, so there is nothing to
+        hide and nothing to un-hide.
         """
         markup = self.TEMPLATE.read_text(encoding="utf-8")
-        for marker in ("data-station-tools hidden", "data-station-more hidden"):
-            self.assertIn(marker, markup, f"{marker} no longer ships hidden")
+        for gone in ("data-station-tools", "data-station-more", "data-station-search"):
+            self.assertNotIn(gone, markup, f"{gone} came back and cannot work on its own")
+        self.assertNotIn("hidden", markup, "the rebuilt page hides a control again")
+
+    def test_the_script_carries_no_wiring_for_a_control_the_page_no_longer_draws(self):
+        """The other half of the pair — and the half that is *not* done yet.
+
+        `motion.js` still holds `wireStationExplorer`, the search box's filter,
+        the two menus' readers and the cap-lifting button, and the page it was
+        written for no longer draws any of them. It is dead wiring on a shared
+        file: harmless (the walk finds nothing and returns), and recorded here
+        rather than deleted in this pass, because that file carries another
+        change in flight and a deletion made beside it would be the second edit
+        on one surface. The next simplify pass owns it, and this test is what
+        remembers the debt instead of a comment nobody reads.
+        """
         script = self.SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("wireStationExplorer", script, "nothing un-hides the tools")
         self.assertIn(
-            "wireStationExplorer();", script,
-            "the station explorer is written but never booted",
+            "wireStationExplorer",
+            script,
+            "the dead station wiring has been removed — delete this test with it",
         )
 
-    def test_the_filter_menus_come_from_the_catalogue_rather_than_from_a_copy(self):
-        """Both menus are rendered from the lists the bot's own picker reads.
+    def test_the_filter_is_the_catalogue_rather_than_a_copy_of_it(self):
+        """What the page offers a visitor is what the table holds.
 
         A hand-kept list of languages is how a page offers a language the table
-        cannot play — this project's most-repeated defect, one page over.
+        cannot play — this project's most-repeated defect, one page over. The old
+        page answered it with two menus drawn from the catalogue's index; the
+        rebuild answers it by drawing each station's own language and country as
+        tags on its row, so a name on this page is a name some station carries.
         """
         markup = self.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("for language in station_languages", markup)
-        self.assertIn("for country in station_countries", markup)
-        self.assertIn("data-station-language", markup)
-        self.assertIn("data-station-country", markup)
+        self.assertIn('{% if station.language %}<span class="mw-tag">{{ station.language }}</span>', markup)
+        self.assertIn('{% if station.country %}<span class="mw-tag">{{ station.country }}</span>', markup)
+        self.assertNotIn("<select", markup, "a menu came back that only a script could filter")
 
     def test_the_button_label_is_counted_rather_than_written_down(self):
         """*Show the first N* reads N off the rows the template marked.
@@ -546,19 +552,15 @@ class BuiltSiteCase(unittest.TestCase):
                 f"the built 404 points at {url}, which is not in the build",
             )
 
-    def test_the_cat_cursor_is_actually_fetchable_from_the_stylesheet(self):
-        """The silent one: a missing cursor image is the system arrow.
+    def test_the_served_stylesheet_names_no_cursor_image(self):
+        """The silent one: a cursor image a browser refuses is the system arrow.
 
-        The path is relative to the *stylesheet*, so this resolves it the way a
-        browser does and insists the file is there.
+        Such a path is relative to the *stylesheet*, so a browser resolves it
+        next to that file — and nothing here can notice when it is missing. The
+        sheet therefore names none.
         """
-        css_path = Path(self.out) / "static" / "meow.css"
-        css = css_path.read_text(encoding="utf-8")
-        cursor_urls = re.findall(r"cursor:\s*url\((['\"]?)([^'\")]+)\1\)", css)
-        self.assertTrue(cursor_urls, "the stylesheet no longer styles a cursor")
-        for _quote, url in cursor_urls:
-            resolved = (css_path.parent / url.split("?")[0]).resolve()
-            self.assertTrue(resolved.is_file(), f"{url} does not exist next to the stylesheet")
+        css = (Path(self.out) / "static" / "meow.css").read_text(encoding="utf-8")
+        self.assertEqual([], re.findall(r"cursor:\s*url\(", css))
 
     def test_the_front_page_can_actually_add_the_bot(self):
         """A landing page with no invite link is the bug this caught live."""
@@ -627,7 +629,7 @@ class BuiltSiteCase(unittest.TestCase):
         # next paragraph's business.
         systems = self.pages["systems.html"]
         tiles = re.findall(
-            r'tile__value"[^>]*>([^<]*)</span>\s*<span class="tile__label">'
+            r'mw-stat__value"[^>]*>([^<]*)</span>\s*<span class="mw-stat__label">'
             r'(?:messages|voice hours|people seen|channels used)</span>',
             systems,
         )
@@ -638,18 +640,18 @@ class BuiltSiteCase(unittest.TestCase):
         # they are present and counted from the registry rather than blanked.
         self.assertRegex(
             systems,
-            rf'tile__value">{features.system_count()}</span>\s*'
-            rf'<span class="tile__label">systems</span>',
+            rf'mw-stat__value">{features.system_count()}</span>\s*'
+            rf'<span class="mw-stat__label">systems</span>',
         )
         self.assertRegex(
             systems,
-            rf'tile__value">{features.entry_count()}</span>\s*'
-            rf'<span class="tile__label">commands</span>',
+            rf'mw-stat__value">{features.entry_count()}</span>\s*'
+            rf'<span class="mw-stat__label">commands</span>',
         )
         # The front door must not have grown a second, unfiltered copy of them.
         self.assertNotRegex(
             self.pages["index.html"],
-            r'tile__label">(?:messages|voice hours|people seen|channels used)</span>',
+            r'mw-stat__label">(?:messages|voice hours|people seen|channels used)</span>',
         )
 
     def test_the_front_page_and_the_reference_agree_on_how_many_of_each(self):
@@ -675,14 +677,16 @@ class BuiltSiteCase(unittest.TestCase):
         # this test exists for.
         self.assertIn(f"{systems} systems", index)
         self.assertIn(f"{commands} commands", index)
-        self.assertIn(f"{switchable} of {systems} systems have a switch", index)
+        self.assertIn(f"{switchable} with a switch", index)
         # The hero's figure card is the *total*, not the switchable subset — which
-        # is how this page came to advertise eleven of twelve systems. It is a
-        # `data-count` figure now, so that is what the card is checked by.
+        # is how this page came to advertise eleven of twelve systems. The split it
+        # may not blur is asserted on the line above; this is that the card itself
+        # carries the registry's own number, drawn rather than counted up (the
+        # count-up was a second entrance on a page allowed exactly one).
         self.assertRegex(
             index,
-            rf'data-count="{systems}">{systems}</dd>\s*'
-            rf'<dt class="figure__label">systems</dt>',
+            rf'<span class="mw-stat__value">{systems}</span>\s*'
+            rf'<span class="mw-stat__label">systems</span>',
         )
         # ...and the reference page agrees with it, from the same registry —
         # stated in its own lede ("15 systems and 110 commands").

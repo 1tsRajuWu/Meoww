@@ -11,6 +11,6 @@
   <g filter="url(#cur-ptr-shadow)">
     <path d="M10 3 C10 1.8 12 1.8 12 3 L12 13 L14 13 C14 11.2 16 11.2 16 13 L18 13 C18 11.5 20 11.5 20 13.2 L20 15.5 L22 15.5 C22 14 24 14 24 15.8 L24 21.5 C24 26.5 19.5 30 14.5 30 C10 30 7 26.8 7 23 L7 15.5 C7 13.5 10 13.5 10 15.5 Z"
           fill="#fbfcfe" stroke="#090a0f" stroke-width="1.6" stroke-linejoin="round" />
-    <path d="M13.4 19.4 L17.6 19.4 L18.9 24.2 L12.1 24.2 Z" fill="#2dd4bf" />
+    <path d="M13.4 19.4 L17.6 19.4 L18.9 24.2 L12.1 24.2 Z" fill="#34d9c3" />
   </g>
 </svg>

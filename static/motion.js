@@ -1,17 +1,29 @@
 /* motion.js — the site's motion layer, and the last script every page loads.
  *
- * One requestAnimationFrame loop drives everything that has to be smooth: the
- * pointer's own layer, the counters that animate a figure into place, and the
- * elements that fade up as they scroll in. A second loop would be a second
- * clock, and two clocks is how a page ends up with a glow that arrives before
- * the thing it is glowing.
+ * One requestAnimationFrame loop drives what has to be smooth: the counters that
+ * animate a figure into place, and the elements that fade up as they scroll in.
+ * A second loop would be a second clock, and two clocks is how a page ends up
+ * with a glow that arrives before the thing it is glowing.
  *
- * The rule that shapes this file: **the position is the script's and the shape
- * is the sheet's, by property.** The layer's position is written as
- * `style.translate` and never as `style.transform`, because CSS animations
- * outrank inline declarations — an animation of `transform` would silently
- * replace a position written as `transform`, and the layer would sit in the
- * corner of the viewport while the pointer moved around it.
+ * **The pointer is the browser's own**, and that is now a decision rather than
+ * an accident of what nobody got round to building. This file used to assemble a
+ * cursor layer — a 320px glow on a spring, seven trailing particles, and four
+ * entity divs (`vortex-container`, `radar-hud`, `sword-entity`, `blob-drop`)
+ * whose classes the sheet dimmed to `opacity: .85` while drawing none of them —
+ * and move it on every `pointermove`. It was removed with its rules in
+ * `static/meow.css` for three reasons, none of them taste:
+ *
+ *   * **It could only ever sit under the thing it decorated.** The browser's
+ *     arrow owns the point — it is what decides what a click hits — so a glow
+ *     centred there is a decoration behind a decoration, at every size.
+ *   * **Half the surfaces paid for it and never saw it.** The public pages load
+ *     `meoww.css`, which never drew the layer, so they ran a frame per move for
+ *     particles that were styled by a sheet they do not link.
+ *   * **What it was for, the page already does.** "This is pressable" is a hover
+ *     state, and it is stated in the sheet rather than followed by a script.
+ *
+ * A sheet may not draw a pointer now; the law that holds that is
+ * `tests/test_design_laws.py::NoSheetDrawsItsOwnPointer`.
  *
  * Everything here is optional. With this file blocked, every page still reads:
  * the sheets state the resting values, the markup says what is closed, and
@@ -176,124 +188,6 @@
 
     targets.forEach(function (node) {
       observer.observe(node);
-    });
-  }
-
-  /* --------------------------------------------------------------------------
-   * The pointer layer.
-   * ----------------------------------------------------------------------- */
-  function wirePointer() {
-    if (reduced.matches) return;
-    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
-
-    var layer = doc.createElement("div");
-    layer.className = "meow-layer";
-    layer.setAttribute("aria-hidden", "true");
-    layer.innerHTML =
-      '<div class="meow-glow"></div>' +
-      '<div class="vortex-container"></div>' +
-      '<div class="radar-hud"></div>' +
-      '<div class="sword-entity"></div>' +
-      '<div class="blob-drop"></div>';
-    doc.body.appendChild(layer);
-
-    var glow = layer.querySelector(".meow-glow");
-    var vortex = layer.querySelector(".vortex-container");
-    var radar = layer.querySelector(".radar-hud");
-    var sword = layer.querySelector(".sword-entity");
-    var blob = layer.querySelector(".blob-drop");
-
-    var COUNT = 7;
-    var sparkleParticles = [];
-    for (var index = 0; index < COUNT; index += 1) {
-      var particle = doc.createElement("span");
-      particle.className = "sparkle-particle";
-      layer.appendChild(particle);
-      sparkleParticles.push({ node: particle, x: 0, y: 0 });
-    }
-
-    /* Where the springs are heading, and where the swarm is. The swarm is a
-       trailing layer: it eases in at a fixed lag, so a loop that stops when the
-       springs settle leaves a fast flick strung out behind the pointer. */
-    var targetX = window.innerWidth / 2;
-    var targetY = window.innerHeight / 2;
-    var x = targetX;
-    var y = targetY;
-    var running = false;
-    var started = false;
-
-    function wake() {
-      if (running) return;
-      running = true;
-      requestAnimationFrame(frame);
-    }
-
-    /* The loop. It stops when both the springs and the swarm have arrived, and
-       it is woken by the pointer rather than left spinning. */
-    function frame() {
-      x += (targetX - x) * 0.22;
-      y += (targetY - y) * 0.22;
-
-      var settled = Math.abs(targetX - x) < 0.4 && Math.abs(targetY - y) < 0.4;
-      if (settled) {
-        x = targetX;
-        y = targetY;
-      }
-
-      layer.style.translate = x + "px " + y + "px";
-
-      var swarmSettled = true;
-      for (var si = 0; si < sparkleParticles.length; si += 1) {
-        var part = sparkleParticles[si];
-        var lag = 0.14 + si * 0.03;
-        part.x += (x - part.x) * lag;
-        part.y += (y - part.y) * lag;
-        if (Math.abs(x - part.x) > 0.6 || Math.abs(y - part.y) > 0.6) swarmSettled = false;
-        part.node.style.translate = (part.x - x) + "px " + (part.y - y) + "px";
-      }
-
-      if (!settled || !swarmSettled) requestAnimationFrame(frame);
-      else running = false;
-    }
-
-    doc.addEventListener(
-      "pointermove",
-      function (event) {
-        targetX = event.clientX;
-        targetY = event.clientY;
-        if (!started) {
-          /* The first move releases the layer where the pointer *is*, rather than
-             from the corner the springs were built in. */
-          started = true;
-          x = targetX;
-          y = targetY;
-          layer.classList.add("is-on");
-          for (var si = 0; si < sparkleParticles.length; si += 1) {
-            sparkleParticles[si].x = targetX;
-            sparkleParticles[si].y = targetY;
-          }
-        }
-        layer.classList.toggle("is-down", event.buttons !== 0);
-        var interactive = event.target.closest("a, button, input, select, textarea, [role='button']");
-        var typing = event.target.closest("input, textarea, [contenteditable='true']");
-        layer.classList.toggle("is-link", Boolean(interactive) && !typing);
-        layer.classList.toggle("is-text", Boolean(typing));
-        if (glow && vortex && radar && sword && blob) {
-          /* Named here rather than inferred: the sheet is the only thing that
-             decides what each entity looks like, and a script that stopped
-             naming one would leave a law watching an element nobody carries. */
-          glow.style.opacity = "";
-        }
-        wake();
-      },
-      { passive: true }
-    );
-
-    doc.addEventListener("pointerdown", function () {
-      layer.classList.add("is-down");
-    });
-    doc.addEventListener("pointerup", function () {
-      layer.classList.remove("is-down");
     });
   }
 
@@ -628,7 +522,6 @@
     wireFigures();
     wireCommandExplorer();
     wireStationExplorer();
-    wirePointer();
   }
 
   if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", boot);

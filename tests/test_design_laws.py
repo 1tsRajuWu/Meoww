@@ -666,14 +666,18 @@ class EverySheetIsSatisfiedByItsPage(unittest.TestCase):
         """
         home = os.path.join(TEMPLATES, "home.html")
         lineage = [os.path.basename(path) for path in self._lineage(home)]
-        self.assertEqual(lineage[0], "site_base.html", lineage)
+        # The front door inherits the rebuilt frame — and this law is precisely the
+        # one that makes that checkable rather than assumed, because it walks the
+        # lineage instead of naming a file. The old frame it used to name is still
+        # the frame for the sign-in doors, the market and the owner console.
+        self.assertEqual(lineage[0], "base.html", lineage)
         self.assertEqual(lineage[-1], "home.html", lineage)
         self.assertEqual(self._gaps(home), [])
         # And a child's own sheet is still checked after the base's, which is what
         # makes the pair legal rather than merely unreported.
         base = self._lineage(home)[0]
         base_events = [payload for _at, _kind, payload in self._events(read(base))]
-        self.assertIn("/static/meow.css", base_events)
+        self.assertIn("/static/meoww.css", base_events)
 
     def test_the_walk_finds_the_pair_this_law_was_written_for(self):
         """A walk that looks at nothing passes for the wrong reason."""
@@ -1226,48 +1230,29 @@ class HiddenMeansHidden(unittest.TestCase):
         self.assertIn("[hidden]", general)
 
 
-class TheCursorLayerIsTheOnlyAuthor(unittest.TestCase):
-    """One block in one sheet decides what the pointer looks like.
+class NoSheetDrawsItsOwnPointer(unittest.TestCase):
+    """The pointer is the browser's own, on every public sheet.
 
-    Eight components — ``.btn``, ``.top__menu``, ``.switch``, ``.chip``,
-    ``.system__toggle``, ``.showcase__item``, ``.mock-switch``,
-    ``.faq__question`` — each carried its own ``cursor: pointer``. Every one of
-    them is *right* about the hand and fatal about the layer: a class outranks
-    the ``button`` / ``label`` / ``[role="tab"]`` the layer names, so each of
-    those controls drew the system hand while the links beside it drew the paw.
-    Measured on the served page rather than reasoned about: ``a[href]`` computed
-    the paw, and the *Add to Discord* button — the one control the front door is
-    built around — computed plain ``pointer``.
-
-    A ninth declaration would bring it back, and a cursor is a bad thing to be
-    inconsistent about: it is the first thing a visitor's hand reads, and there
-    is no other cue that half the controls are drawn by a different author.
+    This class used to hold the opposite guarantee: a paw for the page and a paw
+    with a finger for anything pressable, authored in one block because eight
+    components had each grown a ``cursor: pointer`` of their own and the layer
+    kept losing to them. The apparatus is gone. What is worth a law now is that
+    nothing brings it back — an image a browser refuses draws *nothing* and logs
+    nothing, so a sheet that names one can silently take the pointer away.
     """
 
-    OWNERSHIP = "the *only* author of a cursor in these sheets"
-
-    def test_no_sheet_declares_a_cursor_above_or_beside_the_layer(self):
-        source = read(PUBLIC_SHEET)
-        self.assertIn(
-            self.OWNERSHIP,
-            source,
-            "the cursor layer no longer states that it is the only author, so "
-            "the next component is free to add a `cursor: pointer` of its own",
-        )
-        above, layer = source.split(self.OWNERSHIP, 1)
-        self.assertNotIn(
-            "cursor:",
-            _without_comments(above),
-            "static/meow.css declares a cursor above the layer, which outranks "
-            "it for whatever selector it names",
-        )
-        # And the layer is still the layer: a paw, a hand, and an I-beam.
-        for asset in ("cursor-default.svg", "cursor-pointer.svg"):
-            self.assertIn(asset, layer, f"the layer stopped shipping {asset}")
-        self.assertIn("cursor: text", layer, "the layer stopped giving fields an I-beam")
+    def test_no_public_sheet_names_a_cursor_image(self):
+        for name in ("meow.css", "landing.css", "pages.css"):
+            source = _without_comments(read(os.path.join(ROOT, "static", name)))
+            with self.subTest(sheet=name):
+                self.assertNotIn(
+                    "cursor: url(",
+                    source,
+                    f"static/{name} draws its own pointer over the browser's",
+                )
 
     def test_the_other_public_sheets_leave_the_pointer_alone(self):
-        """A page sheet is the easiest place to add a ninth one by accident."""
+        """A page sheet is the easiest place to add one by accident."""
         for name in ("landing.css", "pages.css"):
             source = _without_comments(read(os.path.join(ROOT, "static", name)))
             with self.subTest(sheet=name):
@@ -1277,22 +1262,6 @@ class TheCursorLayerIsTheOnlyAuthor(unittest.TestCase):
                     f"static/{name} sets a cursor of its own; the pointer is "
                     "decided once, in the shared sheet, or not at all",
                 )
-
-    def test_a_switched_off_field_is_told_so_by_its_cursor(self):
-        """``input[type="text"]`` (0,1,1) outranks a bare ``:disabled`` (0,1,0).
-
-        Measured on a planted, disabled field: it computed the **I-beam** while
-        a disabled button computed ``not-allowed`` — the one state a visitor has
-        to be able to recognise from the pointer, and the one the layer's own
-        ordering was losing. The rule names the elements as well as the state.
-        """
-        layer = read(PUBLIC_SHEET).split(self.OWNERSHIP, 1)[1]
-        self.assertIn(
-            "input:disabled",
-            layer,
-            "the `not-allowed` rule names only the state, so a disabled text field "
-            "keeps the I-beam it inherited from `input[type=\"text\"]`",
-        )
 
 
 class FocusIsVisible(unittest.TestCase):
@@ -1778,227 +1747,71 @@ class FieldsAreNamed(unittest.TestCase):
         self.assertEqual(offenders, [], "unnamed console fields:\n" + "\n".join(offenders))
 
 
-class ThePointerIsMovedByOneThing(unittest.TestCase):
-    '''The position is the script's and the shape is the sheet's, by property.
+class ThePointerIsTheBrowsers(unittest.TestCase):
+    """No surface draws its own cursor, and nothing may start.
 
-    `translate` and `transform` are separate properties that compose in that
-    order, and that is the whole law. A *rule* about `transform` composes with an
-    inline `translate`; an *animation* of `transform` cancels an inline
-    `transform`, because an animation outranks a normal declaration. Both scripts
-    wrote the pointer's position as `style.transform = translate3d(…)` while the
-    sheets animate `transform` for the sparkle twinkle, the sword bob and the
-    slash — so the animation replaced the position instead of composing with it.
-    Measured on the served pages with the pointer at (600, 400): the swarm's
-    particles at (-9, -9) and the blade at (0, 1), both in the top-left corner of
-    the viewport — on sheets whose own rule is `cursor: none`, which left the
-    visitor with no cursor on the page at all.
+    This class used to be `ThePointerIsMovedByOneThing`, and it held the shape of
+    a cursor layer: a glow, a swarm of seven particles, four entity divs, the
+    `translate` the script wrote for each, and the `transform` the sheet was
+    forbidden to animate. That layer is gone — from `static/motion.js` and from
+    `static/meow.css` — on every surface it ran on.
 
-    The same collision made a second, quieter defect: every `.is-link` and
-    `.is-down` rule that states a `transform` was dead the moment the script
-    wrote one inline, and the sparkle's starburst and the sword's charge stance
-    were dead *to their own element's animation* as well — a state that does not
-    cancel the animation it replaces is a state nobody ever sees. So the last
-    check here reads the keyframes: a state rule may not restate a property the
-    element's animation owns unless it also says what happens to that animation.
+    Why it went is worth keeping beside the law, because "it was decorative" is
+    not the reason. The browser's arrow owns the point: it is what a click hits,
+    so a 320px glow centred there is a decoration *behind* a decoration, in every
+    state the layer could report. It cost a frame per `pointermove` on all four
+    surfaces while only some of them linked the sheet that drew it — `meoww.css`
+    never styled the layer, so the public pages ran the loop for particles nobody
+    could see — and what it was for, "this is pressable", is a hover state the
+    sheets already state without following anything.
 
-    The elements are named rather than inferred, because a sheet cannot see which
-    nodes a script writes to. The list is checked instead of trusted: every name
-    has to appear in both scripts as the class they create, so a rename cannot
-    leave this law watching an element that no longer exists.
+    What is left to hold is the absence, in two halves that have to agree: no
+    live sheet draws one, and no live script builds one.
+    """
 
-    Two elements left this list rather than being covered by it: `meow-cursor-dot`
-    and `meow-cursor-ring`, the pair the scripts used to build under the chosen
-    entity. Both were removed from the scripts and both sheets, because no style
-    showed them and neither had a size — a per-frame write for a 0x0 box. A law
-    about where an element is positioned has nothing to say about an element that
-    is not carried.
-
-    What this cannot see, said plainly: the radar's four brackets and the
-    vortex's outer ring are *children* of a moved element, so their `transform`
-    rules are outside the list. The blob's squash stretches with `scale` for the
-    same reason the rules here are stated with `translate` — its `transform` is
-    free — and nothing checks it.
-    '''
-
-    #: What the pointer layer moves: every one of these is positioned by
-    #: `static/motion.js` and by `console/src/app/Cursor.tsx`.
-    MOVED = (
-        'sparkle-particle',
-        'sword-entity',
-        'radar-hud',
-        'blob-drop',
-        'vortex-container',
-        'meow-glow',
+    #: Every class name the layer was built from. Any one reappearing is the
+    #: feature coming back.
+    GONE = (
+        "meow-layer",
+        "meow-glow",
+        "sparkle-particle",
+        "vortex-container",
+        "radar-hud",
+        "sword-entity",
+        "blob-drop",
     )
 
-    #: Where each script writes the position: the move handler and the loop it
-    #: wakes.
-    PAINT = {
-        'static/motion.js': ('function frame()', 'function wake()'),
-        'console/src/app/Cursor.tsx': ('const paint = () =>', 'const frame = () =>'),
-    }
+    def test_no_sheet_draws_a_pointer_layer(self):
+        for name in ("meow.css", "meoww.css", "pages.css", "market.css"):
+            source = _without_comments(read(os.path.join(ROOT, "static", name)))
+            for gone in self.GONE:
+                with self.subTest(sheet=name, part=gone):
+                    self.assertNotIn(gone, source, f"static/{name} draws a pointer layer again")
 
-    SCRIPTS = tuple(PAINT)
+    def test_no_script_builds_a_pointer_layer(self):
+        """The other half: a sheet cannot draw an element no script inserts.
 
-    @staticmethod
-    def _subjects(selector: str) -> list[str]:
-        '''The compound each selector in a list actually applies to.'''
-        return [part.strip().split()[-1] for part in selector.split(',') if part.strip()]
+        Read without comments, deliberately: `static/motion.js` *names* the
+        layer it used to build — that note is how the next person learns why
+        there is no cursor here — and a law that counted prose would make
+        recording the removal illegal.
+        """
+        for rel in ("static/motion.js", "static/meoww.js", "static/market.js"):
+            source = _without_comments(read(os.path.join(ROOT, rel)))
+            for gone in self.GONE:
+                with self.subTest(script=rel, part=gone):
+                    self.assertNotIn(gone, source, f"{rel} builds a pointer layer again")
 
-    @staticmethod
-    def _properties(body: str) -> set[str]:
-        '''The property names a declaration block writes.
-
-        A `@keyframes` body is not a flat list: it carries its own `50% { … }`
-        steps, so the part before the last brace is what has to be read — without
-        that cut the names came back as `0%   { transform` and matched nothing,
-        which made two of the checks below pass while the defect they are for was
-        written straight back into the sheet.
-        '''
-        found = set()
-        for declaration in body.split(';'):
-            before = declaration.partition(':')[0].rpartition('{')[2]
-            if re.fullmatch(r'[a-zA-Z-]+', before.strip()):
-                found.add(before.strip())
-        return found
-
-    @staticmethod
-    def _animations(body: str) -> set[str]:
-        '''The animation names a rule applies, from either spelling.'''
-        names: set[str] = set()
-        keywords = {
-            'none', 'linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out',
-            'infinite', 'alternate', 'alternate-reverse', 'forwards',
-            'backwards', 'both', 'normal', 'reverse', 'paused', 'running',
-        }
-        for declaration in body.split(';'):
-            prop, _, value = declaration.partition(':')
-            prop = prop.strip()
-            if prop not in ('animation', 'animation-name'):
-                continue
-            for token in value.replace(',', ' ').split():
-                if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', token) and token not in keywords:
-                    names.add(token)
-        return names
-
-    def _keyframes(self, css: str, name: str) -> str:
-        stripped = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
-        match = re.search(r'@keyframes\s+' + re.escape(name) + r'\s*\{(.*?)\n\}', stripped, flags=re.S)
-        return match.group(1) if match else ''
-
-    def _applies_to(self, selector: str, name: str) -> bool:
-        return any(
-            re.search(r'\.' + re.escape(name) + r'(?![\w-])', subject)
-            for subject in self._subjects(selector)
-        )
-
-    def test_the_scripts_name_every_element_this_law_watches(self):
-        '''A list of names nobody moves is a check on nothing.'''
-        for path in self.SCRIPTS:
-            source = read(os.path.join(ROOT, path))
-            for name in self.MOVED:
-                with self.subTest(script=path, element=name):
-                    self.assertRegex(
-                        source,
-                        r'(?<![\w-])' + re.escape(name) + r'(?![\w-])',
-                        f'{path} no longer names {name}, so this law is watching an '
-                        'element the pointer layer does not carry',
-                    )
-
-    def test_no_sheet_takes_the_position_from_the_script(self):
-        '''`translate` is the script's. A rule or keyframe that writes it wins.'''
-        for path in (PUBLIC_SHEET, CONSOLE_SHEET):
-            css = read(path)
-            for selector, body in blocks(css):
-                for name in self.MOVED:
-                    if not self._applies_to(selector, name):
-                        continue
-                    properties = self._properties(body)
-                    with self.subTest(sheet=os.path.basename(path), rule=selector):
-                        self.assertNotIn(
-                            'translate', properties,
-                            f'{selector} states the position in {os.path.basename(path)}, '
-                            'which the pointer layer writes every frame',
-                        )
-                        for animated in self._animations(body):
-                            self.assertNotIn(
-                                'translate', self._properties(self._keyframes(css, animated)),
-                                f'`{animated}` animates the position of {name}, so the '
-                                'cursor stops following the pointer while it runs',
-                            )
-
-    def test_the_position_is_written_as_translate_and_never_as_transform(self):
-        '''The other half, and the one that was actually broken.'''
-        for path, (start, end) in self.PAINT.items():
-            source = read(os.path.join(ROOT, path))
-            region = source.split(start, 1)[1].split(end, 1)[0]
-            with self.subTest(script=path):
-                self.assertIn('style.translate', region, f'{path} no longer positions the layer')
+    def test_the_pointer_the_browser_draws_is_left_alone(self):
+        """Nothing hides the real pointer where nothing replaces it."""
+        for rel in ("static/meow.css", "static/meoww.css"):
+            source = _without_comments(read(os.path.join(ROOT, rel)))
+            with self.subTest(sheet=rel):
                 self.assertNotIn(
-                    'translate3d', region,
-                    f'{path} writes the position as `transform` again, and the sheet '
-                    'animates `transform` — an animation outranks an inline '
-                    'declaration, so the position is what gets dropped',
+                    "cursor: none",
+                    source,
+                    f"{rel} hides the pointer and puts nothing in its place",
                 )
-        # The dot and the ring used to be positioned outside the loop — the dot in
-        # the move handler, the ring from a spring inside it. Neither is carried
-        # any more (see the class docstring), so `translate` must not come back
-        # under either name: a script that rebuilds one would be writing a
-        # position for an element no sheet shows.
-        motion = read(os.path.join(ROOT, 'static/motion.js'))
-        for gone in ('meow-cursor-dot', 'meow-cursor-ring'):
-            with self.subTest(part=gone):
-                self.assertNotIn(gone, motion)
-
-    def test_the_swarm_starts_where_the_pointer_does_and_the_loop_waits_for_it(self):
-        '''A trailing layer is two promises: it starts here, and it catches up.
-
-        The particles ease in at a lag of 0.14-0.34 per frame while the springs
-        settle in a handful, so a loop that stops when the *springs* are done
-        leaves the swarm strung out along the path of a fast flick — and on the
-        first move, strung out from (-100, -100), which is the corner of the
-        viewport.
-        '''
-        console = read(os.path.join(ROOT, 'console/src/app/Cursor.tsx'))
-        self.assertIn('p.x = targetX', console, 'the console swarm is released from where it was built')
-        self.assertIn('swarmSettled', console, 'the console loop stops before the swarm arrives')
-        self.assertIn('running = !settled || !swarmSettled', console)
-        motion = read(os.path.join(ROOT, 'static/motion.js'))
-        self.assertIn('sparkleParticles[si].x = x', motion, 'the dashboard swarm is released from where it was built')
-        self.assertIn('swarmSettled', motion, 'the dashboard loop stops before the swarm arrives')
-
-    def test_a_state_that_restates_an_animation_owns_it(self):
-        '''A state rule cannot outrank the animation it is meant to replace.'''
-        for path in (PUBLIC_SHEET, CONSOLE_SHEET):
-            css = read(path)
-            # What each moved element's animations actually animate.
-            owned: dict[str, set[str]] = {name: set() for name in self.MOVED}
-            for selector, body in blocks(css):
-                for name in self.MOVED:
-                    if not self._applies_to(selector, name):
-                        continue
-                    for animated in self._animations(body):
-                        owned[name].update(self._properties(self._keyframes(css, animated)))
-            for selector, body in blocks(css):
-                # The state lives in the *first* compound —
-                # `.meow-cursor.cursor-style-sword.is-link .sword-entity` — while
-                # the element it applies to is the last, so this reads the whole
-                # selector and only the element test uses the subject.
-                if 'is-link' not in selector and 'is-down' not in selector:
-                    continue
-                properties = self._properties(body)
-                for name in self.MOVED:
-                    if not self._applies_to(selector, name):
-                        continue
-                    lost = properties & owned[name]
-                    if not lost or properties & {'animation', 'animation-name'}:
-                        continue
-                    self.fail(
-                        f'{selector} in {os.path.basename(path)} restates '
-                        f'{sorted(lost)} without saying what happens to the '
-                        'element\'s animation, so the animation wins and the state '
-                        'is never drawn'
-                    )
 
 
 class ALabelColumnKeepsItsRoom(unittest.TestCase):
@@ -2104,10 +1917,14 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
         station rows — from the catalogue's own ``ad-free`` tag, so the page
         cannot show a badge the table does not hold.
         """
-        css = read(PUBLIC_SHEET)
+        # The rebuild moved the tag into the new sheet and renamed it, which is
+        # the same thing this law has watched happen twice: it spent a rebuild
+        # pointing at `.lp-tag`, and it reads the class out of the current
+        # vocabulary rather than remembering one.
+        css = read(os.path.join(os.path.dirname(TEMPLATES), "static", "meoww.css"))
         self.assertEqual(
-            self._declarations(css, ".tag").get("white-space"), "nowrap",
-            ".tag is what holds \"ad-free\" together: a hyphen is a break "
+            self._declarations(css, ".mw-tag").get("white-space"), "nowrap",
+            ".mw-tag is what holds \"ad-free\" together: a hyphen is a break "
             "opportunity to a line breaker",
         )
         # Asserted as a search rather than with ``assertIn``: a failure here
@@ -2115,7 +1932,7 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
         # radio feature and not one line of it about the tag.
         template = read(os.path.join(TEMPLATES, "radio.html"))
         self.assertTrue(
-            re.search(r'<span class="tag">ad-free</span>', template),
+            re.search(r'<span class="mw-tag">ad-free</span>', template),
             "the template writes \"ad-free\" without a tag class, so the rule "
             "above guards nothing and the tag breaks after its hyphen",
         )

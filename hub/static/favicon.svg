@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Meow">
+  <!-- The same badge at 32px, with the geometry respaced for the size rather
+       than scaled: at this size a 1px gap between the wedge and the tile edge
+       closes up, so the wedge sits lower and the slot is a little wider. -->
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M0 8a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z
+           M11 5h10l3 10H8z
+           M15 8.2h2v5h-2z"
+        fill="#34d9c3" />
+</svg>

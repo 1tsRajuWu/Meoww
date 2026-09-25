@@ -138,8 +138,8 @@ class TheLandingPage(unittest.TestCase):
             "systems",                  # how many there are
             'href="/login"',            # a way in
             "/privacy", "/terms",       # the policies
-            'class="page-home"',        # which surface this page is
-            "/static/meow.css",         # the shared design system
+            'class="mw-page-home"',      # which surface this page is
+            "/static/meoww.css",        # the shared design system
         ):
             self.assertIn(fragment, body, fragment)
 
@@ -195,11 +195,12 @@ class TheLandingPage(unittest.TestCase):
             body,
             "/systems grew a second band listing the same systems again",
         )
-        # One `cmdx__group` per system, in the registry's own order, so a lost row
-        # and an extra row are different failures and both are caught. The nested
-        # `cmdx__rest` folds inside a group and carries its own class, so it
-        # cannot be mistaken for one of these.
-        groups = re.split(r'<details class="cmdx__group"', body)[1:]
+        # One disclosure per system, in the registry's own order, so a lost row
+        # and an extra row are different failures and both are caught. The old
+        # page spelled this row `cmdx__group` and drove it with a script; it is
+        # the same one-row-per-system list in the rebuild, spelled in the frame's
+        # own vocabulary and opened by the browser rather than by `motion.js`.
+        groups = re.split(r'<details class="mw-faq"', body)[1:]
         self.assertEqual(
             len(groups),
             len(features.FEATURES),
@@ -273,8 +274,8 @@ class TheLandingPage(unittest.TestCase):
         for label in ("servers", "members reached"):
             with self.subTest(label=label):
                 tile = re.search(
-                    rf'<span class="tile__value"[^>]*>([^<]*)</span>\s*'
-                    rf'<span class="tile__label">{re.escape(label)}</span>',
+                    rf'<span class="mw-stat__value"[^>]*>([^<]*)</span>\s*'
+                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
                     body,
                 )
                 self.assertIsNotNone(tile, f"the {label} tile left the page")
@@ -293,25 +294,28 @@ class TheLandingPage(unittest.TestCase):
         # to hold: the two live ones are **present and dashed**, which is what a
         # visitor of a sleeping host reads, and it would catch a zero here where
         # the old wording could not.
+        # The rebuilt front door states these two as plain text rather than
+        # counting them up: the count-up was a second entrance on a page allowed
+        # exactly one, and a number that is already true does not need to arrive.
         for label in ("systems", "commands"):
             with self.subTest(label=label):
                 self.assertRegex(
                     front,
-                    rf'data-count="\d+">\d+</dd>\s*'
-                    rf'<dt class="figure__label">{label}</dt>',
+                    rf'<span class="mw-stat__value">\d+</span>\s*'
+                    rf'<span class="mw-stat__label">{label}</span>',
                 )
         for label in ("servers", "members reached"):
             with self.subTest(label=label):
                 self.assertRegex(
                     front,
-                    rf'<dd class="figure__value"[^>]*>—</dd>\s*'
-                    rf'<dt class="figure__label">{re.escape(label)}</dt>',
+                    rf'<span class="mw-stat__value"[^>]*>—</span>\s*'
+                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
                     f"the front door did not say it had no reading for {label}",
                 )
         self.assertRegex(
             body,
-            r'<span class="tile__value"[^>]*>\d+</span>\s*'
-            r'<span class="tile__label">commands</span>',
+            r'<span class="mw-stat__value"[^>]*>\d+</span>\s*'
+            r'<span class="mw-stat__label">commands</span>',
         )
 
     def test_the_panels_four_cards_state_their_phone_shape(self):
@@ -441,7 +445,7 @@ class ThePricingPage(unittest.TestCase):
         self.assertIn("There is no paid tier", body)
         self.assertIn("the whole bot is in it", body)
         self.assertIn("Support Tickets", body)
-        self.assertIn("/static/meow.css", body)
+        self.assertIn("/static/meoww.css", body)
 
     def test_the_tiers_come_back_only_when_the_store_is_really_open(self):
         """The switch, through the live route rather than the template.
@@ -497,9 +501,13 @@ class TheRadioTableCanBeAsked(unittest.TestCase):
         words the placeholder promises.
         """
         body = self._page()
+        # The rebuild dropped the search box — and with it `data-search`, which
+        # only ever existed for the box to read. What the law is about survives
+        # it: one row per station in the catalogue, each carrying that station's
+        # own name as the thing a visitor copies and the table can be asked for.
         self.assertEqual(
-            body.count("data-search="), len(self.catalogue),
-            "the page does not render one searchable row per station",
+            body.count('data-copy="'), len(self.catalogue),
+            "the page does not render one row per station",
         )
         # Unescaped, because a station called "I♥MUSIC & CHILL" is written into
         # the markup as `&amp;` — and the row a visitor searches for is the one
@@ -513,24 +521,30 @@ class TheRadioTableCanBeAsked(unittest.TestCase):
                     "a station in the table has no row to be found by",
                 )
 
-    def test_the_cap_is_the_number_the_page_says_it_is(self):
-        """Exactly ``STATION_PREVIEW`` rows are shown, and the sentence agrees.
+    def test_the_page_holds_the_whole_table_and_says_so(self):
+        """The cap left with the script, and the page states what it holds.
 
-        The count is one value (``keep_alive.STATION_PREVIEW``) that the template
-        marks rows with and prints; a page whose sentence and whose rows disagree
-        is the defect this whole file keeps meeting, one number apart.
+        There used to be a ``STATION_PREVIEW`` here: twenty-four rows drawn and
+        the other two hundred and eighty marked `data-beyond` for a button to
+        reveal. Every one of those rows was in the document anyway — that was the
+        point of marking them rather than omitting them — so the cap only ever
+        decided what a reader could *see*, and it took a script to change that.
+
+        The rebuild keeps the rule and drops the machinery: one disclosure holds
+        every row, the browser opens it, and the summary line names the count. So
+        the law that mattered (the sentence and the rows are one number) is
+        asserted against the sentence the page now writes.
         """
         body = self._page()
-        beyond = body.count('data-beyond="true"')
-        preview = keep_alive.STATION_PREVIEW
-        self.assertEqual(
-            beyond, len(self.catalogue) - preview,
-            "the rows marked as beyond the cap are not the ones the cap leaves",
-        )
+        self.assertNotIn("data-beyond", body, "the script's cap came back")
         self.assertIn(
-            f"Showing the first {preview} of {len(self.catalogue)}",
+            f"All {len(self.catalogue)} stations",
             body,
-            "the note under the list does not name what the list is holding",
+            "the disclosure does not name how much it is holding",
+        )
+        self.assertEqual(
+            body.count('data-copy="'), len(self.catalogue),
+            "the disclosure does not hold every row of the table",
         )
 
     def test_the_page_counts_what_the_catalogue_counts(self):
@@ -557,16 +571,18 @@ class TheRadioTableCanBeAsked(unittest.TestCase):
         beside it.
         """
         body = self._page()
-
-        def options(marker: str) -> set[str]:
-            block = body.split(marker, 1)[1].split("</select>", 1)[0]
-            return set(re.findall(r"<option value=\"([^\"]*)\"", block))
-
-        languages = options("data-station-language")
-        countries = options("data-station-country")
-        # The first option is the "any" of each menu.
-        self.assertEqual(languages - {""}, {name for name, _ in self.index.languages})
-        self.assertEqual(countries - {""}, set(self.index.countries))
+        # The two menus are gone with the script that filtered them, so what is
+        # asserted is the property they were there to guarantee: every language
+        # and country this page offers a visitor is one the catalogue actually
+        # holds, because they are read off the rows rather than written beside
+        # them. A tag for each is what the rebuild draws.
+        shown = set(re.findall(r'<span class="mw-tag">([^<]+)</span>', body))
+        for name, _count in self.index.languages:
+            with self.subTest(language=name):
+                self.assertIn(name, shown, "the page offers a language its own table does not hold")
+        for name in self.index.countries:
+            with self.subTest(country=name):
+                self.assertIn(name, shown, "the page offers a country its own table does not hold")
 
     def test_the_ad_free_tag_is_shown_where_the_table_holds_one(self):
         """The badge comes from the station's own tags, counted here.
@@ -579,7 +595,7 @@ class TheRadioTableCanBeAsked(unittest.TestCase):
         expected = sum(1 for station in self.catalogue if "ad-free" in station.tags)
         self.assertGreater(expected, 0, "the catalogue has no ad-free tag left")
         self.assertEqual(
-            body.count('<span class="tag">ad-free</span>'),
+            body.count('<span class="mw-tag">ad-free</span>'),
             expected,
             "the page shows the ad-free tag a different number of times than the table holds it",
         )
@@ -609,8 +625,14 @@ class TheSiteIsOneDesign(unittest.TestCase):
                 continue  # archived with its rebuild pending; nothing to wear
             markup = path.read_text(encoding="utf-8")
             if page in SITE_PAGES:
-                self.assertIn(
-                    '{% extends "site_base.html" %}', markup,
+                # Two frames now. The public pages inherit the rebuilt one, which
+                # links the rebuilt sheet with a version token; the sign-in doors,
+                # the market and the owner console still inherit `site_base.html`,
+                # which links the old one. What this law is about is that a page
+                # reaches a shared system at all rather than restating it.
+                self.assertRegex(
+                    markup,
+                    r'\{%\s*extends "(site_base|meoww/base)\.html"\s*%\}',
                     f"{page} does not reach the shared design system",
                 )
                 continue
@@ -839,11 +861,11 @@ class EverySignedInPageSharesThatSameFrame(_DashboardFixture):
                 body = self.body_of(path)
                 self.assertRegex(
                     body,
-                    rf'<span class="brand__name">{re.escape(self.name)}',
+                    rf'<span>{re.escape(self.name)}<span class="mw-brand__dot">\.</span></span>',
                     f"{path} is served with no wordmark in the header",
                 )
                 self.assertIn(
-                    f'<div class="foot__title">{self.name}</div>',
+                    f'<div class="mw-foot__title">{self.name}</div>',
                     body,
                     f"{path} is served with an empty footer title",
                 )

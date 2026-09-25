@@ -13,6 +13,46 @@
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
+   Entrance — quiet motion that settles the first viewport
+   -------------------------------------------------------------------------- */
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hero-panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero__copy > * {
+    animation: hero-rise 0.8s var(--ease) both;
+  }
+  .hero__copy > *:nth-child(1) { animation-delay: 0.02s; }
+  .hero__copy > *:nth-child(2) { animation-delay: 0.08s; }
+  .hero__copy > *:nth-child(3) { animation-delay: 0.14s; }
+  .hero__copy > *:nth-child(4) { animation-delay: 0.2s; }
+  .hero__copy > *:nth-child(5) { animation-delay: 0.26s; }
+  .preview {
+    animation: hero-panel-rise 0.95s var(--ease) 0.18s both;
+  }
+}
+
+/* --------------------------------------------------------------------------
    Hero — the claim on the left, the product on the right.
 
    The headline is deliberately *not* the shared display size. Measured at
@@ -31,35 +71,41 @@
    other's baseline. Those are the two numbers the eye reads as "unfinished".
    -------------------------------------------------------------------------- */
 
-.hero { padding-block: var(--space-6); }
+.hero { padding-block: var(--space-7) var(--space-8); }
 
 .hero__inner {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
-  gap: var(--space-6) var(--space-6);
+  gap: var(--space-7) var(--space-6);
   align-items: center;
 }
 
 .hero__title {
   margin-block: var(--space-4);
-  max-width: 16ch;
-  font-size: clamp(1.875rem, 3.4vw, 2.875rem);
-  line-height: 1.06;
+  max-width: 12ch;
+  font-size: clamp(2.25rem, 4.2vw, 3.75rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  font-weight: 500;
 }
 
 .hero__title-accent {
   display: block;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
-.hero__copy .lede { font-size: 1.0625rem; max-width: 44ch; }
+.hero__copy .lede {
+  font-size: 1.0625rem;
+  max-width: 40ch;
+  color: var(--text-secondary);
+}
 
-.hero__actions { margin-top: var(--space-5); }
+.hero__actions { margin-top: var(--space-5); gap: var(--space-4); }
 
 .hero__meta {
   margin: var(--space-5) 0 0;
   font-size: var(--text-micro);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -69,10 +115,16 @@
    -------------------------------------------------------------------------- */
 
 .preview {
+  position: relative;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-card);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 2.5%), transparent 28%),
+    var(--surface-card);
   overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgb(var(--accent-rgb) / 6%),
+    0 28px 64px rgb(0 0 0 / 35%);
 }
 
 /* The panel's own window bar: the mark, the page it is showing, and the

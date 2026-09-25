@@ -1,16 +1,22 @@
-{% extends "site_base.html" %}
-{% block title %}{{ title }} — {{ bot_name }}{% endblock %}
+{# ==========================================================================
+   legal.html — the three policy documents, one template.
 
-{% block page_css %}
-<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
-{% endblock %}
+   What matters about this page is what it does *not* have: no band inviting the
+   reader to do something else, no accent-filled action above the text, and no
+   table of contents that only works with a script. A policy you must accept
+   before you may read is not a policy — so the prose is the first thing on the
+   page and the only thing in the first screen.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+{% block title %}{{ title }} — {{ bot_name }}{% endblock %}
+{% block body_class %}mw-page-legal{% endblock %}
 
 {% block page %}
-<section class="page-head band band--flush">
-  <div class="wrap wrap--narrow">
-    <p class="micro">{{ eyebrow }}</p>
-    <h1>{{ title }}</h1>
-    <p class="prose__meta">
+<section class="mw-band mw-band--head">
+  <div class="mw-wrap">
+    <p class="mw-micro">{{ eyebrow }}</p>
+    <h1 class="mw-display">{{ title }}</h1>
+    <p class="mw-prose__meta">
       <span>Effective {{ effective }}</span>
       <span aria-hidden="true">·</span>
       <span>In Discord: <code>{{ command }}</code></span>
@@ -20,42 +26,42 @@
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap wrap--narrow">
-    <article class="prose">
+<section class="mw-band">
+  <div class="mw-wrap">
+    <article class="mw-prose">
       {{ body | safe }}
     </article>
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap wrap--narrow">
-    <div class="band__head">
+<section class="mw-band">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">The other two</p>
+        <p class="mw-micro">The other two</p>
         <h2>Policies are not behind a wall</h2>
       </div>
     </div>
 
-    <ul class="list list--pair">
-      <li class="list__row">
-        <span class="list__key"><a href="/privacy">Privacy</a></span>
-        <span class="list__note">What is stored, where it lives, how long it is kept, and what is never written down at all.</span>
+    <ul class="mw-list">
+      <li>
+        <span class="mw-row__name"><a href="/privacy">Privacy</a></span>
+        <span class="mw-row__note">What is stored, where it lives, how long it is kept, and what is never written down at all.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key"><a href="/terms">Terms</a></span>
-        <span class="list__note">What running this bot in your server means for you and for your members.</span>
+      <li>
+        <span class="mw-row__name"><a href="/terms">Terms</a></span>
+        <span class="mw-row__note">What running this bot in your server means for you and for your members.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key"><a href="/ai">AI &amp; crawling</a></span>
-        <span class="list__note">What automated readers are told, and what this deployment does about the ones that ignore it.</span>
+      <li>
+        <span class="mw-row__name"><a href="/ai">AI &amp; crawling</a></span>
+        <span class="mw-row__note">What automated readers are told, and what this deployment does about the ones that ignore it.</span>
       </li>
     </ul>
 
-    <p class="hint tiles">
+    <p class="mw-hint">
       A policy you must accept before you may read is not a policy, so none of these pages is
-      behind the agreement. The agreement exists for the dashboard, which acts on your
-      server rather than describing it.
+      behind the agreement. The agreement exists for the dashboard, which acts on your server
+      rather than describing it.
     </p>
   </div>
 </section>

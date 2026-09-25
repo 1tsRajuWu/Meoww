@@ -1,24 +1,31 @@
-{% extends "site_base.html" %}
-{% block title %}Radio — {{ bot_name }}{% endblock %}
+{# ==========================================================================
+   radio.html — a station, not a search box.
 
-{% block page_css %}
-<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
-{% endblock %}
+   The table is the reason this page was rebuilt rather than restyled. It used to
+   open with two dozen rows and hide the rest behind a script's cap, a search box
+   and two menus — which reads as generous until you measure it: 7,476px of list
+   on a page whose one question is *does it play my language*. Now the reader
+   meets the counts, then the command, then **one** disclosure holding every row
+   that was ever in the document. Nothing was dropped and no script is asked to
+   hold any of it.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+{% from "meoww/_spine.html" import spine, mark %}
+{% set sections = [
+  {'id': 'command', 'label': 'The command'},
+  {'id': 'stations', 'label': 'The table'},
+  {'id': 'wrong', 'label': 'When it goes wrong'},
+] %}
+{% block title %}Radio — {{ bot_name }}{% endblock %}
+{% block body_class %}mw-page-radio{% endblock %}
+{% block spine %}{{ spine(sections) }}{% endblock %}
 
 {% block page %}
-{# The three counts cannot disagree because all three come from the catalogue's
-   own index, which is the reader the bot's picker uses. #}
-
-<section class="page-head band band--flush">
-  <div class="wrap">
-    <p class="micro">Radio</p>
-    <h1>A station, not a search box</h1>
-    {# Two sentences, and the counts first: a visitor skimming for *does it play
-       my language* should meet the numbers before the argument. The argument is
-       one clause long because the full version of it — how a media-platform
-       resolver gets a bot served a challenge instead of a stream — is a paragraph
-       that nobody reads and that the reader cannot act on either way. #}
-    <p class="lede">
+<section class="mw-band mw-band--head">
+  <div class="mw-wrap">
+    <p class="mw-micro">Radio</p>
+    <h1 class="mw-display">A station, not a search box</h1>
+    <p class="mw-lede">
       {{ station_rows | length }} stations in {{ station_languages | length }} languages across
       {{ station_countries | length }} countries — each one fetched and checked before it was
       written down, and none of them resolved through a media platform.
@@ -26,185 +33,118 @@
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="command">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">01 — The command</p>
+        <p class="mw-micro">{{ mark(sections, 'command') }}</p>
         <h2>One group, three faces</h2>
       </div>
-      {# What was here was a paragraph: Discord's hundred-command budget, the name
-         of the switch, and a second telling of the switched-off gate that the
-         closing band already states. A heading's note is a caption, not a
-         section — the three faces below are the detail. The command that opens
-         the gate stays in it: the closing band is where a reader learns the
-         system arrives off, and this is the line that tells them what to type.
-         `tests/test_pages_site.py` holds the pair together. #}
-      <p class="small muted">
+      <p class="mw-hint">
         One <code>/radio</code> group rather than a command per station. It answers once an
         administrator runs <code>/bot legacy state:On</code> — until then it says which switch
         is off.
       </p>
     </div>
 
-    <ul class="list">
+    <ul class="mw-list">
       {% for command in radio_commands %}
-      <li class="list__row">
-        <span class="list__key"><code>{{ command }}</code></span>
-        <span class="list__note">
+      <li>
+        <span class="mw-row__name"><code>{{ command }}</code></span>
+        <span class="mw-row__note">
           {% if 'play' in command %}Join the voice channel you are in and start a station — by name, by country, by language, or at random.{% elif 'stop' in command %}Stop, and leave the channel.{% elif 'doctor' in command %}Check whether this host can play at all, and name the missing piece if it cannot.{% else %}Radio — see <code>/radio play</code>.{% endif %}
         </span>
-        <span class="list__meta mono">per server</span>
       </li>
       {% endfor %}
     </ul>
   </div>
 </section>
 
-{# --------------------------------------------------------------------------
-   02 — The table, as a table a visitor can ask questions of.
-
-   It used to be one list of forty-eight rows: 7,476px, two thirds of the page,
-   and a visitor who came to find out whether this bot plays anything in their
-   own language had to read it. Every row is still in the document — nothing is
-   fetched and no script builds the list, because a second renderer is the
-   failure this project has shipped twice — but the page opens with two dozen of
-   them and the search and the two menus reach all of them.
-
-   With scripting off nothing is hidden that the page cannot explain: the cap is
-   in the sheet, the note under the list names what is not shown and where the
-   rest can be asked for, and the search and the two menus ship `hidden`, because
-   a control that does nothing without its file is not shown to the reader who
-   does not have it.
-   -------------------------------------------------------------------------- #}
-<section class="band" id="stations">
-  <div class="wrap">
-    <div class="band__head">
+{# Every station, in one disclosure. A `<details>` is the only cap on this page,
+   and it is the reader's rather than the sheet's. #}
+<section class="mw-band" id="stations">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">02 — The table</p>
+        <p class="mw-micro">{{ mark(sections, 'stations') }}</p>
         <h2>Verified stations</h2>
       </div>
-      <p class="small muted">
-        A country is kept only when the station corroborates it.
-      </p>
+      <p class="mw-hint">A country is kept only when the station corroborates it.</p>
     </div>
 
-    <div class="stations" data-station-explorer>
-      <div class="stations__bar" data-station-tools hidden>
-        <label class="field">
-          <span class="visually-hidden">Find a station</span>
-          <input class="input" type="search" data-station-search
-                 placeholder="Search {{ station_rows | length }}: name, country, language…"
-                 autocomplete="off">
-        </label>
-        <label class="field">
-          <span class="visually-hidden">Language</span>
-          <select class="select" data-station-language>
-            <option value="">Any language</option>
-            {% for language in station_languages %}<option value="{{ language }}">{{ language }}</option>{% endfor %}
-          </select>
-        </label>
-        <label class="field">
-          <span class="visually-hidden">Country</span>
-          <select class="select" data-station-country>
-            <option value="">Any country</option>
-            {% for country in station_countries %}<option value="{{ country }}">{{ country }}</option>{% endfor %}
-          </select>
-        </label>
-      </div>
-
-      <p class="hint" data-station-status role="status" hidden></p>
-
-      <ul class="list" data-station-list data-capped="true">
-        {% for station in station_rows %}
-        {# `data-beyond` is the cap, written by the template from the one number
-           the page and its tests share — so the sheet never has to learn the
-           count, and a page with scripting off still says what it is holding. #}
-        <li class="radio-row" data-station
-            {% if loop.index > station_preview %}data-beyond="true"{% endif %}
-            data-search="{{ station.search }}"
-            data-language="{{ station.language }}"
-            data-country="{{ station.country }}">
-          <span class="radio-row__name">{{ station.icon }} {{ station.name }}</span>
-          <span class="radio-row__desc">{{ station.desc }}</span>
-          <span class="radio-row__tags">
-            <span class="tag">{{ station.genre }}</span>
-            {% if station.country %}<span class="tag">{{ station.country }}</span>{% endif %}
-            {% if station.language %}<span class="tag">{{ station.language }}</span>{% endif %}
-            {% if station.ad_free %}<span class="tag">ad-free</span>{% endif %}
-          </span>
-          <button class="command__copy" type="button" data-copy="{{ station.name }}"
-                  data-copy-label="Copied">Copy</button>
-        </li>
-        {% endfor %}
-      </ul>
-
-      <p class="hint" data-station-empty hidden>
-        Nothing in the table answers that. The search covers every name, country,
-        language, genre and tag in it.
-      </p>
-
-      <div class="stations__foot">
-        <button class="btn btn--ghost" type="button" data-station-more hidden
-                aria-expanded="false">Show all {{ station_rows | length }}</button>
-        <p class="hint" data-station-cap>
-          Showing the first {{ station_preview }} of {{ station_rows | length }} —
-          <code>/radio play</code> searches all of them, by name, country or language.
-        </p>
-      </div>
+    <div class="mw-list">
+      <details class="mw-faq">
+        <summary class="mw-faq__q">
+          All {{ station_rows | length }} stations
+          <span class="mw-row__count mono">{{ station_languages | length }} languages</span>
+        </summary>
+        <div class="mw-faq__a">
+          <ul class="mw-commands">
+            {% for station in station_rows %}
+            <li>
+              <span class="mw-row__name">{{ station.icon }} {{ station.name }}</span>
+              <span class="mw-row__note">{{ station.desc }}</span>
+              {# The tags are elements rather than a sentence, which is what keeps
+                 `ad-free` from breaking after its own hyphen at the wrong width. #}
+              <span class="mw-tags">
+                <span class="mw-tag">{{ station.genre }}</span>
+                {% if station.country %}<span class="mw-tag">{{ station.country }}</span>{% endif %}
+                {% if station.language %}<span class="mw-tag">{{ station.language }}</span>{% endif %}
+                {% if station.ad_free %}<span class="mw-tag">ad-free</span>{% endif %}
+              </span>
+              <button class="mw-copy" type="button" data-copy="{{ station.name }}"
+                      data-copy-label="Copied">Copy</button>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </details>
     </div>
+    <p class="mw-hint">
+      <code>/radio play</code> searches all {{ station_rows | length }} of them, by name,
+      country or language.
+    </p>
   </div>
 </section>
 
 {# The part a visitor cannot discover until it happens to them. #}
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="wrong">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">03 — When it goes wrong</p>
+        <p class="mw-micro">{{ mark(sections, 'wrong') }}</p>
         <h2>A live stream has no end</h2>
       </div>
     </div>
 
-    <ul class="list list--pair">
-      <li class="list__row">
-        <span class="list__key">“The music is short.”</span>
-        <span class="list__note">
-          A live source that reports itself finished was cut. The bot asks the engine what
-          ended, retries inside a budget, and says so rather than leaving a silent gap.
-        </span>
+    <ul class="mw-list">
+      <li>
+        <span class="mw-row__name">“The music is short.”</span>
+        <span class="mw-row__note">A live source that reports itself finished was cut. The bot asks the engine what ended, retries inside a budget, and says so rather than leaving a silent gap.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key">“Music is broken here.”</span>
-        <span class="list__note">
-          Every reason is checked before joining: the ffmpeg binary, an Opus library if the
-          host has one, and the voice library. Each missing piece is named separately,
-          because each one is a different fix.
-        </span>
+      <li>
+        <span class="mw-row__name">“Music is broken here.”</span>
+        <span class="mw-row__note">Every reason is checked before joining: the ffmpeg binary, an Opus library if the host has one, and the voice library. Each missing piece is named separately, because each one is a different fix.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key">The one thing it will not claim</span>
-        <span class="list__note">
-          Whether a station is reachable is only known from this host. One that answers here
-          can still refuse your network, and the card says so.
-        </span>
+      <li>
+        <span class="mw-row__name">The one thing it will not claim</span>
+        <span class="mw-row__note">Whether a station is reachable is only known from this host. One that answers here can still refuse your network, and the card says so.</span>
       </li>
     </ul>
   </div>
 </section>
 
-<section class="band band--closing">
-  <div class="wrap closing">
-    {# The old sentence was "one system among {{ system_count }}, and switchable like
-       the rest", which a reader takes to mean *available, and you may turn it off*.
-       The truth is the other way round: radio arrives switched off, and this page —
-       the only address on the site that describes radio — never said so. A visitor
-       installed the bot, typed `/radio`, and was refused by the gate for a fact the
-       page had not mentioned. #}
-    <h2 class="closing__title">Radio arrives switched off, with the question box — one command offers both again.</h2>
-    <div class="row closing__actions">
-      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
-      <a class="arrow-link" href="/systems">Every system</a>
+<section class="mw-band">
+  <div class="mw-wrap mw-closing">
+    {# The off-by-default disclosure stays on the page: a visitor who installed
+       the bot, typed `/radio` and was refused by the gate must not have to learn
+       that from the gate. #}
+    <h2 class="mw-closing__title mw-title">
+      Radio arrives switched off, with the question box — one command offers both again.
+    </h2>
+    <div class="mw-hero__actions">
+      {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
+      <a class="mw-link" href="/systems">Every system</a>
     </div>
   </div>
 </section>

@@ -1593,9 +1593,10 @@ LAST_MEMBER_ACTION: dict = {}
 
 
 @app.route("/api/member-action", methods=["POST"])
+@keep_alive._form_door
 def api_member_action():
     """A recorded no-op. The panel, the wording and the payload, not the action."""
-    data = request.get_json(silent=True) or {}
+    data = keep_alive._json_or_form()
     LAST_MEMBER_ACTION.clear()
     LAST_MEMBER_ACTION.update(data)
     action = str(data.get("action") or "")
@@ -1624,6 +1625,7 @@ def api_member_warnings():
 
 
 @app.route("/api/server-action", methods=["POST"])
+@keep_alive._form_door
 def api_server_action():
     """The same idea one level up: say what would have happened, do nothing."""
     data = request.get_json(silent=True) or {}
@@ -1681,8 +1683,18 @@ def _sync_module_cards(guild_id) -> None:
 
 
 @app.route("/api/toggle", methods=["POST"])
+@keep_alive._form_door
 def api_toggle():
     """Flip one module, through the same store the real endpoint writes to.
+
+    The payload is read with the app's own adapter, `_json_or_form`, and the
+    answer goes through the app's own form door for the same reason: the switch
+    on `/dashboard/systems` is a **form** — the canonical direction of the one
+    shared control — so a harness that only understood JSON answered every press
+    of it with `400 No guild available` and no redirect, which is a tab full of
+    JSON and a preview that cannot demonstrate the one control it exists to
+    show. This is not a second implementation: it is the endpoint's own read and
+    the endpoint's own redirect, called here rather than copied.
 
     Missing until a playtest drove the switches in a browser: every toggle was
     answered with the Flask 404 page, so the dashboard's headline control showed
@@ -1691,7 +1703,7 @@ def api_toggle():
     """
     from utils import modules
 
-    payload = request.get_json(silent=True) or {}
+    payload = keep_alive._json_or_form()
     if payload.get("guild_id") is None:
         return jsonify({"success": False, "error": "No guild available"}), 400
     module_id = payload.get("module")
@@ -1727,11 +1739,12 @@ def api_toggle():
 
 
 @app.route("/api/toggle-all", methods=["POST"])
+@keep_alive._form_door
 def api_toggle_all():
     """Enable or disable every module at once — the real route's shape."""
     from utils import modules
 
-    payload = request.get_json(silent=True) or {}
+    payload = keep_alive._json_or_form()
     if payload.get("guild_id") is None:
         return jsonify({"success": False, "error": "No guild available"}), 400
     enabled = bool(payload.get("enabled"))
@@ -1824,6 +1837,7 @@ def api_command_scope():
 
 
 @app.route("/api/identity", methods=["POST"])
+@keep_alive._form_door
 def api_identity():
     """The preview cannot rename anything, and says exactly that.
 
@@ -1854,6 +1868,7 @@ def last_toggle():
 
 
 @app.route("/api/send-message", methods=["POST"])
+@keep_alive._form_door
 def api_send_message():
     """Resolve the posted ids the way the real endpoint does.
 
@@ -1867,7 +1882,7 @@ def api_send_message():
     2000."* and posts nothing — a preview teaching the page's happy path an
     outcome production refuses.
     """
-    data = request.get_json(silent=True) or {}
+    data = keep_alive._json_or_form()
     payload, channel_ids, error = keep_alive._build_message(_PreviewGuild(), data)
     if error:
         return jsonify({"success": False, "error": error}), 400
@@ -2021,8 +2036,9 @@ def api_scheduled():
 
 
 @app.route("/api/schedule-message", methods=["POST"])
+@keep_alive._form_door
 def api_schedule_message():
-    body = request.get_json(silent=True) or {}
+    body = keep_alive._json_or_form()
     LAST_SCHEDULE.clear()
     LAST_SCHEDULE.update(body)
     now = int(time.time())
@@ -2128,6 +2144,7 @@ def _find(msg_id):
 
 
 @app.route("/api/scheduled/<int:msg_id>/cancel", methods=["POST"])
+@keep_alive._form_door
 def api_cancel_scheduled(msg_id: int):
     row = _find(msg_id)
     if row is None:
@@ -2141,6 +2158,7 @@ def api_cancel_scheduled(msg_id: int):
 
 
 @app.route("/api/scheduled/<int:msg_id>/fire", methods=["POST"])
+@keep_alive._form_door
 def api_fire_scheduled(msg_id: int):
     row = _find(msg_id)
     if row is None:

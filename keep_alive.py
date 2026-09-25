@@ -2456,6 +2456,13 @@ def _landing_systems() -> list[dict]:
     defect the figures band was fixed for — two numbers about one word,
     disagreeing. The panel draws the first four and links to `/systems` for the
     rest, which is where the whole list lives.
+
+    Every row carries the registry's own **default state**, because the grid
+    drawn from these rows is the dashboard's grid as a server that has never
+    been configured sees it. Left out, the front door assumed "on" for every
+    system — which was true until four of them started shipping off, and was
+    then a page showing Market and Starboard lit while `/systems` beside it said
+    they arrive switched off. One author for the default: `default_enabled`.
     """
     return [
         {
@@ -2466,6 +2473,7 @@ def _landing_systems() -> list[dict]:
             "desc": feature.description,
             "commands": [str(command) for command in feature.commands],
             "toggleable": bool(feature.toggleable),
+            "enabled": features.default_enabled(feature.id),
             "command_count": len(feature.commands),
         }
         for feature in features.FEATURES

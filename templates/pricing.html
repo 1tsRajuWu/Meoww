@@ -1,28 +1,46 @@
-{% extends "site_base.html" %}
-{% block title %}Pricing — {{ bot_name }}{% endblock %}
+{# ==========================================================================
+   pricing.html — left-reading tiers, and exactly one of them wears the accent.
 
-{% block page_css %}
-<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
-{% endblock %}
+   Von Restorff is a law here rather than a habit: one element that differs is
+   remembered and four that differ are noise, so precisely one tier is marked —
+   the one this deployment is actually selling — and the other two are drawn in
+   the same panel and hairline as everything else on the page. The band's one
+   accent-filled action is inside that tier; the closing band's is the page's
+   second and last.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+{% from "meoww/_spine.html" import spine, mark %}
+{# The tiers band is only drawn when this deployment is selling something, and
+   the list is built the same way — so the rail and the page cannot disagree
+   about how many sections there are. `what-is-in-it` used to carry the
+   arithmetic in its own label (`{{ '02' if selling else '01' }}`), because a
+   number that moves with a flag has to be recomputed by whoever writes it
+   next; the list computes it, once. #}
+{% set sections = ([{'id': 'tiers', 'label': 'Tiers'}] if selling else [])
+   + [{'id': 'in-it', 'label': 'What is in it'}] %}
+{% block title %}Pricing — {{ bot_name }}{% endblock %}
+{% block body_class %}mw-page-pricing{% endblock %}
+{% block spine %}{{ spine(sections) }}{% endblock %}
 
 {% block page %}
-<section class="page-head band band--flush">
-  <div class="wrap">
-    <p class="micro">Pricing</p>
+<section class="mw-band mw-band--head">
+  <div class="mw-wrap">
+    <p class="mw-micro">Pricing</p>
     {% if selling %}
-    <h1>{{ system_count }} systems, priced by how many servers you run</h1>
-    <p class="lede">
-      Every tier gets the whole bot. The difference is how many servers may use it, and how
-      many scheduled messages one server may hold — the limits are enforced by the same
-      model this page is rendered from.
+    <h1 class="mw-display">The whole bot. <em>Priced by how many servers run it.</em></h1>
+    <p class="mw-lede">
+      Every tier gets every system — nothing is held back to make a tier look bigger. What a
+      subscription changes is scale: how many servers it covers, and how many scheduled
+      messages one server may hold. Those limits are enforced by the same model this page is
+      rendered from, so it cannot promise one the bot does not keep.
     </p>
     {% else %}
-    <h1>Free, and the whole bot is in it</h1>
-    <p class="lede">
-      There is no paid tier on this deployment. Everything the registry declares is
-      available to every server that has the bot: {{ system_count }} systems and
-      {{ entry_count }} commands, {{ features | length }} of the systems switchable per
-      server.
+    <h1 class="mw-display">Free. <em>And the whole bot is in it.</em></h1>
+    <p class="mw-lede">
+      There is no paid tier on this deployment, because there is nothing on it to pay for:
+      everything the registry declares is already in the bot for every server that runs it —
+      {{ system_count }} systems, {{ entry_count }} commands, {{ features | length }} of them
+      switchable per server.
       {% if plans_enforced %}
       Limits are enforced, so a server with more than its share is told which one it is over.
       {% else %}
@@ -30,131 +48,122 @@
       free trial's.
       {% endif %}
     </p>
-    <p class="hint">
-      If paid plans ever come to this deployment, this page will say so first.
-    </p>
+    <p class="mw-hint">If paid plans ever come to this deployment, this page will say so first.</p>
     {% endif %}
   </div>
 </section>
 
 {% if selling %}
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="tiers">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">01 — Tiers</p>
+        <p class="mw-micro">{{ mark(sections, 'tiers') }}</p>
         <h2>Pick by scale, not by feature</h2>
       </div>
-      <p class="small muted">
+      <p class="mw-hint">
         A licence is activated per server with <code>/bot plan</code>, and the store counts
         the activations — so “up to five servers” is the shop's rule rather than a number
         this bot invents.
       </p>
     </div>
 
-    <div class="tiers">
-      <div class="tier">
-        <h3 class="tier__name">Free</h3>
-        <p class="tier__price">{{ price_free }}</p>
-        <ul class="tier__list">
+    <div class="mw-tiers">
+      <div class="mw-card">
+        <h3 class="mw-tier__name">Free</h3>
+        <p class="mw-tier__price">{{ price_free }}</p>
+        <ul class="mw-prose">
           <li>One server</li>
           <li>Every system, every command</li>
           <li>The full dashboard</li>
         </ul>
-        <div class="tier__cta">
-          {% if invite_url %}<a class="btn" href="{{ invite_url }}">Add to Discord</a>{% endif %}
-        </div>
+        {% if invite_url %}<a class="mw-btn" href="{{ invite_url }}">Add to Discord</a>{% endif %}
       </div>
 
-      <div class="tier tier--lead">
-        <h3 class="tier__name">Pro</h3>
-        <p class="tier__price">{{ price_pro }}<small> per month</small></p>
-        <ul class="tier__list">
+      {# The one tier that differs. #}
+      <div class="mw-card mw-tier--lead">
+        <p class="mw-micro">Most servers</p>
+        <h3 class="mw-tier__name">Pro</h3>
+        <p class="mw-tier__price">{{ price_pro }}<small> per month</small></p>
+        <ul class="mw-prose">
           <li>More servers on one licence</li>
           <li>More scheduled messages per server</li>
           <li>Priority on updates</li>
         </ul>
-        <div class="tier__cta">
-          {% if checkout_pro and checkout_ready %}
-          <a class="btn btn--primary" href="{{ checkout_pro }}" rel="noopener">Buy Pro</a>
-          {% else %}
-          <span class="hint">Not on sale here yet — a licence key works the moment one exists.</span>
-          {% endif %}
-        </div>
+        {% if checkout_pro and checkout_ready %}
+        <a class="mw-btn mw-btn--primary" href="{{ checkout_pro }}" rel="noopener">Buy Pro</a>
+        {% else %}
+        <span class="mw-hint">Not on sale here yet — a licence key works the moment one exists.</span>
+        {% endif %}
       </div>
 
-      <div class="tier">
-        <h3 class="tier__name">Enterprise</h3>
-        <p class="tier__price">{{ price_enterprise }}<small> per month</small></p>
-        <ul class="tier__list">
+      <div class="mw-card">
+        <h3 class="mw-tier__name">Enterprise</h3>
+        <p class="mw-tier__price">{{ price_enterprise }}<small> per month</small></p>
+        <ul class="mw-prose">
           <li>The largest allowance</li>
           <li>Every system, no exceptions</li>
           <li>The operator's own console</li>
         </ul>
-        <div class="tier__cta">
-          {% if checkout_enterprise and checkout_ready %}
-          <a class="btn" href="{{ checkout_enterprise }}" rel="noopener">Buy Enterprise</a>
-          {% else %}
-          <span class="hint">Not on sale here yet.</span>
-          {% endif %}
-        </div>
+        {% if checkout_enterprise and checkout_ready %}
+        <a class="mw-btn" href="{{ checkout_enterprise }}" rel="noopener">Buy Enterprise</a>
+        {% else %}
+        <span class="mw-hint">Not on sale here yet.</span>
+        {% endif %}
       </div>
     </div>
 
     {% if not plans_enforced %}
-    <p class="notice">
-      Limits are not switched on yet — the numbers above describe what will be
-      enforced, not what is taken away today.
+    <p class="mw-hint">
+      Limits are not switched on yet — the numbers above describe what will be enforced, not
+      what is taken away today.
     </p>
     {% endif %}
 
     {% if not checkout_ready %}
-    <p class="hint tiles">
+    <p class="mw-hint">
       Selling is switched on but no checkout link is configured, so no button above takes
       money. A store that has not been set up must not look like one that has.
     </p>
     {% endif %}
 
-    <p class="hint tiles">
-      Checkout by Lemon Squeezy — the store takes the card; this bot only ever
-      receives a licence mark.
-    </p>
+    <p class="mw-hint">Checkout by Lemon Squeezy — the store takes the card; this bot only ever receives a licence mark.</p>
   </div>
 </section>
 {% endif %}
 
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="in-it">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">{{ '02' if selling else '01' }} — What is in it</p>
+        <p class="mw-micro">{{ mark(sections, 'in-it') }}</p>
         <h2>Every system with a switch, listed</h2>
       </div>
-      <p class="small muted">Read from the registry, so this page cannot sell a feature the bot does not have.</p>
+      <p class="mw-hint">Read from the registry, so this page cannot sell a feature the bot does not have.</p>
     </div>
 
-    <ul class="list">
+    <ul class="mw-list">
       {% for module in features %}
-      <li class="list__row">
-        <span class="list__key">{{ module.icon }} {{ module.name }}</span>
-        <span class="list__note">{{ module.commands | length }} command{{ '' if (module.commands | length) == 1 else 's' }}</span>
-        <span class="list__meta mono">{{ module.category }}</span>
+      <li>
+        <span class="mw-row__name">{{ module.icon }} {{ module.name }}</span>
+        <span class="mw-row__count">{{ module.commands | length }} command{{ '' if (module.commands | length) == 1 else 's' }}</span>
+        <span class="mw-row__count">{{ module.category }}</span>
       </li>
       {% endfor %}
     </ul>
-    <p class="hint tiles">
-      That is {{ features | length }} of the {{ system_count }} — System &amp; Server
-      Control has no switch and is always on.
+    <p class="mw-hint">
+      That is {{ features | length }} of the {{ system_count }} — System &amp; Server Control
+      has no switch and is always on.
     </p>
   </div>
 </section>
 
-<section class="band band--closing">
-  <div class="wrap closing">
-    <h2 class="closing__title">Everything on this page is enforced by the same model that serves it.</h2>
-    <div class="row closing__actions">
-      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
-      <a class="arrow-link" href="{{ kofi_url }}" rel="noopener">Support the bot</a>
+<section class="mw-band">
+  <div class="mw-wrap mw-closing">
+    <h2 class="mw-closing__title mw-title">Everything on this page is enforced by the same model that serves it.</h2>
+    <div class="mw-hero__actions">
+      {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
+      {% if kofi_url %}<a class="mw-link" href="{{ kofi_url }}" rel="noopener">Support the bot</a>{% endif %}
     </div>
   </div>
 </section>

@@ -1,4 +1,4 @@
-/* Keystone Hub — the design system.
+/* Meow Hub — the design system.
  *
  * This file is the hub's whole visual language: tokens, primitives, and the
  * handful of components the pages are assembled from. Three rules it follows,
@@ -45,10 +45,10 @@
        `utils/brand.ACCENT_HEX`, with the second stop of every gradient taken
        from the same family's lighter half. `tests/test_brand.py` holds the two
        together, which is what would have caught this. */
-    --accent: #2dd4bf;
-    --accent-soft: rgba(45, 212, 191, 0.14);
-    --accent-line: rgba(45, 212, 191, 0.34);
-    --accent-2: #8bf0e4;
+    --accent: #ff5d3a;
+    --accent-soft: rgba(255, 93, 58, 0.14);
+    --accent-line: rgba(255, 93, 58, 0.34);
+    --accent-2: #ff8a70;
 
     --ok: #4ade80;
     --warn: #fbbf24;
@@ -119,12 +119,12 @@
     /* The light half of the same pair, and the reason it is not the dark one:
        this hub paints text in `--accent` (unlike the site, which keeps a second
        "--accent-text" for exactly that), so the light value has to clear 4.5:1
-       on white as well as draw a fill. `#0f766e` is the site's own light text
-       shade, and `#0d9488` stays as the gradient's second stop. */
-    --accent: #0f766e;
-    --accent-soft: rgba(15, 118, 110, 0.1);
-    --accent-line: rgba(15, 118, 110, 0.3);
-    --accent-2: #0d9488;
+       on white as well as draw a fill. `#9a3412` is the site's own light text
+       shade, and `#c2410c` stays as the gradient's second stop. */
+    --accent: #9a3412;
+    --accent-soft: rgba(154, 52, 18, 0.1);
+    --accent-line: rgba(154, 52, 18, 0.3);
+    --accent-2: #c2410c;
 
     --ok: #12864a;
     --warn: #a16207;
@@ -153,10 +153,10 @@
         --ink-soft: #4c5468;
         --ink-faint: #7b8398;
 
-        --accent: #0f766e;
-        --accent-soft: rgba(15, 118, 110, 0.1);
-        --accent-line: rgba(15, 118, 110, 0.3);
-        --accent-2: #0d9488;
+        --accent: #9a3412;
+        --accent-soft: rgba(154, 52, 18, 0.1);
+        --accent-line: rgba(154, 52, 18, 0.3);
+        --accent-2: #c2410c;
 
         --ok: #12864a;
         --warn: #a16207;
@@ -217,9 +217,9 @@ code, kbd, pre, samp { font-family: var(--mono); font-size: 0.92em; }
     z-index: 0;
     pointer-events: none;
     background:
-        radial-gradient(58rem 34rem at 8% -8%, rgba(45, 212, 191, 0.16), transparent 70%),
+        radial-gradient(58rem 34rem at 8% -8%, rgba(255, 93, 58, 0.16), transparent 70%),
         radial-gradient(46rem 30rem at 96% 4%, rgba(139, 240, 228, 0.1), transparent 72%),
-        radial-gradient(52rem 40rem at 50% 112%, rgba(45, 212, 191, 0.09), transparent 70%);
+        radial-gradient(52rem 40rem at 50% 112%, rgba(255, 93, 58, 0.09), transparent 70%);
 }
 
 [data-theme="light"] .aurora {
@@ -881,27 +881,6 @@ html[data-locked] { overflow: hidden; }
 }
 
 /* ── the pointer ─────────────────────────────────────────────────────────── */
-
-/* The cat, at the end of the file on purpose. A cursor image has no selector
-   specificity to lean on — the wrong pointer is the browser's own arrow, drawn
-   silently, with nothing in any log — so the rule is written to win by cascade
-   rather than by argument: `:is()` takes the specificity of its *most* specific
-   argument (`.btn` here, 0-1-0), which outranks the bare `button` and `a` rules
-   in the reset above, and sitting last means it also wins any tie with a class
-   that spells `cursor: pointer` itself. `static/meow.css` reaches the same end
-   with `!important`; this is the quieter version of the same guarantee.
-
-   Both files are shipped by the build and are reachable at `/static/…` on the
-   hub host and on the app's own, so the URL is absolute and identical in both
-   places. The fallback keyword is not decoration: without it a browser that
-   refuses the image refuses the declaration, and the whole section is a no-op. */
-
-html { cursor: url("/static/cursor-default.svg") 6 2, auto; }
-
-:is(a, button, [role="button"], summary, label, select, .btn, .rail-link,
-    .rail-toggle, .palette-trigger, .palette-item, .toggle, [tabindex]:not([tabindex="-1"])) {
-    cursor: url("/static/cursor-pointer.svg") 9 3, pointer;
-}
 
 /* ── motion, only for those who asked for it ────────────────────────────── */
 

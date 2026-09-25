@@ -1,37 +1,51 @@
-{% extends "site_base.html" %}
-{% block title %}Getting started — {{ bot_name }}{% endblock %}
+{# ==========================================================================
+   start.html — three steps, the ways in, what is held, and what happens next.
 
-{% block page_css %}
-<link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
-{% endblock %}
+   The last band is the reason this page exists rather than the first: a reader
+   who has just been handed an invite wants to know what they will be looking at
+   in thirty seconds, and "the dashboard is the answer to what is it doing" is
+   the end state rather than a promise. Peak-end is a law here — the closing band
+   is not a repetition of the header, it is the second half of the page's one
+   argument.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+{% block title %}Getting started — {{ bot_name }}{% endblock %}
+{% block body_class %}mw-page-start{% endblock %}
+
+{% from "meoww/_spine.html" import spine, mark %}
+{% set sections = [
+  {'id': 'ways-in', 'label': 'Ways in'},
+  {'id': 'holds', 'label': 'What it holds'},
+  {'id': 'next', 'label': 'What happens next'},
+] %}
+{% block spine %}{{ spine(sections) }}{% endblock %}
 
 {% block page %}
-<section class="page-head band band--flush">
-  <div class="wrap">
-    <p class="micro">Get started</p>
-    <h1>Add it, sign in, switch off what you do not want</h1>
-    <p class="lede">
-      Three steps, no account of ours in between. The bot only ever holds what Discord
-      gives it, and the dashboard runs on this deployment rather than on somebody else's
-      service.
+<section class="mw-band mw-band--head">
+  <div class="mw-wrap">
+    <p class="mw-micro">Get started</p>
+    <h1 class="mw-display">Add it once. <em>Then switch off what you do not want.</em></h1>
+    <p class="mw-lede">
+      Three steps from here to a server that does what you told it to. No account of ours
+      sits in the middle of them: the bot holds only what Discord gives it, and the dashboard
+      runs on this deployment, not on somebody else's service.
     </p>
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap">
-    <ol class="steps">
-      <li class="step">
-        <span class="step__number mono" aria-hidden="true">01</span>
-        <h2 class="step__title">Put it in the server</h2>
-        <p class="step__body">
+<section class="mw-band">
+  <div class="mw-wrap">
+    <ol class="mw-steps">
+      <li class="mw-step">
+        <span class="mw-step__number">01</span>
+        <h2 class="mw-step__title">Put it in the server</h2>
+        <p>
           {% if invite_url %}
-          <a href="{{ invite_url }}">The full invite</a> asks for Administrator, which is
-          one permission bit and the reason no feature ever answers “Missing Permissions”.
+          <a href="{{ invite_url }}">The full invite</a> asks for Administrator, which is one
+          permission bit and the reason no feature ever answers “Missing Permissions”.
           {% if invite_limited_url %}
-          <a href="{{ invite_limited_url }}">The least-privilege invite</a> is the other
-          half: only the permissions a command is known to need, each of them traceable to
-          the call site that wants it.
+          <a href="{{ invite_limited_url }}">The least-privilege invite</a> is the other half:
+          only the permissions a command is known to need.
           {% endif %}
           {% else %}
           This deployment has no invite link configured yet — set a Discord client id and
@@ -39,19 +53,19 @@
           {% endif %}
         </p>
       </li>
-      <li class="step">
-        <span class="step__number mono" aria-hidden="true">02</span>
-        <h2 class="step__title">Open the dashboard</h2>
-        <p class="step__body">
+      <li class="mw-step">
+        <span class="mw-step__number">02</span>
+        <h2 class="mw-step__title">Open the dashboard</h2>
+        <p>
           Run <code>/help</code> in your server and press the dashboard button. That mints a
           one-time link for the server you ran it in — it works once, expires quickly, and
           reaches no other server.
         </p>
       </li>
-      <li class="step">
-        <span class="step__number mono" aria-hidden="true">03</span>
-        <h2 class="step__title">Decide what runs</h2>
-        <p class="step__body">
+      <li class="mw-step">
+        <span class="mw-step__number">03</span>
+        <h2 class="mw-step__title">Decide what runs</h2>
+        <p>
           {{ system_count }} systems, {{ entry_count }} commands. Each system has one switch
           per server, and the switch decides what that server's members can type.
         </p>
@@ -60,90 +74,104 @@
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="ways-in">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">01 — Ways in</p>
+        <p class="mw-micro">{{ mark(sections, 'ways-in') }}</p>
         <h2>Three doors, and what each one reaches</h2>
       </div>
-      <p class="small muted">A page must not offer a method this deployment does not have, so this list is read from the environment.</p>
+      <p class="mw-hint">A page must not offer a method this deployment does not have, so this list is read from the environment.</p>
     </div>
 
-    <ul class="list list--pair">
+    <ul class="mw-list">
       {% if oauth_enabled %}
-      <li class="list__row">
-        <span class="list__key">Discord sign-in</span>
-        <span class="list__note">
-          Asks for your name and your server list, keeps only the servers where you are
-          the owner or an Administrator <em>and</em> the bot is present, and re-checks that
-          list on every request — so a server you were demoted from stops being reachable
-          immediately. <a href="/login">Sign in</a>.
+      <li>
+        <span class="mw-row__name">Discord sign-in</span>
+        <span class="mw-row__note">
+          Asks for your name and your server list, keeps only the servers where you are the
+          owner or an Administrator <em>and</em> the bot is present, and re-checks that list
+          on every request. <a href="/login">Sign in</a>.
         </span>
       </li>
       {% endif %}
-      <li class="list__row">
-        <span class="list__key">One-time link</span>
-        <span class="list__note">
-          The <code>⚡ Open Dashboard</code> button on <code>/help</code>. Scoped to the
-          server it was minted in, usable once, and it never becomes a lasting credential.
-        </span>
+      <li>
+        <span class="mw-row__name">One-time link</span>
+        <span class="mw-row__note">The <code>⚡ Open Dashboard</code> button on <code>/help</code>. Scoped to the server it was minted in, usable once, and never a lasting credential.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key">Operator passkey</span>
-        <span class="list__note">
-          The deployment owner's own door, and the only one that reaches every server at
-          once. It is off unless the host sets it, and the console behind it is a separate
-          surface with its own unlock.
-        </span>
+      <li>
+        <span class="mw-row__name">Operator passkey</span>
+        <span class="mw-row__note">The deployment owner's own door, and the only one that reaches every server at once. Off unless the host sets it.</span>
       </li>
     </ul>
   </div>
 </section>
 
-<section class="band">
-  <div class="wrap">
-    <div class="band__head">
+<section class="mw-band" id="holds">
+  <div class="mw-wrap">
+    <div class="mw-head">
       <div>
-        <p class="micro">02 — What it holds</p>
+        <p class="mw-micro">{{ mark(sections, 'holds') }}</p>
         <h2>Where the data lives</h2>
       </div>
     </div>
 
-    <ul class="list list--pair">
-      <li class="list__row">
-        <span class="list__key">One SQLite file</span>
-        <span class="list__note">
-          On this deployment's own host. Settings, levels, the economy ledger, tickets,
-          warnings and the scheduled queue all live in it — no third-party database.
-        </span>
+    <ul class="mw-list">
+      <li>
+        <span class="mw-row__name">One SQLite file</span>
+        <span class="mw-row__note">On this deployment's own host. Settings, levels, the economy ledger, tickets, warnings and the schedule queue — no third-party database.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key">Message content</span>
-        <span class="list__note">
-          Not stored. The moderation log records the action, the member, the channel and the
-          moment; it does not keep a second copy of what somebody typed.
-        </span>
+      <li>
+        <span class="mw-row__name">Message content</span>
+        <span class="mw-row__note">Not stored. The moderation log records the action, the member, the channel and the moment; it does not keep a second copy of what somebody typed.</span>
       </li>
-      <li class="list__row">
-        <span class="list__key">Retention</span>
-        <span class="list__note">
-          {% if retention_days %}Readings older than {{ retention_days }} days are dropped by the tracker's own
-          windows.{% else %}Nothing is kept longer than the feature that needs it.{% endif %}
-          <a href="/privacy">The privacy policy</a> is the same file the <code>/privacy</code>
-          card reads.
+      <li>
+        <span class="mw-row__name">Retention</span>
+        <span class="mw-row__note">
+          {% if retention_days %}Readings older than {{ retention_days }} days are dropped by the tracker's own windows.{% else %}Nothing is kept longer than the feature that needs it.{% endif %}
+          <a href="/privacy">The privacy policy</a> is the same file the <code>/privacy</code> card reads.
         </span>
       </li>
     </ul>
   </div>
 </section>
 
-<section class="band band--closing">
-  <div class="wrap closing">
-    <h2 class="closing__title">The dashboard is the answer to “what is it doing right now”.</h2>
-    <div class="row closing__actions">
-      {% if invite_url %}<a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>{% endif %}
-      <a class="arrow-link" href="/systems">See what is inside</a>
+{# The end state: not "thanks for reading" but the thing the reader will be
+   looking at, named before they get there. #}
+<section class="mw-band" id="next">
+  <div class="mw-wrap">
+    <div class="mw-head">
+      <div>
+        <p class="mw-micro">{{ mark(sections, 'next') }}</p>
+        <h2>Thirty seconds from now</h2>
+      </div>
+    </div>
+    <ol class="mw-steps">
+      <li class="mw-step">
+        <span class="mw-step__number">Then</span>
+        <h3>The bot answers <code>/help</code></h3>
+        <p>A card with this server's own systems on it, and one button that opens the dashboard for it.</p>
+      </li>
+      <li class="mw-step">
+        <span class="mw-step__number">Then</span>
+        <h3>You see the grid</h3>
+        <p>{{ system_count }} rows, each with the switch it really has. Nothing is off by default except the systems that arrive off.</p>
+      </li>
+      <li class="mw-step">
+        <span class="mw-step__number">Then</span>
+        <h3>Off means gone from the picker</h3>
+        <p>Not hidden, not disabled — the command leaves that server's picker, and turning the switch back on brings it back.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="mw-band">
+  <div class="mw-wrap mw-closing">
+    <h2 class="mw-closing__title mw-title">The dashboard is the answer to “what is it doing right now”.</h2>
+    <div class="mw-hero__actions">
+      {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
+      <a class="mw-link" href="/systems">See what is inside</a>
     </div>
   </div>
 </section>
