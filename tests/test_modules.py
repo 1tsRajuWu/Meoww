@@ -76,6 +76,53 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
             self.assertNotIn(retired, states)
         self.assertIn("legacy", states, "the legacy systems are a live feature again")
 
+    def test_the_migration_leaves_no_row_for_a_retired_module(self):
+        """A retired module's row is deleted, not merely ignored.
+
+        The test above is about the *reader*: `get_states` drops an unknown id, so
+        a stale row cannot resurrect a switch. It does not stop the row from
+        existing — and a row for a module the registry no longer declares is
+        unreadable by every reader, unwritable by `set_enabled` and invisible in
+        the dashboard, which leaves a migration as the only thing that can ever
+        remove it. Automod & Shield was merged into Moderation & Logs, so every
+        guild that had the shield on was holding exactly that row.
+
+        Run the way a restored database runs the migrations: delete the marker,
+        then `setup()` again. The sweep has to leave the live modules alone, which
+        is the second half of the assertion — a cleanup that also deleted a
+        module the registry declares would be worse than the row it was cleaning.
+        """
+        conn = db.connect()
+        try:
+            for module_name in ("automod", "market"):
+                conn.execute(
+                    "INSERT OR REPLACE INTO guild_modules (guild_id, module_name, enabled) "
+                    "VALUES (?, ?, ?)",
+                    (111, module_name, 1),
+                )
+            conn.execute(
+                "DELETE FROM guild_settings WHERE guild_id = 0 "
+                "AND key = 'modules_retired_swept_v1'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        asyncio.run(db.setup())
+
+        conn = db.connect()
+        try:
+            saved = {
+                name
+                for (name,) in conn.execute(
+                    "SELECT module_name FROM guild_modules WHERE guild_id = 111"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        self.assertNotIn("automod", saved, "a retired module's row outlived the migration")
+        self.assertIn("market", saved, "the sweep deleted a module the registry declares")
+
     def test_unknown_module_is_not_gated_but_cannot_be_written(self):
         self.assertTrue(modules.is_enabled(111, "not_a_real_module"))
         self.assertFalse(modules.set_enabled(111, "not_a_real_module", False))

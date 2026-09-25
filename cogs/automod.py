@@ -20,7 +20,7 @@ from discord.ext import commands
 import re
 import time
 import datetime
-from utils import db, modlog
+from utils import db, features, modlog
 from utils.style import WARN
 
 INVITE_REGEX = re.compile(r"(discord\.gg|discordapp\.com/invite|discord\.com/invite)/\S+", re.IGNORECASE)
@@ -29,6 +29,30 @@ INVITE_REGEX = re.compile(r"(discord\.gg|discordapp\.com/invite|discord\.com/inv
 #: disagrees with a bot needs a door, and it has to be named where they are
 #: standing — a policy page three clicks away is not one.
 APPEAL_POINTER = "If that was wrong, run `/appeal` — a human will read it."
+
+#: The one switch this whole cog answers to. Automod & Shield was merged into
+#: Moderation & Logs, so the manual actions and the automatic filters are one
+#: module now — and the id is named once, here, because two gates read it (the
+#: command gate and the message listener) and a second copy of it is how the two
+#: would come to disagree about which switch turns the filters off.
+MODULE = "moderation"
+
+
+def _off_sentence() -> str:
+    """The refusal, labelled from the registry rather than by hand.
+
+    What this replaced said *"The **Automod** system is currently **turned off**"*,
+    which was true while Automod was a system of its own and became a sentence
+    about nothing the moment it was merged — the same drift the registry exists to
+    prevent, in the one string a member reads. So the label is asked of the
+    feature the gate actually checks; nothing else about the sentence changes.
+    """
+    feature = features.get(MODULE)
+    label = feature.name if feature else MODULE.replace("_", " ").title()
+    return (
+        f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
+        "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard)."
+    )
 
 
 def _audit_embed(
@@ -72,15 +96,21 @@ class AutoMod(commands.Cog):
         self.settings_cache = {}  # {guild_id: {"block_invites": bool, "anti_spam": bool}}
         self.message_log = {}  # {(guild_id, user_id): [timestamps]}
 
+    def _running(self, guild_id) -> bool:
+        """Whether this cog's modules are on for a guild.
+
+        The one place the lookup happens. A bot without the module readers (the
+        cog tests build it with a stub) answers "running": the gate is about a
+        switch the bot has to be able to see, and a bot that cannot see one is not
+        evidence that a server turned it off.
+        """
+        check = getattr(self.bot, "is_module_enabled", None)
+        return True if check is None else bool(check(guild_id, MODULE))
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
-            if not self.bot.is_module_enabled(interaction.guild_id, "automod"):
-                await interaction.response.send_message(
-                    "⚠️ The **Automod** system is currently **turned off** on this server.\n"
-                    "An administrator can re-enable it in the [Web Dashboard](https://meow-bot.pages.dev/dashboard).",
-                    ephemeral=True
-                )
-                return False
+        if interaction.guild_id and not self._running(interaction.guild_id):
+            await interaction.response.send_message(_off_sentence(), ephemeral=True)
+            return False
         return True
 
     async def get_settings(self, guild_id):
@@ -114,7 +144,7 @@ class AutoMod(commands.Cog):
         if message.author.guild_permissions.manage_messages:
             return  # don't automod staff
 
-        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(message.guild.id, "automod"):
+        if not self._running(message.guild.id):
             return
 
         settings = await self.get_settings(message.guild.id)

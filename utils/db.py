@@ -437,6 +437,54 @@ async def setup():
                 "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v1', '1')"
             )
 
+        # One-time migration: Market, Starboard, Voice Company and Radio/Q&A
+        # (the legacy module) are shipped switched OFF — the owner asked for them
+        # disabled for now. Saved rows are deleted rather than flipped to 0, the
+        # same move as the v1 block above: no row means "fall back to the
+        # registry's default", and `modules._load_from_db` merges defaults first.
+        # Runs exactly once, so an administrator can turn any of them back on
+        # afterwards and have it stick.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'modules_default_off_v2'"
+        ) as cur:
+            _migrated_v2 = await cur.fetchone()
+        if not _migrated_v2:
+            await db.execute(
+                "DELETE FROM guild_modules WHERE module_name IN "
+                "('market', 'starboard', 'company', 'legacy')"
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v2', '1')"
+            )
+
+        # One-time sweep: saved rows for modules the registry has retired. This
+        # pass's example is `automod` — Automod & Shield was merged into
+        # Moderation & Logs, and a guild that had the shield switched on kept a
+        # row for a module nothing reads any more: `modules._load_from_db`
+        # ignores unknown ids, `set_enabled` refuses to write one, and both the
+        # dashboard and /help are built from the registry. So the row is the only
+        # place that system still exists, and no switch anywhere can turn it off
+        # — which is why the merge above had to clean it up rather than leave it.
+        # `music` is the same kind of orphan, one retirement older, and it is the
+        # argument against a hand-written list (the v1 and v2 blocks above name
+        # theirs): a list of retired names only holds the retirements that were
+        # known when somebody wrote it. So this asks the registry instead.
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'modules_retired_swept_v1'"
+        ) as cur:
+            _retired_swept = await cur.fetchone()
+        if not _retired_swept:
+            keep = sorted(features.TOGGLEABLE_IDS)
+            await db.execute(
+                "DELETE FROM guild_modules WHERE module_name NOT IN "
+                f"({', '.join('?' for _ in keep)})",
+                keep,
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) "
+                "VALUES (0, 'modules_retired_swept_v1', '1')"
+            )
+
         # One-time integrity repair: earlier builds let /setlevel and /givexp
         # write unbounded XP (a 2.4-billion-XP "Level 1351" record is what broke
         # the leaderboard and the rank card). Re-derive every row's level from

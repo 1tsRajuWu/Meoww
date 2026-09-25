@@ -119,6 +119,11 @@ FEATURES: tuple[Feature, ...] = (
             "/market history — Your recent fills",
         ),
         cog="cogs.market",
+        # Temporarily shipped OFF (owner's request, 2026-09-25). A one-time
+        # migration in utils/db.py flips saved rows too; the registry default
+        # covers servers that arrive afterwards. Delete these two lines to
+        # re-enable everywhere.
+        enabled_by_default=False,
         help_key="market",
     ),
     Feature(
@@ -128,7 +133,9 @@ FEATURES: tuple[Feature, ...] = (
         category="Management",
         description=(
             "Administrative bans, kicks, timeouts, warnings, message purges, and "
-            "automated audit logs in #logs."
+            "automated audit logs in #logs — plus the automatic shields: real-time "
+            "anti-spam flood protection, Discord invite filter and unauthorized "
+            "link blocking. One switch runs all of it."
         ),
         gate_commands=(
             "ban", "kick", "mute", "unmute", "unban", "warn", "warnings",
@@ -136,30 +143,22 @@ FEATURES: tuple[Feature, ...] = (
             "lockdown-server",
             "unlock", "unlock-server", "slowmode", "addrole", "removerole",
             "announce",
+            "automod",
         ),
         commands=(
             "/ban", "/kick", "/mute", "/unmute", "/warn", "/warnings",
             "/clearwarnings", "/purge", "/modlog", "/appeal", "/lockdown",
             "/unlock",
             "/slowmode", "/addrole", "/removerole", "/announce",
+            "/automod invites", "/automod antispam",
         ),
         cog="cogs.moderation",
         help_key="moderation",
     ),
-    Feature(
-        id="automod",
-        name="Automod & Shield",
-        icon="🤖",
-        category="Security",
-        description=(
-            "Real-time anti-spam flood protection, Discord invite filter, "
-            "unauthorized link blocking."
-        ),
-        gate_commands=("automod",),
-        commands=("/automod invites", "/automod antispam"),
-        cog="cogs.automod",
-        help_key="automod",
-    ),
+    # Automod & Shield was merged into Moderation & Logs above: one switch runs
+    # the manual actions and the automatic filters. `cogs.automod` still loads —
+    # via CORE_COGS below, for the same single-path reason radio and qna are
+    # there — and gates itself on "moderation".
     Feature(
         id="starboard",
         name="Starboard",
@@ -172,6 +171,7 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=("starboard",),
         commands=("/starboard set", "/starboard limit", "/starboard status"),
         cog="cogs.starboard",
+        enabled_by_default=False,  # temporarily off — see the market entry
         help_key="starboard",
     ),
     Feature(
@@ -260,6 +260,7 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=("company",),
         commands=("/company — auto or off, and whether I say hello",),
         cog="cogs.company",
+        enabled_by_default=False,  # temporarily off — see the market entry
         help_key="company",
     ),
     Feature(
@@ -401,6 +402,11 @@ SHARED_GATES: Mapping[str, tuple[str, ...]] = {
 # both cogs checks `is_module_enabled(guild, "legacy")` before it does anything,
 # and `command_scope` keeps them out of a picker that has not opted in. Loading a
 # cog registers its commands; it does not offer them.
+#
+# `cogs.automod` is here for the same mechanical reason: Automod & Shield was
+# merged into Moderation & Logs, `Feature.cog` holds one path, so the filters'
+# cog loads as a core cog and gates itself on `"moderation"` — one switch runs
+# the manual actions and the automatic ones.
 CORE_COGS: tuple[str, ...] = (
     "cogs.server_control",
     "cogs.help",
@@ -408,6 +414,7 @@ CORE_COGS: tuple[str, ...] = (
     "cogs.bot_config",
     "cogs.radio",
     "cogs.qna",
+    "cogs.automod",
 )
 
 # Commands that are always reachable regardless of module state. (The old

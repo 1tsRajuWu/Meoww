@@ -6,9 +6,10 @@ from utils.style import send_panel, ACCENT, DANGER, accent_for, avatar_url, guil
 
 HELP_MODULES = {
     "moderation": {
-        "title": "🔨 Moderation & Security",
+        "title": "🛡️ Moderation & Logs",
         "desc": (
-            "Complete server protection, disciplinary actions, and logging tools.\n\n"
+            "Complete server protection, disciplinary actions, automatic filters, "
+            "and logging tools.\n\n"
             "> `/warn <member> <reason>` — Issue an official warning\n"
             "> `/warnings <member>` — View warning history for a user\n"
             "> `/clearwarnings <member>` — Clear all warnings for a user\n"
@@ -19,21 +20,13 @@ HELP_MODULES = {
             "> `/unban <user_id>` — Unban a user\n"
             "> `/purge <amount> [member]` — Bulk delete messages\n"
             "> `/appeal <reason>` — Ask a human to review an action taken against you\n"
-            "> `/modlog <channel>` — Set the moderation audit log channel"
-        ),
-        "color": 0xED4245,
-        "emoji": "🔨"
-    },
-    "automod": {
-        "title": "🛡️ Auto-Moderation",
-        "desc": (
-            "Automatic server defenses against spam and unauthorized invites.\n\n"
+            "> `/modlog <channel>` — Set the moderation audit log channel\n"
             "> `/automod invites <enabled>` — Toggle blocking of Discord invite links\n"
             "> `/automod antispam <enabled>` — Toggle rapid-message flood protection\n\n"
             "Every automatic action is written to the moderation log with the rule "
             "that fired, and the member it hit is told they can run `/appeal`."
         ),
-        "color": 0xE67E22,
+        "color": 0xED4245,
         "emoji": "🛡️"
     },
     "starboard": {
@@ -282,10 +275,16 @@ HELP_MODULES = {
 
 
 
+# Hand-written prose, and this string is exactly why the drift check below is
+# not enough: it compares *keys*, and Automod & Shield was merged into
+# Moderation & Logs — the registry and `HELP_MODULES` both moved in that pass,
+# and this list kept a bullet for a system that no longer exists beside a
+# moderation bullet whose name and emoji were already out of date. A category
+# named here is the first thing a reader sees on the card, so a stale one is the
+# help menu advertising a system the bot does not have.
 HELP_HOME_BODY = (
     "Your all-in-one command center. Pick a category below to open its full command list.\n\n"
-    "- 🔨 **Moderation** — warns, bans, timeouts, logs\n"
-    "- 🛡️ **Automod** — invite & flood protection\n"
+    "- 🛡️ **Moderation & Logs** — warns, bans, timeouts, invite & flood filters, the audit log\n"
     "- ⭐ **Starboard** — community highlights\n"
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
