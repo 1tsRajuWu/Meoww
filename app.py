@@ -74,8 +74,6 @@ def _brand_theme():
             primary_hue=gr.themes.colors.teal,
             secondary_hue=gr.themes.colors.teal,
             neutral_hue=gr.themes.colors.gray,
-            font=["Source Sans Pro", "system-ui", "sans-serif"],
-            font_mono=["IBM Plex Mono", "ui-monospace", "monospace"],
         ).set(
             body_background_fill=brand.BG_HEX,
             body_background_fill_dark=brand.BG_HEX,
