@@ -1997,6 +1997,45 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
             "paints over the sentence: " + "; ".join(offenders),
         )
 
+    def test_a_row_that_carries_a_switch_states_its_shape(self):
+        """The front page's list of systems: one switch per line, and no sentence.
+
+        This row is the third shape a `.list__row` gets asked for, and the one
+        that has nothing to align *to*: baseline alignment exists so two texts
+        share a baseline, and a switch has none — measured at 1280, the row came
+        out 51px tall with the name pushed below the control's own middle. It is
+        ``--control`` now, centred, with the control being 44px of the row's
+        height by itself so the padding is a token rather than a gap.
+
+        The card also gave up its thirteen descriptions, which is what the
+        shape is for: they live on the Systems page, and each name here links to
+        that system's own card there rather than to the top of a long page.
+        """
+        sheet = read(os.path.join(os.path.dirname(TEMPLATES), "static", "pages.css"))
+        control = self._declarations(sheet, ".list__row--control")
+        self.assertEqual(
+            control.get("align-items"),
+            "center",
+            "a row holding a switch keeps the baseline alignment of a row of "
+            "text, which a switch has none of",
+        )
+
+        template = read(os.path.join(TEMPLATES, "dashboard.html"))
+        rows = re.findall(r'<li class="(list__row[^"]*)">(.*?)</li>', template, re.S)
+        offenders = [
+            " ".join(body.split())[:70]
+            for classes, body in rows
+            if ("role=\"switch\"" in body or "module_switch(" in body)
+            and "list__row--prose" not in classes
+            and "list__row--control" not in classes
+        ]
+        self.assertFalse(
+            offenders,
+            "a dashboard row carries a switch without stating which shape it "
+            "is — prose (it has a sentence too) or control (it is the name and "
+            "the control): " + "; ".join(offenders),
+        )
+
     def test_the_footer_does_not_collapse_its_first_column_on_a_phone(self):
         """Four columns with one zero minimum is three columns and a sliver.
 

@@ -246,9 +246,16 @@
         </p>
         <ul class="list">
           {% for module in modules %}
-          <li class="list__row list__row--prose">
-            <span class="list__key">{{ module.icon }} {{ module.name }}</span>
-            <span class="list__note">{{ module.desc }}</span>
+          {# One line per system, and the sentence about it lives on the Systems page
+             with its commands. This card carried all thirteen descriptions, which
+             made it the tallest thing on the front page — three lines per system to
+             answer a question ("is this on?") whose answer is the switch. Each name
+             is now the way to read more, landing on that system's own card rather
+             than at the top of a page of fourteen. #}
+          <li class="list__row list__row--control">
+            <span class="list__key">
+              <a href="/dashboard/systems{{ guild_query }}#sys-{{ module.id }}">{{ module.icon }} {{ module.name }}</a>
+            </span>
             {{ module_switch(module) }}
           </li>
           {% else %}
@@ -261,8 +268,9 @@
           {% endfor %}
         </ul>
         <p class="hint">
-          <a href="/dashboard/systems{{ guild_query }}">Open the systems</a> for each
-          one's commands and what it is for.
+          A name opens that system on the Systems page, where its commands and what it
+          is for are written out. <a href="/dashboard/systems{{ guild_query }}">Open the
+          whole list</a>.
         </p>
       </div>
     </div>
@@ -307,7 +315,10 @@
     <h3>{{ category }}</h3>
     <div class="own-grid" data-reveal>
       {% for module in group %}
-      <div class="own-card dash-sys">
+      {# The overview's list links each of its names to `#sys-<id>` here, so a person
+         who asked "what is Market?" arrives at Market's card and not at the top of
+         a page that answers it somewhere below the fold. #}
+      <div class="own-card dash-sys" id="sys-{{ module.id }}">
         <div class="dash-sys__head">
           <h4>{{ module.icon }} {{ module.name }}</h4>
           {{ module_switch(module) }}

@@ -100,6 +100,16 @@
 .list__row--prose .list__note { grid-column: 1 / -1; }
 .list__row--prose > :not(.list__key):not(.list__note) { grid-area: 1 / 2; justify-self: end; }
 
+/* A row whose second field is a **control** rather than text: the front page's
+   list of systems, one switch per line.
+
+   `align-items: baseline` is what makes `Lobby | 2 people · live` line up, and
+   it is the wrong rule the moment one of the two items is a switch — there is
+   no text baseline to share, so the row measured 51px with the name pushed
+   *below* the control's own middle. Centred, and with the padding tightened to
+   a token, because the control is 44px of the row's height by itself. */
+.list__row--control { align-items: center; padding-block: var(--space-1); }
+
 .list--pair .list__row { grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); }
 
 @media (max-width: 760px) {
@@ -784,8 +794,15 @@
 
 .dash-switch__state { font-weight: 550; }
 
-/* One system's card, and the row its name and its switch share. */
-.dash-sys { display: grid; gap: var(--space-2); }
+/* One system's card, and the row its name and its switch share.
+
+   `scroll-margin-top` is the half of a fragment link that no `:target` rule can
+   do: the frame's top bar is sticky, so a card opened by its own id lands under
+   it without this. `:target` is the other half — the overview's list sends a
+   reader to one system out of fourteen on this page, and the card they were sent
+   to says so by wearing the accent until they move. */
+.dash-sys { display: grid; gap: var(--space-2); scroll-margin-top: var(--space-9); }
+.dash-sys:target { border-color: var(--accent); }
 
 .dash-sys__head {
   display: flex;
