@@ -54,8 +54,8 @@ from utils import (
     ai_guard, alert_webhook, brand, command_publish, command_scope, company, compression,
     config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
     hub, identity, levels as levels_module, media_health, meowfee, moderation_actions,
-    modules, pause, plans, principal, qna, ratelimit, scheduled, server_control,
-    sessions, site_guard, uptime_status, webdocs,
+    modules, pause, permissions, plans, principal, qna, ratelimit, scheduled,
+    server_control, sessions, site_guard, uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -2303,6 +2303,7 @@ def _site_context() -> dict:
 LANDING_TOUR = {
     "overview": {
         "icon": "◎",
+        "note": "This server, at a glance",
         "blurb": "What this server is doing right now, at a glance.",
         "points": (
             "Who is in voice, and who is sitting alone",
@@ -2312,6 +2313,7 @@ LANDING_TOUR = {
     },
     "systems": {
         "icon": "▦",
+        "note": "One switch per system",
         "blurb": "One switch per system, per server.",
         "points": (
             "Every system, with its switch",
@@ -2321,6 +2323,7 @@ LANDING_TOUR = {
     },
     "members": {
         "icon": "☰",
+        "note": "The roster and its moderation",
         "blurb": "The roster, and the moderation that goes with it.",
         "points": (
             "Search members, and read their warnings",
@@ -2330,6 +2333,7 @@ LANDING_TOUR = {
     },
     "server": {
         "icon": "⛨",
+        "note": "Lockdown, lift and slowmode",
         "blurb": "The whole server at once: lockdown, lift, slowmode.",
         "points": (
             "See the plan before it runs",
@@ -2339,6 +2343,7 @@ LANDING_TOUR = {
     },
     "economy": {
         "icon": "▤",
+        "note": "Wallets, banks and circulation",
         "blurb": "What this server's coins are doing.",
         "points": (
             "Wallets, banks and what is in circulation",
@@ -2348,6 +2353,7 @@ LANDING_TOUR = {
     },
     "leveling": {
         "icon": "⤴",
+        "note": "XP, rank cards, level roles",
         "blurb": "Who is earning, and how far they have climbed.",
         "points": (
             "Members earning, against everyone seen",
@@ -2357,6 +2363,7 @@ LANDING_TOUR = {
     },
     "composer": {
         "icon": "✎",
+        "note": "Write a message as the bot",
         "blurb": "Write a message as the bot, and see it first.",
         "points": (
             "A preview of how it will arrive",
@@ -2366,6 +2373,7 @@ LANDING_TOUR = {
     },
     "schedule": {
         "icon": "◷",
+        "note": "Queued messages and repeats",
         "blurb": "Queue a message, once or on a repeat.",
         "points": (
             "One-off, or every day, week or month",
@@ -2375,6 +2383,7 @@ LANDING_TOUR = {
     },
     "identity": {
         "icon": "☺",
+        "note": "The bot's name and picture",
         "blurb": "The bot's name and picture in this server.",
         "points": (
             "A per-server nickname and bio",
@@ -2384,6 +2393,7 @@ LANDING_TOUR = {
     },
     "commands": {
         "icon": "⌘",
+        "note": "Which commands this server keeps",
         "blurb": "Your switches, against what Discord actually holds.",
         "points": (
             "Every command the bot declares",
@@ -2393,6 +2403,7 @@ LANDING_TOUR = {
     },
     "status": {
         "icon": "◈",
+        "note": "Latency, uptime and errors",
         "blurb": "This deployment's own health, on the page.",
         "points": (
             "Uptime, and the last site check",
@@ -2528,10 +2539,73 @@ def _landing_tour() -> list[dict]:
             "label": label,
             "path": path,
             "icon": entry.get("icon") or "▸",
+            # Two lengths of one description on purpose: ``blurb`` is the sentence
+            # the one card reads, ``note`` is what the scan line beside it prints.
+            # A four-word note is not a shorter sentence, it is a different job —
+            # and the fallback is a sentence so that a page nobody wrote a note for
+            # fails the law that reads this rather than printing three words that
+            # happen to look like a note.
+            "note": entry.get("note") or f"The {label.lower()} page of the dashboard.",
             "blurb": entry.get("blurb") or f"The {label.lower()} page of the dashboard.",
             "points": list(entry.get("points") or ()),
         })
     return rows
+
+
+#: The refusal a member gets when a system is off — **the bot's own sentence**.
+#:
+#: ``bot.global_module_check`` composes it on the interaction path, and it cannot
+#: be imported here: importing ``bot`` starts a gateway. So the words are written
+#: once in this file and `tests/test_meoww_site.py` compares them against
+#: `bot.py`'s own source. A front door that paraphrases the bot is a front door that
+#: lies about what a member will see, which is the one thing the demo band must
+#: not do.
+SIM_OFF_SENTENCE = "⚠️ The {name} system is currently turned off on this server."
+SIM_OFF_HINT = "An administrator can re-enable it instantly in the Web Dashboard."
+
+
+def _sim_payload() -> dict:
+    """What the front door's command demo needs, from the bot's own tables.
+
+    Two facts, and each already has exactly one author — which is the whole reason
+    this is built here rather than written into the template:
+
+      * **Which commands exist.** ``permissions.COMMAND_ACCESS`` is the audience
+        table whose coverage of the real command tree is enforced elsewhere; its
+        roots are this product's command list, not a second copy of it.
+      * **Which system owns one.** ``features.command_gates()`` is the map
+        ``bot.global_module_check`` itself reads on the interaction path, so the
+        demo's answer to "is this on" is the answer the bot would give.
+
+    Their union is checked as it is built: a real command that is in neither table
+    would be called "not a command" by the demo, and the demo's only claim is that
+    it recognises the real ones. A registry edit that lands in that gap is a
+    build-time failure here rather than a quiet lie on the front page.
+
+    The system *names* come from the same registry the switches beside it are
+    drawn from, so a refusal names the system a server's own dashboard would name.
+    """
+    names = {feature.id: feature.name for feature in features.FEATURES}
+    gated = {root: list(ids) for root, ids in features.command_gates().items()}
+    always = sorted(features.ALWAYS_ALLOWED_COMMANDS)
+    known = {str(name).split(" ")[0] for name in permissions.COMMAND_ACCESS}
+    missing = known - set(gated) - set(always)
+    if missing:
+        raise ValueError(
+            "the command demo would refuse real commands: " + ", ".join(sorted(missing))
+        )
+    for ids in gated.values():
+        for feature_id in ids:
+            if feature_id not in names:
+                raise ValueError(f"a gate names a system the registry does not have: {feature_id}")
+    return {
+        "names": names,
+        "gates": gated,
+        "always": always,
+        "count": len(known),
+        "off": SIM_OFF_SENTENCE,
+        "hint": SIM_OFF_HINT,
+    }
 
 
 def _landing_context() -> dict:
@@ -2559,6 +2633,10 @@ def _landing_context() -> dict:
         # here as well was a `TypeError` on the next request — two authors for
         # one name — which is the failure this pair of functions exists to avoid.
         "tour": _landing_tour(),
+        # The command demo's own tables: which commands exist and which system
+        # owns each. See :func:`_sim_payload` — the switches it sits beside come
+        # from ``systems`` above, and this adds no third list of systems.
+        "sim": _sim_payload(),
         "faq": [{"question": question, "answer": answer} for question, answer in LANDING_QUESTIONS],
     }
 

@@ -100,12 +100,29 @@ class EveryAssetThisHostServesIsCopied(unittest.TestCase):
 
         The rule above covers it, and this says *which* page it was about — so a
         future rewrite of the walk cannot quietly stop covering the one case
-        somebody actually hit.
+        somebody actually hit: the per-server dashboard arriving from this proxy
+        as an unstyled heading.
+
+        What it wears changed when the dashboard moved onto the rebuilt frame,
+        and this file had been left asserting the *retired* sheet set
+        (``dashboard.css``, ``motion.js``, ``gateway.js``) — three files that are
+        not in the tree any more. It reads the two templates now: the frame is
+        where the frame's files are, the page is where the page's own are, and
+        every one of them has to be copied by this host.
         """
+        frame = (TEMPLATES / "meoww" / "base.html").read_text(encoding="utf-8")
         dashboard = (TEMPLATES / "dashboard.html").read_text(encoding="utf-8")
-        for name in ("dashboard.css", "motion.js", "gateway.js"):
-            with self.subTest(asset=name):
+        for name in ("meoww.css", "meoww.js"):
+            with self.subTest(asset=name, from_="frame"):
+                self.assertIn(f"/static/{name}", frame)
+        # The rail's own script is asked for by the frame that draws the rail, and
+        # by nothing else — the dashboard draws none, but it wears the frame.
+        self.assertIn("/static/spine.js", frame)
+        for name in ("meow.css", "pages.css"):
+            with self.subTest(asset=name, from_="dashboard"):
                 self.assertIn(f"/static/{name}", dashboard)
+        for name in ("meoww.css", "meoww.js", "spine.js", "meow.css", "pages.css"):
+            with self.subTest(asset=name, copied=True):
                 self.assertIn(name, build_owner.STATIC_ASSETS)
 
 
@@ -141,11 +158,32 @@ class TheBuiltDirectoryIsTheSite(unittest.TestCase):
             with self.subTest(asset=name):
                 self.assertTrue((self.root / "static" / name).is_file())
 
-    def test_the_console_bundle_travels_with_it(self):
-        bundle = self.root / "static" / "console"
-        self.assertTrue((bundle / "app.js").is_file())
-        self.assertTrue((bundle / "app.css").is_file())
-        self.assertTrue((bundle / "build.json").is_file())
+    def test_the_console_ships_as_pages_rather_than_a_bundle(self):
+        """The operator console is the backend's own pages now, and this host carries none.
+
+        It used to be a bundled browser app — ``static/console/app.js`` plus its
+        stylesheet and its build stamp — and this law required the three files to
+        travel here. The app is archived with the rest of the pre-rebuild
+        surfaces (``/owner`` renders one page per entry in ``OWNER_PAGES``), so
+        the old assertion could only ever fail: it was asking this build to ship
+        a directory the repository no longer contains. What is left that still
+        matters is the *shape* — a bundle directory that reappeared without being
+        copied, or a console page asking the CDN for a file it does not answer,
+        is the 404-on-one-host defect this whole file exists for.
+        """
+        self.assertFalse(
+            (self.root / "static" / "console").exists(),
+            "a console bundle is back in the build without this host learning about it",
+        )
+        copied = set(build_owner.STATIC_ASSETS)
+        owner_pages = [
+            path for path in TEMPLATES.glob("owner*.html")
+        ]
+        self.assertTrue(owner_pages, "the console's own pages are gone")
+        for path in owner_pages:
+            for name in STATIC_URL.findall(path.read_text(encoding="utf-8")):
+                with self.subTest(page=path.name, asset=name):
+                    self.assertIn(name, copied)
 
     def test_it_refuses_to_write_into_the_repository_root(self):
         with self.assertRaises(ValueError):
@@ -172,79 +210,78 @@ class TheSignInPageWorksOnAPhone(unittest.TestCase):
 
     def setUp(self):
         self.page = (TEMPLATES / "owner_login.html").read_text(encoding="utf-8")
+        self.sheet = (ROOT / "static" / "pages.css").read_text(encoding="utf-8")
 
-    @staticmethod
-    def _declarations(block: str) -> str:
-        """A declaration block with its comments taken out.
+    def test_the_page_borrows_the_frame_instead_of_styling_itself(self):
+        """The `<style>` block these laws were written against is gone, and that is the fix.
 
-        Not a convenience: this template explains what it used to do, in the
-        place it used to do it — "`overflow: hidden` here was a guard against
-        the tilted card" — so a check that read comments would fail on the
-        explanation of its own fix.
+        The page used to carry its own rules — a `body`, a tilted card, a
+        `.holo-input` — and the defect recorded above happened *inside* them:
+        `body { overflow: hidden }` for the tilt made the document unscrollable,
+        so on a 507px-tall phone the Unlock button and the link back to the
+        public site could not be reached at all. It is a page of the shared frame
+        now, wearing `pages.css` with every other sign-in, so the honest laws are
+        about what it borrows and what that sheet promises. A template with no
+        style block cannot take scrolling away from itself again.
         """
-        return re.sub(r"/\*.*?\*/", "", block, flags=re.S)
-
-    def _body_rule(self) -> str:
-        """The template's own `body { … }` block, not the sheet's."""
-        match = re.search(r"\n        body \{(.*?)\n        \}", self.page, flags=re.S)
-        self.assertIsNotNone(match, "owner_login.html no longer styles its own body")
-        return self._declarations(match.group(1))
-
-    def test_the_page_can_reach_its_own_controls(self):
-        body = self._body_rule()
+        self.assertIn('{% extends "site_base.html" %}', self.page)
+        self.assertIn("/static/pages.css", self.page)
         self.assertNotIn(
-            "overflow: hidden",
-            body,
-            "the sign-in page hides its own vertical overflow, so on a phone the "
-            "Unlock button and the way back to the public site cannot be reached",
-        )
-        self.assertIn(
-            "overflow-x: hidden",
-            body,
-            "nothing stops the tilted card from producing a sideways scrollbar",
-        )
-
-    def test_the_card_is_centred_in_the_height_the_phone_shows(self):
-        self.assertIn("min-height: 100vh;", self.page)
-        self.assertIn(
-            "min-height: 100dvh;",
+            "<style",
             self.page,
-            "the card is centred in the height a phone would have with its "
-            "address bar hidden, so it sits under it",
+            "the sign-in page styles itself again; every rule it owns is one no "
+            "other page of this host can be fixed by",
         )
 
-    def test_the_passkey_field_is_the_size_the_sheet_gives_it(self):
+    def test_the_card_can_be_reached_on_a_phone(self):
+        """The three claims the old height rules stood in for, read where they live now.
+
+        Nothing pins the card to a viewport height, the pair of sign-in columns
+        collapses to one, and no rule in the sheet that lays this page out takes
+        scrolling away — which is the failure the phone test was really about.
+        """
+        self.assertNotIn("overflow: hidden", self.page)
+        self.assertNotIn(
+            "100vh",
+            self.sheet,
+            "a viewport-height box is a card centred in a height a phone does not "
+            "have with its address bar showing",
+        )
+        self.assertIn(
+            ".auth__inner { grid-template-columns: minmax(0, 1fr); }",
+            self.sheet,
+            "the sign-in columns no longer collapse, so the card is off the side "
+            "of a phone instead of below the headline",
+        )
+        body_rule = re.search(r"\nbody \{([^}]*)\}", self.sheet)
+        if body_rule:
+            self.assertNotIn(
+                "overflow: hidden",
+                body_rule.group(1),
+                "the shared sheet makes every page unscrollable",
+            )
+
+    def test_the_passkey_field_is_not_asked_to_shrink(self):
         """A field below 16px is the page zooming when it takes focus, on iOS.
 
-        Nothing here has to say 16px: `static/meow.css` sets
-        `input[type="password"] { font-size: var(--text-body) }`, which is 16px
-        and which *wins* any single class — so a `font-size` on `.holo-input` is
-        a declaration that never applies, and the 15px that used to be written
-        there was exactly that. What is pinned is that the field does not name a
-        size of its own, because the sheet's is the one that is read.
+        The retired template named 15px on its own `.holo-input`, and the rule
+        that mattered was the sheet's — so what is pinned is what a reader gets:
+        this page states no size for its own field, and no sheet hands a text
+        field one under 16px. A browser's own size is 16px, which is why the
+        second half is written as a floor rather than as a required declaration.
         """
-        field = re.search(r"\.holo-input \{(.*?)\n        \}", self.page, flags=re.S)
-        self.assertIsNotNone(field, "the passkey field's own rule is gone")
-        body = self._declarations(field.group(1))
-        self.assertNotIn(
-            "font-size",
-            body,
-            "the field states a size the sheet overrides, so what it says is not "
-            "what a phone reads",
-        )
-        sheet = self._declarations((ROOT / "static" / "meow.css").read_text(encoding="utf-8"))
-        sized = [
-            body
-            for selector, body in re.findall(r"([^{}]*)\{([^{}]*)\}", sheet, flags=re.S)
-            if 'input[type="password"]' in selector and "font-size" in body
-        ]
-        self.assertEqual(
-            len(sized),
-            1,
-            "no rule sizes a password field any more, so what a phone gets is "
-            "whatever the field or the browser picks",
-        )
-        self.assertIn("font-size: var(--text-body)", sized[0])
+        self.assertNotIn("font-size", self.page)
+        for name in ("meow.css", "pages.css"):
+            text = (ROOT / "static" / name).read_text(encoding="utf-8")
+            for selector, body in re.findall(r"([^{}]*)\{([^{}]*)\}", text, flags=re.S):
+                if "input" not in selector or "font-size" not in body:
+                    continue
+                with self.subTest(sheet=name, selector=selector.strip()[:40]):
+                    self.assertIsNone(
+                        re.search(r"font-size:\s*(1[0-5](\.\d+)?)px", body),
+                        "a field below 16px zooms the whole page on iOS when it "
+                        "takes focus",
+                    )
 
 
 class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
@@ -274,14 +311,30 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
         self.assertIsNotNone(block, "the worker no longer declares what it serves")
         return re.findall(r'"([^"]+)"', block.group(1))
 
+    #: Paths the console's own pages name that this host deliberately does not
+    #: serve, each for a reason that is the whole point of the exception.
+    #: ``/login`` is the per-server dashboard's door and it belongs on the public
+    #: host: this host answers it with a 301 there, which is where a server's own
+    #: administrator should be signing in — the console is the operator's, and a
+    #: second door to it on this domain is the defect its own docstring records.
+    HANDED_OFF = {"/login"}
+
     def paths_the_console_calls(self) -> set[str]:
+        """Every path the console's own pages name.
+
+        This read `console/src/**/*.ts(x)` and `templates/console.html` — the
+        bundled app's TypeScript and its shell. Both are archived with the rest
+        of the pre-rebuild surfaces, and a law that reads a directory the
+        repository does not have cannot be satisfied by any change to the site:
+        it fails at ``open()`` before it can say anything about this host. The
+        console is the backend's pages now, so the sources are the templates it
+        actually renders. ``keep_alive`` is deliberately *not* one of them — it
+        holds every route in the application, so reading it would ask why the
+        owner's proxy does not serve the per-server dashboard's endpoints.
+        """
         found: set[str] = set()
-        sources = [
-            path
-            for path in (ROOT / "console" / "src").rglob("*")
-            if path.suffix in (".ts", ".tsx")
-        ]
-        sources += [TEMPLATES / "console.html", TEMPLATES / "owner_login.html"]
+        sources = sorted(TEMPLATES.glob("owner*.html"))
+        self.assertTrue(sources, "the console's own pages are gone")
         for path in sources:
             for raw in self.CALLED_PATH.findall(path.read_text(encoding="utf-8")):
                 found.add(raw.rstrip("/"))
@@ -293,11 +346,12 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
     def test_every_path_the_console_calls_is_one_this_host_serves(self):
         prefixes = self.worker_prefixes()
         called = self.paths_the_console_calls()
-        self.assertGreater(len(called), 5, "the console's own calls were not found")
+        self.assertGreater(len(called), 3, "the console's own calls were not found")
         uncovered = sorted(
             path
             for path in called
-            if not any(path == p or path.startswith(p + "/") for p in prefixes)
+            if path not in self.HANDED_OFF
+            and not any(path == p or path.startswith(p + "/") for p in prefixes)
         )
         self.assertEqual(
             uncovered,

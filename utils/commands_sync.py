@@ -195,6 +195,79 @@ def removable(registered, wanted, known) -> list[tuple[str, str]]:
     ]
 
 
+def prunable_globals(
+    registered,
+    wanted,
+    known,
+    held,
+    wanted_by_guild,
+) -> list[tuple[str, str]]:
+    """``(name, id)`` for global copies that every server needing one holds.
+
+    The narrow half of :func:`removable`, for the one scope whose contents are
+    visible everywhere: a command that now belongs to each server individually
+    must leave Discord's **global** lane, or it stays in the picker of every
+    server that switched its system off — and appears twice in the servers that
+    did not, because their own copy is registered under the same name.
+
+    Deleting the global copy is only safe once each server that still wants the
+    command has its own: a server whose publish has not landed yet would lose
+    the command entirely in the window between the two, and *that* is the
+    destructive-overwrite outcome the publisher is built to avoid. So the
+    condition is proved per name instead of assumed from "every publish
+    finished" — which is what let one unrelated command, stuck behind a spent
+    daily write budget, hold the whole lane open indefinitely.
+
+    ``held`` is each server's registered commands and ``wanted_by_guild`` the
+    same servers' wanted names, in the same order. A guild that does not want
+    the name is not asked to hold it: it is exactly the server the global copy
+    is leaking into.
+    """
+    if registered is None or len(held) != len(wanted_by_guild):
+        # A lane nobody read is not a lane anybody may guess about, and a
+        # caller that handed over half a fleet cannot prove anything about the
+        # half it left out.
+        return []
+    candidates = removable(registered, wanted, known)
+    if not candidates:
+        return []
+    have = [index(payloads) for payloads in held]
+    prunable: list[tuple[str, str]] = []
+    for name, command_id in candidates:
+        needs = [
+            server for server, wants in enumerate(wanted_by_guild) if name in wants
+        ]
+        if all(name in have[server] for server in needs):
+            prunable.append((name, command_id))
+    return prunable
+
+
+def stranded_globals(
+    registered, wanted, known, held, wanted_by_guild
+) -> list[str]:
+    """The candidates :func:`prunable_globals` had to leave, by name.
+
+    Reported rather than swallowed: these are the commands still visible in a
+    server that switched them off, and the only thing standing between them and
+    the delete is a server that has not published its own copy yet. A reader who
+    can see which ones they are can tell "still publishing" from "Discord said
+    no" — the distinction this whole module exists for.
+    """
+    if registered is None:
+        return []
+    prunable = {
+        name
+        for name, _id in prunable_globals(
+            registered, wanted, known, held, wanted_by_guild
+        )
+    }
+    return [
+        name
+        for name, _id in removable(registered, wanted, known)
+        if name not in prunable
+    ]
+
+
 def index(commands) -> dict[str, dict]:
     """``{name: payload}`` for a list of command payloads."""
     return {

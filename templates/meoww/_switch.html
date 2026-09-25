@@ -53,7 +53,15 @@
 </form>
 {%- else -%}
 <button class="mw-switch" type="button" role="switch" data-mw-switch
-        {% if inert %}tabindex="-1" {% endif %}aria-checked="{{ 'true' if demo_on else 'false' }}"
+        {# Which system this is, from the registry's own id — the demo reads it to
+           answer "is this on" for the command a visitor just typed, rather than
+           matching on the row's label. Emitted only where the switch is a
+           *control*: the hero draws the same partial as a picture (`inert`), and
+           a picture must not answer to a hook that means "the state of this
+           system", or a script asking by id finds the drawing first and reads a
+           state nobody can change. Not emitted in write mode either, where the
+           form already names its module in the field the endpoint reads. #}
+        {% if not inert %}data-mw-system="{{ module.id }}" {% endif %}{% if inert %}tabindex="-1" {% endif %}aria-checked="{{ 'true' if demo_on else 'false' }}"
         {# The label names the control and stops there. It used to repeat the
            state ("Market is on — 7 commands"), which is true in the markup and a
            lie the moment a reader flips it: the demo's state is local, so the

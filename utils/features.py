@@ -90,10 +90,17 @@ FEATURES: tuple[Feature, ...] = (
             "addmoney", "removemoney", "setmoney", "addbank", "loan", "repay",
             "beg",
         ),
+        # The admin group is spelled out by its real subcommands, not as
+        # "/eco-admin": the group name is not a command a member can type, and
+        # every count on every surface reads this list (`test_features` holds it
+        # to the command tree), so a row here that nobody can type is a row the
+        # front page advertises anyway.
         commands=(
             "/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit",
-            "/withdraw", "/shop", "/buy", "/inventory", "/richlist", "/eco-admin",
-            "/loan", "/repay", "/beg", "/eco-admin fee",
+            "/withdraw", "/shop", "/buy", "/inventory", "/richlist",
+            "/eco-admin add", "/eco-admin remove", "/eco-admin set",
+            "/eco-admin reset", "/eco-admin fee",
+            "/loan", "/repay", "/beg",
         ),
         cog="cogs.economy",
         help_key="economy",
@@ -169,7 +176,11 @@ FEATURES: tuple[Feature, ...] = (
             "attachment previews."
         ),
         gate_commands=("starboard",),
-        commands=("/starboard set", "/starboard limit", "/starboard status"),
+        # Two subcommands, and the list names exactly those: there has never
+        # been a `/starboard limit` (the reaction threshold is an argument of
+        # `set`), and listing it made the page offer a command that answers
+        # "unknown command" when somebody typed it.
+        commands=("/starboard set", "/starboard status"),
         cog="cogs.starboard",
         enabled_by_default=False,  # temporarily off — see the market entry
         help_key="starboard",
@@ -222,7 +233,9 @@ FEATURES: tuple[Feature, ...] = (
         ),
         commands=(
             "/meme", "/8ball", "/meow", "/meowsound", "/tan", "/kms", "/quote",
-            "/customquote", "/rizz", "/roast", "/scam", "/aura", "/flex",
+            "/customquote add", "/customquote list", "/customquote get",
+            "/customquote delete",
+            "/rizz", "/roast", "/scam", "/aura", "/flex",
             "/flavor — cat, dog or neutral, per server",
         ),
         cog="cogs.fun",
@@ -366,8 +379,12 @@ FEATURES: tuple[Feature, ...] = (
         description=(
             "Server utility, announcements, lockdown, and configuration."
         ),
+        # `/announce` is not here because *Moderation & Logs* gates it, and this
+        # card cannot be switched off: listing it made the same command appear
+        # under two systems, counted twice, and still promised by a card whose
+        # system stays on when moderation is turned off.
         commands=(
-            "/serverinfo", "/userinfo", "/announce", "/bot sync", "/bot db",
+            "/serverinfo", "/userinfo", "/bot sync", "/bot db",
             "/legal privacy", "/legal tos", "/dbstatus",
             "/defaultrole set", "/defaultrole view", "/defaultrole clear",
         ),

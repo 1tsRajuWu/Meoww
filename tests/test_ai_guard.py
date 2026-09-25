@@ -262,10 +262,39 @@ class TheMarkupAndTheHosts(unittest.TestCase):
         self.assertIn('tabindex="-1"', body, "a keyboard user could land on the trap")
         self.assertIn("aria-hidden", body, "a screen reader would read the decoy out")
 
+    @staticmethod
+    def _carries_the_trap(template: str) -> bool:
+        """Whether this template, or the frame it extends, pulls the decoys in.
+
+        The walk is the point. This read three templates for a literal
+        ``{% include "_trap.html" %}``, and the public policies stopped being one
+        of them when they moved onto the rebuilt frame: they still carry the
+        decoys — `meoww/base.html` includes the partial, and the built privacy
+        page has the link the guard's own test checks — but the *template* no
+        longer says the words. A law that reads one file cannot see through
+        ``{% extends %}``, and what it reports is "the policies lost their
+        decoys" about pages that have them.
+        """
+        seen: set[str] = set()
+        while template and template not in seen:
+            seen.add(template)
+            source = read(template)
+            if 'include "_trap.html"' in source:
+                return True
+            parent = re.search(r'\{%\s*extends\s+"([^"]+)"\s*%\}', source)
+            template = f"templates/{parent.group(1)}" if parent else ""
+        return False
+
     def test_every_public_footer_carries_it(self):
-        for template in ("templates/site_base.html", "templates/legal.html", "templates/hub/base.html"):
+        for template in ("templates/site_base.html", "templates/meoww/base.html",
+                         "templates/legal.html", "templates/hub/base.html"):
             with self.subTest(template=template):
-                self.assertIn('include "_trap.html"', read(template))
+                self.assertTrue(
+                    self._carries_the_trap(template),
+                    f"{template} neither includes the decoys nor extends a frame "
+                    "that does, so the paths it publishes in robots.txt are "
+                    "linked from nowhere",
+                )
 
     def test_the_pages_really_do_carry_it(self):
         body = client().get("/privacy").get_data(as_text=True)

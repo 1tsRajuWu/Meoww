@@ -29,7 +29,7 @@ import unittest
 from pathlib import Path
 
 import keep_alive
-from utils import brand
+from utils import brand, permissions
 
 ROOT = Path(__file__).resolve().parents[1]
 SHEET = ROOT / "static" / "meoww.css"
@@ -434,44 +434,74 @@ class TheSpineIsATableOfContents(unittest.TestCase):
         """Not merely present: the difference has to survive a glance.
 
         A row of identical grey rings with one slightly different border is a
-        decoration that knows where you are. So the current one is solid accent,
-        a step larger (`inset: -4px`, which grows the dot without re-laying the
-        four below it), haloed in a tint of the same accent, and its numeral is
-        written in the fill's own ink rather than white.
+        decoration that knows where you are — which is how this rail was read when
+        every mark was the same 40px circle and the current one only changed hue.
+        So the two states are now *sizes*: a small dim station at rest (24px, a
+        16% tint) and a 52px solid-accent disc with a soft glow for the one the
+        reader is at, its numeral a size up and written in the fill's own ink
+        rather than white.
 
-        The line is one accent at two intensities — solid and bright above the
-        current waypoint, a dim tint of the same hue below it — rather than a
-        bright line over a grey hairline, because a grey track reads as a second,
-        unrelated line that happens to meet this one. And all of it is sized to be
-        read as UI: a 3px line, 40px dots, and numerals at the UI size rather than
-        at the smallest size on the page.
+        The line is one accent at two intensities and two widths — a dim 20% track
+        the reader has *filled* with a rounded accent bar twice as wide, glowing
+        faintly. Width is the half that matters: a fill the same width as its
+        track is a segment of a rod, however bright, and this law holds the
+        inequality rather than the numbers so that thickening both together still
+        fails.
+
+        What has not changed is the 40px *slot*: the rails's rhythm is what makes
+        the marks sit still while the reader moves, and the circle is drawn inside
+        it by a pseudo-element so the current one can be half again as large
+        without re-laying the four below it.
         """
         css = read(SHEET)
         here = rule_for(css, ".mw-spine__mark.is-here::before")
+        resting = rule_for(css, ".mw-spine__mark::before")
         self.assertIn("background: var(--mw-accent)", here, "the current waypoint is no longer filled")
-        self.assertIn("inset: -4px", here, "the current waypoint is no longer larger than its neighbours")
-        self.assertIn("rgb(var(--mw-accent-rgb) / 22%)", here, "the halo is built from something other than the accent")
+        self.assertIn("inset: -6px", here, "the current waypoint is no longer larger than its neighbours")
+        self.assertIn("0 0 26px 6px rgb(var(--mw-accent-rgb) / 40%)", here, "the glow went with the glow")
+        self.assertIn("0 0 0 4px rgb(var(--mw-accent-rgb) / 18%)", here, "the edge ring is built from something else")
         self.assertIn("var(--mw-accent-ink)", rule_for(css, ".mw-spine__mark.is-here"), "white ink on a coral fill")
         self.assertIn(
-            "rgb(var(--mw-accent-rgb) / 22%)",
+            "font-size: var(--mw-text-small)",
+            rule_for(css, ".mw-spine__mark.is-here"),
+            "the current numeral is the same size as the ones it is meant to lead",
+        )
+        self.assertIn(
+            "rgb(var(--mw-accent-rgb) / 20%)",
             rules_for(css, ".mw-spine__rail"),
             "the track is no longer a dim tint of the line it becomes",
         )
+        self.assertIn("inset: 8px", resting, "the resting dots grew back into buttons")
         self.assertIn(
-            "rgb(var(--mw-accent-rgb) / 24%)",
-            rule_for(css, ".mw-spine__mark::before"),
+            "rgb(var(--mw-accent-rgb) / 16%)",
+            resting,
             "the resting dots are back to a neutral hairline in the margin",
         )
-        self.assertIn("var(--mw-accent)", rules_for(css, ".mw-spine__fill"), "the read line is no longer the accent")
+        # The resting ring has to be *smaller* than the current one, read as the
+        # insets they are rather than as two magic numbers side by side.
+        rest_inset = int(re.search(r"inset: (-?\d+)px", resting).group(1))
+        here_inset = int(re.search(r"inset: (-?\d+)px", here).group(1))
+        self.assertGreater(rest_inset, here_inset, "the resting ring is no longer the smaller of the two")
+        fill = rules_for(css, ".mw-spine__fill")
+        self.assertIn("var(--mw-accent)", fill, "the read line is no longer the accent")
+        self.assertIn("border-radius: 999px", fill, "the filled line lost its rounded end")
         dots = rule_for(css, ".mw-spine__mark")
-        self.assertIn("width: 40px", dots, "the dots shrank back to specks in the margin")
-        self.assertIn("font-size: var(--mw-text-small)", dots, "the numerals are the smallest type on the page again")
+        self.assertIn("width: 40px", dots, "the slot shrank, which is what makes the rail jump as you read")
         # The rail and its line share one positioning rule (the pair is one line
-        # down the gutter), so the width is read off that block rather than off
-        # either selector's own rule.
+        # down the gutter), so the track's width is read off that block rather
+        # than off either selector's own rule.
         shared = re.search(r"\.mw-spine__rail,\s*\.mw-spine__fill\s*\{(.*?)\n\}", css, re.DOTALL)
         self.assertIsNotNone(shared, "the rail and its line no longer share a positioning rule")
         self.assertIn("width: 3px", shared.group(1), "the line is a hairline again, which is what made it a smudge")
+        track_width = int(re.search(r"width: (\d+)px", shared.group(1)).group(1))
+        # The fill's own declaration is the last one in its match: the pair share a
+        # positioning rule, so the track's width arrives first.
+        fill_width = int(re.findall(r"width: (\d+)px", fill)[-1])
+        self.assertGreater(
+            fill_width,
+            track_width,
+            "the read line is no thicker than the track it is meant to have filled",
+        )
 
     def test_the_pages_with_sections_carry_a_rail(self):
         """Named rather than counted: the rail is a decision per page.
@@ -587,6 +617,25 @@ class SerialPositionTheOrderIsTheMeaning(unittest.TestCase):
         # The action is in the nav's action row, after every destination.
         self.assertLess(nav.index("mw-nav__list"), nav.index("mw-nav__actions"))
         self.assertIn("mw-btn--primary", nav)
+
+    def test_the_dashboard_is_a_destination_in_the_chrome(self):
+        """The door out of the marketing site, in the marketing site's nav.
+
+        There was none: the only way into the dashboard was the one-time link
+        `/help` mints inside Discord, so a visitor reading this site in a
+        browser had to go back to a chat client to find the product they were
+        being sold. It is a *destination* rather than the call to action, which
+        stays `Add to Discord` and stays last — and it is a link rather than a
+        button because it navigates, which is what this sheet's own laws say
+        about the two.
+        """
+        for route in ("/", "/systems", "/start"):
+            nav = page(route).split('<nav class="mw-nav"', 1)[1].split("</nav>", 1)[0]
+            self.assertRegex(
+                nav,
+                r'class="mw-nav__link"[^>]*href="[^"]*/dashboard"',
+                f"{route} offers no way into the dashboard",
+            )
 
 
 class MillerAGroupIsNotAWall(unittest.TestCase):
@@ -898,24 +947,54 @@ class MotionExactlyOneEntrance(unittest.TestCase):
                 self.assertNotIn(forbidden, source)
 
 
-class TheFrontDoorSummarisesRatherThanLists(unittest.TestCase):
-    """A band that shows everything at once shows nothing: four cards and a line.
+class TheFrontDoorShowsOneThingAtATime(unittest.TestCase):
+    """A band that shows everything at once shows nothing — and what it *does*
+    show has to be true.
 
-    The tour of the dashboard was every page as a panel of three bullets, which
-    is the page's argument made twice — and a front door whose every band is a
-    card grid has one rhythm for a reader to get tired of. What the cut must
-    never become is a *claim*, though: nothing the registry declares may fall off
-    the page, so this law holds both halves, the shape and the completeness.
+    Two bands are held here for one reason: the tour of the dashboard, cut twice
+    until one page is described in full and the other ten are single rows to
+    scan, and the command demo that replaced a row of switches with nothing
+    attached. Both make claims about the product on a page a visitor has no way
+    to check for themselves, so what is asserted of each is completeness and
+    honesty rather than taste: that nothing the registry declares falls off the
+    page, and that the demo's every sentence comes from the bot's own tables.
     """
 
-    def test_the_tour_is_four_cards_and_one_line(self):
+    def test_the_tour_is_one_card_and_a_list_of_links(self):
         band = page("/").split('id="dashboard"', 1)[1].split("</section>", 1)[0]
-        self.assertLessEqual(
+        self.assertEqual(
             len(re.findall(r'class="mw-card"', band)),
-            4,
-            "the tour grew back into a list of panels",
+            1,
+            "the tour grew back into a grid of panels",
         )
-        self.assertIn('class="mw-more"', band, "the pages that are not cards are named nowhere")
+        self.assertIn('class="mw-list mw-pages"', band, "the other pages are named nowhere")
+        rows = re.findall(r'class="mw-pages__row"', band)
+        self.assertEqual(
+            len(rows),
+            len(keep_alive.DASHBOARD_PAGES) - 1,
+            "one page is not described in full and one row is not the rest of them",
+        )
+        # The scan list is a list of links and notes, not a second card grid: a
+        # bullet under a row is the bullets this cut exists to remove.
+        self.assertNotIn("mw-prose", band.split('class="mw-list mw-pages"', 1)[1], "the list grew bullets")
+
+    def test_every_page_carries_a_note_and_a_note_is_a_label(self):
+        """Four to six words, and not a sentence — the fallback is the tell.
+
+        A row is ten seconds of scanning, so what it prints is a label: a note of
+        nine words with a full stop on it is a paragraph squeezed into a row, and
+        the reader who was promised a fast band gets the slow one back. The
+        fallback a page with no entry falls back *to* ends in a full stop on
+        purpose, so this fails on the day a page is added without a note rather
+        than passing on a sentence that happens to be short.
+        """
+        for row in keep_alive._landing_tour():
+            with self.subTest(page=row["id"]):
+                note = row["note"]
+                self.assertFalse(note.endswith("."), f"{row['id']}'s note is a sentence, not a label")
+                words = len(note.split())
+                self.assertGreaterEqual(words, 4, f"{row['id']}'s note says too little to be a label")
+                self.assertLessEqual(words, 6, f"{row['id']}'s note is a paragraph, not a label")
 
     def test_every_page_the_registry_declares_is_named_on_the_front_door(self):
         """Read from the rail the tour is built from, not from the page."""
@@ -927,6 +1006,106 @@ class TheFrontDoorSummarisesRatherThanLists(unittest.TestCase):
                     label in band or path in band,
                     f"the dashboard's {label!r} page is on neither a card nor the line",
                 )
+
+    def test_the_command_demo_asks_nothing_of_any_server(self):
+        """The two tables are in the page, and the script has no way out.
+
+        This is the claim the band makes in its own closing line — "the answers are
+        worked out in your browser" — and it is the one that would be quietest if
+        it stopped being true: a demo that started asking the deployment would look
+        exactly the same to a reader, and would be a request from every visitor to
+        a marketing page. So the JSON is asserted to be *in* the markup, and the
+        script is asserted to reach for none of the four ways out of a browser.
+        """
+        body = page("/")
+        self.assertIn('type="application/json" data-mw-sim', body, "the demo's tables are not in the page")
+        block = body.split("data-mw-sim>", 1)[1].split("</script>", 1)[0]
+        for key in ('"gates"', '"always"', '"off"', '"names"'):
+            with self.subTest(key=key):
+                self.assertIn(key, block, "the demo's payload lost a table it needs")
+        source = without_prose(read(SCRIPT), script=True)
+        for forbidden in ("fetch(", "XMLHttpRequest", "WebSocket", "sendBeacon", "navigator"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source, "the demo reaches out of the page")
+
+    def test_the_demo_knows_every_real_command_and_only_real_commands(self):
+        """So the box cannot be used to fish for commands that are not there.
+
+        Two registry tables, and each is already held to the truth elsewhere: the
+        audience table is the one whose coverage of the real command tree is
+        enforced, and the gate map is the one ``bot`` refuses commands with. Their
+        union has to be exactly the product's commands — a name the bot has and
+        the demo answers "not a command" is the failure that matters, because it
+        teaches a visitor the wrong thing about the product.
+        """
+        payload = keep_alive._sim_payload()
+        known = set(payload["gates"]) | set(payload["always"])
+        real = {str(name).split(" ")[0] for name in permissions.COMMAND_ACCESS}
+        self.assertGreater(len(real), 50, "the command list was not found; this law is vacuous")
+        self.assertEqual(
+            known,
+            real,
+            "the demo recognises a command the bot does not have, or misses one it does",
+        )
+
+    def test_every_command_the_demo_suggests_is_one_it_recognises(self):
+        """The box must not suggest a command by a name it would itself refuse.
+
+        The placeholder is the page's own instruction, and it read ``level rank``
+        for as long as the leveling system's command has been ``rank``: a visitor
+        typed exactly what the box suggested, and the box answered "is not a
+        command this bot has". A suggestion is a claim about the product, so
+        every name the demo offers — the placeholder, the label a screen reader
+        reads, the three ``<code>``s in the hint, and the empty-state line the
+        script builds — is held to the same two tables the demo answers from.
+        """
+        payload = keep_alive._sim_payload()
+        known = set(payload["gates"]) | set(payload["always"])
+        body = page("/")
+        sim = body.split('class="mw-sim"', 1)[1].split("data-mw-sim>", 1)[0]
+        offered = re.findall(r'placeholder="([^"]+)"', sim)
+        offered += re.findall(r'aria-label="A command to try, for example ([^"]+)"', sim)
+        offered += re.findall(r"<code>/?([a-z0-9][a-z0-9 -]*)</code>", sim)
+        offered += re.findall(r'element\("code", "([^"]+)"\)', read(SCRIPT))
+        self.assertGreaterEqual(len(offered), 4, "the demo stopped suggesting anything")
+        for name in offered:
+            with self.subTest(name=name):
+                self.assertIn(
+                    name.strip().lstrip("/").split()[0],
+                    known,
+                    "the demo suggests a command it would answer 'not a command' to",
+                )
+
+    def test_every_system_the_demo_names_is_one_the_registry_has(self):
+        payload = keep_alive._sim_payload()
+        for command, ids in payload["gates"].items():
+            for feature_id in ids:
+                with self.subTest(command=command, system=feature_id):
+                    self.assertIn(
+                        feature_id,
+                        payload["names"],
+                        "a gate names a system the registry does not have, so a refusal would name it wrong",
+                    )
+
+    def test_the_demo_refuses_in_the_bots_own_words(self):
+        """The sentence is `bot.py`'s, compared against `bot.py`.
+
+        A paraphrased refusal is worse than no demo: it teaches a member what the
+        bot does *not* say. The bot cannot be imported here (importing it starts a
+        gateway), so the sentence lives in `keep_alive` and this reads the source
+        it was copied from, with the markdown emphasis stripped — the demo shows
+        the name in bold rather than printing asterisks at a reader.
+        """
+        sentence = keep_alive.SIM_OFF_SENTENCE
+        self.assertIn("{name}", sentence, "the refusal no longer takes the system's name")
+        source = re.sub(r"\*\*", "", read(ROOT / "bot.py"))
+        for fragment in sentence.split("{name}"):
+            self.assertIn(fragment, source, f"the demo invents a refusal: {fragment!r}")
+        self.assertIn(
+            keep_alive.SIM_OFF_HINT.split(" the Web Dashboard")[0],
+            source,
+            "the demo's second line is not the bot's second line",
+        )
 
     def test_the_questions_band_states_its_own_heading(self):
         """The band that ends the page gets room the other bands' intros do not.

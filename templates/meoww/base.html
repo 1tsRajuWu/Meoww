@@ -69,8 +69,18 @@
         </button>
 
         <ul class="mw-nav__list" id="mw-nav-list">
+          {# The dashboard is a destination like any other, and it is the one the
+             header used to leave out entirely: the only way in was the one-time
+             link minted by `/help` inside Discord, so a visitor reading this
+             site on a desktop had no door at all. It points at `/dashboard`
+             rather than the sign-in page because that is the smart end of the
+             same flow — a signed-in visitor lands on their server, and a
+             signed-out one meets the door, whose first method is Continue with
+             Discord. The path is same-origin in proxy mode and rewritten to
+             the live app otherwise, by the same rule as every other href here. #}
           {% for item in [
             ('systems', 'Systems', '/systems'),
+            ('dashboard', 'Dashboard', '/dashboard'),
           ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
           <li>
             <a class="mw-nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>

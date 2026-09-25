@@ -695,27 +695,77 @@ async def _sync_scope(
     }
 
 
-async def _prune_global_lane(bot: commands.Bot) -> int:
+async def _prune_global_lane(bot: commands.Bot, *, complete: bool = False) -> int:
     """Take the per-server commands out of Discord's global scope.
 
-    Only ever called once every server has published its own list with nothing
-    pending (see ``sync_commands``). What it removes is decided by the same rule
-    as everywhere else — names the feature registry declares, minus the few that
-    genuinely belong globally — so this can never delete a command it does not
-    recognise, and it is idempotent: once the global scope holds only the DM-safe
-    commands, there is nothing left to match.
+    What it removes is decided by the same rule as everywhere else — names the
+    feature registry declares, minus the few that genuinely belong globally — so
+    this can never delete a command it does not recognise, and it is idempotent:
+    once the global scope holds only the DM-safe commands, there is nothing left
+    to match.
+
+    Two paths, and the difference is what is being proved.
+
+    * ``complete=True`` — every server's publish came back with nothing pending,
+      so the whole lane may be trimmed at once. Cheapest, and the boot uses it
+      whenever it can.
+    * ``complete=False`` — the boot could not get that far, or a switch just
+      flipped and this is being called from the republish. The lane is trimmed
+      **per name**, each one admitted only when every server that still wants it
+      already holds its own copy (``commands_sync.prunable_globals``).
+
+    The second path is why this function takes a flag at all. It used to be all
+    or nothing, gated on the whole fleet finishing, so a single command sitting
+    behind a spent daily write budget — or a switch flipped after the boot — left
+    every stale global copy in place: the servers that had turned a system off
+    kept seeing its commands in the picker, the ones that had not saw each twice,
+    and no amount of clicking the switch could move any of it, because a switch
+    only ever edits the *guild* scope. A per-name proof cannot be blocked by an
+    unrelated command's refusal, and it decides nothing a server has not already
+    received.
     """
     registered = await _registered_command_payloads(bot, None)
     if registered is None:
         return 0
     tree = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
     everything = {payload["name"]: payload for payload in tree if payload.get("name")}
-    pairs = commands_sync.removable(
-        registered,
-        _scope_names(bot, None, everything),
-        set(features.MODULE_COMMAND_MAP),
-    )
+    known = set(features.MODULE_COMMAND_MAP)
+    wanted = _scope_names(bot, None, everything)
+    candidates = commands_sync.removable(registered, wanted, known)
+    if not candidates:
+        return 0
+
+    if complete:
+        pairs = candidates
+        stranded: list[str] = []
+    else:
+        guilds = list(bot.guilds)
+        if not guilds:
+            return 0
+        held = []
+        wants = []
+        for guild in guilds:
+            payloads = await _registered_command_payloads(bot, guild)
+            if payloads is None:
+                # One unreadable scope is enough: without every server's list
+                # there is no proof that the servers wanting these commands hold
+                # them, and a lane nobody can prove may not be deleted into.
+                print(
+                    f"[SYNC] global: could not read {guild.name}'s commands — "
+                    "leaving the shared lane alone rather than guessing.",
+                    flush=True,
+                )
+                return 0
+            held.append(payloads)
+            wants.append(_scope_names(bot, guild, everything))
+        pairs = commands_sync.prunable_globals(registered, wanted, known, held, wants)
+        stranded = commands_sync.stranded_globals(
+            registered, wanted, known, held, wants
+        )
+
     if not pairs:
+        if stranded:
+            _explain_stranded_globals(stranded)
         return 0
     removed = await _delete_scope_commands(bot, pairs, None, "Per server now")
     print(
@@ -723,7 +773,39 @@ async def _prune_global_lane(bot: commands.Bot) -> int:
         "they no longer sit in every server's picker.",
         flush=True,
     )
+    # The pass that ran before this one recorded what the lane held on its way
+    # in; this is what it holds on the way out, which is the figure a reader
+    # checking "did the commands I switched off leave?" is owed.
+    command_publish.record(
+        None,
+        verified=True,
+        pending=0,
+        held=max(len(registered) - removed, 0),
+        detail=f"{removed} command(s) left Discord's global lane",
+    )
+    if stranded:
+        _explain_stranded_globals(stranded)
     return removed
+
+
+def _explain_stranded_globals(names: list[str]) -> None:
+    """Say why some commands are still in the shared lane — and that it is not a refusal.
+
+    These are the commands still visible in a server whose switch says they are
+    off: they are waiting on a *different* server's publish, not on Discord. A
+    line that names them turns "I switched it off and it is still there" into
+    something an operator can watch resolve on the next pass, which is the whole
+    difference between a queue and a fault.
+    """
+    shown = ", ".join('/' + name for name in names[:6])
+    more = f" … (+{len(names) - 6})" if len(names) > 6 else ""
+    print(
+        f"[SYNC] global: {len(names)} command(s) are still in the shared lane "
+        f"({shown}{more}) because a server that wants them has not published its "
+        "own copy yet. They leave on the next pass that finds every such server "
+        "holding one.",
+        flush=True,
+    )
 
 
 async def _sync_guild(bot: commands.Bot, guild, *, force: bool = False) -> dict:
@@ -841,8 +923,13 @@ async def sync_commands(
     # are only removed once every server already holds its own copy: a failed
     # publish followed by a successful delete would leave that server with no
     # commands at all, and that is the one outcome worth being slow to reach.
-    if every_server_complete and bot.guilds:
-        await _prune_global_lane(bot)
+    if bot.guilds:
+        try:
+            await _prune_global_lane(bot, complete=every_server_complete)
+        except Exception as exc:
+            # Never into on_ready: the lane is left as it is and the next pass
+            # tries again, which is what every other failure here does.
+            print(f"[SYNC] ⚠️ global lane: prune failed — {exc}", flush=True)
     return results
 
 
@@ -948,6 +1035,16 @@ async def _resync_server(bot: commands.Bot, guild) -> None:
             _schedule_command_drain(
                 bot, guild, status["retry_after"], label=guild.name
             )
+        # A switch just flipped and this server's own list is now current. If a
+        # stale **global** copy of what it dropped is still sitting in the shared
+        # lane, this is the moment to take it out: the guild scope alone cannot,
+        # and waiting for the next boot is how a command stayed in the picker of
+        # a server that had switched its system off.
+        if not status["pending"]:
+            try:
+                await _prune_global_lane(bot, complete=False)
+            except Exception as exc:
+                print(f"[SYNC] ⚠️ global lane: prune failed — {exc}", flush=True)
     _resync_tasks.pop(guild.id, None)
 
 

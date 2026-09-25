@@ -16,6 +16,7 @@ import re
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import discord
 from discord.ext import commands
@@ -92,6 +93,68 @@ class TestTheDashboardEntryPoint(unittest.TestCase):
 
         plain = help_cog.HelpLayout(thumbnail="https://cdn.example/x.png")
         self.assertEqual(_link_buttons(plain), [], "a panel with no link must offer no link")
+
+
+class _Response:
+    """A response object that records how the panel was sent."""
+
+    def __init__(self):
+        self.sent = []
+
+    def is_done(self):
+        return False
+
+    async def send_message(self, **kwargs):
+        self.sent.append(kwargs)
+        return SimpleNamespace(id=1)
+
+
+class TestTheSignInLinkIsDeliveredPrivately(unittest.IsolatedAsyncioTestCase):
+    """The link is a bearer credential for one server's dashboard.
+
+    Nothing at redemption proves *who* is holding it — the token carries the
+    server it was minted for and the administrator who asked — so the delivery is
+    the security boundary. A panel posted into the channel with the button in it
+    hands a live credential for that server's dashboard to everyone who can read
+    the channel for the fifteen minutes the token lives, and the session it buys
+    lasts eight hours and acts with the administrator's own live permissions.
+    Pinned here rather than left to a helper's default argument, because that
+    default is exactly what made the button public.
+    """
+
+    async def _send(self, *, administrator: bool) -> list[dict]:
+        interaction = _Interaction(administrator=administrator)
+        interaction.response = _Response()
+        sent: list[dict] = []
+
+        async def record(target, view, *, ephemeral=False, allowed_mentions=None):
+            sent.append({"ephemeral": ephemeral, "view": view})
+
+        with mock.patch.object(help_cog, "send_panel", record):
+            await help_cog.Help.help_cmd.callback(help_cog.Help(None), interaction)
+        return sent
+
+    async def test_the_panel_carrying_a_link_goes_to_the_asker_alone(self):
+        sent = await self._send(administrator=True)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(
+            len(_link_buttons(sent[0]["view"])),
+            1,
+            "this panel is the one with the sign-in link in it",
+        )
+        self.assertTrue(
+            sent[0]["ephemeral"],
+            "a panel carrying a live sign-in link must not be posted to the channel",
+        )
+
+    async def test_a_member_who_gets_no_link_still_gets_the_shared_panel(self):
+        sent = await self._send(administrator=False)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(_link_buttons(sent[0]["view"]), [])
+        self.assertFalse(
+            sent[0]["ephemeral"],
+            "the panel everybody can use is not made private by this",
+        )
 
 
 class TestThePanelAdvertisesRealCommands(unittest.IsolatedAsyncioTestCase):

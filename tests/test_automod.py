@@ -387,3 +387,103 @@ class TheSourceKeepsItsPromises(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class _Room:
+    """A log channel, with an answer for "may the bot write here"."""
+
+    def __init__(self, cid, can_post=True):
+        self.id = cid
+        self.mention = f"<#{cid}>"
+        self.can_post = can_post
+
+    def permissions_for(self, member):
+        del member
+        return SimpleNamespace(send_messages=self.can_post)
+
+
+class _SettingsGuild:
+    def __init__(self, rooms):
+        self.id = GUILD
+        self._rooms = {room.id: room for room in rooms}
+        self.me = object()
+
+    def get_channel(self, channel_id):
+        return self._rooms.get(channel_id)
+
+
+class TheModlogCommand(_ModlogCase):
+    """`/modlog` is the setting in all three of its forms, not just its setter.
+
+    It took a channel and nothing else, so a server could not *read* where its
+    log went, could not switch logging off at all, and was never told the one
+    thing that silently empties an audit trail: a channel the bot may not post
+    in. The bare command is the reading; ``off`` is the way out; both are here
+    because an administrator who cannot see the state of their own log is being
+    asked to trust it.
+    """
+
+    def _interaction(self, *rooms):
+        return SimpleNamespace(guild=_SettingsGuild(list(rooms)))
+
+    async def _run(self, interaction, **kwargs):
+        sent = []
+
+        async def _capture(_interaction, **kw):
+            sent.append(kw.get("embed"))
+
+        cog = moderation_module.Moderation.__new__(moderation_module.Moderation)
+        with mock.patch.object(moderation_module, "send_card", _capture):
+            await moderation_module.Moderation.modlog.callback(
+                cog, interaction, **kwargs
+            )
+        return sent[-1]
+
+    async def test_the_bare_command_reads_the_log_off_when_it_is_off(self):
+        card = await self._run(self._interaction())
+
+        self.assertIn("off", card.description)
+        self.assertIn("/modlog #channel", card.description)
+
+    async def test_setting_the_channel_writes_the_setting(self):
+        room = _Room(LOG_CHANNEL)
+        card = await self._run(self._interaction(room), channel=room)
+
+        self.assertEqual(await db.get_setting(GUILD, modlog.SETTING), LOG_CHANNEL)
+        self.assertIn(room.mention, card.description)
+
+    async def test_a_channel_the_bot_cannot_write_in_is_said_out_loud(self):
+        room = _Room(LOG_CHANNEL, can_post=False)
+        card = await self._run(self._interaction(room), channel=room)
+
+        self.assertIn("cannot post", card.description)
+        self.assertIn("Send Messages", card.description)
+
+    async def test_the_bare_command_names_the_channel_and_the_permission(self):
+        room = _Room(LOG_CHANNEL)
+        await db.set_setting(GUILD, modlog.SETTING, LOG_CHANNEL)
+
+        card = await self._run(self._interaction(room))
+
+        self.assertIn(room.mention, card.description)
+        self.assertIn("can post", card.description)
+
+    async def test_a_configured_channel_that_is_gone_is_reported_as_gone(self):
+        await db.set_setting(GUILD, modlog.SETTING, 12345)
+
+        card = await self._run(self._interaction())
+
+        self.assertIn("no longer exists", card.description)
+
+    async def test_off_unsets_the_row_rather_than_nulling_it(self):
+        room = _Room(LOG_CHANNEL)
+        await db.set_setting(GUILD, modlog.SETTING, LOG_CHANNEL)
+
+        card = await self._run(self._interaction(room), off=True)
+
+        self.assertIsNone(await db.get_setting(GUILD, modlog.SETTING))
+        self.assertIn("off", card.description)
+        self.assertIn(
+            "already recorded are untouched", card.description,
+            "turning logging off must not read as erasing the record",
+        )

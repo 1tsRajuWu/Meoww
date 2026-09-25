@@ -770,22 +770,19 @@ code, kbd, samp {
 }
 .mw-head h2 { font-size: var(--mw-h2); font-family: var(--mw-font-display); font-stretch: var(--mw-stretch); }
 
-.mw-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--mw-space-4);
-}
 
-/* The tail of a summary: the names a card grid did not spend a panel on, as one
-   line of links. It is the rhythm's light beat — a band that is four cards reads
-   as four cards and a sentence, rather than as seven cards of three bullets and
-   a reader who has stopped reading. */
-.mw-more {
-  margin: var(--mw-space-5) 0 0;
-  color: var(--mw-muted);
-  font-size: var(--mw-text-small);
-}
-.mw-more a { color: var(--mw-text); }
+/* The scan list of the dashboard band: one row per page the card did not spend a
+   panel on. It is the rhythm's light beat — one card beside ten rows reads as one
+   thing described and ten things named, rather than as seven cards of three
+   bullets and a reader who has stopped reading. It is also the completeness half
+   of the law that reads it: every page the registry declares is named here or on
+   the card, so a page added to `DASHBOARD_PAGES` appears and one removed leaves.
+
+   (`.mw-more`, the single line of links this list replaced, is gone with the band
+   that used it. It was the right answer to four cards and the wrong one to one.) */
+.mw-pages__row { align-items: baseline; }
+.mw-pages__row a { color: var(--mw-text); font-weight: 500; }
+.mw-pages__note { margin-left: auto; color: var(--mw-muted); font-size: var(--mw-text-small); }
 
 /* A list of rows inside a bordered region, with the last row's divider
    dropped — a rule that stops at the edge is a rule that says where the set
@@ -828,6 +825,98 @@ code, kbd, samp {
 .mw-live__desc { color: var(--mw-muted); font-size: var(--mw-text-small); }
 .mw-live__row .mw-switch { margin-left: auto; }
 [hidden] { display: none !important; }
+
+/* --------------------------------------------------------------------------
+   8b. The command demo — what a member types, beside the switches that decide
+   whether it runs
+   -------------------------------------------------------------------------- */
+
+/* Two panes, not one column, because the band's whole claim is the *relation*
+   between them: the switch on the right decides the answer on the left, and the
+   reader has to be able to see both at once for that to land. */
+.mw-sim {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: var(--mw-space-5);
+  /* Start-aligned on purpose, and measured rather than guessed: stretching the
+     answer region to the height of the thirteen switches beside it produces a
+     900px empty bordered box, which reads as a broken page. The panes are two
+     different shapes and the band is better for saying so. */
+  align-items: start;
+}
+
+.mw-sim__ask { display: flex; flex-direction: column; }
+
+/* Drawn as the box this bot is typed into: one rounded field with the slash
+   inside it, because the slash is part of the command rather than of the
+   visitor's typing — they type `level rank`, the field reads `/level rank`. */
+.mw-sim__box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--mw-tap);
+  padding: 5px 5px 5px var(--mw-space-4);
+  background: var(--mw-panel);
+  border: 1px solid var(--mw-line);
+  border-radius: var(--mw-radius);
+}
+/* The field has no ring of its own, so the box it sits in carries the focus. */
+.mw-sim__box:focus-within { border-color: var(--mw-accent); }
+.mw-sim__slash { color: var(--mw-accent); font-size: var(--mw-text-body); font-weight: 700; }
+.mw-sim__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  background: transparent;
+  border: 0;
+  color: var(--mw-text);
+  font-family: var(--mw-font-ui);
+  font-size: var(--mw-text-body);
+}
+.mw-sim__input::placeholder { color: var(--mw-muted); }
+.mw-sim__input:focus { outline: none; }
+.mw-sim__send { flex: none; }
+
+/* The answer, as a region whose *left rule* is the verdict: the accent for a
+   refusal, the on-state for a command that would run, muted for a name that is
+   not a command. Those are the same three colours the switch beside it already
+   means, so the two panes cannot be read as two vocabularies — and the verdict
+   is drawn on the region rather than inside it, because the answer is one thing
+   and the rule is that thing's edge. */
+.mw-sim__answer {
+  display: flex;
+  /* The reply reads from the top, like the log it is imitating. Room for three
+     lines of it, so the box does not jump in height as answers arrive. */
+  align-items: flex-start;
+  margin-top: var(--mw-space-4);
+  padding: var(--mw-space-4);
+  min-height: 168px;
+  background: var(--mw-panel);
+  border: 1px solid var(--mw-line);
+  border-left: 3px solid var(--mw-muted);
+  border-radius: var(--mw-radius);
+}
+.mw-sim__answer[data-kind="off"] { border-left-color: var(--mw-accent); }
+.mw-sim__answer[data-kind="on"] { border-left-color: var(--mw-on); }
+.mw-sim__said { margin: 0; color: var(--mw-text); font-size: var(--mw-text-small); }
+.mw-sim__said strong { font-weight: 600; }
+
+.mw-sim__panel { display: flex; flex-direction: column; }
+.mw-sim__chrome {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mw-space-3);
+  padding-bottom: 12px;
+}
+.mw-sim__chrome .mw-hint { margin-left: auto; font-size: var(--mw-text-micro); }
+
+/* The dashboard band: one page described in full, the rest as a list to scan. */
+.mw-split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: var(--mw-space-5);
+  align-items: start;
+}
 
 /* Three steps: numbered, left-reading, no boxes — the numbering is the region. */
 .mw-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--mw-space-5); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
@@ -935,7 +1024,11 @@ code, kbd, samp {
 .mw-spine__rail,
 .mw-spine__fill {
   position: absolute;
-  /* The centre of a 40px dot, minus half of a 3px line. */
+  /* The centre of a 40px dot, minus half of the 3px *track* — which is the line
+     this rail is drawn around, and the one thing both halves share. The travelled
+     fill is deliberately wider than the track and recentres itself below, because
+     that difference of width is what makes it read as progress along a line
+     rather than as a coloured segment of a rod. */
   left: calc(50% - 1.5px);
   top: 0;
   bottom: 0;
@@ -951,14 +1044,20 @@ code, kbd, samp {
    the light and contrast palettes, where `--mw-line-2` is a different creature
    entirely (60% white in contrast mode) and the rail would invert itself. */
 .mw-spine__rail {
-  background: rgb(var(--mw-accent-rgb) / 22%);
+  background: rgb(var(--mw-accent-rgb) / 20%);
 }
 
 /* Where the reader has read to. No animation and no timeline: the value comes
    from the script, and with no script it is 0 — a track and no claim, rather
    than a line lying about a position nobody has measured. */
 .mw-spine__fill {
+  /* Twice the track's width and rounded, so the two halves of this line are not
+     the same object at two brightnesses but a hairline the reader has *filled*. */
+  left: calc(50% - 3px);
+  width: 6px;
+  border-radius: 999px;
   background: var(--mw-accent);
+  box-shadow: 0 0 14px rgb(var(--mw-accent-rgb) / 45%);
   transform: scaleY(var(--mw-at, 0));
   transform-origin: top center;
 }
@@ -977,14 +1076,15 @@ code, kbd, samp {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Sized to be *read*, not merely found: at 34px with 12px numerals this was a
-     column of specks in the margin and the numbers were the smallest type on the
-     page. 40px and the UI size is the smallest thing here still worth looking
-     at, and it is what makes the current mark's fill legible from across a desk. */
+  /* **The slot, not the dot.** 40px is the rhythm of the rail — the spacing every
+     mark sits in, which does not change as the reader moves — and the circle
+     drawn inside it is smaller and dimmer than it was (see the pseudo-element
+     below). Sizing the *slot* once is what lets the current mark be half again as
+     large without re-laying the marks under it. */
   width: 40px;
   height: 40px;
   color: var(--mw-muted);
-  font-size: var(--mw-text-small);
+  font-size: var(--mw-text-micro);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1002,8 +1102,13 @@ code, kbd, samp {
 .mw-spine__mark::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border: 1px solid rgb(var(--mw-accent-rgb) / 24%);
+  /* 24px inside a 40px slot: a small station on the line rather than a button
+     beside it. The ring is a faint tint of the accent and its numeral is the
+     smallest type on the page, which is the contrast the current mark is read
+     against — the difference has to be between *these two states*, not between
+     the rail and the page. */
+  inset: 8px;
+  border: 1px solid rgb(var(--mw-accent-rgb) / 16%);
   border-radius: 50%;
   background: var(--mw-panel);
 }
@@ -1029,12 +1134,20 @@ code, kbd, samp {
    written on a coral fill is this page's own black, never white. */
 .mw-spine__mark.is-here {
   color: var(--mw-accent-ink);
+  font-size: var(--mw-text-small);
 }
 .mw-spine__mark.is-here::before {
-  inset: -4px;
+  /* 52px against the resting 24px: this is not a tint of the same dot, it is
+     more than twice it. A tight ring of accent around the fill (18%) keeps the
+     edge crisp on the dark palette and a wide soft glow (40% out to 26px) is what
+     makes the mark read as lit rather than pasted on — two shadows, because one
+     alone either hardens the edge or smears it. */
+  inset: -6px;
   border-color: var(--mw-accent);
   background: var(--mw-accent);
-  box-shadow: 0 0 0 5px rgb(var(--mw-accent-rgb) / 22%);
+  box-shadow:
+    0 0 0 4px rgb(var(--mw-accent-rgb) / 18%),
+    0 0 26px 6px rgb(var(--mw-accent-rgb) / 40%);
 }
 
 /* The label arrives on a panel rather than straight onto the page, and that is
@@ -1090,6 +1203,12 @@ code, kbd, samp {
 @media (max-width: 900px) {
   .mw-hero__inner { grid-template-columns: minmax(0, 1fr); }
   .mw-hero__copy { max-width: none; }
+  /* Both two-pane bands stop being two panes on a phone: side by side at 360px
+     is two columns of four words each. They stack instead, in source order —
+     the command box above the switches it asks about, which is also the order
+     they are read in. */
+  .mw-sim,
+  .mw-split { grid-template-columns: 1fr; }
   /* The window keeps bleeding — it is the one thing on the page that says
      *this is a product* — but it stops being a second column. */
   .mw-shot { --mw-shot-overhang: calc(var(--mw-bleed) * 0.6); margin-top: var(--mw-space-5); }

@@ -66,6 +66,43 @@ ACTIONS: dict[str, str] = {
     "role_purge": "Role removed from members",
 }
 
+#: What each action requires of the **acting member's own, live** permissions.
+#:
+#: The same permission the slash command demands of the same person — ``/ban``
+#: carries ``has_permissions(ban_members=True)``, ``/clearwarnings`` carries
+#: ``administrator`` — and it is here because the website did not ask for it. The
+#: web door checked only :func:`target_problem` (may you touch *this* member?)
+#: and never "may you do *this* at all", and the call to Discord is made by **the
+#: bot**, so Discord enforced the bot's permissions and never the actor's: a
+#: session whose holder had been demoted since they signed in could kick, ban and
+#: time out the server's members from the dashboard while the same person could
+#: not run ``/kick`` in the server. A permission that exists only in the frontend
+#: is not a permission.
+#:
+#: ``administrator`` counts as holding all of them, which is Discord's own rule
+#: and the reason a server owner is never refused a control they can see.
+#:
+#: The structure actions (``channel_*``, ``role_*``) are deliberately absent:
+#: ``utils/structure.py`` is the second door onto server state and guards its own
+#: with ``permissions.role_grant_problem``.
+ACTOR_PERMISSIONS: dict[str, str] = {
+    "warn": "moderate_members",
+    "timeout": "moderate_members",
+    "timeout_remove": "moderate_members",
+    "kick": "kick_members",
+    "ban": "ban_members",
+    "unban": "ban_members",
+    "clear_warnings": "administrator",
+}
+
+#: Each permission as Discord's own interface names it, for the refusal sentence.
+PERMISSION_LABELS: dict[str, str] = {
+    "moderate_members": "Moderate Members",
+    "kick_members": "Kick Members",
+    "ban_members": "Ban Members",
+    "administrator": "Administrator",
+}
+
 #: How long a timeout may be, in minutes. Discord's own ceiling is 28 days; the
 #: floor exists because "time out for 0 minutes" is a command that does nothing.
 TIMEOUT_MINUTES = (1, 40320)
@@ -148,6 +185,35 @@ class Outcome:
             "reason": self.reason,
             "refused_by": self.refused_by,
         }
+
+
+def permission_problem(action: str, actor_member) -> str | None:
+    """What the acting member lacks for this action, in words — or ``None``.
+
+    ``None`` when the action needs nothing of the actor beyond
+    :func:`target_problem`, or when the member holds it. The permission is read
+    from the member object the caller just resolved, so a demotion takes effect
+    on the next click rather than when the session happens to expire.
+
+    An unreadable member is a refusal rather than a pass, for the same reason
+    ``apply`` refuses one: "I could not tell what you may do" and "you may do
+    this" must not produce the same answer.
+    """
+    needed = ACTOR_PERMISSIONS.get(action)
+    if not needed:
+        return None
+    perms = getattr(actor_member, "guild_permissions", None)
+    if perms is None:
+        return (
+            "I could not read your permissions in that server, so I did not do "
+            "this — try again in a moment."
+        )
+    if getattr(perms, "administrator", False) or getattr(perms, needed, False):
+        return None
+    return (
+        f"You need the **{PERMISSION_LABELS.get(needed, needed)}** permission in "
+        "this server to do that."
+    )
 
 
 def target_problem(actor, target) -> str | None:
@@ -403,6 +469,15 @@ async def apply(request: Request) -> Outcome:
         )
         outcome.refused_by = "actor-unknown"
         return outcome
+    # What the actor may do here, before who they may do it to. A command asks
+    # this of Discord itself (``has_permissions``) and the website has no such
+    # door, so this is the only place the two are made to agree.
+    missing = permission_problem(action, actor_member)
+    if missing:
+        outcome.detail = missing
+        outcome.refused_by = "permission"
+        return outcome
+
     if action != "unban":
         problem = target_problem(actor_member, target)
         if problem:

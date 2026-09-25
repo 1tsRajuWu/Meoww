@@ -21,6 +21,8 @@ HELP_MODULES = {
             "> `/purge <amount> [member]` — Bulk delete messages\n"
             "> `/appeal <reason>` — Ask a human to review an action taken against you\n"
             "> `/modlog <channel>` — Set the moderation audit log channel\n"
+        "> `/modlog` — Show where the log goes, and whether I can write there\n"
+        "> `/modlog off` — Stop logging, without losing the cases already recorded\n"
             "> `/automod invites <enabled>` — Toggle blocking of Discord invite links\n"
             "> `/automod antispam <enabled>` — Toggle rapid-message flood protection\n\n"
             "Every automatic action is written to the moderation log with the rule "
@@ -670,12 +672,23 @@ class Help(commands.Cog):
 
         thumb = avatar_url(interaction.client.user)
         banner = guild_banner(interaction.guild)
+        link = dashboard_link(interaction)
         view = HelpLayout(
             thumbnail=thumb,
             gallery=[banner] if banner else None,
-            dashboard=dashboard_link(interaction),
+            dashboard=link,
         )
-        await send_panel(interaction, view)
+        # A panel carrying a sign-in link goes to the person who asked, in
+        # private. That is a security property rather than a preference: the link
+        # *is* a dashboard session for this server, and redeeming it proves only
+        # that somebody holds the link — so a public message would hand a live
+        # credential for this server's dashboard to everyone who can read the
+        # channel, for the fifteen minutes the token lives, and the session it
+        # buys lasts eight hours and acts with the administrator's own live
+        # permissions (the dashboard resolves the actor from the token's
+        # ``user_id``). Members who get no link still get the shared panel: they
+        # have nothing to leak.
+        await send_panel(interaction, view, ephemeral=bool(link))
 
 
 async def setup(bot: commands.Bot):

@@ -854,6 +854,26 @@ async def set_setting(guild_id: int, key: str, value):
         await db.commit()
 
 
+async def clear_setting(guild_id: int, key: str) -> None:
+    """Unset one ``guild_settings`` row by **deleting** it — the table's own word for it.
+
+    The async twin of :func:`write_setting_sync`'s ``None`` branch, and it exists
+    because those two are the project's two halves of one table: a setting the
+    Flask thread unsets must read as unset to the bot, and vice versa. Writing
+    JSON ``null`` instead would *look* identical through :func:`get_setting`
+    (``json.loads("null")`` is ``None``) while leaving a row behind, and the
+    difference is not cosmetic — an absent row is how every feature's default is
+    expressed, so a row that exists and says nothing is a row the next reader has
+    to know to ignore.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            'DELETE FROM guild_settings WHERE guild_id = ? AND key = ?',
+            (guild_id, key),
+        )
+        await db.commit()
+
+
 def write_setting_sync(guild_id: int, key: str, value) -> None:
     """One ``guild_settings`` row, written from a thread that cannot await.
 

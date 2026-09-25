@@ -100,15 +100,34 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   02 — The live grid. This is the component the dashboard reuses, not a
-   picture of it: same partial, same registry, same two states.
+   02 — The command demo. Two panes: what a member types, and the switches the
+   server it would run in has.
+
+   It replaces a row of switches with nothing attached, which showed the grid but
+   never showed what a switch *does* — the one question a visitor has about a
+   toggle. Now the answer is the whole interaction: turn a system off, type one of
+   its commands, and read the refusal a member would get.
+
+   Three rules this band is built to:
+
+     * **It is a reading, not a connection.** Nothing here posts anywhere, there
+       is no `fetch`, and the switches are still local state. The page is not
+       signed in to a server and does not pretend to be.
+     * **The copy is the bot's own.** The refusal is composed from the sentence
+       `bot.global_module_check` sends a member, compared against that file by law
+       — a demo that paraphrases the bot is a demo that lies about what a member
+       will see. See `keep_alive.SIM_OFF_SENTENCE`.
+     * **Only real commands are recognised.** The registry decides what exists and
+       which system owns it (`_sim_payload`), so this cannot be used to fish for
+       hidden or undocumented commands: anything that is not in it is answered as
+       not a command, the same way an unknown name in Discord is.
    -------------------------------------------------------------------------- #}
 <section class="mw-band" id="switches">
   <div class="mw-wrap">
     <div class="mw-head">
       <div>
         <p class="mw-micro">{{ mark(sections, 'switches') }}</p>
-        <h2>Try the grid</h2>
+        <h2>Try the commands</h2>
       </div>
       <p class="mw-hint">
         <span data-mw-live-count>—</span> · off means the commands leave that
@@ -116,30 +135,65 @@
       </p>
     </div>
 
-    <div class="mw-list" data-mw-live hidden>
-      {% for system in systems[:7] %}
-      <div class="mw-live__row">
-        <div class="mw-live__text">
-          <span class="mw-row__name">{{ system.icon }} {{ system.name }}</span>
-          {# Singular chosen rather than appended: Support Tickets has one
-             command, and "1 commands" reads like a bug on the front page. #}
-          <span class="mw-live__desc">{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
+    <div class="mw-sim" data-mw-live hidden>
+      <div class="mw-sim__ask">
+        <p class="mw-micro">Type a command</p>
+        <div class="mw-sim__box">
+          <span class="mw-sim__slash" aria-hidden="true">/</span>
+          {# `/rank`, not `/level rank`: the placeholder is the page's own
+             suggestion, and it used to name a command this bot has never had —
+             so the first thing a visitor tried was refused, by the box that
+             suggested it. `tests/test_meoww_site.py` holds every name the demo
+             offers to the command tree now. #}
+          <input class="mw-sim__input" type="text" data-mw-sim-input
+                 autocomplete="off" autocapitalize="off" spellcheck="false"
+                 placeholder="rank"
+                 aria-label="A command to try, for example rank">
+          <button class="mw-btn mw-btn--primary mw-sim__send" type="button" data-mw-sim-send>Send</button>
         </div>
-        {# A system the registry says has no switch is not given one here either:
-           the grid is the dashboard's own, so a row that cannot be switched off
-           in the dashboard cannot be switched off on this page. #}
-        {% if system.toggleable %}
-        {{ switch(system) }}
-        {% else %}
-        <span class="mw-tag">always on</span>
-        {% endif %}
+        <div class="mw-sim__answer" data-mw-sim-answer role="status" aria-live="polite">
+          <p class="mw-hint">
+            Try <code>/balance</code>, <code>/rank</code> or
+            <code>/market buy</code> — then switch that system off on the right
+            and try it again.
+          </p>
+        </div>
       </div>
-      {% endfor %}
+
+      <div class="mw-sim__panel">
+        <div class="mw-sim__chrome">
+          <span class="mw-row__name">Systems</span>
+          <span class="mw-hint">as a server that has never been configured sees them</span>
+        </div>
+        <div class="mw-list">
+          {% for system in systems if system.toggleable %}
+          <div class="mw-live__row">
+            <div class="mw-live__text">
+              <span class="mw-row__name">{{ system.icon }} {{ system.name }}</span>
+              {# Singular chosen rather than appended: Support Tickets has one
+                 command, and "1 commands" reads like a bug on the front page. #}
+              <span class="mw-live__desc">{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
+            </div>
+            {# A system the registry says has no switch is not given one here
+               either: the grid is the dashboard's own, so a row that cannot be
+               switched off in the dashboard cannot be switched off on this page. #}
+            {{ switch(system) }}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
     </div>
 
+    {# The demo's two tables, for the script: every real command, and which system
+       gates it. `tojson` escapes `<`, `>` and `&`, so no command name can end this
+       block early. Jinja's own filter rather than a hand-built string, because the
+       escaping is the whole reason this is safe to put in a page. #}
+    <script type="application/json" data-mw-sim>{{ sim | tojson }}</script>
+
     <p class="mw-hint">
-      Nothing here is connected: this is the dashboard's own grid, drawn from the
-      same registry, on a page that is not signed in to your server.
+      Nothing here is connected: these are the dashboard's own switches, on a page
+      that is not signed in to your server, and the answers are worked out in your
+      browser from the same tables the bot reads.
       <a href="/systems">Every system, and what switching one off does</a>.
     </p>
   </div>
@@ -171,20 +225,20 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   04 — The dashboard's own pages: the first four as cards, the rest as one line.
+   04 — The dashboard's own pages: one read in full, the rest as a list to scan.
 
-   It was every page as a card, and seven cards of three bullets each is the
-   page's argument made twice: this band exists to show what the dashboard *is*,
-   and a reader who wants the whole rail is one sign-in away from it. What the
-   line below does **not** do is drop anything — every page the registry declares
-   is still named on this page, four of them with their bullets — so the cut is a
-   rhythm decision rather than a claim about what the dashboard holds, and the law
-   in `tests/test_meoww_site.py` fails if a page goes missing from both.
+   It has now been cut twice — seven cards, then four cards and a line — and both
+   times the band was still the page's argument made twice: four panels of three
+   bullets is two minutes of reading to learn what the *next page* says anyway.
+   So one page is described in full (the registry's own first, which is the one a
+   visitor will actually open) and the other ten are a list of links with a
+   four-word note each: ten seconds to scan, and the depth still exists one click
+   away on the page each row names.
 
-   The four are the registry's own first four, in its own order. A hand-picked
-   list of "the important ones" here would be a second author of a fact
-   `DASHBOARD_PAGES` already states, and the two would drift the day the rail is
-   reordered — the same defect the spine's section list exists to prevent.
+   What the cut must never become is a *claim*. Every page the registry declares
+   is still named here — the card for the first, a row for each of the rest — so a
+   page can be added to `DASHBOARD_PAGES` and appear, and the law in
+   `tests/test_meoww_site.py` fails if one goes missing from both places.
    -------------------------------------------------------------------------- #}
 <section class="mw-band" id="dashboard">
   <div class="mw-wrap">
@@ -196,25 +250,30 @@
       <p class="mw-hint">Read from the registry, so this page cannot advertise a page the bot does not have.</p>
     </div>
 
-    <div class="mw-grid">
-      {% for page in tour[:4] %}
+    {% set lead = tour[0] %}
+    <div class="mw-split">
       <div class="mw-card">
-        <p class="mw-micro">{{ page.label }}</p>
-        <h3>{{ page.path }}</h3>
-        <p class="mw-hint">{{ page.blurb }}</p>
+        <p class="mw-micro">{{ lead.label }}</p>
+        <h3>{{ lead.path }}</h3>
+        <p class="mw-hint">{{ lead.blurb }}</p>
         <ul class="mw-prose">
-          {% for point in page.points %}<li class="mw-hint">{{ point }}</li>{% endfor %}
+          {% for point in lead.points %}<li class="mw-hint">{{ point }}</li>{% endfor %}
         </ul>
       </div>
-      {% endfor %}
-    </div>
 
-    {% if tour[4:] %}
-    <p class="mw-more">
-      and {{ tour[4:] | length }} more:
-      {% for page in tour[4:] %}<a href="{{ page.path }}">{{ page.label }}</a>{{ ', ' if not loop.last else '' }}{% endfor %}
-    </p>
-    {% endif %}
+      {# One row per page, name and note and nothing else. The note is the
+         registry's own `note` rather than the first clause of its `blurb`: a
+         sentence cut down by a template is a sentence that reads as a truncation
+         on the day it is reworded. #}
+      <ul class="mw-list mw-pages">
+        {% for page in tour[1:] %}
+        <li class="mw-pages__row">
+          <a class="mw-pages__link" href="{{ page.path }}">{{ page.label }}</a>
+          <span class="mw-pages__note">{{ page.note }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
   </div>
 </section>
 

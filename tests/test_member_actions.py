@@ -333,6 +333,81 @@ class TheRecord(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
             top_role=_Role("Admin", 9),
         )
 
+    async def test_the_website_asks_the_permission_question_the_command_asks(self):
+        """A demoted administrator keeps a session; they must not keep the power.
+
+        The dashboard resolves the actor from the session's own ``user_id``, and
+        the call to Discord is made by **the bot** — so nothing on that path ever
+        consulted the acting person's live permissions. ``/ban`` demands Ban
+        Members of whoever typed it; the button that does the same thing has to
+        demand it too, or the dashboard can do what a command cannot.
+        """
+        guild = Guild()
+        guild.me = Member(55, "Meow", guild=guild, bot=True)
+        target = Member(3, "Loud", guild=guild)
+        former = Member(
+            1, "Former Admin", guild=guild, permissions=_Perms(), top_role=_Role("Member", 4)
+        )
+        actor = actions.Actor(id=1, name="Former Admin", member=former, source="dashboard")
+        outcome = await actions.apply(
+            actions.Request(guild=guild, action="ban", target=target, actor=actor, reason="spam")
+        )
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.refused_by, "permission")
+        self.assertEqual(target.calls, [], "nothing may reach Discord")
+        self.assertIn("Ban Members", outcome.detail, "the refusal names the permission")
+
+    async def test_an_administrator_holds_every_permission_at_once(self):
+        """Discord's own rule, and the reason a server owner is never refused."""
+        guild = Guild()
+        guild.me = Member(55, "Meow", guild=guild, bot=True)
+        target = Member(3, "Loud", guild=guild)
+        actor = actions.Actor(id=1, name="Admin", member=self._member(guild), source="dashboard")
+        posted, fake_post = await self._log_calls()
+        with mock.patch.object(actions.modlog, "post", new=fake_post):
+            outcome = await actions.apply(
+                actions.Request(guild=guild, action="ban", target=target, actor=actor, reason="spam")
+            )
+        self.assertTrue(outcome.ok, outcome.detail)
+
+    def test_every_action_requires_what_its_command_requires(self):
+        """The table and the commands' own decorators, compared as a fact.
+
+        Read out of ``cogs/moderation.py`` on purpose. The one thing that must
+        never drift is which permission an action needs, and the drift is what
+        caused this: the website asked nothing at all while every command asked
+        Discord. A second hand-written copy of the mapping is how that happens
+        again, so the two are compared rather than restated.
+        """
+        import re as _re
+        from pathlib import Path as _Path
+
+        source = (_Path(__file__).resolve().parent.parent / "cogs" / "moderation.py").read_text()
+        declared = {
+            match.group(2): match.group(1)
+            for match in _re.finditer(
+                r"@app_commands\.checks\.has_permissions\((\w+)=True\)\s*\n\s*async def (\w+)\(",
+                source,
+            )
+        }
+        self.assertGreater(len(declared), 4, "the commands' permissions were not found")
+        command_for_action = {
+            "warn": "warn",
+            "timeout": "mute",
+            "timeout_remove": "unmute",
+            "kick": "kick",
+            "ban": "ban",
+            "unban": "unban",
+            "clear_warnings": "clearwarnings",
+        }
+        for action, command in command_for_action.items():
+            with self.subTest(action=action):
+                self.assertEqual(
+                    actions.ACTOR_PERMISSIONS.get(action),
+                    declared.get(command),
+                    f"the website and /{command} must demand the same permission",
+                )
+
 
 class TheRoster(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

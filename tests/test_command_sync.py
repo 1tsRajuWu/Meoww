@@ -325,13 +325,57 @@ class PerServerCommandLists(unittest.IsolatedAsyncioTestCase):
             "help has to work with no server to resolve it",
         )
 
-    async def test_the_shared_lane_is_left_alone_when_a_server_is_incomplete(self):
-        """A failed publish plus a successful delete would empty that server."""
-        tree = self._tree("market", "help")
-        tree.registered = [_FakeCommand("market", command_id="id-market")]
-        http = _FakeHTTP(fail_on="help", fail_code="500")
+    async def test_a_shared_copy_a_server_has_not_received_is_left_alone(self):
+        """A failed publish plus a successful delete would empty that server.
+
+        The lane is trimmed per *name* now rather than all-or-nothing once the
+        whole fleet has finished, so the invariant is stated the way it is
+        actually decided: a shared copy may go only when every server that wants
+        the command already holds its own. Here the one server wants `/market`,
+        its own registration did not land, and so the shared copy is the only
+        `/market` it has — which is the outcome this test exists to prevent.
+
+        (``/help`` is missing from that server too and is untouched for the other
+        reason: it belongs in the shared lane, because it is one of the two
+        commands a member can run with no server to resolve.)
+        """
+
+        class _GlobalCopyOnly(_FakeTree):
+            """The shared lane holds `/market` and no server has its own yet."""
+
+            async def fetch_commands(self, *, guild=None):
+                if guild is None:
+                    return [_FakeCommand("market", command_id="id-market")]
+                return []
+
+        tree = _GlobalCopyOnly(local_count=0)
+        tree.local = [_FakeCommand("market"), _FakeCommand("help")]
+        http = _FakeHTTP(fail_on="market", fail_code="500")
+
         _, http, _ = await self._sync({"market": True}, tree, http=http)
-        self.assertEqual(http.deleted, [], "a server was still missing commands")
+
+        self.assertEqual(
+            http.deleted, [],
+            "the server that wants /market still has only the shared copy",
+        )
+
+    async def test_the_shared_lane_is_still_trimmed_when_a_server_is_incomplete(self):
+        """...but one unrelated refusal no longer freezes the whole lane.
+
+        This is the shape that left a switched-off system's commands in the
+        picker for good: a server with *anything* still pending — a command
+        behind a spent daily write budget, a new one Discord refused at its
+        100-command ceiling — held the lane closed until every server had
+        finished, and a server that has finished nothing keeps every other
+        server's stale copies alive. Here `/balance` cannot be published, and
+        `/market` — which no server wants and every server has had removed — must
+        still leave the lane.
+        """
+        tree = self._tree("market", "balance")
+        tree.registered = [_FakeCommand("market", command_id="id-market")]
+        http = _FakeHTTP(fail_on="balance", fail_code="500")
+        _, http, _ = await self._sync({"market": False}, tree, http=http)
+        self.assertIn(("global", "id-market"), http.deleted)
 
     async def test_a_module_that_cannot_be_read_publishes_everything(self):
         """Failing open: an unreadable state can only leave a command visible."""
@@ -1156,4 +1200,215 @@ class WhatThePublisherWroteDown(unittest.IsolatedAsyncioTestCase):
             "socket closed", command_publish.describe(guild.id)["text"],
             "an administrator watching a command refuse to disappear is owed the "
             "reason on the page they are looking at",
+        )
+
+
+class TheGlobalLaneIsTrimmedByProofNotByHope(unittest.IsolatedAsyncioTestCase):
+    """A per-server command that is still registered *globally* is the leak.
+
+    Discord's global lane is visible in every server and cannot be narrowed per
+    server, so a gated command left there keeps appearing in the picker of a
+    server that switched its system off — and where the server also holds its own
+    copy under the same name, the picker has the command twice.
+
+    The old rule waited for **every** server's publish to come back with nothing
+    pending before it would touch the lane, so one unrelated command sitting
+    behind a spent daily write budget left the whole lane alone indefinitely:
+    the copies stayed, the servers that had switched a system off kept seeing it,
+    and no amount of clicking the switch could take it out, because the switch
+    only ever edits the *guild* scope. The rule is now per name and local to the
+    decision: a global copy may go once every server that still wants that
+    command already holds its own copy of it. That is a proof rather than an
+    assumption, and it cannot be blocked by a different command's refusal.
+    """
+
+    def setUp(self):
+        command_publish.forget()
+
+    def tearDown(self):
+        command_publish.forget()
+        bot_module._resync_dirty.clear()
+        bot_module._resync_tasks.clear()
+
+    def _registered(self, *names):
+        return [{"name": name, "id": str(100 + i)} for i, name in enumerate(names)]
+
+    def test_a_copy_every_server_wants_and_holds_is_pruned(self):
+        pairs = commands_sync.prunable_globals(
+            self._registered("market", "help"),
+            {"help"},
+            {"market"},
+            [self._registered("market"), self._registered("market")],
+            [{"market"}, {"market"}],
+        )
+        self.assertEqual([name for name, _id in pairs], ["market"])
+
+    def test_a_copy_one_server_still_needs_is_left_alone(self):
+        """The ordering that keeps a delete from costing a server its commands."""
+        pairs = commands_sync.prunable_globals(
+            self._registered("market"),
+            set(),
+            {"market"},
+            [self._registered("market"), self._registered()],
+            [{"market"}, {"market"}],
+        )
+        self.assertEqual(pairs, [], "a server that wants it does not have it yet")
+
+    def test_a_copy_no_server_wants_is_pruned(self):
+        """Switched off everywhere: nothing is holding it up, so it goes."""
+        pairs = commands_sync.prunable_globals(
+            self._registered("market"),
+            set(),
+            {"market"},
+            [self._registered(), self._registered()],
+            [set(), set()],
+        )
+        self.assertEqual([name for name, _id in pairs], ["market"])
+
+    def test_a_name_the_registry_never_declared_is_never_pruned(self):
+        pairs = commands_sync.prunable_globals(
+            self._registered("who-knows"),
+            set(),
+            {"market"},
+            [self._registered(), self._registered()],
+            [set(), set()],
+        )
+        self.assertEqual(pairs, [], "failing open, as everywhere in this module")
+
+    def test_a_lane_that_cannot_be_read_is_left_alone(self):
+        """No reading, no conclusion — and the caller must not guess one."""
+        pairs = commands_sync.prunable_globals(
+            None, set(), {"market"}, [self._registered()], [{"market"}]
+        )
+        self.assertEqual(pairs, [])
+
+
+class _PerGuildTree:
+    """A tree whose ``fetch_commands(guild=…)`` answers per server."""
+
+    def __init__(self, local, global_registered, per_guild):
+        self.local = [_FakeCommand(name) for name in local]
+        self.global_registered = global_registered
+        self.per_guild = per_guild
+
+    def get_commands(self):
+        return self.local
+
+    async def fetch_commands(self, *, guild=None):
+        if guild is None:
+            return self.global_registered
+        return self.per_guild.get(guild.id, [])
+
+
+class ThePruneItself(unittest.IsolatedAsyncioTestCase):
+    """The rule above, wired to the publisher: which lane loses what, when.
+
+    ``/rank`` is gated by *Leveling & XP* and ``/market`` by *Market* (shipped
+    off), so with both servers holding their own copies the global copy of
+    ``/rank`` must go — and with one server still missing its copy it must stay,
+    because deleting it there would take the command away from that server until
+    its own publish lands.
+    """
+
+    def setUp(self):
+        command_publish.forget()
+
+    def tearDown(self):
+        command_publish.forget()
+
+    def _tree(self, per_guild, global_registered):
+        return _PerGuildTree(["rank", "market", "help"], global_registered, per_guild)
+
+    def _registered(self, name, cid):
+        # A *registered* command carries Discord's own id, which is the handle
+        # the delete needs; ``_FakeCommand`` models that with ``command_id``.
+        return _FakeCommand(name, command_id=cid)
+
+    async def test_both_servers_holding_their_own_copy_lets_the_global_go(self):
+        global_lane = [self._registered("rank", "11"), self._registered("help", "12")]
+        tree = self._tree(
+            {1: [self._registered("rank", "21")], 2: [self._registered("rank", "31")]},
+            global_lane,
+        )
+        http = _FakeHTTP()
+        fake = _FakeBot([_guild("One", 1), _guild("Two", 2)], tree, http)
+
+        removed = await bot_module._prune_global_lane(fake, complete=False)
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(http.deleted, [("global", "11")])
+        self.assertEqual(
+            command_publish.read(None)["held"], 1,
+            "the lane's own reading has to follow the delete, not the pass before it",
+        )
+
+    async def test_a_server_still_missing_its_copy_holds_the_global_back(self):
+        global_lane = [self._registered("rank", "11")]
+        tree = self._tree(
+            {1: [self._registered("rank", "21")], 2: []},
+            global_lane,
+        )
+        http = _FakeHTTP()
+        fake = _FakeBot([_guild("One", 1), _guild("Two", 2)], tree, http)
+
+        removed = await bot_module._prune_global_lane(fake, complete=False)
+
+        self.assertEqual(removed, 0)
+        self.assertEqual(
+            http.deleted, [],
+            "the second server wants /rank and does not have it yet",
+        )
+
+    async def test_a_command_no_server_wants_leaves_the_lane(self):
+        """Market is off by default, so no server wants it: nothing holds it up."""
+        global_lane = [self._registered("market", "11")]
+        tree = self._tree({1: [], 2: []}, global_lane)
+        http = _FakeHTTP()
+        fake = _FakeBot([_guild("One", 1), _guild("Two", 2)], tree, http)
+
+        removed = await bot_module._prune_global_lane(fake, complete=False)
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(http.deleted, [("global", "11")])
+
+    async def test_a_guild_scope_that_cannot_be_read_stops_the_prune(self):
+        class _Unreadable(_PerGuildTree):
+            async def fetch_commands(self, *, guild=None):
+                if guild is None:
+                    return self.global_registered
+                raise RuntimeError("cannot read")
+
+        tree = _Unreadable(["rank"], [self._registered("rank", "11")], {})
+        http = _FakeHTTP()
+        fake = _FakeBot([_guild("One", 1)], tree, http)
+
+        removed = await bot_module._prune_global_lane(fake, complete=False)
+
+        self.assertEqual(removed, 0)
+        self.assertEqual(
+            http.deleted, [], "half a fleet is not proof about the half nobody read"
+        )
+
+    async def test_a_switch_that_settles_prunes_the_lane_too(self):
+        """The toggle path, which is how a command an admin just switched off goes.
+
+        A switch edits the guild scope and nothing else, so without this the
+        stale global copy outlives the click — and the picker keeps offering a
+        command whose system reads as off.
+        """
+        guild = _guild("One", 1)
+        tree = self._tree(
+            {1: [self._registered("rank", "21")]},
+            [self._registered("rank", "11")],
+        )
+        http = _FakeHTTP()
+        fake = _FakeBot([guild], tree, http)
+        bot_module._resync_dirty.add(guild.id)
+
+        with mock.patch.object(bot_module, "RESYNC_SETTLE_SECONDS", 0.0):
+            await bot_module._resync_server(fake, guild)
+
+        self.assertIn(
+            ("global", "11"), http.deleted,
+            "the republish that follows a switch has to trim the shared lane",
         )

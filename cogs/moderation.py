@@ -243,19 +243,104 @@ class Moderation(commands.Cog):
         )
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="modlog", description="Set the channel for moderation logs.")
-    @app_commands.describe(channel="The channel to send logs to")
+    @app_commands.command(
+        name="modlog",
+        description="Set, read or turn off this server's moderation log channel.",
+    )
+    @app_commands.describe(
+        channel="The channel to send moderation logs to",
+        off="Turn moderation logging off in this server",
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    async def modlog(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        async with aiosqlite.connect(db.DB_PATH) as conn:
-            await conn.execute(
-                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, 'log_channel_id', ?)",
-                (interaction.guild.id, channel.id),
+    async def modlog(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel | None = None,
+        off: bool = False,
+    ):
+        """The whole setting, not just its setter.
+
+        It used to take a channel and nothing else, which left two silences. A
+        server could not be told *where* its log went without setting it again
+        somewhere else, and it could not be switched off at all — `/modlog` with
+        an argument was the only way to run it. The one that costs a server its
+        audit trail is the third: nothing checked whether the bot can actually
+        post in the channel, so pointing `/modlog` at a staff-only channel looked
+        exactly like the logging that had been silently dropped ever since
+        (``utils.modlog`` prints to the host log and returns False; a member only
+        hears about it when they ask a moderator why nothing was recorded).
+
+        So the no-argument form is a *reading*: the channel, whether the bot may
+        write there, and what its answer to the other two arguments would be. The
+        permission check is the same one Discord applies to the command itself —
+        an administrator of this server, nothing weaker — and it is enforced by
+        the library before this body runs.
+        """
+        if channel is None and not off:
+            current = await db.get_setting(interaction.guild.id, modlog.SETTING)
+            channel_id = modlog._as_channel_id(current)
+            target = interaction.guild.get_channel(channel_id) if channel_id else None
+            if target is None:
+                description = (
+                    "📋 Moderation logging is **off** in this server, so bans, kicks, "
+                    "timeouts, warnings and the automatic filters leave no record "
+                    "here. Run `/modlog #channel` to start one."
+                    if channel_id is None
+                    else (
+                        f"⚠️ Moderation logs are set to <#{channel_id}>, and that "
+                        "channel no longer exists. Run `/modlog #channel` to point "
+                        "them somewhere real."
+                    )
+                )
+                color = 0xFFAA00
+            else:
+                me = interaction.guild.me
+                allowed = target.permissions_for(me).send_messages
+                description = (
+                    f"📋 Moderation logs go to {target.mention}. "
+                    + (
+                        "I can post there, so every case reaches it."
+                        if allowed
+                        else (
+                            "**I cannot post there** — my role is missing Send "
+                            "Messages in that channel, so cases are being recorded "
+                            "in this server's database and nowhere a moderator will "
+                            "see them. Fix the channel's permissions, or run "
+                            "`/modlog #another-channel`."
+                        )
+                    )
+                    + " Run `/modlog off` to stop logging."
+                )
+                color = 0x2ECC71 if allowed else 0xFF3333
+            return await send_card(
+                interaction,
+                embed=discord.Embed(description=description, color=color),
             )
-            await conn.commit()
+
+        if off:
+            await db.clear_setting(interaction.guild.id, modlog.SETTING)
+            embed = discord.Embed(
+                description=(
+                    "📋 Moderation logging is now **off** in this server. Nothing that "
+                    "happens from here on is written to a log channel — the cases "
+                    "already recorded are untouched."
+                ),
+                color=0xFFAA00,
+            )
+            return await send_card(interaction, embed=embed)
+
+        await db.set_setting(interaction.guild.id, modlog.SETTING, channel.id)
+        me = interaction.guild.me
+        allowed = channel.permissions_for(me).send_messages
+        description = f"📋 Moderation logs will now be sent to {channel.mention}."
+        if not allowed:
+            description += (
+                " ⚠️ I cannot post there yet — my role needs Send Messages in that "
+                "channel, or the record stays empty."
+            )
         embed = discord.Embed(
-            description=f"📋 Moderation logs will now be sent to {channel.mention}.",
-            color=0x2ECC71,
+            description=description,
+            color=0x2ECC71 if allowed else 0xFFAA00,
         )
         await send_card(interaction, embed=embed)
 
