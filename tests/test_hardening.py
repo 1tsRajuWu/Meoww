@@ -435,5 +435,92 @@ class AFailedSendDoesNotReciteTheHost(unittest.TestCase):
         self.assertNotIn('f"Discord did not accept it: {e}"', source)
 
 
+class TheForwardedResponseKeepsItsType(unittest.TestCase):
+    """Every page the Space serves arrives with the type Flask gave it.
+
+    The Space does not serve this app directly: ``app.py`` launches Gradio and
+    mounts the Flask app on it as a catch-all, so the mount re-sends every page a
+    browser asks for. It used to build its own response from the body and copy
+    Flask's headers **minus ``content-type``** — which reads as de-duplication,
+    because the response object it built sets its own type. It sets *none*: a
+    starlette ``Response`` with no ``media_type`` carries no ``Content-Type`` at
+    all. Chrome sniffs HTML it is not told the type of and renders the source, so
+    the operator console's sign-in, the dashboard and both host pages were plain
+    text in a browser while the identical bytes rendered correctly from Flask
+    itself — the failure was in the *interpretation*, which is why nothing on the
+    server side looked wrong. Measured before the fix: `text/html; charset=utf-8`
+    from Flask on 127.0.0.1, and no ``Content-Type`` header at all from
+    ``meow-owner.pages.dev/owner/login``.
+    """
+
+    NORMAL_HEADERS = [
+        ("Content-Type", "text/html; charset=utf-8"),
+        ("Content-Length", "16"),
+        ("Set-Cookie", "meow_session=abc; Secure"),
+    ]
+
+    def test_html_is_still_html_after_the_mount(self):
+        kwargs = keep_alive.forwarded_response(200, self.NORMAL_HEADERS, b"<!doctype html>")
+        self.assertEqual(kwargs["media_type"], "text/html; charset=utf-8")
+        self.assertEqual(kwargs["status_code"], 200)
+        self.assertEqual(kwargs["content"], b"<!doctype html>")
+        carried = [key.lower() for key, _ in keep_alive.carried_headers(self.NORMAL_HEADERS)]
+        self.assertIn("set-cookie", carried, "the session cookie still travels")
+        self.assertNotIn("content-type", carried, "declared once, on the response")
+        self.assertNotIn("content-length", carried, "the length is the body's own")
+
+    def test_repeated_headers_all_survive(self):
+        """``Set-Cookie`` may appear more than once, and the response constructor
+        takes a mapping — a second cookie handed to it as a dict disappears."""
+        headers = [("Content-Type", "text/html"), ("Set-Cookie", "a=1"), ("Set-Cookie", "b=2")]
+        self.assertEqual(
+            keep_alive.carried_headers(headers), [("Set-Cookie", "a=1"), ("Set-Cookie", "b=2")]
+        )
+
+    def test_a_response_with_no_type_of_its_own_is_not_given_one(self):
+        """A 204 or a bodiless redirect declares nothing, and must not be given a
+        type nobody chose."""
+        kwargs = keep_alive.forwarded_response(204, [("Content-Length", "0")], b"")
+        self.assertNotIn("media_type", kwargs)
+
+    def test_json_keeps_its_type_too(self):
+        kwargs = keep_alive.forwarded_response(403, [("Content-Type", "application/json")], b"{}")
+        self.assertEqual(kwargs["media_type"], "application/json")
+
+    def test_the_response_the_mount_builds_carries_it_once(self):
+        """The helper is only right if starlette accepts what it hands over.
+
+        It once did not: the mount passed the carried headers straight to the
+        response constructor, which takes a *mapping* and raises on a list, so the
+        fix for the missing type would have turned every page of the console into
+        a 500. The header is asserted through a real response object here, which
+        is the only place the two halves meet — the local venv has no starlette,
+        so it is skipped there.
+        """
+        try:
+            from starlette.responses import Response
+        except ImportError:  # pragma: no cover - the venv the suite runs in
+            self.skipTest("starlette is only installed where the Space runs")
+        body = b"<!doctype html>"
+        response = Response(**keep_alive.forwarded_response(200, self.NORMAL_HEADERS, body))
+        self.assertEqual(response.headers["content-type"], "text/html; charset=utf-8")
+        self.assertEqual(response.headers["content-length"], str(len(body)))
+        self.assertEqual(response.headers.getlist("content-type"), ["text/html; charset=utf-8"])
+        cookies = [("Content-Type", "text/html"), ("Set-Cookie", "a=1"), ("Set-Cookie", "b=2")]
+        two = Response(**keep_alive.forwarded_response(200, cookies, body))
+        for name, value in keep_alive.carried_headers(cookies):
+            two.headers.append(name, value)
+        self.assertEqual(two.headers.getlist("set-cookie"), ["a=1", "b=2"])
+
+    def test_the_mount_actually_sends_it(self):
+        """A helper nothing calls is not a fix — and this is the shape that lost
+        the header, so it may not come back."""
+        source = _read("app.py")
+        self.assertIn("keep_alive.forwarded_response(", source)
+        self.assertIn("keep_alive.carried_headers(", source)
+        self.assertIn("response.headers.append(", source)
+        self.assertNotIn('not in ("content-length", "content-type")', source)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -130,6 +130,66 @@ def asset_version(name: str) -> str:
     return f"{int(stat.st_mtime):x}{stat.st_size:x}"
 
 
+#: The properties of a response that are about the *transfer* rather than the
+#: message, and that the forwarder below must therefore not copy: the length is
+#: recomputed from the body it actually sends, and the type has to be declared on
+#: the response object rather than appended as a second header.
+_TRANSFER_HEADERS = frozenset({"content-length", "content-type"})
+
+
+def forwarded_response(status: int, headers, body: bytes) -> dict:
+    """The arguments for the response that carries what Flask answered.
+
+    The Space does not serve this app directly: ``app.py`` launches Gradio and
+    mounts the Flask app on it as a catch-all, so every page a browser asks for
+    is re-sent by that mount. This function is the first half of what the mount
+    sends; :func:`carried_headers` is the second.
+
+    It exists because the mount used to build its own response from the body and
+    then copy Flask's headers **minus ``content-type``** — the exclusion looked
+    like de-duplication, since the new response object sets its own type, but it
+    set *none*: a starlette ``Response`` with no ``media_type`` has no
+    ``Content-Type`` header at all, and the header was being filtered out before
+    anything could put it back. A browser that receives HTML with no type sniffs
+    it and renders the **source**, so the console, the dashboard and both sign-in
+    pages were plain text in Chrome while the same bodies rendered correctly when
+    Flask was asked directly — which is exactly what made this invisible from the
+    server side: nothing failed, the bytes were right, and only the interpretation
+    of them was missing.
+
+    So the type travels as ``media_type``, whole, with the charset Flask chose
+    (starlette appends one of its own only when the media type carries none, so
+    ``text/html; charset=utf-8`` stays one header and not two).
+    """
+    content_type = None
+    for key, value in headers or ():
+        if key.lower() == "content-type":
+            content_type = value
+    kwargs: dict = {"content": body, "status_code": status}
+    if content_type:
+        kwargs["media_type"] = content_type
+    return kwargs
+
+
+def carried_headers(headers) -> list[tuple[str, str]]:
+    """The headers of Flask's answer that the response must be *appended* with.
+
+    The type is not among them — it travels as ``media_type``, starlette's own
+    way of declaring one, which keeps the charset Flask chose and puts it back
+    when the header is serialised. The length is not among them either: the mount
+    knows the body it is actually sending, and Flask's length is the length *it*
+    sent.
+
+    Everything else is, in Flask's order and **as pairs rather than a mapping**,
+    because ``Set-Cookie`` may legitimately appear more than once and a starlette
+    ``Response`` only takes a mapping for its ``headers`` argument — the second
+    cookie would be dropped before anyone saw the response. So the mount appends
+    these to the response it built, where a repeat is a separate entry and two
+    cookies stay two cookies.
+    """
+    return [(key, value) for key, value in headers or () if key.lower() not in _TRANSFER_HEADERS]
+
+
 # Four environments render these templates in this repository — this app, the
 # `scripts/preview_dashboard.py` harness, and two test helpers that build a bare
 # Jinja environment to render a page and read it — and Jinja 3 gives each of them

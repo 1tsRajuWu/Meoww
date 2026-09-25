@@ -171,11 +171,24 @@ async def forward_to_flask(req: Request, path: str):
             response_body.append(message.get("body", b""))
 
     await wsgi_asgi(scope, req.receive, send)
-    res = Response(content=b"".join(response_body), status_code=response_status)
-    for k, v in response_headers:
-        if k.lower() not in ("content-length", "content-type"):
-            res.headers.append(k, v)
-    return res
+    # The response is built from what Flask answered rather than from the body
+    # alone — including its `Content-Type`, which this used to be filtered out of
+    # as though the new response object would set one. It sets none, and a
+    # browser handed HTML with no type renders the source: every page of the
+    # console, the dashboard and both sign-ins came out as text in Chrome. The
+    # rule (and the reason) lives in `keep_alive.forwarded_response`, where it is
+    # testable — this mount is the only thing that runs it.
+    #
+    # The headers Flask set are appended rather than passed to the constructor,
+    # which takes a mapping and would therefore keep one of two `Set-Cookie`s.
+    response = Response(
+        **keep_alive.forwarded_response(
+            response_status, response_headers, b"".join(response_body)
+        )
+    )
+    for name, value in keep_alive.carried_headers(response_headers):
+        response.headers.append(name, value)
+    return response
 
 # 5. Start the Discord Bot in background thread
 import bot
