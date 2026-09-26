@@ -105,6 +105,39 @@ def watching() -> bool:
     return bool(watched and alert and watched != alert)
 
 
+def seed_home(guild_id) -> bool:
+    """Turn the watch on for the operator's own server — once, and only if unset.
+
+    The registry default is *off*, deliberately: a report is about a person, and a
+    server that never asked for this must not be filing them. The operator asked
+    for their own server to be the exception, and the only honest way to say "this
+    one is on" is a stored row — a default that depended on the guild id would be
+    a switch nobody can see in the data, so the dashboard would draw the home
+    server's card as off while the listener reported.
+
+    **Only when no row exists.** A server that has switched the watch off has
+    made a decision, and a boot that turned it back on would be the same defect as
+    a switch that reverts on a restart.
+    """
+    from utils import db, modules
+
+    try:
+        stored = db.read_guild_modules_sync(int(guild_id))
+    except Exception as exc:  # noqa: BLE001 — a reading, never a boot failure
+        print(f"[VCWATCH] ⚠️ could not read this server's switches: {exc}", flush=True)
+        return False
+    if "watch" in stored:
+        return False
+    if not modules.set_enabled(int(guild_id), "watch", True):
+        return False
+    print(
+        f"[VCWATCH] 👀 The watch is on in the operator's own server ({guild_id}) — it "
+        "stays off in every other server until one asks for it.",
+        flush=True,
+    )
+    return True
+
+
 def voice_channel_id(member) -> int | None:
     """The voice channel discord says this member is connected to, if any.
 

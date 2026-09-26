@@ -49,6 +49,13 @@ NAME = "DaCat"
 #: What it is, in one line — the sentence a `og:description` or a footer wants.
 TAGLINE = "One bot that runs the server."
 
+#: Who holds the copyright, and the year. Here rather than typed into a footer
+#: because the footer is rendered by five builds (the site, the four Pages
+#: projects, the hub) and the licence at the root of this tree names the same
+#: holder: one fact, one author, so a year that moves moves everywhere at once.
+COPYRIGHT_HOLDER = "Himanshu Raj"
+COPYRIGHT_YEAR = 2026
+
 #: The letter the header's tile draws before the wordmark. Derived from the name
 #: by the law at the bottom of `tests/test_brand.py`, so an initial that no longer
 #: matches is a failure rather than a detail.

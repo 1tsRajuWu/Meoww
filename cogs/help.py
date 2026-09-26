@@ -5,6 +5,26 @@ from utils import bot_channels, features as feature_registry
 from utils.style import send_panel, ACCENT, DANGER, accent_for, avatar_url, guild_banner
 
 HELP_MODULES = {
+    "watch": {
+        "title": "👀 Voice-chat Watch",
+        "desc": (
+            "Somebody reading a voice channel's chat without being in that call gets "
+            "reported to the deployment's own monitoring channel. Off in every "
+            "server until an administrator switches it on for this one, and a "
+            "member who is *in* the call is never reported.\n\n"
+            "> `/watch` — Show whether the watch is on here, and where reports go\n"
+            "> `/watch state:On` — Report reads in this server\n"
+            "> `/watch state:Off` — Stop reporting in this server\n\n"
+            "-# Discord tells nobody when a channel is merely *opened*: this fires "
+            "on a message, which is the moment a read becomes something a person "
+            "can be told about."
+        ),
+        # The watch's own colour, and its own module: it is off in every server
+        # until one asks, which is why the panel describes it as a thing a server
+        # *turns on* rather than something already running.
+        "color": 0x9B59B6,
+        "emoji": "👀",
+    },
     "moderation": {
         "title": "🛡️ Moderation & Logs",
         "desc": (

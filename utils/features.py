@@ -372,6 +372,29 @@ FEATURES: tuple[Feature, ...] = (
     # Not toggleable: core utilities always stay available. It has no dashboard
     # switch and no default state, but it still owns a help category.
     Feature(
+        id="watch",
+        name="Voice-chat Watch",
+        icon="👀",
+        category="Management",
+        description=(
+            "Reports somebody reading a voice channel's text chat without being in "
+            "the call. Off in every server to begin with — a server has to switch "
+            "it on — and every report goes to the deployment's own development "
+            "channel, never into the server it came from."
+        ),
+        # No slash command *runs* the watch; `/watch` is the switch and the
+        # reading, and it is gated here so the command is only offered where the
+        # feature is on (``utils/command_scope`` reads this same list).
+        gate_commands=("watch",),
+        # One row, and it has to be a *path* in the command tree (the registry's
+        # own law reads these against Discord's table): the two states are
+        # options of this command, spelled out in the help menu's prose rather
+        # than as two more rows that are not commands.
+        commands=("/watch — whether it is on here, and where a report goes",),
+        enabled_by_default=False,
+        help_key="watch",
+    ),
+    Feature(
         id="system",
         name="System & Server Control",
         icon="⚙️",

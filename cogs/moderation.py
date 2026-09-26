@@ -60,6 +60,24 @@ class Moderation(commands.Cog):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
+            # `/watch` answers to its own switch, not to moderation's. The two are
+            # separate systems on the dashboard, and a server that wants the read
+            # reports without the ban hammer would otherwise be told to switch on
+            # everything in this cog — including things it deliberately turned off.
+            if getattr(getattr(interaction, "command", None), "name", "") == "watch":
+                if self.bot.is_module_enabled(interaction.guild_id, "watch"):
+                    return True
+                # Refused *with a sentence*. A check that returns False in silence
+                # is a slash command Discord answers with "the application did not
+                # respond", which reads as a broken bot rather than a switch.
+                await interaction.response.send_message(
+                    "⚠️ The **Voice-chat Watch** system is currently **turned off** "
+                    "on this server, so `/watch` is not offered here either. An "
+                    "administrator can switch it on in the [Web "
+                    "Dashboard](https://dacatdashboard.pages.dev/dashboard).",
+                    ephemeral=True,
+                )
+                return False
             if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                 await interaction.response.send_message(
                     "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
@@ -85,10 +103,15 @@ class Moderation(commands.Cog):
         """
         if message.guild is None:
             return
-        if not vc_watch.is_peek(message):
-            return
         gate = getattr(self.bot, "is_module_enabled", None)
-        if callable(gate) and not gate(message.guild.id, "moderation"):
+        # The watch's **own** switch, and off to begin with: a server has to ask
+        # for this one. Gating it on ``moderation`` (which the first version did)
+        # meant every server that ran moderation — which is most of them, by
+        # default — was reporting its members to the operator's channel without
+        # anybody there having agreed to it.
+        if not callable(gate) or not gate(message.guild.id, "watch"):
+            return
+        if not vc_watch.is_peek(message):
             return
 
         target = message.guild.get_channel(vc_watch.alert_channel_id())
@@ -120,6 +143,15 @@ class Moderation(commands.Cog):
             timestamp=discord.utils.utcnow(),
         )
         embed.set_thumbnail(url=getattr(message.author.display_avatar, "url", "") or None)
+        # The server goes on the card because the alert channel is a *deployment*
+        # setting: every report lands in one channel, including the copies from
+        # servers the operator is not looking at, so the card has to say where it
+        # came from. (None of this is ever posted into the watched server.)
+        embed.add_field(
+            name="🏠 Server",
+            value=f"{message.guild.name}\n`{message.guild.id}`",
+            inline=False,
+        )
         embed.add_field(name="👤 Member", value=f"`{facts['name']}`\n`{facts['user_id']}`", inline=True)
         embed.add_field(name="🎧 Voices", value=vc_watch.elsewhere_name(message), inline=True)
         embed.add_field(
@@ -143,6 +175,95 @@ class Moderation(commands.Cog):
             await target.send(embed=embed)
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"[VCWATCH] ⚠️ could not post the report: {exc}", flush=True)
+
+    @app_commands.command(
+        name="watch",
+        description="The voice-chat watch: whether it is on in this server, and where a report goes.",
+    )
+    @app_commands.describe(
+        state="On: report reads in this server. Off: stop reporting here (the default).",
+    )
+    @app_commands.choices(
+        state=[
+            app_commands.Choice(name="👀 On — report reads in this server", value="on"),
+            app_commands.Choice(name="🚫 Off — do not report here (the default)", value="off"),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def watch(
+        self,
+        interaction: discord.Interaction,
+        state: app_commands.Choice[str] | None = None,
+    ):
+        """The whole setting, in the shape ``/modlog`` uses: a reading, or a write.
+
+        The reading matters more here than anywhere else, because the two things
+        an administrator cannot work out from inside their own server are *whether
+        the watch is on* and *where a report goes* — the alert channel is a
+        deployment setting, so a server can be reporting and never see a single
+        card. Both are answered from ``utils/vc_watch``, the same reader the
+        operator's console and the dashboard draw from.
+        """
+        from utils import modules
+
+        guild_id = interaction.guild_id
+        if guild_id is None:
+            return await interaction.response.send_message(
+                "This is a per-server setting.", ephemeral=True
+            )
+
+        changed = state is not None
+        if changed:
+            on = state.value == "on"
+            if not modules.set_enabled(guild_id, "watch", on):
+                return await interaction.response.send_message(
+                    "❌ I could not save that, so nothing changed. The reason is in the "
+                    "host's log.",
+                    ephemeral=True,
+                )
+            hook = getattr(self.bot, "resync_commands", None)
+            if callable(hook):
+                try:
+                    hook(guild_id)
+                except Exception as exc:  # noqa: BLE001 — reported, never fatal
+                    print(f"[SYNC] could not queue a republish for {guild_id}: {exc}", flush=True)
+        else:
+            on = modules.is_enabled(guild_id, "watch")
+
+        reading = vc_watch.status(
+            interaction.guild, find=getattr(self.bot, "get_channel", None)
+        )
+        watched = reading["watched"]
+        alert = reading["alert"]
+        where = reading["alert"].get("name") if alert.get("resolved") else f"`{alert['id']}`"
+
+        if on:
+            body = (
+                "👀 **The voice-chat watch is on in this server.** Somebody who writes "
+                f"in {watched.get('name') or 'the watched channel'} from outside that "
+                "call is reported to "
+                f"{where} — the deployment's monitoring channel, not this server.\n"
+                f"-# Room now: {watched.get('people') if watched.get('people') is not None else 'not in view'} · "
+                f"watch `/watch state:Off` stops it here."
+            )
+            if not reading["resolvable"]:
+                body += (
+                    "\n-# I cannot resolve the watched channel from here, so this is the "
+                    "setting rather than a live reading — the operator's console has the "
+                    "full one."
+                )
+        else:
+            body = (
+                "🚫 **The voice-chat watch is off in this server.** Nothing here is "
+                "reported, and `/watch` is not offered until it is switched on. "
+                "`/watch state:On` starts it — as ever, Discord tells nobody when a "
+                "channel is merely opened, so a report is a *message* read from "
+                "outside the call."
+            )
+        body += (
+            f"\n-# Watching `{reading['watched']['id']}` · reporting to `{reading['alert']['id']}`"
+        )
+        await interaction.response.send_message(body, ephemeral=True)
 
     # ── helpers ──────────────────────────────────────────────────────────────
 

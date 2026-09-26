@@ -19,7 +19,7 @@ security, and policy requirements:
 |---|---|---|
 | **Privacy Policy URL** | ✅ Ready at `/privacy` | Served by `keep_alive.py` and `scripts/build_site.py` from `PRIVACY.md` |
 | **Terms of Service URL** | ✅ Ready at `/terms` | Served from `TERMS.md` through the same renderer |
-| **Global Slash Commands** | ✅ 96 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
+| **Global Slash Commands** | ✅ 97 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
 | **Command Descriptions** | ✅ Every command documented | Provided via `@app_commands.describe` and docstrings across `cogs/*.py` |
 | **No Mandatory Privileged Intents** | ✅ Default off | Bot operates fully without privileged gateway intents (`bot.py`) |
 | **No User Bots / Self-Bots** | ✅ Compliant | Built on discord.py as an official application |
@@ -83,7 +83,7 @@ A community bot for moderation, tickets with transcripts, leveling, an economy w
 
 ### Detailed Description
 ```markdown
-DaCat is a moderation and community bot that stays out of your way. It brings 14 systems and 96 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, building and clearing away the server's own channels and roles with a recorded case for every change, and a per-channel activity tracker keeping a 365-day window. Four ship switched off in every server until an administrator turns them on — a live market with real-time quotes, a starboard, a voice companion that sits with somebody alone in a voice channel, and the legacy pair of an anonymous question box that relays what you ask without your name and DMs the answer back with radio in a voice channel with stations in any genre or language; one command offers those last two together, `/bot legacy`.
+DaCat is a moderation and community bot that stays out of your way. It brings 15 systems and 97 slash commands: automod and logging, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, building and clearing away the server's own channels and roles with a recorded case for every change, and a per-channel activity tracker keeping a 365-day window. Five ship switched off in every server until an administrator turns them on — a live market with real-time quotes, a starboard, a voice companion that sits with somebody alone in a voice channel, a voice-chat watch that reports somebody reading a call's chat without being in that call (`/watch`, off everywhere until a server asks for it, and every report goes to the operator's own channel rather than into the server), and the legacy pair of an anonymous question box that relays what you ask without your name and DMs the answer back with radio in a voice channel with stations in any genre or language; one command offers those last two together, `/bot legacy`.
 
 Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
 

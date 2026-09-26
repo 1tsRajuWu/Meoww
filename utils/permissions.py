@@ -238,6 +238,10 @@ COMMAND_ACCESS: dict[str, str] = {
     "purge": MESSAGES,
     "clearwarnings": ADMIN,
     "modlog": ADMIN,
+    # The watch's own switch and reading. Administrator, like `/modlog`: it decides
+    # whether this server reports its members, which is not a call a moderator
+    # makes about a colleague.
+    "watch": ADMIN,
     # Deliberately EVERYONE, and the one command in this section that is: the
     # whole point is that the member an automatic action happened to can reach a
     # human without asking a moderator for permission to ask. A permission here

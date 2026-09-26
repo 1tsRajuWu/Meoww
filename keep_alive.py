@@ -2334,7 +2334,15 @@ def _site_context() -> dict:
     name = _bot_display_name()
     return {
         "bot_name": name,
-        "bot_initial": (name[:1] or "M").upper(),
+        # The fallback is the brand's own initial rather than a literal: this read
+        # ``or "M"``, which is the initial of a name the product no longer uses,
+        # so a page drawn before the gateway connected could letter its tile with
+        # a retired brand.
+        "bot_initial": (name[:1] or brand.INITIAL).upper(),
+        # The footer's copyright, from the module that already owns the name and
+        # names the same holder as the licence at the root of this tree.
+        "copyright_holder": brand.COPYRIGHT_HOLDER,
+        "copyright_year": brand.COPYRIGHT_YEAR,
         "enter_url": "/login",
         "enter_label": "Sign in",
         "retention_days": _retention_days(),
@@ -3321,6 +3329,10 @@ def _hub_context(page: str) -> dict:
             "live_url": hub.live_url(),
             **_invite_context(),
         },
+        # The footer's line, from the same module the site's footer reads — the
+        # hub is a fifth build of one product and its copyright is not its own.
+        "copyright_holder": brand.COPYRIGHT_HOLDER,
+        "copyright_year": brand.COPYRIGHT_YEAR,
         "systems": payload["systems"],
         "system_groups": payload["groups"],
         "fixed_systems": payload["fixed"],

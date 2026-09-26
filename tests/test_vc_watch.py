@@ -17,11 +17,31 @@ from unittest import mock
 
 import discord
 
+from discord import app_commands
+
 from cogs import moderation
-from utils import vc_watch
+from tests.support import TempDatabaseMixin
+from utils import db, modules, vc_watch
 
 WATCHED = 424242424242424242
 ALERT = 515151515151515151
+GUILD = 777
+
+
+class _Interaction:
+    """Just enough interaction for `/watch`: a server, and somewhere to answer."""
+
+    def __init__(self, guild_id=GUILD, guild=None):
+        self.guild_id = guild_id
+        self.guild = guild if guild is not None else _Guild([])
+        self.response = SimpleNamespace(said=[], send_message=self._send)
+
+    async def _send(self, content, ephemeral=False):
+        self.response.said.append(content)
+
+    @property
+    def said(self) -> str:
+        return "\n".join(self.response.said)
 
 
 class _Member:
@@ -280,6 +300,74 @@ class TheConsoleCanReadTheWatch(unittest.TestCase):
         self.assertIsNone(reading["postable"])
 
 
+class TheWatchHasItsOwnSwitch(TempDatabaseMixin, unittest.TestCase):
+    """``/watch``, and the one server the watch is seeded on.
+
+    Two defects live here. The watch used to follow *moderation's* switch — which
+    is on by default in most servers — so a server that never asked for this was
+    filing reports about its members into the operator's channel. And "on in my
+    own server" existed only as an intention, which the dashboard would have
+    drawn as *off* while the listener reported: the seed writes a real row, so
+    the switch and the behaviour are the same fact.
+    """
+
+    def setUp(self):
+        self.use_temp_database("watch.db")
+        asyncio.run(db.setup())
+        modules.invalidate()
+        self.env = mock.patch.dict(
+            os.environ,
+            {"VC_WATCH_CHANNEL_ID": str(WATCHED), "VC_WATCH_ALERT_CHANNEL_ID": str(ALERT)},
+        )
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.addCleanup(modules.invalidate)
+        self.addCleanup(self.release_temp_database)
+        self.cog = moderation.Moderation(
+            SimpleNamespace(
+                is_module_enabled=lambda guild_id, module_id: modules.is_enabled(guild_id, module_id),
+                user=SimpleNamespace(display_avatar=SimpleNamespace(url="")),
+            )
+        )
+
+    def run_watch(self, state=None):
+        interaction = _Interaction(guild=_Guild([_Channel(WATCHED, "commons-chat")]))
+        asyncio.run(moderation.Moderation.watch.callback(self.cog, interaction, state=state))
+        return interaction
+
+    def test_the_reading_comes_before_the_write(self):
+        """A server with the watch off is told so, and nothing is stored."""
+        interaction = self.run_watch()
+        self.assertIn("watch is off in this server", interaction.said)
+        self.assertIn("/watch state:On", interaction.said)
+        self.assertNotIn("watch", db.read_guild_modules_sync(GUILD))
+
+    def test_it_writes_the_same_switch_the_listener_reads(self):
+        self.run_watch(app_commands.Choice(name="On", value="on"))
+        self.assertTrue(modules.is_enabled(GUILD, "watch"))
+        interaction = self.run_watch(app_commands.Choice(name="Off", value="off"))
+        self.assertFalse(modules.is_enabled(GUILD, "watch"))
+        self.assertIn("watch is off in this server", interaction.said)
+
+    def test_every_answer_names_both_channels(self):
+        """The two addresses are deployment settings, and the card is the only
+        place an administrator can read them from inside their own server."""
+        said = self.run_watch().said
+        self.assertIn(str(WATCHED), said)
+        self.assertIn(str(ALERT), said)
+
+    def test_the_home_server_is_on_and_a_second_boot_leaves_it_alone(self):
+        self.assertTrue(vc_watch.seed_home(GUILD))
+        self.assertTrue(modules.is_enabled(GUILD, "watch"))
+        self.assertFalse(vc_watch.seed_home(GUILD), "the seed ran twice and rewrote the row")
+
+    def test_a_server_that_switched_it_off_keeps_that_decision(self):
+        """The row is the decision, and a boot must not overwrite one."""
+        modules.set_enabled(GUILD, "watch", False)
+        self.assertFalse(vc_watch.seed_home(GUILD))
+        self.assertFalse(modules.is_enabled(GUILD, "watch"))
+
+
 class TheReportSaysWhatHappened(unittest.TestCase):
     def setUp(self):
         self.env = mock.patch.dict(
@@ -293,8 +381,12 @@ class TheReportSaysWhatHappened(unittest.TestCase):
         self.alert = _Channel(ALERT, "development", discord.ChannelType.text)
         self.watched = _Channel(WATCHED, "commons-chat")
         self.guild = _Guild([self.watched, self.alert])
+        # The watch has its own switch and it is off to begin with, so a report
+        # test has to say that this server asked for it — the fixture turning on
+        # ``moderation`` would have been the old default, which is exactly the
+        # behaviour that was wrong.
         self.bot = SimpleNamespace(
-            is_module_enabled=lambda guild_id, module_id: module_id == "moderation",
+            is_module_enabled=lambda guild_id, module_id: module_id == "watch",
             user=SimpleNamespace(display_avatar=SimpleNamespace(url="")),
         )
         self.cog = moderation.Moderation(self.bot)
@@ -336,10 +428,30 @@ class TheReportSaysWhatHappened(unittest.TestCase):
         self.assertIn("2 more", fields["🔁 While this was quiet"])
         self.assertIn("four", fields["💬 What they said"])
 
-    def test_a_server_that_switched_moderation_off_gets_nothing(self):
+    def test_a_server_that_never_asked_for_the_watch_gets_nothing(self):
+        """The default, and the reason this feature has its own switch.
+
+        Gated on ``moderation`` (which is on by default in most servers) every
+        server was filing reports about its members into the operator's channel
+        without anybody there having agreed to it.
+        """
         self.bot.is_module_enabled = lambda guild_id, module_id: False
         self.deliver(_Member(7, voice_channel=999))
         self.assertEqual(self.alert.sent, [])
+
+    def test_a_server_with_moderation_off_but_the_watch_on_is_still_reported(self):
+        """Two systems, two switches — the reading is not a moderation power."""
+        self.bot.is_module_enabled = lambda guild_id, module_id: module_id == "watch"
+        self.deliver(_Member(7, name="peeper", voice_channel=999), "anyone there?")
+        self.assertEqual(len(self.alert.sent), 1)
+
+    def test_the_card_names_the_server_it_came_from(self):
+        """Every report lands in one channel, including copies from servers the
+        operator is not looking at, so the card has to say where it is from."""
+        self.deliver(_Member(7, voice_channel=999))
+        fields = {field.name: field.value for field in self.alert.sent[0]["embed"].fields}
+        self.assertIn("Home", fields["🏠 Server"])
+        self.assertIn(str(self.guild.id), fields["🏠 Server"])
 
     def test_an_alert_channel_the_bot_cannot_see_is_not_a_crash(self):
         guild = _Guild([self.watched])

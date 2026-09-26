@@ -149,6 +149,10 @@
           {% if retention_days %}Messages are kept {{ retention_days }} days{% else %}Nothing is kept longer than it is needed{% endif %}
         </span>
         <span>Not affiliated with Discord Inc.</span>
+        {# The holder and the year come from `utils/brand`, which names the same
+           holder as the licence at the root of the tree — so a footer on any of
+           the five builds cannot disagree with the file they all ship under. #}
+        <span>© {{ copyright_year }} {{ copyright_holder }}</span>
       </div>
 
       {% include "_trap.html" %}

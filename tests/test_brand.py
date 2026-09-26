@@ -459,6 +459,34 @@ class TheSpaceWearsTheBrand(unittest.TestCase):
         self.assertIn("load check", app, "the GPU box is presented as a feature")
 
 
+class TheCopyrightIsOneFact(unittest.TestCase):
+    """The licence, the site's footer and the hub's all name one holder.
+
+    Asked for as "add copyright my legal things", and the half worth a test is
+    not the sentence — it is that five builds print the *same* holder and year as
+    the licence they ship under. A year typed into a footer is a footer that is
+    wrong twelve months later on four hosts nobody re-reads.
+    """
+
+    def test_the_licence_and_the_brand_agree(self):
+        licence = read(ROOT / "LICENSE")
+        self.assertIn(brand.COPYRIGHT_HOLDER, licence)
+        self.assertIn(str(brand.COPYRIGHT_YEAR), licence)
+
+    def test_every_footer_prints_the_modules_own_facts(self):
+        for name in ("site_base.html", "hub/base.html"):
+            with self.subTest(template=name):
+                body = read(TEMPLATES / name)
+                self.assertIn("{{ copyright_holder }}", body)
+                self.assertIn("{{ copyright_year }}", body)
+
+    def test_the_views_carry_them_rather_than_the_templates_knowing_them(self):
+        import keep_alive
+
+        self.assertEqual(keep_alive._site_context()["copyright_holder"], brand.COPYRIGHT_HOLDER)
+        self.assertEqual(keep_alive._hub_context("overview")["copyright_year"], brand.COPYRIGHT_YEAR)
+
+
 class TheModuleIsOneAuthorByConstruction(unittest.TestCase):
     """It imports nothing, so no import can make it disagree with itself."""
 

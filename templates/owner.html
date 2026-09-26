@@ -286,6 +286,13 @@
         in that voice room is reported to the alert channel — once per person per quiet window,
         with the lines that arrived while it was quiet counted on the next card.
       </p>
+      <p class="hint">
+        This switch is the pair of addresses below — <em>what</em> is watched, and where a report
+        goes. Whether a server reports at all is that server's own switch (<strong>Voice-chat
+        Watch</strong> on its Systems page, or <em>/watch</em> in Discord), and it is off in every
+        server until one asks: a report is about a person, so nobody gets watched because a bot
+        was installed. Yours is switched on for you.
+      </p>
       {% else %}
       <p class="notice notice--bad" role="alert">The watch is off. {{ watch.why }}</p>
       {% endif %}
