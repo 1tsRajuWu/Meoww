@@ -646,6 +646,55 @@ class ComposerCase(_ComposerFixture):
         self.assertIn("No server available", response.get_json()["error"])
 
 
+def support_card(*, on=True, postable=True, readable=True, rows=None, read=True) -> dict:
+    """One support-bridge card, in the shape ``utils.support`` answers with.
+
+    Built by the module's own readers over a stand-in channel rather than read
+    from a database, because this fixture renders a template and nothing else —
+    the *decisions* (is it on, may the bot post, is the transcript readable) are
+    still the module's, so a page test drives the branches by parametrising this
+    rather than by inventing a shape production does not answer with.
+    """
+    from utils import support
+
+    channel = SimpleNamespace(
+        id=support.channel_id(), name="support", mention="#support"
+    )
+    channel.permissions_for = lambda _member: SimpleNamespace(
+        send_messages=postable, read_message_history=readable
+    )
+    channel.guild = SimpleNamespace(me=SimpleNamespace(id=999))
+    # The module's own readers either way: "off" here is the module's off switch
+    # (a channel id of 0) rather than a boolean this fixture made up.
+    settings = {"SUPPORT_CHANNEL_ID": "0"} if not on else {}
+    with mock.patch.dict(os.environ, settings):
+        status = support.status(find=lambda _cid: channel)
+    if rows is None:
+        rows = [
+            support.reading({
+                "id": 1, "message_id": 100, "side": support.DISCORD,
+                "author_id": 5, "author_name": "Ash",
+                "body": "the export fails on a big server",
+                "attachments": 0, "jump": "https://discord.com/channels/1/2/3",
+                "where_name": "", "ts": 1_700_000_000,
+            }),
+            support.reading({
+                "id": 2, "message_id": 101, "side": support.WEB,
+                "author_id": 999, "author_name": "Raj",
+                "body": "looking at it now", "attachments": 0, "jump": "",
+                "where_name": "", "ts": 1_700_000_100,
+            }),
+        ]
+    transcript = {
+        "read": read,
+        "why": "" if read else "The database could not be opened.",
+        "rows": rows if read else [],
+        "total": len(rows),
+        "shown": len(rows) if read else 0,
+    }
+    return {"status": status, "transcript": transcript, "url": "/api/support"}
+
+
 def render_dashboard(**overrides) -> str:
     """The shipped dashboard template, rendered with a plausible context.
 
@@ -805,6 +854,10 @@ def render_dashboard(**overrides) -> str:
             "unread": [],
             "counts": {"broken": 0, "warning": 0},
         },
+        # The support bridge's card, drawn for the operator this fixture signs in
+        # as. `support_card()` is the module's own readers over a stand-in
+        # channel; a page test that wants another branch passes its own.
+        support=support_card(),
         # The deployment panels, empty: the shapes are the readers' own and a
         # page test about them passes its own fixture.
         system_status={},

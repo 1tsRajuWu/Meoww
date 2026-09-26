@@ -58,8 +58,8 @@ from utils import (
     # import that shadows a route is a page that raises on every render.
     health as health_checks, hub, identity, levels as levels_module, media_health, meowfee,
     moderation_actions, modlog, modules, pause, permissions, plans, principal, qna,
-    ratelimit, scheduled, server_control, sessions, site_guard, uptime_status,
-    vc_watch, webdocs,
+    ratelimit, scheduled, server_control, sessions, site_guard, support,
+    uptime_status, vc_watch, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1368,6 +1368,10 @@ GATED_PREFIXES = (
     # one the switches answer with.
     "/api/level-settings",
     "/api/server-settings",
+    # The support bridge: a message posted from here speaks as the bot in a
+    # channel, which is the same authority the composer has and belongs behind
+    # the same agreement.
+    "/api/support",
     # The members and server panels: the same authority as the toggles (a
     # session's principal, re-checked per request), and they belong behind the
     # agreement for the same reason — these are actions *as* the bot against
@@ -5170,6 +5174,17 @@ def _dashboard_page(page: str, guild_id):
         bot_ready=bot_ready,
         modules=modules_data,
         server_health=server_health,
+        # The support bridge, and only for the operator: the conversation is
+        # between the operator and the bot's own support channel, so a server's
+        # administrator sees neither half of it. `None` rather than an empty card
+        # is what the template's own `{% if support %}` reads as "not for you" —
+        # a card drawn for everybody would be a page about a room most of its
+        # readers cannot write in, and the panel's write is operator-only anyway.
+        support=(
+            _support_card(guild=_live_guild(guild_id))
+            if _principal().is_operator
+            else None
+        ),
         active_count=active_count,
         total_count=len(AVAILABLE_MODULES),
         csrf_token=get_csrf_token(),
@@ -6021,6 +6036,11 @@ OWNER_PAGES = (
     ("economy", "Economy", "/owner/economy", "economy"),
     ("ops", "Ops", "/owner/ops", "ops"),
     ("questions", "Questions", "/owner/questions", "questions"),
+    # The support bridge, on its own page because a conversation is not a card:
+    # the transcript is the thing an operator came for, and a room's worth of
+    # messages in the middle of the questions inbox would be the page's longest
+    # section with the least to do with its heading.
+    ("support", "Support", "/owner/support", "support"),
     ("access", "Access", "/owner/access", "access"),
     ("changes", "Changes", "/owner/changes", "changes"),
     # The tier, last, because it is the last place an operator should be and the
@@ -6043,7 +6063,7 @@ OWNER_PAGES = (
 #: no page missing from the groups, and nothing named twice.
 OWNER_GROUPS = (
     ("Fleet", ("live", "servers", "systems")),
-    ("Work", ("commands", "economy", "ops", "questions")),
+    ("Work", ("commands", "economy", "ops", "questions", "support")),
     ("Owner", ("access", "changes", "god")),
 )
 
@@ -6092,6 +6112,12 @@ OWNER_PAGE_COPY = {
     "questions": (
         "Questions",
         "What strangers asked the bot in their own servers, and whether each one has an answer.",
+    ),
+    "support": (
+        "Support",
+        "The bot's own support channel, held from here: write a message and it is posted "
+        "into the room as the bot with your name under it, and the replies people write "
+        "there come back to this page.",
     ),
     "access": (
         "Access",
@@ -6447,6 +6473,20 @@ def _owner_context(page: str, guild_id=None) -> dict:
         }
     if page == "questions":
         context["inbox"] = qna.owner_inbox_sync(limit=20)
+    if page == "support":
+        # The bridge's whole reading — the address, the two permissions that
+        # decide whether it works, and the tail of the conversation — from the
+        # same function the JSON endpoint and the dashboard's own card call. The
+        # server in hand is only the fallback for naming the id: the channel is a
+        # *deployment* setting, and the server an operator happens to be reading
+        # is very often not its home.
+        context["support"] = _support_card(
+            guild=(
+                BOT_INSTANCE.get_guild(_int_or_none(selected["id"]) or 0)
+                if BOT_INSTANCE and selected
+                else None
+            )
+        )
     if page == "access":
         context["ledger"] = _owner_ledger()
         context["limits"] = {
@@ -8997,6 +9037,168 @@ def _log_channel_sentence(guild_id, channel_id) -> str:
             "say — it is not an answer that it can."
         )
     return f"Moderation logs will now be sent to {name}."
+
+
+@app.route("/api/support")
+def api_support():
+    """The support conversation, as the card draws it — the same reading, twice.
+
+    A read, so it is separate from the write door and needs no CSRF token beyond
+    the operator gate: the page renders from ``_support_card`` directly, and this
+    is the same answer for a script, for a refresh, and for whatever the console
+    grows next. One reader behind both doors, for the reason every other reading
+    in this file is built that way.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+    return jsonify({"success": True, **_support_card()})
+
+
+@app.route("/api/support", methods=["POST"])
+@_form_door
+def api_support_write():
+    """Send one message into the support channel, or take its history in.
+
+    Two actions behind one address because they are the same conversation and the
+    same door: ``send`` posts as the bot, ``pull`` reads what Discord already has.
+    Both are operator-only — the channel is the bot's own, not a server's — and
+    both answer with a sentence the form's own redirect carries back to the page.
+    """
+    denied = _require_operator_api()
+    if denied:
+        return denied
+
+    data = _json_or_form()
+    action = str(data.get("action") or "send").strip()
+    if action == "pull":
+        payload, status = _support_pull()
+    elif action == "send":
+        payload, status = _support_send(data)
+    else:
+        payload, status = {"success": False, "error": "Unknown support action"}, 400
+    return jsonify(payload), status
+
+
+def _support_card(*, limit=None, guild=None, find=None) -> dict:
+    """Everything one support card draws, read the same way on all three surfaces.
+
+    The dashboard, the console and the preview harness draw this card, and a card
+    built three times is three cards that start to differ. The two Discord lookups
+    are passed in rather than reached for here so the module underneath stays
+    pure: ``find`` is the client's own lookup, which answers for every server the
+    bot is in, and ``guild`` is only the fallback for a caller with one server.
+    """
+    return support.card(
+        limit=limit or support.SHOWN,
+        guild=guild,
+        find=find or getattr(BOT_INSTANCE, "get_channel", None),
+    )
+
+
+def _support_channel():
+    """The live support channel, or ``None`` — used by both writes."""
+    return support.resolve(find=getattr(BOT_INSTANCE, "get_channel", None))
+
+
+def _support_send(data):
+    """One message from the web: posted as the bot, then written down.
+
+    The order matters and it is the whole contract — the row is written **after**
+    Discord accepted the message, because the record is the bridge's claim that
+    the room has this line and a claim written first is a conversation with a
+    message in it that nobody in the room can see. A refusal is answered with the
+    exception's own name and never as a success, for the reason the composer's
+    own send is.
+    """
+    body = str(data.get("body") or "").strip()
+    if not body:
+        return {
+            "success": False,
+            "error": "There is nothing to send — write the message first.",
+        }, 400
+
+    principal = _principal()
+    who = principal.name or "the operator"
+
+    async def work():
+        channel = _support_channel()
+        if channel is None:
+            return {
+                "success": False,
+                "error": (
+                    "The support channel could not be reached, so nothing was posted. "
+                    "The address is the console's status card, and the bot has to be "
+                    "in that server for this to work."
+                ),
+            }, 409
+        content = support.compose(body, who)
+        try:
+            message = await channel.send(content)
+        except Exception as exc:  # noqa: BLE001 — a refusal, never a 500
+            print(f"[SUPPORT] send failed: {exc}", flush=True)
+            return {
+                "success": False,
+                "error": (
+                    f"Discord did not take that message ({type(exc).__name__}), so "
+                    "nothing was posted. Check that the bot may send in the channel."
+                ),
+            }, 409
+        row = await support.record_outbound(
+            body=body, author_id=principal.user_id or 0, author_name=who, message=message
+        )
+        said = (
+            f"Sent as the bot, signed with your name. The replies land on this card "
+            f"— Discord has it now ({support.one_line(getattr(channel, 'name', ''))})."
+        )
+        return {
+            "success": True,
+            "said": said,
+            "message": support.reading(row),
+            "transcript": support.transcript_sync(support.SHOWN),
+        }, 200
+
+    return _on_bot_loop(work())
+
+
+def _support_pull():
+    """Take the channel's recent history into the conversation, on demand.
+
+    The listener only sees what arrives while the bot is running, so a bridge
+    switched on after the conversation started would open on an empty card. This
+    is the door for that — and it is a *button on the card* rather than a boot
+    step, because a boot that read history would be a network call on every start
+    for a conversation nobody had asked to see.
+    """
+
+    async def work():
+        channel = _support_channel()
+        if channel is None:
+            return {
+                "success": False,
+                "error": "The support channel could not be reached, so nothing was read.",
+            }, 409
+        report = await support.pull(channel)
+        if not report["ok"]:
+            return {
+                "success": False,
+                "error": (
+                    f"{report['detail']} {report['taken']} message(s) were taken in "
+                    "before it stopped."
+                    if report["taken"]
+                    else report["detail"]
+                ),
+            }, 409
+        return {
+            "success": True,
+            "said": (
+                f"Read the last {report['seen']} message(s) in the channel; "
+                f"{report['taken']} were not on this card yet."
+            ),
+            "transcript": support.transcript_sync(support.SHOWN),
+        }, 200
+
+    return _on_bot_loop(work())
 
 
 @app.route("/api/level-settings", methods=["POST"])

@@ -663,6 +663,115 @@
 </section>
 {% endif %}
 
+{% if console_page == 'support' %}
+<section class="band" id="{{ page_anchor }}">
+  <div class="wrap">
+    {% if not support %}
+    <p class="hint">The support bridge was not read for this render.</p>
+    {% else %}
+
+    {# The two ways this page is useless, said before anything else on it. A
+       bridge pointed at a channel the bot cannot see, or at one it may not
+       speak in, looks exactly like a quiet conversation — and this is the page
+       an operator opens to find out which of those they have. #}
+    {% if not support.status.on %}
+    <p class="notice notice--bad" role="alert">The bridge is off. {{ support.status.why }}</p>
+    {% elif not support.status.channel.resolved %}
+    <p class="notice notice--bad" role="alert">
+      <strong>The support channel is not one this bot can see.</strong>
+      {{ support.status.setting }} names <span class="mono">{{ support.status.channel.id }}</span>, and
+      nothing answers to it — a typo in the variable looks exactly like this, and so does a channel
+      that went with a server the bot has left.
+    </p>
+    {% endif %}
+
+    <div class="own-card">
+      <h3>The room{% if support.status.channel.resolved %} — #{{ support.status.channel.name }}{% endif %}</h3>
+      <p class="hint">
+        A message written here is posted into that channel as the bot, with your name under it, and
+        every message people write there — or in a thread on it — comes back to this page. The
+        conversation is kept in the bot's own database rather than read out of Discord's history,
+        so this page still draws during the outage or restart you opened it to check on.
+      </p>
+      <dl class="own-facts">
+        <div class="own-fact"><dt>setting</dt><dd class="mono">{{ support.status.setting }}</dd></div>
+        <div class="own-fact"><dt>channel id</dt><dd class="mono">{{ support.status.channel.id }}</dd></div>
+        <div class="own-fact">
+          <dt>the bot may post there</dt>
+          <dd>
+            {% if support.status.postable is none %}Discord did not say{% elif support.status.postable %}
+            yes{% else %}
+            <strong>no — messages written here would go nowhere</strong>{% endif %}
+          </dd>
+        </div>
+        <div class="own-fact">
+          <dt>the bot may read its history</dt>
+          <dd>
+            {% if support.status.readable is none %}Discord did not say{% elif support.status.readable %}
+            yes{% else %}
+            <strong>no — pulling the history will be refused</strong>{% endif %}
+          </dd>
+        </div>
+        <div class="own-fact">
+          <dt>messages on record</dt>
+          <dd class="mono">{{ support.transcript.total }} (showing the last {{ support.transcript.shown }})</dd>
+        </div>
+      </dl>
+    </div>
+
+    <form class="own-card own-form" method="post" action="{{ support.url }}">
+      {{ guard('Sent — it is in the support channel now.') }}
+      <input type="hidden" name="action" value="send">
+      <label class="field">
+        <span class="field__label">Say something to the room</span>
+        <textarea class="input" name="body" rows="4" maxlength="{{ support.status.max_body }}" required
+                  placeholder="What the support channel should read"></textarea>
+        <span class="hint">Posted as the bot, signed with your name. {{ support.status.max_body }} characters at most.</span>
+      </label>
+      <button class="btn btn--primary" type="submit">Send it</button>
+    </form>
+
+    <h2>What has been said</h2>
+    {% if not support.transcript.read %}
+    <p class="notice notice--bad" role="alert">{{ support.transcript.why }}</p>
+    {% elif support.transcript.rows %}
+    <ul class="list">
+      {% for row in support.transcript.rows %}
+      <li class="list__row list__row--prose">
+        <span class="list__key">
+          {{ row.author }}
+          <span class="hint">{{ 'from the web' if row.from_web else 'in Discord' }}</span>
+        </span>
+        <span class="list__note">
+          {{ row.body }}
+          {% if row.attachments %}
+          <span class="hint">{{ row.attachments }} attachment(s) — open it in Discord to see them.</span>
+          {% endif %}
+          {% if row.jump %} <a href="{{ row.jump }}">Open it in Discord</a>{% endif %}
+        </span>
+        <span class="list__meta mono">{{ row.when }}{% if row.where_name %} · {{ row.where_name }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hint">
+      Nothing on record yet. The bridge only takes in what arrives while the bot is running, so if
+      the conversation started before it was switched on, pull the channel's own history below.
+    </p>
+    {% endif %}
+
+    <form class="own-door" method="post" action="{{ support.url }}">
+      {{ guard("Read the channel's recent history.") }}
+      <input type="hidden" name="action" value="pull">
+      <button class="btn" type="submit">Pull the last {{ support.status.pull_limit }} messages</button>
+      <span class="hint">Reads Discord's own history and takes in whatever this page does not have.
+        A message already on record is skipped, so pressing this twice adds nothing twice.</span>
+    </form>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
 {% if console_page == 'access' %}
 <section class="band" id="{{ page_anchor }}">
   <div class="wrap">

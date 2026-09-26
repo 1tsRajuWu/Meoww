@@ -42,6 +42,12 @@ answers for it, and using a server that runs the Bot is agreement to it.
   is delivered to the asker by DM and is never posted. There is no expiry on
   these rows — a question is kept until it is deleted, because an unanswered one
   is the feature.
+* **The support bridge's conversation:** the message an operator sends from the
+  dashboard or the console (with their display name), and what people write back
+  in the one support channel the deployment names — the author's Discord id and
+  display name, the text, and when each arrived. It is a conversation with the
+  operator's own support room rather than a server's data, the card is drawn for
+  the operator's sign-in alone, and rows are kept until they are deleted.
 * **What was done through the website, and by whom:** one row per action taken
   from the dashboard or the operator's console — the scope, the person's Discord
   id and username, the server, the action, who or what it was aimed at, whether

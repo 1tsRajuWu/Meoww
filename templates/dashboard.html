@@ -251,6 +251,73 @@
       {% endif %}
     </div>
 
+    {# The support bridge — and **only** for an operator session. The conversation
+       is between the operator and the bot's own support channel, so a server's
+       administrator has neither half of it: the view hands this card over only
+       when the session is the operator's, and `{% if support %}` is what that
+       reads as here. The room itself is drawn from the same reader the console's
+       Support page draws, so the two surfaces cannot disagree about it. #}
+    {% if support %}
+    <div class="own-card" data-reveal>
+      <h3>Support — {% if support.status.channel.resolved %}#{{ support.status.channel.name }}{% else %}the bot's own channel{% endif %}</h3>
+      {% if not support.status.on %}
+      <p class="notice notice--bad">The bridge is off. {{ support.status.why }}</p>
+      {% elif not support.status.channel.resolved %}
+      <p class="notice notice--bad">
+        The support channel is not one this bot can see: {{ support.status.setting }} names
+        <span class="mono">{{ support.status.channel.id }}</span> and nothing answers to it — a typo
+        in the variable looks exactly like this.
+      </p>
+      {% endif %}
+      <p class="hint">
+        A message written here is posted into
+        <strong>{% if support.status.channel.resolved %}#{{ support.status.channel.name }}{% else %}the support channel{% endif %}</strong>
+        as the bot, with your name under it, and the replies people write there come back to this
+        card — so the whole conversation can be held from this page. The transcript is the bot's own
+        record rather than Discord's history, which is why it still draws during a restart or an
+        outage.
+        {% if support.status.postable is not none and not support.status.postable %}
+        <strong>The bot cannot post in that channel right now</strong>, so a message written here
+        would go nowhere — the permissions are what to fix.
+        {% endif %}
+      </p>
+      {% if not support.transcript.read %}
+      <p class="notice">The conversation could not be read: {{ support.transcript.why }}</p>
+      {% elif support.transcript.rows %}
+      <ul class="list">
+        {% for row in support.transcript.rows %}
+        <li class="list__row list__row--prose">
+          <span class="list__key">{{ row.author }}
+            <span class="hint">{{ 'from the web' if row.from_web else 'in Discord' }}</span></span>
+          <span class="list__note">{{ row.body }}{% if row.attachments %}
+            <span class="hint">· {{ row.attachments }} attachment(s) — open it in Discord to see them.</span>{% endif %}
+            {% if row.jump %} <a href="{{ row.jump }}">Open it in Discord</a>{% endif %}</span>
+          <span class="list__meta mono">{{ row.when }}{% if row.where_name %} · {{ row.where_name }}{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">Nothing has been said yet. The bridge only takes in what arrives while the
+        bot is running, so pull the channel's own history if the conversation started before it.</p>
+      {% endif %}
+      <form method="post" action="{{ support.url }}">
+        {{ guard('Sent — it is in the support channel now.') }}
+        <input type="hidden" name="action" value="send">
+        <div class="dash-field">
+          <label for="support-body">Say something to the room</label>
+          <textarea id="support-body" name="body" rows="3"
+                    maxlength="{{ support.status.max_body }}" required></textarea>
+        </div>
+        <button class="btn btn--primary" type="submit">Send it</button>
+      </form>
+      <form method="post" action="{{ support.url }}">
+        {{ guard("Read the channel's recent history.") }}
+        <input type="hidden" name="action" value="pull">
+        <button class="btn" type="submit">Pull the last {{ support.status.pull_limit }} messages</button>
+      </form>
+    </div>
+    {% endif %}
+
     <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>Where to go next</h3>

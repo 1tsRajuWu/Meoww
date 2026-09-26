@@ -27,11 +27,17 @@ import html
 import os
 import re
 import shutil
+import asyncio
 import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+# Used where a stand-in needs an attribute and nothing else (the support
+# channel's guild, and the bot's own member in it): the shapes Discord hands over
+# that no reader in this process inspects beyond one field.
+from types import SimpleNamespace
 
 from flask import Flask, jsonify, redirect, render_template, request, session
 
@@ -403,6 +409,48 @@ class _PreviewChannel:
         self.members = []
 
 
+class _PreviewSupport:
+    """The support channel, as the bridge's own two writes read one.
+
+    The card this stands behind is the one surface here that is **two-way**: a
+    message typed into the preview is posted through ``keep_alive``'s own route
+    and written into the harness's copy of the store, and the transcript under
+    the form is read back out of it — so the piece worth looking at (does a
+    message I send appear where I expect it, and do the permissions say what the
+    card claims) can actually be driven rather than described. ``send`` returns a
+    real-shaped message, because the route records Discord's id and jump link off
+    what it gets back. Empty history, and honestly so: this process has no gateway
+    to fetch a channel's real past from, and a pulled message the harness invented
+    would be a preview of something that never happened.
+    """
+
+    def __init__(self, cid, name="support"):
+        self.id = int(cid)
+        self.name = name
+        self.mention = f"<#{cid}>"
+        # The bot's own member *in the channel's server*, which is whose
+        # permissions Discord applies — and the answer the card prints.
+        self.guild = SimpleNamespace(me=SimpleNamespace(id=999))
+        self._sent = 0
+
+    def permissions_for(self, member):
+        return SimpleNamespace(
+            view_channel=True, send_messages=True, read_message_history=True
+        )
+
+    async def send(self, content=None, **kwargs):
+        self._sent += 1
+        return SimpleNamespace(
+            id=900000 + self._sent,
+            jump_url=f"https://discord.com/channels/0/{self.id}/{900000 + self._sent}",
+        )
+
+    async def history(self, limit=50):
+        """No past to hand over: see the class docstring."""
+        for message in ():
+            yield message
+
+
 class _PreviewCategory:
     """A category, *with* its type.
 
@@ -570,6 +618,24 @@ class _PreviewBot:
         # which is what `discord.Client` reports and what `_bot_ping_ms` scales.
         self.user = None
         self.latency = int(os.environ.get("PREVIEW_PING", "41")) / 1000
+        # The support bridge's one address, so the card on the Overview is a
+        # reading rather than a settings row and the form under it can be driven.
+        self._support = _PreviewSupport(keep_alive.support.channel_id())
+
+    def get_channel(self, channel_id):
+        """The support room, and nothing else.
+
+        ``find``-shaped like ``discord.Client.get_channel`` because that is what
+        the bridge calls it as: the support channel is a *deployment* setting, so
+        the lookup has to answer for a server other than whichever one a page is
+        reading. Everything else comes back ``None``, which the card reports as
+        "nothing the bot can see" — the truth for a process with no gateway.
+        """
+        try:
+            wanted = int(channel_id)
+        except (TypeError, ValueError):
+            return None
+        return self._support if wanted == self._support.id else None
 
     def get_guild(self, guild_id):
         try:
@@ -904,6 +970,29 @@ for _rule, _name, _view in (
 ):
     app.add_url_rule(_rule, _name, _view, methods=["GET", "POST"])
 
+# The support bridge, which is two views on one address rather than one view on
+# two methods: the card's forms post to the write, and a script reads the same
+# address for the transcript. Both are ``keep_alive``'s own, for the reason every
+# other delegated route here is — and mounting them is what makes the one
+# *two-way* card in this harness drivable rather than only lookable-at.
+@app.route("/api/support", methods=["GET"])
+def preview_api_support():
+    """The bridge's read, delegated to the endpoint that owns it.
+
+    The harness signs itself in first for the same reason every other delegated
+    write here does: the address is operator-only, and a 401 is not what this file
+    exists to show.
+    """
+    _sign_in()
+    return keep_alive.api_support()
+
+
+@app.route("/api/support", methods=["POST"])
+def preview_api_support_write():
+    """The bridge's write — the card's own two forms post here."""
+    _sign_in()
+    return keep_alive.api_support_write()
+
 
 def _preview_badge() -> dict:
     """Which of the three gateway states this preview should draw.
@@ -1171,6 +1260,14 @@ def dashboard(sub: str = "overview"):
         # moderator log this store has never been told about) is a row a visitor
         # can look at instead of a shape nobody has seen.
         server_health=_preview_health(guild["id"]),
+        # The support bridge, for the reason ``server_health`` is here: this
+        # harness signs itself in as the operator, the card is drawn only for one,
+        # and a preview that skipped it would be a preview of a page the operator
+        # never sees. Read through production's own card builder over this
+        # process's gateway, so the two branches worth looking at — the address
+        # resolving, and the conversation the harness's own store holds — are the
+        # ones on screen.
+        support=keep_alive._support_card(),
     )
 
 
@@ -2337,11 +2434,28 @@ def queue_state():
     return jsonify(SCHEDULE)
 
 
+def _preview_bot_loop(coro, timeout: float = 20.0):
+    """Run one Discord call in this thread, because this process has no loop.
+
+    ``keep_alive._on_bot_loop`` schedules the call on the bot's event loop and
+    answers *the bot is not connected right now* when there is none — the honest
+    sentence for a deployment whose bot is still booting, and the wrong one here,
+    where there is no loop at all. That case has its own documented fallback in
+    ``keep_alive._run_on_bot_loop``: no loop means no second, disagreeing view of
+    a cache, so the call can simply run. The support bridge is the one write in
+    this harness that *has* to reach the gateway, so this is where the rule is
+    applied; without it the card's own form could only ever show the refusal.
+    """
+    result = asyncio.run(coro)
+    return result if isinstance(result, tuple) else (result, 200)
+
+
 if __name__ == "__main__":
     # The gateway the console's own views read, and a small economy to look at.
     # Both only when *serving*: this file is imported by the test-suite, and
     # neither belongs to a test that never asked for one.
     keep_alive.BOT_INSTANCE = _PreviewBot()
+    keep_alive._on_bot_loop = _preview_bot_loop
     seeded = seed_economy()
     counted = seed_activity()
     signed_in = seed_sessions()

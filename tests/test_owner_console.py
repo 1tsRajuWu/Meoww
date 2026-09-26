@@ -22,6 +22,7 @@ and the only surface that writes says so before it does.
 """
 from __future__ import annotations
 
+import os
 import re
 import unittest
 from unittest import mock
@@ -278,6 +279,40 @@ class TheReadingsAreHonest(_ConsoleFixture):
         body = self.page("/access").get_data(as_text=True)
         self.assertIn("session", body.lower())
         self.assertNotIn("could not be read", body)
+
+
+class TheSupportPage(_ConsoleFixture):
+    """The bridge's own page: which room it is in, and what it says when it cannot.
+
+    The one surface in this console that is a *conversation* rather than a
+    reading, so what is asserted is that it cannot draw itself as a quiet room
+    when it is a broken one — and that the two writes it offers are the same two
+    the JSON door answers.
+    """
+
+    def test_the_page_names_the_setting_the_id_and_the_two_writes(self):
+        body = self.page("/support").get_data(as_text=True)
+        self.assertIn(keep_alive.support.CHANNEL_ENV, body)
+        self.assertIn(str(keep_alive.support.channel_id()), body)
+        self.assertIn("Pull the last", body)
+        self.assertIn('action="/api/support"', body)
+        # A write on this console is a form carrying its own token, and the
+        # message field is capped by the module's own number rather than one
+        # typed into the template.
+        self.assertIn('name="csrf_token"', body)
+        self.assertIn('name="body"', body)
+        self.assertIn(f'maxlength="{keep_alive.support.MAX_BODY}"', body)
+
+    def test_a_channel_nothing_answers_to_is_said_rather_than_drawn_as_quiet(self):
+        """The failure that looks exactly like a conversation nobody has had."""
+        body = self.page("/support").get_data(as_text=True)
+        self.assertIn("not one this bot can see", body)
+
+    def test_the_page_prints_the_address_this_deployment_is_actually_using(self):
+        """The setting is a deployment fact, so the page reads the one in force."""
+        with mock.patch.dict(os.environ, {"SUPPORT_CHANNEL_ID": "424242424242424242"}):
+            body = self.page("/support").get_data(as_text=True)
+        self.assertIn("424242424242424242", body)
 
 
 if __name__ == "__main__":  # pragma: no cover

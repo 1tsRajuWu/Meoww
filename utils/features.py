@@ -447,6 +447,11 @@ SHARED_GATES: Mapping[str, tuple[str, ...]] = {
 # merged into Moderation & Logs, `Feature.cog` holds one path, so the filters'
 # cog loads as a core cog and gates itself on `"moderation"` — one switch runs
 # the manual actions and the automatic ones.
+#
+# `cogs.support` is here because it is not a server's feature at all: the support
+# channel is a deployment setting, the conversation belongs to the operator, and
+# the cog registers no command — it is one listener over one channel, and a
+# server that never asked for anything gets nothing from it.
 CORE_COGS: tuple[str, ...] = (
     "cogs.server_control",
     "cogs.help",
@@ -455,6 +460,7 @@ CORE_COGS: tuple[str, ...] = (
     "cogs.radio",
     "cogs.qna",
     "cogs.automod",
+    "cogs.support",
 )
 
 # Commands that are always reachable regardless of module state. (The old

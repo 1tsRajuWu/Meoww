@@ -813,6 +813,22 @@ async def setup():
 
         await db.execute(_qna.CREATE_TABLE)
 
+        # ── The support bridge ────────────────────────────────────────────────
+        # The conversation an operator holds from the web: every message posted
+        # into the support channel from a browser, and every reply taken in from
+        # it. Two things about this table are load-bearing rather than storage —
+        # the unique index over Discord's message id, which is what lets the
+        # listener and an on-demand pull both run over the same message without
+        # the conversation growing a duplicate line, and the timestamp taken
+        # from Discord's own ``created_at`` rather than from the clock here, so a
+        # pulled message lands where it belongs in the conversation. Both are
+        # defined beside the rest of the rules in ``utils/support`` and imported
+        # here rather than copied, for the reason the question box above is.
+        from utils import support as _support  # noqa: PLC0415
+
+        await db.execute(_support.CREATE_TABLE)
+        await db.execute(_support.CREATE_INDEX)
+
         # One-time repair of the fixtures that reached production — last, because
         # it is the only migration here that deletes rows from a table this
         # function also creates. This is the other half of what

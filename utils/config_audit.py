@@ -400,6 +400,18 @@ SETTINGS: tuple[Setting, ...] = (
         "nowhere to go, and the process log says so once per report.",
     ),
     Setting(
+        "SUPPORT_CHANNEL_ID",
+        CAPABILITY,
+        "the support channel an operator holds a conversation with from the "
+        "dashboard and the owner console",
+        "the compiled default channel is used \u2014 this bot's own support channel. "
+        "`utils/support` has the detail: a message sent from either web page is "
+        "posted there as the bot, the replies people write there come back to the "
+        "page, and the conversation lives in the database rather than in Discord's "
+        "history so the card still draws during an outage. Set it to 0 to switch "
+        "the bridge off.",
+    ),
+    Setting(
         "UPDATE_CHANNEL_ID",
         CAPABILITY,
         "the channel release notes are posted to",
