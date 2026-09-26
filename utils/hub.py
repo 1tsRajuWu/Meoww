@@ -114,6 +114,21 @@ def live_url() -> str:
             or "https://1tsrajowo-meow.hf.space").rstrip("/")
 
 
+def dashboard_url() -> str:
+    """Where the member dashboard lives — a host of its own, beside this one.
+
+    The console and the dashboard are two hosts, so a link between them has to be
+    **absolute**: `/dashboard` on the console's host is not a path that host
+    answers — its worker 301s it to the public site, which is another hop and a
+    different session (a cookie is host-scoped). The same reader the two above
+    use, with the address this project publishes as the fallback, because a
+    deployment that moves its dashboard sets the same setting the one-time link
+    is built from.
+    """
+    return (config_audit.get("DASHBOARD_BASE_URL")
+            or "https://dacatdashboard.pages.dev").rstrip("/")
+
+
 # ---------------------------------------------------------------------------
 # The changelog
 # ---------------------------------------------------------------------------

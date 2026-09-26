@@ -25,6 +25,7 @@ import urllib.parse
 from unittest import mock
 
 import keep_alive
+import scripts.build_owner as build_owner
 from tests.support import agree_to_the_policies, agreed_next_url
 from tests.test_dashboard import CSRF, GUILD_ID, _DashboardFixture, make_bot
 from utils import discord_auth
@@ -744,6 +745,95 @@ class TheCallbackWithAHostileNext(_DashboardFixture):
             agree_to_the_policies(self.client, location).headers.get("Location"),
             "/dashboard?guild_id=5",
         )
+
+
+class TheSignInLandsOnAPageItsHostAnswers(_DashboardFixture):
+    """A Discord sign-in ends on a page the host that served it can render.
+
+    Discord returns the browser to the host that asked: `oauth_redirect_uri()`
+    is built from `dashboard_base_url()`, which follows the request's own
+    `X-Forwarded-Host`, so this callback only ever arrives on a member-facing
+    host — and **none of those serves `/owner`**. `dacatdashboard.pages.dev/owner`
+    is a 301 to the public site, which is another 301 to `dacatowner.pages.dev`,
+    where the session cookie minted here does not exist, because a cookie is
+    host-scoped. So the operator signed in with Discord and arrived at the
+    console's passkey form, signed out, one host further from the dashboard they
+    clicked; the door defaulted to `/owner` because the session was global, on a
+    host that cannot answer it.
+
+    The console is a host of its own with a door of its own, and `next` still
+    wins, so that host can ask for `/owner` by name on the day it offers a
+    Discord sign-in. What is asserted here is the property rather than the
+    literal: wherever this flow ends, the dashboard host answers it.
+    """
+
+    OPERATOR_ID = 907000000000000101
+    MEMBER_ID = 907000000000000102
+
+    def this_host_answers(self, path: str) -> bool:
+        """Whether the host that served the sign-in serves the page it lands on."""
+        return any(
+            path == prefix or path.startswith(prefix + "/")
+            for prefix in build_owner.DASHBOARD_PREFIXES
+        )
+
+    def _discord_sign_in(self, *, owner: bool, next_value: str = ""):
+        """One sign-in, from the button to the answer the callback itself gives."""
+        query = f"?next={urllib.parse.quote(next_value)}" if next_value else ""
+        user = {
+            "id": str(self.OPERATOR_ID if owner else self.MEMBER_ID),
+            "username": "operator" if owner else "member",
+        }
+        guilds = [_guild(GUILD_ID, "Meow Server", owner=True, permissions="8")]
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DISCORD_CLIENT_ID": "1234567890",
+                "DISCORD_CLIENT_SECRET": "shhh",
+                # Where production puts the callback: the member host.
+                "DASHBOARD_BASE_URL": "https://dacatdashboard.pages.dev",
+            },
+        ), mock.patch.object(keep_alive, "OWNER_DISCORD_ELEVATION", True), \
+           mock.patch.object(keep_alive, "OWNER_USER_ID", self.OPERATOR_ID):
+            self.client.get(f"/login/discord{query}")
+            with self.client.session_transaction() as session:
+                state = session["oauth_state"]
+            with mock.patch.object(discord_auth, "exchange_code", return_value="tok"), \
+                 mock.patch.object(discord_auth, "fetch_user", return_value=user), \
+                 mock.patch.object(discord_auth, "fetch_user_guilds", return_value=guilds):
+                return self.client.get(f"/login/discord/callback?code=a&state={state}")
+
+    def test_the_operator_lands_on_the_member_dashboard(self):
+        """Global scope is *what they may do*, not *where they were going*.
+
+        The operator's own console is one host away and is reached by its own
+        door; the page they asked for by pressing Discord's button on the member
+        dashboard is the member dashboard. Asserted through the clickwrap as
+        well, because `next` rides in the query string of the door's redirect and
+        that is the value the person actually follows.
+        """
+        response = self._discord_sign_in(owner=True)
+        self.assertEqual(response.status_code, 302)
+        location = response.headers.get("Location") or ""
+        door = agreed_next_url(location) or location
+        self.assertTrue(
+            self.this_host_answers(door),
+            f"a Discord sign-in on the dashboard host is sent to {door!r}, which "
+            "that host answers with a 301 to another host",
+        )
+        self.assertEqual(door, "/dashboard")
+        self.assertEqual(
+            agree_to_the_policies(self.client, location).headers.get("Location"),
+            "/dashboard",
+        )
+
+    def test_a_member_lands_on_a_page_this_host_answers(self):
+        for owner in (False, True):
+            with self.subTest(owner=owner):
+                response = self._discord_sign_in(owner=owner)
+                location = response.headers.get("Location") or ""
+                door = agreed_next_url(location) or location
+                self.assertTrue(self.this_host_answers(door), door)
 
 
 class TheOwnerIsStillNotTheOperator(_DashboardFixture):

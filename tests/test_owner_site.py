@@ -395,14 +395,13 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
         self.assertIsNotNone(block, "the worker no longer declares what it serves")
         return re.findall(r'"([^"]+)"', block.group(1))
 
-    #: Paths the console's own pages name that this host deliberately does not
-    #: serve, each for a reason that is the whole point of the exception.
-    #: ``/login`` is the per-server dashboard's door and it belongs on the public
-    #: host: this host answers it with a 301 there, which is where a server's own
-    #: administrator should be signing in — the console is the operator's, and a
-    #: second door to it on this domain is the defect its own docstring records.
-    HANDED_OFF = {"/login"}
-
+    # The exception list this class used to carry — `{"/login"}`, the member
+    # door the console pointed at and this host answered with a 301 — is **gone**,
+    # because the console's own pages no longer name it: the outward links are
+    # absolute addresses now (`hub.dashboard_url()`, `hub.marketing_url()`), which
+    # is what a link between two hosts has to be. So the law below is the
+    # stronger one — every path the console's pages name is served *here* — and an
+    # exception that comes back has to be justified in this comment.
     def paths_the_console_calls(self) -> set[str]:
         """Every path the console's own pages name.
 
@@ -424,29 +423,90 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
                 found.add(raw.rstrip("/"))
         return found
 
-    def test_the_console_does_not_wear_the_public_sites_nav(self):
-        """The frame, minus the part of it that made two hosts read as one.
+    #: Both pages of the console's host: `/owner` and the door to it. One
+    #: surface, one reader, so one nav — and the second of the two was the one
+    #: left wearing the marketing header while this law read only the first.
+    CONSOLE_PAGES = ("owner.html", "owner_login.html")
 
-        `templates/owner.html` extends `site_base.html`, so it inherits the
-        public site's marketing header: Home, Systems, Radio, and a button
-        inviting the reader to add the bot to Discord — on the fleet console,
-        from a session that is already signed in. That header is what the
-        screenshots said was confusing, and the fix is a block the console
-        overrides rather than a second frame, so the wordmark, the theme
-        control, the footer and the retention line all stay one author.
+    #: The file that owns the console's nav, drawn by both pages above.
+    NAV = "_owner_nav.html"
+
+    def test_the_console_does_not_wear_the_public_sites_nav(self):
+        """The frame, minus the part of it that made three hosts read as one.
+
+        These pages extend `site_base.html`, so they inherit the public site's
+        marketing header: Home, Systems, Radio, and a button inviting the reader
+        to add the bot to Discord — on the fleet console, and on the page where
+        somebody is trying to become the operator, from a session that is not a
+        Discord one. That header is what the screenshots said was confusing, and
+        the fix is a block the console overrides rather than a second frame, so
+        the wordmark, the theme control, the footer and the retention line all
+        stay one author.
+
+        Both pages draw the override from `_owner_nav.html` now. The door was
+        left out when the console's root was fixed — the same defect, on the
+        other half of the same host — and the reason the markup is not simply
+        written into both is this repository's oldest recorded failure: two
+        copies of one list had already drifted by the time anyone derived the
+        second from the first (see `scripts/build_owner.py`'s prefix lists).
         """
-        body = (TEMPLATES / "owner.html").read_text(encoding="utf-8")
-        self.assertIn("{% block nav %}", body)
-        # The block is *this page's* nav: it names the two member-facing hosts and
-        # stops offering the two things a console must not offer.
-        self.assertIn("<a class=\"nav__link\" href=\"/\" aria-current=\"page\">Console</a>", body)
-        self.assertNotIn("Add to Discord", body)
-        self.assertNotIn("'/systems'", body)
+        macro = (TEMPLATES / self.NAV).read_text(encoding="utf-8")
+        # What the nav says: which address this is, and where the two
+        # member-facing halves live.
+        self.assertIn("{% macro console_nav(site_url, dashboard_url) %}", macro)
+        self.assertIn(
+            "<a class=\"nav__link\" href=\"/\" aria-current=\"page\">Console</a>", macro
+        )
+        self.assertIn('href="{{ site_url }}"', macro)
+        self.assertIn('href="{{ dashboard_url }}"', macro)
+        self.assertIn("theme_button()", macro)
+        # ...and what it must not say: the public site's marketing links (this
+        # host serves none of them) and the invite button (a console is not
+        # where anyone is deciding whether to add the bot).
+        self.assertNotIn("Add to Discord", macro)
+        self.assertNotIn("'/systems'", macro)
+        # A default typed into the template was the second copy of an address
+        # this file already had a reader for; both arrive as arguments now.
+        self.assertNotIn("public_site_url", macro)
+        self.assertNotIn("dacat.pages.dev", macro)
+        for page in self.CONSOLE_PAGES:
+            with self.subTest(page=page):
+                body = (TEMPLATES / page).read_text(encoding="utf-8")
+                self.assertIn(f'{{% from "{self.NAV}" import console_nav %}}', body)
+                self.assertIn(
+                    "{% block nav %}{{ console_nav(site_url, dashboard_url) }}"
+                    "{% endblock %}",
+                    body,
+                )
+                # The page draws the nav by name; it does not carry one. A
+                # second copy is the drift the macro exists to make impossible.
+                self.assertNotIn("nav__link", body)
         # And it is a block the frame actually renders, or the override is a
         # comment: `site_base.html` has to offer it.
         base = (TEMPLATES / "site_base.html").read_text(encoding="utf-8")
         self.assertIn("{% block nav %}", base)
         self.assertIn("{% endblock %}", base[base.index("{% block nav %}") :])
+
+    def test_both_pages_are_told_where_the_other_two_hosts_are(self):
+        """An unset name in a template is empty, not an error.
+
+        `href="{{ site_url }}"` with `site_url` unset renders `href=""`, which
+        is a link back to this page — and that went unnoticed for as long as it
+        did because the default the template used to carry was a plausible
+        address no render call ever set. So both readers are asserted where
+        they are actually passed, not in prose about them.
+        """
+        source = (ROOT / "keep_alive.py").read_text(encoding="utf-8")
+        for template in self.CONSOLE_PAGES:
+            with self.subTest(template=template):
+                call = re.search(
+                    rf'render_template\(\s*"{re.escape(template)}",(?P<body>.*?)\n    \)',
+                    source,
+                    flags=re.DOTALL,
+                )
+                self.assertIsNotNone(call, f"no render_template call for {template}")
+                self.assertIn("site_url=hub.marketing_url()", call.group("body"))
+                self.assertIn("dashboard_url=hub.dashboard_url()", call.group("body"))
 
     def test_the_builder_and_the_worker_agree_about_what_is_served(self):
         self.assertEqual(self.worker_prefixes(), list(build_owner.CONSOLE_PREFIXES))
@@ -458,8 +518,7 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
         uncovered = sorted(
             path
             for path in called
-            if path not in self.HANDED_OFF
-            and not any(path == p or path.startswith(p + "/") for p in prefixes)
+            if not any(path == p or path.startswith(p + "/") for p in prefixes)
         )
         self.assertEqual(
             uncovered,
@@ -503,20 +562,37 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
             "passkey field on it",
         )
 
-    def test_the_member_facing_sign_in_page_is_not_served_here(self):
+    def test_no_member_door_is_served_here(self):
         """`/login` is the second door. It is the one path that must not be here.
 
-        A `/login/discord` prefix covers the console's own Discord button, and
-        deliberately does not cover `/login` itself: proxying that page is how
-        this domain came to offer a passkey form whose limits and guards nobody
-        was looking at, while the console behind it was being reviewed.
+        Proxying that page is how this domain came to offer a passkey form whose
+        limits and guards nobody was looking at, while the console behind it was
+        being reviewed — and it is why this host's own door is `/owner/login`
+        rather than the member site's.
+
+        `/login/discord` is *also* not here, which is the half that used to be
+        wrong. The list carried it for a Discord button the console does not have
+        — the copy on `owner_login.html` mentions Discord, the page offers no
+        button — and a door whose landing page is `/dashboard` (where the
+        callback now sends a global session) is a door *this* host answers with a
+        301 to the public site. So a hand-typed start on this host ended on
+        another host, signed out, at a page with no passkey field on it: the same
+        dead end the `/agree` prefix was added for, arriving from the other side.
         """
         prefixes = self.worker_prefixes()
-        self.assertIn("/login/discord", prefixes)
-        self.assertNotIn("/login", prefixes)
-        # And a bare `/login` is not covered by any prefix that is there.
-        self.assertFalse(
-            any("/login" == p or "/login".startswith(p + "/") for p in prefixes)
+        for member_door in ("/login", "/login/discord", "/servers"):
+            with self.subTest(path=member_door):
+                self.assertNotIn(member_door, prefixes)
+                self.assertFalse(
+                    any(
+                        member_door == prefix or member_door.startswith(prefix + "/")
+                        for prefix in prefixes
+                    ),
+                    f"this host would answer the member door {member_door}",
+                )
+        # The door this host does have, and it is its own: the console's page.
+        self.assertTrue(
+            any("/owner/login" == prefix or "/owner/login".startswith(prefix + "/") for prefix in prefixes)
         )
 
     def test_the_root_is_the_console_and_not_a_redirect(self):
@@ -665,6 +741,154 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
             shutil.rmtree(out, ignore_errors=True)
         self.assertIn("dacat.pages.dev", said.getvalue())
         self.assertIn("/api/console", said.getvalue())
+
+
+class TheDashboardHostServesWhatTheDashboardCalls(unittest.TestCase):
+    """The other host the same builder writes, held to the same law.
+
+    `CONSOLE_PREFIXES` has had a guard since the day the operator's passkey
+    dead-ended on another host. `DASHBOARD_PREFIXES` had none — it was written
+    out by hand from the pages as they stood — and what that costs is
+    `/api/server-settings`: the moderation log channel's form (`dashboard.html`,
+    "Where the moderation record goes") posts to a path this host answers with a
+    301 to the public site, a browser turns a 301 POST into a GET, and the route
+    is POST-only — so the save answered 405 on another host while the page it
+    left looked like a page that had saved. Measured on the deployed host: `POST
+    /api/server-settings` → 301 there, 401 (proxied, i.e. served) on the public
+    site's own address.
+
+    So this reads the dashboard's own sources for the paths they name rather
+    than listing the endpoints a second time, and the paths it does not serve
+    have to be public *by the application's own classification* — the two lists
+    `/health`'s page classification already uses — because a dashboard page
+    linking a privacy policy is not a defect on this host.
+    """
+
+    #: The dashboard's own files: its page, the picker, the two doors and the
+    #: agreement every session passes through. The *frame* is here too, because
+    #: it renders on this host — and its nav names the public pages, which is
+    #: what the other half of the rule below is for.
+    SOURCES = (
+        "dashboard.html",
+        "servers.html",
+        "login.html",
+        "agree.html",
+        "site_base.html",
+        "_theme.html",
+        "meoww/base.html",
+        "meoww/_switch.html",
+        "meoww/_spine.html",
+    )
+
+    #: The scripts those pages load, which is where a fetch or a form action can
+    #: be written without any template naming it.
+    SCRIPTS = ("meoww.js", "spine.js", "motion.js", "theme.js", "dashboard.js")
+
+    #: A path a browser is actually sent to: a form's action, a link's href, or a
+    #: url a script fetches. Deliberately not every string that starts with a
+    #: slash, because these pages talk about Slack-shaped commands in backticks —
+    #: `/help`, `/modlog`, `/levelsettings` — and one Jinja comment mentions
+    #: `/api/*`. A law that read every literal would ask this host to serve a
+    #: slash command. A templated value (`href="/dashboard{{ guild_query }}"`) is
+    #: read up to the expression, which is the part this host can be held to.
+    USED = re.compile(
+        r"""(?:action|href|src|data-[a-z-]*url)\s*=\s*["']([^"'{}]+)["']"""
+        r"""|(?:fetch|open)\s*\(\s*["'`]([^"'`{}]+)["'`]"""
+    )
+
+    #: Paths these pages name that this host must **not** serve, each for a
+    #: reason that is the point of the exception. `/owner` is the console's, on
+    #: the console's own host, and a dashboard page is allowed to name it — what
+    #: is not allowed is a redirect sending somebody there, which is
+    #: `test_the_console_is_not_a_page_this_host_serves` and the door's own laws.
+    HANDED_OFF = {"/owner"}
+
+    def worker_prefixes(self) -> list[str]:
+        """The list as the *built* worker declares it, not as the table does."""
+        out = tempfile.mkdtemp(prefix="dacatdashboard-routes-")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                build_owner.build_proxy(build_owner.PROXY_HOSTS["dashboard"], out)
+            worker = (Path(out) / "_worker.js").read_text(encoding="utf-8")
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+        block = re.search(r"const CONSOLE_PREFIXES = \[(.*?)\];", worker, flags=re.DOTALL)
+        self.assertIsNotNone(block, "the worker no longer declares what it serves")
+        return re.findall(r'"([^"]+)"', block.group(1))
+
+    def public_by_the_apps_own_rule(self, path: str) -> bool:
+        """Whether the application already classifies this path as public.
+
+        Read from `keep_alive` rather than restated, because a second copy of the
+        marketing site's page list is a second thing to keep in step — and the
+        question the law asks is not "is this page on the public site" but "did
+        this host promise to answer it".
+        """
+        if path in keep_alive.PUBLIC_EXACT:
+            return True
+        return any(path == prefix or path.startswith(prefix) for prefix in keep_alive.PUBLIC_PREFIXES)
+
+    def paths_the_dashboard_calls(self) -> set[str]:
+        """Every path these pages actually send a browser to.
+
+        Read out of the attributes rather than out of prose, and reduced to the
+        path so a link carrying `?guild_id=` is the path it lands on.
+        """
+        found: set[str] = set()
+        for path in self.sources():
+            text = path.read_text(encoding="utf-8")
+            for match in self.USED.finditer(text):
+                target = (match.group(1) or match.group(2) or "").strip()
+                if not target.startswith("/") or target.startswith("//"):
+                    continue  # a scheme, a host, or a protocol-relative url: not this host's
+                found.add(urllib.parse.urlsplit(target).path)
+        return found
+
+    def sources(self) -> list[Path]:
+        """The dashboard's own files: a missing one is a failure, not a skip."""
+        pages = [TEMPLATES / name for name in self.SOURCES]
+        for page in pages:
+            self.assertTrue(page.is_file(), f"the dashboard's {page.name} is gone")
+        return pages + [ROOT / "static" / name for name in self.SCRIPTS if (ROOT / "static" / name).is_file()]
+
+    def test_the_builder_and_the_worker_agree_about_what_is_served(self):
+        self.assertEqual(self.worker_prefixes(), list(build_owner.DASHBOARD_PREFIXES))
+
+    def test_every_path_the_dashboard_calls_is_one_this_host_answers(self):
+        prefixes = self.worker_prefixes()
+        named = self.paths_the_dashboard_calls()
+        self.assertGreater(len(named), 10, "the dashboard's own calls were not found")
+        uncovered = sorted(
+            path
+            for path in named
+            if path not in self.HANDED_OFF
+            and not any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
+            and not self.public_by_the_apps_own_rule(path)
+        )
+        self.assertEqual(
+            uncovered,
+            [],
+            "the dashboard's own pages call paths this host answers with a 301 to "
+            "the public site, so those actions leave the host that drew the form: "
+            f"{uncovered}",
+        )
+
+    def test_the_console_is_not_a_page_this_host_serves(self):
+        """The door this host must not open, and why `/owner` is not a door at all.
+
+        `/owner` is the console's, on the console's own host: asking for it here
+        is a 301 to the public site, which is another 301 to `dacatowner`, where
+        the session cookie this host minted does not exist — a cookie is
+        host-scoped. So a sign-in that lands there ends at a passkey form, signed
+        out, and one did: the Discord callback defaulted a global session to
+        `/owner` on a host that cannot answer it. Asserted on the *list* rather
+        than on the redirect, because the list is what the worker consults.
+        """
+        prefixes = build_owner.DASHBOARD_PREFIXES
+        self.assertFalse(
+            any("/owner" == prefix or "/owner".startswith(prefix + "/") for prefix in prefixes),
+            "the dashboard host is being asked to serve the console",
+        )
 
 
 class TheWorkerNamesTheVisitorItForwarded(unittest.TestCase):

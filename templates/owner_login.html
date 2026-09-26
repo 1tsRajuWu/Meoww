@@ -1,5 +1,11 @@
 {% extends "site_base.html" %}
+{# The console's nav, from the one file that owns it: this page and `/owner` are
+   the two halves of one host, and this half was left wearing the public site's
+   marketing header — Home, Systems, Radio, and an "Add to Discord" button —
+   after the other half stopped. `_owner_nav.html` carries the reasoning. #}
+{% from "_owner_nav.html" import console_nav %}
 {% block title %}Operator console — {{ bot_name }}{% endblock %}
+{% block nav %}{{ console_nav(site_url, dashboard_url) }}{% endblock %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">
@@ -47,9 +53,16 @@
       {% endif %}
 
       {% if oauth_enabled and discord_is_enough %}
+      {# The claim used to be "a Discord sign-in is enough, so this is a second
+         lock rather than the only one" — true of the deployment's scope and
+         false of this page, which offers no Discord button to press and cannot:
+         the sign-in belongs to the member host, and a session does not travel
+         between hosts. Say where the door is instead. #}
       <p class="hint tiles">
-        A Discord sign-in is enough on this deployment, so the question above is a second
-        lock rather than the only one.
+        A Discord sign-in already carries the operator's own scope on this deployment —
+        that door is on the member dashboard's host, where a server's administrator signs
+        in. This console is a host of its own, and a session does not travel between them,
+        so the passkey is still the way in here.
       </p>
       {% elif oauth_enabled %}
       <p class="hint tiles">
@@ -61,7 +74,7 @@
 
     <p class="hint tiles">
       Not the operator? <a href="{{ site_url }}">Return to the public site</a> — or sign in to
-      a server's own <a href="/login">dashboard</a>.
+      a server's own <a href="{{ dashboard_url }}">dashboard</a>.
     </p>
   </div>
 </section>

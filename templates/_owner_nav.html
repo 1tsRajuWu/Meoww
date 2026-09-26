@@ -1,0 +1,41 @@
+{# ==========================================================================
+   _owner_nav.html — the console's one nav, drawn by both pages of that host.
+
+   The console is two pages on one host — `/owner` (the fleet) and `/owner/login`
+   (its door) — and that host is a *third* address beside the public site and the
+   member dashboard. Both pages extend `site_base.html`, so both inherit that
+   site's marketing header: Home, Systems, Get started, Radio, and a button
+   inviting the reader to add the bot to Discord. On `/owner` the header was
+   replaced; on `/owner/login` it was left standing, which is the same defect for
+   the same reader — a person already trying to be the operator, offered links to
+   pages this host does not serve and an invite they cannot use from a session
+   that is not a Discord one.
+
+   The override lives *here*, once, and both pages draw it by name. Two hand-typed
+   copies of five lines is how this repository's other duplicated lists came
+   apart — the owner worker's prefix list had already drifted from the builder's
+   before it was derived from it — so `tests/test_owner_site.py` reads both pages
+   and the macro, and refuses a nav written into either page.
+
+   What a nav can usefully say here is which address this is and where the two
+   member-facing halves live. The theme control stays, because it is the same
+   control the rest of the frame draws and its setting follows the reader between
+   pages.
+
+   Both addresses are arguments rather than literals: this host is a *proxy* of
+   one slice of the application, so a link to either of the other two has to be
+   an absolute address, and a default typed into a template is a second copy of
+   one. The import below is here rather than in `site_base.html` for the reason
+   that file's own nav comment gives — a macro imported there belongs to that
+   file's namespace and is not visible from an overriding block.
+   ========================================================================== #}
+{% from "_theme.html" import theme_button %}
+
+{% macro console_nav(site_url, dashboard_url) %}
+<a class="nav__link" href="/" aria-current="page">Console</a>
+<a class="nav__link" href="{{ site_url }}">The public site</a>
+<a class="nav__link" href="{{ dashboard_url }}">Member dashboard</a>
+<div class="top__actions">
+  {{ theme_button() }}
+</div>
+{% endmacro %}

@@ -71,9 +71,14 @@ DEFAULT_OUT = os.path.join(ROOT, "_owner")
 CONSOLE_PREFIXES = (
     "/owner",
     "/api/console",
+    # The console's own switches: the reused dashboard endpoints it posts to
+    # rather than reimplementing. `/api/toggle` and `/api/toggle-all` write, and
+    # `/api/command-scope` reads what Discord holds after a write settles.
     "/api/toggle",
     "/api/toggle-all",
     "/api/command-scope",
+    # Pictures the console draws, served from the backend's own origin so the CSP
+    # can keep `img-src 'self'`.
     "/api/image",
     # The voice capability probe the Radio panel is built from: whether this
     # deployment has an ffmpeg, an opus encoder and `davey` at all. It is named
@@ -81,7 +86,14 @@ CONSOLE_PREFIXES = (
     # reason /api/console does: an operator reading "cannot play" needs to be
     # able to read *why* without leaving the console that told them.
     "/api/voice-debug",
-    "/login/discord",
+    # `/login/discord` is deliberately **not** here, and the member door's own
+    # list is not either: the console has no Discord button, and the host a
+    # Discord sign-in can be *started* on is the host that has to answer where it
+    # lands (`/dashboard`, after the callback). Serving the route anyway meant a
+    # start on this host got a door this host answers with a 301 to the public
+    # site — the operator signed in and arrived at a passkey form, signed out,
+    # which is the shape of the older defect the `/agree` comment below records.
+    # `tests/test_owner_site.py` holds both halves.
     "/logout",
     # The agreement, and the reason this list is checked against the *server's*
     # redirects as well as the bundle's own calls.
@@ -131,6 +143,15 @@ DASHBOARD_PREFIXES = (
     "/api/server-action",
     "/api/channels",
     "/api/level-settings",
+    # The moderation log channel (`dashboard.html`, "Where the moderation record
+    # goes"). Missed when this list was written, and the miss was invisible in
+    # the only way it could be: the form posted to a path this host 301s, a
+    # browser turns a 301 POST into a GET, and the route is POST-only — so the
+    # write answered 405 on the public site while the page it left looked like a
+    # page that had saved. Found by building this host and asking it, not by
+    # reading the list; `tests/test_owner_site.py` now reads the dashboard's own
+    # templates for the paths they name and fails on a path this host redirects.
+    "/api/server-settings",
     "/api/identity",
     "/api/uptime",
     "/api/figures",
@@ -259,36 +280,24 @@ _OWNER_WORKER_HEADER = '''/**
  * contract this build has to keep.
  */'''
 
-_OWNER_PREFIXES_JS = '''  "/owner",
-  "/api/console",
-  // The console's own switches: the reused dashboard endpoints it posts to
-  // rather than reimplementing. `/api/toggle` and `/api/toggle-all` write, and
-  // `/api/command-scope` reads what Discord holds after a write settles.
-  "/api/toggle",
-  "/api/toggle-all",
-  "/api/command-scope",
-  // Pictures the console draws, served from the backend's own origin so the CSP
-  // can keep `img-src 'self'`.
-  "/api/image",
-  // The voice capability probe: the Radio panel's own reading of what this
-  // deployment can do for voice, named by the panel that explains it.
-  "/api/voice-debug",
-  // Signing in and out. `/login/discord` is the owner's Discord button on the
-  // console's own sign-in page; `/logout` is the sign-out the Access page offers.
-  // `/login` itself is deliberately *not* here: that is the member-facing
-  // passkey form, and proxying it is how this domain grew a second door.
-  "/login/discord",
-  "/logout",
-  // The agreement, and the one entry here that the console's own sources cannot
-  // name: it is the backend that puts `/agree?next=…` in a `Location` header
-  // (`_door_target`), so it appears in no `.ts`/`.tsx` file and in no template.
-  // Without it the sign-in flow dead-ended — the passkey was accepted, the
-  // browser was sent to `/agree` *on this host*, this worker did not recognise
-  // it, and its answer to anything it does not recognise is a 301 to the public
-  // site: the operator landed on another host, signed out, at a page offering no
-  // passkey field. The flow test in `tests/test_owner_site.py` derives this from
-  // `keep_alive._door_target` so the next door is covered by existing.
-  "/agree"'''
+def _prefixes_js(prefixes: tuple[str, ...]) -> str:
+    """A JS array literal for one host's prefix list.
+
+    Generated rather than typed so the Python tuple and the JavaScript cannot
+    disagree — the law that reads the list back out of the built worker compares
+    it with the tuple, and the two were kept in step by hand until now.
+    """
+    return "\n".join(f'  "{path}",' for path in prefixes).rstrip(",") + ","
+
+
+#: What :func:`_worker_file` serves when no list is passed to it: the console's
+#: own, as the array its worker declares. Derived, and it used to be neither
+#: derived nor the same list — a second hand-written copy of
+#: :data:`CONSOLE_PREFIXES`, which had already drifted (it still carried
+#: `/login/discord` for a Discord button this host does not have). Nothing in the
+#: product could see that: every real build passes its own list, so this one was
+#: read by `tests/test_owner_site.py` and by nothing at all.
+_OWNER_PREFIXES_JS = _prefixes_js(CONSOLE_PREFIXES)
 
 
 def _worker_file(
@@ -614,16 +623,6 @@ _SHORT_HEADERS = {
  * nothing to sign in to.
  */""",
 }
-
-
-def _prefixes_js(prefixes: tuple[str, ...]) -> str:
-    """A JS array literal for one host's prefix list, with its comments.
-
-    Generated rather than typed so the Python tuple and the JavaScript cannot
-    disagree — the law that reads the list back out of the built worker compares
-    it with the tuple, and the two were kept in step by hand until now.
-    """
-    return "\n".join(f'  "{path}",' for path in prefixes).rstrip(",") + ","
 
 
 def build_proxy(

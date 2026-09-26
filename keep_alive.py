@@ -510,6 +510,12 @@ def _login_page(error=None, status: int | None = None):
         current="",
         error=error,
         csrf_token=get_csrf_token(),
+        # The operator's passkey is the **console** host's door (`/owner/login`,
+        # since `1a56bf8` took it off this page), and this is the answer
+        # `login.html` asks for rather than a flag that was left behind: the
+        # route still accepts a passkey — the endpoint is the same one — but this
+        # page is the member door, and a second entrance on the address members
+        # use is the defect the console's own prefix list records.
         passkey_enabled=False,
         # `oauth_enabled` is the shared context's — it is the same call
         # (`discord_auth.enabled()`), and passing it twice is a `TypeError`
@@ -557,6 +563,13 @@ def _owner_login_page(error=None, status: int | None = None):
         # they were already on. The address comes from the same reader the hub
         # uses, so a deployment that moves its site moves this link with it.
         site_url=hub.marketing_url(),
+        # …and where the *member* dashboard is, for the page's other outward link.
+        # That one used to be `/login`, which this host does not serve: the worker
+        # answers it with a 301 to the public site, so "sign in to a server's own
+        # dashboard" handed the visitor to a third host through two redirects.
+        # Same reader as the link in the console's own nav (`_owner_page` below),
+        # so the two cannot name different addresses for one surface.
+        dashboard_url=hub.dashboard_url(),
     )
     return (body, status) if status else body
 
@@ -4038,7 +4051,20 @@ def login_discord_callback():
         flush=True,
     )
     if granted == principal.SCOPE_GLOBAL:
-        return redirect(_door_target(next_path or "/owner"))
+        # The member dashboard, and **not** the console. Discord returns the
+        # browser to the host that asked — ``dashboard_base_url()`` follows the
+        # request's own ``X-Forwarded-Host`` — so this callback only ever arrives
+        # on a member-facing host, and none of those serves ``/owner``:
+        # ``dacatdashboard.pages.dev/owner`` is a 301 to the public site, which
+        # is another 301 to the console's host, where the session cookie minted
+        # here does not exist, because a cookie is host-scoped. The operator
+        # signed in and arrived at a passkey form, signed out — one host further
+        # from the dashboard they clicked. The console is a host of its own with
+        # its own door (`/owner/login`, the passkey), and a `next` still wins, so
+        # that host can ask for `/owner` by name on the day it offers a Discord
+        # sign-in: see `DASHBOARD_PREFIXES` in `scripts/build_owner.py` for the
+        # other half of this rule.
+        return redirect(_door_target(next_path or "/dashboard"))
     if len(servers) == 1:
         session["guild_id"] = int(servers[0]["id"])
     if len(servers) == 1 or next_path:
@@ -6954,6 +6980,17 @@ def owner_console(sub: str = ""):
         abort(404)
     return render_template(
         "owner.html",
+        # The nav's own two outward links, named here rather than defaulted inside
+        # the template: this host is a *proxy* of one slice of the application, so
+        # a link to either other host has to be an address. Both were a default
+        # written into the markup, and each was wrong its own way: `public_site_url`
+        # — a name nothing in this file ever set, so the link was a hard-coded
+        # address that would have gone on saying `dacat.pages.dev` after the site
+        # moved — and a second, hand-typed copy of the member dashboard's address.
+        # The same two readers `_owner_login_page` uses, so the two pages of this
+        # console cannot name different addresses for one surface.
+        site_url=hub.marketing_url(),
+        dashboard_url=hub.dashboard_url(),
         **{**_site_context(), **_owner_context(page, request.args.get("guild_id"))},
     )
 
