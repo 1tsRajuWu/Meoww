@@ -191,6 +191,74 @@ class TheComposerIsAForm(_PageRender):
                 self.assertIn(action, served, "a form posts to an address no route serves")
 
 
+#: What each action-taking endpoint will accept, read from the app rather than
+#: typed here — the pair this law exists to keep together.
+ACCEPTED_ACTIONS = {
+    "/api/server-action": keep_alive.SERVER_ACTIONS,
+    "/api/member-action": keep_alive.PANEL_MEMBER_ACTIONS,
+}
+
+
+def named_actions(form: str) -> list[str]:
+    """Every value a form can send as its ``action`` — hidden field or option."""
+    values = re.findall(r'name="action"[^>]*value="([^"]+)"', form)
+    for select in re.findall(r'<select\b[^>]*name="action".*?</select>', form, re.S):
+        values += re.findall(r'<option[^>]*value="([^"]+)"', select)
+    return values
+
+
+class EveryActionAFormNamesIsOneTheEndpointAccepts(_PageRender):
+    """The two halves of one write, held to each other instead of to a list.
+
+    A page and an endpoint can each be right and still disagree: the Commands
+    page shipped a button posting ``action=resync`` while the endpoint compared
+    that action against the tuple a *server's* page draws its three moderation
+    controls from, so the one control offered for a stale command picker
+    answered **Unknown action** and nothing else. The test below that walked
+    ``PANEL_SERVER_ACTIONS`` could not see it — it asked the list whether the
+    list was complete. This reads what the page actually posts.
+    """
+
+    def test_every_named_action_is_accepted_by_the_endpoint_it_posts_to(self):
+        checked = 0
+        for form in re.findall(r"<form\b.*?</form>", template(), re.S):
+            target = re.search(r'action="([^"]+)"', form)
+            if not target or target.group(1) not in ACCEPTED_ACTIONS:
+                continue
+            accepted = ACCEPTED_ACTIONS[target.group(1)]
+            for value in named_actions(form):
+                if "{{" in value:
+                    # Options drawn from a tuple in the context rather than typed
+                    # into the template: `test_the_member_and_server_actions_post
+                    # _to_their_endpoints` above walks that tuple through the
+                    # *rendered* page, so each option is already held to the
+                    # endpoint. What this test is for is the other shape — a
+                    # hand-written `value="…"`, which nothing was comparing.
+                    drawn = re.search(r"\{%\s*for action in (\w+)\s*%\}", form)
+                    self.assertIn(
+                        drawn.group(1) if drawn else "",
+                        ("member_actions", "server_actions"),
+                        f"{target.group(1)} draws its actions from somewhere unguarded",
+                    )
+                    continue
+                checked += 1
+                self.assertIn(
+                    value,
+                    accepted,
+                    f"a form posts action={value!r} to {target.group(1)}, which refuses it",
+                )
+        self.assertGreater(checked, 0, "no action-naming form was read — this test is vacuous")
+
+    def test_the_console_only_actions_are_not_offered_on_a_server_page(self):
+        """The other direction, which matters more: a door must not widen by accident.
+
+        ``leave`` and ``block`` make the bot abandon a server and a server's own
+        administrator must not be able to ask for that from their own dashboard.
+        """
+        for value in ("leave", "block", "unblock"):
+            self.assertNotIn(f'value="{value}"', template(), value)
+
+
 class TheWritesAreTheEndpoints(_PageRender):
     """Each page's write goes to the endpoint that already owned it."""
 

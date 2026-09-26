@@ -5735,6 +5735,17 @@ def _management_context(guild_id, page) -> dict:
 PANEL_MEMBER_ACTIONS = ("warn", "timeout", "timeout_remove", "kick", "ban", "unban", "clear_warnings")
 #: The whole-server actions the panel may ask for.
 PANEL_SERVER_ACTIONS = ("lockdown", "unlock", "slowmode")
+#: Everything ``/api/server-action`` accepts — which is *not* the same claim as
+#: what a page offers. ``resync`` is asked for by the **Commands** page's own
+#: button, a form that names its action in a hidden field rather than through
+#: the dropdown `PANEL_SERVER_ACTIONS` draws, and it lives here as well as there
+#: so the endpoint's list and the page's request are the same list. They were
+#: not: the button shipped while the action was absent from the only thing the
+#: endpoint compared against, so the single control the page offers for a stale
+#: command picker answered *Unknown action* to every press. `leave` and `block`
+#: are deliberately **not** here — they are the console's, because a server's
+#: own administrator must not be able to make the bot abandon the server.
+SERVER_ACTIONS = PANEL_SERVER_ACTIONS + ("resync",)
 
 
 @app.route("/api/member-action", methods=["POST"])
@@ -5946,7 +5957,7 @@ def _server_action_result(data):
         return {"success": False, "error": "That server is not reachable from this sign-in."}, 403
 
     action = str(data.get("action") or "")
-    if action not in PANEL_SERVER_ACTIONS:
+    if action not in SERVER_ACTIONS:
         return {"success": False, "error": "Unknown action"}, 400
     guild = _live_guild(guild_id)
     if guild is None:
@@ -5954,6 +5965,22 @@ def _server_action_result(data):
             "success": False,
             "error": "I am not connected to that server right now, so nothing was changed.",
         }, 409
+
+    if action == "resync":
+        # The one fix for the one failure this page can see and nothing else can:
+        # a command list Discord's own client cached and will not reread. It goes
+        # through the helper the switches already use, so a republish asked for
+        # from this page and one asked for by flipping a switch are one request —
+        # and it is **not** a moderation act, so it writes no ``web_actions`` row.
+        if not _resync_commands(guild_id):
+            return {
+                "success": False,
+                "error": "This deployment cannot republish this server's command list right now.",
+            }, 409
+        return {
+            "success": True,
+            "said": "Asked Discord to republish this server's command list — its own client caches the picker, so give it a minute.",
+        }, 200
 
     principal = _principal()
     seconds = _int_or_none(data.get("seconds")) or 0
@@ -6014,6 +6041,27 @@ def api_console_server_action():
 
     actor = (session.get("discord_user") or {}).get("username") or "the operator"
 
+    if action == "resync":
+        # Answered **here**, not on the bot's loop, because this one is already
+        # written for the Flask thread: ``_resync_commands`` is what the
+        # dashboard's own switch calls, and ``bot.resync_commands``
+        # (``bot.py``'s ``resync_guild_commands``) queues the Discord writes on
+        # the loop itself and returns whether it managed to. This endpoint used
+        # to look the hook up and ``await`` it instead — and a plain function is
+        # not awaitable, so the operator's Republish button answered *"Discord
+        # refused the republish (TypeError)"* on every press, naming Discord for
+        # a mistake of ours. It also refuses for a server the bot is not in,
+        # which is why the hook's own answer is what is reported.
+        if not _resync_commands(guild_id):
+            return jsonify({
+                "success": False,
+                "error": "This deployment cannot republish that server's command list right now.",
+            }), 409
+        return jsonify({
+            "success": True,
+            "said": "Asked Discord to republish that server's command list — its own client caches the picker, so give it a minute.",
+        }), 200
+
     async def work():
         guild = _live_guild(guild_id)
         if action == "unblock":
@@ -6031,19 +6079,6 @@ def api_console_server_action():
                 "success": False,
                 "error": "I am not in that server, so there is nothing to leave or republish.",
             }, 409
-        if action == "resync":
-            resync = getattr(BOT_INSTANCE, "resync_commands", None)
-            if not callable(resync):
-                return {"success": False, "error": "This build cannot republish commands."}, 409
-            try:
-                await resync(guild_id)
-            except Exception as exc:  # noqa: BLE001
-                return {"success": False, "error": f"Discord refused the republish ({type(exc).__name__})."}, 409
-            return {
-                "success": True,
-                "said": "Asked Discord to republish that server's command list — its own client caches the picker, so give it a minute.",
-            }, 200
-
         reason = f"{actor}: left from the console" if action == "leave" else f"{actor}: blocked from the console"
         if action == "block":
             await db.block_guild(guild_id, str(data.get("reason") or ""), actor, time.time())

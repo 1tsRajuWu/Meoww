@@ -1375,6 +1375,64 @@ class TogglingFromTheConsole(_DashboardFixture):
                 self.assertTrue(states.get(module["id"], False))
 
 
+class RepublishingFromTheConsole(_DashboardFixture):
+    """The operator's one fix for a command list Discord cached, pressed for real.
+
+    ``bot.py`` sets ``bot.resync_commands = resync_guild_commands``, and that is
+    a **plain function**: it queues the work on the bot's own loop and returns
+    whether it managed to. This endpoint looked the attribute up itself and
+    ``await``-ed it, so the await raised `TypeError` inside its own ``except``
+    and the button answered *"Discord refused the republish (TypeError)"* on
+    every press — a sentence that names Discord for a mistake nobody else made.
+    A hook that *is* awaitable would have passed, which is why the stand-in here
+    is shaped like the real one rather than like a convenient one.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in(scope="global")
+        self.asked: list[int] = []
+        self.bot.resync_commands = lambda guild_id: self.asked.append(guild_id) or True
+
+    def republish(self, guild_id=GUILD_ID):
+        return self.client.post(
+            "/api/console/server-action",
+            json={"guild_id": guild_id, "action": "resync"},
+            headers={"X-CSRF-Token": CSRF},
+        )
+
+    def test_the_button_asks_the_bot_to_republish_that_server(self):
+        response = self.republish()
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(self.asked, [GUILD_ID])
+        self.assertIn("republish", response.get_json()["said"])
+
+    def test_a_queue_that_did_not_happen_is_reported_as_a_refusal(self):
+        self.bot.resync_commands = lambda _guild_id: False
+        response = self.republish()
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.get_json()["success"])
+
+    def test_a_bot_with_no_hook_at_all_is_refused_rather_than_crashing(self):
+        del self.bot.resync_commands
+        response = self.republish()
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.get_json()["success"])
+
+    def test_the_form_the_page_renders_is_the_one_that_was_driven(self):
+        """Read from the served page, so a renamed action moves this test with it."""
+        body = self.client.get("/owner").get_data(as_text=True)
+        form = next(
+            (f for f in re.findall(r"<form\b.*?</form>", body, re.S)
+             if "/api/console/server-action" in f),
+            None,
+        )
+        self.assertIsNotNone(form, "the console's Republish form is not on the page")
+        action = re.search(r'name="action" value="([^"]+)"', form)
+        self.assertIsNotNone(action, "the form names no action")
+        self.assertEqual(action.group(1), "resync")
+
+
 class TheConsoleSchemaIsWhatTheServerAnswers(_DashboardFixture):
     """A payload the page cannot read is a click that quietly does nothing.
 

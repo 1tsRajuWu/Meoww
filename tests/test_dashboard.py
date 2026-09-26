@@ -269,6 +269,54 @@ class DashboardCase(_DashboardFixture):
         )
         self.assertTrue(response.get_json()["success"])
 
+    def test_the_commands_pages_republish_button_reaches_the_bot(self):
+        """The fix the Commands page offers for a stale picker, pressed for real.
+
+        The page diagnoses *"Discord's own list has not been read since this
+        process started"* and offers one control for it, so a button that
+        cannot ask is the whole diagnosis with no cure. It shipped broken: the
+        form posts ``action=resync`` and the endpoint compared that against the
+        tuple a *server's* page draws its three moderation controls from, so
+        every press answered **Unknown action** and the sentence the form
+        promised was never printed.
+        """
+        self.sign_in()
+        asked: list[int] = []
+        self.bot.resync_commands = lambda gid: asked.append(gid) or True
+
+        response = self.api(
+            "POST", "/api/server-action", {"guild_id": GUILD_ID, "action": "resync"}
+        )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(asked, [GUILD_ID])
+        self.assertIn("republish", response.get_json()["said"])
+
+    def test_a_republish_the_bot_could_not_queue_is_not_reported_as_done(self):
+        """The bot saying *no loop* is not the same claim as Discord's list moving."""
+        self.sign_in()
+        self.bot.resync_commands = lambda _gid: False
+        response = self.api(
+            "POST", "/api/server-action", {"guild_id": GUILD_ID, "action": "resync"}
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.get_json()["success"])
+
+    def test_the_console_only_actions_are_still_refused_on_this_door(self):
+        """Adding ``resync`` must not have widened the door the fleet writes through.
+
+        ``leave`` and ``block`` are the operator's, because a server's own
+        administrator must not be able to make the bot abandon the server — so
+        the one action this door gained is the harmless one.
+        """
+        self.sign_in(scope="global")
+        for action in ("leave", "block", "unblock", "no-such-action"):
+            with self.subTest(action=action):
+                response = self.api(
+                    "POST", "/api/server-action", {"guild_id": GUILD_ID, "action": action}
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.get_json()["error"], "Unknown action")
+
     def test_a_scoped_session_with_no_server_at_all_is_refused(self):
         self.sign_in(guild_id=None)
         self.assertEqual(self.client.get("/dashboard").status_code, 200)
