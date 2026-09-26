@@ -6,6 +6,7 @@ These tests run a real SQLite file through the real code with a fake
 Supabase standing in for the real API.
 """
 import contextlib
+import dataclasses
 import io
 import os
 import sqlite3
@@ -551,6 +552,35 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(snaps), cs.BACKUP_KEEP + 1)  # +1 for the new snapshot just created
 
 
+#: The names these cases are written in: this machine, a second one, and the pods
+#: the two incidents left behind — a Hugging Face pod a push replaced, and the
+#: Render sibling a rolling deploy replaces.
+THIS_HOST = "Himanshus-MacBook-Air.local"
+OTHER_HOST = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
+DEAD_HOST = "r-1tsrajowo-meow-zxho7yru-d2319-tph82"
+SIBLING_POD = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"
+NEW_POD = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
+
+
+@dataclasses.dataclass(frozen=True)
+class Case:
+    """One reading of the writer slot, and what a boot does with it.
+
+    ``renew`` is what the *second* look finds, and is left unset for the readings
+    a boot decides on the first look.
+    """
+
+    what: str
+    lease: bytes | None
+    #: The name the boot answers with — the card's subject — or ``None``.
+    answer: str | None
+    #: The phrase that makes the line this answer is reported by.
+    line: str
+    instance: str = THIS_HOST
+    has_data: bool = True
+    renew: bytes | None = None
+
+
 class WhoElseIsRunning(unittest.TestCase):
     """``other_copy_verdict`` — the question the boot asks the same lease.
 
@@ -569,7 +599,20 @@ class WhoElseIsRunning(unittest.TestCase):
     its whole TTL, so the last thing a replaced container did was leave behind
     both halves of a convincing duplicate — and every answer it gets is printed,
     because a check's silence is indistinguishable from a check that never ran.
+
+    The cases are a table (:meth:`_cases`), because each one is the same question
+    asked of different bytes and the answers are three: somebody else is live,
+    nobody is, or there is nothing to read. Two laws stand beside it — the watch
+    outlasts the tick that renews a claim, and the backup still waits for a
+    rolling deploy's previous container.
     """
+
+    #: The phrase that makes each line the answer it is: the three a boot can
+    #: print, and the one that stops it printing the warning at all.
+    NOBODY = "no other copy of this bot is answering"
+    CANNOT_TELL = "cannot be ruled out"
+    FOUND = "another copy of this bot is running"
+    PREVIOUS = "previous container"
 
     def setUp(self):
         self._was = (cs._cloud_has_data, cs._remote_checked, cs._INSTANCE_ID)
@@ -584,6 +627,7 @@ class WhoElseIsRunning(unittest.TestCase):
         *,
         renew: bytes | None = None,
         has_data: bool = True,
+        instance: str = THIS_HOST,
     ):
         """The boot's answer and the line it printed, with the wait made instant.
 
@@ -592,6 +636,7 @@ class WhoElseIsRunning(unittest.TestCase):
         written again by a live copy, a claim that has gone stale, or, by default,
         the very bytes already there.
         """
+        cs._INSTANCE_ID = instance
         bucket = [lease]
         cs._cloud_has_data = has_data
         said = io.StringIO()
@@ -606,45 +651,103 @@ class WhoElseIsRunning(unittest.TestCase):
                 )
         return answer, said.getvalue()
 
-    def _owner(self, lease: bytes | None, has_data: bool = True):
-        """The name the boot answers with, for a claim that keeps being renewed.
-
-        The questions asked through it are about *whose* claim it is — ours, a
-        sibling container's, another service's — so the second look finds the same
-        owner writing again, which is what a running copy does.
-        """
-        try:  # the same claim, written again now
-            again = self._lease(str(cs._json.loads(lease or b"")["owner"]))
-        except Exception:
-            again = lease
-        return self._said(lease, renew=again, has_data=has_data)[0]
-
     def _lease(self, owner: str, age: float = 0.0) -> bytes:
         return cs._json.dumps({"owner": owner, "ts": cs.time.time() - age}).encode()
 
-    def test_a_fresh_lease_names_the_other_copy(self):
-        """Reported, and answered with exactly the name written in the bucket: it
-        is quoted in a card an operator reads, never rewritten into a sentence."""
-        cs._INSTANCE_ID = "Housemate-Mac.local"
-        owner = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"
-        self.assertEqual(self._owner(self._lease(owner)), owner)
+    def _cases(self) -> list[Case]:
+        """Every reading of the writer slot, and what a boot does with it.
 
-    def test_the_previous_container_of_this_deployment_is_not_a_second_copy(self):
-        """A rolling deploy's own old pod holds the lease for a few seconds.
-
-        Observed live: the container that came up from a push reported "another
-        copy of me is online — stop this one" about the pod it had just replaced,
-        which is advice to stop the deployment that was just made. Same service
-        id, different pod, one deployment.
+        The renewing cases write the same claim again from the same owner, which
+        is what a copy that is running does; the ones that end in *nobody* let it
+        go idle, take it away, or never find it at all.
         """
-        cs._INSTANCE_ID = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
-        self.assertIsNone(
-            self._owner(self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"))
-        )
+        return [
+            Case("no claim at all", b"", None, self.NOBODY),
+            Case("this machine's own claim", self._lease(THIS_HOST), None, self.NOBODY),
+            Case(
+                "a claim left behind by a copy that stopped",
+                self._lease(DEAD_HOST, age=cs.LEASE_TTL + 60),
+                None,
+                self.NOBODY,
+            ),
+            Case("a record that is not JSON", b"not json", None, self.CANNOT_TELL),
+            Case("a record that is not an object", b"[]", None, self.CANNOT_TELL),
+            Case("a record with no name in it", b"{}", None, self.CANNOT_TELL),
+            Case(
+                "a timestamp nobody can parse",
+                cs._json.dumps({"owner": "srv-x", "ts": "about an hour ago"}).encode(),
+                None,
+                self.CANNOT_TELL,
+            ),
+            Case("a bucket that does not answer", None, None, self.CANNOT_TELL),
+            Case(
+                "a boot that never asked",
+                self._lease("srv-x"),
+                None,
+                self.CANNOT_TELL,
+                has_data=False,
+            ),
+            Case(
+                "a copy that keeps renewing its claim",
+                self._lease(OTHER_HOST),
+                OTHER_HOST,
+                self.FOUND,
+                renew=self._lease(OTHER_HOST),
+            ),
+            Case(
+                "a laptop while a deploy runs",
+                self._lease(THIS_HOST),
+                THIS_HOST,
+                self.FOUND,
+                instance=OTHER_HOST,
+                renew=self._lease(THIS_HOST),
+            ),
+            Case(
+                "a copy that stops while we watch",
+                self._lease(OTHER_HOST),
+                None,
+                self.NOBODY,
+                renew=self._lease(OTHER_HOST, age=cs.LEASE_TTL + 60),
+            ),
+            Case(
+                "a slot that goes quiet while we watch",
+                self._lease(OTHER_HOST),
+                None,
+                self.NOBODY,
+                renew=b"",
+            ),
+            Case(
+                "this deployment's previous container",
+                self._lease(SIBLING_POD),
+                None,
+                self.PREVIOUS,
+                instance=NEW_POD,
+            ),
+        ]
 
-    def _watch(self, lease: bytes, *, renew: bytes | None = None):
-        """The answer for a claim the second look finds as ``renew`` (or unchanged)."""
-        return self._said(lease, renew=renew)[0]
+    def test_every_reading_gets_its_answer_and_the_line_that_says_which(self):
+        """The table, driven: what the slot holds, what the boot answers with, and
+        which of the three lines the log gets instead of a card.
+
+        One row per reading rather than one test per reading, because every case is
+        the same question asked of different bytes — and the answer to a card that
+        is not sent has to exist, because a check's silence is indistinguishable
+        from a check that never ran. The negative half is asserted too: the line
+        for *cannot tell* must never borrow the words of *nobody*.
+        """
+        for case in self._cases():
+            with self.subTest(case=case.what):
+                answer, said = self._said(
+                    case.lease,
+                    renew=case.renew,
+                    has_data=case.has_data,
+                    instance=case.instance,
+                )
+                self.assertEqual(answer, case.answer)
+                self.assertIn("[INSTANCE]", said, "a boot with no card still speaks")
+                self.assertIn(case.line, said.lower())
+                if case.line == self.CANNOT_TELL:
+                    self.assertNotIn("nothing to report", said.lower())
 
     def test_the_watch_outlasts_the_tick_that_renews_the_claim(self):
         """A live copy renews its claim on its **backup tick**, not on
@@ -664,121 +767,6 @@ class WhoElseIsRunning(unittest.TestCase):
             "a watch shorter than one backup tick cannot see a live copy move",
         )
 
-    def test_a_claim_left_behind_is_not_a_copy_that_is_answering(self):
-        """Tonight's false alarm, in the real names.
-
-        Observed live: an upload replaced the Space's container, and the one that
-        came up reported the pod it had left behind — dead for seven minutes by
-        then — as a second copy, because a claim stays readable for its whole TTL
-        after the process that wrote it has stopped. It is the name a live copy
-        would have written too; what separates them is that this one is never
-        renewed, which is the only thing a boot can ask twice.
-        """
-        cs._INSTANCE_ID = "r-1tsrajowo-meow-n4d0qtp8-c463f-h5zxn"
-        self.assertIsNone(
-            self._watch(self._lease("r-1tsrajowo-meow-zxho7yru-d2319-tph82"))
-        )
-
-    def test_a_copy_that_renews_while_we_watch_is_reported(self):
-        """The case the card exists for, and the reason the watch is a watch: a
-        live copy keeps its claim warm even when nothing has changed.
-
-        The line is checked here too, because the card is only ever sent by code
-        that has already named the copy: what the host log keeps is the record
-        that it was sent, and without it the warning has no trace anywhere a
-        reader can look afterwards.
-        """
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
-        answer, text = self._said(self._lease(owner), renew=self._lease(owner))
-        self.assertEqual(answer, owner)
-        self.assertIn(owner, text)
-        self.assertIn("another copy of this bot is running", text)
-
-    def test_a_copy_that_dies_while_we_watch_is_not_reported(self):
-        """Alive when the boot looked, gone by the second look: a rolling deploy
-        finishing, which is not two copies fighting over the gateway."""
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
-        self.assertIsNone(
-            self._watch(self._lease(owner), renew=self._lease(owner, age=cs.LEASE_TTL + 60))
-        )
-
-    def test_a_boot_that_finds_no_second_copy_says_which_answer_it_got(self):
-        """The ways of finding nobody are three sentences, not one silence.
-
-        This is the law tonight's ship needed and did not have. A Space rebuild
-        printed no ``[INSTANCE]`` line at all — which is also exactly what a check
-        that never ran looks like, so the fix could not be confirmed from the log
-        it exists to be read in. Each answer states itself now.
-        """
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        answers = {
-            cs.Claim.OURS: self._lease("Himanshus-MacBook-Air.local"),
-            cs.Claim.NONE: b"",
-            cs.Claim.STALE: self._lease(
-                "r-1tsrajowo-meow-zxho7yru-d2319-tph82", age=cs.LEASE_TTL + 60
-            ),
-        }
-        said: dict[str, str] = {}
-        for state, lease in answers.items():
-            with self.subTest(answered=state):
-                answer, text = self._said(lease)
-                self.assertIsNone(answer)
-                self.assertIn("[INSTANCE]", text, "a boot with no copy still says so")
-                self.assertIn("nothing to report", text.lower())
-                said[state] = text
-        self.assertEqual(
-            len(set(said.values())), 3, "each of the three is its own sentence"
-        )
-
-    def test_cannot_tell_is_never_said_as_nobody(self):
-        """*I could not read the bucket* must not come out as *nobody is here*.
-
-        The whole point of printing at all: one of these is a fact about the
-        bucket, the other is the absence of one, and the reader deciding whether
-        to go looking is owed the difference.
-        """
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        _, nothing = self._said(b"")
-        _, unreadable = self._said(b"not json")
-        _, unanswered = self._said(None)
-        _, not_consulted = self._said(self._lease("srv-x"), has_data=False)
-        self.assertIn("nothing to report", nothing.lower())
-        for text in (unreadable, unanswered, not_consulted):
-            self.assertIn("cannot be ruled out", text)
-            self.assertNotIn("nothing to report", text.lower())
-
-    def test_a_second_copy_on_another_host_is_reported(self):
-        """The case this exists for: a deploy and a laptop, same token."""
-        cs._INSTANCE_ID = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
-        self.assertIsNotNone(
-            self._owner(self._lease("Himanshus-MacBook-Air.local")),
-            "a laptop while a deploy runs is the duplicate that breaks commands",
-        )
-
-    def test_a_different_service_running_the_same_token_is_reported(self):
-        cs._INSTANCE_ID = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
-        self.assertIsNotNone(self._owner(self._lease("srv-bbbbbbbbbbbbbbbbbbbb-two-1-xyz")))
-
-    def test_our_own_lease_is_not_somebody_else(self):
-        self.assertIsNone(self._owner(self._lease(cs._INSTANCE_ID)))
-
-    def test_a_stale_lease_is_not_someone_who_is_running(self):
-        self.assertIsNone(self._owner(self._lease("srv-dead", age=cs.LEASE_TTL + 60)))
-
-    def test_an_absent_or_unreadable_lease_is_not_an_owner(self):
-        for lease in (None, b"", b"not json", b"{}"):
-            with self.subTest(lease=lease):
-                self.assertIsNone(self._owner(lease))
-
-    def test_a_lease_with_an_unreadable_timestamp_is_not_an_owner(self):
-        """A ``ts`` nobody can parse is not a *stale* lease — that would invite a
-        takeover of a bucket whose owner is alive, which is the loss the lease
-        exists to prevent."""
-        lease = cs._json.dumps({"owner": "srv-x", "ts": "about an hour ago"}).encode()
-        self.assertIsNone(self._owner(lease))
-
     def test_the_backup_still_waits_for_the_previous_container(self):
         """The sibling rule is about the gateway only: two writers on one bucket
         is the loss the lease exists to prevent, and the wait costs a deploy
@@ -795,9 +783,6 @@ class WhoElseIsRunning(unittest.TestCase):
                 "but the upload still refuses while that container writes",
             )
 
-    def test_an_empty_bucket_has_nobody_to_name(self):
-        lease = cs._json.dumps({"owner": "srv-x", "ts": cs.time.time()}).encode()
-        self.assertIsNone(self._owner(lease, has_data=False))
 
 
 class _Reply:

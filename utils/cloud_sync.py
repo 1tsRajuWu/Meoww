@@ -679,82 +679,76 @@ def _snapshot_bytes_uncompacted(path: str) -> bytes | None:
 # --------------------------------------------------------------------------- #
 
 @dataclass(frozen=True)
-class Claim:
-    """What the bucket's writer slot holds, and which of the six things it is.
+class Reading:
+    """The writer slot, read as one of the three answers either caller acts on.
 
-    The one reading under every question this module answers — may I write (the
-    backup), is another copy *answering Discord* (the boot) — and it **describes
-    rather than filters**, because the six answers are six different claims about
-    the world and one ``None`` for all of them is how a check stops being
-    evidence. That has been paid for twice already: a boot that found nobody, a
-    boot whose bucket would not answer and a boot whose check never ran were one
-    and the same nothing in the host log — so a fix to the check itself could not
-    be confirmed from that log at all, which is the log it is read in.
+    Two callers ask this one question — the backup (*may I write?*) and the boot
+    (*is another copy answering Discord?*) — and between them they need three
+    answers: somebody else is live, nobody else is, or there is no reading to
+    decide from. The six readings this used to keep were six names for those
+    three, and each name carried a sentence of its own in the log: a boot that
+    found nobody, a boot whose bucket would not answer and a boot whose check
+    never ran were one silence, while *nobody* got three ways of saying so beside
+    the one answer worth reading.
 
-    A claim older than :data:`LEASE_TTL` is described as :data:`STALE` here rather
-    than dropped by the reader, because it is one answer to both callers: nobody
-    has renewed it for five minutes and nobody is coming back for it.
+    Collapsing them loses nothing either caller uses. *This is my own claim*,
+    *there is no claim* and *the claim is somebody's but has stopped being
+    renewed* are the same fact — nobody else is holding the slot — and the one
+    distinction that matters between them, the name left behind, is printed by
+    :func:`_read_slot` itself when it takes the slot over.
+
+    What the answers are made of is kept: the name in the record, and when it was
+    written — raw rather than aged, because the boot's second look asks whether
+    the claim *moved*, which an age cannot say.
     """
 
-    #: Somebody else's claim, renewed inside :data:`LEASE_TTL` — the one answer
-    #: that can be a second copy of the bot.
-    OTHER = "other"
-    #: This machine's own claim.
-    OURS = "ours"
-    #: The bucket holds no claim: nobody has written one, or the last writer
-    #: removed it. A 404 is the bucket *answering*, not the bucket failing.
-    NONE = "none"
-    #: Somebody's claim, idle past :data:`LEASE_TTL`: the writer is gone and the
-    #: claim is what is left of it.
-    STALE = "stale"
-    #: A claim is there and cannot be read — not JSON, no name in it, or a
-    #: timestamp that will not parse.
-    UNREADABLE = "unreadable"
-    #: Nothing was asked here, or the bucket did not answer: the one answer that
-    #: is not a fact about the bucket at all.
+    #: Another copy holds the slot and renewed it inside :data:`LEASE_TTL`.
+    LIVE = "live"
+    #: Nobody else is holding it: this machine's own claim, no claim at all, or
+    #: one left behind by a copy that stopped renewing it.
+    FREE = "free"
+    #: No usable reading, which is not a fact about the bucket at all: the record
+    #: will not parse, nothing was asked here, or the call itself failed.
     UNKNOWN = "unknown"
 
     state: str
-    #: The name the claim was written under, when there is one.
+    #: The name the record was written under, when there is one.
     holder: str | None = None
-    #: When it was written, on the writer's own clock — raw rather than aged,
-    #: because an age is a fact about the moment it was worked out and the boot
-    #: needs to know whether the claim *moved* between two looks.
+    #: When it was written, on the writer's own clock.
     ts: float | None = None
 
 
-def _claim() -> Claim:
+def _read_slot() -> Reading:
     """Read the writer slot once and describe it. Never raises, never guesses.
 
     ``_storage_download`` answers with the empty bytes for the 404 that means
     *there is no such object* and with ``None`` when the call itself failed — a
-    distinction this module already keeps for the backup — so "nobody has claimed
-    the bucket" and "the bucket did not answer" stay apart all the way to the log
-    line, where they are two different things to read.
+    distinction this module already keeps for the backup — so *nobody has claimed
+    the bucket* and *the bucket did not answer* do not become one answer.
+
+    A record nobody can parse is :data:`Reading.UNKNOWN` rather than a claim left
+    behind, and that is load-bearing: reading it as stale would invite a takeover
+    of a bucket whose real owner is alive, which is the loss the lease exists to
+    stop. Reading it as *nobody* would be worse — a second copy would go
+    unannounced.
     """
     if not _cloud_has_data:
-        return Claim(Claim.UNKNOWN)
+        return Reading(Reading.UNKNOWN)
     raw = _storage_download(LEASE_FILE, quiet=True)
     if raw is None:
-        return Claim(Claim.UNKNOWN)
+        return Reading(Reading.UNKNOWN)
     if not raw:
-        return Claim(Claim.NONE)
+        return Reading(Reading.FREE)
     try:
         lease = _json.loads(raw)
-    except Exception:
-        return Claim(Claim.UNREADABLE)
-    owner = str(lease.get("owner") or "")
-    if not owner:
-        return Claim(Claim.UNREADABLE)
-    try:
+        owner = str(lease.get("owner") or "")
         ts = float(lease.get("ts") or 0)
-    except (TypeError, ValueError):
-        # A timestamp nobody can parse is not a *stale* claim: treating the
-        # unreadable as stale would invite a takeover of a bucket whose real
-        # owner is in fact alive, which is the loss the lease exists to stop.
-        return Claim(Claim.UNREADABLE)
+    except Exception:
+        return Reading(Reading.UNKNOWN)
+    if not owner:
+        return Reading(Reading.UNKNOWN)
     if owner == _INSTANCE_ID:
-        return Claim(Claim.OURS, owner, ts)
+        return Reading(Reading.FREE, owner, ts)
     age = time.time() - ts
     if age > LEASE_TTL:
         print(
@@ -762,22 +756,22 @@ def _claim() -> Claim:
             f"(idle for {age / 60:.0f} min).",
             flush=True,
         )
-        return Claim(Claim.STALE, owner, ts)
-    return Claim(Claim.OTHER, owner, ts)
+        return Reading(Reading.FREE, owner, ts)
+    return Reading(Reading.LIVE, owner, ts)
 
 
 def _lease_problem() -> str | None:
     """Whether some other live instance owns the bucket.
 
-    The backup's half of the question :func:`_claim` answers — a claim this
+    The backup's half of the question :func:`_read_slot` answers — a claim this
     machine may not write past. The boot's half is :func:`other_copy_verdict`.
     """
-    claim = _claim()
-    if claim.state != Claim.OTHER or claim.holder is None or claim.ts is None:
+    reading = _read_slot()
+    if reading.state != Reading.LIVE or reading.holder is None or reading.ts is None:
         return None
-    age = max(0.0, time.time() - claim.ts)
+    age = max(0.0, time.time() - reading.ts)
     return (
-        f"'{claim.holder}' owns the bucket ({age / 60:.1f} min ago) — running two "
+        f"'{reading.holder}' owns the bucket ({age / 60:.1f} min ago) — running two "
         "instances of the bot against one backup is how progress gets reverted"
     )
 
@@ -822,42 +816,25 @@ def _previous_container_of_this_service(owner: str) -> bool:
     return _service_of(owner) is not None and _service_of(owner) == _service_of(_INSTANCE_ID)
 
 
-def _no_second_copy(claim: Claim) -> str:
-    """The line for every answer that is not a second copy.
+def _no_second_copy(reading: Reading) -> str:
+    """The line for the two answers that are not a second copy.
 
-    Five different sentences on purpose. This is what a reader gets in place of a
-    card, and the reason it exists is that the card's *absence* used to mean
-    nothing at all: a boot that found nobody, a boot that could not read the
-    bucket and a boot whose check never ran were one and the same silence.
-    "Nobody" is a fact worth printing; "I could not tell" is a different fact,
-    and it is the one that has to be readable rather than inferred.
+    One sentence each, because the two are different facts and only one of them is
+    a fact at all: one says the check looked and nobody is answering, the other
+    says there is no reading to reason from. A check whose negative answers were
+    silent cannot be told apart from one that never ran — which is why these lines
+    exist — and a check that uses the same words for both is halfway back to that.
     """
-    if claim.state == Claim.OURS:
+    if reading.state == Reading.UNKNOWN:
         return (
-            "[INSTANCE] This machine holds the backup claim and no other copy is "
-            "answering Discord — nothing to report."
-        )
-    if claim.state == Claim.NONE:
-        return (
-            "[INSTANCE] No claim is in the bucket and no other copy of this bot is "
-            "answering Discord — nothing to report."
-        )
-    if claim.state == Claim.STALE:
-        return (
-            f"[INSTANCE] The claim in the bucket was left by '{claim.holder}' and "
-            "had stopped being renewed — a copy that is gone, not one answering "
-            "beside this machine. Nothing to report."
-        )
-    if claim.state == Claim.UNREADABLE:
-        return (
-            "[INSTANCE] A backup claim is in the bucket and cannot be read, so a "
-            "second copy cannot be ruled out — commands fail at random while one "
-            "answers beside this machine."
+            "[INSTANCE] This boot has no reading of the backup bucket — nothing "
+            "was asked of it, or what it holds could not be read — so a second "
+            "copy cannot be ruled out: commands fail at random while one answers "
+            "beside this machine."
         )
     return (
-        "[INSTANCE] This boot has no reading of the backup bucket — nothing was "
-        "asked of it, or it did not answer — so a second copy cannot be ruled "
-        "out: commands fail at random while one answers beside this machine."
+        "[INSTANCE] No other copy of this bot is answering Discord — nothing to "
+        "report."
     )
 
 
@@ -883,16 +860,17 @@ def other_copy_verdict(*, sleep=time.sleep) -> str | None:
     the boot starts it in a thread and does not wait for it.
 
     **Every answer is said out loud**: the card is only sent when a copy is found,
-    so the line is what the log keeps — see :func:`_no_second_copy` for the words.
+    so the line is what the log keeps — see :func:`_no_second_copy` for the two
+    lines a boot can print instead.
 
     ``sleep`` is injectable for the same reason the rest of this module's network
     is: what the rule *is* has to be testable without standing still for it.
     """
-    claim = _claim()
-    if claim.state != Claim.OTHER:
-        print(_no_second_copy(claim), flush=True)
+    before = _read_slot()
+    if before.state != Reading.LIVE:
+        print(_no_second_copy(before), flush=True)
         return None
-    owner = claim.holder or ""
+    owner = before.holder or ""
     if _previous_container_of_this_service(owner):
         # Logged, never announced: this is one deployment, not two copies — see
         # :func:`_previous_container_of_this_service`.
@@ -909,29 +887,22 @@ def other_copy_verdict(*, sleep=time.sleep) -> str | None:
         flush=True,
     )
     sleep(COPY_WATCH_SECONDS)
-    after = _claim()
-    if after.state != Claim.OTHER:
+    after = _read_slot()
+    if (
+        after.state == Reading.LIVE
+        and before.ts is not None
+        and after.ts is not None
+        and after.ts > before.ts
+    ):
         print(
-            f"[INSTANCE] '{owner}' stopped renewing its claim while this boot "
-            "watched — a container on its way out, not a second copy of the bot. "
-            "Nothing to report.",
+            f"[INSTANCE] ⚠️ another copy of this bot is running "
+            f"({after.holder or owner}) — commands will fail at random until one "
+            "of them stops.",
             flush=True,
         )
-        return None
-    if claim.ts is None or after.ts is None or after.ts <= claim.ts:
-        print(
-            f"[INSTANCE] '{owner}' has not renewed its claim in "
-            f"{COPY_WATCH_SECONDS}s — a claim left behind, not a copy that is "
-            "answering. Nothing to report.",
-            flush=True,
-        )
-        return None
-    print(
-        f"[INSTANCE] ⚠️ another copy of this bot is running ({owner}) — "
-        "commands will fail at random until one of them stops.",
-        flush=True,
-    )
-    return owner
+        return after.holder or owner
+    print(_no_second_copy(after), flush=True)
+    return None
 
 
 def _lease_touch(force: bool = False) -> None:
