@@ -62,6 +62,14 @@
       </button>
 
       <nav class="nav" id="site-nav" aria-label="Main">
+        {# The public site's own nav, in a block so the one page that is *not*
+           the public site can say so. `templates/owner.html` — the operator
+           console — replaces it: that page is served on its own host, and a
+           console wearing this site's marketing nav (Home, Systems,
+           "Add to Discord") is the reason the console and the member-facing
+           site read as the same address. Everything else in the frame stays:
+           the wordmark, the theme button, the footer, the retention line. #}
+        {% block nav %}
         {% for item in [
           ('home', 'Home', '/'),
           ('systems', 'Systems', '/systems'),
@@ -79,6 +87,7 @@
           <a class="btn btn--primary" href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
           {% endif %}
         </div>
+        {% endblock %}
       </nav>
     </div>
 

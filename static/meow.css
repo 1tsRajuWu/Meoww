@@ -273,7 +273,15 @@ body {
   font-size: var(--text-body);
   line-height: var(--leading-body);
   font-feature-settings: "ss01";
+  /* `dvh` after `vh`, and the pair is the point: `100vh` is the height this
+     page would have with the browser's own chrome hidden, so on a phone a shell
+     sized to it draws its last line under the address bar — and in landscape,
+     where the window is short, that same box is taller than the window it is
+     drawn in. `dvh` is the height the page actually has, and it follows the
+     chrome as it comes and goes. The first line is what a browser with no `dvh`
+     falls back to, which is why it stays rather than being replaced. */
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -428,7 +436,10 @@ hr {
   z-index: 1;
   display: flex;
   flex-direction: column;
+  /* The sticky foot, in the height a phone actually has — see the note on
+     `body` above. This is the box that decides where the footer sits. */
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .wrap {

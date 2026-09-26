@@ -503,6 +503,57 @@ class TheSpineIsATableOfContents(unittest.TestCase):
             "the read line is no thicker than the track it is meant to have filled",
         )
 
+    def test_the_rail_is_clear_of_the_column_it_indexes(self):
+        """The dots and a label are drawn in the gutter, never on the text.
+
+        A measurement, and it was wrong once: measured at 1440 the 40px slot ran
+        from the wrap's own edge out to 44px, and the text's left edge *is* the
+        56px gutter — so a label arriving 10px past the slot began **2px inside
+        the text column**, which is the one thing the opaque panel behind a label
+        exists to prevent. The rail was reported as too close, and it was.
+
+        Read as arithmetic off the sheet's own numbers rather than as a position
+        nobody can check: the wrap's widest gutters, the floor the rail's own
+        media query names, the offset from the wrap's edge, and the 40px slot
+        with a label 10px past it. Two claims follow, and the second is the one
+        the defect would have failed.
+        """
+        css = read(SHEET)
+        spine = rule_for(css, ".mw-spine")
+        offset = re.search(
+            r"left: calc\(50% - \(var\(--mw-wrap-max\) / 2\)\s*([-+]\s*\d+)px\)", spine
+        )
+        self.assertIsNotNone(
+            offset,
+            "the rail's left edge is no longer an offset from the wrap's own edge",
+        )
+        shift = int(re.sub(r"\s+", "", offset.group(1)))
+        wrap_max = int(re.search(r"--mw-wrap-max:\s*(\d+)px", css).group(1))
+        # `--mw-gutter` is a clamp, and both ends of it matter here: the widest it
+        # ever gets is its own maximum, and the tightest it is at the width this
+        # rail starts being drawn at is `4vw` there.
+        gutter_max = int(re.findall(r"--mw-gutter: clamp\(\d+px, \d+vw, (\d+)px\)", css)[0])
+        floor = re.search(r"@media \(min-width: (\d+)px\) \{ \.mw-spine \{ display: block; \} \}", css)
+        self.assertIsNotNone(floor, "the rail is no longer drawn from a stated width")
+        drawn_from = int(floor.group(1))
+        gutter = min(gutter_max, drawn_from * 0.04)
+
+        # The positioning rule assumes the wrap is already at its widest — below
+        # that, `50% - (max / 2)` is left of the wrap's own edge and every number
+        # above moves with the window instead of being fixed.
+        self.assertGreaterEqual(
+            drawn_from,
+            wrap_max + 2 * gutter,
+            "the rail is drawn at a width where the wrap is not yet at its widest",
+        )
+        # The whole rail — slot and the label that follows it — ends inside the
+        # gutter, which is what keeps it off the first column of the page.
+        self.assertLess(
+            shift + 40 + 10,
+            gutter,
+            "a label on the rail starts inside the text column rather than in the gutter",
+        )
+
     def test_the_pages_with_sections_carry_a_rail(self):
         """Named rather than counted: the rail is a decision per page.
 
@@ -1105,6 +1156,41 @@ class TheFrontDoorShowsOneThingAtATime(unittest.TestCase):
             keep_alive.SIM_OFF_HINT.split(" the Web Dashboard")[0],
             source,
             "the demo's second line is not the bot's second line",
+        )
+
+    def test_the_demo_fits_a_phone(self):
+        """The one-column rule keeps the pair, and dropping it was a whole defect.
+
+        Measured at 320x740 on the front door: the command box holds an
+        `<input>`, whose min-content width is its own default twenty characters —
+        about 200px, whatever `min-width: 0` and `flex: 1` say about it. A bare
+        `1fr` track keeps its min-content **floor**, so that floor widened the
+        single column to 321px inside a 280px one, the document measured 341px
+        in a 320px window, and `body { overflow-x: hidden }` meant the 21px
+        hanging off the edge could not be scrolled to: the field's Send button
+        and the answer region's right rule were simply cut off, with nothing on
+        the page saying so. `minmax(0, 1fr)` is a floor of zero, which is what
+        lets the box shrink to its column instead of the column growing to the
+        box.
+
+        Asserted on the declaration rather than in a browser, because it *is* one:
+        the two-pane rules above already use the pair, and what is checked here is
+        that the phone's own rule does too — and that no track in that block went
+        back to a bare `1fr`.
+        """
+        css = without_prose(read(SHEET), css=True)
+        phone = css.split("@media (max-width: 900px)")[1]
+        self.assertRegex(
+            phone,
+            r"\.mw-sim,\s*\n\s*\.mw-split \{ grid-template-columns: minmax\(0, 1fr\); \}",
+            "the two-pane bands stack into a track with a min-content floor again, "
+            "which is a page wider than the phone it is read on",
+        )
+        bare = re.findall(r"grid-template-columns:\s*1fr\b", phone)
+        self.assertEqual(
+            bare,
+            [],
+            "a column in the phone block kept its min-content floor: " + ", ".join(bare),
         )
 
     def test_the_questions_band_states_its_own_heading(self):

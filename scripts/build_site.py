@@ -357,11 +357,15 @@ def _sitemap(pages, live_app: str) -> str:
     )
 
 
-def _worker_file(backend_host: str = "1tsrajowo-meow.hf.space") -> str:
+def _worker_file(
+    backend_host: str = "1tsrajowo-meow.hf.space",
+    console_host: str = "dacatowner.pages.dev",
+) -> str:
     """Cloudflare Pages Advanced Mode Worker (_worker.js).
 
     Reverse-proxies dynamic bot/dashboard routes to Render while keeping
-    the visitor on the Cloudflare domain.
+    the visitor on the Cloudflare domain — and hands the one path that belongs
+    to another host over to it, rather than serving a second door to it here.
     """
     return f"""/**
  * Cloudflare Pages Advanced Mode Worker (_worker.js)
@@ -370,10 +374,34 @@ def _worker_file(backend_host: str = "1tsrajowo-meow.hf.space") -> str:
  */
 const BACKEND_HOST = "{backend_host}";
 
+/* The operator console lives on a host of its own, and this site hands it over
+   rather than rendering it.
+
+   `/owner` used to be a dynamic prefix here, which meant the fleet console —
+   every server, the economy ledgers, the audit trail, and the God tier behind
+   its own passkey — was served **under this site's own marketing header**, on
+   the members' domain, wearing a nav bar offering "Add to Discord". Two things
+   were wrong with that and both were reported from a browser: it made the
+   operator's console look like a page of the public site (so "is this the
+   dashboard?" had two answers), and it made the member-facing domain the one
+   address where the fleet's controls are reachable at all.
+
+   A 301 and not a proxy, because the other host is the one built for it: it
+   serves the console's own bundle, its own stylesheet and its own `robots.txt`,
+   and its worker answers nothing else. This is the same shape that host already
+   uses for the paths that are not its own, pointed the other way. */
+const CONSOLE_HOST = "{console_host}";
+
 const DYNAMIC_PREFIXES = [
   "/login",
   "/logout",
   "/dashboard",
+  /* Still this worker's business, and no longer proxied: `/owner` is answered
+     with a 301 to the console's own host (see the top of `fetch`). It stays in
+     this list because the list is *which paths Cloudflare runs the worker for*
+     — the same list `_routes.json` is held to — and a path missing from it is
+     answered from the published files instead, which is a 404 rather than the
+     redirect. */
   "/owner",
   "/servers",
   "/api",
@@ -400,6 +428,23 @@ const DYNAMIC_PREFIXES = [
 export default {{
   async fetch(request, env) {{
     const url = new URL(request.url);
+
+    // The console is not this site's to serve. Answered before anything else,
+    // so no prefix below can quietly re-admit it — and before the proxying
+    // branch, which would otherwise proxy it exactly as it used to.
+    if (url.pathname === "/owner" || url.pathname.startsWith("/owner/")) {{
+      const target = new URL(request.url);
+      target.hostname = CONSOLE_HOST;
+      target.protocol = "https:";
+      target.port = "";
+      return new Response(null, {{
+        status: 301,
+        headers: {{
+          "Location": target.toString(),
+          "Cache-Control": "no-store"
+        }}
+      }});
+    }}
 
     const isDynamic = DYNAMIC_PREFIXES.some(
       (p) => url.pathname === p || url.pathname.startsWith(p + "/")

@@ -1093,6 +1093,34 @@ class TheWorkerAndTheRoutesAgreeAboutWhatIsDynamic(unittest.TestCase):
                     "request is served from the published files instead",
                 )
 
+    def test_the_console_is_handed_to_its_own_host_rather_than_served_here(self):
+        """`/owner` is still this worker's business, and no longer this site's page.
+
+        The fleet console — every server, the economy ledgers, the audit trail and
+        the God tier — used to be served **under this site's marketing header**, on
+        the members' domain, with a nav bar offering "Add to Discord". Reported
+        from a browser, and the reason "is this the dashboard?" had two answers:
+        the operator's console read as a page of the public site, and the public
+        domain was an address where the fleet's controls were reachable at all.
+
+        Both halves are asserted here, because either one alone is the old
+        behaviour: the path is still in the worker's list (a path *missing* from
+        it is answered from the published files instead, which is a 404 rather
+        than the redirect), and the redirect is written above the proxy.
+        """
+        worker = (Path(self.out) / "_worker.js").read_text(encoding="utf-8")
+        self.assertIn('const CONSOLE_HOST = "dacatowner.pages.dev";', worker)
+        self.assertIn("/owner", self._worker_prefixes())
+        guard = worker.index('url.pathname === "/owner"')
+        self.assertLess(
+            guard,
+            worker.index("const isDynamic = DYNAMIC_PREFIXES.some("),
+            "the console handover sits after the proxy, so /owner is proxied anyway",
+        )
+        handover = worker[guard : worker.index("const isDynamic", guard)]
+        self.assertIn("status: 301", handover)
+        self.assertIn("target.hostname = CONSOLE_HOST", handover)
+
     def test_nothing_is_sent_to_the_worker_that_it_does_not_handle(self):
         prefixes = self._worker_prefixes()
         for entry in self._routes_include():

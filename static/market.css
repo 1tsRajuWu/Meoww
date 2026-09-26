@@ -37,7 +37,13 @@
        are painted in the positioned layer. */
     position: relative;
     z-index: 1;
+    /* `dvh` after `vh` — see `static/meow.css`'s note on `body`, which is the
+       same box for the shell this page does not wear: `100vh` is the height the
+       page would have with a phone's chrome hidden, so a market sized to it
+       draws its foot under the address bar, and in a short landscape window the
+       box is taller than the window. */
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
     gap: 0;
@@ -531,6 +537,20 @@
 }
 
 .mk-line .mono { font-family: var(--font-mono); font-size: 12.5px; }
+
+/* The prints table scrolls sideways rather than bleeding off the page.
+
+   Measured at 320x740: five columns' min-content — a monospace figure plus 8px
+   of padding, five times, under uppercase headings — comes to **358px inside the
+   278px panel** the table sits in. `width: 100%` cannot go below that floor, so
+   the table ran past the panel, and `body { overflow-x: hidden }` clipped the
+   last two columns with no scrollbar and nothing on the page to say so: the
+   Close column was simply not there. A table of figures has a floor; a wrapper
+   is how the reader reaches what is past it, which is the rule
+   `.own-table__scroll` on the console and `.table-wrap` in `hub.css` already
+   follow. (The same class of defect `meow.css`'s footer grid records — 437px
+   inside a 390px viewport, hidden by the same `overflow-x`.) */
+.mk-prints-scroll { overflow-x: auto; }
 
 .mk-prints {
     width: 100%;

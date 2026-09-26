@@ -314,5 +314,39 @@ class TestChartFailureIsLoud(unittest.TestCase):
         self.assertIn("if (!candleSeries || !volumeSeries || !chartObj) return;", body)
 
 
+class ThePrintsTableIsReachableOnAPhone(unittest.TestCase):
+    """A table of figures has a min-content floor; a wrapper is how you reach it.
+
+    Measured at 320x740 on the deployed host: the five columns of `#history` — a
+    monospace figure with 8px of padding on each side, five times, under
+    uppercase headings — come to **358px inside the 278px panel** they sit in.
+    `width: 100%` cannot go under that floor, so the table ran past its panel
+    while the page's own `body { overflow-x: hidden }` clipped the two columns
+    hanging over it: the Close column was absent, with no scrollbar and nothing
+    on the page to say why. The document's own `scrollWidth` stayed at the
+    viewport's, so nothing reported it — which is the shape of every defect this
+    file is about.
+
+    Read on the rendered page and on that page's own stylesheets together,
+    because the fix is the pair: a wrapper in the markup, and one declaration for
+    it. The same rule `.own-table__scroll` (the console) and `.table-wrap` (the
+    hub) already follow.
+    """
+
+    def test_the_table_has_a_scroller_of_its_own(self):
+        page = render_page()
+        self.assertRegex(
+            page,
+            r'<div class="mk-prints-scroll">\s*<table class="mk-prints">',
+            "the prints table is no longer inside the element that scrolls it",
+        )
+        self.assertIn(
+            ".mk-prints-scroll { overflow-x: auto; }",
+            page_styles(),
+            "nothing scrolls the wrapper the prints table sits in, so the last "
+            "columns of it are reachable at no width",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

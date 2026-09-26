@@ -21,8 +21,8 @@ each test below is one of the ways that sentence can quietly stop being true:
   only an attachment both arrive empty, and the reading says which it was.
 
 The address itself is a deployment setting with a compiled default, so the tests
-set it rather than depending on whichever channel this checkout names — the same
-rule ``tests/test_vc_watch.py`` follows for its pair.
+set it rather than depending on whichever channel this checkout names — a rule
+this project keeps for every address that is a fact about one deployment.
 
 Everything here runs against a throwaway database, and the Discord objects are
 stand-ins: the listener and the two routes are the only parts that hold a real
@@ -60,6 +60,49 @@ class _Person:
         self.mention = f"<@{uid}>"
 
 
+class _OpenedThread:
+    """A thread the bot opened: an id, a name, and what it was made to say.
+
+    Deliberately not a channel: the two things a surface reads off a thread are
+    its identity (so a reply can be answered *into* it) and the fact that it was
+    told something, which is what ``sent`` is for.
+    """
+
+    def __init__(self, tid=THREAD, name="🧵"):
+        self.id = tid
+        self.name = name
+        self.parent_id = ROOM
+        self.mention = f"<#{tid}>"
+        self.sent = []
+
+    async def send(self, content, **_kwargs):
+        self.sent.append(content)
+        return SimpleNamespace(id=7000 + len(self.sent), jump_url="", created_at=None)
+
+
+class _StartedIt:
+    """The message a conversation started on — something a thread can be opened on.
+
+    ``create_thread`` is Discord's own method and the only thing the bridge asks
+    of this object, which is why the stand-in is one method and a record of what
+    it was called with. ``refusal`` makes it raise, the way a channel where the
+    bot lacks Create Public Threads does.
+    """
+
+    def __init__(self, *, thread=None, refusal=None):
+        self.thread = thread or _OpenedThread()
+        self.refusal = refusal
+        self.opened = []
+
+    async def create_thread(self, name=None, auto_archive_duration=None):
+        if self.refusal is not None:
+            raise self.refusal
+        self.opened.append((name, auto_archive_duration))
+        if name:
+            self.thread.name = name
+        return self.thread
+
+
 class _Message:
     """One Discord message, carrying only what the bridge reads off one."""
 
@@ -73,6 +116,7 @@ class _Message:
         attachments=(),
         webhook_id=None,
         created_at=None,
+        started=None,
     ):
         self.author = author
         self.channel = channel
@@ -82,6 +126,15 @@ class _Message:
         self.webhook_id = webhook_id
         self.jump_url = f"https://discord.com/channels/1/{getattr(channel, 'id', 0)}/{message_id}"
         self.created_at = created_at or version.ist_now(1_700_000_000)
+        # What a thread would be opened *on*: the listener calls this on the
+        # message that started the conversation, so a stand-in without one is a
+        # stand-in the thread path cannot be driven with.
+        self.started = started
+
+    async def create_thread(self, name=None, auto_archive_duration=None):
+        if self.started is None:
+            raise RuntimeError("this stand-in was given no thread to open")
+        return await self.started.create_thread(name=name, auto_archive_duration=auto_archive_duration)
 
     @classmethod
     def person(cls, channel, content="hello", **kwargs):
@@ -115,6 +168,14 @@ class _HistoryChannel(_Channel):
         self._history = list(history)
         self._can_read = can_read
         self.guild = SimpleNamespace(me=SimpleNamespace(id=999))
+        # The message a reply from the web is answered *on*, when the conversation
+        # has no thread yet: ``get_partial_message`` is Discord's own lookup, and
+        # a channel that answers ``None`` is one whose history the bot can no
+        # longer reach — a distinct failure with its own sentence.
+        self.parent = None
+
+    def get_partial_message(self, _message_id):
+        return self.parent
 
     def permissions_for(self, member):
         return SimpleNamespace(
@@ -421,6 +482,80 @@ class TheStatus(unittest.TestCase):
         self.assertFalse(status["channel"]["resolved"])
 
 
+class TheConversationHasAHome(TempDatabaseMixin, unittest.TestCase):
+    """A support conversation is one person's problem, and it lives in a thread.
+
+    The room is where somebody walks in; the thread is where the back-and-forth
+    happens. Everything here is about the id that makes that true — which is the
+    only thing a surface needs to answer *into* a conversation rather than
+    shouting into a channel and linking the reader out to Discord.
+    """
+
+    def setUp(self):
+        self.use_temp_database("support-threads.db")
+        asyncio.run(db.setup())
+        self._room = _with_room(ROOM)
+        self._room.__enter__()
+
+    def tearDown(self):
+        self._room.__exit__(None, None, None)
+        self.release_temp_database()
+
+    def test_the_thread_is_named_for_the_person_and_what_they_said(self):
+        named = support.thread_name("the export fails on a big server", "Ash")
+        self.assertTrue(named.startswith(support.THREAD_MARK))
+        self.assertIn("Ash", named)
+        self.assertIn("the export fails", named)
+
+    def test_a_name_that_would_reshape_the_thread_is_flattened(self):
+        """The name comes from a person, and a thread line is still a line."""
+        named = support.thread_name("**bold** `code`\nsecond line", "A*sh`")
+        self.assertNotIn("*", named)
+        self.assertNotIn("`", named)
+        self.assertNotIn("\n", named)
+
+    def test_the_name_can_never_be_why_discord_refuses_the_thread(self):
+        named = support.thread_name("x" * 4000, "y" * 4000)
+        self.assertLessEqual(len(named), support.MAX_THREAD_NAME)
+
+    def test_the_message_that_started_it_has_no_thread_yet(self):
+        """Which is what "open one on this message" is read from."""
+        found = support.facts(_Message.person(_Room(ROOM), "the export fails"))
+        self.assertEqual(support.thread_of(_Message.person(_Room(ROOM))), 0)
+        self.assertEqual(support.thread_target([{**found, "id": 1}]), 0)
+
+    def test_a_reply_written_inside_a_thread_remembers_it(self):
+        thread = _Room(THREAD, "about the export", parent_id=ROOM)
+        found = support.facts(_Message.person(thread, "any update?"))
+        self.assertEqual(found["thread_id"], THREAD)
+        self.assertEqual(found["where_name"], "about the export")
+
+    def test_a_row_carries_the_thread_it_is_answered_in(self):
+        self.assertEqual(support.thread_target([{"id": 1, "thread_id": THREAD}]), THREAD)
+
+    def test_a_named_room_with_no_id_is_not_guessed_at(self):
+        """A row from before the column existed names a thread and cannot point
+        at one. Answering on a guess would answer in the wrong conversation."""
+        old = {"id": 1, "thread_id": 0, "where_name": "about the export"}
+        self.assertEqual(support.thread_target([old]), 0)
+
+    def test_attaching_the_thread_writes_it_on_the_row(self):
+        row = asyncio.run(support.record_inbound(_Message.person(_Room(ROOM), "start")))
+        self.assertTrue(asyncio.run(support.attach_thread(row["id"], THREAD)))
+        self.assertEqual(asyncio.run(support.get(row["id"]))["thread_id"], THREAD)
+
+    def test_attaching_a_thread_to_a_row_that_is_gone_changes_nothing(self):
+        self.assertFalse(asyncio.run(support.attach_thread(999, THREAD)))
+        self.assertFalse(asyncio.run(support.attach_thread(0, THREAD)))
+        self.assertFalse(asyncio.run(support.attach_thread(row_id=1, thread_id=0)))
+
+    def test_the_reading_hands_a_surface_the_handle_it_replies_to(self):
+        row = asyncio.run(support.record_inbound(_Message.person(_Room(ROOM), "start")))
+        shown = support.transcript_sync(5)["rows"][0]
+        self.assertEqual(shown["reply_to"], row["id"])
+        self.assertEqual(shown["thread_id"], 0)
+
+
 class TheListener(TempDatabaseMixin, unittest.TestCase):
     """The cog is one call into the module, so this pins the wiring."""
 
@@ -445,6 +580,44 @@ class TheListener(TempDatabaseMixin, unittest.TestCase):
         asyncio.run(self.cog.on_message(_Message.person(_Room(OTHER_ROOM), "not here")))
         self.assertEqual(asyncio.run(support.recent(10)), [])
 
+    def test_the_bot_opens_a_thread_and_says_where_it_continues(self):
+        """What makes the bridge a conversation rather than a wall of replies."""
+        started = _StartedIt()
+        message = _Message.person(
+            _Room(ROOM), "the export fails on a big server", message_id=41, started=started
+        )
+        asyncio.run(self.cog.on_message(message))
+        self.assertEqual(len(started.opened), 1)
+        name, archive = started.opened[0]
+        self.assertIn("Ash", name)
+        self.assertEqual(archive, 1440)
+        # It says where it is, in the thread, so an empty thread under somebody's
+        # own message does not read as the bot having made a mistake.
+        self.assertEqual(started.thread.sent, [support.CONTINUE_HERE])
+        rows = asyncio.run(support.recent(10))
+        self.assertEqual(rows[0]["thread_id"], started.thread.id)
+
+    def test_a_thread_it_could_not_open_is_survived_and_the_reply_is_written_down(self):
+        """A bridge that could not make a thread is still a bridge: taking the
+        listener down would lose the reply as well as the thread."""
+        started = _StartedIt(refusal=RuntimeError("Missing Permissions"))
+        message = _Message.person(_Room(ROOM), "still recorded", message_id=42, started=started)
+        asyncio.run(self.cog.on_message(message))
+        rows = asyncio.run(support.recent(10))
+        self.assertEqual([row["body"] for row in rows], ["still recorded"])
+        self.assertEqual(rows[0]["thread_id"], 0)
+
+    def test_a_reply_already_in_a_thread_does_not_get_another_one(self):
+        started = _StartedIt()
+        thread = _Room(THREAD, "about the export", parent_id=ROOM)
+        asyncio.run(
+            self.cog.on_message(_Message.person(thread, "any update?", message_id=43,
+                                               started=started))
+        )
+        self.assertEqual(started.opened, [])
+        rows = asyncio.run(support.recent(10))
+        self.assertEqual(rows[0]["thread_id"], THREAD)
+
 
 class TheDoor(_DashboardFixture):
     """The two routes, driven the way the page and a script drive them."""
@@ -453,6 +626,7 @@ class TheDoor(_DashboardFixture):
         super().setUp()
         self.room = _HistoryChannel(int(support.channel_id()))
         self.other_room = _Room(OTHER_ROOM)
+        self.thread = _OpenedThread()
         self.bot.get_channel = lambda cid: (
             self.room if int(cid) == int(self.room.id) else None
         )
@@ -602,11 +776,17 @@ class TheDoor(_DashboardFixture):
         self.sign_in(scope="global")
         page = self.client.get(f"/dashboard?guild_id={GUILD_ID}").get_data(as_text=True)
         self.assertIn("Support — #support", page)
-        self.assertIn("Say something to the room", page)
+        self.assertIn("Start a new message in the room", page)
+        # And the card says **how** a conversation is held here rather than only
+        # that it can be: the top form starts one and the thread is the
+        # back-and-forth, which is the half that was missing. A page that only
+        # offered a composer was a page that could speak and not answer.
+        self.assertIn("bot opens a thread under it", page)
+        self.assertIn("<strong>Reply</strong>", page)
 
         self.sign_in()  # a guild-scoped link: one server, and not this conversation
         page = self.client.get(f"/dashboard?guild_id={GUILD_ID}").get_data(as_text=True)
-        self.assertNotIn("Say something to the room", page)
+        self.assertNotIn("Start a new message in the room", page)
 
     def test_the_reader_is_behind_the_agreement(self):
         """It speaks as the bot in a channel, like the composer does."""
@@ -616,6 +796,107 @@ class TheDoor(_DashboardFixture):
         self.sign_in(scope="global")
         response = self.post(action="delete-everything")
         self.assertEqual(response.status_code, 400)
+
+    # ── answering into the conversation ───────────────────────────────────
+    def a_row(self, body="the export fails", *, message_id=31, thread_id=0):
+        """One message in the room, written down the way the listener writes it."""
+        row = asyncio.run(
+            support.record_inbound(_Message.person(self.room, body, message_id=message_id))
+        )
+        if thread_id:
+            asyncio.run(support.attach_thread(row["id"], thread_id))
+        return asyncio.run(support.get(row["id"]))
+
+    def test_a_row_on_the_card_offers_the_reply_that_goes_into_its_thread(self):
+        """The card used to offer *Open it in Discord* and nothing else: a page
+        that can speak and cannot answer, which is the complaint it was written
+        for."""
+        row = self.a_row("the export fails", thread_id=THREAD)
+        self.sign_in(scope="global")
+        page = self.client.get(f"/dashboard?guild_id={GUILD_ID}").get_data(as_text=True)
+        self.assertIn("<summary>Reply in the thread</summary>", page)
+        self.assertIn(f'name="reply_to" value="{row["id"]}"', page)
+        self.assertIn("Your reply to Ash", page)
+
+    def test_a_row_with_no_thread_yet_offers_a_plain_reply(self):
+        """Which is the reply that *opens* the conversation's thread."""
+        self.a_row("the export fails")
+        self.sign_in(scope="global")
+        page = self.client.get(f"/dashboard?guild_id={GUILD_ID}").get_data(as_text=True)
+        self.assertIn("<summary>Reply</summary>", page)
+
+    def test_replying_on_a_line_answers_into_that_conversation_s_thread(self):
+        """Answers the person rather than the room — the whole of the feature."""
+        row = self.a_row(thread_id=THREAD)
+        self.bot.get_channel = lambda cid: self.thread if int(cid) == THREAD else self.room
+        self.sign_in(scope="global")
+        response = self.post("looking at it now", reply_to=row["id"])
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(self.room.sent, [])
+        self.assertIn("looking at it now", self.thread.sent[0])
+        self.assertEqual(asyncio.run(support.recent(5))[-1]["thread_id"], THREAD)
+        self.assertIn("into the thread", response.get_json()["said"])
+
+    def test_replying_where_there_is_no_thread_opens_one_on_the_message(self):
+        """A conversation nobody has threaded yet gets one *here*, on the message
+        that started it — otherwise the answer talks over the top of it."""
+        row = self.a_row(message_id=77)
+        started = _StartedIt()
+        self.room.parent = started
+        self.sign_in(scope="global")
+        response = self.post("answering this one", reply_to=row["id"])
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(len(started.opened), 1)
+        self.assertIn("Ash", started.opened[0][0])
+        self.assertEqual(self.room.sent, [])
+        self.assertIn("answering this one", started.thread.sent[0])
+        self.assertEqual(asyncio.run(support.get(row["id"]))["thread_id"], started.thread.id)
+        self.assertEqual(asyncio.run(support.recent(5))[-1]["thread_id"], started.thread.id)
+
+    def test_a_new_message_still_goes_to_the_room_and_starts_a_conversation(self):
+        """No thread from this side: the bot opens one when the member writes back,
+        so a channel where nobody answers yet does not fill with empty threads."""
+        started = _StartedIt()
+        self.room.parent = started
+        self.sign_in(scope="global")
+        response = self.post("is anybody there?")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.room.sent), 1)
+        self.assertEqual(started.opened, [])
+        self.assertEqual(asyncio.run(support.recent(5))[-1]["thread_id"], 0)
+
+    def test_a_thread_that_is_gone_is_a_sentence_and_nothing_is_posted(self):
+        row = self.a_row(thread_id=THREAD)
+        self.sign_in(scope="global")
+        response = self.post("anyone?", reply_to=row["id"])
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("gone", response.get_json()["error"])
+        self.assertEqual(self.room.sent, [])
+        self.assertEqual(len(asyncio.run(support.recent(5))), 1)
+
+    def test_a_message_discord_no_longer_has_is_a_sentence(self):
+        row = self.a_row(message_id=88)  # no ``parent``: the lookup answers nothing
+        self.sign_in(scope="global")
+        response = self.post("hello?", reply_to=row["id"])
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("not one this bot can still answer", response.get_json()["error"])
+        self.assertEqual(self.room.sent, [])
+
+    def test_a_thread_that_could_not_be_opened_says_which_permission(self):
+        row = self.a_row(message_id=89)
+        self.room.parent = _StartedIt(refusal=RuntimeError("Missing Permissions"))
+        self.sign_in(scope="global")
+        response = self.post("hello?", reply_to=row["id"])
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Create Public Threads", response.get_json()["error"])
+        self.assertEqual(self.room.sent, [])
+
+    def test_replying_to_a_row_that_is_not_in_the_conversation_is_refused(self):
+        self.sign_in(scope="global")
+        response = self.post("hello?", reply_to=4242)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("not in the conversation", response.get_json()["error"])
+        self.assertEqual(self.room.sent, [])
 
 
 if __name__ == "__main__":  # pragma: no cover

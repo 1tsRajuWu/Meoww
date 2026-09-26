@@ -1249,16 +1249,8 @@ async def on_ready():
     # yet is bound by channel name here — once — so a server added today has
     # somewhere to log and announce without anyone running a command.
     try:
-        from utils import bot_channels, vc_watch
+        from utils import bot_channels
         for guild in bot.guilds:
-            # The voice-chat watch is off in *every* server by default and on in
-            # the operator's own one — the split they asked for by name. Seeded
-            # here rather than left to a hand-run command because a feature that
-            # is supposed to be on in one server must not depend on remembering;
-            # ``seed_home`` writes nothing when a row already exists, so a server
-            # that switched it off keeps that decision across restarts.
-            if bot_channels.is_own_server(guild):
-                vc_watch.seed_home(guild.id)
             newly = await bot_channels.ensure_bound(guild)
             if not newly:
                 continue

@@ -234,7 +234,13 @@ html {
 
 body {
   margin: 0;
+  /* `dvh` after `vh`: `100vh` is the height this page would have with the
+     browser's own chrome hidden, so on a phone a page sized to it runs its last
+     line under the address bar, and in a short landscape window the same box is
+     taller than the window it is drawn in. `dvh` is the height the page actually
+     has. The first line is the fallback for a browser with no `dvh`. */
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--mw-bg);
   color: var(--mw-text);
   font-family: var(--mw-font-ui);
@@ -1009,18 +1015,29 @@ code, kbd, samp {
 .mw-spine {
   position: fixed;
   top: 50%;
-  /* *Inside* the wrap's own left gutter rather than beside it.
+  /* *Inside* the wrap's own left gutter rather than beside it — and clear of
+     the column it indexes, which is the half that took two passes to get right.
 
      The rail used to be drawn 34px outside the content box, and on a wide
      monitor that put it a long way from the text and a long way from the
      window's edge — an object floating in a field of nothing, which is exactly
-     how it was reported. So the dots now start at the content box's edge and
-     grow rightward into the wrap's own padding, where they read as that
-     column's margin note at every width. The gutter they grow into is
-     `--mw-gutter`, and it is ≥53.6px everywhere this rail is drawn (the width
-     rule just below is the floor where it is), so the 40px of dot and line
-     leaves the text its own space at every size. */
-  left: calc(50% - (var(--mw-wrap-max) / 2) + 4px);
+     how it was reported. So the dots moved in to the wrap's own edge and grew
+     rightward into its padding. Measured at 1440, that correction went one step
+     too far the other way: the 40px slot ran from the wrap's edge out to 44px
+     while the text's own left edge *is* the 56px gutter, so a label arriving
+     10px past the slot began 2px **inside** the text column — the panel behind a
+     label exists to keep it off the page, and it was being drawn where it could
+     not do that. The rail was then reported as too close, and it was.
+
+     So it is offset to the **left** of the wrap's edge instead: 8px out, which
+     puts the slot from -8px to 32px and a label at 42px, inside a gutter of
+     ≥53.6px at every width this rail is drawn at (`--mw-gutter` at the floor the
+     rule below names) — 24px of daylight between the dots and the text at 1440,
+     and 10px between a label and the text at the tightest width. It stays well
+     inside the page's own side margin: at that floor the margin is 70px, so the
+     rail begins 62px from the window's edge. The arithmetic is held by
+     `tests/test_meoww_site.py` rather than by these numbers. */
+  left: calc(50% - (var(--mw-wrap-max) / 2) - 8px);
   translate: 0 -50%;
   z-index: 6;
   display: none;
@@ -1216,9 +1233,22 @@ code, kbd, samp {
   /* Both two-pane bands stop being two panes on a phone: side by side at 360px
      is two columns of four words each. They stack instead, in source order —
      the command box above the switches it asks about, which is also the order
-     they are read in. */
+     they are read in.
+
+     **`minmax(0, 1fr)` and not `1fr`, which is the whole of a defect measured
+     here at 320x740.** A bare `1fr` track keeps its *min-content floor*, so one
+     child that cannot get narrow enough widens the page instead of itself: the
+     command box holds an `<input>`, whose min-content width is its own default
+     twenty characters — about 200px, whatever `min-width: 0` and `flex: 1` say
+     — and that floor pushed the single column to 321px inside a 280px one. The
+     document then measured 341px in a 320px window, and `body { overflow-x:
+     hidden }` meant the 21px hanging off the edge could not be scrolled to: the
+     field's Send button and the answer region's right rule were simply cut off,
+     with nothing on the page to say so. Both two-pane rules above declare the
+     pair this way for the same reason; the one-column case is where it matters
+     most, because the column is the narrowest it will ever be. */
   .mw-sim,
-  .mw-split { grid-template-columns: 1fr; }
+  .mw-split { grid-template-columns: minmax(0, 1fr); }
   /* The window keeps bleeding — it is the one thing on the page that says
      *this is a product* — but it stops being a second column. */
   .mw-shot { --mw-shot-overhang: calc(var(--mw-bleed) * 0.6); margin-top: var(--mw-space-5); }

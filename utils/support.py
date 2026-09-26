@@ -27,6 +27,14 @@ Three decisions, each of them a way the feature breaks if it is made casually:
   webhook. The bridge's own posts are written by the bot, so this is also what
   stops the conversation from answering itself — a message the web posted is
   recorded when it is sent, and is never recorded again by the listener.
+* **A conversation has a home, and it is a thread.** The channel is the room
+  people walk into; a support conversation is one person's problem, so the bot
+  opens a **thread** on the message that started it and everything after that
+  happens in there. That is what makes a back-and-forth possible rather than a
+  wall: the member replies under their own message, the operator replies from the
+  web into the same thread, and neither has to be in the channel at the right
+  moment. The thread's id is kept on the row (``thread_id``), so a surface can
+  answer *into* the conversation instead of linking the operator out to Discord.
 
 **What the reader must know about the two limits Discord imposes.** Reading
 message *content* in a guild channel needs the Message Content intent; with it
@@ -51,8 +59,8 @@ import time
 
 from . import config_audit, db, version
 
-#: The channel the bridge posts into and reads replies from. Read through the
-#: name-holding constant, the way ``utils/vc_watch`` reads its pair: the config
+#: The channel the bridge posts into and reads replies from. Read through a
+#: name-holding constant rather than spelled at the point of reading: the config
 #: audit's source walk looks for the *name* of a declared setting being read.
 CHANNEL_ENV = "SUPPORT_CHANNEL_ID"
 
@@ -75,8 +83,15 @@ DISCORD = "discord"
 #: Every column, in the order the queries below select them.
 COLUMNS = (
     "id", "message_id", "side", "author_id", "author_name", "body",
-    "attachments", "jump", "where_name", "ts",
+    "attachments", "jump", "where_name", "thread_id", "ts",
 )
+
+#: Columns added after the table shipped, and the declaration each one needs.
+#: Read by both the async boot path and the synchronous page reader, because a
+#: restored backup can arrive at either of them first and a ``SELECT`` naming a
+#: column the table does not have is an error on the page that shows the
+#: conversation — the one page nobody can check by looking at Discord instead.
+THREAD_COLUMNS = {"thread_id": "INTEGER NOT NULL DEFAULT 0"}
 
 CREATE_TABLE = (
     f"CREATE TABLE IF NOT EXISTS {TABLE} ("
@@ -93,12 +108,28 @@ CREATE_TABLE = (
     # The thread a reply arrived in, when it arrived in one. Empty for the
     # channel itself, which is where most of it happens.
     "where_name TEXT NOT NULL DEFAULT '',"
+    # The thread this conversation lives in: the thread opened on this message,
+    # or the thread this reply was written in. ``0`` is the channel itself.
+    "thread_id INTEGER NOT NULL DEFAULT 0,"
     # When the message was *written*, in seconds since the epoch — read from
     # Discord's own timestamp so a pulled message lands where it belongs in the
     # conversation rather than where the pull happened to run.
     "ts REAL NOT NULL DEFAULT 0"
     ")"
 )
+
+#: What the bot says inside a thread it has just opened. One line, because its job
+#: is to make the thread non-empty and to tell a member where they are: an empty
+#: thread under your own message reads as if the bot had made a mistake.
+CONTINUE_HERE = (
+    "-# Continue here — this thread is the conversation, and what you write in it "
+    "reaches the operator's console."
+)
+
+#: Discord's own ceiling for a thread's name, and the marker this project puts in
+#: front of one so a thread is recognisable as the bot's in a list of them.
+THREAD_MARK = "🧵"
+MAX_THREAD_NAME = 100
 
 #: One message, one row — the reason the listener and a pull can both run over
 #: the same message without the conversation growing a duplicate. Partial,
@@ -122,13 +153,65 @@ PULL_LIMIT = 50
 SHOWN = 30
 
 
+def thread_name(body: str, author: str) -> str:
+    """What to call the thread opened on somebody's message.
+
+    The person first, because a list of threads is scanned by *who* it is about,
+    then as much of what they said as fits. Everything a name could do to the
+    line around it is already ruled out by :func:`one_line`, and the result is
+    capped at Discord's own limit so the name can never be the reason the thread
+    is refused.
+    """
+    who = one_line(author, 40) or "somebody"
+    said = one_line(body, MAX_THREAD_NAME - 50)
+    named = f"{THREAD_MARK} {who} — {said}" if said else f"{THREAD_MARK} {who}"
+    return named[:MAX_THREAD_NAME]
+
+
+def thread_of(message) -> int:
+    """The thread a message was written in, or ``0`` for the channel itself.
+
+    Read from the channel the message arrived in: a thread is a channel whose id
+    is not the support channel and whose ``parent_id`` is, which is the same pair
+    :func:`in_channel` accepts. This is what makes a reply *already in* a thread
+    record where it belongs without the listener having to remember anything.
+    """
+    room = _room(message)
+    if room is None:
+        return 0
+    here = as_int(getattr(room, "id", 0))
+    if not here or here == channel_id():
+        return 0
+    return here if in_channel(room, channel_id()) else 0
+
+
+def thread_target(rows) -> int:
+    """The thread one row of the conversation should be answered in.
+
+    ``0`` means "there is no thread yet, make one on this message" — which is
+    only ever true of the message that started the conversation, because a reply
+    written inside a thread records the thread it arrived in.
+    """
+    for row in rows:
+        if row is None:
+            continue
+        found = as_int(row.get("thread_id"))
+        if found:
+            return found
+        if str(row.get("where_name") or ""):
+            # A reply that arrived in a thread whose id predates this column:
+            # the name is all the record has, and a named room with no id is not
+            # a target. Answered as "no thread" rather than guessed at.
+            return 0
+    return 0
+
+
 def _configured(setting: str, default: int) -> int:
     """One channel id from the environment, falling back on anything unusable.
 
-    A malformed value falls back rather than raising, for the reason
-    ``utils/vc_watch`` gives about its own: this is read on a message path, and a
-    typo in a variable must not be the reason a listener errors on every message
-    in the channel it was pointed at.
+    A malformed value falls back rather than raising, because this is read on a
+    message path: a typo in a variable must not be the reason a listener errors
+    on every message in the channel it was pointed at.
     """
     raw = config_audit.get(setting)
     if raw in (None, ""):
@@ -295,6 +378,7 @@ def facts(message) -> dict:
         "attachments": len(getattr(message, "attachments", None) or []),
         "jump": str(getattr(message, "jump_url", "") or ""),
         "where_name": _where(message),
+        "thread_id": thread_of(message),
         "ts": _when(message),
     }
 
@@ -365,10 +449,10 @@ def status(guild=None, find=None) -> dict:
     """The bridge as an operator reads it: is it on, where, and what can it do.
 
     ``postable`` and ``readable`` are the two permissions that decide whether the
-    bridge works, and they are reported apart from the address for the reason the
-    voice-chat watch reports its own: a bridge pointed at a channel the bot may
-    not speak in, or may not read history in, is configured correctly and does
-    nothing — the failure that looks like a quiet channel.
+    bridge works, and they are reported apart from the address deliberately: a
+    bridge pointed at a channel the bot may not speak in, or may not read history
+    in, is configured correctly and does nothing — the failure that looks like a
+    quiet channel.
 
     ``why`` is the sentence for an *off* bridge: "off" on its own is the least
     useful thing a console can say about something somebody believes is on.
@@ -396,6 +480,11 @@ def status(guild=None, find=None) -> dict:
         "channel": row,
         "postable": _permission(me, channel, "send_messages"),
         "readable": _permission(me, channel, "read_message_history"),
+        # Whether a conversation can be *held* here rather than announced: the
+        # bot opens a thread on each new message, and without this permission it
+        # cannot, which is a different failure from "the bridge is off" and has
+        # its own fix.
+        "threadable": _permission(me, channel, "create_public_threads"),
         # Whether *anything* could resolve the id: without this the row above is
         # a setting, and "an id nothing answers to" and "an id nobody looked up"
         # are different sentences on the card.
@@ -420,7 +509,7 @@ def _row(row) -> dict | None:
     if row is None:
         return None
     record = dict(zip(COLUMNS, row))
-    for key in ("id", "message_id", "author_id", "attachments"):
+    for key in ("id", "message_id", "author_id", "attachments", "thread_id"):
         try:
             record[key] = int(record.get(key) or 0)
         except (TypeError, ValueError):
@@ -434,9 +523,31 @@ def _row(row) -> dict | None:
 
 
 async def ensure_table(conn) -> None:
-    """Create the table and its unique index if they are missing."""
+    """Create the table and its unique index, and add any column that is missing.
+
+    The column pass is what makes this safe on a database restored from a backup
+    taken before a column existed: ``CREATE TABLE IF NOT EXISTS`` never changes a
+    table that is already there, so without it the conversation would read as
+    "unknown" on the surfaces that SELECT the new name — and ``ALTER TABLE ...
+    ADD COLUMN`` is additive, so running it on every call costs one ``PRAGMA``.
+    """
     await conn.execute(CREATE_TABLE)
     await conn.execute(CREATE_INDEX)
+    await db.ensure_columns(conn, TABLE, THREAD_COLUMNS)
+
+
+def _ensure_columns_sync(conn) -> None:
+    """The same column pass for the synchronous page reader.
+
+    A page must not be the surface that fails on an un-migrated database: this
+    runs before its own ``SELECT``, so the transcript is either the conversation
+    or an honest "could not be read" rather than a column error.
+    """
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({TABLE})").fetchall()}
+    for name, declaration in THREAD_COLUMNS.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN {name} {declaration}")
+            print(f"[SUPPORT] Added column {name} to {TABLE}.", flush=True)
 
 
 async def _insert(*, side: str, found: dict) -> dict | None:
@@ -452,7 +563,7 @@ async def _insert(*, side: str, found: dict) -> dict | None:
         cursor = await conn.execute(
             f"INSERT OR IGNORE INTO {TABLE} "
             "(message_id, side, author_id, author_name, body, attachments, jump,"
-            " where_name, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " where_name, thread_id, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 # Everything here is a value this module built, and the ids go
                 # through ``as_int`` anyway: this write runs inside a listener on
@@ -466,6 +577,7 @@ async def _insert(*, side: str, found: dict) -> dict | None:
                 as_int(found.get("attachments")),
                 str(found.get("jump") or "")[:300],
                 str(found.get("where_name") or "")[:100],
+                as_int(found.get("thread_id")),
                 float(found.get("ts") or time.time()),
             ),
         )
@@ -497,8 +609,29 @@ async def record_inbound(message) -> dict | None:
     return await _insert(side=DISCORD, found=facts(message))
 
 
+async def attach_thread(row_id: int, thread_id: int) -> bool:
+    """Point one row at the thread its conversation now lives in.
+
+    Only ever the message that started it: the listener opens a thread the moment
+    somebody writes in the channel, and the row written a line earlier is where
+    every surface later looks to find the conversation. Returns whether a row was
+    changed, so the listener can say what happened rather than assume it.
+    """
+    wanted, thread = as_int(row_id), as_int(thread_id)
+    if not wanted or not thread:
+        return False
+    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+        await ensure_table(conn)
+        cursor = await conn.execute(
+            f"UPDATE {TABLE} SET thread_id = ? WHERE id = ?", (thread, wanted)
+        )
+        changed = cursor.rowcount
+        await conn.commit()
+    return bool(changed)
+
+
 async def record_outbound(
-    *, body: str, author_id: int = 0, author_name: str = "", message=None
+    *, body: str, author_id: int = 0, author_name: str = "", message=None, thread=None
 ) -> dict:
     """Write down a message the bridge posted, with Discord's id when it has one.
 
@@ -506,6 +639,10 @@ async def record_outbound(
     bridge's claim that the room has this line, and a claim written before the
     send is a conversation with a message in it that nobody in the room can see.
     """
+    # ``thread`` is the room the reply was posted into, when it was posted into
+    # one: the reply is part of that conversation, and the card has to be able to
+    # say which thread it went to (and to answer into it again).
+    in_thread = as_int(getattr(thread, "id", 0))
     found = {
         "message_id": as_int(getattr(message, "id", 0)),
         "author_id": int(author_id or 0),
@@ -513,7 +650,8 @@ async def record_outbound(
         "body": str(body or "").strip()[:MAX_BODY],
         "attachments": 0,
         "jump": str(getattr(message, "jump_url", "") or ""),
-        "where_name": "",
+        "where_name": one_line(getattr(thread, "name", "")) if in_thread else "",
+        "thread_id": in_thread,
         "ts": _when(message) if message is not None else time.time(),
     }
     return await _insert(side=WEB, found=found) or {}
@@ -620,6 +758,12 @@ def reading(row) -> dict:
         "attachments": attachments,
         "jump": str(record.get("jump") or ""),
         "where_name": str(record.get("where_name") or ""),
+        # The conversation this line belongs to, and the handle a form replies
+        # to: the row's own id, which the server resolves into "the thread this
+        # is in, or a new one on the message that started it". Handing a form a
+        # thread id it might not have yet would be a form that posts nowhere.
+        "thread_id": int(record.get("thread_id") or 0),
+        "reply_to": int(record.get("id") or 0),
         "at": when,
         "when": version.stamp(when) if when else "",
     }
@@ -656,6 +800,7 @@ def transcript_sync(limit: int = SHOWN) -> dict:
     try:
         conn.execute(CREATE_TABLE)
         conn.execute(CREATE_INDEX)
+        _ensure_columns_sync(conn)
         cur = conn.cursor()
         cur.execute(
             f"SELECT {', '.join(COLUMNS)} FROM {TABLE} ORDER BY ts DESC, id DESC LIMIT ?",

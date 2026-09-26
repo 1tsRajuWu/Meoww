@@ -39,7 +39,33 @@
    `tests/test_meoww_site.py::TheOneAuthorRules` refuses — and did refuse the
    first draft of this page. #}
 {% from "meoww/_switch.html" import switch as mw_switch %}
+{# The frame's own theme control, imported here because this page replaces the
+   nav it normally lives in (see the block below) — the import in
+   `site_base.html` belongs to that file's namespace and is not visible from an
+   overriding block. #}
+{% from "_theme.html" import theme_button %}
 {% block title %}{{ page_title }} — operator console{% endblock %}
+
+{# **This page is not the public site, and it no longer wears its nav.**
+
+   The console is served on a host of its own (`dacatowner.pages.dev`, whose
+   root *is* `/owner`), and the one thing that made it read as "the dashboard,
+   or the public site, or both" was that it arrived inside this site's
+   marketing header: Home, Systems, Radio, and a button inviting the reader to
+   add the bot to Discord from a fleet console they are already signed into.
+
+   What a nav can usefully say here is which address this is and where the two
+   member-facing halves live — the console is the third host, not a page of the
+   first one. The theme control stays, because it is the same control the rest
+   of the frame draws and its setting follows the reader between pages. #}
+{% block nav %}
+<a class="nav__link" href="/" aria-current="page">Console</a>
+<a class="nav__link" href="{{ public_site_url | default('https://dacat.pages.dev') }}">The public site</a>
+<a class="nav__link" href="{{ dashboard_url | default('https://dacatdashboard.pages.dev/dashboard') }}">Member dashboard</a>
+<div class="top__actions">
+  {{ theme_button() }}
+</div>
+{% endblock %}
 
 {# The hidden field every write on this console needs: the token the endpoint
    checks, the server it is about, where the reader goes back to, and the
@@ -271,82 +297,6 @@
     <p class="hint">No server to read: the bot is not in one this process can see.</p>
     {% endif %}
 
-    {# The watch, which is the one thing in this console that runs without
-       anybody asking: it decides on every message in the watched channel, so a
-       watch that is off, pointed at the wrong room or pointed at a channel the
-       bot cannot post in is a feature the operator would otherwise believe in
-       until the day a report was needed. The two addresses are deployment
-       settings rather than server ones, and the card says so. #}
-    {% if watch %}
-    <div class="own-card">
-      <h3>The voice-chat watch</h3>
-      {% if watch.on %}
-      <p class="hint">
-        On. A message written in the watched chat by somebody the gateway does <em>not</em> place
-        in that voice room is reported to the alert channel — once per person per quiet window,
-        with the lines that arrived while it was quiet counted on the next card.
-      </p>
-      <p class="hint">
-        This switch is the pair of addresses below — <em>what</em> is watched, and where a report
-        goes. Whether a server reports at all is that server's own switch (<strong>Voice-chat
-        Watch</strong> on its Systems page, or <em>/watch</em> in Discord), and it is off in every
-        server until one asks: a report is about a person, so nobody gets watched because a bot
-        was installed. Yours is switched on for you.
-      </p>
-      {% else %}
-      <p class="notice notice--bad" role="alert">The watch is off. {{ watch.why }}</p>
-      {% endif %}
-      <div class="own-table__scroll">
-      <table class="own-table">
-        <caption>Both addresses are deployment settings — one pair for every server</caption>
-        <thead><tr><th scope="col">Address</th><th scope="col">Channel</th><th scope="col">Id</th><th scope="col">In the room now</th></tr></thead>
-        <tbody>
-          <tr>
-            <th scope="row">Watched</th>
-            {# The channel's own name rather than Discord's `<#id>` mention: this is
-               a web page, and a page is not where Discord's syntax should be read
-               literally. The id is printed beside it for the case where the name
-               is not enough. #}
-            <td>{{ watch.watched.name if watch.watched.resolved else 'nothing the bot can see' }}</td>
-            <td class="mono">{{ watch.watched.id }}</td>
-            <td class="mono">{{ watch.watched.people if watch.watched.people is not none else '—' }}</td>
-          </tr>
-          <tr>
-            <th scope="row">Reported to</th>
-            <td>{{ watch.alert.name if watch.alert.resolved else 'nothing the bot can see' }}</td>
-            <td class="mono">{{ watch.alert.id }}</td>
-            <td class="mono">—</td>
-          </tr>
-        </tbody>
-      </table>
-      </div>
-      <p class="hint">
-        {% if not watch.resolvable %}
-        Neither id could be looked up in this process, so this card is the settings rather than a
-        reading about them.
-        {% elif not watch.watched.resolved or not watch.alert.resolved %}
-        <strong>{{ 'The watched channel' if not watch.watched.resolved else 'The alert channel' }}
-        is not a channel this bot can see anywhere.</strong>
-        {% if not watch.watched.resolved %}
-        Nothing will ever be reported, because no message can arrive in a room the bot is not in.
-        {% else %}
-        A report has nowhere to land. Check the address — a typo in a variable looks exactly like
-        this, and so does a channel that went with a server the bot has left.
-        {% endif %}
-        {% elif watch.postable is none %}
-        Discord did not say whether the bot can post in the alert channel.
-        {% elif watch.postable %}
-        The bot can post the report where it says it will.
-        {% else %}
-        <strong>The bot cannot post in the alert channel</strong> — reports are being written to a
-        channel it has no permission in, which looks exactly like a watch with nothing to report.
-        {% endif %}
-        And one limit worth knowing: Discord tells nobody that a channel was <em>opened</em>, so what
-        this watches for is a message from somebody who is not in the call — reading without
-        writing leaves no trace any bot can see.
-      </p>
-    </div>
-    {% endif %}
   </div>
 </section>
 {% endif %}
@@ -499,14 +449,35 @@
       {{ chip('Switchable systems', commands.switchable) }}
       {{ chip('In the tree', commands.published) }}
     </div>
-    <p class="notice{% if commands.publish.tone in ('never', 'unverified') %} notice--bad{% endif %}" role="status">
-      {{ commands.publish.text }}
-    </p>
-    {{ facts('The published copy', commands.publish) }}
-    <p class="hint">
-      The registry is how Discord's picker counts (one row per command); the tree is what this
-      deployment publishes, which is what a member can type.
-    </p>
+    {# **The publish reading, said rather than dumped.** This card used to hand
+       `commands.publish` to the generic renderer, so the operator read `Tone
+       never · Age Seconds — · At — · Held — · Pending 0 · Matches —` and then
+       the sentence the reading had *already composed* as its `text` — the
+       reader's own field names, one line above the prose that says all of it in
+       words. The dashboard's Commands page draws this same reading as a
+       sentence plus chips, from the same author (`utils.command_publish`), and
+       two surfaces about one publish have to agree: so this is that shape. #}
+    <div class="own-card" data-tone="{{ commands.publish.tone }}">
+      <h3>What Discord holds</h3>
+      <p role="status">{{ commands.publish.text }}</p>
+      <div class="own-state">
+        {{ chip('Discord holds',
+                commands.publish.held if commands.publish.held is not none else 'not read yet',
+                'ok' if commands.publish.tone == 'ok' else 'warn') }}
+        {{ chip('Still to write', commands.publish.pending) }}
+        {{ chip('Last read', commands.publish.at or 'never') }}
+        {% if commands.publish.matches is sameas false %}
+        {{ chip('Disagrees with the switches', '', 'warn') }}
+        {% endif %}
+      </div>
+      <p class="hint">
+        Three figures, deliberately three different claims: the registry is how Discord's picker
+        counts — one row per command — and the tree is what this deployment publishes, which is
+        what a member can type. Neither of those is <em>Discord's</em> answer, which is the number
+        beside it, and which is read rather than assumed. A count that still disagrees with the
+        switches after a publish has finished is the case this reading exists for.
+      </p>
+    </div>
   </div>
 </section>
 {% endif %}
@@ -514,26 +485,84 @@
 {% if console_page == 'economy' %}
 <section class="band" id="{{ page_anchor }}">
   <div class="wrap">
-    {% if selected %}<p class="hint">Read on <strong>{{ selected.name }}</strong>.</p>{% endif %}
-    {% if economy %}
-      <div class="own-grid">
-        {{ chip('Circulation', economy.circulation) }}
-        {{ chip('Holders', economy.top | length) }}
+    {# **The money, in the ledger's own words.** This page used to hand `facts()`
+       the raw reading, and `facts()` walks a mapping's *field names* — so an
+       operator read `Enabled True · Label 2% · Describe … · Cap 500 ·
+       Stored False`, i.e. their reader's variable names, then a table. A generic
+       renderer is for a mapping whose fields are unknown; the ledger's fields
+       are not, and every one of them has a name a person would use.
+
+       So the figures come from `economy_display` — the same function the member
+       dashboard's economy page draws from — and the fee from `economy_fee`, which
+       is `_fee_display`'s own reading. Nothing here is re-derived and no
+       arithmetic happens in this template: a share is a division by a circulation
+       that can be zero, which is exactly why the string is made in Python. #}
+    <h2>Coins, and where they are</h2>
+    {% if selected %}
+    <p class="hint">
+      Read on <strong>{{ selected.name }}</strong> — the same reader its own dashboard draws,
+      so the two surfaces cannot disagree about a wallet.
+    </p>
+    {% endif %}
+
+    {% if economy_display %}
+    <div class="own-state">
+      {{ chip('In wallets', economy_display.wallet) }}
+      {{ chip('In banks', economy_display.bank) }}
+      {{ chip('In circulation', economy_display.circulation) }}
+      {{ chip('DaCat Bank', economy_display.meow_bank) }}
+      {{ chip('Accounts', economy_display.accounts) }}
+    </div>
+
+    <div class="own-grid" data-reveal>
+      <div class="own-card">
+        <h3>The fee this server charges</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>rate</dt><dd class="mono">{{ economy_fee.label }}</dd></div>
+          <div class="own-fact"><dt>state</dt><dd class="mono">{{ 'charged' if economy_fee.enabled else 'off' }}</dd></div>
+          {# Two words at most, because `.own-fact dt` capitalises every word it is
+             given — so `set here, or the default` reads back as *Set Here, Or The
+             Default*, and the sentence belongs in the value where it fits. #}
+          <div class="own-fact">
+            <dt>origin</dt>
+            <dd>{{ 'this server chose it' if economy_fee.stored else 'the shipped default' }}</dd>
+          </div>
+          <div class="own-fact"><dt>maximum</dt><dd class="mono">{{ '{:,}'.format(economy_fee.cap or 0) }}</dd></div>
+          <div class="own-fact"><dt>banked fees</dt><dd class="mono">{{ economy_display.meow_bank }}</dd></div>
+        </dl>
+        <p class="hint">{{ economy_fee.describe }}</p>
+        <p class="hint">
+          Fees land in DaCat Bank, which is the house account — so the banked figure above is what
+          has actually been charged here, not what a rate would produce.
+        </p>
       </div>
-      {% if economy.fee is mapping %}{{ facts('The bank fee', economy.fee) }}{% endif %}
+    </div>
+
+    {% if economy_display.top %}
+    <div class="own-table__scroll">
       <table class="own-table">
-        <caption>The largest holdings on this server</caption>
-        <thead><tr><th scope="col">Member</th><th scope="col">Held</th><th scope="col">Share</th></tr></thead>
+        <caption>The heaviest wallets here, by net worth</caption>
+        <thead>
+          <tr><th scope="col">Member</th><th scope="col">Net</th>
+              <th scope="col">Wallet</th><th scope="col">Bank</th>
+              <th scope="col">Share of everything</th></tr>
+        </thead>
         <tbody>
-          {% for holder in economy.top %}
+          {% for holder in economy_display.top %}
           <tr>
             <th scope="row">{{ holder.name or holder.user_id }}</th>
-            <td class="mono">{{ holder.net }}</td>
-            <td class="mono">{{ '%.2f' | format(holder.share or 0) }}%</td>
+            <td class="mono">{{ holder.net_text }}</td>
+            <td class="mono">{{ holder.wallet_text }}</td>
+            <td class="mono">{{ holder.bank_text }}</td>
+            <td class="mono">{{ holder.share_text }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+    </div>
+    {% else %}
+    <p class="muted">Nobody has earned a coin on this server yet.</p>
+    {% endif %}
     {% else %}
     <p class="notice notice--bad" role="alert">
       This server's economy tables could not be read, so there is nothing here to show — which is
@@ -589,21 +618,118 @@
 </section>
 {% endif %}
 
+{# The deployment's own health. Three cards, each a sentence and its labelled
+   facts — never the reading's own field names.
+
+   The defect this replaces is worth naming, because it is invisible from Python:
+   `facts()` walks a mapping's **keys**, so an operator met `status · at · stale ·
+   ratio 30d · age seconds · age text · detail` on the one page whose entire job is
+   to be read when something is wrong. Worse, `facts()` renders scalars and skips a
+   list — and `monitors` *is* a list — so the card said "2 monitors, 1 up" while the
+   names and their 30-day ratios, the only half a person can act on, never drew.
+   `_health_display` states all three readings, and the monitor rows are what its
+   table is for. #}
 {% if console_page == 'ops' %}
 <section class="band" id="{{ page_anchor }}">
   <div class="wrap">
-    <div class="own-grid">
-      {{ facts('The monitor', health.uptime) }}
-      {{ facts('This process', health.site) }}
-      {{ facts('The configuration', health.config) }}
+    <div class="own-state">
+      {{ chip('Uptime watch', health.uptime.state, 'ok' if health.uptime.state == 'ok' else 'warn') }}
+      {{ chip('Site check', health.site.state, 'ok' if health.site.state == 'clean' else 'warn') }}
+      {{ chip('Configuration', health.config.state, 'ok' if health.config.state == 'ok' else 'warn') }}
     </div>
+
+    <div class="own-grid">
+      <div class="own-card">
+        <h3>The uptime watch</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>watching</dt><dd class="mono">{{ health.uptime.counts }}</dd></div>
+          <div class="own-fact"><dt>last read</dt><dd class="mono">{{ health.uptime.checked }}</dd></div>
+          {% if health.uptime.ratio %}
+          <div class="own-fact"><dt>weakest 30-day</dt><dd class="mono">{{ health.uptime.ratio }}</dd></div>
+          {% endif %}
+          {% if health.uptime.page %}
+          <div class="own-fact"><dt>status page</dt>
+            <dd><a href="{{ health.uptime.page }}">{{ health.uptime.page }}</a></dd></div>
+          {% endif %}
+        </dl>
+        {% if health.uptime.monitors %}
+        <div class="own-table__scroll">
+          <table class="own-table">
+            <caption>Every monitor this deployment watches</caption>
+            <thead>
+              <tr><th scope="col">Monitor</th><th scope="col">State</th>
+                  <th scope="col">30d</th><th scope="col">Answer</th></tr>
+            </thead>
+            <tbody>
+              {% for monitor in health.uptime.monitors %}
+              <tr>
+                <th scope="row">{{ monitor.name }}
+                  {% if monitor.url %}<span class="mono small"> {{ monitor.url }}</span>{% endif %}
+                </th>
+                <td>{{ monitor.label }}</td>
+                <td class="mono">
+                  {%- if monitor.ratios.get('30d') is number %}{{ monitor.ratios['30d'] }}%
+                  {%- else %}—{% endif %}
+                </td>
+                <td class="mono">
+                  {%- if monitor.paused %}paused
+                  {%- elif monitor.response_ms %}{{ monitor.response_ms }} ms
+                  {%- else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% if health.uptime.held %}<p class="hint">{{ health.uptime.held }}</p>{% endif %}
+        <p class="hint">{{ health.uptime.note }}</p>
+      </div>
+
+      <div class="own-card">
+        <h3>The site check</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>verdict</dt><dd class="mono">{{ health.site.state }}</dd></div>
+          {% if health.site.checked %}
+          <div class="own-fact"><dt>last read</dt><dd class="mono">{{ health.site.checked }}</dd></div>
+          {% endif %}
+          {% if health.site.probes is not none %}
+          <div class="own-fact"><dt>paths asked for</dt><dd class="mono">{{ health.site.probes }}</dd></div>
+          <div class="own-fact"><dt>answered with a page</dt><dd class="mono">{{ health.site.exposed }}</dd></div>
+          <div class="own-fact"><dt>only in a cache</dt><dd class="mono">{{ health.site.cached }}</dd></div>
+          <div class="own-fact"><dt>never answered</dt><dd class="mono">{{ health.site.unanswered }}</dd></div>
+          {% endif %}
+          {% if health.site.site %}
+          <div class="own-fact"><dt>asked at</dt><dd class="mono">{{ health.site.site }}</dd></div>
+          {% endif %}
+        </dl>
+        <p class="hint">{{ health.site.note }}</p>
+      </div>
+
+      <div class="own-card">
+        <h3>The configuration audit</h3>
+        <dl class="own-facts">
+          <div class="own-fact"><dt>verdict</dt><dd class="mono">{{ health.config.state }}</dd></div>
+          <div class="own-fact"><dt>unset</dt><dd class="mono">{{ health.config.unset }}</dd></div>
+          <div class="own-fact"><dt>costing a feature</dt><dd class="mono">{{ health.config.attention }}</dd></div>
+        </dl>
+        <p class="hint">{{ health.config.note }}</p>
+      </div>
+    </div>
+
     {% if health.config.named %}
     <h2>Asking for attention</h2>
+    <p class="hint">
+      The names behind that count, worst first — each one an environment variable
+      this deployment reads and cannot find. What it turns on, and what its absence
+      costs, are the audit's own words.
+    </p>
     <ul class="list">
       {% for row in health.config.named %}
-      <li class="list__row">
-        <span class="list__key mono">{{ row.name if row.name is defined else row }}</span>
-        <span class="list__note">{{ row.detail if row.detail is defined else '' }}</span>
+      <li class="list__row list__row--prose">
+        <span class="list__key mono">{{ row.name }}</span>
+        <span class="list__meta">{{ row.kind }}</span>
+        <span class="list__note">{{ row.what }} — {{ row.cost }}</span>
       </li>
       {% endfor %}
     </ul>
@@ -713,6 +839,14 @@
           </dd>
         </div>
         <div class="own-fact">
+          <dt>the bot may open a thread</dt>
+          <dd>
+            {% if support.status.threadable is none %}Discord did not say{% elif support.status.threadable %}
+            yes — that is where one conversation lives{% else %}
+            <strong>no — each message stays a single line in the room</strong>{% endif %}
+          </dd>
+        </div>
+        <div class="own-fact">
           <dt>messages on record</dt>
           <dd class="mono">{{ support.transcript.total }} (showing the last {{ support.transcript.shown }})</dd>
         </div>
@@ -723,10 +857,12 @@
       {{ guard('Sent — it is in the support channel now.') }}
       <input type="hidden" name="action" value="send">
       <label class="field">
-        <span class="field__label">Say something to the room</span>
+        <span class="field__label">Start a new message in the room</span>
         <textarea class="input" name="body" rows="4" maxlength="{{ support.status.max_body }}" required
                   placeholder="What the support channel should read"></textarea>
-        <span class="hint">Posted as the bot, signed with your name. {{ support.status.max_body }} characters at most.</span>
+        <span class="hint">Posted as the bot, signed with your name — and the bot opens a thread under it,
+          which is where the conversation continues. {{ support.status.max_body }} characters at most.
+          To answer somebody instead, use <strong>Reply</strong> on their line.</span>
       </label>
       <button class="btn btn--primary" type="submit">Send it</button>
     </form>
@@ -747,7 +883,25 @@
           {% if row.attachments %}
           <span class="hint">{{ row.attachments }} attachment(s) — open it in Discord to see them.</span>
           {% endif %}
-          {% if row.jump %} <a href="{{ row.jump }}">Open it in Discord</a>{% endif %}
+          {% if row.reply_to %}
+          <details class="own-reply">
+            <summary>Reply{% if row.thread_id %} in the thread{% endif %}</summary>
+            <form class="own-form" method="post" action="{{ support.url }}">
+              {{ guard('Sent into the conversation — the thread is where it continues.') }}
+              <input type="hidden" name="action" value="send">
+              <input type="hidden" name="reply_to" value="{{ row.reply_to }}">
+              <textarea class="input" name="body" rows="3" maxlength="{{ support.status.max_body }}" required
+                        aria-label="Your reply to {{ row.author }}"
+                        placeholder="What to answer {{ row.author }}"></textarea>
+              <button class="btn" type="submit">Send it into the conversation</button>
+              <span class="hint">
+                Posted as the bot, signed with your name, inside {{ row.author }}'s own conversation —
+                so the person you are answering is told, which is the whole point of a thread.
+                {% if row.jump %}Not in the thread? <a href="{{ row.jump }}">Open it in Discord</a>.{% endif %}
+              </span>
+            </form>
+          </details>
+          {% endif %}
         </span>
         <span class="list__meta mono">{{ row.when }}{% if row.where_name %} · {{ row.where_name }}{% endif %}</span>
       </li>

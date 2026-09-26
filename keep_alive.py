@@ -59,7 +59,7 @@ from utils import (
     health as health_checks, hub, identity, levels as levels_module, media_health, meowfee,
     moderation_actions, modlog, modules, pause, permissions, plans, principal, qna,
     ratelimit, scheduled, server_control, sessions, site_guard, support,
-    uptime_status, vc_watch, webdocs,
+    uptime_status, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -4642,6 +4642,183 @@ def _economy_display(reading):
     }
 
 
+def _fee_display(reading) -> dict:
+    """The bank fee as a page states it: three labelled facts and one sentence.
+
+    One author for the two surfaces that print it — the member dashboard's own
+    economy page and the operator console's — and the reason is the sentence
+    underneath. ``meowfee.describe()`` is written for **Discord**, where `**2%**`
+    is bold; a page is not, and the marks arrive on it instead of the emphasis.
+    That strip was missing on exactly one of the two readers once, and
+    `/owner/economy` shipped a literal `**2%**` to the one person most likely to
+    paste it somewhere. One function is what makes it a rule rather than
+    something the next reader has to remember.
+
+    ``stored`` is not decoration: it is whether the rate came from this server's
+    own row or from the shipped default, which is the whole question an operator
+    has when two servers charge differently.
+    """
+    found = reading or {}
+    return {
+        "label": str(found.get("label") or ""),
+        "enabled": bool(found.get("enabled", True)),
+        # A missing cap is not a fee that can be unlimited — it is a reading that
+        # did not carry one, and the template prints it as a number.
+        "cap": found.get("cap") or 0,
+        "stored": bool(found.get("stored", False)),
+        "describe": str(found.get("describe") or "").replace("**", ""),
+    }
+
+
+def _checked_text(seconds) -> str:
+    """How long ago a reading was taken, in words a person would use.
+
+    Coarse on purpose. A pass runs every few minutes, so a page that said
+    ``183s`` would be reporting a clock rather than an age; the one thing a
+    reader needs from this number is whether they are looking at something that
+    just answered or something from an hour ago.
+    """
+    try:
+        value = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return ""
+    if value < 90:
+        return f"{value}s ago"
+    if value < 5400:
+        return f"{value // 60} min ago"
+    if value < 172800:
+        return f"{value // 3600}h ago"
+    return f"{value // 86400}d ago"
+
+
+def _site_note(reading) -> str:
+    """The site check in a sentence, for a reading that carries counts and no words.
+
+    ``site_guard.health_json`` returns words only while nothing has run in this
+    process; once there is a verdict it returns the counts, and the sentence it
+    *does* compose (``utils.site_guard.describe``) is written for a host log to be
+    grepped in — it leads with ``clean —`` and names every path. A page says what
+    the count means instead.
+    """
+    found = reading or {}
+    state = str(found.get("status") or "")
+    probes = found.get("probes")
+    exposed = int(found.get("exposed") or 0)
+    cached = int(found.get("cached") or 0)
+    unanswered = int(found.get("unanswered") or 0)
+    site = str(found.get("site") or "the site")
+    if state == site_guard.Verdict.EXPOSED:
+        return (
+            f"{exposed} of the {probes} repository paths still answer with a page at "
+            f"{site}. That is the whole of what this check looks for: a file the "
+            "deployment was supposed to leave out being served anyway."
+        )
+    if state == site_guard.Verdict.CACHED:
+        return (
+            f"{cached} of the {probes} repository paths are being answered from a cache "
+            f"at {site} although the site itself refuses them. A redeploy does not clear "
+            "that and a reload does not either — it takes a purge, which is a "
+            "Cloudflare-side action on a host this project does not own."
+        )
+    if state == site_guard.Verdict.FALLBACK:
+        return (
+            f"{site} answers a page for a path that does not exist, so a page there says "
+            "nothing about what was asked for and this reading cannot tell."
+        )
+    if state == site_guard.Verdict.UNREACHABLE:
+        return (
+            f"{unanswered} of the {probes} probes went unanswered at {site}: the tree "
+            "was neither confirmed public nor confirmed private."
+        )
+    if state == site_guard.Verdict.CLEAN:
+        return (
+            f"All {probes} of the repository paths answer 404 at {site} — the answer "
+            "that means the deployment is not publishing them."
+        )
+    return ""
+
+
+def _health_display(*, uptime=None, site=None, config=None) -> dict:
+    """The deployment's three health readings as a page states them.
+
+    One author for the operator console's Ops page, and the reason is what these
+    cards used to be: a ``facts()`` dump, which walks a mapping's **field names**.
+    So the operator read `status / at / stale / ratio 30d / age seconds / age text
+    / detail` — their own reader's variable names, in monospace — on the one page
+    whose entire job is to be read when something is wrong.
+
+    The other half of the same defect is worse than ugly: ``facts()`` renders a
+    mapping's *scalars* and skips a list, and ``monitors`` is a list — so the names
+    and their 30-day ratios were missing while the panel still said *"2 monitors, 1
+    up"*. A count with no name is a reading nobody can act on, which is why the rows
+    travel through here untouched for the table that draws them.
+
+    Nothing is invented: every figure and every sentence comes from the reading
+    itself, and a reading that is absent comes back as a word rather than as a zero
+    — ``unknown`` is a different claim from ``0 down``.
+    """
+    up = uptime or {}
+    watching = [f"{int(up.get('total') or 0)} monitor(s)"]
+    for key in ("up", "down", "paused", "waiting"):
+        value = int(up.get(key) or 0)
+        if value:
+            watching.append(f"{value} {key}")
+    ratio = up.get("ratio_30d")
+    checked = site or {}
+    unset = int((config or {}).get("unset") or 0)
+    attention = int((config or {}).get("attention") or 0)
+    return {
+        "uptime": {
+            "state": str(up.get("status") or "unknown"),
+            "counts": " · ".join(watching),
+            "checked": str(up.get("age_text") or "never"),
+            # A kept reading is a different claim from a fresh one, and this is the
+            # only line on the page that says which of the two is on screen.
+            "held": (
+                "Kept from the last pass that answered: every refresh since then "
+                "failed to reach UptimeRobot, so these figures are the older ones."
+                if up.get("stale")
+                else ""
+            ),
+            "ratio": f"{ratio}%" if isinstance(ratio, (int, float)) else "",
+            "page": str(up.get("page") or ""),
+            # The rows themselves, for the table. Not summarised here: a monitor's
+            # own name, state and ratio are what the table's columns are.
+            "monitors": list(up.get("monitors") or []),
+            "note": str(up.get("detail") or ""),
+        },
+        "site": {
+            "state": str(checked.get("status") or "not run yet"),
+            "checked": _checked_text(checked.get("checked_seconds_ago")),
+            "probes": checked.get("probes"),
+            "exposed": checked.get("exposed"),
+            "cached": checked.get("cached"),
+            "unanswered": checked.get("unanswered"),
+            "site": str(checked.get("site") or ""),
+            "note": str(checked.get("detail") or "") or _site_note(checked) or (
+                "Not run yet in this process — the first pass runs shortly after boot, "
+                "and this card fills itself in then."
+            ),
+        },
+        "config": {
+            "state": str((config or {}).get("status") or "unknown"),
+            "unset": unset,
+            "attention": attention,
+            "note": (
+                f"{attention} setting{'s' if attention != 1 else ''} this deployment "
+                f"reads {'are' if attention != 1 else 'is'} not set, and every one of "
+                f"them costs a feature — {unset} in all are unset, and the ones that "
+                "matter are named below."
+                if attention
+                else (
+                    "Every setting that costs a feature is set. "
+                    f"{unset} settings are unset, and none of them is one."
+                )
+            ),
+        },
+    }
+
+
 def _level_display(reading):
     """The level ledger as the page prints it, including the rows XP has moved.
 
@@ -5099,15 +5276,10 @@ def _dashboard_page(page: str, guild_id):
         dash_page=page,
         # The address a form on this page comes back to, server and all.
         page_url=f"{page_path}{guild_query}",
-        # The fee, from the same switch the bank reads — with the markdown marks
-        # stripped, because a page is not where `**2%**` should be read literally.
-        economy_fee={
-            "label": fee.get("label", ""),
-            "enabled": bool(fee.get("enabled", True)),
-            "cap": fee.get("cap", 0),
-            "stored": bool(fee.get("stored", False)),
-            "describe": str(fee.get("describe", "")).replace("**", ""),
-        },
+        # The fee, from the same switch the bank reads — through the one function
+        # that states it for a page, which both this page and the console's
+        # economy page call (see ``_fee_display``).
+        economy_fee=_fee_display(fee),
         page_title=title,
         page_lede=lede,
         # The same list twice: as groups for the rail, and flat for the skip link
@@ -6421,22 +6593,6 @@ def _owner_context(page: str, guild_id=None) -> dict:
 
     if page == "live" and selected:
         context["live"] = _overview_live(selected["id"])
-        # The voice-chat watch, read for the server in hand and drawn here because
-        # this is the console's page about what is happening in voice right now.
-        # The two addresses are *deployment* settings — one pair for the whole
-        # bot, not one per server — so the guild is borrowed for exactly two
-        # things: naming the ids, and asking whether the bot can post in the
-        # channel a report is meant to land in. A watch configured correctly and
-        # pointed at a channel the bot cannot see looks identical to a working
-        # one until the first report goes nowhere.
-        context["watch"] = vc_watch.status(
-            BOT_INSTANCE.get_guild(_int_or_none(selected["id"]) or 0)
-            if BOT_INSTANCE else None,
-            # The client's own lookup, which answers for every server the bot is
-            # in: the two addresses are deployment settings, and the server in
-            # hand is often not the one they name. `guild` is the fallback.
-            find=getattr(BOT_INSTANCE, "get_channel", None),
-        )
     if page in ("servers", "systems") and selected:
         context["systems"], context["systems_known"] = _console_systems_for(selected["id"])
     if page == "systems":
@@ -6457,6 +6613,24 @@ def _owner_context(page: str, guild_id=None) -> dict:
     if page == "economy" and selected:
         ledgers = _progression_context(selected["id"], "economy")
         context["economy"] = ledgers["economy"]
+        # The money **as a page prints it** — the same function the member
+        # dashboard's own economy page draws from, called here rather than
+        # re-derived, so the two surfaces cannot disagree about a server's held
+        # coins and neither template does arithmetic on a circulation of zero.
+        #
+        # The console used to hand the template the raw ledger and render it with
+        # ``facts()``, which walks a mapping's own **field names** — so the page
+        # read `Enabled True · Label 2% · Describe … · Cap 500 · Stored False`,
+        # i.e. it printed its reader's variable names at the one person who is
+        # supposed to be reading numbers. A generic renderer is for a mapping
+        # whose fields are unknown; this one's fields are the ledger's, and they
+        # have names a person would use once they are written down.
+        context["economy_display"] = _economy_display(ledgers["economy"])
+        # The bank fee as its own reading rather than a nested mapping for a
+        # generic renderer to walk: three labelled facts and one sentence, stated
+        # by the same function the dashboard's card uses, so the two surfaces
+        # cannot describe one rate two ways.
+        context["economy_fee"] = _fee_display((ledgers["economy"] or {}).get("fee"))
         # The four moves the adjust endpoint accepts, plus `set`, and the bound
         # `move_economy_sync` enforces — read here rather than typed in the
         # template, because the ceiling is a database constant and a form that
@@ -6464,13 +6638,21 @@ def _owner_context(page: str, guild_id=None) -> dict:
         context["economy_actions"] = sorted(ECONOMY_ACTIONS) + ["set"]
         context["economy_ceiling"] = db.MAX_ECONOMY_ADJUSTMENT
     if page == "ops":
-        context["health"] = {
-            "uptime": uptime_status.snapshot(),
-            "site": site_guard.health_json(),
-            # Presence, not values: `health_json` counts because `/health` is
-            # public; this console is not, so the names come with it.
-            "config": {**config_audit.health_json(), "named": config_audit.attention_json()},
-        }
+        # The three readings in words, from the one function that states them —
+        # rather than a mapping handed to `facts()`, which is what this page used
+        # to do and why its reader met `status / at / stale / ratio 30d / age
+        # seconds / age text` on the one page whose whole job is to be read when
+        # something is wrong. `facts()` also renders scalars and skips a list, so
+        # the monitor rows — the names behind "2 monitors, 1 up" — never drew.
+        context["health"] = _health_display(
+            uptime=uptime_status.snapshot(),
+            site=site_guard.health_json(),
+            config=config_audit.health_json(),
+        )
+        # Presence, not values: `health_json` counts because `/health` is public;
+        # this console is not, so the names come with it. The same reason the
+        # console's JSON overview already carries them.
+        context["health"]["config"]["named"] = config_audit.attention_json()
     if page == "questions":
         context["inbox"] = qna.owner_inbox_sync(limit=20)
     if page == "support":
@@ -9101,6 +9283,56 @@ def _support_channel():
     return support.resolve(find=getattr(BOT_INSTANCE, "get_channel", None))
 
 
+async def _support_room(channel, row):
+    """The thread one conversation is answered in, opening it if it has none yet.
+
+    Three cases, and the third is the one that makes this a conversation rather
+    than a broadcast: a reply already in a thread is answered there; a message
+    that started a conversation in Discord has the thread the listener made; and
+    a message nobody has threaded yet gets one **here**, on the message that
+    started it, because otherwise the operator answering from the console would be
+    talking over the top of a conversation instead of into it.
+
+    Returns ``(thread, why_not)``: exactly one of the two is ever set, so a caller
+    cannot answer into ``None`` by accident.
+    """
+    thread_id = support.thread_target([row])
+    if thread_id:
+        thread = BOT_INSTANCE.get_channel(thread_id) if BOT_INSTANCE is not None else None
+        if thread is None:
+            return None, (
+                "The thread this conversation lives in is gone — archived, deleted, "
+                "or in a server the bot has left. Start a new message in the room "
+                "and the conversation picks up there."
+            )
+        return thread, ""
+
+    parent_id = support.as_int((row or {}).get("message_id"))
+    lookup = getattr(channel, "get_partial_message", None)
+    parent = lookup(parent_id) if parent_id and callable(lookup) else None
+    if parent is None:
+        return None, (
+            "That message is not one this bot can still answer — Discord keeps no "
+            "copy of it here. Start a new message in the room instead."
+        )
+    # ``await``, not ``_on_bot_loop``: this coroutine is *itself* running on the
+    # bot's loop (the caller hands it over with ``_on_bot_loop``), and scheduling a
+    # second coroutine onto the loop thread and blocking for it is a deadlock.
+    try:
+        thread = await parent.create_thread(
+            name=support.thread_name((row or {}).get("body"), (row or {}).get("author_name")),
+            auto_archive_duration=1440,
+        )
+    except Exception as exc:  # noqa: BLE001 — a refusal, never a 500
+        print(f"[SUPPORT] could not open a thread to reply into: {exc}", flush=True)
+        return None, (
+            f"Discord would not open a thread on that message ({type(exc).__name__}). "
+            "The bot needs Create Public Threads in the channel."
+        )
+    await support.attach_thread((row or {}).get("id"), getattr(thread, "id", 0))
+    return thread, ""
+
+
 def _support_send(data):
     """One message from the web: posted as the bot, then written down.
 
@@ -9110,6 +9342,11 @@ def _support_send(data):
     message in it that nobody in the room can see. A refusal is answered with the
     exception's own name and never as a success, for the reason the composer's
     own send is.
+
+    ``reply_to`` is a row of the conversation. With one, the reply goes **into
+    that conversation's thread** — the difference between answering somebody and
+    shouting in a room — and without one it is a new message in the channel, which
+    is how an operator starts something rather than continues it.
     """
     body = str(data.get("body") or "").strip()
     if not body:
@@ -9120,6 +9357,7 @@ def _support_send(data):
 
     principal = _principal()
     who = principal.name or "the operator"
+    reply_to = support.as_int(data.get("reply_to"))
 
     async def work():
         channel = _support_channel()
@@ -9132,9 +9370,25 @@ def _support_send(data):
                     "in that server for this to work."
                 ),
             }, 409
+        target, room = channel, None
+        if reply_to:
+            row = await support.get(reply_to)
+            if row is None:
+                return {
+                    "success": False,
+                    "error": (
+                        "That message is not in the conversation any more — the page "
+                        "you replied on may be showing a transcript from before a "
+                        "restore. Refresh it and reply again."
+                    ),
+                }, 409
+            room, why_not = await _support_room(channel, row)
+            if room is None:
+                return {"success": False, "error": why_not}, 409
+            target = room
         content = support.compose(body, who)
         try:
-            message = await channel.send(content)
+            message = await target.send(content)
         except Exception as exc:  # noqa: BLE001 — a refusal, never a 500
             print(f"[SUPPORT] send failed: {exc}", flush=True)
             return {
@@ -9145,11 +9399,21 @@ def _support_send(data):
                 ),
             }, 409
         row = await support.record_outbound(
-            body=body, author_id=principal.user_id or 0, author_name=who, message=message
+            body=body,
+            author_id=principal.user_id or 0,
+            author_name=who,
+            message=message,
+            thread=room,
         )
+        where = support.one_line(getattr(room, "name", "")) if room is not None else ""
         said = (
-            f"Sent as the bot, signed with your name. The replies land on this card "
-            f"— Discord has it now ({support.one_line(getattr(channel, 'name', ''))})."
+            f"Sent as the bot, signed with your name — into the thread {where}, where "
+            "the person you are answering will read it."
+            if where
+            else (
+                "Sent as the bot, signed with your name. The replies land on this "
+                f"card — Discord has it now ({support.one_line(getattr(channel, 'name', ''))})."
+            )
         )
         return {
             "success": True,

@@ -1,30 +1,11 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils import bot_channels, features as feature_registry
+from utils import bot_channels, command_directory as directory, features as feature_registry
+from utils import modules as module_state
 from utils.style import send_panel, ACCENT, DANGER, accent_for, avatar_url, guild_banner
 
 HELP_MODULES = {
-    "watch": {
-        "title": "👀 Voice-chat Watch",
-        "desc": (
-            "Somebody reading a voice channel's chat without being in that call gets "
-            "reported to the deployment's own monitoring channel. Off in every "
-            "server until an administrator switches it on for this one, and a "
-            "member who is *in* the call is never reported.\n\n"
-            "> `/watch` — Show whether the watch is on here, and where reports go\n"
-            "> `/watch state:On` — Report reads in this server\n"
-            "> `/watch state:Off` — Stop reporting in this server\n\n"
-            "-# Discord tells nobody when a channel is merely *opened*: this fires "
-            "on a message, which is the moment a read becomes something a person "
-            "can be told about."
-        ),
-        # The watch's own colour, and its own module: it is off in every server
-        # until one asks, which is why the panel describes it as a thing a server
-        # *turns on* rather than something already running.
-        "color": 0x9B59B6,
-        "emoji": "👀",
-    },
     "moderation": {
         "title": "🛡️ Moderation & Logs",
         "desc": (
@@ -360,7 +341,7 @@ class HelpSelectMenu(discord.ui.Select):
         title = self.view.find_item(TITLE_ID)
         body = self.view.find_item(BODY_ID)
         if title:
-            title.content = f"## {data['title']}"
+            title.content =            f"## {data['title']}"
         if body:
             body.content = data["desc"]
         for child in self.view.children:
@@ -661,8 +642,512 @@ class HelpLayout(discord.ui.LayoutView):
                 )
             )
             parts.append(link_row)
-        parts.append(discord.ui.TextDisplay("-# 🌐 [Website & Pricing](https://dacat.pages.dev)  ·  Tap a category anytime  ·  DaCat"))
+        parts.append(discord.ui.TextDisplay("-# 🌐 [Website & Pricing](https://dacat.pages.dev)  ·  Tap a category, or `/cmd` for the whole list  ·  DaCat"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
+
+
+# --------------------------------------------------------------------------- #
+# /cmd — the whole directory, scoped to whoever asked
+# --------------------------------------------------------------------------- #
+# `/help` is prose: one card per system, written by hand, telling a reader what a
+# system *is*. `/cmd` is the index underneath it, and it exists because the prose
+# cannot answer the question a member actually has — "what can I run, right
+# here, right now" — nor the one an administrator has, "what is this bot even
+# offering". Both answers come from tables rather than from a list written for the
+# occasion: the tree says what exists, `utils.features` says what each row belongs
+# to, and `utils.permissions` says who may run it.
+#
+# The panel is always **ephemeral**, and that is the one place it deliberately
+# parts company with `/help`. A help panel is the same for everybody and belongs
+# in the channel; this card is about the person holding it — their permissions,
+# their server's switches — so posting it publicly would be the bot telling a
+# channel what one member cannot do.
+CMD_TITLE_ID = 1201
+CMD_BODY_ID = 1202
+#: The select value for the whole directory, and the page key for a search.
+CMD_ALL = "all"
+CMD_SEARCH_ID = "search"
+#: Discord cuts a Components V2 message off at 4,000 characters, and the titles,
+#: the headings and the footer are all part of that budget — so a page stops short
+#: of it and says what it left out rather than being refused. The whole directory
+#: for an administrator with every permission is about 2,700 of these, which is
+#: why the number has headroom rather than being the measurement of today.
+CMD_PAGE_BUDGET = 3200
+
+CMD_DESCRIPTION = "Every command you can run here, grouped by system, with a search."
+CMD_SEARCH_LABEL = "Search commands"
+CMD_SEARCH_HINT = "ban, coins, casino — a name, a word from what it does, or a system"
+CMD_FOOTER = (
+    "-# `/cmd search:<word>` or the 🔍 button searches  ·  `/help` describes "
+    "each system  ·  DaCat"
+)
+
+#: How one reason list reads on the card. The sentences themselves come from
+#: :mod:`utils.command_directory` — it owns every refusal, so this only decides
+#: how a *count* of one is described.
+REASON_NOUNS = {
+    directory.OFF: "switched off on this server",
+    directory.PERMISSION: "behind a permission you do not have",
+    directory.OWNER: "for the server owner alone",
+    directory.OPERATOR: "the operator's own",
+    directory.MARKET: "behind the market role",
+}
+
+#: The systems a member can ask for by name. Built from the registry, so a system
+#: added or retired moves this list with it, and under Discord's 25-choice cap
+#: with five to spare.
+CMD_SYSTEM_CHOICES = [
+    app_commands.Choice(name=f"{feature.icon} {feature.name}", value=feature.id)
+    for feature in feature_registry.FEATURES
+] + [
+    app_commands.Choice(
+        name=f"{directory.CORE_ICON} {directory.CORE_NAME}", value=directory.CORE_ID
+    )
+]
+
+
+def _switched_off_here(viewer) -> list[str]:
+    """The systems this server has off, by name.
+
+    Read from the merged state the caller gathered — the server's own rows, its
+    plan and the operator's override — so the line matches the switches on every
+    other surface. A system with one switch is off when that switch is off;
+    the core group has no switch at all and never appears here.
+    """
+    return [
+        f"{feature.icon} {feature.name}"
+        for feature in feature_registry.FEATURES
+        if feature.toggleable
+        and not bool(viewer.states.get(feature.id, feature.enabled_by_default))
+    ]
+
+
+def _scope_line(scoped, viewer, where: str = "") -> str:
+    """The card's opening claim: what is yours, and what is not.
+
+    Three sentences at most, and the third is the one that keeps the first two
+    honest: two numbers about the word "command" with no explanation of the gap
+    is the exact failure ``utils/features.py`` was written to stop.
+    """
+    place = f" in **{where}**" if where else " here"
+    lines = [f"**{len(scoped.usable)} of {scoped.total}** commands can be run by you{place}."]
+    if scoped.withheld:
+        counts = " · ".join(
+            f"{scoped.count(kind)} {REASON_NOUNS.get(kind, kind)}" for kind in scoped.order
+        )
+        lines.append(f"-# {counts}")
+    else:
+        lines.append("-# Nothing is held back from you here.")
+    off = _switched_off_here(viewer)
+    if off:
+        lines.append(
+            "-# Switched off here: " + ", ".join(off)
+            + ". `/cmd system:<name>` still lists what one would offer."
+        )
+    return "\n".join(lines)
+
+
+def _row(command, viewer) -> str:
+    """One command as a line: its name, the registry's sentence, and any caveat."""
+    line = f"> {command.text}"
+    if command.note:
+        line += f" — {command.note}"
+    cue = directory.caveat(command, viewer)
+    if cue:
+        line += f" *({cue})*"
+    return line
+
+
+def _rows(commands, viewer, *, budget: int = CMD_PAGE_BUDGET) -> list[str]:
+    """Rows for one page, trimmed to the message budget and never silently.
+
+    A directory that quietly stops at row ninety would be worse than one that
+    says "and twelve more", because the reader cannot tell the difference between
+    a short list and a truncated one.
+    """
+    lines: list[str] = []
+    used = 0
+    for index, command in enumerate(commands):
+        line = _row(command, viewer)
+        if lines and used + len(line) > budget:
+            lines.append(f"-# …and {len(commands) - index} more.")
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return lines
+
+
+def _withheld_lines(held, *, budget: int = CMD_PAGE_BUDGET) -> list[str]:
+    """What is not offered, grouped by why, in the module's own words.
+
+    Grouped rather than repeated per row: a system that is switched off would
+    otherwise print the same sentence once for each of its commands, which buries
+    the two rows underneath it that a member could actually do something about.
+
+    The operator's own rows are counted and not named — the rule
+    :mod:`utils.permissions` states for its ``DEV`` audience, applied to a listing
+    rather than to a picker: a member reading a name they may not have is a leak.
+    """
+    grouped: dict[str, list[str]] = {}
+    private = 0
+    for entry in held:
+        if entry.reason.private:
+            private += 1
+            continue
+        grouped.setdefault(entry.reason.text, []).append(entry.command.text)
+    lines: list[str] = []
+    used = 0
+    for reason, names in grouped.items():
+        block = [f"-# {reason}", " · ".join(names)]
+        if lines and used + sum(len(part) for part in block) > budget:
+            lines.append("-# …and more that this card has no room for.")
+            break
+        lines.extend(block)
+        used += sum(len(part) for part in block)
+    if private:
+        lines.append(f"-# …and {private} only the operator can run.")
+    return lines
+
+
+def _home_body(scoped, viewer, *, where: str = "") -> str:
+    """The whole directory: every name this member can run, system by system.
+
+    Names only. The card cannot hold a sentence per command and Discord would
+    refuse the message if it tried, so the *sentences* live one press away — the
+    menu opens a system, and a search shows the note on every match.
+
+    The whole list is printed, and it fits: this deployment's worst case — an
+    administrator with every permission, in a server with every switch on, whose
+    name is as long as Discord allows — measures **2,461** characters, and
+    ``tests/test_cmd.py`` holds it there. What is not trusted is the future: at
+    roughly a hundred and forty commands the card is still half empty and at a
+    thousand it would be refused outright, and a refused payload is a command that
+    answers "An unexpected error occurred". So the groups are added while they fit
+    and any that do not are **named** on the card rather than dropped from it.
+    """
+    parts = [_scope_line(scoped, viewer, where)]
+    groups = directory.grouped(scoped.usable)
+    used = len(parts[0])
+    left_out: list[str] = []
+    for group in groups:
+        names = "  ·  ".join(command.text for command in group.commands)
+        block = f"### {group.icon} {group.name} · {len(group.commands)}\n{names}"
+        if used + len(block) > CMD_PAGE_BUDGET:
+            left_out.append(f"{group.icon} {group.name}")
+            continue
+        parts.append(block)
+        used += len(block) + 2
+    if left_out:
+        parts.append(
+            "-# No room left on this card for: " + ", ".join(left_out)
+            + ". The menu below opens each one."
+        )
+    if not scoped.usable:
+        parts.append(
+            "Nothing at all is switched on for you here — an administrator can "
+            "open any system at [dacat.pages.dev](https://dacat.pages.dev)."
+        )
+    return "\n\n".join(parts)
+
+
+def _group_body(group, held, viewer) -> str:
+    """One system: what it gives this member, and what it would not."""
+    parts: list[str] = []
+    if group.commands:
+        parts.extend(_rows(group.commands, viewer))
+    else:
+        parts.append(f"Nothing in **{group.name}** is yours to run here.")
+    if held:
+        parts.append("### Not offered to you")
+        parts.extend(_withheld_lines(held))
+    return "\n".join(parts)
+
+
+def _search_body(scoped, viewer, query: str) -> str:
+    """A search, answered against both halves of the directory.
+
+    The withheld half is searched too, and that is the whole point of doing it
+    here rather than at the picker: a member searching for ``ban`` has asked a
+    real question, and "nothing found" is a lie when `/ban` exists and needs a
+    permission they have not been given.
+    """
+    usable = directory.search(scoped.usable, query)
+    missed = directory.search((held.command for held in scoped.withheld), query)
+    reasons = {entry.command.path: entry.reason for entry in scoped.withheld}
+    parts: list[str] = []
+    if usable:
+        parts.append(
+            f"**{len(usable)}** command{'' if len(usable) == 1 else 's'} you can run "
+            f"match **{query}**."
+        )
+        parts.extend(_rows(usable, viewer))
+    else:
+        parts.append(f"No command you can run matches **{query}**.")
+    if missed:
+        held = [directory.Held(command, reasons[command.path]) for command in missed]
+        parts.append("### Not offered to you")
+        parts.extend(_withheld_lines(held))
+    if not usable and not missed:
+        parts.append(
+            "-# Try a name (`/balance`), a word from what it does (`coins`), or a "
+            "system (`casino`)."
+        )
+    return "\n".join(parts)
+
+
+def _system_page(rows_all, scoped, viewer, system: str):
+    """One system's page, from its id — for `system:` and for the menu alike."""
+    for group in directory.grouped(rows_all):
+        if group.id != system:
+            continue
+        held = [entry for entry in scoped.withheld if entry.command.system_id == system]
+        mine = tuple(command for command in scoped.usable if command.system_id == system)
+        current = directory.Group(group.id, group.name, group.icon, mine)
+        return f"## {group.icon} {group.name}", _group_body(current, held, viewer)
+    return None
+
+
+def _cmd_options(scoped, *, extra: tuple[str, str, str] | None = None) -> list:
+    """The menu's options: one per system this member can actually run.
+
+    Systems with nothing for them are left out rather than shown empty — the
+    select is a directory of *their* commands, and a row that opens onto "nothing
+    here is yours" is a row that wasted a press. `system:` still reaches them by
+    name, which is how somebody asks about a system they cannot use.
+    """
+    options = []
+    if extra is not None:
+        value, label, description = extra
+        options.append(
+            discord.SelectOption(label=label[:100], value=value, description=description[:100])
+        )
+    options.append(
+        discord.SelectOption(
+            label="📖 Everything",
+            value=CMD_ALL,
+            description="The whole directory",
+        )
+    )
+    for group in directory.grouped(scoped.usable):
+        options.append(
+            discord.SelectOption(
+                label=f"{group.icon} {group.name}"[:100],
+                value=group.id,
+                description=f"{len(group.commands)} command"
+                + ("" if len(group.commands) == 1 else "s"),
+            )
+        )
+    return options[:25]
+
+
+class CmdSearchModal(discord.ui.Modal, title="Search commands"):
+    """The same search, asked again without retyping the command.
+
+    ``/cmd search:coins`` is the whole feature; this is why a member who has just
+    found nothing can try another word, instead of typing the command again and
+    again in a channel. It re-renders through the *same* renderer as the command,
+    so the two can never answer differently.
+    """
+
+    def __init__(self, layout: "CmdLayout | None"):
+        super().__init__()
+        self.layout = layout
+        self.query = discord.ui.TextInput(
+            label=CMD_SEARCH_LABEL,
+            placeholder=CMD_SEARCH_HINT,
+            required=False,
+            max_length=100,
+        )
+        self.add_item(self.query)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        query = str(self.query.value or "").strip()
+        layout = self.layout
+        if layout is None:
+            return await interaction.response.send_message(
+                "Search needs the directory it came from — run `/cmd search:"
+                f"{query}` instead.",
+                ephemeral=True,
+            )
+        page = (f"## 🔍 {query}", _search_body(layout.scoped, layout.viewer, query))
+        options = _cmd_options(
+            layout.scoped,
+            extra=(CMD_SEARCH_ID, f"🔍 {query}"[:100], "your search"),
+        )
+        await send_panel(
+            interaction,
+            CmdLayout(
+                pages={**layout.pages, CMD_SEARCH_ID: page},
+                start=CMD_SEARCH_ID,
+                options=options,
+                scoped=layout.scoped,
+                viewer=layout.viewer,
+            ),
+            ephemeral=True,
+        )
+
+
+class CmdSelectMenu(discord.ui.Select):
+    """Open one system's page without leaving the card."""
+
+    def __init__(self, options: list):
+        super().__init__(
+            placeholder="Open a system…",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        layout = getattr(self, "view", None)
+        pages = getattr(layout, "pages", {})
+        title, body = pages.get(self.values[0]) or pages.get(CMD_ALL) or ("", "")
+        if layout is None or not body:
+            # A menu that has lost its card cannot draw a page; refusing quietly
+            # would leave a dead control, so it says what to do instead.
+            return await interaction.response.send_message(
+                "That menu has no directory behind it any more — run `/cmd` again.",
+                ephemeral=True,
+            )
+        heading = layout.find_item(CMD_TITLE_ID)
+        text = layout.find_item(CMD_BODY_ID)
+        if heading is not None and title:
+            heading.content = title
+        if text is not None:
+            text.content = body
+        await interaction.response.edit_message(view=layout)
+
+
+class CmdSearchButton(discord.ui.Button):
+    """The search modal's door on the card itself."""
+
+    def __init__(self):
+        super().__init__(label="Search", emoji="🔍", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(
+            CmdSearchModal(getattr(self, "view", None))
+        )
+
+
+class CmdLayout(discord.ui.LayoutView):
+    """The directory card: one page, a system menu, and the search door.
+
+    Every page is built before the card is sent and stored on the view, so the
+    menu swaps two strings rather than re-deciding anything — which is the same
+    shape the ``/help`` panel uses and the reason both can edit a message in
+    place without a second card being built that might disagree with the first.
+    """
+
+    def __init__(
+        self,
+        *,
+        pages: dict,
+        start: str,
+        options: list,
+        scoped,
+        viewer,
+        thumbnail: str | None = None,
+    ):
+        super().__init__(timeout=600)
+        self.pages = pages
+        self.scoped = scoped
+        self.viewer = viewer
+        title, body = pages.get(start, ("## DaCat Command Directory", ""))
+        heading = discord.ui.TextDisplay(title, id=CMD_TITLE_ID)
+        text = discord.ui.TextDisplay(body, id=CMD_BODY_ID)
+        parts = []
+        thumb = discord.ui.Thumbnail(thumbnail) if thumbnail else None
+        if thumb is not None:
+            parts.append(discord.ui.Section(heading, accessory=thumb))
+        else:
+            parts.append(heading)
+        parts.append(text)
+        # The menu and the search button are **two rows**, for the reason the help
+        # panel learned at Discord's hand: a row holds one select or up to five
+        # buttons, and a row holding both is refused with 50035 — which reaches the
+        # member as "An unexpected error occurred" and nothing else.
+        if options:
+            menu_row = discord.ui.ActionRow()
+            menu_row.add_item(CmdSelectMenu(options))
+            parts.append(menu_row)
+        search_row = discord.ui.ActionRow()
+        search_row.add_item(CmdSearchButton())
+        parts.append(search_row)
+        parts.append(discord.ui.TextDisplay(CMD_FOOTER))
+        self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
+
+
+def build_cmd_card(bot, interaction, *, viewer, rows, scoped, search: str | None = None, system: str | None = None):
+    """The card for one request, from the tables and nothing else.
+
+    Split out of the command so the modal, the tests and the command itself build
+    the *same* card: three callers that each composed their own would be three
+    ways for the directory to say three different things about one server.
+    """
+    where = getattr(getattr(interaction, "guild", None), "name", "") or ""
+    pages: dict[str, tuple[str, str]] = {}
+    for group in directory.grouped(rows):
+        page = _system_page(rows, scoped, viewer, group.id)
+        if page is not None:
+            pages[group.id] = page
+    home = ("## DaCat Command Directory", _home_body(scoped, viewer, where=where))
+    pages[CMD_ALL] = home
+
+    start = CMD_ALL
+    extra = None
+    options = _cmd_options(scoped)
+    if search:
+        query = str(search).strip()
+        pages[CMD_SEARCH_ID] = (f"## 🔍 {query}", _search_body(scoped, viewer, query))
+        start = CMD_SEARCH_ID
+        extra = (CMD_SEARCH_ID, f"🔍 {query}"[:100], "your search")
+    elif system:
+        page = _system_page(rows, scoped, viewer, system)
+        if page is not None:
+            pages[system] = page
+            start = system
+
+    return CmdLayout(
+        pages=pages,
+        start=start,
+        options=_cmd_options(scoped, extra=extra),
+        scoped=scoped,
+        viewer=viewer,
+        thumbnail=avatar_url(getattr(bot, "user", None)),
+    )
+
+
+async def _caller_owns_the_server(interaction) -> bool:
+    """Whether this member passes the *own* audience's real check.
+
+    Discord has no "is the owner" permission bit, so ``utils.permissions``
+    declares the owner's commands as administrator and relies on the callback to
+    refuse everybody else — which means the picker offers them to an administrator
+    who is not the owner. The directory says what is true instead of what the
+    picker says, because the check is one attribute and one cache lookup away.
+    """
+    guild = getattr(interaction, "guild", None)
+    user = getattr(interaction, "user", None)
+    if guild is not None and user is not None and getattr(guild, "owner_id", None) == user.id:
+        return True
+    try:
+        return bool(await interaction.client.is_owner(user))
+    except Exception:
+        return False
+
+
+async def cmd_viewer(interaction) -> "directory.Viewer":
+    """Everything the two tables need about one member, gathered once."""
+    user = getattr(interaction, "user", None)
+    guild = getattr(interaction, "guild", None)
+    return directory.Viewer(
+        states=module_state.get_states(interaction.guild_id),
+        permissions=getattr(user, "guild_permissions", None),
+        is_owner=await _caller_owns_the_server(interaction),
+        role_ids=frozenset(role.id for role in getattr(user, "roles", ()) or ()),
+        guild_role_ids=frozenset(role.id for role in getattr(guild, "roles", ()) or ()),
+    )
 
 
 class Help(commands.Cog):
@@ -674,6 +1159,7 @@ class Help(commands.Cog):
     @app_commands.command(name="help", description="Explore all features, commands, and modules in DaCat.")
     @app_commands.describe(search="Search for a specific command, feature, or keyword")
     async def help_cmd(self, interaction: discord.Interaction, search: str | None = None):
+        """The prose tour. ``/cmd`` is the index — see ``cmd_cmd`` below."""
         if search:
             query = search.strip().lower().lstrip("/")
             matches = []
@@ -696,7 +1182,15 @@ class Help(commands.Cog):
             else:
                 embed = discord.Embed(
                     title="🔍 No Commands Found",
-                    description=f"No commands matching **{search}** were found. Use `/help` to browse all categories.",
+                    # The prose half answers nothing for a *name*, and `/cmd` is
+                    # the half that does: it knows every command, including the
+                    # ones this server has switched off or that the asker cannot
+                    # run, and it says which of those it is (see ``cmd_cmd``).
+                    description=(
+                        f"No commands matching **{search}** were found in these "
+                        f"categories. Try `/cmd search:{str(search).strip()[:80]}` "
+                        "for every command this server can run."
+                    ),
                     color=DANGER,
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -721,6 +1215,54 @@ class Help(commands.Cog):
         # ``user_id``). Members who get no link still get the shared panel: they
         # have nothing to leak.
         await send_panel(interaction, view, ephemeral=bool(link))
+
+    @app_commands.command(name="cmd", description=CMD_DESCRIPTION)
+    @app_commands.describe(
+        search="A command name, a word from what it does, or a system",
+        system="Open one system in full",
+    )
+    @app_commands.choices(system=CMD_SYSTEM_CHOICES)
+    async def cmd_cmd(
+        self,
+        interaction: discord.Interaction,
+        search: str | None = None,
+        system: str | None = None,
+    ):
+        """Every command this bot offers, scoped to the member asking.
+
+        The request is answered in three readings of one card: the whole
+        directory grouped by system, one system in full, or the matches for a
+        word.
+        All three are built by :func:`build_cmd_card` from the live command tree
+        and the two tables in ``utils``, so a command retired tomorrow is gone
+        from here tomorrow with no list to update — and a command added tomorrow
+        is on the card the moment its cog loads.
+        """
+        if not interaction.guild_id:
+            # Defence in depth rather than the rule: ``bot.global_module_check``
+            # already refuses every command that is not DM-allowed, and this one
+            # reads a guild's switches, a guild's roles and a member's permissions
+            # *in* a guild — there is nothing to scope outside one.
+            return await interaction.response.send_message(
+                "The command directory is per server — run `/cmd` in your server.",
+                ephemeral=True,
+            )
+        viewer = await cmd_viewer(interaction)
+        rows = directory.commands(interaction.client.tree)
+        scoped = directory.scope(rows, viewer)
+        await send_panel(
+            interaction,
+            build_cmd_card(
+                interaction.client,
+                interaction,
+                viewer=viewer,
+                rows=rows,
+                scoped=scoped,
+                search=search,
+                system=system,
+            ),
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot):

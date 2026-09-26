@@ -238,10 +238,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "purge": MESSAGES,
     "clearwarnings": ADMIN,
     "modlog": ADMIN,
-    # The watch's own switch and reading. Administrator, like `/modlog`: it decides
-    # whether this server reports its members, which is not a call a moderator
-    # makes about a colleague.
-    "watch": ADMIN,
     # Deliberately EVERYONE, and the one command in this section that is: the
     # whole point is that the member an automatic action happened to can reach a
     # human without asking a moderator for permission to ask. A permission here
@@ -286,6 +282,13 @@ COMMAND_ACCESS: dict[str, str] = {
     "starboard status": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
+    # The directory is everybody's, and it is the one command whose *content* is
+    # per-member: `/cmd` lists what the asker may run, so declaring an audience
+    # above EVERYONE here would hide the part of the tree a moderator most needs
+    # to read from the moderator it is about. Nothing in this module can express
+    # that, which is why the command carries no permission check at all and the
+    # scoping lives in ``utils.command_directory``.
+    "cmd": EVERYONE,
     "legal privacy": EVERYONE,
     "legal tos": EVERYONE,
     "bot sync": ADMIN,

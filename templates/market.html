@@ -214,6 +214,13 @@
                     </div>
                     <div class="mk-panel-body">
                         <div class="mk-meter" aria-hidden="true"><i id="mk-move-meter"></i></div>
+                        {# The wrapper is why the last columns are reachable on a phone:
+                           five columns of figures have a min-content width (358px,
+                           measured at 320) that `width: 100%` cannot shrink past, and
+                           `body { overflow-x: hidden }` turns the rest into content
+                           nobody can scroll to. See `.mk-prints-scroll` in
+                           `static/market.css`. #}
+                        <div class="mk-prints-scroll">
                         <table class="mk-prints">
                             <caption class="visually-hidden">The eight most recent candles for {{ symbol }}, newest first</caption>
                             <thead>
@@ -229,6 +236,7 @@
                                 <tr><td colspan="5" class="mk-note">Loading the history…</td></tr>
                             </tbody>
                         </table>
+                        </div>
                         <p class="mk-note" style="margin-top:0.75rem">
                             Every row is a candle the chart is drawn from, so the table and the
                             graph can never disagree about the same period.

@@ -291,7 +291,23 @@
             <span class="hint">{{ 'from the web' if row.from_web else 'in Discord' }}</span></span>
           <span class="list__note">{{ row.body }}{% if row.attachments %}
             <span class="hint">· {{ row.attachments }} attachment(s) — open it in Discord to see them.</span>{% endif %}
-            {% if row.jump %} <a href="{{ row.jump }}">Open it in Discord</a>{% endif %}</span>
+            {% if row.reply_to %}
+            <details class="own-reply">
+              <summary>Reply{% if row.thread_id %} in the thread{% endif %}</summary>
+              <form method="post" action="{{ support.url }}">
+                {{ guard('Sent into the conversation — the thread is where it continues.') }}
+                <input type="hidden" name="action" value="send">
+                <input type="hidden" name="reply_to" value="{{ row.reply_to }}">
+                <textarea name="body" rows="3" maxlength="{{ support.status.max_body }}"
+                          required aria-label="Your reply to {{ row.author }}"
+                          placeholder="What to answer {{ row.author }}"></textarea>
+                <button class="btn" type="submit">Send it into the conversation</button>
+                <span class="hint">Posted as the bot, signed with your name, inside {{ row.author }}'s own
+                  conversation — so the person you are answering is told.{% if row.jump %}
+                  Not in the thread? <a href="{{ row.jump }}">Open it in Discord</a>.{% endif %}</span>
+              </form>
+            </details>
+            {% endif %}</span>
           <span class="list__meta mono">{{ row.when }}{% if row.where_name %} · {{ row.where_name }}{% endif %}</span>
         </li>
         {% endfor %}
@@ -304,9 +320,11 @@
         {{ guard('Sent — it is in the support channel now.') }}
         <input type="hidden" name="action" value="send">
         <div class="dash-field">
-          <label for="support-body">Say something to the room</label>
+          <label for="support-body">Start a new message in the room</label>
           <textarea id="support-body" name="body" rows="3"
                     maxlength="{{ support.status.max_body }}" required></textarea>
+          <span class="hint">The bot opens a thread under it, and that thread is the conversation.
+            To answer somebody, use <strong>Reply</strong> on their line.</span>
         </div>
         <button class="btn btn--primary" type="submit">Send it</button>
       </form>

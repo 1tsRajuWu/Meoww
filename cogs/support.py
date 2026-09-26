@@ -7,6 +7,18 @@ or in a thread on it, because an answer written in a thread is still an answer �
 the message is taken into the conversation, so the next render of the card shows
 it.
 
+It also does the one thing a conversation needs and a log does not: **it opens a
+thread on the message that started it**, says where the conversation continues,
+and writes the thread's id onto the row. Support is one person's problem, and a
+room full of them interleaved is neither side's idea of an answer — the thread is
+what makes the back-and-forth possible, and its id is what lets the console reply
+*into* the conversation instead of linking the operator out to Discord.
+
+A thread is only opened for a message that arrives **live**. A pull of the
+channel's history takes in what people already said, and turning fifty old
+messages into fifty threads would be the bridge rearranging a room nobody asked
+it to touch.
+
 **What is decided here is nothing.** Whether a message belongs in the
 conversation is ``utils/support.is_reply``: the channel, the thread parent, the
 author being a person rather than the bot, another bot or a webhook. That rule
@@ -50,12 +62,49 @@ class Support(commands.Cog):
         row = await support.record_inbound(message)
         if row is None:
             # Already known — the same id can arrive from a pull as well as from
-            # this listener, and the unique index is where those two meet.
+            # this listener, and the unique index is where those two meet. It is
+            # also why a thread is not opened here: a message a pull took in
+            # reads as known, and the room it came from is history.
             return
         where = f" (thread: {row['where_name']})" if row["where_name"] else ""
         print(
-            f"[SUPPORT] ✉️ {row['author_name']} replied in the support channel{where}"
+            f"[SUPPORT] ✉️ {row['author_name']} wrote in the support channel{where}"
             " — it is on the dashboard now.",
+            flush=True,
+        )
+        if not row["thread_id"]:
+            await self._open_thread(message, row)
+
+    async def _open_thread(self, message, row: dict) -> None:
+        """Open the conversation's own room, or say why this bot cannot.
+
+        Every failure below is printed and *survived*: a bridge that could not
+        make a thread is still a bridge that is recording the conversation, and
+        taking the listener down would lose the reply as well as the thread. The
+        thread is opened on the message that started it, so the member finds it
+        by looking at their own message — which is where they will look.
+        """
+        try:
+            thread = await message.create_thread(
+                name=support.thread_name(row["body"], row["author_name"]),
+                auto_archive_duration=1440,
+            )
+        except Exception as exc:  # noqa: BLE001 — a refusal, never a lost reply
+            print(
+                "[SUPPORT] ⚠️ Could not open a thread on that message "
+                f"({type(exc).__name__}: {exc}). The conversation is still being "
+                "recorded — the bot needs Create Public Threads in the channel.",
+                flush=True,
+            )
+            return
+        await support.attach_thread(row["id"], getattr(thread, "id", 0))
+        try:
+            await thread.send(support.CONTINUE_HERE)
+        except Exception as exc:  # noqa: BLE001 — the thread exists either way
+            print(f"[SUPPORT] Could not speak inside the new thread: {exc}", flush=True)
+        print(
+            f"[SUPPORT] 🧵 Opened a thread on {row['author_name']}'s message — "
+            "the conversation continues there, from either side.",
             flush=True,
         )
 

@@ -129,6 +129,36 @@ went with it this time — nothing had imported it since the resolver was archiv
 on 2026-09-22, and a module kept "in case" is a module the next reader has to
 re-decide about.
 
+Archived on 2026-09-26, at the owner's request: **the voice-chat watch** — *"remove
+The voice-chat watch buz its no use"*. It reported a member who writes in a voice
+channel's text chat without being placed in that call, which it did honestly; what
+it could never do is the thing the feature is named for, because Discord tells a
+bot nothing about a channel being *opened*. A watch whose first sentence has to be
+"this fires on a message, not on a visit" is a watch that reads as broken to
+whoever switches it on, and the reports land in a deployment-wide channel rather
+than in the server they are about.
+
+| Feature | File | Notes |
+|---|---|---|
+| The decision, the two addresses and the seed | `utils/vc_watch.py` | `is_peek` (the whole rule), `status`, `facts`, and `seed_home`, which switched it on in the operator's own server. |
+| The listener and the switch | `cogs/moderation.py` | The `on_message` listener, the `/watch` command and its own module-gate branch; the rest of the cog is untouched. |
+| The suites | `tests/test_vc_watch.py`, `tests/test_owner_live.py` | The rule with stand-ins, and the console's Live page — which existed to be honest about this one card. |
+
+**What was removed from the live bot**: the `Feature(id="watch", ...)` entry in
+`utils/features.py` (so it is no longer a system on any systems page, and
+`/watch` is no longer in the tree), `"watch": ADMIN` in `utils/permissions.py`,
+the two `Setting(...)` entries in `utils/config_audit.py`, both lines in
+`.env.example`, the `seed_home` call in `bot.py`, the `vc_watch` import and the
+Live page's `context["watch"]` in `keep_alive.py`, the card in
+`templates/owner.html`, the `HELP_MODULES["watch"]` category in `cogs/help.py`,
+and the three paragraphs about it in `docs/discord-directory.md` — the listing
+said five systems ship off by default and it is four now.
+
+**Stored switch rows are deliberately left alone.** A server that had switched
+the watch on keeps a `guild_modules` row naming an unknown module: harmless (the
+registry is what reads it, and nothing is left to switch), and it is the state a
+restore wants back rather than one it has to rebuild.
+
 ## How to restore a feature
 
 1. Move the file back: `mv deleted_features/cogs/<name>.py cogs/`
@@ -152,7 +182,18 @@ re-decide about.
    `Feature(id="uploads", ...)` entry in `utils/features.py`, the three
    `/upload*` lines in `utils/permissions.py`, and the help category in
    `cogs/help.py`.
-8. For **uploads** only, also drop `upload`, `upload-big` and
+8. For **the voice-chat watch** only: move `vc_watch.py` back to `utils/`, move
+   both suites back to `tests/`, re-add `Feature(id="watch", ...)` to
+   `utils/features.py`, `"watch": ADMIN` to `utils/permissions.py`, the two
+   `Setting(...)` entries to `utils/config_audit.py` and both names to
+   `.env.example`, restore the `seed_home` call in `bot.py` (its import line
+   reads `from utils import bot_channels, vc_watch`), restore the listener and
+   `/watch` in `cogs/moderation.py` (they sat between the cog's
+   `interaction_check` and its `# ── helpers ──` section, and the cog no longer
+   imports `time`), the `context["watch"]` block on the Live page and the
+   `vc_watch` import in `keep_alive.py`, the `{% if watch %}` card in
+   `templates/owner.html`, and `HELP_MODULES["watch"]` in `cogs/help.py`.
+9. For **uploads** only, also drop `upload`, `upload-big` and
    `pin-upload-info` from `commands_sync.RETIRED_COMMANDS` in
    `utils/commands_sync.py` — that list is what deleted them from Discord's
    command picker, and it would delete them again the moment they are republished.

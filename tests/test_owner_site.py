@@ -284,6 +284,90 @@ class TheSignInPageWorksOnAPhone(unittest.TestCase):
                     )
 
 
+class TheFourSitesLeaveThePhoneItsOwnHeight(unittest.TestCase):
+    """A viewport height is declared twice — `vh` first, then `dvh`.
+
+    This is the same defect the class above was written for, in the four sheets
+    that *do* need a viewport-height box: a shell whose footer sits at the bottom
+    of a short page. `100vh` is the height the page would have with the browser's
+    own chrome hidden, so on a phone the shell's last line is drawn under the
+    address bar — and in landscape, where the window is short and the chrome is
+    tall, the box is taller than the window it is drawn in. `dvh` is the height
+    the page actually has.
+
+    The two units are a definition rather than a matter of taste — the difference
+    between them *is* the browser's chrome — but what it costs when only the first
+    is declared has been measured here twice: a sign-in card centred in `100vh` on
+    a 360x380 phone ended 1px below the fold with the link under it off the page
+    entirely (the class above), and the pre-rebuild sign-in page's own fix for
+    this was the same two-line pair with the same reason
+    (`Deleted/pre-rebuild-2026-09-24/old/owner/owner_login.html`). A `vh` line
+    with no `dvh` after it is a box that fits the screen nobody is looking at, and
+    nothing in a desktop window shows it.
+
+    The four sheets below are the four published sites': the public site and the
+    hub it serves (`meoww.css`, `hub/static/hub.css`), the console and the
+    member dashboard, which share one frame (`meow.css`), and the market
+    (`market.css`). `pages.css` is missing from the list on purpose — it draws no
+    viewport-height box at all, which the class above already asserts.
+    """
+
+    SHEETS = (
+        ROOT / "static" / "meow.css",
+        ROOT / "static" / "meoww.css",
+        ROOT / "static" / "market.css",
+        ROOT / "hub" / "static" / "hub.css",
+    )
+
+    def test_every_viewport_height_carries_its_fallback(self):
+        """Both directions: no bare `vh`, and no `dvh` a browser can drop alone.
+
+        The first is the defect. The second is its twin — a `dvh` with no `vh`
+        above it leaves a browser that does not know the unit with **no** height
+        at all, so a full-height rail silently becomes a box the height of its
+        own contents, which is a different page rather than a degraded one.
+        """
+        declaration = re.compile(r"(min-height|height):\s*100vh;")
+        for path in self.SHEETS:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                found = declaration.search(line)
+                if found is not None:
+                    with self.subTest(sheet=path.name, line=index + 1):
+                        self.assertEqual(
+                            lines[index + 1].strip(),
+                            f"{found.group(1)}: 100dvh;",
+                            f"{path.name}:{index + 1} sizes a box in `100vh` and "
+                            "never says the height a phone actually has",
+                        )
+                if "100dvh" in line:
+                    with self.subTest(sheet=path.name, line=index + 1, fallback=True):
+                        self.assertRegex(
+                            lines[index - 1],
+                            declaration,
+                            f"{path.name}:{index + 1} asks for `dvh` with no `vh` "
+                            "above it, which is no height at all where the unit "
+                            "is unknown",
+                        )
+
+    def test_no_host_sizes_a_card_to_the_viewport(self):
+        """The other half of the same judgement, on the sheets not listed above.
+
+        A viewport height is right for a *shell* — a page whose footer waits at
+        the bottom — and wrong for any box a person is expected to reach, which
+        is what the sign-in card was: 507px tall, centred in a height a phone
+        does not have with its keyboard up.
+        """
+        for sheet in (ROOT / "static" / "pages.css", ROOT / "static" / "landing.css"):
+            with self.subTest(sheet=sheet.name):
+                self.assertNotIn(
+                    "vh;",
+                    sheet.read_text(encoding="utf-8").replace("dvh;", ""),
+                    f"{sheet.name} takes a viewport height, which is a box sized "
+                    "to a screen the reader may not have",
+                )
+
+
 class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
     """The shape of the host, asserted on what the console actually calls.
 
@@ -339,6 +423,30 @@ class TheWorkerServesTheConsoleAndNothingElse(unittest.TestCase):
             for raw in self.CALLED_PATH.findall(path.read_text(encoding="utf-8")):
                 found.add(raw.rstrip("/"))
         return found
+
+    def test_the_console_does_not_wear_the_public_sites_nav(self):
+        """The frame, minus the part of it that made two hosts read as one.
+
+        `templates/owner.html` extends `site_base.html`, so it inherits the
+        public site's marketing header: Home, Systems, Radio, and a button
+        inviting the reader to add the bot to Discord — on the fleet console,
+        from a session that is already signed in. That header is what the
+        screenshots said was confusing, and the fix is a block the console
+        overrides rather than a second frame, so the wordmark, the theme
+        control, the footer and the retention line all stay one author.
+        """
+        body = (TEMPLATES / "owner.html").read_text(encoding="utf-8")
+        self.assertIn("{% block nav %}", body)
+        # The block is *this page's* nav: it names the two member-facing hosts and
+        # stops offering the two things a console must not offer.
+        self.assertIn("<a class=\"nav__link\" href=\"/\" aria-current=\"page\">Console</a>", body)
+        self.assertNotIn("Add to Discord", body)
+        self.assertNotIn("'/systems'", body)
+        # And it is a block the frame actually renders, or the override is a
+        # comment: `site_base.html` has to offer it.
+        base = (TEMPLATES / "site_base.html").read_text(encoding="utf-8")
+        self.assertIn("{% block nav %}", base)
+        self.assertIn("{% endblock %}", base[base.index("{% block nav %}") :])
 
     def test_the_builder_and_the_worker_agree_about_what_is_served(self):
         self.assertEqual(self.worker_prefixes(), list(build_owner.CONSOLE_PREFIXES))
