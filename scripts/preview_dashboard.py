@@ -133,22 +133,37 @@ def _committed_client_id() -> str:
     return match.group(1) if match else ""
 
 
-if not os.environ.get("DISCORD_CLIENT_ID"):
-    real = _committed_client_id()
-    os.environ["DISCORD_CLIENT_ID"] = real or _PLACEHOLDER_CLIENT_ID
-    os.environ.setdefault("DISCORD_CLIENT_SECRET", "preview-only-no-real-secret")
-    print(
-        "[PREVIEW] No DISCORD_CLIENT_ID in the environment — using "
-        + (f"the public id from render.yaml ({real}) so the invite link works."
-           if real else
-           "a placeholder id so the Discord buttons render; that invite link "
-           "will not resolve.")
-        + " No request is ever made to Discord.",
-        flush=True,
+def prepare_environment() -> None:
+    """The two settings a *served* preview needs, and nothing else's business.
+
+    Called by the entry point below and **never on import**, which is a
+    correction: this file is imported by the test suite for its renderers (and by
+    two laws that load a copy under a name of their own), and a module that
+    reconfigures the process's environment as a side effect of being imported
+    reconfigures every test that runs after it. The damage is quiet and it landed
+    on a header: `os.environ.setdefault("DASHBOARD_BASE_URL", …)` left this
+    machine's own address in the environment, and
+    `keep_alive.dashboard_base_url()` reads an explicit setting *before* the
+    request's own forwarded host — so from the first import onward, a page rendered
+    for `dacatdashboard.pages.dev` was told it lived at `http://localhost:0`,
+    which is what one of the header laws caught the day it was written.
+    """
+    if not os.environ.get("DISCORD_CLIENT_ID"):
+        real = _committed_client_id()
+        os.environ["DISCORD_CLIENT_ID"] = real or _PLACEHOLDER_CLIENT_ID
+        os.environ.setdefault("DISCORD_CLIENT_SECRET", "preview-only-no-real-secret")
+        print(
+            "[PREVIEW] No DISCORD_CLIENT_ID in the environment — using "
+            + (f"the public id from render.yaml ({real}) so the invite link works."
+               if real else
+               "a placeholder id so the Discord buttons render; that invite link "
+               "will not resolve.")
+            + " No request is ever made to Discord.",
+            flush=True,
+        )
+    os.environ.setdefault(
+        "DASHBOARD_BASE_URL", f"http://localhost:{os.environ.get('PORT', '8099')}"
     )
-os.environ.setdefault(
-    "DASHBOARD_BASE_URL", f"http://localhost:{os.environ.get('PORT', '8099')}"
-)
 
 app = Flask(
     __name__,
@@ -2451,6 +2466,7 @@ def _preview_bot_loop(coro, timeout: float = 20.0):
 
 
 if __name__ == "__main__":
+    prepare_environment()
     # The gateway the console's own views read, and a small economy to look at.
     # Both only when *serving*: this file is imported by the test-suite, and
     # neither belongs to a test that never asked for one.

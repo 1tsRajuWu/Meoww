@@ -111,6 +111,56 @@ first — and asks what database that process ended up on.
         )
 
 
+    def test_importing_the_harness_leaves_the_environment_alone(self):
+        """A preview that configures the *test process* is a preview that changes it.
+
+        The harness sets two settings when it is served: a Discord client id (so
+        the invite button renders) and its own address, both `setdefault`-ed into
+        `os.environ` at module level — so *importing* it, which the suite and two
+        of its laws do for the renderers, left them behind for every test that
+        ran afterwards. The consequence was not cosmetic:
+        `keep_alive.dashboard_base_url()` reads an explicit address before the
+        request's own forwarded host, so from then on a page rendered for
+        `dacatdashboard.pages.dev` was told it lived at `http://localhost:0`. It
+        is checked in a subprocess because that is the only way to see the
+        environment as an import leaves it, and the claim is the general one —
+        *no* name may be added or changed by this import.
+        """
+        before = _fingerprint(LIVE_DB)
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import os\n"
+                "was = dict(os.environ)\n"
+                "import scripts.preview_dashboard  # noqa: F401\n"
+                "added = sorted(k for k in os.environ if k not in was)\n"
+                "changed = sorted(k for k in os.environ if k in was and os.environ[k] != was[k])\n"
+                "print('ADDED=' + ','.join(added))\n"
+                "print('CHANGED=' + ','.join(changed))\n",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        added = re.search(r"^ADDED=(.*)$", proc.stdout, re.M)
+        changed = re.search(r"^CHANGED=(.*)$", proc.stdout, re.M)
+        self.assertIsNotNone(added, f"the import reported nothing:\n{proc.stdout[-2000:]}")
+        self.assertEqual(
+            (added.group(1), changed.group(1)),
+            ("", ""),
+            "importing the preview harness reconfigured this process; the settings "
+            "a served preview needs belong to its entry point",
+        )
+        self.assertEqual(
+            _fingerprint(LIVE_DB),
+            before,
+            "importing the preview harness wrote to the project's bot.db",
+        )
+
+
 class TheFixturesThatReachedProduction(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     """The rows that did get out are cleaned up, once, by shape.
 

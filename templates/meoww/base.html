@@ -78,10 +78,17 @@
              signed-out one meets the door, whose first method is Continue with
              Discord. The path is same-origin in proxy mode and rewritten to
              the live app otherwise, by the same rule as every other href here. #}
-          {% for item in [
+          {# The destinations of a header are the destinations of the *address*
+             it is drawn on: this list is the public site's, and the member
+             dashboard's own address merges its two in (`_frame_nav`, which is
+             empty everywhere else) — `/systems` and friends are 301s there.
+             The keys are the same shape either way, which is what lets one
+             `current` mark the same word on both. #}
+          {% set destinations = nav_items if nav_items is defined else [
             ('systems', 'Systems', '/systems'),
             ('dashboard', 'Dashboard', '/dashboard'),
           ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
+          {% for item in destinations %}
           <li>
             <a class="mw-nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>
           </li>

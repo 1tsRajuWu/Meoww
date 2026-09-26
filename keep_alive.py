@@ -386,6 +386,54 @@ def _purge_magic_tokens():
         MAGIC_TOKENS.pop(token, None)
 
 
+def _forwarded_host() -> str:
+    """The address this request arrived on, when the thing in front of us says so.
+
+    Empty when nothing does — a direct connection to this process, a local run, an
+    offline build — and that is deliberately **not** answered with a guess. The
+    fallbacks in :func:`dashboard_base_url` answer a different question ("which
+    address should a link name"), and a request that arrived on no address in
+    particular must not be dressed as the member dashboard's: the three published
+    addresses draw three different headers, so a guess here puts the wrong one on
+    the page.
+    """
+    try:
+        from flask import has_request_context  # noqa: PLC0415 — one reader, no cycle
+
+        if has_request_context() and _trust_proxy_headers:
+            return (request.headers.get("X-Forwarded-Host") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _forwarded_proto() -> str:
+    """The scheme that address was reached over, `https` unless it says otherwise."""
+    try:
+        from flask import has_request_context  # noqa: PLC0415 — as above
+
+        if has_request_context() and _trust_proxy_headers:
+            return (request.headers.get("X-Forwarded-Proto") or "").strip() or "https"
+    except Exception:
+        pass
+    return "https"
+
+
+def _on_member_host() -> bool:
+    """Whether this request arrived on the member dashboard's own address.
+
+    The one question the header of a served page turns on (see :func:`_frame_nav`),
+    asked of the address rather than of the page: `dacatdashboard.pages.dev`
+    answers `/dashboard` and `/servers` and answers `/systems`, `/start` and
+    `/radio` with a 301 to the public site, so the pages that host serves are
+    right to offer the first pair and wrong to offer the second — and the *same*
+    templates are served on the public address, where the second pair is exactly
+    right.
+    """
+    host = _forwarded_host().rstrip("/").lower()
+    return bool(host) and host == urllib.parse.urlsplit(hub.dashboard_url()).netloc.lower()
+
+
 def dashboard_base_url() -> str:
     """Where *this* process is reachable, for the one-time sign-in link.
 
@@ -399,15 +447,9 @@ def dashboard_base_url() -> str:
     explicit = config_audit.get("DASHBOARD_BASE_URL").rstrip("/")
     if explicit:
         return explicit
-    try:
-        from flask import has_request_context, request
-        if has_request_context() and _trust_proxy_headers:
-            forwarded_host = (request.headers.get("X-Forwarded-Host") or "").strip()
-            if forwarded_host:
-                proto = (request.headers.get("X-Forwarded-Proto") or "https").strip()
-                return f"{proto}://{forwarded_host}".rstrip("/")
-    except Exception:
-        pass
+    forwarded_host = _forwarded_host()
+    if forwarded_host:
+        return f"{_forwarded_proto()}://{forwarded_host}".rstrip("/")
     # Render sets this to the service's public URL automatically.
     hosted = config_audit.get("RENDER_EXTERNAL_URL").rstrip("/")
     if hosted:
@@ -507,6 +549,9 @@ def _login_page(error=None, status: int | None = None):
     body = render_template(
         "login.html",
         **_site_context(),
+        # Which address this door is on decides its header — the member host
+        # offers the app's own pages, every other address the site's.
+        **_frame_nav(),
         current="",
         error=error,
         csrf_token=get_csrf_token(),
@@ -2351,6 +2396,47 @@ def _figures_url() -> str:
     return "/api/figures"
 
 
+#: What the **member dashboard's** own address offers in its header.
+#:
+#: The destinations of a header are the destinations of the *address* it is drawn
+#: on, and this is the pair `dacatdashboard.pages.dev` answers: the overview and
+#: the picker that says which server a session is about. Its frame used to offer
+#: the public site's four — Home, Systems, Get started, Radio — of which **three**
+#: that host answers with a 301 to `dacat.pages.dev` (measured on the live host:
+#: `/systems`, `/start`, `/radio` and `/pricing` all 301, while `/dashboard` and
+#: `/servers` 302 to the door because the reader is not signed in yet). So
+#: "Systems" in the header of the app sent an administrator to the marketing
+#: page *about* systems instead of the switches one rail-click away, and
+#: "Get started" offered onboarding to somebody already inside. The console's own
+#: header was given this treatment first (`templates/_owner_nav.html`); this is
+#: the same rule for the third address.
+#:
+#: `tests/test_owner_site.py` checks every href here against the prefix list that
+#: host's worker is built from, so an item that address does not answer fails the
+#: suite rather than the reader.
+MEMBER_FRAME_NAV = (
+    ("dashboard", "Dashboard", "/dashboard"),
+    ("servers", "Which server", "/servers"),
+)
+
+
+def _frame_nav() -> dict:
+    """The header destinations the address answering this request offers.
+
+    Empty everywhere but the member host, and empty is the point rather than a
+    gap: it leaves each frame's own list — the public site's — in place for the
+    marketing pages, for the frames as the offline site build renders them, and
+    for a local run. The member app's four pages merge this into their render, so
+    one template is right on the public address (where it wears the site's
+    destinations, proxied and working) and on the dashboard's own (where it wears
+    the app's), which is what a second copy of the list in a template could not
+    be.
+    """
+    if not _on_member_host():
+        return {}
+    return {"nav_items": MEMBER_FRAME_NAV}
+
+
 def _site_context() -> dict:
     """What every page of this site needs, built once instead of three times.
 
@@ -3865,6 +3951,9 @@ def _agree_page(
     body = render_template(
         "agree.html",
         **_site_context(),
+        # The clickwrap is reached from both member addresses and from the
+        # console's own host; each draws its own header (see `_frame_nav`).
+        **_frame_nav(),
         current="",
         csrf_token=get_csrf_token(),
         documents=[
@@ -4111,7 +4200,11 @@ def _servers_page(error=None, status: int | None = None):
         # The invite in the frame is offered even with nothing to pick: a person
         # whose servers do not have the bot yet is exactly who needs this page.
         **_site_context(),
-        current="",
+        **_frame_nav(),
+        # `servers` is an id in the member host's header and in no other list,
+        # so this marks the right item where the app's nav is drawn and nothing
+        # where the public site's is.
+        current="servers",
         servers=servers,
         error=error,
         operator=operator,
@@ -5312,6 +5405,10 @@ def _dashboard_page(page: str, guild_id):
         # is merged over it because this page's invite link carries the server in
         # hand, which the site-wide one does not.
         **{**_site_context(), **_invite_context(guild_id=guild_id)},
+        **_frame_nav(),
+        # The frame's public list already carries a `dashboard` item, and so does
+        # the member host's, so this marks the same destination on either.
+        current="dashboard",
         dash_page=page,
         # The address a form on this page comes back to, server and all.
         page_url=f"{page_path}{guild_query}",

@@ -506,6 +506,46 @@ class SignInLink(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DASHBOARD_BASE_URL": "https://x.example/"}, clear=True):
             self.assertEqual(keep_alive.dashboard_base_url(), "https://x.example")
 
+    def test_the_host_that_asked_is_the_one_that_is_named(self):
+        """The branch a proxied deployment actually runs, and the one nothing read.
+
+        Discord returns the browser to the host that *asked*, so where a sign-in
+        lands is this reader's answer about the request's own forwarded host —
+        which is why a sign-in started on the dashboard's address comes back to
+        that address and not to the machine behind it. The reader was split into
+        the host and the scheme it is reached over (`_forwarded_host`,
+        `_forwarded_proto`) so the header's own address can be asked for without
+        building a URL from it; these three cases are the split's contract.
+        """
+        # No configured address, which is the state both published member hosts
+        # run in: an explicit setting is read first, by design, so a test that
+        # inherits one is testing the setting rather than this reader.
+        with mock.patch.dict(os.environ, {"DASHBOARD_BASE_URL": ""}):
+            with mock.patch.object(keep_alive, "_trust_proxy_headers", True):
+                with keep_alive.app.test_request_context(
+                    headers={"X-Forwarded-Host": "dacatdashboard.pages.dev"}
+                ):
+                    self.assertEqual(
+                        keep_alive.dashboard_base_url(),
+                        "https://dacatdashboard.pages.dev",
+                        "the door names the machine instead of the host that asked",
+                    )
+                with keep_alive.app.test_request_context(
+                    headers={"X-Forwarded-Host": "dacat.example", "X-Forwarded-Proto": "http"}
+                ):
+                    self.assertEqual(keep_alive.dashboard_base_url(), "http://dacat.example")
+        # A chain a client writes itself is not a chain the proxy appended to.
+        with mock.patch.object(keep_alive, "_trust_proxy_headers", False):
+            with mock.patch.dict(os.environ, {"PORT": "9000"}, clear=True):
+                with keep_alive.app.test_request_context(
+                    headers={"X-Forwarded-Host": "evil.example"}
+                ):
+                    self.assertEqual(
+                        keep_alive.dashboard_base_url(),
+                        "http://localhost:9000",
+                        "an untrusted proxy header named another host",
+                    )
+
     def test_render_supplies_its_own_url_without_configuration(self):
         env = {"RENDER": "true", "RENDER_EXTERNAL_URL": "https://meow.onrender.com/"}
         with mock.patch.dict(os.environ, env, clear=True):

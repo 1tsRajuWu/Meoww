@@ -70,12 +70,17 @@
            site read as the same address. Everything else in the frame stays:
            the wordmark, the theme button, the footer, the retention line. #}
         {% block nav %}
-        {% for item in [
+        {# As above: this is the public site's list, and the member dashboard's
+           own address merges the app's two in instead (`_frame_nav`). The keys
+           are the same shape either way, so one `current` marks the same word
+           in both lists or in neither. #}
+        {% set destinations = nav_items if nav_items is defined else [
           ('home', 'Home', '/'),
           ('systems', 'Systems', '/systems'),
           ('start', 'Get started', '/start'),
           ('radio', 'Radio', '/radio'),
         ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
+        {% for item in destinations %}
         <a class="nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>
         {% endfor %}
 

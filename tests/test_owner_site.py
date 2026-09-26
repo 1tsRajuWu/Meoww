@@ -854,6 +854,87 @@ class TheDashboardHostServesWhatTheDashboardCalls(unittest.TestCase):
     def test_the_builder_and_the_worker_agree_about_what_is_served(self):
         self.assertEqual(self.worker_prefixes(), list(build_owner.DASHBOARD_PREFIXES))
 
+    def test_the_member_apps_header_offers_only_what_this_host_answers(self):
+        """The header is the address's, not the brand's.
+
+        `MEMBER_FRAME_NAV` is what the member host's header draws. Measured on
+        the deployed host: the same templates this address serves were wearing
+        the *public site's* four destinations, three of which this address
+        answers with a 301 — `/systems`, `/start`, `/radio` (and `/pricing`) —
+        so "Systems" in the header of the app sent an administrator to the
+        marketing page about systems instead of the switches one rail-click
+        away, and "Get started" offered onboarding to somebody already inside.
+        Every item has to be a path this host's own worker serves: the same law
+        the console's header is held to, against the same kind of list.
+        """
+        prefixes = self.worker_prefixes()
+        self.assertTrue(keep_alive.MEMBER_FRAME_NAV, "the member header offers nothing")
+        for _page, label, href in keep_alive.MEMBER_FRAME_NAV:
+            with self.subTest(item=label):
+                self.assertTrue(
+                    any(href == prefix or href.startswith(prefix + "/") for prefix in prefixes),
+                    f"the member host's header offers {label} at {href}, which that "
+                    "host answers with a 301 to the public site",
+                )
+
+    def test_the_header_is_chosen_by_the_address_the_request_arrived_on(self):
+        """One decision, asked of the address — not of the page or its template.
+
+        The member app's four pages are the *same templates* the public address
+        serves (its worker proxies `/dashboard`, `/servers`, `/login` and
+        `/agree` back to the backend), so a list written into a template cannot
+        be right on both: the app's two destinations are what the member address
+        answers, the site's four are what the public address does. So the frames
+        are handed a list by this reader — and it answers nothing at all when
+        the request arrived on no address in particular, which leaves every
+        offline build and every local run exactly as it was.
+        """
+        member_host = urllib.parse.urlsplit(keep_alive.hub.dashboard_url()).netloc
+        self.assertTrue(member_host, "the member host has no address to compare with")
+        with mock.patch.object(keep_alive, "_trust_proxy_headers", True):
+            with keep_alive.app.test_request_context(
+                headers={"X-Forwarded-Host": member_host}
+            ):
+                self.assertEqual(
+                    keep_alive._frame_nav(), {"nav_items": keep_alive.MEMBER_FRAME_NAV}
+                )
+            for other in ("dacat.pages.dev", "dacatowner.pages.dev"):
+                with self.subTest(host=other):
+                    with keep_alive.app.test_request_context(
+                        headers={"X-Forwarded-Host": other}
+                    ):
+                        self.assertEqual(keep_alive._frame_nav(), {})
+        with keep_alive.app.test_request_context():
+            self.assertEqual(
+                keep_alive._frame_nav(),
+                {},
+                "a request on no particular address was dressed as one of them",
+            )
+
+    def test_the_member_apps_pages_ask_which_address_they_are_on(self):
+        """And the frames are only as right as the render calls that feed them.
+
+        A reader nothing merges is a header that stays the public site's, and an
+        unset name in a template is empty rather than an error — so this reads
+        the four render calls the way `tests/test_site.py` reads the shared
+        frame's, rather than trusting them to keep asking.
+        """
+        source = (ROOT / "keep_alive.py").read_text(encoding="utf-8")
+        for template in ("dashboard.html", "servers.html", "login.html", "agree.html"):
+            with self.subTest(template=template):
+                found = re.search(
+                    rf'render_template\(\s*"{re.escape(template)}",(?P<body>.*?)\n    \)',
+                    source,
+                    flags=re.DOTALL,
+                )
+                self.assertIsNotNone(found, f"no render_template call for {template}")
+                self.assertIn(
+                    "_frame_nav()",
+                    found.group("body"),
+                    f"the {template} render never asks which address this is, so "
+                    "that page wears the public site's header wherever it is served",
+                )
+
     def test_every_path_the_dashboard_calls_is_one_this_host_answers(self):
         prefixes = self.worker_prefixes()
         named = self.paths_the_dashboard_calls()
