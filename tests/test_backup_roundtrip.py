@@ -561,6 +561,11 @@ class WhoElseIsRunning(unittest.TestCase):
     names. A wrong name here is a false alarm in the operator's channels, so
     anything that is not a second copy must answer ``None`` rather than guess —
     wrong in both directions costs the same thing: a warning nobody reads.
+
+    A name is only a *candidate*, though, which is why what a boot actually asks
+    is ``copy_still_talking``: a claim outlives the process that wrote it by up to
+    its whole TTL, so the last thing a replaced container did was leave behind
+    both halves of a convincing duplicate.
     """
 
     def setUp(self):
@@ -596,6 +601,55 @@ class WhoElseIsRunning(unittest.TestCase):
         cs._INSTANCE_ID = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
         self.assertIsNone(
             self._owner(self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"))
+        )
+
+    def _watch(self, lease: bytes, *, renew: bytes | None = None):
+        """``copy_still_talking`` with the wait made instantaneous.
+
+        The *second* reading is the whole function, so the fake is the watch
+        itself: what the bucket holds when the boot looks again is ``renew``, or
+        the same lease for a copy that never wrote another word.
+        """
+        holder = [lease]
+        cs._cloud_has_data = True
+        with mock.patch.object(
+            cs, "_storage_download", side_effect=lambda *a, **k: holder[0]
+        ):
+            return cs.copy_still_talking(
+                sleep=lambda _seconds: holder.__setitem__(0, renew or lease)
+            )
+
+    def test_a_claim_left_behind_is_not_a_copy_that_is_answering(self):
+        """Tonight's false alarm, in the real names.
+
+        Observed live: an upload replaced the Space's container, and the one that
+        came up reported the pod it had left behind — dead for seven minutes by
+        then — as a second copy, because a claim stays readable for its whole TTL
+        after the process that wrote it has stopped. It is the name a live copy
+        would have written too; what separates them is that this one is never
+        renewed, which is the only thing a boot can ask twice.
+        """
+        cs._INSTANCE_ID = "r-1tsrajowo-meow-n4d0qtp8-c463f-h5zxn"
+        self.assertIsNone(
+            self._watch(self._lease("r-1tsrajowo-meow-zxho7yru-d2319-tph82"))
+        )
+
+    def test_a_copy_that_renews_while_we_watch_is_reported(self):
+        """The case the card exists for, and the reason the watch is a watch: a
+        live copy keeps its claim warm even when nothing has changed."""
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
+        self.assertEqual(
+            self._watch(self._lease(owner), renew=self._lease(owner)), owner
+        )
+
+    def test_a_copy_that_dies_while_we_watch_is_not_reported(self):
+        """Alive when the boot looked, gone by the second look: a rolling deploy
+        finishing, which is not two copies fighting over the gateway."""
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
+        self.assertIsNone(
+            self._watch(self._lease(owner), renew=self._lease(owner, age=cs.LEASE_TTL + 60))
         )
 
     def test_a_second_copy_on_another_host_is_reported(self):

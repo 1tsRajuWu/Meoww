@@ -1272,7 +1272,13 @@ async def on_ready():
     except Exception as e:
         print(f"[CHANNELS] Channel binding error: {e}", flush=True)
 
-    await report_duplicate_instance()
+    # Not awaited: answering it honestly takes longer than a boot should stand
+    # still for — the other copy has to be given the chance to renew its claim
+    # before the check can tell it from one that has stopped
+    # (``cloud_sync.COPY_WATCH_SECONDS``) — and nothing below waits on the answer.
+    # It prints what it is doing when it starts, and a copy that is really there
+    # still reaches the operator's channels on its own.
+    asyncio.create_task(report_duplicate_instance())
 
     # Auto-announce updates to each server's own update channel on every deploy
     # with changes. Outside the quiet window this prints when the note is due and
@@ -1314,7 +1320,11 @@ async def report_duplicate_instance() -> str | None:
 
     The database lease already knows another copy is alive — it is what stops the
     two of them fighting over the backup — so the boot asks it the same question
-    about the gateway and reports the answer in the operator's own channels.
+    about the gateway and reports the answer in the operator's own channels. What
+    it asks is ``cloud_sync.copy_still_talking`` rather than the lease's raw
+    owner, because a name in the bucket is only a candidate: a copy that has been
+    replaced leaves its claim behind for minutes, and this card tells its reader
+    to stop the copy that just arrived, so a false one is worse than none.
 
     Returns the other copy's name, or ``None`` when there is not one. Never
     raises: a boot has work left to do, and a check that cannot reach Supabase has
@@ -1323,28 +1333,13 @@ async def report_duplicate_instance() -> str | None:
     try:
         from utils import cloud_sync
 
-        # On a thread: the lease is an HTTPS round trip, and a boot that blocks
-        # the loop for it delays the first commands of the deploy. What it answers
-        # is a *second copy*: a rolling deploy's own previous container holds the
-        # lease for a few seconds and is not one.
-        owner = await asyncio.to_thread(cloud_sync.other_live_copy)
+        # On a thread: the watch is several HTTPS round trips with a blocking wait
+        # between them, and a boot that holds the loop for those delays the first
+        # commands of the deploy. What it answers is a *second copy* — a copy that
+        # stopped has left a claim that looks the same until it is asked twice.
+        owner = await asyncio.to_thread(cloud_sync.copy_still_talking)
         if not owner:
             return None
-        # Rolling deploy grace check: during zero-downtime rolling deploys (e.g. on
-        # Hugging Face or container hosts), the previous container is in the process of
-        # shutting down. We wait 45 seconds before broadcasting a false-alarm embed.
-        print(f"[INSTANCE] Notice: lease held by '{owner}'. Waiting 45s rolling deploy grace period...", flush=True)
-        await asyncio.sleep(45)
-        owner = await asyncio.to_thread(cloud_sync.other_live_copy)
-        if not owner:
-            print("[INSTANCE] Rolling deploy peer exited cleanly. Sole primary instance active.", flush=True)
-            return None
-
-        print(
-            f"[INSTANCE] ⚠️ another copy of this bot is running ({owner}) — "
-            "commands will fail at random until one of them stops.",
-            flush=True,
-        )
         await operator_log.report_second_instance(bot, owner)
         return owner
     except Exception as e:

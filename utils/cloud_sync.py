@@ -298,6 +298,13 @@ LEASE_FILE: str = "sync-owner.json"
 LEASE_TTL: int = 300
 #: How often an idle instance refreshes its lease (seconds).
 LEASE_TOUCH_INTERVAL: int = 120
+#: How long a boot listens before it believes the lease names a copy that is
+#: *answering*. Longer than :data:`LEASE_TOUCH_INTERVAL` on purpose: a live copy
+#: renews its claim on that cadence whether or not anything changed, so a watch
+#: shorter than one interval cannot tell a copy that is talking from one that has
+#: stopped — and a copy that has *stopped* leaves its claim in the bucket for the
+#: whole of :data:`LEASE_TTL`, five minutes of "I am here" written by nobody.
+COPY_WATCH_SECONDS: int = LEASE_TOUCH_INTERVAL + 30
 #: Consecutive checks a *shrunk* database is held back before its state is accepted.
 SHRINK_GRACE_TICKS: int = 4
 #: Escape hatch for a deliberate wipe: ``CLOUD_SYNC_ALLOW_SHRINK=1``.
@@ -664,19 +671,21 @@ def _snapshot_bytes_uncompacted(path: str) -> bytes | None:
 # Single writer
 # --------------------------------------------------------------------------- #
 
-def _live_other_owner() -> tuple[str, float] | None:
-    """The name of another copy that is running now, and how long ago it spoke.
+def _lease_claim() -> tuple[str, float] | None:
+    """Somebody else's claim on the bucket: who made it, and when they last wrote.
 
-    One place decides what the lease means, because two callers need it for two
-    halves of the same problem: the backup refuses to write while another copy
-    owns the bucket, and the boot says out loud that another copy is answering
-    Discord. The *name* is what the second caller needs, so it is not baked into
-    a sentence here.
+    The one reading under both questions this module answers — may I write (the
+    backup), and is another copy *answering Discord* (the boot) — so what the
+    lease means is decided in one place. ``None`` is every flavour of "I cannot
+    tell": no bucket, no lease, an unreadable lease, a lease with no name in it,
+    our own lease, or one whose timestamp will not parse. A claim older than
+    :data:`LEASE_TTL` is reported as a takeover *here* rather than by each caller,
+    because it is the same answer to both: nobody has renewed it for five minutes
+    and nobody is coming back for it.
 
-    ``None`` means every flavour of "I cannot tell": no bucket, no lease, an
-    unreadable lease, a lease with no name in it, our own lease, or one whose
-    timestamp will not parse. A lease older than :data:`LEASE_TTL` is reported as
-    a takeover (the other copy is gone) and also answers ``None``.
+    The timestamp is handed back **raw** rather than as an age. An age is a fact
+    about the moment it was worked out, and the boot looks twice — what it needs
+    from the second look is whether the claim *moved*, which an age cannot say.
     """
     if not _cloud_has_data:
         return None
@@ -705,7 +714,23 @@ def _live_other_owner() -> tuple[str, float] | None:
             flush=True,
         )
         return None
-    return owner, age
+    return owner, ts
+
+
+def _live_other_owner() -> tuple[str, float] | None:
+    """The name of another copy that is running now, and how long ago it spoke.
+
+    One place decides what the lease means, because two callers need it for two
+    halves of the same problem: the backup refuses to write while another copy
+    owns the bucket, and the boot says out loud that another copy is answering
+    Discord. The *name* is what the second caller needs, so it is not baked into
+    a sentence here.
+    """
+    claim = _lease_claim()
+    if claim is None:
+        return None
+    owner, ts = claim
+    return owner, time.time() - ts
 
 
 def _lease_problem() -> str | None:
@@ -726,6 +751,17 @@ def _service_of(instance: str) -> str | None:
     Render names a container ``srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4``:
     the service id, the service's own name, the deployment hash, then the pod. Two
     containers of one deployment share the ``srv-<id>`` head and differ after it.
+
+    Hugging Face names a container after its Space as well —
+    ``r-1tsrajowo-meow-zxho7yru-d2319-tph82`` is the ``r-`` prefix, then the owner
+    and the space, then a build hash, a replica hash and the pod — and it
+    deliberately gets **no rule here**: there is nothing between the owner and
+    the space name, and nothing in the name says where the space name ends, so
+    ``meow`` and ``meow-dev`` are two Spaces whose containers read as one
+    deployment. Suppressing the warning for the second of those is suppressing it
+    in the case it exists for — one token answering from two places — so a Space's
+    own rebuilds are answered by :func:`copy_still_talking` instead, which asks
+    whether the claim is still *moving* rather than what it is called.
     """
     parts = (instance or "").split("-")
     if len(parts) >= 3 and parts[0] == "srv":
@@ -777,6 +813,67 @@ def other_live_copy() -> str | None:
         )
         return None
     return owner
+
+
+def copy_still_talking(
+    watch: float = COPY_WATCH_SECONDS, *, sleep=time.sleep
+) -> str | None:
+    """A second copy of the bot, if it is still *renewing its claim* ``watch`` on.
+
+    A name in the bucket is not the same claim as a copy that is answering, and
+    at a boot the difference is the whole question: a copy that has been replaced
+    leaves its claim behind for up to :data:`LEASE_TTL`, so a machine that has
+    just taken a deploy can read five minutes of "I am here" written by nobody.
+    That is not hypothetical — an upload to the Hugging Face Space replaced its
+    container, and the one that came up reported the pod it had left behind (dead
+    for seven minutes by then) as another copy of the bot, in a card telling the
+    operator to stop the copy they had just deployed. Two copies of one token is
+    a fault that has to be announced; announcing the deployment somebody just
+    made is how the warning stops being read.
+
+    So the question is asked twice. A live copy renews its claim every
+    :data:`LEASE_TOUCH_INTERVAL` whether or not anything changed, so a claim that
+    is *still there and has moved* is a copy that is talking, and a claim that is
+    still there with the same timestamp is one nobody is holding. The watch is
+    longer than one interval for that reason, and it is a **blocking** call — the
+    boot starts it in a thread and does not wait for it.
+
+    ``sleep`` is injectable for the same reason the rest of this module's network
+    is: what the rule *is* has to be testable without standing still for it.
+    """
+    owner = other_live_copy()
+    if owner is None:
+        return None
+    first = _lease_claim()
+    print(
+        f"[INSTANCE] Notice: lease held by '{owner}'. Watching {watch:.0f}s for it "
+        "to renew before this boot believes it is a second copy...",
+        flush=True,
+    )
+    sleep(watch)
+    later = other_live_copy()
+    if later is None:
+        print(
+            "[INSTANCE] Rolling deploy peer exited cleanly. Sole primary "
+            "instance active.",
+            flush=True,
+        )
+        return None
+    again = _lease_claim()
+    if first is None or again is None or again[1] <= first[1]:
+        print(
+            f"[INSTANCE] '{later}' still holds the sync lease and has not renewed "
+            f"it in {watch:.0f}s — a claim left behind, not a copy that is "
+            "answering. Nothing to report.",
+            flush=True,
+        )
+        return None
+    print(
+        f"[INSTANCE] ⚠️ another copy of this bot is running ({later}) — "
+        "commands will fail at random until one of them stops.",
+        flush=True,
+    )
+    return later
 
 
 def _lease_touch(force: bool = False) -> None:

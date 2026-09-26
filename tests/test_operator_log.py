@@ -1093,9 +1093,9 @@ class BotWiring(unittest.TestCase):
     def test_the_boot_reports_a_second_copy_of_the_bot(self):
         """The database lease already knows; the boot has to say it out loud.
 
-        What it asks is ``other_live_copy`` and not the lease's raw owner: a
-        rolling deploy's own previous container holds that lease for a few
-        seconds, and the card tells its reader to stop the copy that just
+        What it asks is ``copy_still_talking`` and not the lease's raw owner: a
+        name in the bucket is only a candidate, since a replaced container leaves
+        its claim behind, and the card tells its reader to stop the copy that just
         arrived — so a false one is worse than none.
         """
         seen = []
@@ -1106,7 +1106,7 @@ class BotWiring(unittest.TestCase):
 
         from utils import cloud_sync
 
-        with mock.patch.object(cloud_sync, "other_live_copy", lambda: "srv-render-abc"), \
+        with mock.patch.object(cloud_sync, "copy_still_talking", lambda: "srv-render-abc"), \
              mock.patch.object(operator_log, "report_second_instance", spy):
             reported = asyncio.run(bot_module.report_duplicate_instance())
         self.assertEqual(reported, "srv-render-abc")
@@ -1118,9 +1118,17 @@ class BotWiring(unittest.TestCase):
         async def never(*_args):
             raise AssertionError("nothing to report")
 
-        with mock.patch.object(cloud_sync, "other_live_copy", lambda: None), \
+        with mock.patch.object(cloud_sync, "copy_still_talking", lambda: None), \
              mock.patch.object(operator_log, "report_second_instance", never):
             self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
+
+    def test_the_watch_is_not_waited_for_by_the_boot(self):
+        """It is started, not awaited: the answer needs a whole renewal interval
+        of standing still, and the boot has a release note and a status line to
+        get to. The check prints what it is doing when it starts."""
+        source = Path(bot_module.__file__).read_text()
+        self.assertIn("asyncio.create_task(report_duplicate_instance())", source)
+        self.assertNotIn("await report_duplicate_instance()", source)
 
     def test_a_lease_that_cannot_be_read_cannot_stop_the_boot(self):
         from utils import cloud_sync
@@ -1131,7 +1139,7 @@ class BotWiring(unittest.TestCase):
         def boom():
             raise RuntimeError("supabase is down")
 
-        with mock.patch.object(cloud_sync, "other_live_copy", boom), \
+        with mock.patch.object(cloud_sync, "copy_still_talking", boom), \
              mock.patch.object(operator_log, "report_second_instance", nothing):
             self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
 
