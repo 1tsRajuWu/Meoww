@@ -151,6 +151,42 @@ class OperatorOverrideCase(TempDatabaseMixin, unittest.TestCase):
         self.assertFalse(modules.is_enabled(111, "economy"))
 
 
+    def test_the_bulk_switch_refuses_in_the_same_words_as_one_switch(self):
+        """"All off" with a fleet lock on is the operator's decision, not a 500.
+
+        ``modules.set_enabled`` refuses a locked system with the same ``False`` it
+        gives a write that did not land, so the bulk door answered *"Could not
+        save: leveling, economy, …"* — a server error describing a decision the
+        operator made on purpose, and one that contradicts the sentence the
+        single switch prints about the very same lock.
+        """
+        import keep_alive
+
+        self.assertTrue(modules.set_operator_override("economy", True))
+        payload, status = keep_alive._flip_all(111, False)
+
+        self.assertEqual(status, 403, payload)
+        self.assertTrue(payload["operator_locked"])
+        self.assertIn("on for every server by the operator", payload["error"])
+        self.assertNotIn("Could not save", payload["error"])
+
+    def test_a_bulk_switch_with_a_fleet_lock_off_is_kept(self):
+        """A write that *agrees* with the operator is not a refusal.
+
+        The lock is a decision about the fleet, not a ban on the word — so the
+        bulk button that asks for what the operator already said must land, or a
+        locked fleet could never be configured to match it.
+        """
+        import keep_alive
+
+        self.assertTrue(modules.set_operator_override("economy", False))
+        payload, status = keep_alive._flip_all(111, False)
+
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["success"])
+        self.assertFalse(modules.is_enabled(111, "economy"))
+
+
 class TheDashboardSaysWhyItsSwitchWillNotMove(_DashboardFixture):
     """The page a server's administrator actually opens, rendered by its route."""
 

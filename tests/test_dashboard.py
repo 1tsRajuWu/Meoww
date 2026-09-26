@@ -772,6 +772,81 @@ class VoiceDebugJSON(DashboardCase):
         self.assertEqual(payload["voice_clients"][0]["latency"], 0.043)
 
 
+class ThePageIsToldWhyItRefused(_DashboardFixture):
+    """A refusal the bot explained has to reach the page, not a shrug.
+
+    Every control in the dashboard is a form posting to the JSON endpoint that
+    owns the write, and ``keep_alive._form_door`` turns that endpoint's answer
+    into the sentence the page shows. It read ``error`` for a failure and
+    ``said`` for a success — and a **member action reports its refusal under
+    ``said``**, because the sentence comes from
+    ``moderation_actions.Outcome.to_dict()``: ``detail`` and ``said``, and no
+    ``error`` anywhere (``server_control.Report.to_dict()`` is the same shape).
+    So every refusal the bot took the trouble to compose — the hierarchy guard,
+    a missing permission, *"I could not read your own member in that server"*,
+    *"You cannot moderate me"*, a member who has left — reached the person as
+    *"That did not go through."* Nothing was wrong with the endpoint or with
+    the page: the door dropped the sentence one line before it was printed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in()
+        # The routes do their work on the gateway's loop in production and this
+        # fixture's gateway has none; ``tests/test_support.py`` patches the same
+        # seam for the same reason.
+        self._runner = mock.patch.object(keep_alive, "_on_bot_loop", self._here)
+        self._runner.start()
+        self.addCleanup(self._runner.stop)
+
+    @staticmethod
+    def _here(coro, timeout=20.0):
+        result = asyncio.run(coro)
+        return result if isinstance(result, tuple) else (result, 200)
+
+    def press(self, path, data):
+        return self.client.post(path, data={"csrf_token": CSRF, **data})
+
+    def test_a_refused_member_action_keeps_the_sentence_the_bot_wrote(self):
+        # Walking into a real refusal rather than a stubbed one: the session
+        # names no Discord user, so the actor's own member cannot be read — which
+        # the guard refuses rather than waving through.
+        response = self.press(
+            "/api/member-action",
+            {
+                "guild_id": GUILD_ID,
+                "dash_return": "/dashboard/members",
+                "dash_notice": "raj — done.",
+                "user_id": MEMBER_ID,
+                "action": "warn",
+            },
+        )
+        self.assertEqual(response.status_code, 302, response.get_data(as_text=True))
+        with self.client.session_transaction() as session:
+            said = session.get("dash_error") or ""
+        self.assertIn("could not read your own member", said)
+        self.assertNotEqual(said, "That did not go through.")
+
+    def test_the_door_reads_any_refusals_own_sentence(self):
+        """The rule itself, apart from whichever endpoint's shape carries it."""
+        from flask import jsonify, session as flask_session
+
+        refused = keep_alive._form_door(
+            lambda: (
+                jsonify({"success": False, "said": "**Bob** has a role at or above yours."}),
+                409,
+            )
+        )
+        with keep_alive.app.test_request_context(
+            "/probe", method="POST", data={"dash_return": "/dashboard"}
+        ):
+            response = refused()
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(
+                flask_session["dash_error"], "**Bob** has a role at or above yours."
+            )
+
+
 class PasskeyAndLogScope(_DashboardFixture):
     """The passkey API is throttled, and the process log is not for scoped sessions.
 

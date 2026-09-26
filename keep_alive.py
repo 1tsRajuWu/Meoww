@@ -1187,6 +1187,17 @@ def _form_door(view):
     with no sentence of their own — the switches, which say which system moved
     on the page that moved it.
 
+    **And it outranks the generic line on a refusal too**, because two of the
+    endpoints behind this door report the refusal under ``said`` and never use
+    the word ``error`` at all: a member action answers with
+    ``moderation_actions.Outcome.to_dict()`` (``detail``, ``said``, no ``error``)
+    and a whole-server action with ``server_control.Report.to_dict()``, which is
+    the same shape. Reading only ``error`` handed the page *"That did not go
+    through."* every time the bot explained itself — *"I could not read your own
+    member in that server"*, *"You cannot moderate me"*, *"**Bob** has a role at
+    or above yours"* — all of it composed, all of it dropped one line before the
+    person who pressed the button. A refusal with something to say says it.
+
     A form post is recognised by ``dash_return`` rather than by ``request.form``
     alone, because ``/api/identity`` is multipart for the console's app as well and
     a JSON caller sends neither.
@@ -1217,7 +1228,9 @@ def _form_door(view):
         notice_key = "owner_notice" if to_console else "dash_notice"
         error_key = "owner_error" if to_console else "dash_error"
         if status >= 400 or error:
-            session[error_key] = error or "That did not go through."
+            session[error_key] = (
+                error or str(payload.get("said") or "") or "That did not go through."
+            )
         else:
             session[notice_key] = (
                 payload.get("said") or request.form.get("dash_notice") or "Saved."
@@ -8952,6 +8965,30 @@ def api_toggle():
     return jsonify(payload), status
 
 
+def _operator_lock_sentence(locked: dict) -> str:
+    """The sentence for "the operator has the last word about these systems".
+
+    Named here because **two doors say it**: one switch at a time, and the two
+    bulk buttons on the Systems page. The bulk door used to answer differently —
+    *"Could not save: leveling, economy, market, …"* with a **500** — which
+    describes the operator's decision as a server error and sends an
+    administrator looking for one. ``locked`` is ``{module_id: forced_on}`` for
+    the systems the operator holds; one system keeps the sentence the dashboard
+    has always printed, and several are counted and named.
+    """
+    names = sorted(locked)
+    if len(names) == 1:
+        forced = bool(locked[names[0]])
+        return (
+            f"{names[0]} is switched {'on' if forced else 'off'} for every server "
+            "by the operator, so this server cannot change it."
+        )
+    return (
+        f"{len(names)} systems are switched for every server by the operator "
+        f"({', '.join(names)}), so this server cannot change them."
+    )
+
+
 def _flip_module(guild_id, module_id, enabled):
     """One system switched on or off — the whole write, in one place.
 
@@ -8996,10 +9033,7 @@ def _flip_module(guild_id, module_id, enabled):
     if forced is not None and forced != enabled:
         return {
             "success": False,
-            "error": (
-                f"{module_id} is switched {'on' if forced else 'off'} for every server "
-                "by the operator, so this server cannot change it."
-            ),
+            "error": _operator_lock_sentence({module_id: forced}),
             "operator_locked": True,
         }, 403
 
@@ -9631,12 +9665,34 @@ def _flip_all(guild_id, enabled):
     failed = modules.set_many(guild_id, wanted)
 
     if failed:
-        return {
-            "success": False,
-            "error": f"Could not save: {', '.join(failed)}",
-            "guild_id": _console_id(guild_id),
-            "enabled": enabled,
-        }, 500
+        # Two very different things arrive in this one list, and they were
+        # reported as one. ``modules.set_enabled`` refuses a system the operator
+        # has locked for every server — that refusal is what keeps every reader
+        # agreeing — and it answers the same ``False`` as a write that genuinely
+        # did not land. So "all off" with a fleet lock on said *"Could not save:
+        # leveling, economy, …"* with a 500, when what happened is that the
+        # operator had the last word and nothing was wrong anywhere.
+        locked: dict[str, bool] = {}
+        for mid in failed:
+            forced = modules.override_for(mid)
+            if forced is not None:
+                locked[mid] = bool(forced)
+        held = {"success": False, "guild_id": _console_id(guild_id), "enabled": enabled}
+        if locked and len(locked) == len(failed):
+            return {
+                **held,
+                "error": _operator_lock_sentence(locked),
+                "operator_locked": True,
+            }, 403
+        if locked:
+            return {
+                **held,
+                "error": (
+                    f"{_operator_lock_sentence(locked)} The rest did not save: "
+                    f"{', '.join(mid for mid in failed if mid not in locked)}."
+                ),
+            }, 500
+        return {**held, "error": f"Could not save: {', '.join(failed)}"}, 500
 
     publish_before = _last_publish_at(guild_id)
     queued = _resync_commands(guild_id)
