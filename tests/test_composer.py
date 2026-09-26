@@ -772,6 +772,9 @@ def render_dashboard(**overrides) -> str:
             "catchup_hours": keep_alive.scheduled.MISS_CATCHUP_SECONDS // 3600,
         },
         channel_choices=[],
+        # No log channel set, and read: the Server page's picker then draws its
+        # own "off" option, which is the state a server starts in.
+        log_picker={"read": True, "channel_id": "", "current": ""},
         # The two action lists, from the tuples the endpoints validate against, so
         # the page cannot offer an action that would be refused.
         member_actions=keep_alive.PANEL_MEMBER_ACTIONS,
@@ -788,6 +791,19 @@ def render_dashboard(**overrides) -> str:
         },
         overview_live={
             "read": True, "why": "", "rooms": [], "people": 0, "alone": 0, "radio": None,
+        },
+        # The checklist the front page draws, in the shape `_server_health`
+        # answers with — and with the readings named by the module that decides
+        # them rather than typed here, for the reason the limits above are read
+        # from ``keep_alive``. A server with nothing to complain about is the case
+        # that has to render as clearly as a broken one.
+        server_health={
+            "read": True,
+            "why": "",
+            "findings": [],
+            "checked": [label for _key, label in keep_alive.health_checks.READINGS],
+            "unread": [],
+            "counts": {"broken": 0, "warning": 0},
         },
         # The deployment panels, empty: the shapes are the readers' own and a
         # page test about them passes its own fixture.

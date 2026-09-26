@@ -1,9 +1,29 @@
+import time
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 import aiosqlite
-from utils import db, moderation_actions, modlog
+from utils import db, moderation_actions, modlog, vc_watch
 from utils.style import ACCENT, send_card
+
+#: How long one member is quiet after being reported, in seconds. A person
+#: reading a room they are not in often does it more than once, and the report
+#: exists to be *noticed* — a card per message turns the one that matters into a
+#: wall, which is the failure mode this project keeps writing down. The card
+#: says how many arrived while it was quiet, so nothing is actually hidden.
+_PEEK_QUIET_SECONDS = 30.0
+
+#: (guild_id, user_id) -> when they were last reported. Process-local and
+#: deliberately not stored: this is about how a channel reads right now, and a
+#: restart making somebody reportable again is not a defect. Also deliberately
+#: small — an entry per member who has ever spoken out of the call in one
+#: process's lifetime would be a cache nobody can justify.
+_last_peek: dict[tuple[int, int], float] = {}
+
+#: Reports suppressed by that quiet window, so the next card can say how many
+#: arrived rather than pretending the member went silent.
+_peek_since: dict[tuple[int, int], int] = {}
 
 # Action type config: emoji, color, verb, ansi_color
 ACTION_CONFIG = {
@@ -48,6 +68,81 @@ class Moderation(commands.Cog):
                 )
                 return False
         return True
+
+    # ── the voice-chat watch ─────────────────────────────────────────────────
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Report somebody reading a voice channel's chat without being in it.
+
+        See ``utils/vc_watch`` for what is and is not visible here — and for
+        every condition that makes one message a peek rather than another. The
+        decision lives there, pure and tested against stand-ins; this listener
+        only decides who to tell when the answer is yes. Two things are still
+        its own: the guild guard, because a DM has no one to report to, and the
+        module gate, because a server that switched moderation off has switched
+        off what the bot says about its members.
+        """
+        if message.guild is None:
+            return
+        if not vc_watch.is_peek(message):
+            return
+        gate = getattr(self.bot, "is_module_enabled", None)
+        if callable(gate) and not gate(message.guild.id, "moderation"):
+            return
+
+        target = message.guild.get_channel(vc_watch.alert_channel_id())
+        if target is None:
+            print(
+                f"[VCWATCH] ⚠️ {vc_watch.alert_channel_id()} is not a channel this bot "
+                f"can see in {message.guild.id}, so the report has nowhere to go",
+                flush=True,
+            )
+            return
+
+        key = (message.guild.id, int(message.author.id))
+        now = time.monotonic()
+        last = _last_peek.get(key)
+        if last is not None and now - last < _PEEK_QUIET_SECONDS:
+            _peek_since[key] = _peek_since.get(key, 0) + 1
+            return
+        _last_peek[key] = now
+        held = _peek_since.pop(key, 0)
+
+        facts = vc_watch.facts(message)
+        embed = discord.Embed(
+            title="👀 The voice chat was read from outside the call",
+            description=(
+                f"{facts['mention'] or facts['name']} wrote in **#{facts['where']}** "
+                f"and is {vc_watch.elsewhere_name(message)}."
+            ),
+            color=ACCENT,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_thumbnail(url=getattr(message.author.display_avatar, "url", "") or None)
+        embed.add_field(name="👤 Member", value=f"`{facts['name']}`\n`{facts['user_id']}`", inline=True)
+        embed.add_field(name="🎧 Voices", value=vc_watch.elsewhere_name(message), inline=True)
+        embed.add_field(
+            name="💬 What they said",
+            value=(
+                facts["text"]
+                or (f"*{facts['attachments']} attachment(s), nothing typed*" if facts["attachments"] else "*nothing typed*")
+            )[:1024],
+            inline=False,
+        )
+        if held:
+            embed.add_field(
+                name="🔁 While this was quiet",
+                value=f"{held} more message(s) in the same call chat.",
+                inline=False,
+            )
+        if facts["jump"]:
+            embed.add_field(name="🔗 Jump", value=facts["jump"], inline=False)
+        embed.set_footer(text="DaCat Security • the voice chat is readable by anyone who can see the channel")
+        try:
+            await target.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[VCWATCH] ⚠️ could not post the report: {exc}", flush=True)
 
     # ── helpers ──────────────────────────────────────────────────────────────
 

@@ -63,28 +63,36 @@ from utils import db as _db  # noqa: E402
 
 _db.DB_PATH = _PREVIEW_DB
 
-if not _COPIED_LIVE_DB:
-    # A checkout with no ``bot.db`` — a fresh clone, or CI — had nothing to copy,
-    # so the pages were handed an empty file with no tables: every switch here
-    # answered ``500 no such table: guild_modules``, and the two tests that drive
-    # this harness passed only on a machine that happened to have a populated
-    # ``bot.db``. The schema is the bot's own idempotent ``setup()``, run against
-    # the copy, the same call ``tests/__init__.py`` makes for its own file.
-    def _build_schema() -> None:
-        asyncio.run(_db.setup())
+#: Run **whether or not** a live database was copied, and the second half of that
+#: was learned by running this file rather than by reading it. A copied file
+#: carries whatever schema the live bot last ran ``setup()`` against, so a harness
+#: started after a change that adds a table served a preview of the *old* schema:
+#: the operator-override table was missing here, every module read fell back to the
+#: servers' own switches, and the only sign of it was one line in this process's
+#: log — a preview that looks right and answers a question nobody asked. The bot's
+#: own ``setup()`` is ``CREATE TABLE IF NOT EXISTS`` throughout and costs
+#: milliseconds, so it runs against the copy either way. (A checkout with no
+#: ``bot.db`` was the first half of this: an empty file with no tables answered
+#: ``500 no such table: guild_modules`` on every switch.)
+#:
+#: The schema is the bot's own idempotent ``setup()``, the same call
+#: ``tests/__init__.py`` makes for its own file.
+def _build_schema() -> None:
+    asyncio.run(_db.setup())
 
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        _build_schema()
-    else:
-        # Imported from inside a running loop (a test that loads this file from
-        # an async case): an import may not block on that loop, and the schema is
-        # needed before the first request, so it is built in a thread of its own
-        # rather than scheduled and hoped for.
-        _schema_thread = threading.Thread(target=_build_schema, daemon=True)
-        _schema_thread.start()
-        _schema_thread.join()
+
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    _build_schema()
+else:
+    # Imported from inside a running loop (a test that loads this file from
+    # an async case): an import may not block on that loop, and the schema is
+    # needed before the first request, so it is built in a thread of its own
+    # rather than scheduled and hoped for.
+    _schema_thread = threading.Thread(target=_build_schema, daemon=True)
+    _schema_thread.start()
+    _schema_thread.join()
 
 # --------------------------------------------------------------------------- #
 # A preview client id, so the two Discord surfaces can be looked at
@@ -961,6 +969,10 @@ def dashboard(sub: str = "overview"):
         path for spec, _label, path, _anchor in keep_alive.DASHBOARD_PAGES if spec == page
     )
     page_url = f"{page_path}?guild_id={guild['id']}"
+    # One reading, two readers — the same pair the route hands over: the pages that
+    # pick a channel to send a message to, and the log picker's own answer to
+    # whether the channel it has stored is one of them.
+    channel_choices = keep_alive._channel_choices(guild["id"], page)
     return render_template(
         "dashboard.html",
         # The frame, merged the way the route merges it: `_site_context()` for the
@@ -1098,6 +1110,10 @@ def dashboard(sub: str = "overview"):
         # The page the harness was asked for, and everything the eleven sections
         # are drawn from — all of it read by production's own helpers.
         dash_page=page,
+        # One reading, two readers — the same pair the route hands over: the pages
+        # that pick a channel to send a message to, and the log picker's own answer
+        # to whether the channel it has stored is one of them.
+        channel_choices=channel_choices,
         page_title=title,
         page_lede=lede,
         page_anchor=keep_alive._page_anchor(keep_alive.DASHBOARD_PAGES, page),
@@ -1111,8 +1127,8 @@ def dashboard(sub: str = "overview"):
         # and a switch that was refused both came back identical here — and a knob
         # that moves with no confirmation reads as a knob that did not move, which
         # is the opposite of what this harness exists to show.
-        dash_notice=session.pop("dash_notice", ""),
-        dash_error=session.pop("dash_error", ""),
+        dash_notice=keep_alive._plain_marks(session.pop("dash_notice", "")),
+        dash_error=keep_alive._plain_marks(session.pop("dash_error", "")),
         economy_view=economy_reading,
         level_view=level_reading,
         economy_display=keep_alive._economy_display(economy_reading),
@@ -1128,7 +1144,12 @@ def dashboard(sub: str = "overview"):
         # readers production uses — the harness has a real seeded store behind it,
         # so an empty stub here would preview a branch production may never take.
         schedule_queue=keep_alive._schedule_queue(guild["id"], page),
-        channel_choices=keep_alive._channel_choices(guild["id"], page),
+        # The moderator log picker: the same reader, the same row, so a preview of
+        # the Server page shows the control production draws rather than a form
+        # whose dropdown is empty because the harness forgot to read a list. The
+        # row itself is this process's copy of the store — unset, which is the
+        # state the checklist's one finding is about.
+        log_picker=keep_alive._log_picker(guild["id"], channel_choices),
         member_actions=keep_alive.PANEL_MEMBER_ACTIONS,
         server_actions=keep_alive.PANEL_SERVER_ACTIONS,
         toggle_url="/api/toggle",
@@ -1143,6 +1164,13 @@ def dashboard(sub: str = "overview"):
         # ``keep_alive._overview_live`` from the same shapes production reads,
         # which is the only version of this that cannot drift.
         overview_live=_preview_overview(guild["id"]),
+        # The front page's checklist, taken by production's own reader over this
+        # harness's switches, its seeded store and its gateway-less server — so
+        # the branch where a reading cannot be taken is drawn here rather than
+        # assumed, and the one finding the harness's own defaults produce (the
+        # moderator log this store has never been told about) is a row a visitor
+        # can look at instead of a shape nobody has seen.
+        server_health=_preview_health(guild["id"]),
     )
 
 
@@ -1205,6 +1233,22 @@ def _preview_overview(guild_id: int) -> dict:
     """The Overview panel, read by production's own reader."""
     _seed_radio(guild_id)
     return keep_alive._overview_live(guild_id)
+
+
+def _preview_health(guild_id: int) -> dict:
+    """The Overview's checklist, read by production's own reader.
+
+    The module states are this harness's own switches, the publish reading is the
+    healthy record it already writes, and everything else the reader takes off the
+    server object — which here has no ``me``, so the one reading this harness
+    cannot take is drawn as *not read* rather than as a clean answer. That is the
+    branch worth having in a preview: it is the difference the card exists for.
+    """
+    return keep_alive._server_health(
+        guild_id,
+        {module["id"]: module["enabled"] for module in MODULES},
+        record_healthy_publish(guild_id),
+    )
 
 
 #: What the Members and Server panels show in the preview: a roster with the
@@ -1718,6 +1762,21 @@ def _sync_module_cards(guild_id) -> None:
     for module in MODULES:
         if module["id"] in states:
             module["enabled"] = bool(states[module["id"]])
+
+
+@app.route("/api/server-settings", methods=["POST"])
+def api_server_settings():
+    """The moderator log picker, answered by the endpoint that owns the write.
+
+    Delegated for the reason ``/api/level-settings`` is: the row, the two
+    refusals and the sentence about whether the bot can actually post there are
+    ``keep_alive``'s, and a second copy here would be a preview that saves into a
+    store production does not read. The harness has no gateway member in its
+    server object, so the branch this draws is the honest middle one — the
+    channel is set, and whether Discord would take a card there was not answered.
+    """
+    _sign_in()
+    return keep_alive.api_server_settings()
 
 
 @app.route("/api/level-settings", methods=["POST"])

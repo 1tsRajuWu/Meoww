@@ -53,9 +53,13 @@ from flask import (
 from utils import (
     ai_guard, alert_webhook, brand, command_publish, command_scope, company, compression,
     config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
-    hub, identity, levels as levels_module, media_health, meowfee, moderation_actions,
-    modules, pause, permissions, plans, principal, qna, ratelimit, scheduled,
-    server_control, sessions, site_guard, uptime_status, webdocs,
+    # `health` is the name this module's own `/health` route already owns, so the
+    # checklist is aliased the way `levels` is: one name, one meaning, and an
+    # import that shadows a route is a page that raises on every render.
+    health as health_checks, hub, identity, levels as levels_module, media_health, meowfee,
+    moderation_actions, modlog, modules, pause, permissions, plans, principal, qna,
+    ratelimit, scheduled, server_control, sessions, site_guard, uptime_status,
+    vc_watch, webdocs,
 )
 
 LOG_RING = deque(maxlen=600)
@@ -1363,6 +1367,7 @@ GATED_PREFIXES = (
     # write is the dashboard's own form, and the gate it already had is the same
     # one the switches answer with.
     "/api/level-settings",
+    "/api/server-settings",
     # The members and server panels: the same authority as the toggles (a
     # session's principal, re-checked per request), and they belong behind the
     # agreement for the same reason — these are actions *as* the bot against
@@ -4557,9 +4562,12 @@ def _channel_choices(guild_id, page) -> list[dict]:
     The leveling page is on this list because a level-up announcement is a
     message: the picker that decides where it lands is this one. Its own form
     filters the voice rooms out, and does it there rather than here because the
-    two pages that *compose* a message can legitimately address one.
+    two pages that *compose* a message can legitimately address one. The Server
+    page is here for the moderator log, which is also a message — a case card —
+    and it filters to the text rooms for the same reason the level-up picker
+    does.
     """
-    if not guild_id or page not in ("composer", "schedule", "leveling"):
+    if not guild_id or page not in ("composer", "schedule", "leveling", "server"):
         return []
     guild = _live_guild(guild_id)
     if guild is None:
@@ -4655,6 +4663,231 @@ def _level_display(reading):
     }
 
 
+#: The setting the default role is stored under. Named here rather than read out
+#: of ``cogs/server_control.py`` because that cog imports this module — a cycle,
+#: and the reason the key that already lives in one place (`modlog.SETTING`) is
+#: imported while this one is spelled once, beside the check that reads it.
+DEFAULT_ROLE_SETTING = "default_role_id"
+
+
+def _log_health(guild, guild_id) -> dict | None:
+    """The moderator log as the checklist needs it: set, real, writable.
+
+    ``None`` means the setting could not be read at all, which the card says out
+    loud rather than counting as healthy — see ``utils/health``'s note on the two
+    kinds of silence. A stored id pointing at a channel that is gone is the case
+    this exists for: ``modlog.channel_for`` prints one line into a host log, and a
+    server whose moderators see no record has no way to find that line.
+    """
+    try:
+        raw = db.read_setting_sync(guild_id, modlog.SETTING)
+    except Exception as exc:  # noqa: BLE001 — a reading, never a 500
+        print(f"[HEALTH] ⚠️ could not read {modlog.SETTING} for {guild_id}: {exc}", flush=True)
+        return None
+    if raw is None or str(raw).strip() == "":
+        return {"configured": False}
+    try:
+        channel_id = int(raw)
+    except (TypeError, ValueError):
+        # A value that is not an id at all (a hand-edited database, one old
+        # ``/updatedb``): there is no channel to look up, and there never was.
+        return {"configured": True, "exists": False, "channel": f"`{raw}`"}
+    lookup = getattr(guild, "get_channel", None)
+    if not callable(lookup):
+        # A guild that cannot resolve a channel — the preview harness's
+        # gateway-less server, and nothing else — cannot answer this reading, and
+        # saying so is the whole point: `None` is "not read", never "healthy".
+        return None
+    channel = lookup(channel_id)
+    if channel is None:
+        return {"configured": True, "exists": False, "channel": f"`{channel_id}`"}
+    facts = {
+        "configured": True,
+        "exists": True,
+        # The channel's *name*, not Discord's ``<#id>`` mention: this is read on a
+        # web page, and a page is not where Discord's own syntax should be printed
+        # literally. (The old side of this was the same mistake the fee's marks
+        # were; the id is on the line beside it in the fix if it is wanted.)
+        "channel": f"#{getattr(channel, 'name', channel_id)}",
+    }
+    # One rule, and now one implementation: the picker on the Server page warns
+    # about the same thing, through ``modlog.can_post``. Both permissions have to
+    # have been *answered* before this says anything — ``getattr(..., False)``
+    # would read a stand-in that never heard of ``embed_links`` as Discord saying
+    # no, and the card would then report a permission the bot actually has, which
+    # is a finding invented by a fixture.
+    verdict = modlog.can_post(channel, getattr(guild, "me", None))
+    if verdict is not None:
+        facts["can_post"] = verdict
+    return facts
+
+
+def _log_picker(guild_id, choices=()) -> dict:
+    """The moderator log as the Server page's *own* control needs it.
+
+    Two readings and no verdict: what is stored, and what the stored channel is
+    called. The verdict is the checklist's (``_log_health``), drawn on the
+    overview — a second opinion here is how one page ends up saying the record is
+    fine while the other says the channel it points at is gone.
+
+    ``current`` and ``offered`` exist for the case the picker's list cannot
+    cover. A stored channel Discord would not hand back — deleted, or an outage —
+    is still a channel this server has set, and a ``<select>`` with no matching
+    option draws an empty one: the page telling an administrator their log is
+    *off* when the database says it is on is the exact class of lie this project
+    spends the rest of its time removing. ``offered`` is answered here rather than
+    by the template comparing two lists, so the option that carries the stored id
+    is drawn exactly when it is the only one that could.
+    """
+    try:
+        raw = db.read_setting_sync(guild_id, modlog.SETTING)
+    except Exception as exc:  # noqa: BLE001 — a reading, never a 500
+        print(f"[DASHBOARD] ⚠️ could not read {modlog.SETTING} for {guild_id}: {exc}", flush=True)
+        return {"read": False, "channel_id": "", "current": "", "offered": True}
+    channel_id = modlog._as_channel_id(raw)
+    if channel_id is None:
+        return {"read": True, "channel_id": "", "current": "", "offered": True}
+    guild = _live_guild(guild_id)
+    lookup = getattr(guild, "get_channel", None)
+    channel = lookup(channel_id) if callable(lookup) else None
+    name = getattr(channel, "name", None)
+    return {
+        "read": True,
+        # Text, like every id that crosses to a browser: a snowflake is not a
+        # JavaScript number, and the option it is compared against is a string.
+        "channel_id": str(channel_id),
+        "current": f"#{name}" if channel is not None else f"#{channel_id}",
+        "offered": any(str(row.get("id")) == str(channel_id) for row in choices),
+    }
+
+
+def _default_role_health(guild, guild_id) -> dict | None:
+    """The default role as the checklist needs it: set, real, and assignable.
+
+    The hierarchy half is the defect this is really about: Discord refuses a role
+    change for a role at or above the bot's highest one, and the cog's own reply
+    is the one it gives when it *believes* it worked — so a server whose default
+    role sits too high has a welcome nobody receives and no error anywhere.
+    ``above`` is left unset when the positions could not be read, because a
+    hierarchy claim made from a missing reading is a claim this module cannot
+    make.
+    """
+    try:
+        raw = db.read_setting_sync(guild_id, DEFAULT_ROLE_SETTING)
+    except Exception as exc:  # noqa: BLE001 — a reading, never a 500
+        print(
+            f"[HEALTH] ⚠️ could not read {DEFAULT_ROLE_SETTING} for {guild_id}: {exc}",
+            flush=True,
+        )
+        return None
+    if raw is None or str(raw).strip() == "":
+        return {"configured": False}
+    lookup = getattr(guild, "get_role", None)
+    if not callable(lookup):
+        return None  # a stand-in, or a guild that cannot resolve roles
+    try:
+        role_id = int(raw)
+    except (TypeError, ValueError):
+        return {"configured": True, "found": False, "name": str(raw)}
+    role = lookup(role_id)
+    if role is None:
+        return {"configured": True, "found": False, "name": f"`{role_id}`"}
+    facts = {"configured": True, "found": True, "name": getattr(role, "name", "a role")}
+    me = getattr(guild, "me", None)
+    top = getattr(me, "top_role", None) if me is not None else None
+    position = getattr(role, "position", None)
+    if top is not None and position is not None:
+        facts["above"] = int(getattr(top, "position", -1)) > int(position)
+    return facts
+
+
+def _server_health(guild_id, states, publish=None) -> dict:
+    """What this server's dashboard should be complaining about, and what it read.
+
+    The checks are ``utils/health``'s — pure functions over plain facts — and this
+    is only the reading half: Discord's own answer for the bot's role, the two
+    settings that point at a channel and a role, and the publish reading the page
+    has already taken. It cost one settings read per check and nothing else.
+
+    The two keys that matter are ``checked`` and ``unread``. A check nobody could
+    perform and a check that came back healthy both produce no findings, and a
+    card that cannot tell those apart prints "nothing needs a look" over a server
+    it never looked at — which is this project's oldest defect, wearing a green
+    dot.
+    """
+    facts = health_checks.presets()
+    facts["systems"] = dict(states or {})
+    facts["names"] = {module["id"]: module["name"] for module in AVAILABLE_MODULES}
+    guild = BOT_INSTANCE.get_guild(guild_id) if (BOT_INSTANCE and guild_id) else None
+    if guild is None:
+        return {
+            "read": False,
+            "why": (
+                "The bot is not connected to this server right now, so there is nothing "
+                "to check its role, its channels or its commands against."
+                if guild_id else
+                "No server is in hand, so there is nothing to check."
+            ),
+            "findings": [],
+            "checked": [],
+            "unread": [],
+            "counts": {"broken": 0, "warning": 0},
+        }
+
+    me = getattr(guild, "me", None)
+    permissions = getattr(me, "guild_permissions", None) if me is not None else None
+    if permissions is not None:
+        facts["permissions"] = {
+            name: bool(getattr(permissions, name, False))
+            for name in health_checks.PERMISSION_NAMES
+        }
+    facts["log"] = _log_health(guild, guild_id)
+    facts["default_role"] = _default_role_health(guild, guild_id)
+    if publish is not None:
+        facts["publish"] = {
+            "matches": publish.get("matches"),
+            "text": publish.get("text", ""),
+        }
+
+    rows = health_checks.findings(facts)
+    return {
+        "read": True,
+        "why": "",
+        "findings": [
+            {
+                "key": row.key,
+                "severity": row.severity,
+                "title": row.title,
+                # The findings are written with the marks a *card* reads (bold
+                # names, and an id in backticks), because the same rows are what
+                # a slash command prints; this render is a page, and a page is
+                # not where `**X**` should be read literally. Stripped here
+                # rather than in the template, which is the same rule the bank's
+                # own fee follows.
+                "detail": _plain_marks(row.detail),
+                "fix": _plain_marks(row.fix),
+            }
+            for row in rows
+        ],
+        "checked": health_checks.read(facts),
+        "unread": health_checks.unread(facts),
+        "counts": health_checks.summary(rows),
+    }
+
+
+def _plain_marks(text: str) -> str:
+    """Discord's own marks, as a web page renders them: not at all.
+
+    ``**bold**`` and a backtick-fenced id are how a *card* is written, and every
+    finding is composed for a card because the same text is what ``/modlog`` and
+    the console print. A page that showed them literally is a page sending an
+    administrator to fix "``log_channel_id``", which is what the first render of
+    this card did — and a remedy with two backticks around it reads as a typo
+    rather than as an instruction.
+    """
+    return (text or "").replace("**", "").replace("`", "")
+
+
 def _dashboard_page(page: str, guild_id):
     """One page of one server's dashboard, as the template draws it.
 
@@ -4712,6 +4945,12 @@ def _dashboard_page(page: str, guild_id):
         if is_enabled:
             active_count += 1
 
+        # The operator's own word about this system, when they have one. The
+        # state above already *is* their word — ``get_states`` applies it last —
+        # so what this adds is the reason: a switch that has been taken away from
+        # the person looking at it has to say who took it and mean it, or the
+        # only visible difference is that pressing it does nothing.
+        override = modules.override_for(m_id)
         modules_data.append({
             "id": m_id,
             "name": m["name"],
@@ -4719,7 +4958,14 @@ def _dashboard_page(page: str, guild_id):
             "category": m["category"],
             "desc": m["desc"],
             "commands": m["commands"],
-            "enabled": is_enabled
+            "enabled": is_enabled,
+            "locked": override is not None,
+            "state": ("Locked on" if override else "Locked off") if override is not None else "",
+            "blocked": (
+                f"The operator has switched {m['name']} "
+                f"{'on' if override else 'off'} for every server, so this server "
+                "cannot change it. It is on the console's Systems page."
+            ) if override is not None else ""
         })
 
     # What this server's own command list looks like — computed from the same
@@ -4748,6 +4994,13 @@ def _dashboard_page(page: str, guild_id):
     publish_data = command_publish.describe(
         guild_id, expected=commands_data.get("available")
     )
+
+    # What this server is quietly not getting, from the same readers everything
+    # else on the page comes from — the switch states above, the publish reading
+    # just taken, and two settings. Computed on every page for the reason the rest
+    # of this function's readings are, and drawn on the front page, which is where
+    # somebody looks when a feature they switched on is not doing anything.
+    server_health = _server_health(guild_id, states, publish_data)
 
     identity_data = _identity_state(guild_id) if guild_id else {
         "nick": "", "bio": "", "has_avatar": False, "has_banner": False,
@@ -4788,6 +5041,11 @@ def _dashboard_page(page: str, guild_id):
     # the moment of the action, in the endpoint.
     management = _management_context(guild_id, page)
     progression = _progression_context(guild_id, page)
+    # Read once and handed to two readers: the pickers on the pages that send a
+    # message, and the log picker's own answer to "is the stored channel in this
+    # list" — which the template cannot answer for itself without drawing the
+    # stored channel twice.
+    channel_choices = _channel_choices(guild_id, page)
     title, lede = DASHBOARD_PAGE_COPY.get(page, DASHBOARD_PAGE_COPY["overview"])
     dashboard_nav = _page_nav(
         DASHBOARD_PAGES, page, guild_query, groups=DASHBOARD_GROUPS
@@ -4836,11 +5094,22 @@ def _dashboard_page(page: str, guild_id):
         rail=_dashboard_rail(dashboard_nav),
         # The sentence one write left for the next render — popped rather than
         # read, so a reload cannot re-announce an action that already happened.
-        dash_notice=session.pop("dash_notice", ""),
-        dash_error=session.pop("dash_error", ""),
+        # Marks stripped because the sentence was *written* for a card — the
+        # endpoints answer both doors with one string, and several of them say
+        # `**3** channel(s)` or wrap an id in backticks. One strip at the pop
+        # covers every endpoint's wording, rather than each writer having to
+        # remember which door it is talking to.
+        dash_notice=_plain_marks(session.pop("dash_notice", "")),
+        dash_error=_plain_marks(session.pop("dash_error", "")),
         # Read on the page that draws them, like the two ledgers.
         schedule_queue=_schedule_queue(guild_id, page),
-        channel_choices=_channel_choices(guild_id, page),
+        channel_choices=channel_choices,
+        # The moderator log's own row, for the one page that offers to set it. On
+        # every page for the reason ``server_health`` is: the checklist that
+        # names this setting is drawn on the overview, and a page whose *advice*
+        # is drawn separately from the control it points at is how the advice and
+        # the surface came apart in the first place.
+        log_picker=_log_picker(guild_id, channel_choices),
         economy_display=_economy_display(progression["economy"]),
         level_display=_level_display(progression["levels"]),
         # What a member action may be asked for, from the one list the endpoint
@@ -4883,6 +5152,7 @@ def _dashboard_page(page: str, guild_id):
         bot_ping=bot_ping,
         bot_ready=bot_ready,
         modules=modules_data,
+        server_health=server_health,
         active_count=active_count,
         total_count=len(AVAILABLE_MODULES),
         csrf_token=get_csrf_token(),
@@ -5232,6 +5502,12 @@ def _management_context(guild_id, page) -> dict:
                     "plan": work.sentence(),
                     "ledger": False,
                 }
+            # The plan is composed for a Discord card (``server_control``'s own
+            # sentence, counts in bold) and this page prints it as prose — the
+            # same strip the checklist's rows get, applied at the one door both
+            # branches above come through.
+            if isinstance(control, dict) and control.get("plan"):
+                control["plan"] = _plain_marks(control["plan"])
             context["control"] = control
         recent, _read = _loop_reading(db.recent_web_actions(guild_id=guild_id, limit=12), [])
         context["recent"] = recent if isinstance(recent, list) else []
@@ -5925,6 +6201,11 @@ def _owner_systems_matrix(fleet: list[dict]) -> tuple[list[dict], int]:
             **module,
             "on": on,
             "read": read,
+            # The operator's own word about this system, or ``None`` for automatic.
+            # The page draws its lock control from this and nothing else, so a row
+            # cannot say "locked" beside a system no lock is on — the count and
+            # the control come from the one read.
+            "override": modules.override_for(module["id"]),
             # The registry's own answer, so the page can say what a server that
             # has never touched a switch would be doing.
             "default_enabled": features.default_enabled(module["id"]),
@@ -6082,12 +6363,31 @@ def _owner_context(page: str, guild_id=None) -> dict:
         },
         # A sentence carried across a POST, read once. Popped rather than read, so
         # a reload cannot re-announce an action that has already happened.
-        "notice": session.pop("owner_notice", ""),
-        "error": session.pop("owner_error", ""),
+        # Stripped for the reason the dashboard's pair is: these sentences are
+        # written once and read by two doors, and the console is the door that
+        # renders them as prose.
+        "notice": _plain_marks(session.pop("owner_notice", "")),
+        "error": _plain_marks(session.pop("owner_error", "")),
     }
 
     if page == "live" and selected:
         context["live"] = _overview_live(selected["id"])
+        # The voice-chat watch, read for the server in hand and drawn here because
+        # this is the console's page about what is happening in voice right now.
+        # The two addresses are *deployment* settings — one pair for the whole
+        # bot, not one per server — so the guild is borrowed for exactly two
+        # things: naming the ids, and asking whether the bot can post in the
+        # channel a report is meant to land in. A watch configured correctly and
+        # pointed at a channel the bot cannot see looks identical to a working
+        # one until the first report goes nowhere.
+        context["watch"] = vc_watch.status(
+            BOT_INSTANCE.get_guild(_int_or_none(selected["id"]) or 0)
+            if BOT_INSTANCE else None,
+            # The client's own lookup, which answers for every server the bot is
+            # in: the two addresses are deployment settings, and the server in
+            # hand is often not the one they name. `guild` is the fallback.
+            find=getattr(BOT_INSTANCE, "get_channel", None),
+        )
     if page in ("servers", "systems") and selected:
         context["systems"], context["systems_known"] = _console_systems_for(selected["id"])
     if page == "systems":
@@ -6238,10 +6538,23 @@ def _god_perform(action: str, reason: str) -> dict:
             "said": pause.describe(state_after),
         }
 
-    # The two fleet switches. Written server by server so a server that refuses
-    # is named rather than lost inside a bulk write: `modules.set_enabled`
-    # persists first and then updates the cache, and a failure on one guild must
-    # not stop the rest or pretend it happened.
+    # The two fleet switches, and they are deliberately not the same write twice.
+    #
+    # They used to be one `set_enabled` per server per system — which a server's
+    # own administrator could undo the moment it landed, because it wrote the
+    # very row their dashboard writes. An operator who turns every system off is
+    # usually doing it *because* something is wrong, and a switch the person
+    # causing the problem can flip back is not a switch. So **off** now takes the
+    # decision away from the servers with an operator override, which
+    # `modules.get_states` applies last, and **on** is the action that hands it
+    # back: it releases those overrides and then switches every system on, server
+    # by server, so a guild that refuses is named rather than lost inside a bulk
+    # write.
+    #
+    # The per-guild half of *off* is gone rather than kept beside the override.
+    # It would be eleven writes per server to say what one override already says
+    # everywhere, and the rows it left behind would be a second answer to what a
+    # server wants — which is exactly what releasing the lock is meant to restore.
     enabled = action == "fleet_on"
     fleet_ids = _god_fleet_ids()
     if not fleet_ids:
@@ -6252,13 +6565,29 @@ def _god_perform(action: str, reason: str) -> dict:
         }
     changed = 0
     failed: list[str] = []
-    for guild_id in fleet_ids:
+    if not enabled:
         for module in AVAILABLE_MODULES:
             try:
-                modules.set_enabled(guild_id, module["id"], enabled)
-                changed += 1
+                if modules.set_operator_override(module["id"], False):
+                    changed += 1
             except Exception as exc:  # noqa: BLE001
-                failed.append(f"{guild_id}:{module['id']} ({type(exc).__name__})")
+                failed.append(f"{module['id']} ({type(exc).__name__})")
+    else:
+        for module in AVAILABLE_MODULES:
+            try:
+                # ``None`` is "no opinion", so the server's own saved row is
+                # what the system falls back to — and the loop below then
+                # switches it on for every server that may have it.
+                modules.set_operator_override(module["id"], None)
+            except Exception as exc:  # noqa: BLE001
+                failed.append(f"{module['id']} (release: {type(exc).__name__})")
+        for guild_id in fleet_ids:
+            for module in AVAILABLE_MODULES:
+                try:
+                    modules.set_enabled(guild_id, module["id"], enabled)
+                    changed += 1
+                except Exception as exc:  # noqa: BLE001
+                    failed.append(f"{guild_id}:{module['id']} ({type(exc).__name__})")
 
     _god_audit(
         "god_fleet_on" if enabled else "god_fleet_off",
@@ -6278,11 +6607,21 @@ def _god_perform(action: str, reason: str) -> dict:
             if failed
             else None
         ),
-        "said": (
-            f"Every system is now {'on' if enabled else 'off'} on all {len(fleet_ids)} "
-            f"server{'s' if len(fleet_ids) != 1 else ''}."
-            if not failed
-            else None
+        "said": None
+        if failed
+        else (
+            (
+                f"Every system is on again across {len(fleet_ids)} "
+                f"server{'s' if len(fleet_ids) != 1 else ''}, and every fleet lock "
+                "is released — each server's own switches decide again."
+            )
+            if enabled
+            else (
+                f"Every system is off across {len(fleet_ids)} "
+                f"server{'s' if len(fleet_ids) != 1 else ''} and **force-closed**: "
+                "their administrators cannot switch any of it back on until you "
+                "release it here."
+            )
         ),
     }
 
@@ -6409,6 +6748,66 @@ GOD_UNLOCK_SECONDS = 15 * 60
 #: Declared here rather than in the React app for the same reason the pages are:
 #: the server is the only party that may decide what this tier can do, and the
 #: app renders the list it is handed — including the reason it must ask for.
+@app.route("/owner/override", methods=["POST"])
+def owner_override():
+    """The operator's word about one system, for every server at once.
+
+    A form rather than a fetch, for the reason ``/owner/god`` gives: this is the
+    control that takes a decision away from every server's administrator, and a
+    control that works only while a script is loaded is a control that fails
+    exactly when something is wrong. CSRF is checked and the answer is a sentence
+    on the page it came from.
+
+    The three values are a **state** rather than two switches, and the third one
+    is the whole point: ``off`` is the operator's word, ``on`` is the same word in
+    the other direction, and ``auto`` *clears* it — which is not the same as off.
+    "No opinion" has to hand the system back to each server's own saved row, or
+    releasing a lock would silently be a second fleet-wide decision.
+    """
+    if not is_authenticated():
+        return redirect("/owner/login")
+    if not _principal().is_operator:
+        return redirect("/owner/login")
+    guild_id = str(request.form.get("guild_id") or "").strip()
+    back = "/owner/systems" + (f"?guild_id={guild_id}" if guild_id else "")
+    if not validate_csrf():
+        session["owner_error"] = "That form had expired. Nothing was done — try again."
+        return redirect(back)
+
+    module_id = str(request.form.get("module") or "").strip()
+    wanted = str(request.form.get("state") or "").strip().lower()
+    if module_id not in ALLOWED_MODULE_IDS or wanted not in ("on", "off", "auto"):
+        session["owner_error"] = "That is not a system this console can lock."
+        return redirect(back)
+
+    enabled = {"on": True, "off": False, "auto": None}[wanted]
+    if not modules.set_operator_override(module_id, enabled):
+        session["owner_error"] = (
+            f"**{module_id}** could not be locked: it is either a core system with "
+            "no switch, or one a licence withholds — a plan-gated system can be "
+            "closed for the fleet but not forced open without one."
+        )
+        return redirect(back)
+
+    _god_audit(
+        "god_override",
+        ok=True,
+        detail=f"{module_id} → {'on' if enabled else 'off' if enabled is False else 'auto'}",
+    )
+    session["owner_notice"] = {
+        "on": f"**{module_id}** is now on in every server, and its switches are locked.",
+        "off": (
+            f"**{module_id}** is now off in every server and force-closed — its "
+            "administrators cannot switch it back on until this is released."
+        ),
+        "auto": (
+            f"**{module_id}** is back on each server's own switch; whatever they "
+            "had saved is what applies now."
+        ),
+    }[wanted]
+    return redirect(back)
+
+
 GOD_ACTIONS = (
     (
         "pause",
@@ -6427,16 +6826,20 @@ GOD_ACTIONS = (
     ),
     (
         "fleet_off",
-        "Turn every system off, on every server",
-        "One write per server per system. Reversible with the action below, and each "
-        "server's admin can turn their own systems back on afterwards.",
+        "Switch every system off, and force-close it fleet-wide",
+        "One operator override per system, applied over every server's own switch, "
+        "so a server's administrator cannot turn any of it back on. That is the "
+        "point of it — this is the switch for *something is wrong*. Releasing it is "
+        "the action below, which hands each server its own switches back.",
         True,
     ),
     (
         "fleet_on",
-        "Turn every system on, on every server",
-        "The same write in the other direction. This enables systems a server's admin "
-        "had deliberately switched off, which is why it asks for a reason.",
+        "Release the fleet lock, and turn every system on",
+        "Every override is cleared first, so a server's own saved choice is what its "
+        "switches fall back to, and then every system is switched on server by "
+        "server. This enables systems a server's admin had deliberately switched "
+        "off, which is why it asks for a reason.",
         True,
     ),
 )
@@ -6553,6 +6956,11 @@ def _console_systems_for(guild_id: int) -> tuple[list[dict], bool]:
                     states.get(module["id"], features.default_enabled(module["id"]))
                 ),
                 "allowed": bool(plans.feature_allowed(int(guild_id), module["id"])),
+                # The operator's override, so this table's switch can say
+                # *locked* rather than letting the press be refused: the state
+                # above already reflects it, and a switch that shows Off with no
+                # explanation is a switch somebody will press twice.
+                "override": modules.override_for(module["id"]),
             }
             for module in AVAILABLE_MODULES
         ],
@@ -8299,6 +8707,22 @@ def _flip_module(guild_id, module_id, enabled):
             "plan_required": True,
         }, 403
 
+    # The operator has the last word, and it is refused in its own words rather
+    # than as "could not save". ``modules.set_enabled`` refuses it too — that is
+    # what keeps every reader agreeing — but this is the sentence the person who
+    # pressed the switch reads, and "the owner took this away from you" is a very
+    # different message from "something went wrong".
+    forced = modules.override_for(module_id)
+    if forced is not None and forced != enabled:
+        return {
+            "success": False,
+            "error": (
+                f"{module_id} is switched {'on' if forced else 'off'} for every server "
+                "by the operator, so this server cannot change it."
+            ),
+            "operator_locked": True,
+        }, 403
+
     # Persist BEFORE updating memory. If the write fails we must not report
     # success, otherwise the toggle silently reverts on the next restart.
     if not modules.set_enabled(guild_id, module_id, enabled):
@@ -8425,6 +8849,131 @@ def _level_settings_sentence(settings: dict) -> str:
         f"{settings['vc_xp_per_min']} XP. Rewards are "
         f"{'on' if settings['enabled'] else 'off'} for this server."
     )
+
+
+@app.route("/api/server-settings", methods=["POST"])
+@_form_door
+def api_server_settings():
+    """Point this server's moderation record at a channel — the row ``/modlog`` writes.
+
+    The same setting ``/modlog`` writes, through the constant the bot's own
+    reader resolves it with (``utils.modlog.SETTING``): one row and two doors, so
+    the page's picker and the slash command cannot disagree about where a case
+    goes. Before this the checklist told administrators to set it "on the Server
+    page" and the Server page had no such control, which is worse than saying
+    nothing — the advice sent them looking and the search ended in the lockdown
+    button.
+
+    Saving an empty value **deletes** the row rather than storing a word, which
+    is what "off" means everywhere in ``guild_settings`` (see
+    ``db.write_setting_sync``).
+
+    A channel the bot cannot post cards in is still saved, and the sentence says
+    so: ``/modlog``'s own answer to that case, kept here because the permissions
+    may be fixed a minute later and a setting refused twice is a setting somebody
+    stops trusting.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = _json_or_form()
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server to save this for."}), 400
+
+    if "log_channel_id" not in data:
+        return jsonify({"success": False, "error": "Nothing to change."}), 400
+
+    raw = str(data.get("log_channel_id") or "").strip()
+    if not raw:
+        try:
+            db.write_setting_sync(guild_id, modlog.SETTING, None)
+        except (sqlite3.Error, OSError) as exc:
+            print(f"[DASHBOARD] ⚠️ could not clear {modlog.SETTING} for {guild_id}: {exc}", flush=True)
+            return jsonify({
+                "success": False,
+                "error": (
+                    "The database refused that write, so nothing changed — moderation "
+                    "is still logging wherever it was before."
+                ),
+            }), 500
+        session["guild_id"] = guild_id
+        return jsonify({
+            "success": True,
+            "log_channel_id": "",
+            "said": (
+                "Moderation logging is off in this server: nothing new is written to "
+                "a channel. The cases already recorded are untouched, and picking a "
+                "channel here — or /modlog #channel in the server — starts it again."
+            ),
+        })
+
+    channel_id = _int_or_none(raw)
+    if channel_id is None:
+        return jsonify({
+            "success": False,
+            "error": "That is not a channel id — pick a channel from the list.",
+        }), 400
+
+    try:
+        db.write_setting_sync(guild_id, modlog.SETTING, channel_id)
+    except (sqlite3.Error, OSError) as exc:
+        print(f"[DASHBOARD] ⚠️ could not write {modlog.SETTING} for {guild_id}: {exc}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": (
+                "The database refused that write, so nothing changed — moderation is "
+                "still logging wherever it was before."
+            ),
+        }), 500
+
+    session["guild_id"] = guild_id
+    return jsonify({
+        "success": True,
+        "log_channel_id": str(channel_id),
+        "said": _log_channel_sentence(guild_id, channel_id),
+    })
+
+
+def _log_channel_sentence(guild_id, channel_id) -> str:
+    """What just happened, from what Discord was actually asked.
+
+    Three answers rather than one, because the third is the one that costs a
+    server its record: the channel is set and the bot cannot draw a card in it,
+    and the only other place that fact appears is a line in a host log.
+    """
+    guild = _live_guild(guild_id)
+    lookup = getattr(guild, "get_channel", None)
+    channel = lookup(channel_id) if callable(lookup) else None
+    if channel is None:
+        # No cause is named here, deliberately: a channel that cannot be looked up
+        # is a disconnected bot, a deleted channel **or** a guild object that
+        # simply has no lookup — and a sentence that picked one of the three
+        # would be a claim nobody read.
+        return (
+            f"Moderation logs are set to channel {channel_id}. Whether the bot may "
+            "write there could not be checked just now — the checklist on the "
+            "overview says that as soon as it can."
+        )
+    name = f"#{getattr(channel, 'name', channel_id)}"
+    verdict = modlog.can_post(channel, getattr(guild, "me", None))
+    if verdict is False:
+        return (
+            f"Moderation logs will be sent to {name}, and the bot cannot post there "
+            "yet: its role needs Send Messages and Embed Links on that channel, or "
+            "every case stays in the database where no moderator reads it."
+        )
+    if verdict is None:
+        return (
+            f"Moderation logs will be sent to {name}. Whether the bot may write "
+            "there could not be read from Discord just now, so the checklist will "
+            "say — it is not an answer that it can."
+        )
+    return f"Moderation logs will now be sent to {name}."
 
 
 @app.route("/api/level-settings", methods=["POST"])

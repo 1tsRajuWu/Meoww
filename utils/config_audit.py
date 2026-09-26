@@ -382,6 +382,24 @@ SETTINGS: tuple[Setting, ...] = (
         "does have its own bug channel is unaffected.",
     ),
     Setting(
+        "VC_WATCH_CHANNEL_ID",
+        CAPABILITY,
+        "the voice channel whose text chat is watched, so somebody reading it "
+        "from outside the call is reported",
+        "the compiled default voice channel is watched. `utils/vc_watch` has the "
+        "detail: Discord tells a bot nothing about a channel being opened, so "
+        "the trigger is a message from somebody the gateway does not place in "
+        "the call.",
+    ),
+    Setting(
+        "VC_WATCH_ALERT_CHANNEL_ID",
+        CAPABILITY,
+        "where that report is posted",
+        "the compiled default channel receives it, which exists in the bot's "
+        "home server only \u2014 anywhere else the watch runs and the reports have "
+        "nowhere to go, and the process log says so once per report.",
+    ),
+    Setting(
         "UPDATE_CHANNEL_ID",
         CAPABILITY,
         "the channel release notes are posted to",

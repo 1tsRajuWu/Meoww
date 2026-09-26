@@ -71,10 +71,16 @@
    switches could not be read, and a system its plan withholds. Both disable the
    button and say why, because a control whose press writes a guess is worse than
    no control at all. #}
-{% macro switch(mod, guild='', on=false, known=true, allowed=true, label='') %}
+{% macro switch(mod, guild='', on=false, known=true, allowed=true, label='', locked=none) %}
   {%- set blocked = '' -%}
   {%- if not known -%}
     {%- set blocked = "This server's switches could not be read, so a flip here would be writing a guess." -%}
+  {%- elif locked is not none -%}
+    {# The operator's word, and it is why this cell exists at all: the write
+       below would be refused, and a refused write is a switch that springs back
+       with no reason. Saying *locked* here is the same sentence the per-server
+       dashboard draws, from the same fact. #}
+    {%- set blocked = 'The operator has switched this system ' ~ ('on' if locked else 'off') ~ ' for every server, so this server cannot change it. Release it in the Fleet column.' -%}
   {%- elif not allowed -%}
     {%- set blocked = 'This system is part of a plan this server does not have.' -%}
   {%- endif -%}
@@ -83,7 +89,7 @@
        mode='write', action='/api/toggle',
        hidden=guard(mod.name ~ (' switched off' if on else ' switched on'), guild),
        skin='console',
-       state=('unknown' if not known else ('plan' if not allowed else ('On' if on else 'Off'))),
+       state=('unknown' if not known else ('locked' if locked is not none else ('plan' if not allowed else ('On' if on else 'Off')))),
        blocked=blocked) }}
 {% endmacro %}
 
@@ -264,6 +270,76 @@
     {% else %}
     <p class="hint">No server to read: the bot is not in one this process can see.</p>
     {% endif %}
+
+    {# The watch, which is the one thing in this console that runs without
+       anybody asking: it decides on every message in the watched channel, so a
+       watch that is off, pointed at the wrong room or pointed at a channel the
+       bot cannot post in is a feature the operator would otherwise believe in
+       until the day a report was needed. The two addresses are deployment
+       settings rather than server ones, and the card says so. #}
+    {% if watch %}
+    <div class="own-card">
+      <h3>The voice-chat watch</h3>
+      {% if watch.on %}
+      <p class="hint">
+        On. A message written in the watched chat by somebody the gateway does <em>not</em> place
+        in that voice room is reported to the alert channel — once per person per quiet window,
+        with the lines that arrived while it was quiet counted on the next card.
+      </p>
+      {% else %}
+      <p class="notice notice--bad" role="alert">The watch is off. {{ watch.why }}</p>
+      {% endif %}
+      <div class="own-table__scroll">
+      <table class="own-table">
+        <caption>Both addresses are deployment settings — one pair for every server</caption>
+        <thead><tr><th scope="col">Address</th><th scope="col">Channel</th><th scope="col">Id</th><th scope="col">In the room now</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">Watched</th>
+            {# The channel's own name rather than Discord's `<#id>` mention: this is
+               a web page, and a page is not where Discord's syntax should be read
+               literally. The id is printed beside it for the case where the name
+               is not enough. #}
+            <td>{{ watch.watched.name if watch.watched.resolved else 'nothing the bot can see' }}</td>
+            <td class="mono">{{ watch.watched.id }}</td>
+            <td class="mono">{{ watch.watched.people if watch.watched.people is not none else '—' }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Reported to</th>
+            <td>{{ watch.alert.name if watch.alert.resolved else 'nothing the bot can see' }}</td>
+            <td class="mono">{{ watch.alert.id }}</td>
+            <td class="mono">—</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="hint">
+        {% if not watch.resolvable %}
+        Neither id could be looked up in this process, so this card is the settings rather than a
+        reading about them.
+        {% elif not watch.watched.resolved or not watch.alert.resolved %}
+        <strong>{{ 'The watched channel' if not watch.watched.resolved else 'The alert channel' }}
+        is not a channel this bot can see anywhere.</strong>
+        {% if not watch.watched.resolved %}
+        Nothing will ever be reported, because no message can arrive in a room the bot is not in.
+        {% else %}
+        A report has nowhere to land. Check the address — a typo in a variable looks exactly like
+        this, and so does a channel that went with a server the bot has left.
+        {% endif %}
+        {% elif watch.postable is none %}
+        Discord did not say whether the bot can post in the alert channel.
+        {% elif watch.postable %}
+        The bot can post the report where it says it will.
+        {% else %}
+        <strong>The bot cannot post in the alert channel</strong> — reports are being written to a
+        channel it has no permission in, which looks exactly like a watch with nothing to report.
+        {% endif %}
+        And one limit worth knowing: Discord tells nobody that a channel was <em>opened</em>, so what
+        this watches for is a message from somebody who is not in the call — reading without
+        writing leaves no trace any bot can see.
+      </p>
+    </div>
+    {% endif %}
   </div>
 </section>
 {% endif %}
@@ -309,7 +385,7 @@
           <td class="mono">{{ system.commands | length }}</td>
           <td>
             {{ switch(system, console_guild, on=system.enabled, known=systems_known,
-                      allowed=system.allowed,
+                      allowed=system.allowed, locked=system.override,
                       label=system.name ~ ' in ' ~ (selected.name if selected else 'this server')) }}
           </td>
         </tr>
@@ -347,6 +423,7 @@
           {% for cell in matrix_cells %}<th scope="col">{{ cell.server }}</th>{% endfor %}
           <th scope="col">On</th>
           <th scope="col">Default</th>
+          <th scope="col">Fleet</th>
         </tr>
       </thead>
       <tbody>
@@ -357,6 +434,7 @@
           <td class="own-cell">
             {% if cell.known %}
               {{ switch(row, cell.guild_id, on=cell.enabled, allowed=cell.allowed,
+                        locked=row.override,
                         label=row.name ~ ' in ' ~ cell.server) }}
             {% else %}
               {# No control at all, because there is no state to draw: a disabled
@@ -368,6 +446,22 @@
           {% endfor %}
           <td class="mono">{{ row.on }} / {{ matrix_read }}</td>
           <td class="mono">{{ 'on' if row.default_enabled else 'off' }}</td>
+          {# The operator's own word about this system, said once for the whole
+             fleet. Three submits rather than two, because "no opinion" is not
+             the same as off: *Auto* clears the lock and hands the system back to
+             each server's saved row, which is the only thing that makes
+             releasing one meaningful. The current state is marked, so the column
+             reads as a state rather than as three suggestions. #}
+          <td class="own-cell">
+            <form class="own-lock" method="post" action="/owner/override">
+              {{ guard('the fleet lock on ' ~ row.name, selected.id if selected else '') }}
+              <input type="hidden" name="module" value="{{ row.id }}">
+              {% for value, text, why in (('off', 'Off everywhere', 'close this system for every server, and stop their administrators switching it back on'), ('auto', 'Auto', 'clear the lock and let every server decide again'), ('on', 'On everywhere', 'switch this system on for every server and lock their switches')) %}
+              <button class="btn btn--quiet{% if row.override is not none and ((value == 'on') == row.override) %} is-current{% endif %}"
+                      type="submit" name="state" value="{{ value }}" title="{{ why }}">{{ text }}</button>
+              {% endfor %}
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -377,6 +471,14 @@
       Every cell posts to <code>/api/toggle</code> — the same write the per-server dashboard uses,
       so a switch here and a switch there are one implementation rather than two that can drift.
       Switching one on also queues a republish of that server's command list.
+    </p>
+    <p class="hint">
+      The <strong>Fleet</strong> column is the operator's own word, and it is applied <em>last</em> —
+      after each server's saved choice and after any plan. <em>Off everywhere</em> force-closes a
+      system: every server's switch for it says <em>locked</em> and refuses, which is what makes it
+      the control to reach for when something is wrong. <em>Auto</em> is the release, and it is not
+      the same as off — it clears the override and hands the system back to what each server had
+      already chosen.
     </p>
   </div>
 </section>

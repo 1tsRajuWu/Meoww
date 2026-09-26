@@ -88,7 +88,12 @@
    call from a script are the same write — and turning one off is the *absence*
    of `enabled`, because an unchecked box is not sent at all and `bool("0")` is
    true. #}
-{% macro module_switch(module) %}{{ mw_switch(module, mode="write", action=toggle_url, hidden=guard(module.name ~ (' switched off' if module.enabled else ' switched on'))) }}{% endmacro %}
+{# The two extra states a server's administrator can meet here and nowhere else:
+   a system the operator has switched on or off for *every* server. The partial
+   already knows how to draw a control that cannot be pressed and say why — it
+   does it for a plan this server does not have — so the lock is passed through
+   rather than drawn again: `state` is the word, `blocked` is the sentence. #}
+{% macro module_switch(module) %}{{ mw_switch(module, mode="write", action=toggle_url, state=module.state, blocked=module.blocked, hidden=guard(module.name ~ (' switched off' if module.enabled else ' switched on'))) }}{% endmacro %}
 
 {% block page %}
 <section class="page-head band band--flush">
@@ -210,6 +215,40 @@
         <p class="muted">Nothing is playing here right now.</p>
         {% endif %}
       </div>
+    </div>
+
+    {# The one card on this page that is about something being *wrong*.
+
+       Every switch above can read on while the feature behind it does nothing — a
+       log channel that was deleted, a permission the bot's role is missing, a
+       default role it is not allowed to hand out, a command list Discord never
+       took — and each of those used to be a line in a host log that no
+       administrator reads. `utils/health` decides from facts the view already
+       read, and `_server_health` says what it could not read: a check that never
+       ran and a check that came back clean both produce no rows, and a card that
+       cannot tell those apart is a clean bill of health nobody earned. #}
+    <div class="own-card" data-reveal>
+      <h3>Needs a look</h3>
+      {% if not server_health.read %}
+      <p class="notice">This is not a clean answer — nothing was read for this render.</p>
+      <p class="hint">{{ server_health.why }}</p>
+      {% else %}
+        {% for row in server_health.findings %}
+        <div class="notice{{ ' notice--bad' if row.severity == 'broken' else '' }}">
+          <p><strong>{{ row.title }}</strong></p>
+          <p>{{ row.detail }}</p>
+          <p class="hint"><strong>What to do:</strong> {{ row.fix }}</p>
+        </div>
+        {% else %}
+        <p class="muted">Nothing needs a look — every check below ran, and none of them
+          complained.</p>
+        {% endfor %}
+        <p class="hint">
+          Read: {{ server_health.checked | join(', ') }}.{% if server_health.unread %}
+          No answer for: {{ server_health.unread | join(', ') }} — which means this is not a
+          clean bill of health for them.{% endif %}
+        </p>
+      {% endif %}
     </div>
 
     <div class="own-grid" data-reveal>
@@ -557,6 +596,56 @@
           <button class="btn" type="submit">Set it</button>
         </form>
       </div>
+    </div>
+
+    {# The control the overview's checklist points at. It is on *this* page rather
+       than on the overview because a finding is a reading and this is a write:
+       the checklist says where the case cards should go and this is where they
+       are sent. The wording the two share — the page's name for the setting — is
+       asserted against the finding's own advice in
+       `tests/test_server_settings.py`, because the defect it fixes was the two
+       disagreeing. #}
+    <div class="own-card">
+      <h3>Where the moderation record goes</h3>
+      <p class="hint">
+        Bans, kicks, timeouts, warnings and the automatic filters each write a case
+        card here. Without a channel, the record is the reply the command gave and
+        nothing a moderator can look through later.
+      </p>
+      {% if not log_picker.read %}
+      <p class="notice notice--bad">
+        The stored log channel could not be read, so this is not showing what is in
+        force — the bot still logs wherever it was told to. `/modlog` in the server
+        answers with the channel the bot itself reads.
+      </p>
+      {% else %}
+      <form class="row" method="post" action="/api/server-settings">
+        {{ guard('The log channel is saved.') }}
+        <label for="modlog-channel">Moderation log channel</label>
+        <select id="modlog-channel" name="log_channel_id">
+          <option value=""{% if not log_picker.channel_id %} selected{% endif %}>Off — cases stay in the database</option>
+          {% for channel in channel_choices if channel.kind == 'text' %}
+          <option value="{{ channel.id }}"
+                  {% if log_picker.channel_id == channel.id %}selected{% endif %}
+                  {% if not channel.can_send %}disabled{% endif %}>#{{ channel.name }}{% if not channel.can_send %} — the bot cannot post there{% endif %}</option>
+          {% endfor %}
+          {# The stored channel when Discord would not hand it back: deleted, or an
+             outage. It is still selected, because a picker that fell back to the
+             first option would draw a server that logs as one that does not. #}
+          {% if log_picker.current and not log_picker.offered %}
+          <option value="{{ log_picker.channel_id }}" selected>{{ log_picker.current }} — not in the list Discord just gave</option>
+          {% endif %}
+        </select>
+        <button class="btn" type="submit">Save it</button>
+      </form>
+      {% if not channel_choices %}
+      <p class="hint">
+        The channel list could not be read from Discord just now, so the picker has
+        only what is stored. /modlog in the server answers with the channel the bot
+        itself reads, and sets one when the list here cannot be built.
+      </p>
+      {% endif %}
+      {% endif %}
     </div>
 
     {% if management.recent %}

@@ -30,6 +30,42 @@ from utils.style import send_card
 #: The stored setting, shared with ``/modlog`` and the dashboard's log picker.
 SETTING = "log_channel_id"
 
+#: What a case card needs from the bot's own role *on the channel*, in Discord's
+#: own words because a refusal quotes them back at whoever has to fix it. The
+#: same pair ``utils.health`` names (``POSTING_NEEDS``), and separate from it on
+#: purpose: that one is about the server's default role and reads Discord's
+#: answer for the bot's *member*, while this one is a channel's own overwrites.
+CARD_NEEDS = (
+    ("send_messages", "Send Messages"),
+    ("embed_links", "Embed Links"),
+)
+
+
+def can_post(channel, me) -> bool | None:
+    """Whether a case card would land in ``channel``; ``None`` when Discord was not asked.
+
+    A channel's answer, not the server's: ``send_messages`` is what Discord
+    requires for the message to appear at all and ``embed_links`` for the card it
+    is drawn as, and a server whose role has both can still have a channel that
+    takes neither away.
+
+    ``None`` is the third answer and it is deliberately not ``False``: a channel
+    the bot cannot read permissions on, and a stand-in that has never heard of
+    ``embed_links``, both produce it. Reporting either as "the bot cannot post
+    here" is a finding invented by a missing reading — the defect ``utils/health``
+    opens with.
+    """
+    if me is None:
+        return None
+    try:
+        perms = channel.permissions_for(me)
+    except Exception:  # noqa: BLE001 — a channel that cannot answer is not a refusal
+        return None
+    answered = [getattr(perms, name, None) for name, _words in CARD_NEEDS]
+    if any(value is None for value in answered):
+        return None
+    return all(bool(value) for value in answered)
+
 
 def _as_channel_id(raw) -> int | None:
     """``log_channel_id`` as an int, or ``None`` when it is not one.

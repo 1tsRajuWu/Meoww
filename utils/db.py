@@ -343,6 +343,17 @@ async def setup():
             coins INTEGER NOT NULL DEFAULT 0
         )''')
 
+        # The operator's own word about a system, and it is deliberately *not*
+        # keyed by guild: this is the fleet-wide override that makes a system
+        # off everywhere, including in servers whose administrators switched it
+        # on. An absent row is "auto" — the server's own switch decides, which
+        # is the behaviour every server had before this table existed, so a
+        # database that has never seen it behaves exactly as it did.
+        await db.execute('''CREATE TABLE IF NOT EXISTS operator_modules (
+            module_name TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL
+        )''')
+
         await db.execute('''CREATE TABLE IF NOT EXISTS market_quotes (
             symbol TEXT PRIMARY KEY,
             price_usd REAL DEFAULT 0,
@@ -1128,6 +1139,59 @@ ECONOMY_BALANCE_FIELDS = ("wallet", "bank")
 #: than a policy: nothing in this project limits an owner, and this only stops a
 #: mistyped paste from minting a number the bot can no longer add to.
 MAX_ECONOMY_ADJUSTMENT = 1_000_000_000_000
+
+
+def read_operator_modules_sync() -> dict:
+    """Every fleet-wide module override, keyed by module id.
+
+    No guild argument, and that is the whole point of the table: the operator's
+    answer is about the *product*, not about a server. An empty mapping means
+    every system is on its own server's rule.
+
+    Raises on failure, like the guild version, so a reader can tell "nobody has
+    overridden anything" from "the row could not be read" — the second one
+    answered as the first would quietly release a lock the operator set.
+    """
+    overrides = {}
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT module_name, enabled FROM operator_modules")
+        for row in cur.fetchall():
+            overrides[row[0]] = bool(row[1])
+    finally:
+        conn.close()
+    return overrides
+
+
+def write_operator_module_sync(module_id: str, enabled) -> bool:
+    """Set or clear one fleet-wide override. ``None`` clears it.
+
+    Clearing *deletes* the row rather than storing a third value: "auto" is the
+    absence of an opinion, and a row holding one would be a second way to say
+    the same thing that a reader has to know about.
+
+    Returns whether the write landed, because the console that calls this draws
+    the state it just wrote — and a page that reports a lock it did not set is
+    how an operator comes to believe a system is closed when it is not.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        if enabled is None:
+            cur.execute("DELETE FROM operator_modules WHERE module_name = ?", (str(module_id),))
+        else:
+            cur.execute(
+                "INSERT OR REPLACE INTO operator_modules (module_name, enabled) VALUES (?, ?)",
+                (str(module_id), 1 if enabled else 0),
+            )
+        conn.commit()
+        return True
+    except Exception as exc:  # pragma: no cover - depends on filesystem/locks
+        print(f"[DB] ❌ Could not write the operator override for {module_id}: {exc}", flush=True)
+        return False
+    finally:
+        conn.close()
 
 
 def read_setting_sync(guild_id: int, key: str, default=None):

@@ -1198,7 +1198,13 @@ class TheOneAuthorRules(unittest.TestCase):
         rather than looking for a literal the template never had.
         """
         source = read(ROOT / "templates" / "dashboard.html")
-        self.assertIn('mode="write", action=toggle_url, hidden=guard(', source)
+        # The wrapper's own call, in pieces rather than as one literal line: it
+        # passes the two extra states a server's administrator can meet here and
+        # nowhere else (a fleet lock, and the sentence for it), and an assertion
+        # spelled as the whole argument list is a test that fails every time the
+        # page learns one more thing about the switch it is drawing.
+        self.assertIn("mode=\"write\", action=toggle_url", source)
+        self.assertIn("hidden=guard(", source)
         self.assertIn('toggle_url="/api/toggle"', read(ROOT / "keep_alive.py"))
         self.assertNotIn('class="dash-switch"', source, "the dashboard draws its own switch again")
 
