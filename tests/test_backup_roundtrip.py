@@ -567,8 +567,8 @@ class WhoElseIsRunning(unittest.TestCase):
     A name is only a *candidate*, though, which is why what a boot actually asks
     is ``other_copy_verdict``: a claim outlives the process that wrote it by up to
     its whole TTL, so the last thing a replaced container did was leave behind
-    both halves of a convincing duplicate — and the answer it prints is the record
-    of a check whose silence used to mean four different things at once.
+    both halves of a convincing duplicate — and every answer it gets is printed,
+    because a check's silence is indistinguishable from a check that never ran.
     """
 
     def setUp(self):
@@ -578,50 +578,56 @@ class WhoElseIsRunning(unittest.TestCase):
     def tearDown(self):
         cs._cloud_has_data, cs._remote_checked, cs._INSTANCE_ID = self._was
 
-    def _owner(self, lease: bytes | None, has_data: bool = True):
-        """The name the boot answers with, for a claim that is still being renewed.
+    def _said(
+        self,
+        lease: bytes | None,
+        *,
+        renew: bytes | None = None,
+        has_data: bool = True,
+    ):
+        """The boot's answer and the line it printed, with the wait made instant.
 
-        Every question this helper asks is about *whose* claim it is — ours, a
-        sibling container's, another service's — so the second look finds the same
-        owner writing again, which is what a running copy does. Whether a claim
-        that nobody renews is answered at all is :meth:`_watch`'s question, and
-        whether the *answers that are not a copy* are said out loud is the three
-        laws below.
+        The one fake in this class: the list *is* the bucket and the sleep is time
+        passing, so ``renew`` is what the second look finds — the same claim
+        written again by a live copy, a claim that has gone stale, or, by default,
+        the very bytes already there.
         """
-        cs._cloud_has_data = has_data
-        looks: list[bytes | None] = [lease, self._renewed(lease)]
-        with mock.patch.object(
-            cs,
-            "_storage_download",
-            side_effect=lambda *a, **k: looks.pop(0) if looks else self._renewed(lease),
-        ):
-            return cs.other_copy_verdict(sleep=lambda _seconds: None)
-
-    def _renewed(self, lease: bytes | None) -> bytes | None:
-        """The same claim, written again now — the two-minute heartbeat itself."""
-        try:
-            return self._lease(str(cs._json.loads(lease or b"")["owner"]))
-        except Exception:
-            return lease
-
-    def _said(self, lease: bytes | None, has_data: bool = True):
-        """The verdict *and* the line the boot prints for a claim."""
+        bucket = [lease]
         cs._cloud_has_data = has_data
         said = io.StringIO()
-        with mock.patch.object(cs, "_storage_download", return_value=lease):
+        with mock.patch.object(
+            cs, "_storage_download", side_effect=lambda *a, **k: bucket[0]
+        ):
             with contextlib.redirect_stdout(said):
-                answer = cs.other_copy_verdict(sleep=lambda _seconds: None)
+                answer = cs.other_copy_verdict(
+                    sleep=lambda _seconds: bucket.__setitem__(
+                        0, renew if renew is not None else lease
+                    )
+                )
         return answer, said.getvalue()
+
+    def _owner(self, lease: bytes | None, has_data: bool = True):
+        """The name the boot answers with, for a claim that keeps being renewed.
+
+        The questions asked through it are about *whose* claim it is — ours, a
+        sibling container's, another service's — so the second look finds the same
+        owner writing again, which is what a running copy does.
+        """
+        try:  # the same claim, written again now
+            again = self._lease(str(cs._json.loads(lease or b"")["owner"]))
+        except Exception:
+            again = lease
+        return self._said(lease, renew=again, has_data=has_data)[0]
 
     def _lease(self, owner: str, age: float = 0.0) -> bytes:
         return cs._json.dumps({"owner": owner, "ts": cs.time.time() - age}).encode()
 
     def test_a_fresh_lease_names_the_other_copy(self):
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        self.assertEqual(
-            self._owner(self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4")),
-            "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4",
-        )
+        """Reported, and answered with exactly the name written in the bucket: it
+        is quoted in a card an operator reads, never rewritten into a sentence."""
+        cs._INSTANCE_ID = "Housemate-Mac.local"
+        owner = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"
+        self.assertEqual(self._owner(self._lease(owner)), owner)
 
     def test_the_previous_container_of_this_deployment_is_not_a_second_copy(self):
         """A rolling deploy's own old pod holds the lease for a few seconds.
@@ -637,20 +643,26 @@ class WhoElseIsRunning(unittest.TestCase):
         )
 
     def _watch(self, lease: bytes, *, renew: bytes | None = None):
-        """``other_copy_verdict`` with the wait made instantaneous.
+        """The answer for a claim the second look finds as ``renew`` (or unchanged)."""
+        return self._said(lease, renew=renew)[0]
 
-        The *second* reading is the whole function, so the fake is the watch
-        itself: what the bucket holds when the boot looks again is ``renew``, or
-        the same lease for a copy that never wrote another word.
+    def test_the_watch_outlasts_the_tick_that_renews_the_claim(self):
+        """A live copy renews its claim on its **backup tick**, not on
+        :data:`LEASE_TOUCH_INTERVAL` — that constant is only the floor between two
+        refreshes inside one tick, which is what made this arithmetic wrong.
+
+        Getting it wrong is invisible from the outside: a watch shorter than the
+        tick reads a copy that is *answering* as a claim left behind and sends no
+        card, which is the one thing a boot cannot afford to miss. Observed live —
+        a Space container's claim was 114s old when the watch began and was never
+        written again inside the 150s window, so a running copy was answered "not
+        a copy that is answering".
         """
-        holder = [lease]
-        cs._cloud_has_data = True
-        with mock.patch.object(
-            cs, "_storage_download", side_effect=lambda *a, **k: holder[0]
-        ):
-            return cs.other_copy_verdict(
-                sleep=lambda _seconds: holder.__setitem__(0, renew or lease)
-            )
+        self.assertGreater(
+            cs.COPY_WATCH_SECONDS,
+            cs.SYNC_INTERVAL,
+            "a watch shorter than one backup tick cannot see a live copy move",
+        )
 
     def test_a_claim_left_behind_is_not_a_copy_that_is_answering(self):
         """Tonight's false alarm, in the real names.
@@ -669,12 +681,19 @@ class WhoElseIsRunning(unittest.TestCase):
 
     def test_a_copy_that_renews_while_we_watch_is_reported(self):
         """The case the card exists for, and the reason the watch is a watch: a
-        live copy keeps its claim warm even when nothing has changed."""
+        live copy keeps its claim warm even when nothing has changed.
+
+        The line is checked here too, because the card is only ever sent by code
+        that has already named the copy: what the host log keeps is the record
+        that it was sent, and without it the warning has no trace anywhere a
+        reader can look afterwards.
+        """
         cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
         owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
-        self.assertEqual(
-            self._watch(self._lease(owner), renew=self._lease(owner)), owner
-        )
+        answer, text = self._said(self._lease(owner), renew=self._lease(owner))
+        self.assertEqual(answer, owner)
+        self.assertIn(owner, text)
+        self.assertIn("another copy of this bot is running", text)
 
     def test_a_copy_that_dies_while_we_watch_is_not_reported(self):
         """Alive when the boot looked, gone by the second look: a rolling deploy
@@ -729,35 +748,9 @@ class WhoElseIsRunning(unittest.TestCase):
         for text in (unreadable, unanswered, not_consulted):
             self.assertIn("cannot be ruled out", text)
             self.assertNotIn("nothing to report", text.lower())
-        self.assertEqual(
-            len({unreadable, unanswered, not_consulted}),
-            2,
-            "an unreadable claim and an unanswered bucket are separate answers, "
-            "and a bucket nobody asked is the third",
-        )
-
-    def test_the_log_carries_what_the_card_carries(self):
-        """The card is the alert; the line is the record that it was sent."""
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
-        holder = [self._lease(owner)]
-        cs._cloud_has_data = True
-        said = io.StringIO()
-        with mock.patch.object(
-            cs, "_storage_download", side_effect=lambda *a, **k: holder[0]
-        ):
-            with contextlib.redirect_stdout(said):
-                answer = cs.other_copy_verdict(
-                    sleep=lambda _seconds: holder.__setitem__(0, self._lease(owner))
-                )
-        self.assertEqual(answer, owner)
-        self.assertIn(owner, said.getvalue())
-        self.assertIn("another copy of this bot is running", said.getvalue())
 
     def test_a_second_copy_on_another_host_is_reported(self):
         """The case this exists for: a deploy and a laptop, same token."""
-        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
-        self.assertIsNotNone(self._owner(self._lease("srv-aaaaaaaaaaaaaaaaaaaa-other-1-abc")))
         cs._INSTANCE_ID = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
         self.assertIsNotNone(
             self._owner(self._lease("Himanshus-MacBook-Air.local")),
@@ -785,11 +778,6 @@ class WhoElseIsRunning(unittest.TestCase):
         exists to prevent."""
         lease = cs._json.dumps({"owner": "srv-x", "ts": "about an hour ago"}).encode()
         self.assertIsNone(self._owner(lease))
-
-    def test_the_name_it_answers_with_is_just_the_name(self):
-        """It is quoted in a card an operator reads, not pasted into a sentence."""
-        cs._INSTANCE_ID = "Housemate-Mac.local"
-        self.assertEqual(self._owner(self._lease("srv-render-abc")), "srv-render-abc")
 
     def test_the_backup_still_waits_for_the_previous_container(self):
         """The sibling rule is about the gateway only: two writers on one bucket

@@ -297,15 +297,21 @@ LEASE_FILE: str = "sync-owner.json"
 #: A lease older than this belongs to a process that is no longer running.
 #: A redeploy starts writing again within this window at worst.
 LEASE_TTL: int = 300
-#: How often an idle instance refreshes its lease (seconds).
+#: The floor between two lease refreshes (seconds) — the fastest an idle instance
+#: *may* renew its claim, not how often it does: the refresh happens inside the
+#: backup tick, so :data:`SYNC_INTERVAL` is the cadence a boot can rely on.
 LEASE_TOUCH_INTERVAL: int = 120
 #: How long a boot listens before it believes the lease names a copy that is
-#: *answering*. Longer than :data:`LEASE_TOUCH_INTERVAL` on purpose: a live copy
-#: renews its claim on that cadence whether or not anything changed, so a watch
-#: shorter than one interval cannot tell a copy that is talking from one that has
-#: stopped — and a copy that has *stopped* leaves its claim in the bucket for the
-#: whole of :data:`LEASE_TTL`, five minutes of "I am here" written by nobody.
-COPY_WATCH_SECONDS: int = LEASE_TOUCH_INTERVAL + 30
+#: *answering*. It has to outlast **:data:`SYNC_INTERVAL`**, because that is how
+#: often a running copy renews its claim — the refresh lives inside the backup
+#: tick, and a watch shorter than one tick reads a copy that is answering as a
+#: claim left behind. Observed live: a Space container's claim was 114s old when
+#: the watch began and was never written again inside the 150s window it used to
+#: be, so a *running* copy was answered "not a copy that is answering" and no card
+#: was sent. A copy that has stopped leaves its claim in the bucket for the whole
+#: of :data:`LEASE_TTL`, so a longer watch still filters a corpse out: the second
+#: look has to find the claim fresh *and* moved.
+COPY_WATCH_SECONDS: int = SYNC_INTERVAL + 30
 #: Consecutive checks a *shrunk* database is held back before its state is accepted.
 SHRINK_GRACE_TICKS: int = 4
 #: Escape hatch for a deliberate wipe: ``CLOUD_SYNC_ALLOW_SHRINK=1``.
@@ -716,13 +722,6 @@ class Claim:
     #: needs to know whether the claim *moved* between two looks.
     ts: float | None = None
 
-    @property
-    def age_seconds(self) -> float | None:
-        """How long ago that claim was written, or ``None`` when there is none."""
-        if self.ts is None:
-            return None
-        return max(0.0, time.time() - float(self.ts))
-
 
 def _claim() -> Claim:
     """Read the writer slot once and describe it. Never raises, never guesses.
@@ -767,27 +766,18 @@ def _claim() -> Claim:
     return Claim(Claim.OTHER, owner, ts)
 
 
-def _live_other_owner() -> tuple[str, float] | None:
-    """The name of another copy that is running now, and how long ago it spoke.
+def _lease_problem() -> str | None:
+    """Whether some other live instance owns the bucket.
 
-    The backup's half of the question: a claim this machine may not write past.
-    The boot's half is :func:`other_copy_verdict`, which reads the same slot a
-    second time and says which answer it got.
+    The backup's half of the question :func:`_claim` answers — a claim this
+    machine may not write past. The boot's half is :func:`other_copy_verdict`.
     """
     claim = _claim()
-    if claim.state != Claim.OTHER or claim.holder is None:
+    if claim.state != Claim.OTHER or claim.holder is None or claim.ts is None:
         return None
-    return claim.holder, claim.age_seconds or 0.0
-
-
-def _lease_problem() -> str | None:
-    """Whether some other live instance owns the bucket."""
-    live = _live_other_owner()
-    if live is None:
-        return None
-    owner, age = live
+    age = max(0.0, time.time() - claim.ts)
     return (
-        f"'{owner}' owns the bucket ({age / 60:.1f} min ago) — running two "
+        f"'{claim.holder}' owns the bucket ({age / 60:.1f} min ago) — running two "
         "instances of the bot against one backup is how progress gets reverted"
     )
 
@@ -865,15 +855,13 @@ def _no_second_copy(claim: Claim) -> str:
             "answers beside this machine."
         )
     return (
-        "[INSTANCE] The backup bucket did not answer here, so a second copy cannot "
-        "be ruled out — commands fail at random while one answers beside this "
-        "machine."
+        "[INSTANCE] This boot has no reading of the backup bucket — nothing was "
+        "asked of it, or it did not answer — so a second copy cannot be ruled "
+        "out: commands fail at random while one answers beside this machine."
     )
 
 
-def other_copy_verdict(
-    watch: float = COPY_WATCH_SECONDS, *, sleep=time.sleep
-) -> str | None:
+def other_copy_verdict(*, sleep=time.sleep) -> str | None:
     """A second copy of the bot's name, or ``None`` — and the line either way.
 
     A name in the bucket is not the same thing as a copy that is answering, and
@@ -887,17 +875,15 @@ def other_copy_verdict(
     a fault that has to be announced; announcing the deployment somebody just
     made is how the warning stops being read.
 
-    So the question is asked twice. A live copy renews its claim every
-    :data:`LEASE_TOUCH_INTERVAL` whether or not anything changed, so a claim that
-    is *still there and has moved* is a copy that is talking, and a claim that is
-    still there with the same timestamp is one nobody is holding. The watch is
-    longer than one interval for that reason, and it is a **blocking** call — the
-    boot starts it in a thread and does not wait for it.
+    So the question is asked twice. A live copy renews its claim on its backup
+    tick whether or not anything changed, so a claim that is *still there and has
+    moved* is a copy that is talking, and one that is still there with the same
+    timestamp is a claim nobody is holding. The watch outlasts that tick —
+    :data:`COPY_WATCH_SECONDS` is derived from it — and it is a **blocking** call:
+    the boot starts it in a thread and does not wait for it.
 
-    **Every answer is said out loud**, because the host log is this check's only
-    reader: the card is sent when a copy is found, so the absence of a card was
-    the entire record of the other answers — which cannot be told apart from each
-    other, or from a check that never ran. See :func:`_no_second_copy`.
+    **Every answer is said out loud**: the card is only sent when a copy is found,
+    so the line is what the log keeps — see :func:`_no_second_copy` for the words.
 
     ``sleep`` is injectable for the same reason the rest of this module's network
     is: what the rule *is* has to be testable without standing still for it.
@@ -908,9 +894,8 @@ def other_copy_verdict(
         return None
     owner = claim.holder or ""
     if _previous_container_of_this_service(owner):
-        # One deployment, not two copies: still logged, never announced. Render
-        # names a service in its hostnames, which is what makes this decidable at
-        # all — see :func:`_service_of` for why a Space's are not.
+        # Logged, never announced: this is one deployment, not two copies — see
+        # :func:`_previous_container_of_this_service`.
         print(
             f"[INSTANCE] '{owner}' is this deployment's previous container, still "
             "holding the sync lease — not a second copy of the bot.",
@@ -918,12 +903,12 @@ def other_copy_verdict(
         )
         return None
     print(
-        f"[INSTANCE] '{owner}' holds the sync lease — watching {watch:.0f}s to see "
-        "whether that claim is renewed before this boot believes it is a second "
-        "copy...",
+        f"[INSTANCE] '{owner}' holds the sync lease — watching "
+        f"{COPY_WATCH_SECONDS}s to see whether that claim is renewed before this "
+        "boot believes it is a second copy...",
         flush=True,
     )
-    sleep(watch)
+    sleep(COPY_WATCH_SECONDS)
     after = _claim()
     if after.state != Claim.OTHER:
         print(
@@ -935,8 +920,9 @@ def other_copy_verdict(
         return None
     if claim.ts is None or after.ts is None or after.ts <= claim.ts:
         print(
-            f"[INSTANCE] '{owner}' has not renewed its claim in {watch:.0f}s — a "
-            "claim left behind, not a copy that is answering. Nothing to report.",
+            f"[INSTANCE] '{owner}' has not renewed its claim in "
+            f"{COPY_WATCH_SECONDS}s — a claim left behind, not a copy that is "
+            "answering. Nothing to report.",
             flush=True,
         )
         return None
