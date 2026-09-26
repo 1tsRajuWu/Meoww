@@ -102,14 +102,37 @@ class TheNameHasOneAuthor(unittest.TestCase):
     def test_the_initial_is_the_names_own_letter(self):
         self.assertEqual(brand.INITIAL, brand.NAME[:1].upper())
 
-    def test_the_fallback_name_is_this_module_and_not_a_literal(self):
-        """`_bot_display_name` prefers Discord's name, and falls back *here*.
+    def test_the_display_name_has_one_author_and_it_is_this_module(self):
+        """`_bot_display_name` answers with the brand, and stops there.
 
-        The fallback is what a page shows before the gateway connects, which on a
-        host that sleeps is the first paint of every cold visit — so it is the
-        brand, and it was spelled out in the middle of a ten-thousand-line file
-        where nobody rebranding would think to look.
+        It used to defer to the live Discord application's name. That reads well
+        and fails silently: this product runs as a **verified** application, and
+        Discord refuses a rename from the API with
+        ``APPLICATION_VERIFIED_SUPPORT_REQUIRED``, so the field went on holding
+        the retired name and four backend-rendered pages announced it while the
+        wordmark beside them said the new one. The read is what has to stay gone,
+        so this asks the source — the source is the half that cannot be renamed.
+
+        The fallback is also what a page shows before the gateway connects, which
+        on a host that sleeps is the first paint of every cold visit, and it was
+        spelled out in the middle of a ten-thousand-line file where nobody
+        rebranding would think to look.
         """
+        source = read(KEEP_ALIVE)
+        match = re.search(r"\ndef _bot_display_name\(\) -> str:.*?(?=\ndef |\nclass )", source, re.DOTALL)
+        self.assertIsNotNone(match, "keep_alive has no _bot_display_name()")
+        body = match.group(0)
+        self.assertIn(
+            "return brand.NAME",
+            body,
+            "the display name no longer comes from the brand module",
+        )
+        self.assertNotIn(
+            "BOT_INSTANCE",
+            body,
+            "the display name reads the live application's name again — that is "
+            "the record a verified application cannot rename",
+        )
         source = read(KEEP_ALIVE)
         self.assertIn("brand.NAME", source, "keep_alive no longer reads the brand module")
         self.assertNotIn(

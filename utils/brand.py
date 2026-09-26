@@ -13,9 +13,12 @@ The two facts that made this module necessary:
   it from `utils/style.ACCENT` as a Discord colour integer. Nothing held the two
   together, so a rebrand was two edits in the hope that somebody made both.
 * **The name was already source-dependent.** `keep_alive._bot_display_name()`
-  prefers the *running application's* name from Discord and falls back to a
+  preferred the *running application's* name from Discord and fell back to a
   literal in the middle of a 10,000-line file. That fallback is the brand, and it
-  was spelled out where nobody would look for it.
+  was spelled out where nobody would look for it — and picking the live name is
+  the half that had to go, because the application this product runs as is
+  verified and Discord will not rename it from the API, so the page read a name
+  nobody could change. This module is the one author now.
 
 So this module is stdlib-only and dependency-free on purpose — the bot process,
 the Flask thread, the two static builders and the test-suite all import it, and a
@@ -40,10 +43,12 @@ from __future__ import annotations
 # --------------------------------------------------------------------------- #
 # The name
 # --------------------------------------------------------------------------- #
-#: What the product is called. `keep_alive._bot_display_name()` prefers the live
-#: Discord application name and falls back to this, so renaming the application
-#: in the developer portal is what actually moves every page: this is the answer
-#: for a process that has not connected yet, or has no application to read.
+#: What the product is called. `keep_alive._bot_display_name()` returns this and
+#: nothing else, so the name a page draws and the name a card is signed with
+#: cannot come from two places. It used to defer to the live Discord
+#: application's name, which reads well until the application cannot be renamed:
+#: a verified application refuses the API rename, so the field went stale and
+#: every backend-rendered page kept announcing the name this product retired.
 NAME = "DaCat"
 
 #: What it is, in one line — the sentence a `og:description` or a footer wants.

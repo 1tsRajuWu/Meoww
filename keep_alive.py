@@ -2046,16 +2046,21 @@ def _retention_days() -> int:
 
 
 def _bot_display_name() -> str:
-    """What the bot calls itself, from the live application when there is one."""
-    if BOT_INSTANCE is not None:
-        user = getattr(BOT_INSTANCE, "user", None)
-        name = getattr(user, "name", None)
-        if name:
-            return str(name)
-    # The fallback is the brand, and it is read rather than spelled here: this
-    # line is what every page shows before the gateway connects — which on a host
-    # that sleeps is the first paint of a cold visit — and it lived in the middle
-    # of this file where nobody rebranding would think to look.
+    """What the bot calls itself: the brand, and never the running application.
+
+    This used to prefer the *live* Discord application's name, on the theory that
+    renaming the application in the developer portal was what moved every page at
+    once. The theory is wrong for this deployment, and the way it fails is the
+    worst kind: the application behind this product is **verified**, and Discord
+    refuses a rename from the API with ``APPLICATION_VERIFIED_SUPPORT_REQUIRED``,
+    so the field the old code read still held the name this product retired —
+    which is why ``/login``, ``/dashboard``, ``/market`` and ``/owner`` all
+    announced *Meow* while every wordmark on those same pages said something
+    else. A name with two authors is the failure `tests/test_brand.py` already
+    writes a law about, so the name has one author, and it is the brand module:
+    the value here is the same before a cold start, after a rename request, and
+    on a process whose gateway has not connected yet.
+    """
     return brand.NAME
 
 
@@ -5393,7 +5398,13 @@ def _progression_context(guild_id, page) -> dict:
             reading["fee"] = {
                 "enabled": meowfee.parse_enabled(stored) is not False,
                 "label": meowfee.fee_label(),
-                "describe": meowfee.describe(),
+                # `meowfee.describe()` is written for *Discord*, where `**2%**`
+                # is bold. This console prints the sentence as text, so the
+                # asterisks arrive on the page instead of the emphasis — the
+                # same stripping the dashboard's own fee row already does, and
+                # it was missing on exactly one of the two readers, which is how
+                # `/owner/economy` came to show a literal `**2%**`.
+                "describe": str(meowfee.describe()).replace("**", ""),
                 "cap": meowfee.MAX_FEE,
                 "stored": stored is not None,
             }
