@@ -5,6 +5,8 @@ path breaks, every rank, balance and warning is gone on the next deploy.
 These tests run a real SQLite file through the real code with a fake
 Supabase standing in for the real API.
 """
+import contextlib
+import io
 import os
 import sqlite3
 import tempfile
@@ -550,7 +552,7 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
 
 class WhoElseIsRunning(unittest.TestCase):
-    """``other_live_copy`` — the question the boot asks the same lease.
+    """``other_copy_verdict`` — the question the boot asks the same lease.
 
     The lease stopped two copies fighting over the backup; the gateway has the
     same hazard and no guard at all, because Discord delivers every interaction
@@ -563,9 +565,10 @@ class WhoElseIsRunning(unittest.TestCase):
     wrong in both directions costs the same thing: a warning nobody reads.
 
     A name is only a *candidate*, though, which is why what a boot actually asks
-    is ``copy_still_talking``: a claim outlives the process that wrote it by up to
+    is ``other_copy_verdict``: a claim outlives the process that wrote it by up to
     its whole TTL, so the last thing a replaced container did was leave behind
-    both halves of a convincing duplicate.
+    both halves of a convincing duplicate — and the answer it prints is the record
+    of a check whose silence used to mean four different things at once.
     """
 
     def setUp(self):
@@ -576,9 +579,39 @@ class WhoElseIsRunning(unittest.TestCase):
         cs._cloud_has_data, cs._remote_checked, cs._INSTANCE_ID = self._was
 
     def _owner(self, lease: bytes | None, has_data: bool = True):
+        """The name the boot answers with, for a claim that is still being renewed.
+
+        Every question this helper asks is about *whose* claim it is — ours, a
+        sibling container's, another service's — so the second look finds the same
+        owner writing again, which is what a running copy does. Whether a claim
+        that nobody renews is answered at all is :meth:`_watch`'s question, and
+        whether the *answers that are not a copy* are said out loud is the three
+        laws below.
+        """
         cs._cloud_has_data = has_data
+        looks: list[bytes | None] = [lease, self._renewed(lease)]
+        with mock.patch.object(
+            cs,
+            "_storage_download",
+            side_effect=lambda *a, **k: looks.pop(0) if looks else self._renewed(lease),
+        ):
+            return cs.other_copy_verdict(sleep=lambda _seconds: None)
+
+    def _renewed(self, lease: bytes | None) -> bytes | None:
+        """The same claim, written again now — the two-minute heartbeat itself."""
+        try:
+            return self._lease(str(cs._json.loads(lease or b"")["owner"]))
+        except Exception:
+            return lease
+
+    def _said(self, lease: bytes | None, has_data: bool = True):
+        """The verdict *and* the line the boot prints for a claim."""
+        cs._cloud_has_data = has_data
+        said = io.StringIO()
         with mock.patch.object(cs, "_storage_download", return_value=lease):
-            return cs.other_live_copy()
+            with contextlib.redirect_stdout(said):
+                answer = cs.other_copy_verdict(sleep=lambda _seconds: None)
+        return answer, said.getvalue()
 
     def _lease(self, owner: str, age: float = 0.0) -> bytes:
         return cs._json.dumps({"owner": owner, "ts": cs.time.time() - age}).encode()
@@ -604,7 +637,7 @@ class WhoElseIsRunning(unittest.TestCase):
         )
 
     def _watch(self, lease: bytes, *, renew: bytes | None = None):
-        """``copy_still_talking`` with the wait made instantaneous.
+        """``other_copy_verdict`` with the wait made instantaneous.
 
         The *second* reading is the whole function, so the fake is the watch
         itself: what the bucket holds when the boot looks again is ``renew``, or
@@ -615,7 +648,7 @@ class WhoElseIsRunning(unittest.TestCase):
         with mock.patch.object(
             cs, "_storage_download", side_effect=lambda *a, **k: holder[0]
         ):
-            return cs.copy_still_talking(
+            return cs.other_copy_verdict(
                 sleep=lambda _seconds: holder.__setitem__(0, renew or lease)
             )
 
@@ -651,6 +684,75 @@ class WhoElseIsRunning(unittest.TestCase):
         self.assertIsNone(
             self._watch(self._lease(owner), renew=self._lease(owner, age=cs.LEASE_TTL + 60))
         )
+
+    def test_a_boot_that_finds_no_second_copy_says_which_answer_it_got(self):
+        """The ways of finding nobody are three sentences, not one silence.
+
+        This is the law tonight's ship needed and did not have. A Space rebuild
+        printed no ``[INSTANCE]`` line at all — which is also exactly what a check
+        that never ran looks like, so the fix could not be confirmed from the log
+        it exists to be read in. Each answer states itself now.
+        """
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        answers = {
+            cs.Claim.OURS: self._lease("Himanshus-MacBook-Air.local"),
+            cs.Claim.NONE: b"",
+            cs.Claim.STALE: self._lease(
+                "r-1tsrajowo-meow-zxho7yru-d2319-tph82", age=cs.LEASE_TTL + 60
+            ),
+        }
+        said: dict[str, str] = {}
+        for state, lease in answers.items():
+            with self.subTest(answered=state):
+                answer, text = self._said(lease)
+                self.assertIsNone(answer)
+                self.assertIn("[INSTANCE]", text, "a boot with no copy still says so")
+                self.assertIn("nothing to report", text.lower())
+                said[state] = text
+        self.assertEqual(
+            len(set(said.values())), 3, "each of the three is its own sentence"
+        )
+
+    def test_cannot_tell_is_never_said_as_nobody(self):
+        """*I could not read the bucket* must not come out as *nobody is here*.
+
+        The whole point of printing at all: one of these is a fact about the
+        bucket, the other is the absence of one, and the reader deciding whether
+        to go looking is owed the difference.
+        """
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        _, nothing = self._said(b"")
+        _, unreadable = self._said(b"not json")
+        _, unanswered = self._said(None)
+        _, not_consulted = self._said(self._lease("srv-x"), has_data=False)
+        self.assertIn("nothing to report", nothing.lower())
+        for text in (unreadable, unanswered, not_consulted):
+            self.assertIn("cannot be ruled out", text)
+            self.assertNotIn("nothing to report", text.lower())
+        self.assertEqual(
+            len({unreadable, unanswered, not_consulted}),
+            2,
+            "an unreadable claim and an unanswered bucket are separate answers, "
+            "and a bucket nobody asked is the third",
+        )
+
+    def test_the_log_carries_what_the_card_carries(self):
+        """The card is the alert; the line is the record that it was sent."""
+        cs._INSTANCE_ID = "Himanshus-MacBook-Air.local"
+        owner = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
+        holder = [self._lease(owner)]
+        cs._cloud_has_data = True
+        said = io.StringIO()
+        with mock.patch.object(
+            cs, "_storage_download", side_effect=lambda *a, **k: holder[0]
+        ):
+            with contextlib.redirect_stdout(said):
+                answer = cs.other_copy_verdict(
+                    sleep=lambda _seconds: holder.__setitem__(0, self._lease(owner))
+                )
+        self.assertEqual(answer, owner)
+        self.assertIn(owner, said.getvalue())
+        self.assertIn("another copy of this bot is running", said.getvalue())
 
     def test_a_second_copy_on_another_host_is_reported(self):
         """The case this exists for: a deploy and a laptop, same token."""
@@ -697,7 +799,9 @@ class WhoElseIsRunning(unittest.TestCase):
         cs._cloud_has_data = True
         sibling = self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4")
         with mock.patch.object(cs, "_storage_download", return_value=sibling):
-            self.assertIsNone(cs.other_live_copy(), "not a second *copy*")
+            self.assertIsNone(
+                cs.other_copy_verdict(sleep=lambda _seconds: None), "not a second *copy*"
+            )
             self.assertIn(
                 "owns the bucket", cs._lease_problem() or "",
                 "but the upload still refuses while that container writes",

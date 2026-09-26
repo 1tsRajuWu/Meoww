@@ -1321,10 +1321,13 @@ async def report_duplicate_instance() -> str | None:
     The database lease already knows another copy is alive — it is what stops the
     two of them fighting over the backup — so the boot asks it the same question
     about the gateway and reports the answer in the operator's own channels. What
-    it asks is ``cloud_sync.copy_still_talking`` rather than the lease's raw
+    it asks is ``cloud_sync.other_copy_verdict`` rather than the lease's raw
     owner, because a name in the bucket is only a candidate: a copy that has been
     replaced leaves its claim behind for minutes, and this card tells its reader
-    to stop the copy that just arrived, so a false one is worse than none.
+    to stop the copy that just arrived, so a false one is worse than none. Every
+    answer it gets is printed, including the ones that are not a copy at all —
+    the card is an alert and the line is the record, and a check whose negative
+    answers were silent could not be confirmed from the host log it is read in.
 
     Returns the other copy's name, or ``None`` when there is not one. Never
     raises: a boot has work left to do, and a check that cannot reach Supabase has
@@ -1337,7 +1340,7 @@ async def report_duplicate_instance() -> str | None:
         # between them, and a boot that holds the loop for those delays the first
         # commands of the deploy. What it answers is a *second copy* — a copy that
         # stopped has left a claim that looks the same until it is asked twice.
-        owner = await asyncio.to_thread(cloud_sync.copy_still_talking)
+        owner = await asyncio.to_thread(cloud_sync.other_copy_verdict)
         if not owner:
             return None
         await operator_log.report_second_instance(bot, owner)

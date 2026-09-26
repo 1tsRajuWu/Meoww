@@ -1093,7 +1093,7 @@ class BotWiring(unittest.TestCase):
     def test_the_boot_reports_a_second_copy_of_the_bot(self):
         """The database lease already knows; the boot has to say it out loud.
 
-        What it asks is ``copy_still_talking`` and not the lease's raw owner: a
+        What it asks is ``other_copy_verdict`` and not the lease's raw owner: a
         name in the bucket is only a candidate, since a replaced container leaves
         its claim behind, and the card tells its reader to stop the copy that just
         arrived — so a false one is worse than none.
@@ -1106,7 +1106,7 @@ class BotWiring(unittest.TestCase):
 
         from utils import cloud_sync
 
-        with mock.patch.object(cloud_sync, "copy_still_talking", lambda: "srv-render-abc"), \
+        with mock.patch.object(cloud_sync, "other_copy_verdict", lambda: "srv-render-abc"), \
              mock.patch.object(operator_log, "report_second_instance", spy):
             reported = asyncio.run(bot_module.report_duplicate_instance())
         self.assertEqual(reported, "srv-render-abc")
@@ -1118,7 +1118,7 @@ class BotWiring(unittest.TestCase):
         async def never(*_args):
             raise AssertionError("nothing to report")
 
-        with mock.patch.object(cloud_sync, "copy_still_talking", lambda: None), \
+        with mock.patch.object(cloud_sync, "other_copy_verdict", lambda: None), \
              mock.patch.object(operator_log, "report_second_instance", never):
             self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
 
@@ -1139,7 +1139,7 @@ class BotWiring(unittest.TestCase):
         def boom():
             raise RuntimeError("supabase is down")
 
-        with mock.patch.object(cloud_sync, "copy_still_talking", boom), \
+        with mock.patch.object(cloud_sync, "other_copy_verdict", boom), \
              mock.patch.object(operator_log, "report_second_instance", nothing):
             self.assertIsNone(asyncio.run(bot_module.report_duplicate_instance()))
 
