@@ -31,6 +31,12 @@ class _Role:
         self.name = name
         self._default = default
         self.mention = f"<@&{rid}>"
+        # Real roles carry both; a stand-in that invented a *different* answer
+        # would let a law pass here and fail in Discord. `managed` is what
+        # `permissions.role_grant_problem` asks before it lets anybody wire a
+        # reaction-role mapping to a role Discord will not hand out.
+        self.managed = False
+        self.position = 0
 
     def is_default(self):
         return self._default
@@ -824,6 +830,13 @@ def render_dashboard(**overrides) -> str:
         # No log channel set, and read: the Server page's picker then draws its
         # own "off" option, which is the state a server starts in.
         log_picker={"read": True, "channel_id": "", "current": ""},
+        # The other two settings the Server page draws — the role new members
+        # get, and the reaction-role mappings — in the states a server that has
+        # configured neither is in. Read, empty, so the page takes its honest
+        # branch rather than the one for "Discord could not be asked".
+        roles=[],
+        default_role={"read": True, "role_id": "", "current": "", "above": False, "offered": True},
+        reaction_roles={"read": True, "rows": []},
         # The two action lists, from the tuples the endpoints validate against, so
         # the page cannot offer an action that would be refused.
         member_actions=keep_alive.PANEL_MEMBER_ACTIONS,

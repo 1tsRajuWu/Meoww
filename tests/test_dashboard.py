@@ -520,10 +520,18 @@ class SignInLink(unittest.TestCase):
         # No configured address, which is the state both published member hosts
         # run in: an explicit setting is read first, by design, so a test that
         # inherits one is testing the setting rather than this reader.
+        #
+        # The header is believed only when it arrives with the worker's signed
+        # stamp — the edge is not the only door to the backend, so "behind a
+        # proxy" and "this header is true" stopped being the same sentence. The
+        # forged case is asserted right here, beside the real one, because the
+        # difference between them is the whole security fix.
         with mock.patch.dict(os.environ, {"DASHBOARD_BASE_URL": ""}):
-            with mock.patch.object(keep_alive, "_trust_proxy_headers", True):
+            with mock.patch.object(keep_alive, "_trust_proxy_headers", True), \
+                 mock.patch.object(keep_alive, "OWNER_PROXY_SECRET", "shared-secret"):
+                stamped = {"X-Meow-Proxy": "shared-secret"}
                 with keep_alive.app.test_request_context(
-                    headers={"X-Forwarded-Host": "dacatdashboard.pages.dev"}
+                    headers={**stamped, "X-Forwarded-Host": "dacatdashboard.pages.dev"}
                 ):
                     self.assertEqual(
                         keep_alive.dashboard_base_url(),
@@ -531,12 +539,27 @@ class SignInLink(unittest.TestCase):
                         "the door names the machine instead of the host that asked",
                     )
                 with keep_alive.app.test_request_context(
-                    headers={"X-Forwarded-Host": "dacat.example", "X-Forwarded-Proto": "http"}
+                    headers={
+                        **stamped,
+                        "X-Forwarded-Host": "dacat.example",
+                        "X-Forwarded-Proto": "http",
+                    }
                 ):
                     self.assertEqual(keep_alive.dashboard_base_url(), "http://dacat.example")
-        # A chain a client writes itself is not a chain the proxy appended to.
-        with mock.patch.object(keep_alive, "_trust_proxy_headers", False):
-            with mock.patch.dict(os.environ, {"PORT": "9000"}, clear=True):
+        # A chain a client writes itself is not a chain the proxy appended to:
+        # the same header, the same trust flag, and no stamp — refused.
+        with mock.patch.dict(os.environ, {"PORT": "9000"}, clear=True):
+            with mock.patch.object(keep_alive, "_trust_proxy_headers", True), \
+                 mock.patch.object(keep_alive, "OWNER_PROXY_SECRET", "shared-secret"):
+                with keep_alive.app.test_request_context(
+                    headers={"X-Forwarded-Host": "evil.example"}
+                ):
+                    self.assertEqual(
+                        keep_alive.dashboard_base_url(),
+                        "http://localhost:9000",
+                        "an unsigned proxy header named another host",
+                    )
+            with mock.patch.object(keep_alive, "_trust_proxy_headers", False):
                 with keep_alive.app.test_request_context(
                     headers={"X-Forwarded-Host": "evil.example"}
                 ):

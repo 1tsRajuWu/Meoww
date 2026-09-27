@@ -228,7 +228,10 @@ class AutomaticActionsLeaveARecord(_ModlogCase):
 
         self.assertEqual(len(author.timeouts), 1)
         card = _card_text(self.channel.sent[-1])
-        self.assertIn("Six or more messages in five seconds", card)
+        # The rule is composed from the settings in force — the defaults here —
+        # so the numbers on the card are the numbers the filter counted with.
+        self.assertIn("6 or more messages in 5 seconds", card)
+        self.assertIn("(`/automod antispam`)", card)
         self.assertIn("Member timed out", card)
         notice = " ".join(str(call) for call in self.channel.sent[:-1])
         self.assertIn("/appeal", notice)
@@ -370,18 +373,20 @@ class TheSourceKeepsItsPromises(unittest.TestCase):
         source = self._source()
         self.assertEqual(
             source.count("await modlog.post("),
-            2,
-            "the invite filter and the anti-spam timeout are the two automatic "
-            "actions; each has to leave a record, and a third filter must add one",
+            4,
+            "the invite filter, the link filter, the flood timeout and the "
+            "record-only flood (timeout length 0) are the four automatic actions; "
+            "each has to leave a record, and a fifth filter must add one",
         )
 
     def test_every_notice_names_the_appeal(self):
         source = self._source()
         self.assertEqual(
             source.count("{APPEAL_POINTER}"),
-            2,
-            "both notices have to name /appeal — a door nobody is told about is "
-            "the same as no door",
+            3,
+            "every notice has to name /appeal — a door nobody is told about is "
+            "the same as no door. Three, not four: the timeout-length-0 branch "
+            "does nothing to the member, so it says nothing to them either.",
         )
 
 
@@ -487,3 +492,101 @@ class TheModlogCommand(_ModlogCase):
             "already recorded are untouched", card.description,
             "turning logging off must not read as erasing the record",
         )
+
+
+class TheShieldsAreTheServersOwn(_ModlogCase):
+    """The rules the dashboard sets are the rules this listener applies.
+
+    The cog used to hardcode one flood rule — six messages in five seconds, a
+    five-minute timeout — and the card *advertised* a link filter that no code
+    implemented. Both are the same defect wearing two hats: a promise the code
+    cannot keep. These are the laws that the numbers below the switch are the
+    numbers the filter counts with.
+    """
+
+    def _cog(self):
+        return automod_module.AutoMod(SimpleNamespace())
+
+    async def test_the_flood_rule_is_read_from_the_settings_in_force(self):
+        await self._log_to(LOG_CHANNEL)
+        await db.set_setting(GUILD, "automod_spam_messages", 3)
+        await db.set_setting(GUILD, "automod_spam_window_seconds", 10)
+        cog = self._cog()
+        author = _Member()
+
+        for index in range(2):
+            await cog.on_message(_Message(self.guild, self.channel, author, f"hi {index}"))
+        self.assertEqual(author.timeouts, [], "acted before this server's own count")
+
+        await cog.on_message(_Message(self.guild, self.channel, author, "hi 3"))
+        self.assertEqual(len(author.timeouts), 1)
+        card = _card_text(self.channel.sent[-1])
+        self.assertIn("3 or more messages in 10 seconds", card)
+
+    async def test_a_timeout_length_of_zero_records_the_flood_and_times_nobody_out(self):
+        await self._log_to(LOG_CHANNEL)
+        await db.set_setting(GUILD, "automod_spam_timeout_minutes", 0)
+        cog = self._cog()
+        author = _Member()
+
+        for index in range(6):
+            await cog.on_message(_Message(self.guild, self.channel, author, f"spam {index}"))
+
+        self.assertEqual(author.timeouts, [], "the server asked for no timeout")
+        card = _card_text(self.channel.sent[-1])
+        self.assertIn("Flood recorded", card)
+        self.assertIn("timeout length is 0", card)
+        self.assertIn("/automod status", card)
+
+    async def test_a_blocked_link_is_deleted_and_the_member_is_told_how_to_appeal(self):
+        await self._log_to(LOG_CHANNEL)
+        await db.set_setting(GUILD, "automod_block_links", True)
+        cog = self._cog()
+        author = _Member()
+        message = _Message(self.guild, self.channel, author, "look at https://evil.example/x")
+
+        await cog.on_message(message)
+
+        self.assertIn(message, self.guild.deleted_messages)
+        card = _card_text(self.channel.sent[-1])
+        self.assertIn("Link deleted", card)
+        self.assertIn("every link is blocked", card, "the rule is stated with its allowlist")
+        notice = " ".join(str(call) for call in self.channel.sent[:-1])
+        self.assertIn("/appeal", notice)
+
+    async def test_an_allowlisted_domain_survives_the_link_filter(self):
+        await self._log_to(LOG_CHANNEL)
+        await db.set_setting(GUILD, "automod_block_links", True)
+        await db.set_setting(GUILD, "automod_link_allowlist", "github.com, docs.python.org")
+        cog = self._cog()
+        author = _Member()
+
+        await cog.on_message(
+            _Message(self.guild, self.channel, author, "see https://gist.github.com/x")
+        )
+        self.assertEqual(self.guild.deleted_messages, [], "an allowed domain was blocked")
+
+        await cog.on_message(
+            _Message(self.guild, self.channel, author, "see https://evil.example/x")
+        )
+        self.assertEqual(len(self.guild.deleted_messages), 1)
+        card = _card_text(self.channel.sent[-1])
+        self.assertIn("github.com", card, "the card names what stayed allowed")
+
+    async def test_a_lookalike_domain_is_not_the_allowed_one(self):
+        """``endswith`` on the URL string would pass ``evil-github.com``."""
+        self.assertFalse(automod_module.link_allowed("https://evil-github.com/x", ("github.com",)))
+        self.assertTrue(automod_module.link_allowed("https://gist.github.com/x", ("github.com",)))
+        self.assertTrue(automod_module.link_allowed("https://github.com", ("github.com",)))
+
+    async def test_the_allowlist_is_read_however_it_was_typed(self):
+        self.assertEqual(
+            automod_module.allowed_hosts(" GitHub.com, *.example.org\nwiki.example.net; "),
+            ("github.com", "example.org", "wiki.example.net"),
+        )
+        self.assertEqual(automod_module.allowed_hosts(None), ())
+
+    async def test_a_bot_with_no_switch_reader_is_not_evidence_of_a_switch(self):
+        """The stub-bot case: no reader means the filters run, as they always did."""
+        cog = self._cog()
+        self.assertTrue(cog._running(GUILD))

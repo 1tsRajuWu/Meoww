@@ -152,6 +152,12 @@ DASHBOARD_PREFIXES = (
     # reading the list; `tests/test_owner_site.py` now reads the dashboard's own
     # templates for the paths they name and fails on a path this host redirects.
     "/api/server-settings",
+    # A system's own settings (the Auto Moderation rulebook, the Structure
+    # ceilings) and the reaction-role mappings: both are forms the Server and
+    # Systems pages draw, and a form that posts to a path this host redirects is
+    # the failure the note above describes.
+    "/api/module-settings",
+    "/api/reaction-roles",
     "/api/identity",
     "/api/uptime",
     "/api/figures",

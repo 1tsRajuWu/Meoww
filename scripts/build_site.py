@@ -38,6 +38,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -46,7 +47,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from utils import ai_guard  # noqa: E402 — needs ROOT on the path first
+from utils import ai_guard, config_audit  # noqa: E402 — needs ROOT on the path first
 
 #: Where the real, live app is. Every link that needs a running process points
 #: here. It is the Render service's own hostname, which is stable across
@@ -357,9 +358,20 @@ def _sitemap(pages, live_app: str) -> str:
     )
 
 
+def _js_literal(value: str) -> str:
+    """A JavaScript string literal, written the way the other builders write one.
+
+    ``json.dumps`` is exactly that — quoted, with quotes and backslashes escaped
+    — and it keeps the secret out of the file unquoted, where an apostrophe in a
+    generated value would be a syntax error in a worker nobody can debug.
+    """
+    return json.dumps(value)
+
+
 def _worker_file(
     backend_host: str = "1tsrajowo-meow.hf.space",
     console_host: str = "dacatowner.pages.dev",
+    proxy_secret: str = "",
 ) -> str:
     """Cloudflare Pages Advanced Mode Worker (_worker.js).
 
@@ -373,6 +385,15 @@ def _worker_file(
  * so visitors stay on the Cloudflare domain.
  */
 const BACKEND_HOST = "{backend_host}";
+
+/* Shared with the backend's OWNER_PROXY_SECRET, and what makes a forwarded
+   header worth believing. The backend is reachable at its own address too, so
+   "there is a proxy in front of me" and "this header is true" stopped being the
+   same sentence: a hop header is a claim the caller may have written themselves.
+   With the stamp it is a claim *this* worker made. Empty means no stamp is
+   sent, and the backend refuses every forwarded value — which is why the build
+   says so out loud. */
+const OWNER_PROXY_SECRET = {_js_literal(proxy_secret)};
 
 /* The operator console lives on a host of its own, and this site hands it over
    rather than rendering it.
@@ -456,10 +477,38 @@ export default {{
       backendUrl.protocol = "https:";
       backendUrl.port = "";
 
+      // The visitor's headers, minus the ones that describe a *hop*. A client
+      // that sends its own X-Forwarded-For is describing a chain it is not part
+      // of, and downstream nothing can tell those from the addresses a proxy
+      // appended — which is how a five-attempt sign-in limit becomes an
+      // unlimited one. They are dropped here and replaced with what this edge
+      // actually saw.
       const reqHeaders = new Headers(request.headers);
+      for (const hop of [
+        "X-Forwarded-For",
+        "X-Forwarded-Host",
+        "X-Forwarded-Proto",
+        "X-Real-IP",
+        "Forwarded",
+        "CF-Connecting-IP",
+        "X-Meow-Client-IP",
+        "X-Meow-Proxy",
+      ]) {{
+        reqHeaders.delete(hop);
+      }}
       reqHeaders.set("Host", BACKEND_HOST);
       reqHeaders.set("X-Forwarded-Host", url.host);
       reqHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
+
+      // *This* is the visitor, as Cloudflare saw them, and it travels with the
+      // shared secret because the header alone would be worth nothing.
+      const visitorIp = request.headers.get("CF-Connecting-IP");
+      if (visitorIp) {{
+        reqHeaders.set("X-Meow-Client-IP", visitorIp);
+      }}
+      if (OWNER_PROXY_SECRET) {{
+        reqHeaders.set("X-Meow-Proxy", OWNER_PROXY_SECRET);
+      }}
 
       const hasBody = !["GET", "HEAD"].includes(request.method);
       const proxyReq = new Request(backendUrl.toString(), {{
@@ -642,8 +691,21 @@ def build(
         handle.write(_redirects_file())
     # Cloudflare Pages Advanced Mode worker and routing config for reverse-proxying
     backend_host = urllib.parse.urlsplit(live_app).netloc or "1tsrajowo-meow.hf.space"
+    # The stamp this worker sends so the backend may believe its forwarded host
+    # and count visitors per visitor. Read at build time from the same variable
+    # the backend reads, so the two cannot be built out of step.
+    proxy_secret = config_audit.get("OWNER_PROXY_SECRET")
     with open(os.path.join(out_dir, "_worker.js"), "w", encoding="utf-8") as handle:
-        handle.write(_worker_file(backend_host))
+        handle.write(_worker_file(backend_host, proxy_secret=proxy_secret))
+    if not proxy_secret:
+        # Said out loud because the symptom is invisible: the site still works,
+        # and the backend simply refuses every forwarded value it is handed —
+        # so every sign-in is counted as whichever Cloudflare edge answered.
+        print(
+            "NOTE: OWNER_PROXY_SECRET is not set, so this worker sends no visitor "
+            "stamp and the backend refuses its forwarded host and scheme. Set the "
+            "same value here and in the backend's environment."
+        )
     with open(os.path.join(out_dir, "_routes.json"), "w", encoding="utf-8") as handle:
         handle.write(_routes_file())
     # The 404 page comes from the app, fetched the same way the pages above are,

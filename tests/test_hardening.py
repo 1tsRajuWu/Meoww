@@ -433,8 +433,15 @@ class TheAddressASignInIsCountedAgainst(unittest.TestCase):
             "2001:db8::1",
         )
 
-    def test_the_forwarded_chain_is_still_the_fallback(self):
-        self.assertEqual(self._ip({"X-Forwarded-For": "198.51.100.4"}), "198.51.100.4")
+    def test_a_forwarded_chain_is_not_evidence_and_is_not_read(self):
+        """A caller can write this header; the backend answers its own address.
+
+        It used to be the fallback whenever the trust flag was on, and the flag
+        *is* on in the deployments that matter — so five wrong passkeys per
+        invented address was an unlimited number of guesses. Nothing but the
+        signed stamp (or the peer address) decides the bucket now.
+        """
+        self.assertNotEqual(self._ip({"X-Forwarded-For": "198.51.100.4"}), "198.51.100.4")
 
     def test_without_the_trust_flag_the_header_is_not_read_at_all(self):
         with keep_alive.app.test_request_context(

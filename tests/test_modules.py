@@ -94,7 +94,7 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
         """
         conn = db.connect()
         try:
-            for module_name in ("automod", "market"):
+            for module_name in ("giveaway", "market"):
                 conn.execute(
                     "INSERT OR REPLACE INTO guild_modules (guild_id, module_name, enabled) "
                     "VALUES (?, ?, ?)",
@@ -120,7 +120,7 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
             }
         finally:
             conn.close()
-        self.assertNotIn("automod", saved, "a retired module's row outlived the migration")
+        self.assertNotIn("giveaway", saved, "a retired module's row outlived the migration")
         self.assertIn("market", saved, "the sweep deleted a module the registry declares")
 
     def test_unknown_module_is_not_gated_but_cannot_be_written(self):

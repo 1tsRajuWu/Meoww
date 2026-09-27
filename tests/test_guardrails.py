@@ -66,6 +66,15 @@ DIRECT_WRITES = {
     "moderation.py": [
         "channel.purge()",       # /purge removes messages, not the channel
     ],
+    "reaction_roles.py": [
+        # The feature *is* the role change: a member takes a role by reacting,
+        # with nobody to confirm it and no case to open, so there is no door to
+        # route it through — what it keeps instead is the guard `/addrole` uses
+        # (`permissions.role_grant_problem` on the person wiring the mapping up,
+        # and the bot's own hierarchy on the one Discord lets it hand out), and a
+        # refusal is written to the host log rather than swallowed.
+        "target.remove_roles()",
+    ],
     "server_control.py": [
         "channel.set_permissions()",  # pre-existing: /lockdown, stored via save_lockdown
         "channel.edit()",             # pre-existing: /slowmode

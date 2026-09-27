@@ -246,7 +246,13 @@ COMMAND_ACCESS: dict[str, str] = {
     # minutes — and the fact that it only ever *writes to the log*.
     "appeal": EVERYONE,
     "automod invites": GUILD,
+    "automod links": GUILD,
     "automod antispam": GUILD,
+    # The reading is for everybody, like `/modlog`'s bare form: an administrator
+    # checking the filters is the common case, but "why did the bot delete my
+    # link" is a question a member may ask, and it is a read of this server's own
+    # settings — the same facts the dashboard prints.
+    "automod status": EVERYONE,
     # -- Server control ---------------------------------------------------- #
     "lockdown": CHANNELS,
     "unlock": CHANNELS,
@@ -264,6 +270,13 @@ COMMAND_ACCESS: dict[str, str] = {
     "ticket setup": CHANNELS,
     "ticket add": CHANNELS,
     "ticket remove": CHANNELS,
+    # Reaction roles. Handing out a role is a role decision, so the two writes
+    # are ROLES — the same audience `/addrole` has, and the same one the
+    # dashboard's own add checks. The listing is a read of this server's own
+    # mappings and is offered to everybody.
+    "reactionrole add": ROLES,
+    "reactionrole remove": ROLES,
+    "reactionrole list": EVERYONE,
     # -- Server Structure -------------------------------------------------- #
     # Declared at the permission each one *needs*, which is also what Discord
     # itself checks on the command — a structure command offered to somebody who

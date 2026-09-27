@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import discord
 
-from utils import db
+from utils import db, features
 
 #: How long a confirmation stays open. Long enough to read what it says, short
 #: enough that a prompt nobody answered is not still live an hour later — the
@@ -39,19 +39,31 @@ TIMEOUT_SECONDS = 60.0
 #: The declared ceiling per action: how many subjects one command may touch
 #: without the confirmation step. Keyed by the same action names
 #: ``utils.structure`` uses, so the two cannot disagree about what an action is
-#: called.
+#: called — and now *declared* in the feature registry rather than here, because
+#: the dashboard draws these four as controls and a second copy of a default is
+#: how the page and the guard come to disagree about what "unchanged" means.
+#: The registry is stdlib-only, so this import cannot cycle.
 CEILINGS: dict[str, int] = {
-    "channel_delete": 1,
-    "channel_archive": 3,
-    "role_delete": 1,
-    "role_purge": 5,
+    spec.id: int(spec.default)
+    for spec in features.settings_for("structure")
 }
+
+#: The largest ceiling a server may store, from the widest bound the registry
+#: declares for one. Kept as a module constant because this is the reader most
+#: callers import.
+MAX_CEILING = max(
+    (spec.maximum or 0) for spec in features.settings_for("structure")
+) or 200
+
 
 #: Overridable per server, per action, as a stored setting. The key is this
 #: module's own namespace so a hand-edited database cannot collide with another
 #: feature's setting.
 SETTING = "confirmation_ceiling"
-MAX_CEILING = 200
+
+#: ``<SETTING>.<action>`` — the shape the registry declares per ceiling.
+def setting_key(action: str) -> str:
+    return features.setting_key("structure", action)
 
 
 def ceiling_for(guild_id: int | None, action: str) -> int:

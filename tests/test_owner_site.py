@@ -891,9 +891,13 @@ class TheDashboardHostServesWhatTheDashboardCalls(unittest.TestCase):
         """
         member_host = urllib.parse.urlsplit(keep_alive.hub.dashboard_url()).netloc
         self.assertTrue(member_host, "the member host has no address to compare with")
-        with mock.patch.object(keep_alive, "_trust_proxy_headers", True):
+        # The address is read from a *signed* forwarded host: the backend is
+        # reachable directly, so the header alone is a claim any caller can make
+        # (see `_proxy_signed` and the dashboard's own test for the refusal).
+        with mock.patch.object(keep_alive, "_trust_proxy_headers", True), \
+             mock.patch.object(keep_alive, "OWNER_PROXY_SECRET", "shared-secret"):
             with keep_alive.app.test_request_context(
-                headers={"X-Forwarded-Host": member_host}
+                headers={"X-Meow-Proxy": "shared-secret", "X-Forwarded-Host": member_host}
             ):
                 self.assertEqual(
                     keep_alive._frame_nav(), {"nav_items": keep_alive.MEMBER_FRAME_NAV}
@@ -901,7 +905,7 @@ class TheDashboardHostServesWhatTheDashboardCalls(unittest.TestCase):
             for other in ("dacat.pages.dev", "dacatowner.pages.dev"):
                 with self.subTest(host=other):
                     with keep_alive.app.test_request_context(
-                        headers={"X-Forwarded-Host": other}
+                        headers={"X-Meow-Proxy": "shared-secret", "X-Forwarded-Host": other}
                     ):
                         self.assertEqual(keep_alive._frame_nav(), {})
         with keep_alive.app.test_request_context():

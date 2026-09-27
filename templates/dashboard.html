@@ -456,6 +456,52 @@
              run and not one a copy-paste would fix. #}
           {% for command in module.commands %}{{ command }} {% endfor %}
         </p>
+
+        {# The system's own settings — the rules it runs by, read and written
+           here. They are declared in the registry beside the system and drawn
+           from that declaration, so a card cannot offer a control the endpoint
+           would refuse, or an input the reader does not read. One form for all
+           of them: saving sends every field, which is what lets an unticked box
+           mean *off* rather than *unchanged*. A system the operator has
+           force-closed for every server gets the sentence instead of the form —
+           there is nothing to tune in something that may not run anywhere. #}
+        {% if module.settings %}
+        {% if module.locked and not module.enabled %}
+        <p class="hint">{{ module.blocked }}</p>
+        {% else %}
+        <form class="dash-sys__settings" method="post" action="/api/module-settings" data-reveal>
+          {{ guard('The settings for ' ~ module.name ~ ' are saved.') }}
+          <input type="hidden" name="module" value="{{ module.id }}">
+          {% for setting in module.settings %}
+          <div class="row">
+            <label for="set-{{ module.id }}-{{ setting.id }}">{{ setting.label }}</label>
+            {% if setting.kind == 'bool' %}
+            <select id="set-{{ module.id }}-{{ setting.id }}" name="{{ setting.id }}">
+              <option value="1"{% if setting.value %} selected{% endif %}>On</option>
+              <option value="0"{% if not setting.value %} selected{% endif %}>Off</option>
+            </select>
+            {% elif setting.kind == 'int' %}
+            <input id="set-{{ module.id }}-{{ setting.id }}" type="number"
+                   name="{{ setting.id }}" value="{{ setting.value }}" required
+                   {% if setting.minimum is not none %}min="{{ setting.minimum }}"{% endif %}
+                   {% if setting.maximum is not none %}max="{{ setting.maximum }}"{% endif %}>
+            {% elif setting.kind == 'choice' %}
+            <select id="set-{{ module.id }}-{{ setting.id }}" name="{{ setting.id }}">
+              {% for value, label in setting.choices %}
+              <option value="{{ value }}"{% if setting.value == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
+            <input id="set-{{ module.id }}-{{ setting.id }}" type="text"
+                   name="{{ setting.id }}" value="{{ setting.value }}" maxlength="500">
+            {% endif %}
+            <span class="hint">{{ setting.help }}</span>
+          </div>
+          {% endfor %}
+          <button class="btn" type="submit">Save these</button>
+        </form>
+        {% endif %}
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -728,6 +774,134 @@
         The channel list could not be read from Discord just now, so the picker has
         only what is stored. /modlog in the server answers with the channel the bot
         itself reads, and sets one when the list here cannot be built.
+      </p>
+      {% endif %}
+      {% endif %}
+    </div>
+
+    {# The second setting the overview's checklist points at, on this page for
+       the same reason the log channel's control is: a finding is a reading and
+       this is a write. A stored role Discord will not hand back is still drawn
+       and still selected — a picker that fell back to its first option would
+       say this server assigns nobody a role while the database says it does. #}
+    <div class="own-card">
+      <h3>What new members get</h3>
+      <p class="hint">
+        The role handed to somebody the moment they join. Without one they arrive
+        with nothing but @everyone, and the overview says so when this server has
+        set a role that no longer works.
+      </p>
+      {% if not default_role.read %}
+      <p class="notice notice--bad">
+        The stored default role could not be read, so this is not showing what is
+        in force — the bot still assigns whatever it was told to. `/defaultrole
+        view` in the server answers with the role the bot itself reads.
+      </p>
+      {% else %}
+      <form class="row" method="post" action="/api/server-settings">
+        {{ guard('The default role is saved.') }}
+        <label for="default-role">Role for new members</label>
+        <select id="default-role" name="default_role_id">
+          <option value=""{% if not default_role.role_id %} selected{% endif %}>Off — nobody gets a role automatically</option>
+          {% for role in roles %}
+          <option value="{{ role.id }}"
+                  {% if default_role.role_id == role.id %}selected{% endif %}
+                  {% if role.above %}disabled{% endif %}>@{{ role.name }}{% if role.above %} — above the bot's role{% endif %}</option>
+          {% endfor %}
+          {# The stored role when Discord would not hand it back: deleted since it
+             was set, or an outage. Still selected, because that is still the row.
+             Skipped when the stored value was not an id at all — the reading above
+             says so in words instead. #}
+          {% if default_role.current and not default_role.offered and default_role.role_id %}
+          <option value="{{ default_role.role_id }}" selected>{{ default_role.current }} — not in the list Discord just gave</option>
+          {% endif %}
+        </select>
+        <button class="btn" type="submit">Save it</button>
+      </form>
+      {% if not roles %}
+      <p class="hint">
+        The role list could not be read from Discord just now, so the picker has
+        only what is stored. `/defaultrole set` in the server works either way.
+      </p>
+      {% endif %}
+      {% if default_role.above %}
+      <p class="notice notice--bad">
+        That role sits at or above the bot's own role, so Discord refuses the
+        assignment — the bot reports success while nothing changes on the member.
+        Drag the bot's role above it in Server Settings → Roles, or pick a lower
+        one here.
+      </p>
+      {% endif %}
+      {% endif %}
+    </div>
+
+    {# Reaction roles — the same rows `/reactionrole` writes, listed and
+       removable one at a time. The add form takes a *link* because a message id
+       alone cannot be fetched, and fetching it is what lets the bot put the
+       reaction on the message itself — the difference between a configured
+       mapping and one nobody knows exists. #}
+    <div class="own-card">
+      <h3>Reaction roles</h3>
+      <p class="hint">
+        An emoji on a message hands out a role; taking the reaction back takes the
+        role back. `/reactionrole list` in the server reads the same rows.
+      </p>
+      {% if not reaction_roles.read %}
+      <p class="notice notice--bad">
+        The mappings could not be read, so this is not showing what is in force —
+        whatever is stored is still running. `/reactionrole list` in the server
+        answers with the rows the bot itself reads.
+      </p>
+      {% else %}
+      {% if reaction_roles.rows %}
+      <ul class="list">
+        {% for row in reaction_roles.rows %}
+        {# The prose shape: the second field is a sentence ("the message", plus
+           the hierarchy warning), and a row that puts one beside a name without
+           declaring it collapses the name column. The state lives in the remove
+           button's own form, which is the control third of this row. #}
+        <li class="list__row list__row--prose">
+          <span class="list__key">
+            {{ row.emoji }} →
+            {% if row.role_name %}@{{ row.role_name }}{% else %}role {{ row.role_id }}{% if row.role_gone %} (gone from this server){% endif %}{% endif %}
+          </span>
+          <span class="list__note">
+            {% if row.link %}<a href="{{ row.link }}">the message</a>{% else %}message {{ row.message_id }}{% endif %}{% if row.above %} · above the bot's role{% endif %}
+          </span>
+          <form method="post" action="/api/reaction-roles">
+            {{ guard('That mapping is gone.') }}
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="message_id" value="{{ row.message_id }}">
+            <input type="hidden" name="emoji" value="{{ row.emoji }}">
+            <button class="btn" type="submit">Remove</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">No reaction roles here yet — link one below and the bot
+        reacts to the message for you.</p>
+      {% endif %}
+      <form class="row" method="post" action="/api/reaction-roles">
+        {{ guard('The reaction role is saved.') }}
+        <input type="hidden" name="action" value="add">
+        <label for="rr-message">Message link</label>
+        <input id="rr-message" type="text" name="message"
+               placeholder="https://discord.com/channels/…/…/…" required>
+        <label for="rr-emoji">Emoji</label>
+        <input id="rr-emoji" type="text" name="emoji" maxlength="100" required>
+        <label for="rr-role">Role</label>
+        <select id="rr-role" name="role_id">
+          {% for role in roles %}
+          <option value="{{ role.id }}"{% if role.above %} disabled{% endif %}>@{{ role.name }}{% if role.above %} — above the bot's role{% endif %}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" type="submit">Link it</button>
+      </form>
+      {% if not roles %}
+      <p class="hint">
+        The role list could not be read from Discord just now, so this form cannot
+        offer one — `/reactionrole add` in the server works either way.
       </p>
       {% endif %}
       {% endif %}

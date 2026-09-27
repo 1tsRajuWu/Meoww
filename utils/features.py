@@ -24,6 +24,135 @@ from typing import Mapping
 
 
 @dataclass(frozen=True)
+class Setting:
+    """One per-server setting a system declares, so its card can carry a control.
+
+    This is the same move ``FEATURES`` made for systems, one level down: a
+    setting used to be a bare string key read in one place and written in
+    another, with the dashboard unable to offer it because nothing knew its
+    label, its type or its bounds. A declared setting carries all four, so the
+    page, the endpoint and the reader cannot disagree about what an
+    administrator is being asked for — and a new control is a registry edit
+    rather than a new form, a new branch and a new validator.
+
+    ``key`` overrides the derived ``f"{feature_id}_{id}"`` name for settings
+    that were stored under another namespace before the registry existed (the
+    structure ceilings live under ``confirmation_ceiling.<action>``).
+    """
+
+    id: str
+    label: str
+    help: str
+    #: "bool", "int", "choice" or "text" — the four controls a card can draw.
+    kind: str
+    default: object = ""
+    minimum: int | None = None
+    maximum: int | None = None
+    choices: tuple[tuple[str, str], ...] = ()
+    #: Explicit ``guild_settings`` key, when the derived name is not the one.
+    key: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Setting.id is required")
+        if self.kind not in SETTING_KINDS:
+            raise ValueError(f"Setting '{self.id}' has unknown kind '{self.kind}'")
+        if self.kind == "choice" and not self.choices:
+            raise ValueError(f"Setting '{self.id}' is a choice with nothing to choose")
+        if self.kind == "int" and self.default != "" and not isinstance(self.default, int):
+            raise ValueError(f"Setting '{self.id}' is an int with a non-int default")
+
+
+def setting_key(feature_id: str, setting_id: str) -> str:
+    """Where one declared setting lives in ``guild_settings``.
+
+    The derived name is ``<feature>_<setting>`` — the shape the automod filters
+    were already stored under — and a declaration that needs a different one
+    says so itself (see :attr:`Setting.key`).
+    """
+    feature = get(feature_id)
+    for spec in feature.settings if feature else ():
+        if spec.id == setting_id:
+            return spec.key or f"{feature_id}_{setting_id}"
+    return f"{feature_id}_{setting_id}"
+
+
+def settings_for(feature_id: str) -> tuple[Setting, ...]:
+    """Every setting a system declares, in the order its card draws them."""
+    feature = get(feature_id)
+    return feature.settings if feature else ()
+
+
+def get_setting(feature_id: str, setting_id: str) -> Setting | None:
+    for spec in settings_for(feature_id):
+        if spec.id == setting_id:
+            return spec
+    return None
+
+
+def setting_value(spec: Setting, raw):
+    """The value in force for a stored raw one, or the declared default.
+
+    Anything unreadable, unparsable or out of range falls back to the default
+    rather than being clamped *upwards*: the only direction of corruption that
+    matters is a stored number silently becoming a larger allowance than the
+    default (the same rule ``utils.confirmations`` applies to its ceilings).
+    """
+    if raw is None or str(raw).strip() == "":
+        return spec.default
+    if spec.kind == "bool":
+        text = str(raw).strip().lower()
+        if text in BOOL_TRUE:
+            return True
+        if text in BOOL_FALSE:
+            return False
+        return spec.default
+    if spec.kind == "int":
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            return spec.default
+        low = spec.minimum if spec.minimum is not None else value
+        high = spec.maximum if spec.maximum is not None else value
+        if value < low or value > high:
+            return spec.default
+        return value
+    if spec.kind == "choice":
+        text = str(raw).strip()
+        for value, _label in spec.choices:
+            if text == value:
+                return value
+        return spec.default
+    return str(raw)
+
+
+def read_setting_values(feature_id: str, read_raw) -> dict:
+    """Every declared setting's value in force, from a raw reader callable.
+
+    ``read_raw`` takes the storage key and answers the stored value or ``None``;
+    the registry decides what that means. Kept here rather than in each caller
+    because the fallback rules (:func:`setting_value`) are the part a second
+    implementation would get wrong — and a page that drew a different default
+    from the one the bot reads is the exact drift this module exists to stop.
+    """
+    values = {}
+    for spec in settings_for(feature_id):
+        try:
+            raw = read_raw(setting_key(feature_id, spec.id))
+        except Exception:  # noqa: BLE001 — a failed read is the default, said plainly
+            raw = None
+        values[spec.id] = setting_value(spec, raw)
+    return values
+
+
+#: The controls a settings card knows how to draw, and the spellings a form or
+#: a script may use for a two-state one.
+SETTING_KINDS: frozenset[str] = frozenset({"bool", "int", "choice", "text"})
+BOOL_TRUE: frozenset[str] = frozenset({"1", "true", "on", "yes", "enabled"})
+BOOL_FALSE: frozenset[str] = frozenset({"0", "false", "off", "no", "disabled"})
+
+
+@dataclass(frozen=True)
 class Feature:
     """A toggleable (or always-on) area of the bot."""
 
@@ -44,6 +173,8 @@ class Feature:
     toggleable: bool = True
     # Help-menu category key, if it has one.
     help_key: str | None = None
+    # Per-server settings this system declares, drawn on its dashboard card.
+    settings: tuple[Setting, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -51,6 +182,11 @@ class Feature:
         if self.toggleable and self.help_key is None:
             # Default the help key to the id; validated by validate().
             object.__setattr__(self, "help_key", self.id)
+        seen: set[str] = set()
+        for spec in self.settings:
+            if spec.id in seen:
+                raise ValueError(f"Feature '{self.id}' declares setting '{spec.id}' twice")
+            seen.add(spec.id)
 
 
 FEATURES: tuple[Feature, ...] = (
@@ -140,9 +276,8 @@ FEATURES: tuple[Feature, ...] = (
         category="Management",
         description=(
             "Administrative bans, kicks, timeouts, warnings, message purges, and "
-            "automated audit logs in #logs — plus the automatic shields: real-time "
-            "anti-spam flood protection, Discord invite filter and unauthorized "
-            "link blocking. One switch runs all of it."
+            "automated audit logs in #logs. The automatic shields — invites, "
+            "links and floods — are their own system: see *Auto Moderation*."
         ),
         gate_commands=(
             "ban", "kick", "mute", "unmute", "unban", "warn", "warnings",
@@ -150,22 +285,127 @@ FEATURES: tuple[Feature, ...] = (
             "lockdown-server",
             "unlock", "unlock-server", "slowmode", "addrole", "removerole",
             "announce",
-            "automod",
         ),
         commands=(
             "/ban", "/kick", "/mute", "/unmute", "/warn", "/warnings",
             "/clearwarnings", "/purge", "/modlog", "/appeal", "/lockdown",
             "/unlock",
             "/slowmode", "/addrole", "/removerole", "/announce",
-            "/automod invites", "/automod antispam",
         ),
         cog="cogs.moderation",
         help_key="moderation",
     ),
-    # Automod & Shield was merged into Moderation & Logs above: one switch runs
-    # the manual actions and the automatic filters. `cogs.automod` still loads —
-    # via CORE_COGS below, for the same single-path reason radio and qna are
-    # there — and gates itself on "moderation".
+    # Automod — its own system, and its own switch.
+    #
+    # It was merged into Moderation & Logs once ("one switch runs the manual
+    # actions and the automatic filters"), and the merge is what made the
+    # complaint this entry answers possible: the only way to stop the automatic
+    # filters was to switch off bans, kicks, warnings and logging with them.
+    # A server that wants human moderators but no robot deleting its members'
+    # messages had no switch, and the dashboard had nothing to draw.
+    #
+    # `cogs.automod` still loads through CORE_COGS for the same mechanical
+    # reason radio and qna do — one `Feature.cog` path cannot hold a feature that
+    # is one file plus a registry row — and it gates itself on "automod" rather
+    # than on moderation. The settings below are the whole of its card: the two
+    # filters that already existed, the flood rule the cog used to hardcode, and
+    # the link filter the old copy advertised before any code implemented it.
+    Feature(
+        id="automod",
+        name="Auto Moderation",
+        icon="🤖",
+        category="Management",
+        description=(
+            "The automatic shields, on their own switch: invite links, ordinary "
+            "links (with an allowlist) and message floods are handled the moment "
+            "they happen, each one leaving a case in the moderation log and a "
+            "notice naming `/appeal`. Every threshold and length below is this "
+            "server's to set."
+        ),
+        gate_commands=("automod",),
+        commands=(
+            "/automod invites", "/automod links", "/automod antispam",
+            "/automod status",
+        ),
+        # No cog of its own: `cogs.automod` is a core cog that gates itself, so
+        # that a server with this system off still loads the listener (a disabled
+        # listener is how "turned off and still deleting" happens) and the gate
+        # does the deciding. See CORE_COGS.
+        cog=None,
+        help_key="automod",
+        settings=(
+            Setting(
+                id="block_invites",
+                label="Block Discord invite links",
+                help=(
+                    "Deletes a message carrying a discord.gg invite, records the case "
+                    "and points the member at `/appeal`."
+                ),
+                kind="bool",
+                default=False,
+            ),
+            Setting(
+                id="block_links",
+                label="Block links",
+                help=(
+                    "Deletes a message carrying any http(s) link that is not on the "
+                    "allowlist below."
+                ),
+                kind="bool",
+                default=False,
+            ),
+            Setting(
+                id="link_allowlist",
+                label="Allowed domains",
+                help=(
+                    "Domains that stay allowed while link blocking is on, separated "
+                    "by commas. Empty means every link is blocked."
+                ),
+                kind="text",
+                default="",
+            ),
+            Setting(
+                id="anti_spam",
+                label="Flood protection",
+                help="Watches for members sending many messages in a short window.",
+                kind="bool",
+                default=True,
+            ),
+            Setting(
+                id="spam_messages",
+                label="Messages before it acts",
+                help="How many messages inside the window trigger the flood rule.",
+                kind="int",
+                default=6,
+                minimum=2,
+                maximum=50,
+            ),
+            Setting(
+                id="spam_window_seconds",
+                label="Seconds those messages may arrive in",
+                help="The length of the window the message count is counted over.",
+                kind="int",
+                default=5,
+                minimum=1,
+                maximum=60,
+            ),
+            Setting(
+                id="spam_timeout_minutes",
+                label="Timeout length (minutes)",
+                help=(
+                    "How long a flooding member is timed out for. Zero records the "
+                    "flood in the log without timing anybody out."
+                ),
+                kind="int",
+                default=5,
+                minimum=0,
+                maximum=1440,
+            ),
+        ),
+    ),
+    # The one line above the starboard entry used to say Automod & Shield was
+    # merged into Moderation & Logs. It is not merged any more — see the entry
+    # above and `cogs/automod.py`'s own note about which switch it answers to.
     Feature(
         id="starboard",
         name="Starboard",
@@ -300,6 +540,66 @@ FEATURES: tuple[Feature, ...] = (
         ),
         cog="cogs.structure",
         help_key="structure",
+        settings=(
+            Setting(
+                id="channel_delete",
+                label="Channels one command may delete",
+                help="Above this, `/structure channel-delete` stops and asks.",
+                kind="int",
+                default=1,
+                minimum=0,
+                maximum=200,
+                key="confirmation_ceiling.channel_delete",
+            ),
+            Setting(
+                id="channel_archive",
+                label="Channels one archive may clear out",
+                help="Above this, `/structure channel-archive` stops and asks.",
+                kind="int",
+                default=3,
+                minimum=0,
+                maximum=200,
+                key="confirmation_ceiling.channel_archive",
+            ),
+            Setting(
+                id="role_delete",
+                label="Roles one command may delete",
+                help="Above this, `/structure role-delete` stops and asks.",
+                kind="int",
+                default=1,
+                minimum=0,
+                maximum=200,
+                key="confirmation_ceiling.role_delete",
+            ),
+            Setting(
+                id="role_purge",
+                label="Members one role-purge may touch",
+                help="Above this, `/structure role-purge` stops and asks.",
+                kind="int",
+                default=5,
+                minimum=0,
+                maximum=200,
+                key="confirmation_ceiling.role_purge",
+            ),
+        ),
+    ),
+    Feature(
+        id="reaction_roles",
+        name="Reaction Roles",
+        icon="🎭",
+        category="Community",
+        description=(
+            "A reaction on a message is a role: pick an emoji, point it at a role, "
+            "and members take it off and put it back on themselves — with no "
+            "command for them to learn and no moderator involved. Mappings are "
+            "managed from this server's dashboard as well as from `/reactionrole`."
+        ),
+        gate_commands=("reactionrole",),
+        commands=(
+            "/reactionrole add", "/reactionrole remove", "/reactionrole list",
+        ),
+        cog="cogs.reaction_roles",
+        help_key="reaction_roles",
     ),
     # Radio and the anonymous question box: **off by default**, one flag per
     # server.
@@ -418,10 +718,9 @@ SHARED_GATES: Mapping[str, tuple[str, ...]] = {
 # and `command_scope` keeps them out of a picker that has not opted in. Loading a
 # cog registers its commands; it does not offer them.
 #
-# `cogs.automod` is here for the same mechanical reason: Automod & Shield was
-# merged into Moderation & Logs, `Feature.cog` holds one path, so the filters'
-# cog loads as a core cog and gates itself on `"moderation"` — one switch runs
-# the manual actions and the automatic ones.
+# `cogs.automod` is here for the same mechanical reason: Auto Moderation is one
+# file plus a registry row, so the cog loads as a core cog and gates itself on
+# "automod" — one switch runs the invite, link and flood filters together.
 #
 # `cogs.support` is here because it is not a server's feature at all: the support
 # channel is a deployment setting, the conversation belongs to the operator, and
@@ -653,6 +952,25 @@ def default_enabled(module_id: str) -> bool:
     return feature.enabled_by_default
 
 
+def setting_meta(spec: Setting) -> dict:
+    """One declared setting as the dashboard template reads it.
+
+    A plain mapping rather than the dataclass so the page cannot call a reader
+    the endpoint would never have used: the two sides of a control post the same
+    ids, the same kinds and the same bounds, because both were handed this.
+    """
+    return {
+        "id": spec.id,
+        "label": spec.label,
+        "help": spec.help,
+        "kind": spec.kind,
+        "default": spec.default,
+        "minimum": spec.minimum,
+        "maximum": spec.maximum,
+        "choices": list(spec.choices),
+    }
+
+
 def dashboard_modules() -> list[dict]:
     """Card metadata consumed by ``templates/dashboard.html``."""
     return [
@@ -663,6 +981,9 @@ def dashboard_modules() -> list[dict]:
             "category": f.category,
             "desc": f.description,
             "commands": list(f.commands),
+            # The system's own settings, declared beside the system. Empty for
+            # most; a card with settings draws a form under its switch.
+            "settings": [setting_meta(spec) for spec in f.settings],
         }
         for f in FEATURES
         if f.toggleable
@@ -696,6 +1017,7 @@ def validate() -> list[str]:
     problems: list[str] = []
     seen_ids: set[str] = set()
     seen_help: set[str] = set()
+    seen_keys: dict[str, str] = {}
     for f in FEATURES:
         if f.id in seen_ids:
             problems.append(f"duplicate feature id: {f.id}")
@@ -704,8 +1026,18 @@ def validate() -> list[str]:
             if f.help_key in seen_help:
                 problems.append(f"duplicate help key: {f.help_key}")
             seen_help.add(f.help_key)
-        if f.toggleable and not f.commands and not f.gate_commands:
+        if f.toggleable and not f.commands and not f.gate_commands and not f.settings:
             problems.append(f"toggleable feature '{f.id}' gates no commands")
+        for spec in f.settings:
+            key = setting_key(f.id, spec.id)
+            owner = seen_keys.get(key)
+            if owner:
+                problems.append(
+                    f"setting key '{key}' is claimed by both {owner} and {f.id}"
+                )
+            seen_keys[key] = f.id
+            if spec.kind == "int" and spec.minimum is None and spec.maximum is None:
+                problems.append(f"setting '{key}' is an int with no bounds")
     try:
         command_gates()
     except ValueError as exc:

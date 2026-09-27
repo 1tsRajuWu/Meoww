@@ -9,8 +9,9 @@ HELP_MODULES = {
     "moderation": {
         "title": "🛡️ Moderation & Logs",
         "desc": (
-            "Complete server protection, disciplinary actions, automatic filters, "
-            "and logging tools.\n\n"
+            "Complete server protection: disciplinary actions, the audit log, and "
+            "the doors a member has when an action lands on them. The automatic "
+            "filters are their own system — see 🤖 **Auto Moderation**.\n\n"
             "> `/warn <member> <reason>` — Issue an official warning\n"
             "> `/warnings <member>` — View warning history for a user\n"
             "> `/clearwarnings <member>` — Clear all warnings for a user\n"
@@ -23,14 +24,45 @@ HELP_MODULES = {
             "> `/appeal <reason>` — Ask a human to review an action taken against you\n"
             "> `/modlog <channel>` — Set the moderation audit log channel\n"
         "> `/modlog` — Show where the log goes, and whether I can write there\n"
-        "> `/modlog off` — Stop logging, without losing the cases already recorded\n"
-            "> `/automod invites <enabled>` — Toggle blocking of Discord invite links\n"
-            "> `/automod antispam <enabled>` — Toggle rapid-message flood protection\n\n"
-            "Every automatic action is written to the moderation log with the rule "
-            "that fired, and the member it hit is told they can run `/appeal`."
+        "> `/modlog off` — Stop logging, without losing the cases already recorded\n\n"
+            "Every action — manual or automatic — is written to the moderation log, "
+            "and the member it hit is told they can run `/appeal`."
         ),
         "color": 0xED4245,
         "emoji": "🛡️"
+    },
+    "automod": {
+        "title": "🤖 Auto Moderation",
+        "desc": (
+            "The automatic shields, on one switch of their own — so a server can "
+            "keep human moderation and still ask the robot to stand down.\n\n"
+            "> `/automod invites <enabled>` — Block Discord invite links\n"
+            "> `/automod links <enabled>` — Block ordinary links (an allowlist "
+            "keeps the ones this server uses)\n"
+            "> `/automod antispam <enabled>` — Flood protection\n"
+            "> `/automod status` — What the filters are doing here right now\n\n"
+            "Every automatic action leaves a case in the moderation log with the "
+            "rule that fired, and the member it hit is told about `/appeal`. The "
+            "thresholds — how many messages, over how long, and for how long a "
+            "flooder is timed out — are set on this server's dashboard."
+        ),
+        "color": 0x5865F2,
+        "emoji": "🤖"
+    },
+    "reaction_roles": {
+        "title": "🎭 Reaction Roles",
+        "desc": (
+            "A reaction is a role: members take one off and put it back on "
+            "themselves, with nothing for them to type.\n\n"
+            "> `/reactionrole add <message> <emoji> <role>` — Link an emoji on a "
+            "message to a role and let the bot react for you\n"
+            "> `/reactionrole remove <message> <emoji>` — Stop a mapping\n"
+            "> `/reactionrole list` — Every mapping this server has\n\n"
+            "The dashboard's Server page manages the same list, with a picker for "
+            "the role so nobody has to type an id."
+        ),
+        "color": 0xEB459E,
+        "emoji": "🎭"
     },
     "starboard": {
         "title": "⭐ Community Starboard",
@@ -287,7 +319,9 @@ HELP_MODULES = {
 # help menu advertising a system the bot does not have.
 HELP_HOME_BODY = (
     "Your all-in-one command center. Pick a category below to open its full command list.\n\n"
-    "- 🛡️ **Moderation & Logs** — warns, bans, timeouts, invite & flood filters, the audit log\n"
+    "- 🛡️ **Moderation & Logs** — warns, bans, timeouts, and the audit log every action lands in\n"
+    "- 🤖 **Auto Moderation** — the invite, link and flood shields, each the server's own to tune\n"
+    "- 🎭 **Reaction Roles** — an emoji on a message that hands out a role by itself\n"
     "- ⭐ **Starboard** — community highlights\n"
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"

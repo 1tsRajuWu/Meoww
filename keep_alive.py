@@ -386,21 +386,53 @@ def _purge_magic_tokens():
         MAGIC_TOKENS.pop(token, None)
 
 
-def _forwarded_host() -> str:
-    """The address this request arrived on, when the thing in front of us says so.
+def _proxy_signed() -> bool:
+    """Whether this request proves it came through our own worker.
 
-    Empty when nothing does — a direct connection to this process, a local run, an
-    offline build — and that is deliberately **not** answered with a guess. The
-    fallbacks in :func:`dashboard_base_url` answer a different question ("which
-    address should a link name"), and a request that arrived on no address in
-    particular must not be dressed as the member dashboard's: the three published
-    addresses draw three different headers, so a guess here puts the wrong one on
-    the page.
+    A hop header is a claim about a chain the caller may not be part of, and the
+    backend is directly reachable — measured on the live deployment: a bare
+    `curl -H 'X-Forwarded-Host: evil.example'` to the Space's own address was
+    answered with an OAuth redirect_uri pointing at `evil.example`, because
+    "behind a proxy" had been read as "the header can be believed". It cannot: the
+    Cloudflare edge is not the only door, and the address in that header is what
+    a sign-in comes back to.
+
+    So a forwarded value is believed only when the request carries *our worker's*
+    stamp, which is an HMAC-free shared secret compared in constant time — the
+    one thing a caller cannot write. Two conditions, both required: the
+    deployment says it is proxied (``_trust_proxy_headers``) and the secret
+    matches.
     """
+    if not (_trust_proxy_headers and OWNER_PROXY_SECRET):
+        return False
     try:
         from flask import has_request_context  # noqa: PLC0415 — one reader, no cycle
 
-        if has_request_context() and _trust_proxy_headers:
+        if not has_request_context():
+            return False
+        offered = request.headers.get(PROXY_SECRET_HEADER, "")
+        return bool(offered) and secrets.compare_digest(offered, OWNER_PROXY_SECRET)
+    except Exception:  # noqa: BLE001 — a request context that cannot be read proves nothing
+        return False
+
+
+def _forwarded_host() -> str:
+    """The address this request arrived on, when our own worker says so.
+
+    Empty when nothing does — a direct connection to this process, a local run, an
+    offline build, or a forged header — and that is deliberately **not** answered
+    with a guess. The fallbacks in :func:`dashboard_base_url` answer a different
+    question ("which address should a link name"), and a request that arrived on
+    no address in particular must not be dressed as the member dashboard's: the
+    three published addresses draw three different headers, so a guess here puts
+    the wrong one on the page.
+    """
+    if not _proxy_signed():
+        return ""
+    try:
+        from flask import has_request_context  # noqa: PLC0415 — as above
+
+        if has_request_context():
             return (request.headers.get("X-Forwarded-Host") or "").strip()
     except Exception:
         pass
@@ -408,11 +440,18 @@ def _forwarded_host() -> str:
 
 
 def _forwarded_proto() -> str:
-    """The scheme that address was reached over, `https` unless it says otherwise."""
+    """The scheme that address was reached over, `https` unless it says otherwise.
+
+    Signed like the host, and for the same reason: the scheme decides whether the
+    session cookie is marked Secure and whether HSTS is sent, and a caller who
+    can set it can talk a deployment out of both.
+    """
+    if not _proxy_signed():
+        return "https"
     try:
         from flask import has_request_context  # noqa: PLC0415 — as above
 
-        if has_request_context() and _trust_proxy_headers:
+        if has_request_context():
             return (request.headers.get("X-Forwarded-Proto") or "").strip() or "https"
     except Exception:
         pass
@@ -753,32 +792,32 @@ def _normalise_ip(value: str | None) -> str | None:
 def _client_ip() -> str:
     """Return the client IP used for rate limiting.
 
-    Three sources, in the order they can be believed:
+    Two sources, in the order they can be believed:
 
-    1. The **owner site's worker stamp**, which is honoured only when it arrives
-       with ``OWNER_PROXY_SECRET``. That host is a proxy of a proxy, so the
-       forwarded chain ends at *Cloudflare* rather than at the visitor: every
-       person on the owner domain shared one bucket, which is a five-request
-       lockout anybody could trigger, and it is why the worker now names the
-       visitor instead of leaving us to infer one.
-    2. **X-Forwarded-For**, only when a trusted proxy terminates the connection.
-       Each proxy *appends* the address it saw, so the rightmost hop is the
-       safer choice (leftward entries can be client-spoofed). Prefer that hop
-       over ``parts[0]``.
-    3. The **peer** address, which is the only one a caller cannot write.
+    1. The **worker's signed stamp**, honoured only when it arrives with
+       ``OWNER_PROXY_SECRET`` (:func:`_proxy_signed`). That host is a proxy of a
+       proxy, so a forwarded chain ends at *Cloudflare* rather than at the
+       visitor: every person on the owner domain shared one bucket, which is a
+       five-request lockout anybody could trigger, and it is why the worker
+       names the visitor instead of leaving us to infer one.
+    2. The **peer** address, which is the only one a caller cannot write.
+
+    ``X-Forwarded-For`` is deliberately gone. It read as evidence while the
+    backend was only ever reached through the edge; the deployment is reachable
+    directly too, where the header is whatever the caller typed.
     """
-    if OWNER_PROXY_SECRET:
-        offered = request.headers.get(PROXY_SECRET_HEADER, "")
-        if offered and secrets.compare_digest(offered, OWNER_PROXY_SECRET):
-            stamped = _normalise_ip(request.headers.get(CLIENT_IP_HEADER))
-            if stamped:
-                return stamped
-    if _trust_proxy_headers:
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
-        if parts:
-            # Safer hop: rightmost address appended by our trusted proxy.
-            return parts[-1][:64]
+    if _proxy_signed():
+        stamped = _normalise_ip(request.headers.get(CLIENT_IP_HEADER))
+        if stamped:
+            return stamped
+    # The peer address, and **nothing else**. ``X-Forwarded-For`` used to be the
+    # fallback for a deployment with the trust flag on, and that fallback was the
+    # hole: the backend answers its own address directly, so a caller who never
+    # went through the worker could pick the hop the rate limiter counted — five
+    # wrong passkeys per invented address is an unlimited number of guesses. A
+    # chain a caller can write is not evidence, so it is not read at all. A
+    # proxy that wants its visitors counted per visitor sends the signed stamp
+    # (see ``scripts/build_owner.py``), not a header.
     return (request.remote_addr or "unknown")[:64]
 
 
@@ -1439,6 +1478,11 @@ GATED_PREFIXES = (
     # one the switches answer with.
     "/api/level-settings",
     "/api/server-settings",
+    # A system's own settings (thresholds, filters, ceilings) and the reaction
+    # roles a server manages from its Server page: both are the same authority
+    # and the same agreement as the switches they sit beside.
+    "/api/module-settings",
+    "/api/reaction-roles",
     # The support bridge: a message posted from here speaks as the bot in a
     # channel, which is the same authority the composer has and belongs behind
     # the same agreement.
@@ -5091,6 +5135,119 @@ def _log_picker(guild_id, choices=()) -> dict:
     }
 
 
+#: Where a mapped reaction-role message lives, for the link the page draws.
+REACTION_ROLE_LINK = "https://discord.com/channels"
+
+#: The three snowflakes a pasted message link carries, in order.
+_REACTION_ROLE_LINK_RE = re.compile(r"channels/(\d+)/(\d+)/(\d+)")
+
+
+def _reaction_roles_reading(guild_id, roles=()) -> dict:
+    """Every mapping this server has, with the role each emoji hands out.
+
+    A row whose role was deleted since is still listed and said to be gone: a
+    mapping nothing will ever grant is exactly what an administrator needs to
+    see, and hiding it removes the only place it still exists. Reads are sync
+    because this is a page, and a failed read is *said* rather than drawn as an
+    empty list — the two look identical in a list and mean opposite things.
+    """
+    try:
+        rows = db.read_reaction_roles_sync(guild_id)
+    except Exception as exc:  # noqa: BLE001 — a reading, never a 500
+        print(f"[DASHBOARD] ⚠️ could not read reaction roles for {guild_id}: {exc}", flush=True)
+        return {"read": False, "rows": []}
+    by_id = {row["id"]: row for row in roles}
+    listed = []
+    for row in rows:
+        role = by_id.get(str(row["role_id"]))
+        listed.append({
+            "message_id": str(row["message_id"]),
+            "channel_id": str(row["channel_id"]),
+            "emoji": row["emoji"],
+            "role_id": str(row["role_id"]),
+            "role_name": role["name"] if role else "",
+            # Only claim "gone" when Discord actually handed back a list; a
+            # failed read is not evidence that a role was deleted.
+            "role_gone": bool(roles) and role is None,
+            "above": bool(role and role["above"]),
+            "link": (
+                f"{REACTION_ROLE_LINK}/{int(guild_id)}/{int(row['channel_id'])}/{int(row['message_id'])}"
+                if row["channel_id"] else ""
+            ),
+        })
+    return {"read": True, "rows": listed}
+
+
+def _role_choices(guild_id) -> list:
+    """Every role this server has that could be handed to a new member.
+
+    A reading from Discord, with the same honesty rule the channel list follows:
+    an empty list means "could not read, or there are none" and the page says
+    which. ``above`` marks a role Discord would refuse to assign — the bot's own
+    role sits at or below it — which is the one thing about a default role that
+    silently does nothing when it is wrong.
+    """
+    guild = _live_guild(guild_id)
+    if guild is None:
+        return []
+    me = getattr(guild, "me", None)
+    top = getattr(getattr(me, "top_role", None), "position", None)
+    rows = []
+    for role in getattr(guild, "roles", None) or []:
+        # ``Role.is_default`` is a *method*: reading the attribute as a flag is
+        # truthy for every role, which silently dropped the whole list.
+        is_default = getattr(role, "is_default", None)
+        if callable(is_default) and is_default():
+            continue
+        position = getattr(role, "position", 0) or 0
+        rows.append({
+            # Text, like every id that crosses to a browser: a snowflake is not
+            # a JavaScript number, and the option it is compared against is a
+            # string (see ``_console_id``).
+            "id": str(getattr(role, "id", "")),
+            "name": str(getattr(role, "name", "")),
+            "position": int(position),
+            "above": bool(top is not None and int(top) <= int(position)),
+        })
+    rows.sort(key=lambda row: (-row["position"], row["name"].lower()))
+    return rows
+
+
+def _default_role_reading(guild_id, choices=()) -> dict:
+    """The default role as its own control needs it: stored, and whether it lands.
+
+    The same split the log picker uses: this reports *what is set* and the
+    checklist on the overview reports whether it works. A stored role that is not
+    in the list Discord just handed back is still shown — a picker that fell back
+    to its first option would draw a server that assigns a role as one that
+    assigns none.
+    """
+    try:
+        raw = db.read_setting_sync(guild_id, DEFAULT_ROLE_SETTING)
+    except Exception as exc:  # noqa: BLE001 — a reading, never a 500
+        print(
+            f"[DASHBOARD] ⚠️ could not read {DEFAULT_ROLE_SETTING} for {guild_id}: {exc}",
+            flush=True,
+        )
+        return {"read": False, "role_id": "", "current": "", "above": False, "offered": True}
+    if raw is None or str(raw).strip() == "":
+        return {"read": True, "role_id": "", "current": "", "above": False, "offered": True}
+    role_id = _int_or_none(raw)
+    if role_id is None:
+        return {
+            "read": True, "role_id": "", "current": f"{raw}",
+            "above": False, "offered": False,
+        }
+    match = next((row for row in choices if row["id"] == str(role_id)), None)
+    return {
+        "read": True,
+        "role_id": str(role_id),
+        "current": f"@{match['name']}" if match else f"role {role_id}",
+        "above": bool(match and match["above"]),
+        "offered": match is not None,
+    }
+
+
 def _default_role_health(guild, guild_id) -> dict | None:
     """The default role as the checklist needs it: set, real, and assignable.
 
@@ -5288,6 +5445,11 @@ def _dashboard_page(page: str, guild_id):
             "category": m["category"],
             "desc": m["desc"],
             "commands": m["commands"],
+            # A copy per render. The reading below writes each setting's value in
+            # force into its spec, and ``AVAILABLE_MODULES`` is module state that
+            # outlives one request — mutating it would hand the next render (and
+            # the test-suite) a stale value as if it were the registry's own.
+            "settings": [dict(spec) for spec in m.get("settings", ())],
             "enabled": is_enabled,
             "locked": override is not None,
             "state": ("Locked on" if override else "Locked off") if override is not None else "",
@@ -5297,6 +5459,18 @@ def _dashboard_page(page: str, guild_id):
                 "cannot change it. It is on the console's Systems page."
             ) if override is not None else ""
         })
+
+    # The settings each system declares, with this server's values in force —
+    # the reading half of every control the Systems page draws under its switch.
+    # Read through the registry so the number the page prints and the rule the
+    # bot applies are the same number, and read on every page for the same
+    # reason every other reading is: the overview's list links to these cards.
+    for module in modules_data:
+        values = features.read_setting_values(
+            module["id"], lambda key: db.read_setting_sync(guild_id, key)
+        )
+        for spec in module["settings"]:
+            spec["value"] = values.get(spec["id"])
 
     # What this server's own command list looks like — computed from the same
     # rule the publisher uses, so the panel and the picker cannot disagree.
@@ -5391,6 +5565,9 @@ def _dashboard_page(page: str, guild_id):
     )
     economy_reading = progression["economy"] or {}
     fee = economy_reading.get("fee") or {}
+    # Read once and handed to two readers — the picker and the reading above it —
+    # so the stored id is offered or explained against the same list.
+    role_choices = _role_choices(guild_id)
     return render_template(
         "dashboard.html",
         # The frame every served page wears, merged first so this page's own
@@ -5439,6 +5616,17 @@ def _dashboard_page(page: str, guild_id):
         # is drawn separately from the control it points at is how the advice and
         # the surface came apart in the first place.
         log_picker=_log_picker(guild_id, channel_choices),
+        # The other setting the overview's checklist points at. Both are read on
+        # every page for the same reason ``log_picker`` is: the findings live on
+        # the overview, and advice drawn apart from its control is how the two
+        # came apart in the first place. Roles come from the live guild object
+        # rather than an API call, so this costs nothing while somebody waits.
+        roles=role_choices,
+        default_role=_default_role_reading(guild_id, role_choices),
+        # The reaction-role mappings, on the same page for the same reason: they
+        # are rows this server owns, and the page that names the roles is the
+        # page that can offer one.
+        reaction_roles=_reaction_roles_reading(guild_id, role_choices),
         economy_display=_economy_display(progression["economy"]),
         level_display=_level_display(progression["levels"]),
         # What a member action may be asked for, from the one list the endpoint
@@ -6017,6 +6205,14 @@ def _on_bot_loop(coro, timeout: float = 20.0):
 
     loop = getattr(BOT_INSTANCE, "loop", None) if BOT_INSTANCE is not None else None
     if loop is None or not loop.is_running():
+        # The coroutine nobody is going to run is closed here rather than left
+        # to the garbage collector: an un-awaited one is a RuntimeWarning per
+        # request, and for a call that had already opened something the close is
+        # what lets it go. Found by the reaction-role tests, whose stand-in bot
+        # has no loop — the branch every "the bot is restarting" request takes.
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
         return {
             "success": False,
             "error": "The bot is not connected right now, so nothing was changed. Try again in a moment.",
@@ -9079,6 +9275,338 @@ def api_console_questions_reply():
     })
 
 
+@app.route("/api/reaction-roles", methods=["POST"])
+@_form_door
+def api_reaction_roles():
+    """Link an emoji on a message to a role, or stop a mapping.
+
+    The same rows ``/reactionrole`` writes, so the page and the command cannot
+    disagree about what a server has. Adding is the only write that touches
+    Discord — the bot reacts to the message, for the same reason the command
+    does: a mapping nobody can see is a mapping nobody uses — and a message it
+    could not reach is still **saved**, with the sentence saying so. Refusing the
+    save would pretend the mapping is not real while the listener, which needs no
+    channel, would work anyway.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = _json_or_form()
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server to save this for."}), 400
+
+    action = str(data.get("action") or "add").strip().lower()
+    if action == "remove":
+        return _remove_reaction_role(guild_id, data)
+    if action != "add":
+        return jsonify({"success": False, "error": "Unknown action"}), 400
+    return _add_reaction_role(guild_id, data)
+
+
+def _add_reaction_role(guild_id, data):
+    """One new mapping, from a pasted message link or a bare id."""
+    raw = str(data.get("message") or "").strip()
+    emoji = str(data.get("emoji") or "").strip()
+    role_id = _int_or_none(data.get("role_id"))
+    if not raw:
+        return jsonify({
+            "success": False,
+            "error": "Paste the message's link (or its id) so I know what to watch.",
+        }), 400
+    if not emoji:
+        return jsonify({"success": False, "error": "Pick the emoji members react with."}), 400
+    if len(emoji) > 100:
+        return jsonify({"success": False, "error": "That emoji is too long to be one."}), 400
+    if not role_id:
+        return jsonify({"success": False, "error": "Pick the role that reaction gives."}), 400
+
+    found = _REACTION_ROLE_LINK_RE.search(raw)
+    if found:
+        link_guild, channel_id, message_id = (int(part) for part in found.groups())
+        if link_guild != int(guild_id):
+            return jsonify({
+                "success": False,
+                "error": "That link is for another server — paste a message link from this one.",
+            }), 400
+    else:
+        digits = raw.strip("<>")
+        if not digits.isdigit():
+            return jsonify({
+                "success": False,
+                "error": (
+                    "That is not a message link or id — copy the message's link "
+                    "(right-click → Copy Message Link)."
+                ),
+            }), 400
+        channel_id, message_id = 0, int(digits)
+
+    roles = _role_choices(guild_id)
+    match = next((row for row in roles if row["id"] == str(role_id)), None)
+    if roles and match is None:
+        return jsonify({
+            "success": False,
+            "error": "That role is not in this server any more — reload the page for the list Discord just gave.",
+        }), 400
+    if match is not None and match["above"]:
+        return jsonify({
+            "success": False,
+            "error": (
+                f"**@{match['name']}** sits at or above the bot's own role, so Discord "
+                "refuses the assignment — the bot would report success while nothing "
+                "changed on the member. Pick a lower role."
+            ),
+        }), 400
+
+    # The escalation guard `/addrole` and `/reactionrole add` both use, asked on
+    # the web door too: a reaction that hands out a role is a grant nobody has to
+    # approve at the moment it happens, so the person wiring it up must be able
+    # to give that role themselves.
+    guild = _live_guild(guild_id)
+    role_obj = guild.get_role(int(role_id)) if guild is not None else None
+    if role_obj is not None:
+        actor = guild.get_member(int(_principal().user_id or 0))
+        blocked = permissions.role_grant_problem(role_obj, actor, guild)
+        if blocked:
+            return jsonify({"success": False, "error": blocked}), 403
+
+    try:
+        db.write_reaction_role_sync(guild_id, message_id, channel_id, emoji, role_id)
+    except (sqlite3.Error, OSError) as exc:
+        print(f"[DASHBOARD] ⚠️ could not save a reaction role for {guild_id}: {exc}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": "The database refused that write, so nothing changed.",
+        }), 500
+
+    session["guild_id"] = guild_id
+    name = match["name"] if match else str(role_id)
+    reacted = {"success": False, "error": "the message id alone does not say which channel it is in"}
+    if channel_id:
+        reacted, _status = _on_bot_loop(_react_to_message(channel_id, message_id, emoji))
+    if reacted.get("success"):
+        said = (
+            f"Reacting with {emoji} on that message now gives **@{name}**, and "
+            "removing the reaction takes it back."
+        )
+    else:
+        said = (
+            f"Saved: {emoji} on message `{message_id}` now gives **@{name}**, and "
+            "removing the reaction takes it back. I could not add the reaction "
+            f"myself ({reacted.get('error') or 'Discord refused'}) — add it by hand "
+            "and it will work, or delete the reaction to retire the mapping."
+        )
+    return jsonify({"success": True, "said": said})
+
+
+async def _react_to_message(channel_id, message_id, emoji):
+    """Put the reaction on a newly mapped message, on the bot's own loop.
+
+    A dict rather than a raise: failing to draw the emoji is not failing to make
+    the mapping, and the sentence the page shows distinguishes the two.
+    """
+    if BOT_INSTANCE is None:
+        return {"success": False, "error": "the bot is not connected"}
+    channel = BOT_INSTANCE.get_channel(int(channel_id))
+    if channel is None:
+        return {"success": False, "error": "that channel is not visible to the bot"}
+    try:
+        message = await channel.fetch_message(int(message_id))
+        await message.add_reaction(emoji)
+    except Exception as exc:  # noqa: BLE001 — a refusal, never a 500
+        return {"success": False, "error": type(exc).__name__}
+    return {"success": True}
+
+
+def _remove_reaction_role(guild_id, data):
+    """Forget one mapping — the reactions already on the message stay."""
+    message_id = _int_or_none(data.get("message_id"))
+    emoji = str(data.get("emoji") or "").strip()
+    if not message_id or not emoji:
+        return jsonify({
+            "success": False,
+            "error": "That row is missing the message or the emoji — reload the page.",
+        }), 400
+    try:
+        removed = db.delete_reaction_role_sync(message_id, emoji)
+    except (sqlite3.Error, OSError) as exc:
+        print(f"[DASHBOARD] ⚠️ could not remove a reaction role for {guild_id}: {exc}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": "The database refused that write, so nothing changed.",
+        }), 500
+    if not removed:
+        return jsonify({
+            "success": True,
+            "said": (
+                "That mapping was already gone — the list above is what Discord and "
+                "the database agree on now."
+            ),
+        })
+    return jsonify({
+        "success": True,
+        "said": (
+            f"{emoji} no longer changes anybody's roles on that message. The "
+            "reactions already on it stay, and the roles members already have are "
+            "untouched."
+        ),
+    })
+
+
+@app.route("/api/module-settings", methods=["POST"])
+@_form_door
+def api_module_settings():
+    """One system's own settings — thresholds, filters, ceilings — from a form.
+
+    The controls the registry declares for a system, written through the same
+    ``guild_settings`` table every other per-server choice lives in. The shape is
+    ``/api/level-settings``'s for the same reason: only the fields present in the
+    request move, so a script may change one threshold without restating the
+    other six — while the page's own form always sends every field, which is what
+    makes an unticked box mean *off* rather than *unchanged*.
+
+    Three refusals matter and each is in its own words:
+
+    * an unknown system, or one that declares no settings;
+    * a value outside the declaration's own bounds — never silently clamped,
+      because a page that saves 500 and prints 200 is a page arguing with itself;
+    * a system the operator has force-closed for every server, refused with the
+      same operator sentence the switch above it uses. There is nothing to tune
+      in a system that may not run anywhere.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = _json_or_form()
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server to save these for."}), 400
+
+    feature_id = str(data.get("module") or "").strip()
+    feature = features.get(feature_id)
+    if feature is None or not feature.settings:
+        return jsonify({
+            "success": False,
+            "error": "That system does not have settings to change.",
+        }), 400
+
+    forced = modules.override_for(feature_id)
+    if forced is False:
+        return jsonify({
+            "success": False,
+            "error": _operator_lock_sentence({feature_id: False}),
+            "operator_locked": True,
+        }), 403
+
+    saved = []
+    for spec in feature.settings:
+        if spec.id not in data:
+            continue
+        value, error = _posted_setting_value(spec, data.get(spec.id))
+        if error:
+            return jsonify({"success": False, "error": error}), 400
+        try:
+            db.write_setting_sync(guild_id, features.setting_key(feature_id, spec.id), value)
+        except (sqlite3.Error, OSError) as exc:
+            print(f"[DASHBOARD] ⚠️ could not write {spec.id} for {guild_id}: {exc}", flush=True)
+            return jsonify({
+                "success": False,
+                "error": (
+                    "The database refused that write, so nothing changed — this "
+                    "system is still running on the rules it had."
+                ),
+            }), 500
+        saved.append(f"{spec.label} — {_setting_display(spec, value)}")
+
+    if not saved:
+        return jsonify({"success": False, "error": "Nothing to change."}), 400
+
+    session["guild_id"] = guild_id
+    _invalidate_module_settings(guild_id)
+    _schedule_cloud_backup()
+    return jsonify({
+        "success": True,
+        "said": f"Saved for **{feature.name}**: " + "; ".join(saved) + ".",
+        "module": feature_id,
+    })
+
+
+def _posted_setting_value(spec, raw):
+    """One posted value, validated against its declaration.
+
+    Returns ``(value, "")`` when it is acceptable and ``(None, sentence)`` when it
+    is not. Deliberately stricter than :func:`features.setting_value`: that one
+    answers "what is in force" for a *stored* value and falls back to the default,
+    which is the right answer for a reader and the wrong one for a writer — a
+    save that quietly became the default is a control that does not do what it
+    says.
+    """
+    if spec.kind == "bool":
+        text = str(raw).strip().lower()
+        if text in features.BOOL_TRUE:
+            return True, ""
+        if text in features.BOOL_FALSE:
+            return False, ""
+        return None, f"{spec.label} has to be on or off."
+    if spec.kind == "int":
+        value = _int_or_none(raw)
+        if value is None:
+            return None, f"{spec.label} has to be a whole number."
+        if spec.minimum is not None and value < spec.minimum:
+            return None, f"{spec.label} cannot be below {spec.minimum}."
+        if spec.maximum is not None and value > spec.maximum:
+            return None, f"{spec.label} cannot be above {spec.maximum}."
+        return value, ""
+    if spec.kind == "choice":
+        text = str(raw).strip()
+        for value, _label in spec.choices:
+            if text == value:
+                return value, ""
+        offered = ", ".join(value for value, _label in spec.choices)
+        return None, f"{spec.label} has to be one of: {offered}."
+    text = str(raw or "").strip()
+    if len(text) > 500:
+        return None, f"{spec.label} is too long — 500 characters at most."
+    return text, ""
+
+
+def _setting_display(spec, value) -> str:
+    """One saved value as the notice says it back, in the control's own words."""
+    if spec.kind == "bool":
+        return "on" if value else "off"
+    text = str(value if value is not None else "")
+    return f"`{text}`" if text else "empty"
+
+
+def _invalidate_module_settings(guild_id) -> None:
+    """Tell the live bot its cached rules changed.
+
+    ``cogs.automod`` caches its settings per guild, and this endpoint writes them
+    from the Flask thread. Without this, a threshold saved on the page would keep
+    judging messages by the old rule until a restart — the drift the registry
+    exists to prevent, one cache deep. A missing cog is not a failure: the
+    dashboard and the bot are separate deployments more often than not.
+    """
+    lookup = getattr(BOT_INSTANCE, "get_cog", None)
+    if not callable(lookup):
+        return
+    try:
+        live = lookup("AutoMod")
+    except Exception:  # noqa: BLE001 — a stand-in bot in a test render
+        return
+    cache = getattr(live, "settings_cache", None)
+    if isinstance(cache, dict):
+        cache.pop(int(guild_id), None)
+
+
 @app.route("/api/toggle", methods=["POST"])
 @_form_door
 def api_toggle():
@@ -9333,6 +9861,12 @@ def api_server_settings():
     if guild_id is None:
         return jsonify({"success": False, "error": "No server to save this for."}), 400
 
+    # Two settings, one door, and the second one is here for the same reason the
+    # first is: the overview's checklist sends an administrator to this page, and
+    # the page named in a finding has to hold the control that answers it.
+    if "default_role_id" in data:
+        return _save_default_role(guild_id, data.get("default_role_id"))
+
     if "log_channel_id" not in data:
         return jsonify({"success": False, "error": "Nothing to change."}), 400
 
@@ -9384,6 +9918,91 @@ def api_server_settings():
         "success": True,
         "log_channel_id": str(channel_id),
         "said": _log_channel_sentence(guild_id, channel_id),
+    })
+
+
+def _save_default_role(guild_id, raw):
+    """Point this server's welcome role — the row ``/defaultrole`` writes.
+
+    Empty clears it, which is the same move ``/defaultrole clear`` makes and the
+    same meaning ``guild_settings`` gives every absent row.
+
+    A role that is not in this server is refused rather than stored: the bot
+    would go on quietly assigning nothing while the page showed the role
+    selected, which is the failure this control exists to make visible. When the
+    role list could not be read at all the id is accepted — a write refused
+    because Discord was unreachable is a write somebody stops trusting.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        try:
+            db.write_setting_sync(guild_id, DEFAULT_ROLE_SETTING, None)
+        except (sqlite3.Error, OSError) as exc:
+            print(
+                f"[DASHBOARD] ⚠️ could not clear {DEFAULT_ROLE_SETTING} for {guild_id}: {exc}",
+                flush=True,
+            )
+            return jsonify({
+                "success": False,
+                "error": (
+                    "The database refused that write, so nothing changed — the role "
+                    "below is still the one new members get."
+                ),
+            }), 500
+        session["guild_id"] = guild_id
+        return jsonify({
+            "success": True,
+            "default_role_id": "",
+            "said": (
+                "New members will not be given a role on arrival. `/defaultrole clear` "
+                "in the server does the same thing."
+            ),
+        })
+
+    role_id = _int_or_none(text)
+    if role_id is None:
+        return jsonify({
+            "success": False,
+            "error": "That is not a role id — pick a role from the list.",
+        }), 400
+
+    choices = _role_choices(guild_id)
+    match = next((row for row in choices if row["id"] == str(role_id)), None)
+    if choices and match is None:
+        return jsonify({
+            "success": False,
+            "error": (
+                "That role is not in this server any more — reload the page for the "
+                "list Discord just gave."
+            ),
+        }), 400
+
+    try:
+        db.write_setting_sync(guild_id, DEFAULT_ROLE_SETTING, role_id)
+    except (sqlite3.Error, OSError) as exc:
+        print(
+            f"[DASHBOARD] ⚠️ could not write {DEFAULT_ROLE_SETTING} for {guild_id}: {exc}",
+            flush=True,
+        )
+        return jsonify({
+            "success": False,
+            "error": (
+                "The database refused that write, so nothing changed — new members "
+                "still get whatever they got before."
+            ),
+        }), 500
+
+    name = match["name"] if match else str(role_id)
+    note = (
+        " The bot's own role sits at or below it, so Discord will refuse the "
+        "assignment until the bot's role is dragged above it in Server Settings → Roles."
+        if (match and match["above"]) else ""
+    )
+    session["guild_id"] = guild_id
+    return jsonify({
+        "success": True,
+        "default_role_id": str(role_id),
+        "said": f"New members will be given **@{name}** on arrival.{note}",
     })
 
 

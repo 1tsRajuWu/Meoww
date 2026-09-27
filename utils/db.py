@@ -101,6 +101,8 @@ async def setup():
             message_id INTEGER,
             emoji TEXT,
             role_id INTEGER,
+            guild_id INTEGER,
+            channel_id INTEGER,
             PRIMARY KEY (message_id, emoji)
         )''')
         await db.execute('''CREATE TABLE IF NOT EXISTS mod_cases (
@@ -468,18 +470,59 @@ async def setup():
                 "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v2', '1')"
             )
 
+        # One-time migration: Auto Moderation is its own system again. It was
+        # merged into Moderation & Logs once, and that merge is why a server
+        # could not stop the automatic filters without stopping bans, kicks,
+        # warnings and logging too. A server that had Moderation switched off
+        # had the filters off with it, so those filters are written off here
+        # rather than silently switched back on by the new system's own
+        # default. `INSERT OR IGNORE` because a row this server wrote itself is
+        # its answer, not this migration's to overwrite. Runs exactly once, so
+        # either switch may be changed afterwards and stick.
+        # One-time migration: the reaction-roles table grows the two columns the
+        # feature needs now that it is back. The retired cog stored a mapping as
+        # (message_id, emoji, role_id) with no guild and no channel, so nothing
+        # could list it, scope it or write it down as an action; the dashboard
+        # manages the same rows, and it cannot answer "whose mapping is this"
+        # without a guild. `ALTER TABLE` rather than a rebuild because the rows
+        # are the only record of mappings members may still be reacting to, and a
+        # dropped table is a promise the bot stops keeping silently. Guarded by
+        # the column list rather than a marker, so a database restored from an
+        # older backup is repaired too.
+        async with db.execute("PRAGMA table_info(reaction_roles)") as cur:
+            _reaction_columns = {row[1] for row in await cur.fetchall()}
+        if "guild_id" not in _reaction_columns:
+            await db.execute("ALTER TABLE reaction_roles ADD COLUMN guild_id INTEGER")
+        if "channel_id" not in _reaction_columns:
+            await db.execute("ALTER TABLE reaction_roles ADD COLUMN channel_id INTEGER")
+
+        async with db.execute(
+            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'modules_automod_split_v1'"
+        ) as cur:
+            _automod_split = await cur.fetchone()
+        if not _automod_split:
+            await db.execute(
+                "INSERT OR IGNORE INTO guild_modules (guild_id, module_name, enabled, updated_at) "
+                "SELECT guild_id, 'automod', 0, CURRENT_TIMESTAMP FROM guild_modules "
+                "WHERE module_name = 'moderation' AND enabled = 0"
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) "
+                "VALUES (0, 'modules_automod_split_v1', '1')"
+            )
+
         # One-time sweep: saved rows for modules the registry has retired. This
-        # pass's example is `automod` — Automod & Shield was merged into
-        # Moderation & Logs, and a guild that had the shield switched on kept a
-        # row for a module nothing reads any more: `modules._load_from_db`
-        # ignores unknown ids, `set_enabled` refuses to write one, and both the
-        # dashboard and /help are built from the registry. So the row is the only
-        # place that system still exists, and no switch anywhere can turn it off
-        # — which is why the merge above had to clean it up rather than leave it.
-        # `music` is the same kind of orphan, one retirement older, and it is the
-        # argument against a hand-written list (the v1 and v2 blocks above name
-        # theirs): a list of retired names only holds the retirements that were
-        # known when somebody wrote it. So this asks the registry instead.
+        # pass's example is `music` — the radio rewrite removed that module, and a
+        # guild that had it switched on kept a row for a module nothing reads any
+        # more: `modules._load_from_db` ignores unknown ids, `set_enabled` refuses
+        # to write one, and both the dashboard and /help are built from the
+        # registry. So the row is the only place that system still exists, and no
+        # switch anywhere can turn it off. (`automod` was the same kind of orphan
+        # while it was merged into Moderation & Logs; it is a live system again —
+        # see the split migration above — which is exactly why a hand-written list
+        # of retired names was the wrong shape: a retirement can be undone.) A
+        # list of retired names only holds the retirements that were known when
+        # somebody wrote it, so this asks the registry instead.
         async with db.execute(
             "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'modules_retired_swept_v1'"
         ) as cur:
@@ -1210,6 +1253,64 @@ def write_operator_module_sync(module_id: str, enabled) -> bool:
         conn.close()
 
 
+def read_reaction_roles_sync(guild_id: int) -> list[dict]:
+    """Every mapping this server has, for a page that cannot await.
+
+    Raises on failure like the other sync readers, so the dashboard can say
+    "could not read" rather than drawing an empty list that looks like a server
+    with no reaction roles.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT message_id, emoji, role_id, channel_id FROM reaction_roles "
+            "WHERE guild_id = ? ORDER BY message_id, emoji",
+            (int(guild_id),),
+        )
+        return [
+            {
+                "message_id": int(row[0]),
+                "emoji": str(row[1]),
+                "role_id": int(row[2]),
+                "channel_id": int(row[3] or 0),
+            }
+            for row in cur.fetchall()
+        ]
+    finally:
+        conn.close()
+
+
+def write_reaction_role_sync(
+    guild_id: int,
+    message_id: int,
+    channel_id: int,
+    emoji: str,
+    role_id: int,
+) -> None:
+    """One mapping, written from a thread that cannot await (the dashboard)."""
+    run_atomic(
+        lambda cursor: cursor.execute(
+            "INSERT OR REPLACE INTO reaction_roles "
+            "(message_id, emoji, role_id, guild_id, channel_id) VALUES (?, ?, ?, ?, ?)",
+            (int(message_id), str(emoji), int(role_id), int(guild_id), int(channel_id or 0)),
+        )
+    )
+
+
+def delete_reaction_role_sync(message_id: int, emoji: str) -> int:
+    """Forget one mapping from the dashboard; answers how many rows went."""
+
+    def work(cursor) -> int:
+        cursor.execute(
+            "DELETE FROM reaction_roles WHERE message_id = ? AND emoji = ?",
+            (int(message_id), str(emoji)),
+        )
+        return int(cursor.rowcount or 0)
+
+    return int(run_atomic(work) or 0)
+
+
 def read_setting_sync(guild_id: int, key: str, default=None):
     """One ``guild_settings`` value, without an event loop.
 
@@ -1768,6 +1869,81 @@ async def set_radio_language(guild_id: int, language: str):
 # Three helpers where the commands used to hold the SQL directly. The website
 # became a second caller, and a second copy of "what a warning is" is how a panel
 # and a command end up disagreeing about whether somebody has one.
+
+async def add_reaction_role(
+    guild_id: int,
+    message_id: int,
+    channel_id: int,
+    emoji: str,
+    role_id: int,
+) -> None:
+    """Link one emoji on one message to one role — the row the listener reads.
+
+    ``INSERT OR REPLACE`` rather than an insert: re-adding the same pair is how
+    somebody *changes* the role an emoji hands out, which is a correction rather
+    than a conflict. Options when first registered already reacted for the
+    member who asked (see ``cogs/reaction_roles.py``), so a replace changes the
+    mapping without touching the reaction on the message.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO reaction_roles "
+            "(message_id, emoji, role_id, guild_id, channel_id) VALUES (?, ?, ?, ?, ?)",
+            (int(message_id), str(emoji), int(role_id), int(guild_id), int(channel_id or 0)),
+        )
+        await db.commit()
+
+
+async def remove_reaction_role(message_id: int, emoji: str) -> int:
+    """Forget one mapping; answers how many rows went.
+
+    A count rather than a boolean because the two callers word their answer
+    differently: the slash command says "nothing was mapped there" when it is
+    zero, and the dashboard says the same in its own sentence.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM reaction_roles WHERE message_id = ? AND emoji = ?",
+            (int(message_id), str(emoji)),
+        )
+        await db.commit()
+        return int(cursor.rowcount or 0)
+
+
+async def reaction_role_for(message_id: int, emoji: str):
+    """The mapping a reaction just landed on, as ``(role_id, guild_id)`` or None.
+
+    One row rather than a list: (message, emoji) is the primary key, so the
+    listener either has an answer or has nothing to do.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT role_id, guild_id FROM reaction_roles "
+            "WHERE message_id = ? AND emoji = ?",
+            (int(message_id), str(emoji)),
+        ) as cursor:
+            return await cursor.fetchone()
+
+
+async def list_reaction_roles(guild_id: int) -> list[dict]:
+    """Every mapping this server has, oldest message id first."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT message_id, emoji, role_id, channel_id FROM reaction_roles "
+            "WHERE guild_id = ? ORDER BY message_id, emoji",
+            (int(guild_id),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        {
+            "message_id": int(row[0]),
+            "emoji": str(row[1]),
+            "role_id": int(row[2]),
+            "channel_id": int(row[3] or 0),
+        }
+        for row in rows
+    ]
+
 
 async def add_warning(guild_id: int, user_id: int, reason: str) -> int:
     """Record one warning, and hand back its row id."""

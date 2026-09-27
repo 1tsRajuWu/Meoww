@@ -58,7 +58,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from scripts import build_site  # noqa: E402 — reuses the URL rewriters
-from utils import ai_guard, brand  # noqa: E402 — needs ROOT on the path first
+from utils import ai_guard, brand, config_audit  # noqa: E402 — needs ROOT on the path first
 
 #: Where the real, live app is. Every link that needs a running process points
 #: here: the console, the legal pages, the health line.
@@ -246,7 +246,7 @@ def _redirects_file() -> str:
     )
 
 
-def _worker_file(backend_host: str) -> str:
+def _worker_file(backend_host: str, proxy_secret: str = "") -> str:
     """Cloudflare Pages Advanced Mode Worker: read-only by construction.
 
     Two gates, and both are load-bearing:
@@ -275,6 +275,13 @@ def _worker_file(backend_host: str) -> str:
  * path from an allow-list, and no inbound credentials forwarded.
  */
 const BACKEND_HOST = {json.dumps(backend_host)};
+
+/* The stamp the backend believes a forwarded header by. This host builds its own
+   request headers and forwards nothing a caller wrote, but the backend refuses
+   *every* unsigned forwarded value — so without this stamp the host and scheme
+   below are ignored, and the backend answers as its own address rather than as
+   this one. Empty means no stamp: the deployment has not been given the secret. */
+const OWNER_PROXY_SECRET = {json.dumps(proxy_secret)};
 const ALLOWED = [{allowed}];
 
 export default {{
@@ -302,11 +309,18 @@ export default {{
     backendUrl.protocol = "https:";
     backendUrl.port = "";
 
+    // Built from nothing rather than copied from the request: this host must
+    // not forward a caller's headers at all, and the two it sets describe the
+    // hop the backend is about to see. Both travel with the shared stamp, which
+    // is what lets the backend believe them.
     const outboundHeaders = new Headers();
     outboundHeaders.set("Accept", "application/json");
     outboundHeaders.set("Host", BACKEND_HOST);
     outboundHeaders.set("X-Forwarded-Host", url.host);
     outboundHeaders.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
+    if (OWNER_PROXY_SECRET) {{
+      outboundHeaders.set("X-Meow-Proxy", OWNER_PROXY_SECRET);
+    }}
 
     let upstream;
     try {{
@@ -506,7 +520,9 @@ def build(out_dir: str, live_app: str, hub_url: str = "") -> dict:
         ".nojekyll": "",
         "_headers": _headers_file(),
         "_redirects": _redirects_file(),
-        "_worker.js": _worker_file(backend_host),
+        "_worker.js": _worker_file(
+            backend_host, proxy_secret=config_audit.get("OWNER_PROXY_SECRET")
+        ),
         "_routes.json": _routes_file(),
         "404.html": _not_found(hub_url, live_app, hub.asset_version()),
         # The directives and the training prohibition, from ``utils/ai_guard`` —

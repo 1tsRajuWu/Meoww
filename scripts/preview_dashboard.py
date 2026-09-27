@@ -1891,6 +1891,32 @@ def api_server_settings():
     return keep_alive.api_server_settings()
 
 
+@app.route("/api/module-settings", methods=["POST"])
+def api_module_settings():
+    """A system's own settings form, answered by the endpoint that owns the write.
+
+    Delegated for the reason ``/api/server-settings`` is: the declarations, the
+    bounds and the sentences are ``keep_alive``'s, and a second copy here would
+    be a preview that saves a threshold production does not read. The real route
+    is gated on a session this process cannot obtain, so the harness signs in
+    first — the same move every other write on this page makes.
+    """
+    _sign_in()
+    return keep_alive.api_module_settings()
+
+
+@app.route("/api/reaction-roles", methods=["POST"])
+def api_reaction_roles():
+    """The reaction-role mappings form, delegated like the settings forms.
+
+    The harness's stand-in bot has no gateway loop, so the branch this draws is
+    the honest middle one — the mapping is saved, and adding the reaction
+    myself could not be answered.
+    """
+    _sign_in()
+    return keep_alive.api_reaction_roles()
+
+
 @app.route("/api/level-settings", methods=["POST"])
 def api_level_settings():
     """The rates form, answered by the endpoint that owns the write.

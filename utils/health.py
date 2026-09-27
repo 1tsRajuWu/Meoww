@@ -275,8 +275,9 @@ def _default_role_findings(facts: Mapping) -> list[Finding]:
                     "on arrival, and that role is not in this server any more."
                 ),
                 fix=(
-                    "Set the default role again with `/defaultrole set`, or clear it with "
-                    "`/defaultrole clear` so nothing is promised."
+                    "Set the default role again on the Server page (or with "
+                    "`/defaultrole set`), or clear it with `/defaultrole clear` so "
+                    "nothing is promised."
                 ),
             )
         ]
@@ -294,7 +295,7 @@ def _default_role_findings(facts: Mapping) -> list[Finding]:
                 ),
                 fix=(
                     "Drag the bot's own role above that role in Server Settings → Roles, "
-                    "or pick a lower role with `/defaultrole set`."
+                    "or pick a lower role on the Server page (or with `/defaultrole set`)."
                 ),
             )
         ]
