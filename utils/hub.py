@@ -129,6 +129,22 @@ def dashboard_url() -> str:
             or "https://dacatdashboard.pages.dev").rstrip("/")
 
 
+def console_url() -> str:
+    """Where the operator console lives — a host of its own, beside the two above.
+
+    The third address, and the one the *server* side of this repository reads as
+    well as the build: the console's host serves `/agree`, the clickwrap every
+    sign-in passes through, and that page extends the shared frame — so it has to
+    know whether the request arrived here or on the public site, and the worker
+    forwards the address the browser asked for. The same shape as
+    :func:`dashboard_url`, with the address this project publishes as the
+    fallback, so a deployment that moves its console moves one setting rather
+    than a literal in a template.
+    """
+    return (config_audit.get("OWNER_CONSOLE_URL")
+            or "https://dacatowner.pages.dev").rstrip("/")
+
+
 # ---------------------------------------------------------------------------
 # The changelog
 # ---------------------------------------------------------------------------
@@ -206,12 +222,20 @@ def parse_changelog(text: str, *, limit: int | None = None) -> tuple[list[dict],
         if not bullet:
             continue
         content = bullet.group(1).strip()
-        lead_match = _LEAD.match(content)
+        # The change's own emoji is a field of the row rather than part of the
+        # headline, and it has to be read off the entry's **own text** — which is
+        # where it is. `_LEAD` requires a line to *begin* with `**`, and every
+        # entry in this file begins with an emoji instead, so reading the icon
+        # off the matched headline read an empty string for all of them: every
+        # row on every page drew the same placeholder dot while the real emoji
+        # sat inside the bolded sentence it had been folded into.
+        icon_match = _EMOJI.match(content)
+        icon = icon_match.group(1).strip() if icon_match else "•"
+        rest = content[icon_match.end():] if icon_match else content
+        lead_match = _LEAD.match(rest)
         lead_raw = lead_match.group(1) if lead_match else ""
-        body = lead_match.group(2) if lead_match else content
-        icon_match = _EMOJI.match(lead_raw)
-        icon = icon_match.group(1) if icon_match else "•"
-        lead = plain(lead_raw[icon_match.end():] if icon_match else lead_raw)
+        body = lead_match.group(2) if lead_match else rest
+        lead = plain(lead_raw)
         body = plain(body)
         if not lead:
             # A bullet with no bold lead is still a change; its first sentence

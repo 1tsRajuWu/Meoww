@@ -645,6 +645,33 @@ class TheChangelogPage(HubCase):
         self.assertEqual(hub.plain("**Bold**: plain"), "Bold: plain")
         self.assertNotIn("*", hub.plain('*"quoted"* and **bold**'))
 
+    def test_a_row_draws_the_changes_own_emoji_rather_than_a_placeholder(self):
+        """The icon is its own field, and it was being read off the wrong thing.
+
+        Every entry in this file opens with an emoji and then its bold headline,
+        and `_LEAD` only matches a line that *begins* with `**` — so the icon was
+        looked for on a headline that had not matched, and every row on every page
+        drew the placeholder dot while the real emoji stayed folded into the
+        bolded sentence beside it.
+        """
+        entries, _total = hub.read_changelog(str(ROOT / "CHANGELOG.md"))
+        newest = next(
+            line.strip()[2:]
+            for line in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("- ")
+        )
+        glyph = hub._EMOJI.match(newest)
+        self.assertIsNotNone(glyph, "the newest entry has no emoji for this to check")
+        self.assertEqual(entries[0]["icon"], glyph.group(1).strip())
+        self.assertNotIn(
+            entries[0]["icon"],
+            entries[0]["lead"],
+            "the emoji is drawn twice — once as the row's icon and once in its headline",
+        )
+        # ...and a bullet written without one still gets the placeholder, because
+        # the fallback is what a plain sub-bullet has always been drawn with.
+        self.assertIn("•", {entry["icon"] for entry in entries})
+
     def test_a_missing_changelog_is_an_empty_history_not_a_crash(self):
         self.assertEqual(hub.read_changelog(str(ROOT / "nope.md")), ([], 0))
 

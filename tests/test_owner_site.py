@@ -976,6 +976,92 @@ class TheDashboardHostServesWhatTheDashboardCalls(unittest.TestCase):
         )
 
 
+class TheClickwrapWearsTheHeaderOfTheAddressItIsOn(unittest.TestCase):
+    """The console's one page with no page of its own to override the nav.
+
+    `agree.html` extends the shared frame and is served on all three addresses —
+    which one it is arrived on is the only thing that can decide its header, and
+    two of the three answers already existed: `_frame_nav` hands it the member
+    app's list on the member host, and the public address falls through to the
+    marketing list, which is right there. On the **console's** host it fell
+    through to that same marketing list, so the operator's own clickwrap offered
+    Home, Systems and Radio — three paths that host answers with a 301 — from a
+    page drawn a hop away from the console it belongs to.
+
+    Three things have to hold for it to be fixed and to stay fixed: the reader
+    answers only on that one address, the render asks it, and the template draws
+    the console's own macro rather than a second copy of it.
+    """
+
+    AGREEMENT = "agree.html"
+    NAV = "_owner_nav.html"
+
+    def test_only_the_consoles_own_address_is_answered(self):
+        console_host = urllib.parse.urlsplit(keep_alive.hub.console_url()).netloc
+        self.assertTrue(console_host, "the console host has no address to compare with")
+        # The *machine's* address is one hop behind this one and is never what a
+        # browser asked for, so a reader built on it would answer nobody.
+        self.assertNotEqual(console_host, urllib.parse.urlsplit(keep_alive.hub.live_url()).netloc)
+        member_host = urllib.parse.urlsplit(keep_alive.hub.dashboard_url()).netloc
+        # The address arrives signed — the backend is reachable directly, so the
+        # header alone is a claim any caller can make (see `_proxy_signed`).
+        with mock.patch.object(keep_alive, "_trust_proxy_headers", True), \
+             mock.patch.object(keep_alive, "OWNER_PROXY_SECRET", "shared-secret"):
+            with keep_alive.app.test_request_context(
+                headers={"X-Meow-Proxy": "shared-secret", "X-Forwarded-Host": console_host}
+            ):
+                self.assertEqual(
+                    keep_alive._console_frame_nav(),
+                    {
+                        "console_frame": True,
+                        "site_url": keep_alive.hub.marketing_url(),
+                        "dashboard_url": keep_alive.hub.dashboard_url(),
+                    },
+                )
+            for other in (member_host, "dacat.pages.dev"):
+                with self.subTest(host=other):
+                    with keep_alive.app.test_request_context(
+                        headers={"X-Meow-Proxy": "shared-secret", "X-Forwarded-Host": other}
+                    ):
+                        self.assertEqual(
+                            keep_alive._console_frame_nav(),
+                            {},
+                            "a host that is not the console was handed the console's "
+                            "header, which would leave its own frame in place of nothing",
+                        )
+        with keep_alive.app.test_request_context():
+            self.assertEqual(
+                keep_alive._console_frame_nav(),
+                {},
+                "a request on no particular address was dressed as one of them",
+            )
+
+    def test_the_page_asks_which_address_it_is_on_and_draws_that_header(self):
+        source = (ROOT / "keep_alive.py").read_text(encoding="utf-8")
+        found = re.search(
+            rf'render_template\(\s*"{self.AGREEMENT}",(?P<body>.*?)\n    \)',
+            source,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(found, "no render_template call for the clickwrap")
+        self.assertIn(
+            "_console_frame_nav()",
+            found.group("body"),
+            "the clickwrap render never asks whether it is on the console's host, so "
+            "the operator's agreement wears the public site's header again",
+        )
+        body = (TEMPLATES / self.AGREEMENT).read_text(encoding="utf-8")
+        # The console's nav is one macro, drawn by all three pages of that host
+        # now — a second copy of five lines is how this repository's other
+        # duplicated lists came apart (`scripts/build_owner.py`'s prefixes).
+        self.assertIn(f'{{% from "{self.NAV}" import console_nav %}}', body)
+        self.assertIn("console_nav(site_url, dashboard_url)", body)
+        # ...and falling through to the frame it inherits everywhere else, which
+        # is what keeps the member address's list and the public site's in place.
+        self.assertIn("{{ super() }}", body)
+        self.assertNotIn("'/systems'", body)
+
+
 class TheWorkerNamesTheVisitorItForwarded(unittest.TestCase):
     """This host is a proxy of a proxy, so the chain ends at Cloudflare.
 

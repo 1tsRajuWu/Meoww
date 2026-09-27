@@ -114,6 +114,20 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: the repository root, so ``utils`` would not resolve without this line.
 sys.path.insert(0, ROOT)
 
+#: **The environment this builds with is the one ``.env`` describes.** The three
+#: builders run as subprocesses of this one and inherit its environment, and
+#: ``.env`` is the documented way to configure this machine — but nothing on this
+#: path ever read it, so a setting that lived there reached the bot and none of
+#: the hosts it proxies. That is not a hypothetical: ``DISCORD_CLIENT_ID`` lives
+#: in ``.env`` here, and a build run from a plain shell shipped a site whose
+#: invite button was absent with nothing in the output to say why — the same
+#: shape as the missing key on the Render service this project has already
+#: recorded once. ``load_dotenv`` never overrides a variable that is already set,
+#: so an exported value still wins.
+from dotenv import load_dotenv  # noqa: E402 — needs ROOT on the path first
+
+load_dotenv(os.path.join(ROOT, ".env"))
+
 #: One fact about this release that the machine serves rather than renders: its
 #: ``/health`` names the product, so the Space can be checked against the brand
 #: instead of against a string typed in two places (see `app.py`).
@@ -226,8 +240,9 @@ class Space:
     """The machine, and the one claim that can be made about it.
 
     This is the address the four Pages hosts proxy to: the Discord gateway, the
-    database and the API. Nothing in this file builds or uploads it —
-    ``.github/workflows/sync_hf.yml`` force-pushes ``main`` to it — and no
+    database and the API. Nothing in this file builds or uploads it — it is the
+    same repository, so it is *pushed to* (``.github/workflows/sync_hf.yml``, or
+    ``scripts/mirror_space.py`` where that workflow cannot run) — and no
     deployment of it carries a commit stamp, so *which commit is it serving* is
     not a question this script can answer, let alone fail on.
 
@@ -491,8 +506,9 @@ def verify_gateway(space: Space) -> tuple[bool, str]:
     if payload is None:
         return False, (
             f"{space.url}{space.health} answered nothing ({note}); nothing here "
-            "uploads this host — .github/workflows/sync_hf.yml pushes to it — so a "
-            "machine that is not answering is one that push has not reached"
+            "uploads this host — it is pushed to (.github/workflows/sync_hf.yml, "
+            "or `python scripts/mirror_space.py` where that workflow cannot run) — "
+            "so a machine that is not answering is one that push has not reached"
         )
     status = str(payload.get("status") or "")
     served = str(payload.get("service") or "")
@@ -637,7 +653,8 @@ def report(hosts: tuple[Host, ...], sha: str, *, wait: bool) -> int:
             "\naddresses rather than a failed publish. A Pages host that is behind"
             "\nhas simply not been deployed for this commit:"
             "\n`python scripts/ship.py --only <project>`. The machine is a push rather"
-            "\nthan an upload — updated by `.github/workflows/sync_hf.yml`, or by hand —"
+            "\nthan an upload — updated by `.github/workflows/sync_hf.yml`, or by"
+            "\n`python scripts/mirror_space.py` —"
             "\nso a Space that is behind is one that push has not reached."
         )
     print(

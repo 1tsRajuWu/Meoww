@@ -1,5 +1,17 @@
 {% extends "site_base.html" %}
+{# The console's own nav, for the one page of that host with no page of its own.
+   This clickwrap is served on all three addresses — the public site, the member
+   dashboard and the operator console — and it extends the shared frame, so it
+   inherits the marketing header wherever it is drawn. On the member address
+   `_frame_nav` hands it the app's destinations; on the console's address
+   `_console_frame_nav` says so here, and every link this page would otherwise
+   offer (Home, Systems, Radio, Get started) is one that host answers with a 301.
+   The macro is the same one `/owner` and its door draw, so the console's header
+   still has exactly one author. #}
+{% from "_owner_nav.html" import console_nav %}
 {% block title %}Before you carry on — {{ bot_name }}{% endblock %}
+
+{% block nav %}{% if console_frame %}{{ console_nav(site_url, dashboard_url) }}{% else %}{{ super() }}{% endif %}{% endblock %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/pages.css?v={{ asset_version('pages.css') }}">

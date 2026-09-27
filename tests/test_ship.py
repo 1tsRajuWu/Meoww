@@ -514,7 +514,11 @@ class TheMachineIsCheckedAsTheMachine(unittest.TestCase):
             ok, note = ship.verify_gateway(ship.SPACE)
         self.assertFalse(ok)
         self.assertIn("HTTP 000", note)
+        # Both ways it is kept current, because the workflow is dead on this
+        # account and the script is what actually runs — a note that named only
+        # the one that cannot run would send the reader to a dead end.
         self.assertIn("sync_hf.yml", note)
+        self.assertIn("mirror_space.py", note)
 
     def test_the_gateway_check_asks_the_address_a_monitor_watches(self):
         """The same endpoint the uptime monitor reads, so the two agree."""

@@ -473,6 +473,47 @@ def _on_member_host() -> bool:
     return bool(host) and host == urllib.parse.urlsplit(hub.dashboard_url()).netloc.lower()
 
 
+def _on_owner_host() -> bool:
+    """Whether this request arrived on the operator console's own address.
+
+    The same question as :func:`_on_member_host`, asked of the *third* address,
+    and asked for the same reason. The console's host serves `/agree` — the
+    clickwrap every sign-in is sent through before it gets anywhere, the
+    operator's passkey sign-in included — and `agree.html` extends the shared
+    frame, so on that host it was wearing the public site's marketing nav: Home,
+    Systems, Radio and an "Add to Discord" button, every one of them a path that
+    host answers with a 301 to the public site. The console's two own pages
+    override their nav by hand (`templates/_owner_nav.html`); `/agree` is the one
+    page of that host with no page of its own to override it. Read from
+    `utils.hub.console_url` — the reader the console's build and its outward
+    links use — so a deployment that moves its console moves this answer too;
+    `hub.live_url` is the *machine's* address, which is one hop behind this one
+    and never what a browser asked for.
+    """
+    host = _forwarded_host().rstrip("/").lower()
+    return bool(host) and host == urllib.parse.urlsplit(hub.console_url()).netloc.lower()
+
+
+def _console_frame_nav() -> dict:
+    """What a page of the *console* host needs to draw that host's own header.
+
+    A dict rather than a list, and the shape is the difference that matters: the
+    member host's header is a list of destinations (`MEMBER_FRAME_NAV`), while
+    the console's is a macro that also names the two addresses it links out to
+    (`_owner_nav.html`). Empty everywhere but the console host, so every other
+    reader of the same template — the member app, the public site, an offline
+    build, a local run — keeps the frame it already had, which is the property
+    `_frame_nav` was built for and this one now shares.
+    """
+    if not _on_owner_host():
+        return {}
+    return {
+        "console_frame": True,
+        "site_url": hub.marketing_url(),
+        "dashboard_url": hub.dashboard_url(),
+    }
+
+
 def dashboard_base_url() -> str:
     """Where *this* process is reachable, for the one-time sign-in link.
 
@@ -3996,8 +4037,13 @@ def _agree_page(
         "agree.html",
         **_site_context(),
         # The clickwrap is reached from both member addresses and from the
-        # console's own host; each draws its own header (see `_frame_nav`).
+        # console's own host; each draws its own header (see `_frame_nav` and
+        # `_console_frame_nav`). `_frame_nav` answers the member app's list and
+        # nothing on the console's host, which is why the second reader exists:
+        # without it this page wore the public site's marketing nav on the
+        # console, the one host where every one of those links is a 301.
         **_frame_nav(),
+        **_console_frame_nav(),
         current="",
         csrf_token=get_csrf_token(),
         documents=[

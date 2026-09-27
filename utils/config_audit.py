@@ -548,6 +548,18 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "OWNER_CONSOLE_URL", TUNING,
+        "the console's own public address, which is what a page served *on* it "
+        "is recognised by",
+        "the compiled default (https://dacatowner.pages.dev) is used. One reader "
+        "answers this on the running bot rather than in a build "
+        "(`utils/hub.console_url`), because the console host serves one page of "
+        "the shared frame — the clickwrap — and that page decides its header "
+        "from the address the request arrived on. Set it when the console moves, "
+        "or `/agree` wears the public site's nav on a host that answers every "
+        "one of those links with a redirect.",
+    ),
+    Setting(
         "CLOUDFLARE_PROXY", TUNING,
         "whether the build emits a Cloudflare proxy worker for dynamic routes",
         "the static pages are built without it.",
@@ -573,6 +585,18 @@ SETTINGS: tuple[Setting, ...] = (
         "the site guard's own answer is used, which is the address the watcher is "
         "already checking. Set it only when the site moves and the readers should "
         "follow before the guard does.",
+    ),
+    Setting(
+        "HF_TOKEN", TUNING,
+        "the Hugging Face credential ``scripts/mirror_space.py`` sends this tree "
+        "to the Space with — the machine the four Pages hosts proxy to",
+        "the mirror sends nothing and says so, and the workflow that force-pushes "
+        "to that Space (dead on this account, like every other workflow here) "
+        "does nothing either. The Space then keeps running whatever it last "
+        "received, which is invisible from every other address: no deployment of "
+        "it carries a commit stamp.",
+        secret=True,
+        scope=BUILD,
     ),
     Setting(
         "MEOW_LIVE_APP_URL", TUNING,

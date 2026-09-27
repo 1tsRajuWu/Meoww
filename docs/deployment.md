@@ -411,7 +411,11 @@ the new dashboard host.
 - Source: `.github/workflows/sync_hf.yml` force-pushes `main` to it, or a hand
   push; nothing in `scripts/ship.py` uploads it, and **no deployment of it
   carries a commit stamp**, so *which commit are you serving* is not a question
-  anything can ask it.
+  anything can ask it. Where that workflow cannot run — it never has on this
+  account, for the billing reason above — the same push is
+  `python scripts/mirror_space.py`, which sends the tracked tree as one commit,
+  refuses a dirty tree or an unpushed `HEAD` for the same reason `ship.py` does,
+  and has `--check` for asking what differs without sending anything.
 - What is asked instead: its `/health`, whose `service` field is built from
   `utils/brand.py`. A rebrand moves the check and the answer together, so a
   machine still announcing the retired name fails the release — which is the
@@ -431,7 +435,7 @@ fifth is the machine they proxy to, and it is not uploaded from here at all:
 | https://dacatowner.pages.dev | `python scripts/ship.py --only dacatowner` | the same two claims, against `_owner` |
 | https://dacatdashboard.pages.dev | `python scripts/ship.py --only dacatdashboard` | the same two claims, against `_dash` |
 | https://dacatmarket.pages.dev | `python scripts/ship.py --only dacatmarket` | the same two claims, against `_market` |
-| https://1tsrajowo-meow.hf.space | `.github/workflows/sync_hf.yml` force-pushes `main` to it (or a hand push) | only that `/health` answers *and* names this product |
+| https://1tsrajowo-meow.hf.space | `python scripts/mirror_space.py`, or `.github/workflows/sync_hf.yml` if that workflow can run | only that `/health` answers *and* names this product |
 
 The last row is deliberately weaker than the others, because it is the only claim
 available on that host: the Space carries no commit stamp, so its verdict says in
