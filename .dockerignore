@@ -26,11 +26,25 @@ deploy_trigger.txt
 deleted_features
 tests
 .github
-docs
 scripts
 CONTRIBUTING.md
-CHANGELOG.md
 README.md
+
+# ``CHANGELOG.md`` and ``docs/`` were on this list, and both are read **by the
+# running process** — which is the one thing a file like this must not drop.
+# ``keep_alive.HUB_CHANGELOG`` reads the changelog out of the directory
+# ``keep_alive.py`` lives in, for the hub's "what changed" page and the console's
+# Changes page, and ``utils/consent.py`` hashes ``docs/legal/sub-processors.md``
+# into the revision the clickwrap gate compares against. Measured on the live
+# Space rather than argued: the history page answered *0 entries, newest first* —
+# a page whose whole subject is the project's own changelog, served by an image
+# that did not contain it — and a document that cannot be opened makes
+# ``consent.version()`` return an empty string, which makes ``consent.needs()``
+# answer *no* for every session, so a gate described as being at the door by
+# design was open on the only machine that serves it. This is the second time
+# this file has excluded something the process reads (``assets/`` at the bottom
+# is the first), which is why ``tests/test_image.py`` now derives the list from
+# the code that opens these files rather than from somebody remembering.
 
 # ``assets/`` is deliberately NOT ignored any more. It holds the fonts
 # ``utils/card.py`` draws the rank and now-playing cards with, and the loader is
