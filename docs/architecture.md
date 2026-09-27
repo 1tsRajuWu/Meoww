@@ -163,7 +163,18 @@ And the jobs themselves:
    administrator can hold every switch in the Systems panel and still not be
    allowed to make the bot leave. The blocklist is enforced **on the way in**
    (`bot.on_guild_join` refuses and leaves before any setup work), because a list
-   a re-invite can walk around is a note to self rather than a rule.
+   a re-invite can walk around is a note to self rather than a rule. `/owner/god`
+   is that same scope behind a second, time-limited one (re-proved with the owner
+   passkey, `GOD_UNLOCK_SECONDS`): pause/resume, the two fleet switches, and the
+   **fleet announcement** — one message to every server the bot is in, written as
+   a template whose four tokens (`{server}`, `{members}`, `{systems}`, `{bot}`)
+   are the only ones it will send. It is previewed first and the preview is a
+   **GET**, because it is a *reading* of the fleet: each server's bound `#update`
+   channel, else Discord's system channel for that guild, else the reason that
+   server cannot be reached. The send is the CSRF-checked POST of the same pass
+   (`utils/broadcast.py`), and a ping is a single role with a hand-built
+   `AllowedMentions` — the message carries a server's own name, and a server may
+   be called `@everyone`.
 
 ## The message layer (`utils/style.py`)
 

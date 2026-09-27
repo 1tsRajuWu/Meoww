@@ -1650,7 +1650,49 @@ def owner_console(sub: str = ""):
     it here was so easy to leave behind: it answered 200.
     """
     _sign_in()
+    if (sub or "").strip("/") == "god":
+        # The tier is the owner's passkey and a quarter of an hour in production,
+        # and this harness has neither to type — so the god page would be drawn
+        # *locked*, with every control on it disabled, which is a page a playtest
+        # can read and not drive. Opening the tier is the same choice `_sign_in`
+        # above makes for the session itself, and it is bounded the same way: the
+        # loopback address, the operator's own machine, and a database copy.
+        session["god_until"] = time.time() + keep_alive.GOD_UNLOCK_SECONDS
     return keep_alive.owner_console(sub)
+
+
+@app.route("/owner/god", methods=["POST"])
+def owner_god_action():
+    """The tier's own four actions, delegated with the tier held open.
+
+    The page draws them as forms that POST here. Without this route a press in the
+    harness reaches ``keep_alive``'s real one with no session, which answers a
+    redirect to a sign-in this process does not have — a preview that shows four
+    controls and demonstrates none of them, which is the defect the console and
+    broadcast delegations above were both written for. The actions run against the
+    stand-in gateway and the copy of the database like everything else here.
+    """
+    _sign_in()
+    session["god_until"] = time.time() + keep_alive.GOD_UNLOCK_SECONDS
+    return keep_alive.owner_god_action()
+
+
+@app.route("/owner/god/broadcast", methods=["GET", "POST"])
+def owner_god_broadcast():
+    """The fleet announcement's two verbs, delegated, with the tier held open.
+
+    The panel's dry run is a GET and its send is a POST, and both are gated on the
+    tier being *open* — which in production is the owner's passkey and a quarter of
+    an hour. This harness has no passkey to type, so it opens the tier the way the
+    passkey does (`god_until`, the key `_god_unlocked` reads) before delegating.
+    Without it the panel would draw on `/owner/god` and answer every press of its
+    two buttons with a redirect to a sign-in this process does not have — a preview
+    that shows a control it cannot demonstrate, which is the defect the console
+    delegation above was written for.
+    """
+    _sign_in()
+    session["god_until"] = time.time() + keep_alive.GOD_UNLOCK_SECONDS
+    return keep_alive.owner_god_broadcast()
 
 
 @app.route("/logout", methods=["GET", "POST"])

@@ -1076,6 +1076,119 @@
       {% endfor %}
     </div>
 
+    <h2>The fleet announcement</h2>
+    <p class="hint">
+      One message, written once and filled in per server: the four tokens below are the only
+      things it can fill in, and anything else in braces is refused rather than sent as braces.
+      Where it goes is each server's own answer — the channel it bound for bot news, or Discord's
+      system channel for that server — so the dry run is a reading of the fleet, and pressing
+      <em>Preview</em> again is always allowed. Nothing is sent until you have read the list and
+      pressed the second button.
+    </p>
+    {% if god.broadcast.error %}
+    <p class="notice notice--bad" role="alert">{{ god.broadcast.error }}</p>
+    {% endif %}
+    <form class="own-card own-form" method="get" action="/owner/god/broadcast">
+      <label class="field">
+        <span class="field__label">Message</span>
+        <textarea class="input" name="template" rows="5" maxlength="{{ god.broadcast.max_chars }}"
+                  placeholder="{{ god.broadcast.placeholders[0].name }} is running on {bot} — here is what changed"
+                  {% if god.locked %}disabled{% endif %}>{{ god.broadcast.template }}</textarea>
+        <span class="hint">
+          {% for token in god.broadcast.placeholders %}<code>{{ token.name }}</code> is {{ token.what }}{{ ' · ' if not loop.last }}{% endfor %}
+          · up to {{ god.broadcast.max_chars }} characters.
+        </span>
+      </label>
+      <label class="field">
+        <span class="field__label">Ping</span>
+        <span class="hint">
+          <input type="checkbox" name="ping" value="1"{% if god.broadcast.ping %} checked{% endif %}
+                 {% if god.locked %}disabled{% endif %}>
+          Mention the role each server keeps for bot news, when it has one — the same role the
+          release notes ping. <code>@everyone</code> and <code>@here</code> are unreachable from
+          here whatever the message says.
+        </span>
+      </label>
+      <button class="btn" type="submit" {% if god.locked %}disabled{% endif %}>
+        Preview — list every server this would reach
+      </button>
+      {% if god.locked %}<p class="hint">Locked — open the tier above first.</p>{% endif %}
+    </form>
+
+    {% if god.broadcast.preview %}
+    <p class="lede">{{ god.broadcast.preview.said }}</p>
+    {% set sample = god.broadcast.preview.rows | selectattr('reachable') | list | first %}
+    {% if sample %}
+    <div class="own-card">
+      <h3>{{ sample.name }}'s copy, as it will arrive</h3>
+      <p>{{ sample.text }}</p>
+    </div>
+    {% endif %}
+    <div class="own-table__scroll">
+    <table class="own-table">
+      <caption>Every server the bot is in, and whether this message would reach it</caption>
+      <thead>
+        <tr>
+          <th scope="col">Server</th>
+          <th scope="col">Members</th>
+          <th scope="col">Systems</th>
+          <th scope="col">Where it would go</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in god.broadcast.preview.rows %}
+        <tr>
+          <th scope="row">{{ row.name or '—' }}</th>
+          <td class="mono">{% if row.members is none %}—{% else %}{{ row.members }}{% endif %}</td>
+          <td class="mono">{% if row.systems is none %}—{% else %}{{ row.systems }}{% endif %}</td>
+          <td>
+            {% if row.reachable %}
+              <span class="mono">#{{ row.channel_name or row.channel_id }}</span>
+              <span class="hint">{{ 'the channel it bound for bot news' if row.via == 'update' else "Discord's own system channel for this server" }}</span>
+            {% else %}
+              {# A chip is a *state*, and the state here is short; the reason is a
+                 sentence, and a sentence inside a chip is a box drawn round
+                 prose. #}
+              <span class="own-chip own-chip--warn">
+                <span class="own-chip__label">will not receive it</span>
+              </span>
+              <span class="hint">{{ row.reason }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <form class="own-card own-form" method="post" action="/owner/god/broadcast">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="template" value="{{ god.broadcast.template }}">
+      {% if god.broadcast.ping %}<input type="hidden" name="ping" value="1">{% endif %}
+      {% if god.broadcast.preview.reachable %}
+      <p class="hint">
+        Sending posts this to {{ god.broadcast.preview.reachable }} of the
+        {{ god.broadcast.preview.total }} servers above, at about
+        {{ god.broadcast.spacing_seconds }} seconds apart, and writes the result to the trail
+        below. The servers that would not receive it are listed with their reasons, and the
+        dry run can be repeated as often as you like.
+      </p>
+      <button class="btn btn--primary" type="submit" {% if god.locked %}disabled{% endif %}>
+        Send it to {{ god.broadcast.preview.reachable }} server{{ 's' if god.broadcast.preview.reachable != 1 else '' }}
+      </button>
+      {% else %}
+      {# A control that cannot do anything says so rather than being pressed to
+         find out. The server refuses this send as well — the button is the page
+         being of one mind with it, not a second rule. #}
+      <p class="hint">
+        Not one of the servers above can receive this yet, and each one says why in its own row.
+        Nothing is sent, and the dry run is a reading: it can be repeated as often as you like.
+      </p>
+      <button class="btn" type="submit" disabled>Send it — no server above can receive it</button>
+      {% endif %}
+      {% if god.locked %}<p class="hint">Locked — open the tier above first.</p>{% endif %}
+    </form>
+    {% endif %}
+
     <h2>What has happened</h2>
     {% if not god.recent.read %}
     <p class="notice notice--bad" role="alert">

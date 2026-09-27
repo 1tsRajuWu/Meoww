@@ -111,6 +111,11 @@ export const SCHEMAS: Record<string, Record<string, Shape>> = {
   "/api/console/god/unlock": { success: "boolean", locked: "boolean" },
   "/api/console/god/lock": { success: "boolean", locked: "boolean" },
   "/api/console/god/act": { success: "boolean" },
+  // The fleet announcement: the same shallow check, for the same reason. Its
+  // `report` is the dry run the caller reads — and it is the one payload here
+  // whose size is a property of the *deployment* (a row per server), so the
+  // schema does not try to describe it.
+  "/api/console/god/broadcast": { success: "boolean" },
   "/api/console/ops": {
     success: "boolean",
     logs: "array",

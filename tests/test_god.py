@@ -23,14 +23,21 @@ import asyncio
 import sqlite3
 import time
 import unittest
+import urllib.parse
 from unittest import mock
 
+from markupsafe import escape
+
 import keep_alive
-from tests.test_composer import GUILD_ID
+from tests.test_composer import CHANNEL_ID, GUILD_ID
 from tests.test_dashboard import CSRF, _DashboardFixture
-from utils import db, modules, pause
+from utils import bot_channels, broadcast, db, modules, pause
 
 PASSKEY = "the-owner-passkey"
+
+#: The channel ``make_bot`` gives the *other* server in this fixture: one the bot
+#: can post in, and which no test binds anything to.
+OTHER_CHANNEL_ID = 999901
 
 
 def rows(query: str, args=()) -> list[tuple]:
@@ -255,6 +262,180 @@ class TheFleetSwitchesWriteEveryServer(_GodFixture):
         )[0]
         self.assertEqual(recorded[0], "god_fleet_off")
         self.assertIn("2 servers", recorded[1])
+
+
+class TheAnnouncementIsADryRunFirst(_GodFixture):
+    """One message, every server — inside the tier, and never sent by looking at it.
+
+    The announcement's own arithmetic belongs to ``tests/test_broadcast.py``: the
+    template check, each server's channel, and the preview being the send with the
+    send removed. What is pinned here is the *tier* around it — the two verbs it
+    shares with the four actions, the dry run that writes nothing to Discord, the
+    send that is written down with the message it carried, and a locked tier that
+    refuses both doors rather than offering a second lock of its own.
+
+    The dry run is a GET and the send is a POST, which is a decision rather than a
+    detail: a preview is a reading of the fleet, so the method the browser may
+    repeat and reload is the one that cannot send anything.
+    """
+
+    TEMPLATE = "{server} is having a moment"
+
+    def bind(self, guild_id=GUILD_ID, channel_id=CHANNEL_ID):
+        """Bind the news channel the way a server's own dashboard would."""
+        asyncio.run(
+            db.set_setting(int(guild_id), bot_channels.setting_key("update"), int(channel_id))
+        )
+
+    def dry_run(self, template=None, *, ping=False):
+        """The preview as the panel asks for it: a GET, because a reading is one."""
+        fields = {"template": self.TEMPLATE if template is None else template}
+        if ping:
+            fields["ping"] = "1"
+        return self.client.get(
+            "/owner/god/broadcast?" + urllib.parse.urlencode(fields),
+            headers={"X-CSRF-Token": CSRF},
+        )
+
+    def announce(self, template=None, *, ping=False):
+        """The send as the page's own form posts it: a form, and a real token."""
+        data = {"csrf_token": CSRF, "template": self.TEMPLATE if template is None else template}
+        if ping:
+            data["ping"] = "1"
+        return self.client.post("/owner/god/broadcast", data=data)
+
+    def page(self):
+        return self.client.get("/owner/god").get_data(as_text=True)
+
+    def test_the_dry_run_lists_every_server_and_posts_nothing(self):
+        self.unlock()
+        body = self.dry_run().get_data(as_text=True)
+        for name in (self.guild.name, self.other.name):
+            self.assertIn(name, body)
+        # Neither server has a destination in this fixture, and both are named as
+        # unreached with the reason rather than silently left out of the list.
+        self.assertIn(broadcast.NO_CHANNEL, body)
+        # …and the send is offered *disabled* with the reason, because a button
+        # that cannot do anything is a button somebody presses to find out.
+        self.assertIn("no server above can receive it", body)
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+        self.assertEqual(self.other.get_channel(OTHER_CHANNEL_ID).sent, [])
+        written = rows("SELECT action FROM web_actions WHERE scope = 'god' ORDER BY id DESC LIMIT 1")
+        self.assertEqual(written, [("god_broadcast_preview",)], "a dry run posted or was not recorded")
+
+    def test_a_server_with_a_channel_is_the_one_the_send_uses(self):
+        self.unlock()
+        self.bind()
+        preview = self.dry_run().get_data(as_text=True)
+        self.assertIn("#%s" % self.guild.get_channel(CHANNEL_ID).name, preview)
+        self.assertIn("Send it to 1 server", preview, "the dry run does not offer the send")
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+
+    def test_the_send_lands_where_the_dry_run_said_it_would(self):
+        self.unlock()
+        self.bind()
+        response = self.announce()
+        self.assertEqual(response.status_code, 302)
+        posted = self.guild.get_channel(CHANNEL_ID).sent
+        self.assertEqual(len(posted), 1, "the announcement was posted twice or not at all")
+        self.assertEqual(posted[0]["content"], f"{self.guild.name} is having a moment")
+        self.assertFalse(
+            posted[0]["allowed_mentions"].everyone,
+            "a template with a server's own name in it was allowed to mention everyone",
+        )
+        self.assertEqual(self.other.get_channel(OTHER_CHANNEL_ID).sent, [])
+        self.assertIn("Sent to 1 of 2 servers", self.page())
+
+    def test_the_send_is_written_down_with_the_message_it_carried(self):
+        self.unlock()
+        self.bind()
+        self.announce()
+        recorded = rows(
+            "SELECT action, target, ok, detail FROM web_actions WHERE scope = 'god' "
+            "ORDER BY id DESC LIMIT 1"
+        )[0]
+        self.assertEqual((recorded[0], recorded[1], recorded[2]), ("god_broadcast", "every server", 1))
+        self.assertIn("Sent to 1 of 2", recorded[3])
+        self.assertIn(self.TEMPLATE, recorded[3])
+
+    def test_a_locked_tier_refuses_the_list_and_the_send(self):
+        self.bind()
+        self.assertEqual(self.dry_run().status_code, 302)
+        self.assertEqual(self.announce().status_code, 302)
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+        self.assertIn("God level is locked", self.page())
+        self.assertEqual(
+            rows("SELECT COUNT(*) FROM web_actions WHERE action LIKE 'god_broadcast%'")[0][0],
+            0,
+            "a locked tier wrote an announcement into the trail",
+        )
+
+    def test_the_api_refuses_a_locked_tier_too_and_dry_runs_by_default(self):
+        """One lock, and one safe default: `send` is the field a client must add."""
+        response = self.post(
+            "/api/console/god/broadcast", {"template": self.TEMPLATE, "send": True}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(response.get_json()["locked"])
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+
+        self.unlock()
+        self.bind()
+        payload = self.post("/api/console/god/broadcast", {"template": self.TEMPLATE}).get_json()
+        self.assertFalse(payload["report"]["send"], "an omitted `send` was taken as a send")
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+        sent = self.post(
+            "/api/console/god/broadcast", {"template": self.TEMPLATE, "send": True}
+        ).get_json()
+        self.assertTrue(sent["success"], sent)
+        self.assertEqual(len(self.guild.get_channel(CHANNEL_ID).sent), 1)
+
+    def test_the_page_and_the_api_answer_one_sentence_about_one_fleet(self):
+        self.unlock()
+        self.bind()
+        api = self.post("/api/console/god/broadcast", {"template": self.TEMPLATE}).get_json()
+        self.assertIn(api["said"], self.dry_run().get_data(as_text=True))
+
+    def test_a_template_the_sender_refuses_is_refused_without_losing_it(self):
+        self.unlock()
+        body = self.dry_run("Hello {serve} — read this").get_data(as_text=True)
+        self.assertIn("{serve}", body)
+        for name, _what in broadcast.PLACEHOLDERS:
+            self.assertIn("{%s}" % name, body, "the refusal does not name the tokens that work")
+        self.assertIn("Hello {serve} — read this", body, "the page threw the message away")
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+
+    def test_a_stale_token_does_nothing_and_keeps_the_message(self):
+        self.unlock()
+        self.bind()
+        response = self.client.post(
+            "/owner/god/broadcast",
+            data={"csrf_token": "stale", "template": self.TEMPLATE},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.guild.get_channel(CHANNEL_ID).sent, [])
+        body = self.page()
+        self.assertIn("That form had expired", body)
+        self.assertIn(self.TEMPLATE, body, "the operator has to type their message again")
+
+    def test_a_send_that_could_reach_nobody_is_a_refusal_not_a_result(self):
+        """An action whose point is every server is not done when it reached none."""
+        self.unlock()
+        self.announce()
+        self.assertIn("Nothing was sent", self.page())
+        recorded = rows("SELECT ok FROM web_actions WHERE action = 'god_broadcast'")
+        self.assertEqual(recorded, [(0,)], "a send that reached nobody was recorded as done")
+
+    def test_the_page_offers_the_tokens_the_sender_fills_in(self):
+        """The panel's list is the sender's list, or it offers a token it will refuse."""
+        self.unlock()
+        body = self.page()
+        for name, what in broadcast.PLACEHOLDERS:
+            self.assertIn("{%s}" % name, body)
+            # As the browser receives it: the sentences carry apostrophes, and
+            # Jinja leaves them as `&#39;`, exactly as the copy laws above say.
+            self.assertIn(str(escape(what)), body)
+        self.assertIn('maxlength="%d"' % broadcast.MAX_CHARS, body)
 
 
 class APausedBotSaysSoInsteadOfGoingQuiet(_GodFixture):

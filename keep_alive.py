@@ -51,7 +51,8 @@ from flask import (
     url_for, Response, abort,
 )
 from utils import (
-    ai_guard, alert_webhook, brand, command_publish, command_scope, company, compression,
+    ai_guard, alert_webhook, brand, broadcast, command_publish, command_scope, company,
+    compression,
     config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
     # `health` is the name this module's own `/health` route already owns, so the
     # checklist is aliased the way `levels` is: one name, one meaning, and an
@@ -6715,8 +6716,9 @@ OWNER_PAGE_COPY = {
     ),
     "god": (
         "God level",
-        "The four actions that are not about one server. They sit behind a second door and a "
-        "clock, and each of them is written to the audit trail with the reason it was asked for.",
+        "The four actions that are not about one server, and the one message that goes to all "
+        "of them. They sit behind a second door and a clock, and each of them is written to the "
+        "audit trail with the reason it was asked for.",
     ),
 }
 
@@ -6994,6 +6996,11 @@ def _owner_context(page: str, guild_id=None) -> dict:
                 for action_id, label, blurb, needs_reason in GOD_ACTIONS
             ],
             "recent": _owner_recent(12),
+            # The one thing this tier does that is a *message* rather than a
+            # switch, and it is part of the tier for the reason the four actions
+            # are: its subject is every server at once. The panel is built here so
+            # the god page's own draw and the dry run's draw are one shape.
+            "broadcast": _broadcast_context(**_held_announcement()),
         },
         # A sentence carried across a POST, read once. Popped rather than read, so
         # a reload cannot re-announce an action that has already happened.
@@ -7284,6 +7291,35 @@ def _god_perform(action: str, reason: str) -> dict:
     }
 
 
+def _render_owner(page: str, guild_id=None, *, announcement: dict | None = None):
+    """One console page, drawn from the same readers the routes answer with.
+
+    One function for the render rather than one call per route, because the two
+    outward links below are the part that has already been got wrong once: they
+    were a name nothing in this file ever set, so the menu went on saying
+    `dacat.pages.dev` after the site moved, and a second render call is how a
+    second copy of that mistake gets made.
+
+    ``announcement`` is the one thing a caller knows and this function cannot: a
+    dry run of the fleet announcement, which belongs to the request that just
+    performed it and to no stored state.
+    """
+    context = _owner_context(page, guild_id)
+    if announcement is not None:
+        context["god"]["broadcast"] = announcement
+    return render_template(
+        "owner.html",
+        # The nav's own two outward links, named here rather than defaulted inside
+        # the template: this host is a *proxy* of one slice of the application, so
+        # a link to either other host has to be an address. The same two readers
+        # `_owner_login_page` uses, so the two pages of this console cannot name
+        # different addresses for one surface.
+        site_url=hub.marketing_url(),
+        dashboard_url=hub.dashboard_url(),
+        **{**_site_context(), **context},
+    )
+
+
 @app.route("/owner")
 @app.route("/owner/<path:sub>")
 def owner_console(sub: str = ""):
@@ -7317,21 +7353,7 @@ def owner_console(sub: str = ""):
         # An address that names no page of this console is a wrong address, and
         # the styled 404 already says so with ways onward.
         abort(404)
-    return render_template(
-        "owner.html",
-        # The nav's own two outward links, named here rather than defaulted inside
-        # the template: this host is a *proxy* of one slice of the application, so
-        # a link to either other host has to be an address. Both were a default
-        # written into the markup, and each was wrong its own way: `public_site_url`
-        # — a name nothing in this file ever set, so the link was a hard-coded
-        # address that would have gone on saying `dacat.pages.dev` after the site
-        # moved — and a second, hand-typed copy of the member dashboard's address.
-        # The same two readers `_owner_login_page` uses, so the two pages of this
-        # console cannot name different addresses for one surface.
-        site_url=hub.marketing_url(),
-        dashboard_url=hub.dashboard_url(),
-        **{**_site_context(), **_owner_context(page, request.args.get("guild_id"))},
-    )
+    return _render_owner(page, request.args.get("guild_id"))
 
 
 @app.route("/owner/god", methods=["POST"])
@@ -7380,6 +7402,70 @@ def owner_god_action():
         session["owner_notice"] = outcome.get("said") or "Done."
     else:
         session["owner_error"] = outcome.get("error") or "That did not work."
+    return redirect("/owner/god")
+
+
+@app.route("/owner/god/broadcast", methods=["GET", "POST"])
+def owner_god_broadcast():
+    """The fleet announcement from the page it is drawn on: dry run, then send.
+
+    **The dry run is the GET**, and that is the design rather than a convenience:
+    a preview is a *reading* of the fleet — which channel each server would receive
+    the message in, and which ones it cannot reach — so it is the method a browser
+    can repeat, reload and return to without anybody receiving anything. The send
+    is the POST, it is CSRF-checked, and it redirects, because the one repeat that
+    would be genuinely dangerous is a broadcast performed twice.
+
+    Both verbs sit inside the tier: the panel is drawn on the god page beside the
+    four actions, and a list of every server's news channel is a reading of the
+    fleet the tier already guards. A locked tier says so on the page it came from
+    rather than offering a second lock of its own, and a form that did nothing
+    keeps what was typed — see :func:`_hold_announcement`.
+    """
+    if not is_authenticated():
+        return redirect("/owner/login")
+    if not _principal().is_operator:
+        return redirect("/owner/login")
+
+    template = str(request.values.get("template") or "")
+    ping = bool(str(request.values.get("ping") or "").strip())
+
+    if request.method == "GET":
+        if not template.strip():
+            # Nothing typed yet: the panel's own blank state, with anything an
+            # earlier request kept handed back to it by `_owner_context`.
+            return _render_owner("god")
+        if not _god_unlocked():
+            _hold_announcement(template, ping)
+            session["owner_error"] = "God level is locked. Unlock it with the owner passkey first."
+            return redirect("/owner/god")
+        outcome = _god_broadcast(template, send=False, ping=ping)
+        return _render_owner(
+            "god",
+            announcement=_broadcast_context(
+                template,
+                ping,
+                preview=outcome if outcome.get("ok") else None,
+                error="" if outcome.get("ok") else str(outcome.get("error") or ""),
+            ),
+        )
+
+    if not _god_unlocked():
+        _hold_announcement(template, ping)
+        session["owner_error"] = "God level is locked. Unlock it with the owner passkey first."
+        return redirect("/owner/god")
+    if not validate_csrf():
+        _hold_announcement(template, ping)
+        session["owner_error"] = "That form had expired. Nothing was done — try again."
+        return redirect("/owner/god")
+
+    outcome = _god_broadcast(template, send=True, ping=ping)
+    if outcome.get("ok"):
+        session.pop("owner_broadcast", None)
+        session["owner_notice"] = outcome["said"]
+    else:
+        _hold_announcement(template, ping)
+        session["owner_error"] = str(outcome.get("error") or "That did not work.")
     return redirect("/owner/god")
 
 
@@ -7546,6 +7632,165 @@ def _god_fleet_ids() -> list[int]:
     except Exception as exc:  # noqa: BLE001
         print(f"[CONSOLE] could not read the fleet for a god action: {exc}", flush=True)
         return []
+
+
+def _broadcast_context(
+    template: str = "", ping: bool = False, preview: dict | None = None, error: str = ""
+) -> dict:
+    """The panel the god page draws for the fleet announcement.
+
+    The four tokens, both limits and the name of the ping come from
+    :mod:`utils.broadcast` rather than being written into the template: the
+    placeholders are the ones the sender fills in, and a page that kept its own
+    copy could offer one the sender refuses — which is the same one-author rule
+    the rest of this console is drawn on, applied to a *sentence* instead of a
+    reading.
+    """
+    return {
+        "template": template,
+        "ping": bool(ping),
+        "preview": preview,
+        "error": error,
+        "placeholders": broadcast.describe_placeholders(),
+        "max_chars": broadcast.MAX_CHARS,
+        "spacing_seconds": broadcast.SEND_SPACING_SECONDS,
+    }
+
+
+def _hold_announcement(template: str, ping: bool) -> None:
+    """Keep a message that was *not* sent, for the page it came from.
+
+    A stale token that answered "nothing was done — try again" and threw away the
+    paragraph somebody had just written is a form of nothing-was-done that costs
+    the reader their work, and this is the one console control whose input is
+    longer than a word. Bounded by the sender's own ceiling: a session that grew
+    with whatever a hand-made POST carried is a session that stops signing in.
+    """
+    session["owner_broadcast"] = {
+        "template": str(template or "")[: broadcast.MAX_CHARS],
+        "ping": bool(ping),
+    }
+
+
+def _held_announcement() -> dict:
+    """The message an earlier request kept for this one, read once.
+
+    Popped rather than read, for the reason the console's two sentences are: a
+    reload must not redraw an announcement that has already gone out. The only
+    thing that puts a value here is a form that did nothing — a stale token, a
+    locked tier, a template the sender refused — which is exactly the case where
+    making the operator type it again would be the second mistake.
+    """
+    held = session.pop("owner_broadcast", None)
+    return held if isinstance(held, dict) else {}
+
+
+def _god_broadcast(template: str, *, send: bool, ping: bool) -> dict:
+    """The fleet announcement: one message, every server, previewed or sent.
+
+    The dry run is the *same pass* with the send removed
+    (:func:`utils.broadcast.run`), so the list the operator reads is the list the
+    send follows rather than a second implementation's idea of it.
+
+    Three decisions here are worth the words. **A send that would reach nobody is
+    reported as a refusal rather than as a result**: an action whose whole point is
+    to reach every server is not done when it reached none, and a "0 servers"
+    answer that read like success is the shape this tier exists to avoid. **The
+    audit row is written from the coroutine**, not from this thread: a fleet large
+    enough to outlast the request's patience would otherwise be an action carried
+    out with no record of it, and the trail is the whole point of the tier. A
+    request that gives up waiting therefore says *still going*, never *did not
+    happen*, and the loop that owns Discord finishes the job and writes the row
+    either way. And **the actor is read before the coroutine is scheduled**, because
+    Flask's session belongs to the request's thread and a trail that named nobody
+    would be worse than no trail.
+    """
+    if BOT_INSTANCE is None:
+        return {
+            "ok": False,
+            "status": 409,
+            "error": "The bot is not connected right now, so there is nobody to tell.",
+        }
+    fleet = list(getattr(BOT_INSTANCE, "guilds", None) or [])
+    if not fleet:
+        return {
+            "ok": False,
+            "status": 409,
+            "error": "The bot is not in any server right now, so there is nobody to tell.",
+        }
+
+    try:
+        text = broadcast.validate(template)
+    except broadcast.Refused as refused:
+        return {"ok": False, "status": 400, "error": str(refused)}
+
+    actor_id, actor_name = _god_actor()
+    bot_name = _bot_display_name()
+    # The audit trail has one detail column, and a 1200-character message in it
+    # would be a wall of text where every other row is a line. Half of one is
+    # enough to recognise a broadcast by, and the message itself is still on the
+    # page the operator sent it from.
+    note = text if len(text) <= 240 else text[:239] + "…"
+    # Sends are spaced out (see `SEND_SPACING_SECONDS`), so the request's patience
+    # is sized to the fleet it is about — with a ceiling, because a request that
+    # holds a browser open for four minutes is its own failure. Over the ceiling
+    # the answer is "still going" and the trail still gets written.
+    patience = min(90.0, 15.0 + broadcast.SEND_SPACING_SECONDS * len(fleet) * 1.2)
+
+    async def announce() -> dict:
+        """The pass itself, and the record of it, on the loop that owns Discord."""
+        report = await broadcast.run(
+            BOT_INSTANCE, text, send=send, ping=ping, bot_name=bot_name
+        )
+        await db.record_web_action(
+            scope="god",
+            actor_id=actor_id,
+            actor_name=actor_name,
+            guild_id=0,
+            action="god_broadcast" if send else "god_broadcast_preview",
+            target="every server",
+            # A send that reached nobody is not a done thing, and a preview is a
+            # reading; both are recorded, and they are not recorded as the same.
+            ok=report["sent"] > 0 if send else True,
+            detail=f"{broadcast.summarise(report)} — {note}",
+            at=time.time(),
+        )
+        return report
+
+    try:
+        report = _run_on_bot_loop(announce(), timeout=patience)
+    except Exception as exc:  # noqa: BLE001 — a refusal, never a 500
+        print(f"[CONSOLE] the fleet announcement did not finish in this request: {exc}", flush=True)
+        return {
+            "ok": False,
+            "status": 504,
+            "error": (
+                "This request gave up waiting and the announcement is still going — the trail "
+                "on this page will say what it reached. Do not send it twice."
+            ),
+        }
+    if not isinstance(report, dict) or "rows" not in report:
+        return {
+            "ok": False,
+            "status": 409,
+            "error": "The announcement did not run, and the reason was not reported.",
+        }
+
+    # One sentence for the page and the trail, from the one function that writes
+    # it, and then the one refusal that is not the sender's to make.
+    report["said"] = broadcast.summarise(report)
+    if send and not report["reachable"]:
+        report["ok"] = False
+        report["status"] = 409
+        report["error"] = (
+            f"Nothing was sent: none of the {report['total']} server"
+            f"{'s' if report['total'] != 1 else ''} the bot is in could be reached. "
+            "The list below says why for each one."
+        )
+    else:
+        report["ok"] = True
+        report["status"] = 200
+    return report
 
 
 def _require_operator_api():
@@ -9060,6 +9305,44 @@ def api_console_god_act():
         "failed": outcome["failed"],
         "error": outcome["error"],
         "said": outcome["said"],
+    })
+
+
+@app.route("/api/console/god/broadcast", methods=["POST"])
+def api_console_god_broadcast():
+    """The fleet announcement over the API: the same pass, with ``send`` asked for.
+
+    The safe answer is the one that needs no field at all: a request that does not
+    say ``send`` gets the dry run, so a client that half-built its body cannot post
+    to four hundred servers by accident. It answers with the report rather than the
+    page's sentence alone, because the rows *are* the dry run — the list of every
+    server it would reach and every server it would not, with the reason.
+    """
+    denied = _require_god_api()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True) or {}
+    outcome = _god_broadcast(
+        str(data.get("template") or ""),
+        send=bool(data.get("send")),
+        ping=bool(data.get("ping")),
+    )
+    if not outcome.get("ok"):
+        return jsonify({"success": False, "error": outcome["error"]}), outcome["status"]
+    return jsonify({
+        "success": True,
+        "said": outcome["said"],
+        # Named rather than handed over whole: this payload is public to the
+        # console's own clients, and a report that grew a field would be a field
+        # the app printed without anybody deciding it should.
+        "report": {
+            key: outcome[key]
+            for key in (
+                "send", "ping", "template", "rows",
+                "total", "reachable", "sent", "failed", "unreached",
+            )
+        },
     })
 
 
