@@ -56,6 +56,12 @@ OUTPUT = os.path.join(ROOT, "_preview", "cards.html")
 CONTAINER_TYPE, SECTION_TYPE, TEXT_TYPE, THUMBNAIL_TYPE = 17, 9, 10, 11
 GALLERY_TYPE, FILE_TYPE, SEPARATOR_TYPE, ROW_TYPE = 12, 13, 14, 1
 
+#: The five menu kinds Discord sends. They are not buttons: a menu is a row to
+#: itself and carries a placeholder and options rather than a label, so a
+#: renderer that treated one as a button drew the word "select" and threw the
+#: question away.
+MENU_TYPES = {3, 5, 6, 7, 8}
+
 
 # --------------------------------------------------------------------------- #
 # Loading a revision of the module
@@ -301,6 +307,32 @@ def _one_liner(mod):
 
 #: ``(key, what to look at, builder)``. The builders take the module, so the same
 #: list builds a card in either revision — and only calls API that both have.
+def _meeting_draft(mod):
+    """The private draft `/meeting create` opens when nothing is filled in.
+
+    Built by calling the shipped ``DraftPanel`` rather than by assembling the
+    same card here, for the reason ``_meeting`` reads its words out of
+    ``utils/meetings``: a fixture that drew its own copy of the card would agree
+    with whoever copied it. ``mod`` is unused on purpose — the class is the
+    current release's, so this row of the page says what the bot sends today
+    rather than what a revision would have sent.
+    """
+    from cogs import meetings as meetings_cog
+
+    draft = meetings_cog.Draft(
+        guild_id=1,
+        user_id=2,
+        channel_id=1,
+        role_id=1,
+        title="Sprint planning",
+        where="Room 2",
+        agenda="Q4 roadmap first, then the on-call rota.",
+    )
+    draft.starts_at = 1790671066
+    draft.when_label = "Tomorrow at 18:00"
+    return meetings_cog.DraftPanel(None, draft)
+
+
 FIXTURES: tuple[tuple[str, str, callable], ...] = (
     ("action", "Hierarchy: the title is the subject, the joke is the body, the picture is a "
                "block rather than a gap, and the rule closes the card.", _action),
@@ -317,6 +349,9 @@ FIXTURES: tuple[tuple[str, str, callable], ...] = (
     ("meeting", "The whole promise of a meeting as labels over values — when, where, who, "
                 "what it is for, when the notices go out and who has replied — with the "
                 "reply strip under the footer.", _meeting),
+    ("meeting_draft", "The private draft `/meeting create` opens: four menus — when, "
+                      "reminders, the channel, who to ping — one button row, and the "
+                      "answer to *what is still missing* filled in above them.", _meeting_draft),
     ("soundboard", "A file component, referenced so Discord draws it, with the label/value "
                    "pair above it.", _soundboard),
     ("messy", "Text hygiene: the divider, the blank run and the trailing spaces are removed "
@@ -403,15 +438,34 @@ def render_component(node: dict) -> str:
             classes += " large"
         return f'<div class="{classes}"></div>'
     if kind == ROW_TYPE:
-        buttons = "".join(
-            f'<span class="button">{html.escape(child.get("label", "…"))}</span>'
+        chips = [
+            _menu_chip(child) if child.get("type") in MENU_TYPES
+            else f'<span class="button">{html.escape(child.get("label", "…"))}</span>'
             for child in node.get("components", [])
-            if child.get("label")
-        )
-        if not buttons:
-            buttons = '<span class="button">select</span>'
-        return f'<div class="row">{buttons}</div>'
+        ]
+        return f'<div class="row">{"".join(chips)}</div>'
     return f'<div class="text small">[component {kind}]</div>'
+
+
+def _menu_chip(node: dict) -> str:
+    """A menu drawn as the menu a reviewer is reviewing.
+
+    A select used to fall through to the button branch, which renders whatever
+    ``label`` a component has — and a select has none — so every menu came out
+    as one grey chip reading *select*. On a card whose whole point is four
+    menus, that is the part nobody can check: the meeting draft's choices were
+    invisible on the page that exists to look at them.
+    """
+    placeholder = html.escape(node.get("placeholder") or "menu")
+    options = [o for o in (node.get("options") or []) if o.get("label")]
+    if not options:
+        return f'<span class="menu">{placeholder}</span>'
+    first = options[0]
+    rest = f' +{len(options) - 1}' if len(options) > 1 else ""
+    return (
+        f'<span class="menu">{placeholder}'
+        f'<span class="option">{html.escape(first["label"])}{rest}</span></span>'
+    )
 
 
 def render_card(panel) -> str:
@@ -576,9 +630,12 @@ PAGE = """<!doctype html>
   .thumb .media img {{ height: 80px; object-fit: cover; }}
   .file {{ background: #232428; border-radius: 6px; padding: 8px 10px; font-size: 13px;
            color: var(--muted); }}
-  .row {{ display: flex; gap: 8px; margin-top: 6px; }}
+  .row {{ display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }}
   .button {{ background: #4e5058; color: #fff; border-radius: 3px; padding: 7px 16px;
              font-size: 13px; font-weight: 500; }}
+  .menu {{ background: #1e1f22; border: 1px solid #3f4147; color: var(--muted);
+           border-radius: 3px; padding: 7px 12px; font-size: 13px; min-width: 180px; }}
+  .menu .option {{ color: #fff; margin-left: 6px; }}
   footer {{ color: var(--muted); font-size: 12px; text-align: center; padding: 0 32px 40px; }}
 </style></head><body>
 <header>

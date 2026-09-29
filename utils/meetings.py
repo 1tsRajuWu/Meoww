@@ -763,6 +763,47 @@ def _decode(row) -> dict | None:
     return data
 
 
+#: The database's own words for the last write that failed, or ``""``.
+#: Read by the command that has to explain the failure to the operator: the
+#: reason used to live only in a log line, so the card could say nothing more
+#: useful than "the database refused the write".
+_LAST_WRITE_ERROR = ""
+
+
+def last_write_error() -> str:
+    """Why the last :func:`create` failed, as one ``Type: message`` line.
+
+    Empty when the last attempt worked (or when nothing has been tried yet), so
+    a caller can append it when there is something to append.
+    """
+    return _LAST_WRITE_ERROR
+
+
+def _remember_failure(exc: BaseException) -> None:
+    global _LAST_WRITE_ERROR
+    _LAST_WRITE_ERROR = f"{type(exc).__name__}: {exc}"
+
+
+def _ensure_schema(cur) -> None:
+    """Create the meetings tables on the connection that is about to write.
+
+    ``db.setup()`` makes them at boot, and that is the normal path — but it is
+    not a *promise* about the file underneath: ``utils.cloud_sync`` replaces
+    ``bot.db`` with ``os.replace`` when it restores a backup, and a database
+    swapped in after boot can predate these tables. The write then failed with
+    ``no such table: meetings`` and the person booking the meeting was told
+    only that "the database refused the write".
+
+    ``CREATE TABLE IF NOT EXISTS`` is cheap, additive, and the same statements
+    boot runs — there is one definition of this schema, in ``utils.db``, and
+    this is the second caller of it. Inside the writer's own transaction it
+    cannot race anybody: the tables either exist by the time the row is
+    inserted or the whole booking rolls back.
+    """
+    for statement in db.MEETINGS_SCHEMA:
+        cur.execute(statement)
+
+
 def _connect():
     """A connection that answers with rows that know their own columns.
 
@@ -800,10 +841,15 @@ def create(
     late by construction — and the receipt reads the rows back rather than the
     request, so what the creator is shown is what the loop will actually send.
     """
+    global _LAST_WRITE_ERROR
+
     now = int(now if now is not None else time.time())
     offsets = sorted({int(o) for o in (notices or [])}, reverse=True)
+    _LAST_WRITE_ERROR = ""  # this attempt's answer, never the last one's
 
     def work(cur):
+        # Before the row, not on boot: see ``_ensure_schema``.
+        _ensure_schema(cur)
         cur.execute(
             """INSERT INTO meetings
                (guild_id, title, agenda, starts_at, channel_id, voice_channel_id,
@@ -842,6 +888,7 @@ def create(
     try:
         return db.run_atomic(work)
     except Exception as exc:
+        _remember_failure(exc)
         print(f"[MEETINGS] Could not store a meeting: {exc}", flush=True)
         return None
 

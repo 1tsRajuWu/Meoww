@@ -979,11 +979,35 @@ MAX_ROW_BUTTONS = 5
 
 #: Every select kind shares ``BaseSelect`` (``Select``, ``UserSelect``,
 #: ``RoleSelect``, ``ChannelSelect``, ``MentionableSelect``), so one isinstance
-#: covers all five. Read defensively: an older library that lacks the base class
-#: still gets the string select, which is the kind this project builds.
-SELECT_TYPES = tuple(
-    kind for kind in (getattr(discord.ui, "BaseSelect", None), discord.ui.Select) if kind
-)
+#: covers all five. The base class is **not exported as ``discord.ui.BaseSelect``
+#: in every release** — in the installed 2.7.1 it lives in ``discord.ui.select``
+#: and ``discord.ui`` has no such attribute — so both spellings are looked up.
+#: The first version read only the first one, which meant a channel or role menu
+#: was not a select as far as :func:`_legal_groups` was concerned: a card
+#: carrying one beside a string menu had both put in the same row, and Discord's
+#: own "maximum number of children exceeded" was raised while the card was being
+#: built, in a command that never got to answer. Read defensively the other way
+#: too: a library with neither name still gets the string select, which is the
+#: kind most of this project builds.
+def _select_base():
+    """The class every select kind shares, however this release spells it.
+
+    ``discord.ui.BaseSelect`` first, then the submodule it actually lives in —
+    and the submodule is imported here rather than reached for as an attribute,
+    because ``discord.ui.select`` is the *decorator function* by then: the two
+    share a name and the function won the namespace.
+    """
+    kind = getattr(discord.ui, "BaseSelect", None)
+    if kind is not None:
+        return kind
+    try:
+        from discord.ui.select import BaseSelect
+    except ImportError:
+        return None
+    return BaseSelect
+
+
+SELECT_TYPES = tuple(kind for kind in (_select_base(), discord.ui.Select) if kind)
 
 
 def _is_select(item) -> bool:

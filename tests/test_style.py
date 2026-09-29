@@ -837,6 +837,39 @@ class TheRowDiscordRefuses(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_action_rows(panel), before)
         self.assertIs(_action_rows(panel)[0], row)
 
+    def _menus_that_are_not_string_selects(self):
+        """The kinds a meeting draft adds: a channel menu and a role menu.
+
+        Neither inherits ``Select``; both share ``BaseSelect``, which this
+        release keeps in ``discord.ui.select`` and does **not** export as
+        ``discord.ui.BaseSelect``. A ``SELECT_TYPES`` that misses that measured
+        them as buttons.
+        """
+        return (
+            discord.ui.ChannelSelect(channel_types=[discord.ChannelType.text]),
+            discord.ui.RoleSelect(),
+        )
+
+    def test_a_menu_that_is_not_a_string_select_is_still_a_menu(self):
+        for menu in self._menus_that_are_not_string_selects():
+            self.assertIsInstance(menu, style.SELECT_TYPES)
+
+    def test_two_such_menus_still_get_a_row_each(self):
+        """Building the card is the assertion.
+
+        The old grouping put both in one row, and ``ActionRow`` raised
+        ``ValueError: maximum number of children exceeded`` while the card was
+        still being assembled — from inside a command, before it had answered
+        anybody.
+        """
+        channel, role = self._menus_that_are_not_string_selects()
+        panel = style.card(body="hello")
+        panel.add_row(_select(), channel, role, discord.ui.Button(label="one"))
+        rows = _action_rows(panel)
+        self.assertEqual([len(row.children) for row in rows], [1, 1, 1, 1])
+        self.assertTrue(all(_row_is_legal(row) for row in rows), rows)
+        self.assertEqual(style.legal_rows(panel), 0)
+
 
 class RegistryIndependence(unittest.TestCase):
     def test_style_exports_survive(self):

@@ -66,6 +66,31 @@ NOTICE_INTERVAL_SECONDS = 30
 #: How often finished meetings are forgotten (``meetings.HISTORY_DAYS`` old).
 PRUNE_INTERVAL_SECONDS = 6 * 3600
 
+# --------------------------------------------------------------------------- #
+# The private draft — the same booking, filled in on a card only one person sees
+# --------------------------------------------------------------------------- #
+#: The times the draft offers without typing. Chosen rather than typed because
+#: the four answers people actually want are all clock arithmetic, and a select
+#: cannot be mistyped. The fifth option opens the modal for everything else.
+WHEN_CHOICES: tuple[tuple[str, str], ...] = (
+    ("In an hour", "in 1 hour"),
+    ("In three hours", "in 3 hours"),
+    ("Tomorrow at 18:00", "tomorrow 18:00"),
+    ("In a week", "in 7 days"),
+)
+#: The value the When select sends for "let me type it" — never a time.
+CUSTOM_WHEN = "__custom__"
+#: The notice schedules offered, as ``(what it reads as, what it parses as)``.
+NOTICE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("An hour and 15 minutes before", "1h,15m"),
+    ("A day and an hour before", "1d,1h"),
+    ("An hour before", "1h"),
+    ("No reminders", "none"),
+)
+#: How long a draft stays answerable. Discord drops a card's buttons after its
+#: view times out, and a draft nobody finished is not worth an hour-long socket.
+DRAFT_TIMEOUT_SECONDS = 15 * 60
+
 
 # --------------------------------------------------------------------------- #
 # The card, and the reply buttons on it
@@ -301,6 +326,26 @@ def _postable(guild, target) -> str | None:
     return None
 
 
+def _channel_of(guild, channel_id) -> object | None:
+    """A channel by id, through whichever getter this guild happens to have.
+
+    ``None`` for a missing id as well as a missing channel: a draft may not have
+    picked one yet, and "nothing chosen" is not an error to report.
+    """
+    if not channel_id:
+        return None
+    getter = getattr(guild, "get_channel_or_thread", None) or getattr(
+        guild, "get_channel", None
+    )
+    return getter(channel_id) if getter else None
+
+
+def _role_of(guild, role_id) -> object | None:
+    """A role by id, or ``None`` — the draft's audience, which is optional."""
+    getter = getattr(guild, "get_role", None)
+    return getter(role_id) if getter and role_id else None
+
+
 def _channel_for(guild, meeting: dict):
     """Where this meeting's words go: the chosen channel, else the system one.
 
@@ -308,12 +353,7 @@ def _channel_for(guild, meeting: dict):
     is still worth sending — but it is never silent about the move: the card's
     footer says the original channel is gone.
     """
-    channel = None
-    getter = getattr(guild, "get_channel_or_thread", None) or getattr(
-        guild, "get_channel", None
-    )
-    if getter:
-        channel = getter(meeting.get("channel_id"))
+    channel = _channel_of(guild, meeting.get("channel_id"))
     if channel is not None:
         return channel, ""
     return getattr(guild, "system_channel", None), (
@@ -321,6 +361,437 @@ def _channel_for(guild, meeting: dict):
         if getattr(guild, "system_channel", None) is not None
         else ""
     )
+
+
+def _write_refusal() -> str:
+    """What to tell somebody whose meeting the database would not take.
+
+    The layer below keeps the database's own words for the failure, and they are
+    appended here when there are any: for three days this card said "the
+    database refused the write" while the sentence that named the missing table
+    sat in a log nobody reads. An operator's own card is the one place a storage
+    error may be spelled out.
+    """
+    reason = meetings.last_write_error()
+    detail = f" (`{reason}`)" if reason else ""
+    return (
+        f"❌ I couldn't save that meeting — the database refused the write{detail}. "
+        "Nothing was posted, so nothing is half-announced."
+    )
+
+
+def _private_answer(interaction: discord.Interaction):
+    """A callable that answers the person who asked, privately.
+
+    The option-filled command's answers are follow-ups on its own ephemeral
+    reply; the draft's answers replace the draft message itself, which is the
+    whole point of a draft being one message. Both shapes arrive here as one
+    callable so :meth:`Meetings._book` never has to know which it is in.
+    """
+
+    async def answer(payload) -> None:
+        if isinstance(payload, str):
+            return await interaction.followup.send(payload, ephemeral=True)
+        return await send_panel(interaction, payload, ephemeral=True)
+
+    return answer
+
+
+def _draft_answer(interaction: discord.Interaction):
+    """The draft's answer: the private message becomes the receipt."""
+
+    async def answer(payload) -> None:
+        if isinstance(payload, str):
+            return await style.edit_card(interaction, content=payload)
+        return await style.edit_card(interaction, content=None, view=payload)
+
+    return answer
+
+
+class Draft:
+    """A meeting that is not one yet — the fields, and nothing else.
+
+    Deliberately not a database row. A half-filled meeting is not a meeting: it
+    has no card anybody could answer and no time worth reminding anybody about,
+    so it lives in this object for as long as the private card lives, and the
+    row is written once, complete, by the same code the plain command uses.
+    """
+
+    def __init__(
+        self,
+        *,
+        guild_id: int,
+        user_id: int,
+        channel_id: int = 0,
+        voice_id: int | None = None,
+        role_id: int | None = None,
+        title: str = "",
+        where: str = "",
+        agenda: str = "",
+        notices=(3600, 900),
+        notice_label: str = "",
+    ) -> None:
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.channel_id = int(channel_id or 0)
+        self.voice_id = voice_id
+        self.role_id = role_id
+        self.title = str(title or "")
+        self.where = str(where or "")
+        self.agenda = str(agenda or "")
+        self.notices = tuple(int(o) for o in notices)
+        # Words rather than syntax: the card asks in sentences ("An hour and 15
+        # minutes before") and every other field answers in them too, so the
+        # default schedule reads the same way as a chosen one instead of
+        # showing the reader `1h,15m` and leaving them to decode it.
+        self.notice_label = str(notice_label or _label_for(meetings.DEFAULT_NOTICES))
+        self.starts_at: int | None = None
+        self.when_label = ""
+        #: The meeting this draft became, once it became one. A second press on
+        #: **Book it** — two interactions are in flight the moment somebody
+        #: double-clicks, and each one gets its own token — must not be a second
+        #: meeting with the same title, in the same channel, at the same minute.
+        self.booked: int | None = None
+
+    def ready(self) -> bool:
+        """True once there is a name and a moment — the two things a card needs."""
+        return bool(self.title.strip()) and self.starts_at is not None
+
+    def when_line(self) -> str:
+        if self.starts_at is None:
+            return "not picked yet"
+        label = f"{self.when_label} · " if self.when_label else ""
+        return (
+            f"{label}{meetings.stamp(self.starts_at, 'F')} "
+            f"({meetings.stamp(self.starts_at, 'R')})"
+        )
+
+    def notice_line(self) -> str:
+        if not self.notices:
+            return "none — people are told once, when it is booked"
+        return f"{self.notice_label} ({len(self.notices)} reminder{'s' if len(self.notices) != 1 else ''})"
+
+
+def _picked(interaction: discord.Interaction, fallback: str = "") -> str:
+    """The value somebody just chose, off the interaction it arrived on.
+
+    ``interaction.data["values"]`` is where Discord puts a select's answer, and
+    it is the same list the library itself reads — so a component's choice can
+    be asserted without a gateway.
+    """
+    data = getattr(interaction, "data", None) or {}
+    values = data.get("values") or []
+    return str(values[0]) if values else fallback
+
+
+def _draft_panel_body(draft: Draft, warning: str = "") -> str:
+    """The draft's own words: what is filled in, and what is still open."""
+    lines = [f"**{draft.title.strip() or '_No name yet_'}**"]
+    if draft.where.strip():
+        lines.append(f"📍 {draft.where.strip()}")
+    if draft.agenda.strip():
+        lines.append(f"📝 {draft.agenda.strip()}")
+    if warning:
+        lines.append("")
+        lines.append(warning)
+    return "\n".join(lines)
+
+
+class DraftDetails(discord.ui.Modal, title="The words on the card"):
+    """The three things a select cannot ask for, on one form.
+
+    A modal is the only free-text surface Discord gives a component, so the
+    name, the place in words and the agenda all arrive here — and the time, for
+    the one case the presets do not cover.
+    """
+
+    def __init__(self, panel: "DraftPanel") -> None:
+        super().__init__()
+        self.panel = panel
+        self.name = discord.ui.TextInput(
+            label="What is it called?",
+            required=False,
+            max_length=100,
+            placeholder="Sprint planning",
+            default=panel.draft.title[:100] or None,
+        )
+        self.when = discord.ui.TextInput(
+            label="Time (fills in the choice above)",
+            required=False,
+            max_length=60,
+            placeholder="tomorrow 18:00, in 2 hours, friday 19:00",
+            default=(
+                panel.draft.when_label
+                if panel.draft.starts_at is not None
+                and panel.draft.when_label not in [label for label, _v in WHEN_CHOICES]
+                else None
+            ),
+        )
+        self.where = discord.ui.TextInput(
+            label="Where",
+            required=False,
+            max_length=200,
+            placeholder="Room 2 · the stage · a link",
+            default=panel.draft.where[:200] or None,
+        )
+        self.agenda = discord.ui.TextInput(
+            label="What it is about",
+            required=False,
+            style=discord.TextStyle.paragraph,
+            max_length=900,
+            placeholder="What people should read before it starts",
+            default=panel.draft.agenda[:900] or None,
+        )
+        self.add_item(self.name)
+        self.add_item(self.when)
+        self.add_item(self.where)
+        self.add_item(self.agenda)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        draft = self.panel.draft
+        warning = ""
+        draft.title = str(self.name.value or "").strip()[:100]
+        draft.where = str(self.where.value or "").strip()[:200]
+        draft.agenda = str(self.agenda.value or "").strip()[:900]
+        typed = str(self.when.value or "").strip()
+        if typed:
+            starts_at, error = meetings.parse_when(typed, int(time.time()))
+            if error:
+                warning = f"⚠️ I couldn't read `{typed}` as a time — {error}"
+            else:
+                draft.starts_at = starts_at
+                draft.when_label = typed
+        await self.panel.redraw(interaction, warning=warning)
+
+
+class DraftPanel(Panel):
+    """The private draft card: one ephemeral message only its owner can drive.
+
+    The draft is *state on the message* rather than a dictionary on the bot: it
+    exists for as long as the card does, it dies with it, and nothing has to be
+    cleaned up or expired by hand. ``interaction_check`` is the second half of
+    "only I can see it" — an ephemeral message is already private, and this
+    refuses anybody else who somehow reaches its components.
+    """
+
+    def __init__(self, cog, draft: Draft, *, warning: str = "") -> None:
+        super().__init__(
+            title="📅 Book it — a private draft",
+            body=_draft_panel_body(draft, warning),
+            fields=[
+                ("When", draft.when_line()),
+                ("Notices", draft.notice_line()),
+                (
+                    "Announce in",
+                    f"<#{draft.channel_id}>" if draft.channel_id else "this channel",
+                ),
+                (
+                    "Who to ping",
+                    f"<@&{draft.role_id}>" if draft.role_id else "nobody is pinged",
+                ),
+            ],
+            footer=(
+                "Only you can see this draft, and nothing is scheduled until you press "
+                "**Book it**. It closes after 15 minutes."
+            ),
+            accent=ACCENT,
+            timeout=DRAFT_TIMEOUT_SECONDS,
+        )
+        self.cog = cog
+        self.draft = draft
+
+        when = discord.ui.Select(
+            placeholder="When does it start?",
+            options=[
+                discord.SelectOption(label=label, value=value)
+                for label, value in WHEN_CHOICES
+            ]
+            + [
+                discord.SelectOption(
+                    label="Type a time…",
+                    value=CUSTOM_WHEN,
+                    description="tomorrow 18:00 · in 2 hours · friday 19:00",
+                )
+            ],
+        )
+        when.callback = self._chose_when
+        notices = discord.ui.Select(
+            placeholder="Remind people when?",
+            options=[
+                discord.SelectOption(
+                    label=label,
+                    value=value,
+                    default=tuple(draft.notices) == tuple(_offsets_for(value)),
+                )
+                for label, value in NOTICE_CHOICES
+            ],
+        )
+        notices.callback = self._chose_notices
+        channel = discord.ui.ChannelSelect(
+            placeholder="Where to announce it (default: this channel)",
+            channel_types=[discord.ChannelType.text],
+            min_values=1,
+            max_values=1,
+            default_values=(
+                [discord.Object(id=draft.channel_id)] if draft.channel_id else None
+            ),
+        )
+        channel.callback = self._chose_channel
+        role = discord.ui.RoleSelect(
+            placeholder="Who to ping (optional)",
+            min_values=0,
+            max_values=1,
+            default_values=[discord.Object(id=draft.role_id)] if draft.role_id else None,
+        )
+        role.callback = self._chose_role
+        details = discord.ui.Button(
+            label="Title, place, agenda…", style=discord.ButtonStyle.secondary, emoji="📝"
+        )
+        details.callback = self._open_details
+        book = discord.ui.Button(
+            label="Book it", style=discord.ButtonStyle.success, emoji="📅",
+            disabled=not draft.ready(),
+        )
+        book.callback = self._book
+        drop = discord.ui.Button(
+            label="Cancel", style=discord.ButtonStyle.danger, emoji="✖️"
+        )
+        drop.callback = self._drop
+
+        self.add_row(when, notices, channel, role)
+        self.add_row(details, book, drop)
+
+    # ── the guard ───────────────────────────────────────────────────────── #
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Only the person who opened the draft may use it."""
+        if getattr(interaction.user, "id", 0) != self.draft.user_id:
+            await _ephemeral(
+                interaction,
+                "❌ That draft belongs to somebody else — run `/meeting create` to "
+                "start your own.",
+            )
+            return False
+        return True
+
+    async def redraw(self, interaction: discord.Interaction, *, warning: str = "") -> None:
+        """Show the draft again, in place, carrying whatever just changed."""
+        await style.edit_card(
+            interaction, content=None, view=DraftPanel(self.cog, self.draft, warning=warning)
+        )
+
+    # ── the choices ──────────────────────────────────────────────────────── #
+
+    async def _chose_when(self, interaction: discord.Interaction) -> None:
+        value = _picked(interaction)
+        if value == CUSTOM_WHEN or not value:
+            return await interaction.response.send_modal(DraftDetails(self))
+        starts_at, error = meetings.parse_when(value, int(time.time()))
+        if error:
+            return await self.redraw(interaction, warning=f"⚠️ {error}")
+        self.draft.starts_at = starts_at
+        self.draft.when_label = _label_for(value)
+        await self.redraw(interaction)
+
+    async def _chose_notices(self, interaction: discord.Interaction) -> None:
+        value = _picked(interaction)
+        offsets, error = meetings.parse_notices(value or meetings.DEFAULT_NOTICES)
+        if error:
+            return await self.redraw(interaction, warning=f"⚠️ {error}")
+        self.draft.notices = tuple(offsets)
+        self.draft.notice_label = _label_for(value)
+        await self.redraw(interaction)
+
+    async def _chose_channel(self, interaction: discord.Interaction) -> None:
+        chosen = _picked(interaction)
+        if chosen:
+            self.draft.channel_id = int(chosen)
+        await self.redraw(interaction)
+
+    async def _chose_role(self, interaction: discord.Interaction) -> None:
+        chosen = _picked(interaction)
+        self.draft.role_id = int(chosen) if chosen else None
+        await self.redraw(interaction)
+
+    async def _open_details(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(DraftDetails(self))
+
+    # ── the two ends ─────────────────────────────────────────────────────── #
+
+    async def _book(self, interaction: discord.Interaction) -> None:
+        """Write it, post it, and answer — through the same code as `/meeting create`."""
+        draft = self.draft
+        now = int(time.time())
+        if draft.booked is not None:
+            return await self.redraw(
+                interaction,
+                warning=(
+                    f"⚠️ This draft is already booked as meeting `#{draft.booked}` — "
+                    f"`/meeting view {draft.booked}` shows it."
+                ),
+            )
+        if not draft.title.strip():
+            return await self.redraw(
+                interaction, warning="⚠️ Give it a name first — press **Title, place, agenda…**."
+            )
+        if draft.starts_at is None:
+            return await self.redraw(interaction, warning="⚠️ Pick the time first.")
+        if draft.starts_at - now < meetings.MIN_LEAD_SECONDS:
+            return await self.redraw(
+                interaction,
+                warning="⚠️ That start time passed while this draft was open — pick a new one.",
+            )
+
+        guild = interaction.guild
+        target = _channel_of(guild, draft.channel_id) or interaction.channel
+        blocked = _postable(guild, target)
+        if blocked:
+            return await self.redraw(interaction, warning=f"⚠️ {blocked}")
+
+        meeting = await self.cog._book(
+            interaction,
+            target=target,
+            title=draft.title,
+            starts_at=draft.starts_at,
+            offsets=draft.notices,
+            voice=_channel_of(guild, draft.voice_id),
+            role=_role_of(guild, draft.role_id),
+            where=draft.where,
+            agenda=draft.agenda,
+            answer=_draft_answer(interaction),
+        )
+        if meeting is not None:
+            draft.booked = int(meeting["id"])
+
+    async def _drop(self, interaction: discord.Interaction) -> None:
+        """Throw the draft away. Nothing was written, so there is nothing to undo."""
+        await style.edit_card(
+            interaction,
+            content=None,
+            view=Panel(
+                title="✖️ Draft closed",
+                body=(
+                    "Nothing was booked — a draft is not a meeting until you press "
+                    "**Book it**. `/meeting create` starts a new one."
+                ),
+                accent=DANGER,
+                footer="Nothing was changed.",
+            ),
+        )
+
+
+def _label_for(value: str) -> str:
+    """The words a choice was offered in, for the card to echo back."""
+    for label, candidate in (*WHEN_CHOICES, *NOTICE_CHOICES):
+        if candidate == value:
+            return label
+    return value
+
+
+def _offsets_for(value: str) -> list[int]:
+    """The offsets a notice choice stands for, or ``[]`` for ``none``."""
+    offsets, _error = meetings.parse_notices(value)
+    return list(offsets or [])
 
 
 # --------------------------------------------------------------------------- #
@@ -357,10 +828,10 @@ class Meetings(commands.Cog):
 
     @meeting_group.command(
         name="create",
-        description="Schedule a meeting: when, where, who to tell, and the notices.",
+        description="Book a meeting — fill it in privately, or pass everything at once.",
     )
     @app_commands.describe(
-        title="What the meeting is called.",
+        title="What the meeting is called. Leave this and `when` empty to fill it in privately.",
         when="When it starts: `tomorrow 18:00`, `in 2 hours`, `2026-10-03 18:00`. UTC unless you add `+2`.",
         channel="Where the announcement and notices are posted. Defaults to here.",
         voice="The voice channel the meeting takes place in.",
@@ -373,8 +844,8 @@ class Meetings(commands.Cog):
     async def meeting_create(
         self,
         interaction: discord.Interaction,
-        title: app_commands.Range[str, 1, 100],
-        when: str,
+        title: app_commands.Range[str, 1, 100] | None = None,
+        when: str | None = None,
         channel: discord.TextChannel | None = None,
         voice: discord.VoiceChannel | None = None,
         role: discord.Role | None = None,
@@ -382,9 +853,24 @@ class Meetings(commands.Cog):
         agenda: app_commands.Range[str, 1, 900] | None = None,
         notices: str | None = None,
     ):
+        """Two ways in, and both end in :meth:`_book`.
+
+        Passing ``title`` and ``when`` books it in one command, exactly as it
+        always has. Leaving either out opens the **private draft**: the details
+        are collected on a card only the asker can see, nothing is written while
+        it is a draft, and pressing *Book it* writes the row and posts the same
+        announcement the one-shot path posts. Whatever was passed alongside the
+        missing half seeds the draft instead of being dropped.
+        """
         guild = interaction.guild
         if guild is None:
             return
+
+        if not (title and when):
+            return await self._open_draft(
+                interaction, title=title, when=when, channel=channel, voice=voice,
+                role=role, where=where, agenda=agenda, notices=notices,
+            )
 
         now = int(time.time())
         starts_at, error = meetings.parse_when(when, now)
@@ -402,9 +888,98 @@ class Meetings(commands.Cog):
         if blocked:
             return await _refuse(interaction, f"❌ {blocked}", title="I can't post there")
 
-        meeting_id = meetings.create(
-            guild.id,
+        await self._book(
+            interaction,
+            target=target,
             title=str(title),
+            starts_at=starts_at,
+            offsets=offsets,
+            voice=voice,
+            role=role,
+            where=str(where or ""),
+            agenda=str(agenda or ""),
+        )
+
+    # ── the draft, and the one write both ways in go through ────────────── #
+
+    async def _open_draft(
+        self,
+        interaction: discord.Interaction,
+        *,
+        title=None,
+        when=None,
+        channel=None,
+        voice=None,
+        role=None,
+        where=None,
+        agenda=None,
+        notices=None,
+    ) -> None:
+        """Start the private draft, seeded with whatever was already given.
+
+        The ephemeral card is the whole of the state: it is only ever visible to
+        the person who ran the command, and it is edited in place as they pick,
+        so the "temp" never becomes a second message, a thread or a row.
+        """
+        guild = interaction.guild
+        here = getattr(interaction, "channel", None)
+        draft = Draft(
+            guild_id=guild.id,
+            user_id=getattr(interaction.user, "id", 0),
+            channel_id=getattr(channel, "id", None) or getattr(here, "id", 0),
+            voice_id=getattr(voice, "id", None),
+            role_id=getattr(role, "id", None),
+            title=str(title or ""),
+            where=str(where or ""),
+            agenda=str(agenda or ""),
+        )
+        warnings: list[str] = []
+        if when:
+            starts_at, error = meetings.parse_when(when, int(time.time()))
+            if error:
+                warnings.append(f"⚠️ I couldn't read `{when}` as a time — {error}")
+            else:
+                draft.starts_at = starts_at
+                draft.when_label = str(when)
+        if notices:
+            offsets, error = meetings.parse_notices(notices)
+            if error:
+                warnings.append(f"⚠️ I couldn't read `{notices}` as notices — {error}")
+            else:
+                draft.notices = tuple(offsets)
+                draft.notice_label = str(notices)
+        await send_panel(
+            interaction,
+            DraftPanel(self, draft, warning="\n".join(warnings)),
+            ephemeral=True,
+        )
+
+    async def _book(
+        self,
+        interaction: discord.Interaction,
+        *,
+        target,
+        title: str,
+        starts_at: int,
+        offsets,
+        voice=None,
+        role=None,
+        where: str = "",
+        agenda: str = "",
+        answer=None,
+    ) -> dict | None:
+        """Write the meeting, post the card, and answer the person who asked.
+
+        One implementation for both doors into this feature — the option-filled
+        command and the private draft — because the promises are identical and
+        two copies would drift apart on exactly the parts that matter: the row,
+        the rollback when the card will not post, and a receipt read back from
+        the rows that were actually written rather than from the request.
+        """
+        answer = answer or _private_answer(interaction)
+        meeting_id = meetings.create(
+            interaction.guild.id,
+            title=str(title)[:100],
             starts_at=starts_at,
             channel_id=getattr(target, "id", 0),
             created_by=getattr(interaction.user, "id", 0),
@@ -417,23 +992,22 @@ class Meetings(commands.Cog):
             location=str(where or ""),
             audience_role_id=getattr(role, "id", None),
             notices=offsets,
-            now=now,
+            now=int(time.time()),
         )
         if meeting_id is None:
-            return await _refuse(
-                interaction,
-                "❌ I couldn't save that meeting — the database refused the write. "
-                "Nothing was posted, so nothing is half-announced.",
-            )
+            await answer(_write_refusal())
+            return None
 
         meeting = meetings.get(meeting_id)
         if meeting is None:  # pragma: no cover — a write that cannot be read back
             meetings.forget(meeting_id)
-            return await _refuse(interaction, "❌ I couldn't read the meeting back, so I dropped it.")
+            await answer("❌ I couldn't read the meeting back, so I dropped it.")
+            return None
 
         # Deferred before the card goes out: the post and the receipt are two
         # network calls, and an interaction token is good for three seconds.
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         try:
             message = await send_panel(
                 target,
@@ -444,24 +1018,22 @@ class Meetings(commands.Cog):
             # Roll back rather than keep a meeting nobody was ever told about:
             # `/meeting list` would promise a card the channel does not hold.
             meetings.forget(meeting_id)
-            await interaction.followup.send(
+            await answer(
                 f"❌ I couldn't post the card in {getattr(target, 'mention', 'that channel')} "
                 f"({type(exc).__name__}: {exc}), so I dropped the meeting — nothing was "
-                "scheduled. Check my **Send Messages** permission there and try again.",
-                ephemeral=True,
+                "scheduled. Check my **Send Messages** permission there and try again."
             )
-            return
+            return None
         meetings.set_message_id(meeting_id, getattr(message, "id", 0))
 
-        await send_panel(
-            interaction,
+        await answer(
             _receipt_panel(
                 meeting,
                 meetings.pending_notice_rows(meeting_id),
                 jump_url=getattr(message, "jump_url", "") or "",
-            ),
-            ephemeral=True,
+            )
         )
+        return meeting
 
     # ── reading ─────────────────────────────────────────────────────────── #
 
