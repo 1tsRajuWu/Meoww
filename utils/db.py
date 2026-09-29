@@ -660,6 +660,81 @@ async def setup():
             'CREATE INDEX IF NOT EXISTS idx_sched_history '
             'ON scheduled_messages(guild_id, last_run_at)'
         )
+
+        # ── Meetings a server schedules, and the notices owed on them ─────
+        # Three tables because a meeting is three facts that must not drift:
+        # what it is (``meetings``), when somebody should be told about it
+        # (``meeting_notices``), and who said they were coming (``meeting_rsvps``).
+        #
+        # A notice is a row rather than a timer in memory for the same reason a
+        # scheduled message is: the promise has to outlive the process, and a
+        # restart must not cost somebody their reminder. ``status`` plus
+        # ``due_at`` is the queue the cog's sweep drains, and a notice that was
+        # never sent keeps its ``note`` saying why — the one question a missed
+        # reminder cannot answer from the channel, because it left nothing there.
+        await db.execute('''CREATE TABLE IF NOT EXISTS meetings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            agenda TEXT NOT NULL DEFAULT '',
+            -- Unix seconds, UTC. Cards print it as a Discord timestamp, which
+            -- each reader's own client renders in their own timezone.
+            starts_at INTEGER NOT NULL,
+            -- Where the announcement and every notice are posted — not where
+            -- the meeting is, which is ``voice_channel_id`` + ``location``.
+            channel_id INTEGER NOT NULL,
+            voice_channel_id INTEGER,
+            location TEXT NOT NULL DEFAULT '',
+            -- The role pinged on the announcement and on every notice; NULL is
+            -- "nobody is pinged", never @everyone.
+            audience_role_id INTEGER,
+            -- JSON list of offsets in seconds before ``starts_at``.
+            notices TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'scheduled',
+            -- Where the announcement card landed, so RSVP buttons and later
+            -- edits can find it: a button carries no state of its own.
+            announce_message_id INTEGER,
+            created_by INTEGER,
+            -- The name as it was written on the card, so a rebuilt card after
+            -- a redeploy keeps the footer it was posted with.
+            created_by_name TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_meetings_guild '
+            'ON meetings(guild_id, starts_at)'
+        )
+        await db.execute('''CREATE TABLE IF NOT EXISTS meeting_notices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meeting_id INTEGER NOT NULL,
+            due_at INTEGER NOT NULL,
+            offset_seconds INTEGER NOT NULL,
+            -- pending -> sending -> sent | missed | cancelled. ``sending`` with
+            -- a ``claimed_at`` older than the stale window means the process
+            -- died mid-send, and the sweep puts it back: a duplicate reminder
+            -- is a nuisance, a missing one is the feature not happening.
+            status TEXT NOT NULL DEFAULT 'pending',
+            note TEXT NOT NULL DEFAULT '',
+            claimed_at INTEGER,
+            sent_at INTEGER
+        )''')
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_meeting_notices_due '
+            'ON meeting_notices(status, due_at)'
+        )
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_meeting_notices_meeting '
+            'ON meeting_notices(meeting_id, due_at)'
+        )
+        await db.execute('''CREATE TABLE IF NOT EXISTS meeting_rsvps (
+            meeting_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            -- yes | maybe | no. One row per person: the last press wins, so
+            -- changing your mind is a state rather than a second vote.
+            answer TEXT NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (meeting_id, user_id)
+        )''')
         # Access-path indexes for the five tables that grow without one. The
         # composite primary keys cover economy, user_levels, item_effects, loans
         # and market_holdings, but these are scanned today: a chart series reads

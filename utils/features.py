@@ -601,6 +601,31 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.reaction_roles",
         help_key="reaction_roles",
     ),
+    Feature(
+        id="meetings",
+        name="Meetings & Notices",
+        icon="📅",
+        category="Management",
+        description=(
+            "Staff and team meetings from Discord: a time, a place, who to tell, "
+            "and notices that go out to a channel before it starts — with reply "
+            "buttons on the card so you can see who is coming."
+        ),
+        gate_commands=("meeting",),
+        # Spelled out by the subcommand a member types, because every surface
+        # counts these rows and a group name nobody can run is a row the front
+        # page advertises anyway.
+        commands=(
+            "/meeting create — Book one: when, where, who to ping, and the notices",
+            "/meeting list — What this server has coming up",
+            "/meeting view — One in detail, with replies and notice status",
+            "/meeting reschedule — Move it and rebuild its notices",
+            "/meeting ping — Send the notice to people now",
+            "/meeting cancel — Cancel it and stand the notices down",
+        ),
+        cog="cogs.meetings",
+        help_key="meetings",
+    ),
     # Radio and the anonymous question box: **off by default**, one flag per
     # server.
     #

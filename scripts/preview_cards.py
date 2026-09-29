@@ -200,6 +200,46 @@ def _soundboard(mod):
     )
 
 
+def _meeting(mod):
+    """The meeting announcement: the card a staff channel opens with.
+
+    The words come from ``utils/meetings`` (the module that owns every card this
+    feature draws) and the buttons from ``cogs/meetings`` (which owns their ids),
+    so this fixture cannot drift from what the bot actually posts — a preview
+    whose text was copied out of the builder agrees with whoever copied it. Only
+    the assembly goes through ``mod``, which is the thing being compared.
+    """
+    from cogs import meetings as meetings_cog
+    from utils import meetings
+
+    title, body, fields, footer = meetings.announcement_text(
+        {
+            "id": 7,
+            "title": "Sprint planning",
+            "agenda": "Q4 roadmap first, then the on-call rota and last week's incidents.",
+            "starts_at": 1790671066,
+            "channel_id": 1,
+            "voice_channel_id": 400,
+            "location": "Room 2 — https://meet.example/abc",
+            "audience_role_id": 1,
+            "notices": [3600, 900],
+            "status": "scheduled",
+            "created_by_name": "raj",
+        },
+        {"yes": 4, "maybe": 1, "no": 0},
+    )
+    view = mod.card(
+        title=title,
+        body=body,
+        fields=fields,
+        accent=mod.ACCENT,
+        footer=footer,
+        timeout=None,
+    )
+    view.add_row(*[meetings_cog.rsvp_button(key) for key, _label, _style in meetings_cog.ANSWERS])
+    return view
+
+
 def _messy(mod):
     """The hygiene case: a body that was written, not laid out.
 
@@ -274,6 +314,9 @@ FIXTURES: tuple[tuple[str, str, callable], ...] = (
               "three bold headings shouting the same volume.", _alert),
     ("ticket", "The control strip stays below the footer, so the rule separates content from "
                "the buttons rather than splitting them.", _ticket),
+    ("meeting", "The whole promise of a meeting as labels over values — when, where, who, "
+                "what it is for, when the notices go out and who has replied — with the "
+                "reply strip under the footer.", _meeting),
     ("soundboard", "A file component, referenced so Discord draws it, with the label/value "
                    "pair above it.", _soundboard),
     ("messy", "Text hygiene: the divider, the blank run and the trailing spaces are removed "

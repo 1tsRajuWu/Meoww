@@ -195,6 +195,26 @@ HELP_MODULES = {
         "color": 0xF39C12,
         "emoji": "⚡"
     },
+    "meetings": {
+        "title": "📅 Meetings & Notices",
+        "desc": (
+            "Staff and team meetings, booked from Discord and announced on a card "
+            "people can reply to.\n\n"
+            "> `/meeting create <title> <when>` — Book one: when, where, who to "
+            "ping, and the notices\n"
+            "> `/meeting list` — What this server has coming up\n"
+            "> `/meeting view <id>` — One in detail, with replies and notice status\n"
+            "> `/meeting reschedule <id> <when>` — Move it and rebuild its notices\n"
+            "> `/meeting ping <id>` — Send the notice to people right now\n"
+            "> `/meeting cancel <id>` — Cancel it and stand the notices down\n\n"
+            "Times you type are UTC (or add an offset like `18:00+2`), and every "
+            "card draws them in each reader's own timezone. Notices go to the "
+            "meeting's channel — `1h,15m` by default — and the buttons on the "
+            "announcement record who is coming."
+        ),
+        "color": 0x5865F2,
+        "emoji": "📅"
+    },
     "tickets": {
         "title": "🎫 Support Tickets",
         "desc": (

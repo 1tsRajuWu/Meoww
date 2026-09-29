@@ -106,6 +106,7 @@ immediately but does **not** delete what already exists — only this does.
 |---|---|
 | Activity messages and voice rows | after 365 days (`cogs/tracker.py::RETENTION_DAYS`) |
 | Dashboard message history — queued, sent, per-channel result | after 90 days (`utils/scheduled.py::HISTORY_DAYS`) |
+| Meetings — the meeting, its notices and who replied to the card | after 90 days (`utils/meetings.py::HISTORY_DAYS`) |
 | Cloud snapshots | oldest pruned beyond 5, hourly (`utils/cloud_sync.py`) |
 | Everything else | kept until deleted, because that is the feature |
 

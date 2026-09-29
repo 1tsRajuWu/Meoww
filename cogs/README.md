@@ -16,6 +16,7 @@ cogs stay thin.
 | `legal.py` | Legal docs | `/legal privacy`, `/legal tos` (rendered from root `PRIVACY.md` / `TERMS.md`) |
 | `leveling.py` | Leveling & XP | `/rank /leaderboard /levelroles view|add|remove /givexp /setlevel …` + message/voice listeners |
 | `market.py` | Market | `/market board quote chart buy sell portfolio history` |
+| `meetings.py` | Meetings & Notices | `/meeting create list view reschedule ping cancel` + RSVP buttons |
 | `moderation.py` | Moderation & Logs | `/ban /kick /mute /warn /purge /modlog …` |
 | `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /slowmode /defaultrole …` |
 | `social.py` | Social Roleplay | `/action /marry /ship /hunt /zoo /uwu …` |

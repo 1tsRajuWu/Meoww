@@ -277,6 +277,20 @@ COMMAND_ACCESS: dict[str, str] = {
     "reactionrole add": ROLES,
     "reactionrole remove": ROLES,
     "reactionrole list": EVERYONE,
+    # -- Meetings ---------------------------------------------------------- #
+    # Booking, moving, cancelling and telling people now are the same audience
+    # as `/announce`: Manage Server — the bit a moderator role usually holds,
+    # and the one a staff meeting's organiser already has. Reading is
+    # everybody's, for the same reason `/modlog`'s bare form is: a member
+    # asking "when is the meeting?" is the whole point of posting the card
+    # where they can see it, and a read of this server's own schedule changes
+    # nothing.
+    "meeting create": GUILD,
+    "meeting reschedule": GUILD,
+    "meeting ping": GUILD,
+    "meeting cancel": GUILD,
+    "meeting list": EVERYONE,
+    "meeting view": EVERYONE,
     # -- Server Structure -------------------------------------------------- #
     # Declared at the permission each one *needs*, which is also what Discord
     # itself checks on the command — a structure command offered to somebody who
