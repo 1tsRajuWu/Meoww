@@ -1560,8 +1560,30 @@ class AloneTime(commands.Cog):
     @app_commands.describe(
         room="Which locked voice channel. Leave it out and I will use the one you were just turned away from."
     )
-    async def alone_ask(self, interaction: discord.Interaction, room: discord.VoiceChannel = None):
-        await self.ask_to_join(interaction, room=room)
+    async def alone_ask(self, interaction: discord.Interaction, room: str = None):
+        """Ask to be let into a locked room, named by the id the picker offered.
+
+        The option is a **string** on purpose: Discord only allows autocomplete
+        on string, integer and number options, so typing it as a channel would
+        make this whole module fail to import — the one eager check in the
+        class body, and the reason the id is resolved back to a channel here
+        rather than handed to Discord as one.
+        """
+        channel = None
+        if room:
+            try:
+                wanted = int(room)
+            except (TypeError, ValueError):
+                wanted = 0
+            getter = getattr(interaction.guild, "get_channel", None)
+            channel = getter(wanted) if (wanted and callable(getter)) else None
+            if channel is None:
+                return await self._say(
+                    interaction,
+                    "I do not know that room — pick one from the list I offer as you type.",
+                    ok=False,
+                )
+        await self.ask_to_join(interaction, room=channel)
 
     @alone_ask.autocomplete("room")
     async def _ask_room_choices(self, interaction: discord.Interaction, current: str):
@@ -1570,7 +1592,9 @@ class AloneTime(commands.Cog):
         Autocomplete rather than a required id because the person asking was
         moved out of a room they were *in*, and may have no idea what it is
         called. A room with no lock is not offered: asking to get into an open
-        room is not a request, it is joining.
+        room is not a request, it is joining. The option's type is ``str`` and
+        must stay so — a channel-typed option cannot carry an autocomplete, and
+        the decorator above would refuse it at import time.
         """
         guild = interaction.guild
         if guild is None:

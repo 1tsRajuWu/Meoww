@@ -2100,11 +2100,19 @@ class TheTypographicCards(_CogCase):
         for label, text in (
             ("the holder's card", _card_of(private)),
             ("the public notice", _card_text(house)),
-            ("the turned-away member's card", _card_text(guild.elsewhere)),
             ("the status card", _card_of(status)),
         ):
             self.assertTrue(text, f"{label} should have said something")
             self.assertIsNone(self._EMOJI.search(text), f"{label} carries an emoji")
+        # The turned-away member's card *is* the public notice above — it lands in
+        # the house channel, and a voice channel's own chat must carry nothing.
+        # That reroute is this feature's promise, so the empty chat is a law here
+        # rather than an omission: the landing room is where the member was put,
+        # and notices were never for the room, they were for the people.
+        self.assertEqual(
+            _card_text(guild.elsewhere), "",
+            "a voice channel's chat must carry no notice",
+        )
         self.assertIn("🔒", guild.room.name, "the sidebar mark is not a card")
 
     async def test_the_notice_routing_is_a_setting_on_the_card(self):

@@ -1284,7 +1284,7 @@ async def evict(guild, member, target, *, lock: Lock, actor=None) -> Report:
         await member.move_to(target, reason="Alone Time — this room is held by somebody else")
     except Exception as exc:  # noqa: BLE001 — one member must not stop the room
         report.detail = (
-            f"Discord would not move **{who}** out of **{_name(target) if target else 'that room'}** "
+            f"Discord could not move **{who}** out of **{_name(target) if target else 'that room'}** "
             f"({type(exc).__name__}) — they are above me in the role list, so give my "
             "role a higher position if this has to hold against them."
         )
