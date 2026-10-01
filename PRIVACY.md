@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** September 21, 2026 · **Version 5** (AI-assisted source).
+**Effective Date:** October 1, 2026 · **Version 6** (AI-assisted source).
 
 This policy explains what this Discord bot ("the Bot") stores, why, where it goes
 and how to have it removed. It describes one deployment; the operator running it
@@ -24,6 +24,13 @@ answers for it, and using a server that runs the Bot is agreement to it.
   the rating and comment a member leaves.
 * **Server settings:** enabled features, house-channel, log, starboard and market
   configuration, and social data members opted into (marriages, zoo, quotes).
+* **Alone Time:** while a voice room is locked, the holder's Discord id and
+  display name, the ids of the members and roles allowed in, the room's name
+  before the lock *and* the name the lock gave it, and how many people it has
+  turned away. The row is deleted the moment the room is released — which is when
+  the holder leaves it, unless the server asked it to stay locked — and always
+  when the system is switched off. Nothing about a session outlives the session,
+  and the whitelist is part of the row rather than a list kept anywhere else.
 * **Text a person deliberately submits:** quote text, a ticket subject and
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who
@@ -180,11 +187,12 @@ these services and cannot see what they do with what they receive.
 
 ## 6. Retention, and how to have data removed
 
-Data is kept while the Bot is in your server, because that is the feature. Four
+Data is kept while the Bot is in your server, because that is the feature. Five
 things expire on their own: Activity Tracker rows after **365 days**, dashboard
 message history (what was queued, sent, and the per-channel result) after **90
-days**, dashboard sign-in rows once they expire or are revoked, and a lockdown's
-undo record the moment the lockdown is lifted. `guild_blocklist` and
+days**, dashboard sign-in rows once they expire or are revoked, a lockdown's
+undo record the moment the lockdown is lifted, and a locked room's row the moment
+the room is released. `guild_blocklist` and
 `web_actions` are read by the operator and are included in any deletion or export
 asked for under section 9.
 

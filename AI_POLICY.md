@@ -1,6 +1,6 @@
 # AI & Crawling Policy
 
-**Effective Date:** September 21, 2026 · **Version 5**.
+**Effective Date:** October 1, 2026 · **Version 6**.
 
 This is the third document in the bundle a dashboard sign-in agrees to, and the
 shortest way to say what it says is: **people are welcome here, collectors are

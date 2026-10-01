@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Effective Date:** September 21, 2026 · **Version 5** (AI-assisted source).
+**Effective Date:** October 1, 2026 · **Version 6** (AI-assisted source).
 
 By inviting, configuring or using this Discord bot ("the Bot"), or by signing in
 to its dashboard and pressing the agreement there, you agree to these Terms. If

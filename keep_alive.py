@@ -51,7 +51,7 @@ from flask import (
     url_for, Response, abort,
 )
 from utils import (
-    ai_guard, alert_webhook, brand, broadcast, command_publish, command_scope, company,
+    ai_guard, alert_webhook, alonetime, brand, broadcast, command_publish, command_scope, company,
     compression,
     config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
     # `health` is the name this module's own `/health` route already owns, so the
@@ -1525,6 +1525,10 @@ GATED_PREFIXES = (
     # and the same agreement as the switches they sit beside.
     "/api/module-settings",
     "/api/reaction-roles",
+    # Releasing a room somebody has locked with Alone Time: the same authority as
+    # the switch beside it (the member's own room, given back), so the same
+    # agreement stands in front of it.
+    "/api/alone-time",
     # The support bridge: a message posted from here speaks as the bot in a
     # channel, which is the same authority the composer has and belongs behind
     # the same agreement.
@@ -5685,6 +5689,10 @@ def _dashboard_page(page: str, guild_id):
         toggle_url="/api/toggle",
         toggle_all_url="/api/toggle-all",
         management=management,
+        # Alone Time's own ledger and its one write door. `None` on every page but
+        # the Server page, which is what the template's `{% if %}` reads.
+        alone_locks=_alone_time_reading(guild_id, page),
+        alone_release_url="/api/alone-time",
         economy_view=progression["economy"],
         level_view=progression["levels"],
         guild_id=guild_id,
@@ -5911,6 +5919,51 @@ def _bot_abilities(guild) -> list[dict] | None:
         {"label": label, "ok": bool(getattr(perms, attr, False)), "why": why}
         for label, attr, why in rows
     ]
+
+
+def _alone_time_reading(guild_id, page):
+    """The voice rooms this server has locked to somebody, for the Server page.
+
+    Read where it is drawn, like the two ledgers, and ``None`` rather than an
+    empty list when the page is not this one: the template reads the difference as
+    *do not draw the card* against *there is nothing locked*, which a single empty
+    list could not say.
+
+    Names come from the bot's own member cache rather than from the lock's row.
+    The row holds the name as it was when the lock was taken, which is the right
+    thing to have written down and the wrong thing to print as *who is in there
+    now* — and this project's published readings carry ids, not names
+    (``utils/figures``), so a cold cache falling back to the id is the honest
+    direction rather than a leak.
+    """
+    if not guild_id or page != "server":
+        return None
+    guild = _live_guild(guild_id)
+    names: dict[int, str] = {}
+    if guild is not None:
+        cached = moderation_actions.roster_cached(guild)
+        if cached:
+            names = {
+                int(member["id"]): member.get("display_name") or member.get("name") or ""
+                for member in cached.get("members", [])
+            }
+    rows = []
+    for row in alonetime.locked_reading(guild_id):
+        channel_id = int(row["channel_id"])
+        channel = guild.get_channel(channel_id) if guild is not None else None
+        holder_id = int(row["holder_id"] or 0)
+        rows.append({
+            "channel_id": str(channel_id),
+            "channel": str(getattr(channel, "name", "") or f"channel {channel_id}"),
+            "holder": (
+                "nobody — quiet hours" if row["server_wide"]
+                else (names.get(holder_id) or f"member {holder_id}")
+            ),
+            "guests": row["guests"],
+            "turned_away": row["turned_away"],
+            "held": alonetime.duration_words(row["held_seconds"]),
+        })
+    return rows
 
 
 def _progression_context(guild_id, page) -> dict:
@@ -9866,6 +9919,76 @@ def api_module_settings():
         "said": f"Saved for **{feature.name}**: " + "; ".join(saved) + ".",
         "module": feature_id,
     })
+
+
+@app.route("/api/alone-time", methods=["POST"])
+@_form_door
+def api_alone_time():
+    """Give one Alone Time room back, from the Server page's own panel.
+
+    A write *to Discord*, so it travels the one bridge this file has for that
+    (``_on_bot_loop``) rather than a second event loop: the room's overwrite and
+    its capacity belong to the gateway's cache, and a release performed anywhere
+    else would empty the ledger and leave Discord holding the lock — a room that is
+    open in this page's table and still shut to everybody in Discord.
+
+    Four refusals, four sentences, because they need four different corrections: no
+    reach over that server, nothing that looks like a room, a bot that is not
+    connected, and a room that was released while the page was open (which is a
+    success, not a failure — somebody else got there first).
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+
+    data = _json_or_form()
+    payload, status = _alone_release_result(data)
+    return jsonify(payload), status
+
+
+def _alone_release_result(data):
+    """One release, from either door, as ``(payload, status)``.
+
+    Deliberately the shape :func:`_server_action_result` has, down to writing the
+    audit row *inside* the coroutine: a release asked for from the page's form and
+    one asked for from a script have to be the same release, recorded the same way,
+    and Discord's own audit log credits the bot either way.
+    """
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None or not _may_act_here(guild_id):
+        return {"success": False, "error": "That server is not reachable from this sign-in."}, 403
+
+    channel_id = _int_or_none(data.get("channel_id"))
+    if not channel_id:
+        return {"success": False, "error": "That is not a room I can look up."}, 400
+
+    guild = _live_guild(guild_id)
+    if guild is None:
+        return {
+            "success": False,
+            "error": "I am not connected to that server right now, so nothing was changed.",
+        }, 409
+
+    principal = _principal()
+
+    async def work():
+        report = await alonetime.release_by_channel_id(
+            guild, channel_id, actor=principal.name or "the dashboard"
+        )
+        await db.record_web_action(
+            scope=principal.scope,
+            actor_id=principal.user_id,
+            actor_name=principal.name,
+            guild_id=guild_id,
+            action="alone release",
+            target=str(channel_id),
+            ok=report.ok,
+            detail=report.sentence() if not report.ok else report.detail,
+            at=time.time(),
+        )
+        return report.to_dict(), (200 if report.ok else 409)
+
+    return _on_bot_loop(work())
 
 
 def _posted_setting_value(spec, raw):

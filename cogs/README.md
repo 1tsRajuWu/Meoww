@@ -7,6 +7,7 @@ cogs stay thin.
 
 | File | Feature | Commands you'll recognize |
 |---|---|---|
+| `alonetime.py` | Alone Time | `/alone start stop status guests list release server`, the voice sweep, and the holder's whitelist/rename controls |
 | `automod.py` | Automod & Shield | `/automod invites`, `/automod antispam` |
 | `bot_config.py` | The bot itself | `/bot db`, `/bot push`, `/bot sync`, `/bot avatar`, `/bot banner`, channel bindings |
 | `economy.py` | Economy & Casino | `/balance /daily /work /rob /pay /shop /buy /loan …` |

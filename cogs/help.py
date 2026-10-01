@@ -104,6 +104,32 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "🫂"
     },
+    "alonetime": {
+        "title": "🌙 Alone Time",
+        "desc": (
+            "Lock the voice channel you are in to yourself. Nobody else can be "
+            "inside it — not another member, not a moderator, and not an "
+            "administrator — because Discord enforces the room's **capacity** for "
+            "everybody, and anything that still gets past the locked door is moved "
+            "back out. The holder's own card carries a picker: whitelist somebody for "
+            "this session, rename the room, and it all resets when the room empties.\n\n"
+            "> `/alone start` — Take the room you are standing in, name it, and say why\n"
+            "> `/alone stop` — Give it back, exactly the way it was\n"
+            "> `/alone status` — Who holds this room, which layers are in force, and the privacy answer\n"
+            "> `/alone guests` — Who may still join, for this session only *(the holder)*\n"
+            "> `/alone list` — Every locked room in this server *(Manage Channels)*\n"
+            "> `/alone release` — Lift somebody else's lock *(Manage Channels)*\n"
+            "> `/alone server` — Quiet hours: lock every voice channel for a while *(admin)*\n\n"
+            "A lock lifts itself when you leave the room, and an administrator can "
+            "always release one. What it deliberately does **not** have is a "
+            "countdown: nothing expires unless this server asks for a ceiling in the "
+            "dashboard. And one thing it cannot do is said plainly on every status "
+            "card: whether your voice **activity** shows on your Discord profile is "
+            "your own account setting (Activity Sharing) — no bot can change it."
+        ),
+        "color": 0x5865F2,
+        "emoji": "🌙"
+    },
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (
@@ -349,7 +375,8 @@ HELP_HOME_BODY = (
     "- 🎫 **Tickets** — private staff support\n"
     "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
     "- 🧱 **Server Structure** — channels and roles, with a confirmation on anything big\n"
-    "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names"
+    "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names\n"
+    "- 🌙 **Alone Time** — take a voice channel for yourself, and keep everybody else out of it"
 )
 
 # The category *structure* comes from the feature registry; the prose below

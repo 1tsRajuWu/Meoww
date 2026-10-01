@@ -307,6 +307,26 @@ COMMAND_ACCESS: dict[str, str] = {
     "structure limits": ADMIN,
     "starboard set": CHANNELS,
     "starboard status": EVERYONE,
+    # -- Alone Time -------------------------------------------------------- #
+    # Four of these are **every member's**, and that is the feature: the point is
+    # that somebody in a voice channel can make a room theirs without asking a
+    # moderator, and the bot performs every write — the caller needs no permission
+    # at all. What keeps a stranger out of somebody else's room is not a permission
+    # bit but the *holder* check inside the callback, the same body-check the
+    # market's role gate and `/customquote delete`'s creator check use, which is
+    # why these four are declared EVERYONE and carry no `has_permissions` at all.
+    #
+    # Seeing every locked room in a server and lifting one you do not hold is a
+    # server-management read and write, so it is `/lockdown` and `/unlock`'s
+    # audience; quiet hours over every voice channel at once is the same decision
+    # `/lockdown-server` is, at the same permission.
+    "alone start": EVERYONE,
+    "alone stop": EVERYONE,
+    "alone status": EVERYONE,
+    "alone guests": EVERYONE,
+    "alone list": CHANNELS,
+    "alone release": CHANNELS,
+    "alone server": ADMIN,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
     # The directory is everybody's, and it is the one command whose *content* is

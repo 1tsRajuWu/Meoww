@@ -887,6 +887,49 @@ async def setup():
             PRIMARY KEY (guild_id, channel_id)
         )''')
 
+        # ── One locked voice channel, and everything needed to give it back ───
+        # The same shape as the lockdown ledger above, one room at a time, for the
+        # same reason: a lock writes somebody else's permissions, so the row holds
+        # what was there *before* — the `@everyone` overwrite as `allow:deny` (or
+        # `''` for "there was none"), the previous `user_limit`, and the previous
+        # channel name — and releasing restores exactly that rather than
+        # blanket-allowing a room the server had locked for its own reasons.
+        #
+        # `holder_id` is 0 for a **quiet-hours** lock, which is a room nobody
+        # holds; that reads as "no holder" everywhere rather than as a member id
+        # 0, and it is also what stops the holder-left release rule from firing on
+        # a room that never had one. `keep` is the per-lock override of the
+        # server's own default, `turned_away` is the count the status card shows,
+        # and `guests`/`guest_roles` are comma-separated ids because the list is
+        # read as a whole and never queried by member.
+        await db.execute('''CREATE TABLE IF NOT EXISTS alone_time (
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            holder_id INTEGER NOT NULL DEFAULT 0,
+            holder_name TEXT NOT NULL DEFAULT '',
+            guests TEXT NOT NULL DEFAULT '',
+            guest_roles TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            previous TEXT NOT NULL DEFAULT '',
+            previous_limit INTEGER NOT NULL DEFAULT 0,
+            previous_name TEXT NOT NULL DEFAULT '',
+            locked_as TEXT NOT NULL DEFAULT '',
+            keep INTEGER NOT NULL DEFAULT 0,
+            turned_away INTEGER NOT NULL DEFAULT 0,
+            started_at REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, channel_id)
+        )''')
+
+        # The room's name while it is locked is a column this table gained after
+        # it was first written, and ``CREATE TABLE IF NOT EXISTS`` never alters
+        # an existing one — so a live database (and every cloud-restored copy of
+        # it) would keep the old shape and a release would compare against a
+        # name it never set. ``ensure_columns`` is the same idempotent upgrade
+        # the loans and support tables use.
+        await ensure_columns(db, "alone_time", {
+            "locked_as": "TEXT NOT NULL DEFAULT ''",
+        })
+
         # ── Servers the bot refuses to be in ─────────────────────────────────
         # The operator's own decision, which has no Discord equivalent: leaving a
         # server is `/kick` applied to the bot, and *staying* left is a list.
@@ -2109,6 +2152,220 @@ async def forget_lockdown(guild_id, channel_ids=None) -> int:
             await db.execute('DELETE FROM lockdown_state WHERE guild_id = ?', (int(guild_id),))
         await db.commit()
     return 0
+
+
+# ── Alone Time: one locked voice channel per row ─────────────────────────────
+#
+# The column list lives here once and the two readers below build their answers
+# from it, because this table now has three readers in two threads — the cog's
+# cache, the dashboard panel and the reconcile loop — and a row shape written out
+# three times is a key that goes missing from one of them.
+_ALONE_COLUMNS: tuple[str, ...] = (
+    "guild_id", "channel_id", "holder_id", "holder_name", "guests",
+    "guest_roles", "note", "previous", "previous_limit", "previous_name",
+    "locked_as", "keep", "turned_away", "started_at",
+)
+
+#: Which of those come back as integers rather than as text.
+_ALONE_INT_FIELDS = frozenset({
+    "guild_id", "channel_id", "holder_id", "previous_limit", "keep",
+    "turned_away",
+})
+
+
+def _alone_row(row) -> dict:
+    """One stored row as a plain dict, with the two id lists already split."""
+    record = {}
+    for index, name in enumerate(_ALONE_COLUMNS):
+        value = row[index]
+        if name in _ALONE_INT_FIELDS:
+            record[name] = int(value or 0)
+        elif name in ("guests", "guest_roles"):
+            record[name] = tuple(_id_list(value))
+        elif name == "started_at":
+            record[name] = float(value or 0)
+        else:
+            record[name] = str(value or "")
+    return record
+
+
+def _id_list(raw) -> list[int]:
+    """The ids in one comma-separated column, ignoring anything unreadable."""
+    out: list[int] = []
+    for part in str(raw or "").split(","):
+        text = part.strip()
+        if not text:
+            continue
+        try:
+            out.append(int(text))
+        except ValueError:
+            continue
+    return out
+
+
+def _alone_list(values) -> str:
+    """One id list as the column stores it — de-duplicated and ordered."""
+    seen: list[int] = []
+    for value in values or ():
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number and number not in seen:
+            seen.append(number)
+    return ",".join(str(number) for number in seen)
+
+
+async def save_alone_time(
+    guild_id,
+    channel_id,
+    *,
+    holder_id: int = 0,
+    holder_name: str = "",
+    guests=(),
+    guest_roles=(),
+    note: str = "",
+    previous: str = "",
+    previous_limit: int = 0,
+    previous_name: str = "",
+    locked_as: str = "",
+    keep: bool = False,
+    started_at: float = 0.0,
+) -> None:
+    """Record a lock **before** its permissions are written, and remember the room.
+
+    One row per channel, replaced wholesale: a second lock on a room that is
+    somehow still locked must not merge two ledgers, or a release would restore
+    half of one and half of the other.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            'INSERT OR REPLACE INTO alone_time ('
+            + ", ".join(_ALONE_COLUMNS)
+            + ') VALUES (' + ", ".join("?" for _ in _ALONE_COLUMNS) + ')',
+            (
+                int(guild_id), int(channel_id), int(holder_id or 0), str(holder_name or ""),
+                _alone_list(guests), _alone_list(guest_roles), str(note or ""),
+                str(previous or ""), int(previous_limit or 0), str(previous_name or ""),
+                str(locked_as or ""),
+                1 if keep else 0, 0, float(started_at or 0),
+            ),
+        )
+        await db.commit()
+
+
+async def alone_time_rows(guild_id) -> list[dict]:
+    """Every room this server currently has locked, oldest first."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT " + ", ".join(_ALONE_COLUMNS)
+            + " FROM alone_time WHERE guild_id = ? ORDER BY started_at",
+            (int(guild_id),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [_alone_row(row) for row in rows]
+
+
+async def alone_time_row(guild_id, channel_id) -> dict | None:
+    """One locked room's row, or ``None``."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT " + ", ".join(_ALONE_COLUMNS)
+            + " FROM alone_time WHERE guild_id = ? AND channel_id = ?",
+            (int(guild_id), int(channel_id)),
+        ) as cursor:
+            row = await cursor.fetchone()
+    return _alone_row(row) if row is not None else None
+
+
+async def all_alone_time_rows() -> list[dict]:
+    """Every locked room the bot holds, across every server — the fleet reading."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT " + ", ".join(_ALONE_COLUMNS) + " FROM alone_time ORDER BY started_at"
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [_alone_row(row) for row in rows]
+
+
+async def write_alone_guests(guild_id, channel_id, guests=(), guest_roles=()) -> None:
+    """Replace one locked room's guest list — and nothing else about it."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE alone_time SET guests = ?, guest_roles = ? "
+            "WHERE guild_id = ? AND channel_id = ?",
+            (_alone_list(guests), _alone_list(guest_roles), int(guild_id), int(channel_id)),
+        )
+        await db.commit()
+
+
+async def set_alone_locked_as(guild_id, channel_id, name) -> None:
+    """Remember what a locked room was renamed to, so a release can undo it.
+
+    One column's worth of news about a row that is already there, rather than a
+    re-insert through :func:`save_alone_time`: writing the whole row again would
+    need every other field read back first, and a guest list added in between
+    would be lost by the read-modify-write.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE alone_time SET locked_as = ? WHERE guild_id = ? AND channel_id = ?",
+            (str(name or ""), int(guild_id), int(channel_id)),
+        )
+        await db.commit()
+
+
+async def bump_alone_turned_away(guild_id, channel_id) -> int:
+    """Count one member turned out of a locked room. Answers the new total."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE alone_time SET turned_away = turned_away + 1 "
+            "WHERE guild_id = ? AND channel_id = ?",
+            (int(guild_id), int(channel_id)),
+        )
+        await db.commit()
+        async with db.execute(
+            "SELECT turned_away FROM alone_time WHERE guild_id = ? AND channel_id = ?",
+            (int(guild_id), int(channel_id)),
+        ) as cursor:
+            row = await cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+async def forget_alone_time(guild_id, channel_ids=None) -> int:
+    """Forget locked rooms — all of a server's, or the ones that were released."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        if channel_ids:
+            await db.executemany(
+                "DELETE FROM alone_time WHERE guild_id = ? AND channel_id = ?",
+                [(int(guild_id), int(channel_id)) for channel_id in channel_ids],
+            )
+        else:
+            await db.execute("DELETE FROM alone_time WHERE guild_id = ?", (int(guild_id),))
+        await db.commit()
+    return 0
+
+
+#: The same rows, read from a thread that cannot await (the dashboard panel and
+#: the cog's cache). Synchronous for the reason ``read_setting_sync`` is: both
+#: threads must see one rule about what a stored row means, and the panel cannot
+#: drive an event loop.
+def read_alone_time_rows_sync(guild_id) -> list[dict]:
+    """Every locked room in one server, without an event loop."""
+    conn = connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT " + ", ".join(_ALONE_COLUMNS)
+            + " FROM alone_time WHERE guild_id = ? ORDER BY started_at",
+            (int(guild_id),),
+        )
+        rows = cursor.fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    return [_alone_row(row) for row in rows]
 
 
 # ── The operator's blocklist ─────────────────────────────────────────────────

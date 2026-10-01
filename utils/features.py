@@ -516,6 +516,195 @@ FEATURES: tuple[Feature, ...] = (
         enabled_by_default=False,  # temporarily off — see the market entry
         help_key="company",
     ),
+    # Alone Time — one voice channel, locked to the one person holding it.
+    #
+    # **The one thing this cannot do the way it reads is keep an administrator
+    # out with a permission.** Discord's Administrator permission and the guild
+    # owner bypass channel overwrites by design, so a `Connect: false` overwrite
+    # is a locked-looking door an admin walks through. What actually holds is the
+    # room's **capacity cap** — `user_limit` set to the people allowed inside,
+    # which Discord enforces at the voice gateway for everybody and which no
+    # permission bit raises — with the bot moving anybody who still gets in back
+    # out as the backstop. The card says which of the two is in force, and the
+    # sweep says what Discord refused rather than claiming a lock it does not
+    # hold. This paragraph is here rather than in the cog because the *promise*
+    # is what a server reads on this card, and a promise is a registry fact.
+    #
+    # It ships **off**, and that is this release's whole shape: the system is
+    # being run as a beta in one server, reached through the ordinary per-guild
+    # switch rather than a guild id anywhere in the code. `enabled_by_default
+    # =False` is what makes that mechanical — every other server's picker simply
+    # never lists `/alone`, and `utils.modules.set_enabled` is the one flag that
+    # changes it — and it is the same move the market, the starboard, Voice
+    # Company and the legacy pair already make. Unlike those, nothing here is
+    # being retired: the flag is on for the server running the beta, and the
+    # plan is for the default to come back on once the beta has been through
+    # its paces. Nothing else in this file, in the cog or in the ledger changes
+    # with the flag — a server that turns it on gets exactly what the
+    # description below promises.
+    Feature(
+        id="alonetime",
+        name="Alone Time",
+        icon="🌙",
+        category="Community",
+        description=(
+            "Lock a voice channel to yourself. Nobody else can be inside it — not "
+            "another member, not a moderator, and not an administrator — because "
+            "the room's capacity is capped to the people allowed in, and anybody "
+            "who still gets past the locked door is moved back out. Say why you "
+            "are not to be disturbed, name the few people who may still join, let "
+            "it lift itself when you leave, or quieten every voice channel in the "
+            "server at once."
+        ),
+        # One root command. Discord allows 100 top-level names per scope and the
+        # subcommands live inside this one, which is why the whole feature is a
+        # single slot in the picker rather than seven.
+        gate_commands=("alone",),
+        commands=(
+            "/alone start — Lock the voice channel you are in to yourself",
+            "/alone stop — Release the room you are holding",
+            "/alone status — Who holds this room, and which layers are in force",
+            "/alone guests — The few people who may still join",
+            "/alone list — Every room locked in this server",
+            "/alone release — Lift a lock you do not hold",
+            "/alone server — Lock every voice channel for a while",
+        ),
+        cog="cogs.alonetime",
+        # The beta flag, and the only thing standing between every other server
+        # and a system none of them has asked for yet. Turning it back on for
+        # everybody is deleting this line — see the paragraph above.
+        enabled_by_default=False,
+        help_key="alonetime",
+        settings=(
+            Setting(
+                id="who",
+                label="Who may lock a room",
+                help=(
+                    "Anyone in this server may lock the room they are standing in; "
+                    "or only a member holding the role named below; or only "
+                    "administrators. An administrator can always release any lock."
+                ),
+                kind="choice",
+                default="everyone",
+                choices=(
+                    ("everyone", "Everyone in this server"),
+                    ("role", "Only a role I name"),
+                    ("admins", "Only administrators"),
+                ),
+            ),
+            Setting(
+                id="role_name",
+                label="The role that may lock a room",
+                help=(
+                    "The name (or id) of the role, used only while *Who may lock a "
+                    "room* is set to a role. A role always beats the name: matching "
+                    "is by name or id, case-insensitively."
+                ),
+                kind="text",
+                default="",
+            ),
+            Setting(
+                id="guard",
+                label="Move out anybody who still gets in",
+                help=(
+                    "The layer that makes the lock hold against an administrator: "
+                    "the bot puts anyone who is not the holder or a guest back where "
+                    "they came from. Needs Move Members, and says so when it is "
+                    "missing or when Discord refuses the move."
+                ),
+                kind="bool",
+                default=True,
+            ),
+            Setting(
+                id="keep",
+                label="Stay locked after the holder leaves",
+                help=(
+                    "Off (the default) means the lock lifts the moment the holder "
+                    "steps out of the room, so nothing is left locked with nobody "
+                    "in it. On means the room stays theirs until they release it."
+                ),
+                kind="bool",
+                default=False,
+            ),
+            Setting(
+                id="announce",
+                label="Say it in the room's chat when somebody is turned away",
+                help=(
+                    "Posts a short card in the locked room's own text chat naming the "
+                    "person and the reason, so being moved out is not a mystery."
+                ),
+                kind="bool",
+                default=True,
+            ),
+            Setting(
+                id="log_cases",
+                label="Record locks in the moderation log",
+                help=(
+                    "Every lock, release, quiet-hours window and turned-away member "
+                    "opens a card in this server's moderation log — the same rule "
+                    "the automatic filters follow."
+                ),
+                kind="bool",
+                default=True,
+            ),
+            Setting(
+                id="evict",
+                label="Where a turned-away member goes",
+                help=(
+                    "Put them back in the room they came from, disconnect them from "
+                    "voice, or send them to this server's AFK channel. Putting them "
+                    "back is the kindest and, for a move between two rooms, the "
+                    "only one that leaves them connected."
+                ),
+                kind="choice",
+                default="origin",
+                choices=(
+                    ("origin", "Back where they came from"),
+                    ("disconnect", "Disconnected from voice"),
+                    ("afk", "Sent to the AFK channel"),
+                ),
+            ),
+            Setting(
+                id="cooldown_seconds",
+                label="Seconds between one lock and the next",
+                help=(
+                    "How long a member has to wait before locking another room, so a "
+                    "room cannot be locked, released and locked again in a loop. "
+                    "Zero removes the wait."
+                ),
+                kind="int",
+                default=60,
+                minimum=0,
+                maximum=86400,
+            ),
+            Setting(
+                id="max_hours",
+                label="Longest a room may stay locked (hours)",
+                help=(
+                    "Zero — the default — means no ceiling: a lock ends when its "
+                    "holder leaves, when somebody releases it, or when the system is "
+                    "switched off. A number is the safety net a server asks for when "
+                    "it wants nothing left locked by accident."
+                ),
+                kind="int",
+                default=0,
+                minimum=0,
+                maximum=168,
+            ),
+            Setting(
+                id="server_minutes",
+                label="Length of a quiet-hours window (minutes)",
+                help=(
+                    "What `/alone server` locks every voice channel for when the "
+                    "administrator does not say a length themselves."
+                ),
+                kind="int",
+                default=60,
+                minimum=5,
+                maximum=1440,
+            ),
+        ),
+    ),
     Feature(
         id="structure",
         name="Server Structure",

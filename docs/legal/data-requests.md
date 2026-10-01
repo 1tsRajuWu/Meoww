@@ -84,7 +84,7 @@ Everything keyed by `guild_id` (`activity_*`, `economy`, `user_levels`,
 `marriages`, `user_animals`, `market_*`, `guild_settings`, `guild_modules`,
 `level_roles`, `level_settings`, `shop`, `starboard_settings`, `tempvoice_*`,
 `reaction_roles`, `giveaways`, `giveaway_entries`, `music_247`,
-`qna_questions`), then the
+`alone_time`, `qna_questions`), then the
 snapshot step above. Removing the Bot from the server stops new collection
 immediately but does **not** delete what already exists — only this does.
 
@@ -108,6 +108,7 @@ immediately but does **not** delete what already exists — only this does.
 | Dashboard message history — queued, sent, per-channel result | after 90 days (`utils/scheduled.py::HISTORY_DAYS`) |
 | Meetings — the meeting, its notices and who replied to the card | after 90 days (`utils/meetings.py::HISTORY_DAYS`) |
 | Cloud snapshots | oldest pruned beyond 5, hourly (`utils/cloud_sync.py`) |
+| Alone Time — a locked voice room, its holder, its whitelist, and the room's previous and locked names | the moment the room is released, which is when the holder leaves it unless the server asked it to stay locked — and always when the system is switched off (`cogs/alonetime.py`) |
 | Everything else | kept until deleted, because that is the feature |
 
 ## 6. Nothing here is legal advice
