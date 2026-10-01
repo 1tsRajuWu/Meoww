@@ -71,7 +71,7 @@ class RenameModal(discord.ui.Modal):
     """
 
     room_name = discord.ui.TextInput(
-        label="What to call this room for the rest of your session",
+        label="Name this room for your session",
         placeholder="Study — I add the 🔒 myself",
         max_length=80,
         required=True,

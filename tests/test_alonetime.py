@@ -148,6 +148,22 @@ class _Guild:
         self.gone = set()
         self._next_id = 100
 
+    def get_member(self, user_id):
+        """The cache lookup ``discord.Guild`` has, which ``style.display_name`` asks first.
+
+        A miss is left as a miss on purpose: the real method does no fetch, and the
+        helper's own fallbacks (``fetch_member``, then ``fetch_user``, then
+        ``User <id>``) are the path a server with the members intent off takes.
+        """
+        wanted = int(user_id)
+        if wanted == self.me.id:
+            return self.me
+        for channel in self.channels:
+            for member in getattr(channel, "members", ()):
+                if getattr(member, "id", None) == wanted:
+                    return member
+        return None
+
     def add_voice_channel(self, name="Lobby", *, manage=True, type_="voice"):
         channel = _Channel(self, self._next_id, name, type_=type_, manage=manage)
         self._next_id += 1
@@ -203,8 +219,11 @@ class _Response:
     def is_done(self):
         return self.deferred
 
-    async def send_message(self, **kwargs):
-        self.sent.append(kwargs)
+    async def send_message(self, content=None, *, ephemeral=False, **kwargs):
+        # Positional content, exactly as ``discord.InteractionResponse`` takes it:
+        # ``interaction_check`` answers a switched-off system with a sentence and
+        # nothing else.
+        self.sent.append({"content": content, "ephemeral": ephemeral, **kwargs})
 
     async def edit_message(self, **kwargs):
         self.edited.append(kwargs)
@@ -231,6 +250,13 @@ class _Interaction:
         self.followup = _Followup()
         self.edits = []
         self.data = {}
+        #: Where ``style.send_panel`` lands when the target is not an instance of
+        #: ``discord.Interaction`` — which a stand-in never is. The view recorded
+        #: here is the same card the interaction branch would have sent.
+        self.sent = []
+
+    async def send(self, **kwargs):
+        self.sent.append(kwargs)
 
     async def edit_original_response(self, **kwargs):
         # ``style._is_interaction`` asks for this method by name, which is what
@@ -276,6 +302,7 @@ def _card_of(interaction) -> str:
     payloads = (
         list(interaction.followup.sent)
         + list(interaction.response.sent)
+        + list(getattr(interaction, "sent", []))
         + list(getattr(interaction.response, "edited", []))
         + list(getattr(interaction, "edits", []))
     )

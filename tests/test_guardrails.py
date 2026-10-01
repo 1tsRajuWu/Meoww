@@ -56,6 +56,9 @@ DOORS = frozenset({"structure", "moderation_actions", "db", "discord", "discord_
 #: the ticket lifecycle and the lockdown permission edits are structure changes
 #: that predate this door, and closing them is its own pass, not this one.
 DIRECT_WRITES = {
+    "alonetime.py": [
+        "channel.edit()",        # the cap follows the holder's list, and the change opens a case
+    ],
     "automod.py": [
         "message.delete()",      # a message, not server state; automod records its own actions
         "author.timeout()",      # recorded through utils.moderation_actions
