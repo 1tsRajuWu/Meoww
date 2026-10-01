@@ -30,6 +30,30 @@ holder left (unless the room is set to stay locked), because the server set a
 `max_hours` ceiling, because an administrator released it, or because the system
 was switched off — never because a clock nobody asked for ran out.
 
+**The holder's reason is never written down.** ``/alone start note:"…"`` is the
+one text this feature accepts that is nobody else's business, so it lives in this
+module's in-memory session store (:data:`REASONS`) for exactly as long as the lock
+holds: it is shown back to the holder on their own ephemeral card, and it is not
+in the database, not in the moderation log, not on the dashboard, and not in any
+sentence this module builds for somebody else. A release — every release path,
+the holder leaving included — forgets it, and a restart forgets it too. That last
+property is the point rather than a bug: a value that only exists in the running
+process is a value no operator can recover from a backup, and "not even the bot's
+owner can read it" is a claim this project only makes where the storage backs it
+up. A legacy ``alone_time.note`` column is blanked at boot and nothing ever writes
+it again (see ``utils/db``), so the promise holds for rows written before it.
+
+**A join request is a question, not a key.** ``/alone ask`` (and the *Ask to
+join* button on a room's notice) is the only way past a lock that does not need
+the holder's picker: it is delivered to the holder's DMs as a card with two
+buttons, and only the holder's press moves the whitelist. A request is rate
+limited to one per member per :data:`REQUEST_COOLDOWN_SECONDS` — five minutes,
+strict, not a server setting, because the point is that a locked room cannot be
+spammed — and it lives in memory only (:data:`REQUESTS`), the same rule the reason
+follows: answering it never needs a row, and a request nobody answered leaves
+nothing behind. A refused or unanswered request never leaks to the requester
+beyond the sentence that it was delivered; the room simply stays locked.
+
 The split is the one ``utils/company.py`` and ``utils/server_control.py`` already
 use: the decisions and the sentences are pure and testable without a gateway, and
 the engine takes whatever object the caller hands it, so a ``test_`` double is a
@@ -65,6 +89,19 @@ SERVER_BY_KEY = "alonetime_server_by"
 #: only place a member can read it before they try to join.
 LOCK_MARK = "🔒 "
 
+
+def plain_name(name) -> str:
+    """A room's name without the lock mark, for a card that already says *locked*.
+
+    The mark has one job — a member reading Discord's sidebar before they try to
+    join — and a card drawn by this feature does not need it: the card is *about*
+    the lock, so a symbol in front of the room's name is the same fact said twice,
+    in the one place whose whole design is typographic. The real channel keeps the
+    mark; only what the cards print is stripped.
+    """
+    text = str(name or "")
+    return text[len(LOCK_MARK):] if text.startswith(LOCK_MARK) else text
+
 #: The three answers the rule can give about a voice-state change. ``SKIP`` is a
 #: decision and not a missing one: the bot's own connection and another bot's are
 #: both things this feature deliberately does not touch.
@@ -77,6 +114,28 @@ EVICT_ORIGIN, EVICT_DISCONNECT, EVICT_AFK = "origin", "disconnect", "afk"
 
 #: Discord's own ceiling on a voice channel's user limit.
 MAX_LIMIT = 99
+
+#: The strict wait between one member's join requests, in seconds. Deliberately a
+#: constant rather than a declared setting: *anti-spam* is the requirement, and a
+#: server-tunable spam limit is a limit the spammer's own administrator can raise.
+#: Five minutes is the number the brief names.
+REQUEST_COOLDOWN_SECONDS = 300
+
+#: How long an unanswered request stays answerable on the holder's card. Long
+#: enough for somebody in a call to notice, short enough that a stale press is not
+#: silently answering a conversation from an hour ago; the reconcile loop drops
+#: anything older, and a press on a dropped request says so.
+REQUEST_TTL_SECONDS = 30 * 60
+
+#: Where a notice looks for a home when the server has named no channel, most
+#: preferred first. ``#bot-commands`` (and its shorter spellings) is the house
+#: channel this bot already binds for automated output; ``#general`` is the
+#: fallback the brief names. A server with none of them keeps notices in the room
+#: itself — the old behaviour, and the only remaining place they are guaranteed to
+#: be readable by the people they concern.
+NOTICE_CHANNEL_NAMES: tuple[str, ...] = (
+    "bot-commands", "bot-cmd", "bot-command", "commands", "general",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -96,6 +155,9 @@ class Settings:
     cooldown_seconds: int = 60
     max_hours: int = 0
     server_minutes: int = 60
+    #: Where notices go instead of the locked room's own chat: a channel id or a
+    #: channel name, empty for *resolve it* (see :data:`NOTICE_CHANNEL_NAMES`).
+    notice_channel: str = ""
 
     def role_matches(self, member) -> bool:
         """Whether ``member`` holds the role this server named, by name or by id.
@@ -156,6 +218,7 @@ def settings_from(raw) -> Settings:
         cooldown_seconds=int(value("cooldown_seconds", 60) or 0),
         max_hours=int(value("max_hours", 0) or 0),
         server_minutes=int(value("server_minutes", 60) or 60),
+        notice_channel=str(value("notice_channel", "") or "").strip(),
     )
 
 
@@ -179,12 +242,241 @@ async def get_settings(guild_id) -> Settings:
     return settings_from(raw)
 
 
+# --------------------------------------------------------------------------- #
+# The session memory — the two things this feature deliberately never stores
+# --------------------------------------------------------------------------- #
+#: ``(guild_id, channel_id) -> the holder's own words``. In memory, for the life
+#: of the lock, and nowhere else: no table, no log line, no dashboard reading.
+#: The reason a release forgets it is not tidiness — a room that is open again
+#: has nobody it is private to.
+REASONS: dict[tuple[int, int], str] = {}
+_reason_lock = threading.RLock()
+
+#: ``message_id -> Request`` for the holder's answer card, and
+#: ``(guild_id, member_id) -> when they last asked``, which is the cooldown.
+REQUESTS: dict[int, "Request"] = {}
+LAST_REQUEST: dict[tuple[int, int], float] = {}
+_request_lock = threading.RLock()
+
+
+@dataclass(frozen=True)
+class Request:
+    """One member's ask to be let into one locked room, held in memory.
+
+    Not a row on purpose: the answer needs the holder's live press, and after a
+    restart the holder can simply be asked again — while a table of *who asked to
+    join whose room* is a record this feature has no use for and every reason not
+    to keep.
+    """
+
+    guild_id: int
+    channel_id: int
+    requester_id: int
+    requester_name: str = ""
+    holder_id: int = 0
+    asked_at: float = 0.0
+
+    @property
+    def requester_label(self) -> str:
+        return self.requester_name or f"member {self.requester_id}"
+
+    def age_seconds(self, *, now=None) -> int:
+        return max(0, int((now if now is not None else time.time()) - self.asked_at))
+
+    def expired(self, *, now=None) -> bool:
+        return self.age_seconds(now=now) >= REQUEST_TTL_SECONDS
+
+
+def remember_reason(guild_id, channel_id, text) -> None:
+    """Keep the holder's own words for this session — and only this process.
+
+    Empty text is a *removal* rather than a stored blank: a session with no
+    reason must read as "none" on every surface, not as an empty box somebody
+    might later mistake for a stored value.
+    """
+    key = (int(guild_id or 0), int(channel_id or 0))
+    value = str(text or "").strip()
+    with _reason_lock:
+        if value:
+            REASONS[key] = value[:200]
+        else:
+            REASONS.pop(key, None)
+
+
+def reason_for(guild_id, channel_id) -> str:
+    """The holder's reason for one room, or ``""`` when there is none to read."""
+    with _reason_lock:
+        return REASONS.get((int(guild_id or 0), int(channel_id or 0)), "")
+
+
+def forget_reason(guild_id=None, channel_id=None) -> None:
+    """Forget one room's reason, one server's, or every one this process holds."""
+    with _reason_lock:
+        if guild_id is None:
+            REASONS.clear()
+            return
+        guild = int(guild_id)
+        if channel_id is None:
+            for key in [key for key in REASONS if key[0] == guild]:
+                REASONS.pop(key, None)
+            return
+        REASONS.pop((guild, int(channel_id)), None)
+
+
+def request_left(guild_id, member_id, *, now=None) -> int:
+    """Seconds before this member may ask again — ``0`` when they may ask now.
+
+    Pure arithmetic over the store so the cooldown is testable without a clock:
+    ``now`` is injectable everywhere time is read.
+    """
+    with _request_lock:
+        last = LAST_REQUEST.get((int(guild_id or 0), int(member_id or 0)))
+    if last is None:
+        return 0
+    moment = now if now is not None else time.time()
+    return max(0, int(REQUEST_COOLDOWN_SECONDS - (moment - last)))
+
+
+def note_request(guild_id, member_id, *, now=None) -> None:
+    """Start this member's cooldown clock — one timestamp, bounded."""
+    key = (int(guild_id or 0), int(member_id or 0))
+    moment = now if now is not None else time.time()
+    with _request_lock:
+        LAST_REQUEST[key] = moment
+        if len(LAST_REQUEST) > 5000:
+            cutoff = moment - REQUEST_COOLDOWN_SECONDS * 2
+            for old, when in list(LAST_REQUEST.items()):
+                if when < cutoff:
+                    LAST_REQUEST.pop(old, None)
+
+
+def remember_request(message_id, request: Request) -> None:
+    """Remember which room an answer card is about, keyed by its message id."""
+    try:
+        key = int(message_id or 0)
+    except (TypeError, ValueError):
+        return
+    if not key:
+        return
+    with _request_lock:
+        REQUESTS[key] = request
+
+
+def request_for(message_id) -> Request | None:
+    """The request an answer card is about, or ``None`` (expired, or restarted)."""
+    try:
+        key = int(message_id or 0)
+    except (TypeError, ValueError):
+        return None
+    with _request_lock:
+        return REQUESTS.get(key)
+
+
+def pending_request(guild_id, channel_id, requester_id) -> Request | None:
+    """An unanswered request from one member about one room, if there is one."""
+    wanted = (int(guild_id or 0), int(channel_id or 0), int(requester_id or 0))
+    with _request_lock:
+        for request in REQUESTS.values():
+            if (
+                request.guild_id, request.channel_id, request.requester_id
+            ) == wanted and not request.expired():
+                return request
+    return None
+
+
+def forget_request(message_id) -> None:
+    """Drop one answered request — its card has been edited or replaced."""
+    try:
+        key = int(message_id or 0)
+    except (TypeError, ValueError):
+        return
+    with _request_lock:
+        REQUESTS.pop(key, None)
+
+
+def forget_requests(guild_id=None, channel_id=None) -> None:
+    """Forget requests for one room, one server, or everything (a release path)."""
+    with _request_lock:
+        if guild_id is None:
+            REQUESTS.clear()
+            return
+        guild = int(guild_id)
+        for key, request in list(REQUESTS.items()):
+            if request.guild_id != guild:
+                continue
+            if channel_id is None or request.channel_id == int(channel_id):
+                REQUESTS.pop(key, None)
+
+
+def forget_stale_requests(*, now=None) -> int:
+    """Drop every expired request. Answers how many went — the reconcile loop's
+    whole job here, because a card nobody answered must not be answerable for
+    ever."""
+    moment = now if now is not None else time.time()
+    dropped = 0
+    with _request_lock:
+        for key, request in list(REQUESTS.items()):
+            if request.expired(now=moment):
+                REQUESTS.pop(key, None)
+                dropped += 1
+    return dropped
+
+
+#: ``notice message id -> the room it is about``. The *Ask to join* button needs
+#: to know which room it is asking about and a fixed ``custom_id`` cannot carry
+#: it, so the answer is looked up from the message the press came from. In
+#: memory, like everything else here, and for the same reason: a room's release
+#: forgets it, and a restart simply means the button asks the member to name the
+#: room with ``/alone ask`` instead of guessing — never that it asks about the
+#: wrong one.
+ASK_CARDS: dict[int, int] = {}
+
+
+def remember_ask_card(message_id, channel_id) -> None:
+    """Remember which room a notice's *Ask to join* button is about."""
+    try:
+        key = int(message_id or 0)
+        room = int(channel_id or 0)
+    except (TypeError, ValueError):
+        return
+    if key and room:
+        with _request_lock:
+            ASK_CARDS[key] = room
+
+
+def ask_card_room(message_id) -> int:
+    """The room a notice was about, or ``0`` when this process cannot say."""
+    try:
+        key = int(message_id or 0)
+    except (TypeError, ValueError):
+        return 0
+    with _request_lock:
+        return int(ASK_CARDS.get(key, 0) or 0)
+
+
+def forget_ask_cards(channel_id=None) -> None:
+    """Forget notice buttons — one room's, or every one of them.
+
+    One argument, because a channel id is globally unique: the map is keyed by
+    the notice message and holds the room, and a released room is the only thing
+    this ever needs to drop.
+    """
+    with _request_lock:
+        if channel_id is None:
+            ASK_CARDS.clear()
+            return
+        room = int(channel_id)
+        for key, value in list(ASK_CARDS.items()):
+            if int(value) == room:
+                ASK_CARDS.pop(key, None)
+
+
 def off_sentence() -> str:
     """The refusal a switched-off system answers with, in the registry's words."""
     feature = features.get(MODULE)
     label = feature.name if feature else MODULE.replace("_", " ").title()
     return (
-        f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
+        f"The **{label}** system is currently **turned off** on this server.\n"
         "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard)."
     )
 
@@ -498,8 +790,9 @@ def status_lines(lock: Lock, settings: Settings, *, now=None, guard_ready=True) 
             "setting (Activity Sharing) — no bot can change it, and this does not try.",
         ),
     ]
-    if lock.note:
-        rows.insert(1, ("Why", lock.note[:200]))
+    # The holder's own reason is deliberately absent: this list is the reading
+    # every surface shares, including the ones an administrator sees, and the text
+    # lives only on the holder's ephemeral card (see :func:`reason_for`).
     return rows
 
 
@@ -583,7 +876,7 @@ class Report:
         if not self.ok:
             return self.detail or "That did not happen."
         if self.action == "lock":
-            said = f"🔒 **{self.channel}** is locked to you."
+            said = f"**{self.channel}** is locked to you."
             if self.capacity:
                 said += (
                     f" Room capacity is **{self.capacity}** — Discord refuses everybody else, "
@@ -595,15 +888,15 @@ class Report:
                 said += f" {self.name_warning}"
             return said
         if self.action == "release":
-            said = self.detail or f"🔓 **{self.channel}** is back the way it was."
+            said = self.detail or f"**{self.channel}** is back the way it was."
             if self.name_warning:
                 said += f" {self.name_warning}"
             return said
         if self.action == "server":
             if not self.changed and self.skipped:
-                said = f"🔇 Every voice channel was already locked (**{self.skipped}** of them)."
+                said = f"Every voice channel was already locked (**{self.skipped}** of them)."
             else:
-                said = f"🔇 Quiet hours: **{self.changed}** voice channel(s) locked."
+                said = f"Quiet hours: **{self.changed}** voice channel(s) locked."
                 if self.skipped:
                     said += f" {self.skipped} were already locked."
                 if self.failures:
@@ -728,6 +1021,11 @@ async def lock_channel(
     un-wrote the ledger row and answered "nothing happened" for a room that was
     in fact locked, leaving nobody able to release it. A refused rename is
     reported on the card (:attr:`Report.name_warning`) and changes nothing else.
+
+    ``note`` is the holder's own reason, and it is passed **into the session
+    memory and never into a row**: the ledger write below deliberately leaves the
+    column blank (see the module docstring), and every failure path forgets it
+    again so an open room cannot keep somebody's words.
     """
     import discord  # imported here: see the module docstring
 
@@ -768,7 +1066,8 @@ async def lock_channel(
             holder_name=holder_name,
             guests=guest_ids,
             guest_roles=tuple(int(getattr(role, "id", 0) or 0) for role in role_objects),
-            note=note,
+            # No note: the reason is session memory, not a row. `note` was written
+            # here once, which is the exact shape the privacy promise cannot have.
             previous=previous,
             previous_limit=previous_limit,
             previous_name=previous_name,
@@ -795,11 +1094,16 @@ async def lock_channel(
     except Exception as exc:  # noqa: BLE001 — one refusal, one sentence
         await db.forget_alone_time(getattr(guild, "id", 0), [getattr(channel, "id", 0)])
         invalidate(getattr(guild, "id", 0))
+        forget_reason(getattr(guild, "id", 0), getattr(channel, "id", 0))
         report.detail = (
             f"Discord refused the change ({type(exc).__name__}), so the room is "
             "open and nothing was written down."
         )
         return report
+
+    # The room is locked, so the holder's own words are remembered for exactly as
+    # long as it is: in this process, for the holder's card, and nowhere else.
+    remember_reason(getattr(guild, "id", 0), getattr(channel, "id", 0), note)
 
     # The rename, on its own — see the docstring. A refusal here is decoration
     # lost, not a lock lost, so the row stays and the lock stands.
@@ -819,7 +1123,7 @@ async def lock_channel(
     report.guard_missing = not guard_ready(guild)
     if report.guard_missing and settings.guard:
         report.detail = (
-            "⚠️ I do not have **Move Members** here, so I cannot turn away anybody "
+            "I do not have **Move Members** here, so I cannot turn away anybody "
             "who gets past the locked door once the room is empty. The capacity "
             "still holds while you are inside it."
         )
@@ -827,10 +1131,20 @@ async def lock_channel(
 
 
 async def release_channel(guild, lock: Lock, *, actor=None, reason: str = "") -> Report:
-    """Put one room back exactly the way the ledger found it, and forget the row."""
+    """Put one room back exactly the way the ledger found it, and forget the row.
+
+    The one release path every other one goes through, which is why the session
+    memory is forgotten **here**: the holder's reason and any unanswered request
+    about this room stop existing the moment it is open again, whatever released
+    it — a departure, `/alone stop`, an administrator, a ceiling, quiet hours
+    ending, or the system being switched off.
+    """
     import discord
 
     report = Report(action="release", channel=str(lock.channel_id))
+    forget_reason(getattr(guild, "id", 0), lock.channel_id)
+    forget_requests(getattr(guild, "id", 0), lock.channel_id)
+    forget_ask_cards(lock.channel_id)
     getter = getattr(guild, "get_channel", None)
     channel = getter(int(lock.channel_id)) if callable(getter) else None
     if channel is None:
@@ -839,7 +1153,7 @@ async def release_channel(guild, lock: Lock, *, actor=None, reason: str = "") ->
         await db.forget_alone_time(getattr(guild, "id", 0), [lock.channel_id])
         invalidate(getattr(guild, "id", 0))
         return report
-    report.channel = _name(channel)
+    report.channel = plain_name(_name(channel))
     everyone = _everyone(guild)
     if everyone is None:
         report.detail = "That server has no default role for me to change."
@@ -896,7 +1210,7 @@ async def release_channel(guild, lock: Lock, *, actor=None, reason: str = "") ->
     invalidate(getattr(guild, "id", 0))
     report.ok = True
     report.detail = (
-        f"🔓 **{report.channel}** is back the way it was"
+        f"**{report.channel}** is back the way it was"
         + (f" — {reason}." if reason else ".")
     )
     return report
@@ -953,7 +1267,7 @@ async def rename_locked(guild, channel, lock: Lock, name: str, *, actor=None) ->
         )
     invalidate(getattr(guild, "id", 0))
     report.ok = True
-    report.detail = f"✏️ **{marker}** is what this room is called for the rest of the session."
+    report.detail = f"**{marker}** is what this room is called for the rest of the session."
     return report
 
 
@@ -980,7 +1294,7 @@ async def evict(guild, member, target, *, lock: Lock, actor=None) -> Report:
     report.ok = True
     report.changed = total
     report.detail = (
-        f"↩️ **{who}** was moved "
+        f"**{who}** was moved "
         + (f"back to {_name(target)}." if target is not None else "out of voice.")
     )
     return report
@@ -1075,7 +1389,7 @@ async def release_server_window(guild, *, actor=None, reason: str = "") -> Repor
         print(f"[ALONE] could not clear the quiet-hours clock: {exc}", flush=True)
     report.ok = report.changed > 0 or not report.failures
     report.detail = (
-        f"🔊 Quiet hours are over — **{report.changed}** room(s) restored."
+        f"Quiet hours are over — **{report.changed}** room(s) restored."
         if report.changed else "No quiet-hours room was left to restore."
     )
     return report

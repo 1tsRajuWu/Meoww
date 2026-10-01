@@ -22,6 +22,7 @@ refusing a move is *reported and never pretended away*, a failed write leaves th
 lock ledger empty rather than claiming a room that is not locked, and a rename
 made after the lock is not clobbered by the release.
 """
+import re
 import time
 import unittest
 from unittest import mock
@@ -82,6 +83,21 @@ class _VoiceState:
         self.channel = channel
 
 
+class _Sent:
+    """The message-shaped thing a stand-in's ``send`` answers with.
+
+    ``alonetime.remember_request`` is keyed by the delivered message id, so a
+    stand-in that answered ``None`` would make the request untraceable and the
+    test would be proving its own stub, not the feature.
+    """
+
+    _next = 800000
+
+    def __init__(self):
+        _Sent._next += 1
+        self.id = _Sent._next
+
+
 class _Member:
     def __init__(self, uid, name="someone", *, guild=None, bot=False, roles=(), perms=None):
         self.id = uid
@@ -93,6 +109,11 @@ class _Member:
         self.guild_permissions = perms or _Perms()
         self.voice = _VoiceState()
         self.moves = []
+        #: Every DM the bot sent this member, in order — the request card is the
+        #: only thing this feature ever DMs, and a test has to be able to read it —
+        #: plus their ids, which is what a press on the card carries.
+        self.dms = []
+        self.dm_ids = []
 
     def __repr__(self):
         return self.display_name
@@ -100,6 +121,13 @@ class _Member:
     async def move_to(self, target, reason=""):
         self.moves.append(target)
         self.voice.channel = target
+
+    async def send(self, **kwargs):
+        """A Messageable, so ``style.send_panel(holder, card)`` lands as a DM."""
+        self.dms.append(kwargs)
+        message = _Sent()
+        self.dm_ids.append(message.id)
+        return message
 
 
 class _Channel:
@@ -114,6 +142,10 @@ class _Channel:
         self.user_limit = 0
         self.members = []
         self.sent = []
+        #: The ids of what was posted, so a test can press a button on the card
+        #: that was actually sent (a notice's *Ask to join* resolves its room by
+        #: the message id, and a stub that answered ``None`` would be untestable).
+        self.sent_ids = []
         self._manage = manage
         #: One journal for *both* halves of a lock, so a test can prove the
         #: ledger was written before the first permission change — the ordering
@@ -139,6 +171,9 @@ class _Channel:
 
     async def send(self, **kwargs):
         self.sent.append(kwargs)
+        message = _Sent()
+        self.sent_ids.append(message.id)
+        return message
 
 
 class _Guild:
@@ -148,6 +183,7 @@ class _Guild:
         self.default_role = _Role(1, "@everyone")
         self.me = _Member(999, "Meow", bot=True, perms=_Perms(move_members=move_members))
         self.channels = []
+        self.members = []
         self.voice_channels = []
         self.stage_channels = []
         self.text_channels = []
@@ -165,11 +201,22 @@ class _Guild:
         wanted = int(user_id)
         if wanted == self.me.id:
             return self.me
+        for member in self.members:
+            if getattr(member, "id", None) == wanted:
+                return member
         for channel in self.channels:
             for member in getattr(channel, "members", ()):
                 if getattr(member, "id", None) == wanted:
                     return member
         return None
+
+    def add_text_channel(self, name="bot-commands"):
+        """A room a notice can land in — the only thing the routing resolver reads."""
+        channel = _Channel(self, self._next_id, name, type_="text")
+        self._next_id += 1
+        self.channels.append(channel)
+        self.text_channels.append(channel)
+        return channel
 
     def add_voice_channel(self, name="Lobby", *, manage=True, type_="voice"):
         channel = _Channel(self, self._next_id, name, type_=type_, manage=manage)
@@ -249,7 +296,7 @@ class _Followup:
 
 
 class _Interaction:
-    def __init__(self, guild, user):
+    def __init__(self, guild, user, *, message=None):
         self.guild = guild
         self.guild_id = getattr(guild, "id", None)
         self.user = user
@@ -257,6 +304,9 @@ class _Interaction:
         self.followup = _Followup()
         self.edits = []
         self.data = {}
+        #: The message a button was pressed on, which is how an answer card finds
+        #: the request it is about (``alonetime.request_for(message.id)``).
+        self.message = message
         #: Where ``style.send_panel`` lands when the target is not an instance of
         #: ``discord.Interaction`` — which a stand-in never is. The view recorded
         #: here is the same card the interaction branch would have sent.
@@ -959,10 +1009,26 @@ class _CogCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.use_temp_database("alonetime.db")
         await db.setup()
         alonetime.invalidate()
+        self._clear_session_memory()
 
     async def asyncTearDown(self):
         alonetime.invalidate()
+        self._clear_session_memory()
         self.release_temp_database()
+
+    @staticmethod
+    def _clear_session_memory():
+        """The two stores are process-wide by design, so a test owns them.
+
+        ``utils/alonetime`` keeps reasons and requests in memory precisely
+        because they must not be rows, which means one test's leftover request
+        would be the next test's state — the isolation a database gives for free
+        is this helper's job here.
+        """
+        alonetime.forget_reason()
+        alonetime.forget_requests()
+        alonetime.forget_ask_cards()
+        alonetime.LAST_REQUEST.clear()
 
     def _guild(self, *, move_members=True, module_on=True):
         guild = _Guild(move_members=move_members)
@@ -980,10 +1046,13 @@ class _CogCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def _setting(self, guild, setting_id, value):
         await db.set_setting(guild.id, features.setting_key("alonetime", setting_id), value)
 
-    async def _locked(self, guild, *, holder=None, guests=(), keep=None):
+    async def _locked(self, guild, *, holder=None, guests=(), keep=None, note=""):
         holder = holder or _Member(7, "rek_ter", guild=guild)
+        # In the guild's member cache, the way a real holder is: the request card
+        # is DMed, and that lookup goes through ``Guild.get_member`` first.
+        guild.members.append(holder)
         report = await alonetime.lock_channel(
-            guild, guild.room, holder, guests=guests, keep=keep, actor="tester"
+            guild, guild.room, holder, guests=guests, keep=keep, note=note, actor="tester"
         )
         self.assertTrue(report.ok, report.detail)
         return holder
@@ -1194,10 +1263,10 @@ class TheCommands(_CogCase):
         await AloneTime.alone_start.callback(cog, interaction, "studying", None)
         row = await db.alone_time_row(guild.id, guild.room.id)
         self.assertIsNotNone(row)
-        self.assertEqual(row["note"], "studying")
+        self.assertEqual(row["note"], "", "the reason is memory, never a row")
         self.assertEqual(guild.room.user_limit, 1)
         said = _said(interaction)
-        self.assertIn("this room is yours", said)
+        self.assertIn("locked to its holder", said)
         self.assertIn("capacity", said.lower())
         self.assertIn("administrator", said.lower())
 
@@ -1370,6 +1439,7 @@ class TheRegistry(unittest.TestCase):
             ("alone stop", permissions.EVERYONE),
             ("alone status", permissions.EVERYONE),
             ("alone guests", permissions.EVERYONE),
+            ("alone ask", permissions.EVERYONE),
             ("alone list", permissions.CHANNELS),
             ("alone release", permissions.CHANNELS),
             ("alone server", permissions.ADMIN),
@@ -1550,8 +1620,23 @@ class TheBetaSession(_CogCase):
         guild = self._guild()
         await self._cog(guild)
         self.assertTrue(self.bot.views, "the controls must outlive the process")
-        ids = {item.custom_id for item in self.bot.views[0].children}
-        self.assertEqual(ids, {cog_module.WHITELIST_ID, cog_module.RENAME_ID})
+        registered = {
+            item.custom_id for view in self.bot.views for item in view.children
+        }
+        # The holder's three, the one on a room's public notice, and the two on
+        # the request card — one registration each, fixed ids, so a card posted
+        # before the last redeploy still answers.
+        self.assertEqual(
+            registered,
+            {
+                cog_module.WHITELIST_ID, cog_module.RENAME_ID, cog_module.RELEASE_ID,
+                cog_module.ASK_ID, cog_module.ALLOW_ID, cog_module.DENY_ID,
+            },
+        )
+        holder_ids = {item.custom_id for item in self.bot.views[0].children}
+        self.assertEqual(
+            holder_ids, {cog_module.WHITELIST_ID, cog_module.RENAME_ID, cog_module.RELEASE_ID}
+        )
 
     async def test_the_holder_can_whitelist_from_the_card(self):
         guild = self._guild()
@@ -1610,7 +1695,7 @@ class TheBetaSession(_CogCase):
         interaction = _Interaction(guild, holder)
         await AloneTime.alone_start.callback(cog, interaction, None, None)
         self.assertEqual(nosey.moves, [None], "nowhere to put them back: out of voice")
-        self.assertIn("this room is yours", _card_of(interaction))
+        self.assertIn("locked to its holder", _card_of(interaction))
 
     async def test_a_turned_away_member_gets_the_access_denied_card(self):
         guild = self._guild()
@@ -1619,8 +1704,419 @@ class TheBetaSession(_CogCase):
         stranger = _Member(8, "Nosey", guild=guild)
         await cog._voice_event(stranger, _state(guild.elsewhere), _state(guild.room))
         said = _card_text(guild.elsewhere)
-        self.assertIn("Access denied", said)
+        self.assertIn("This room is on Alone Time", said)
+        self.assertIn("Ask to join", said, "the way back in is on the card they can read")
         self.assertIn("no private message for a voice join", said)
+
+
+# --------------------------------------------------------------------------- #
+# The reason nobody can read, the routing, and the request
+# --------------------------------------------------------------------------- #
+class ThePrivateReason(_CogCase):
+    """The holder's reason is session memory: no row, no log, no other reader.
+
+    The promise is *not even the bot's owner can read it*, and the only storage
+    that makes that sentence true is no storage at all — so the laws here are all
+    about absence, which is also the kind of claim that is easy to make and hard
+    to keep. Every one of them reads a surface the text could have reached.
+    """
+
+    async def test_it_is_never_written_to_the_database(self):
+        from cogs.alonetime import AloneTime
+
+        guild = self._guild()
+        cog = await self._cog(guild)
+        member = _Member(7, "rek_ter", guild=guild)
+        member.voice.channel = guild.room
+        interaction = _Interaction(guild, member)
+        await AloneTime.alone_start.callback(cog, interaction, "studying for finals", None)
+        row = await db.alone_time_row(guild.id, guild.room.id)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["note"], "", "the column is the one place it used to live")
+        self.assertEqual(
+            alonetime.reason_for(guild.id, guild.room.id), "studying for finals",
+            "and the session memory is the only place it does live",
+        )
+        self.assertIn("studying for finals", _card_of(interaction))
+
+    async def test_the_public_notice_never_carries_it(self):
+        from cogs.alonetime import AloneTime
+
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        member = _Member(7, "rek_ter", guild=guild)
+        member.voice.channel = guild.room
+        await AloneTime.alone_start.callback(
+            cog, _Interaction(guild, member), "the private part", None
+        )
+        self.assertIn("has this room to themselves", _card_text(house))
+        self.assertNotIn("the private part", _card_text(house))
+        self.assertEqual(_card_text(guild.room), "", "and not in the room either")
+
+    async def test_status_shows_it_to_the_holder_and_to_nobody_else(self):
+        from cogs.alonetime import AloneTime
+
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        alonetime.remember_reason(guild.id, guild.room.id, "not now please")
+        holder.voice.channel = guild.room
+        mine = _Interaction(guild, holder)
+        await AloneTime.alone_status.callback(cog, mine)
+        self.assertIn("not now please", _card_of(mine))
+        other = _Interaction(guild, _Member(8, "Nosey", guild=guild))
+        await AloneTime.alone_status.callback(cog, other)
+        self.assertNotIn("not now please", _card_of(other))
+
+    async def test_a_release_forgets_it(self):
+        from cogs.alonetime import AloneTime
+
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        alonetime.remember_reason(guild.id, guild.room.id, "quiet, please")
+        await AloneTime.alone_stop.callback(cog, _Interaction(guild, holder))
+        self.assertEqual(alonetime.reason_for(guild.id, guild.room.id), "")
+
+    async def test_a_departure_forgets_it_too(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild, note="gone in a moment")
+        self.assertEqual(alonetime.reason_for(guild.id, guild.room.id), "gone in a moment")
+        await self.cog._voice_event(holder, _state(guild.room), _state(None))
+        self.assertEqual(alonetime.reason_for(guild.id, guild.room.id), "")
+
+    async def test_the_moderation_log_gets_the_fact_and_not_the_text(self):
+        from cogs.alonetime import AloneTime
+
+        guild = self._guild()
+        cog = await self._cog(guild)
+        member = _Member(7, "rek_ter", guild=guild)
+        member.voice.channel = guild.room
+        seen = []
+
+        async def watch(_guild, _lock, action, detail, **_kwargs):
+            seen.append((action, detail))
+
+        with mock.patch.object(cog, "_case", new=watch):
+            await AloneTime.alone_start.callback(
+                cog, _Interaction(guild, member), "a secret nobody reads", None
+            )
+        self.assertTrue(seen, "a lock opens a case")
+        joined = " ".join(f"{action} {detail}" for action, detail in seen)
+        self.assertNotIn("a secret nobody reads", joined)
+        self.assertIn("never writes down", joined)
+
+    async def test_a_legacy_note_is_blanked_when_the_database_opens(self):
+        """A lock taken before this change must not keep somebody's words."""
+        guild = self._guild()
+        await db.save_alone_time(guild.id, guild.room.id, holder_id=7, previous_name="Lobby")
+        async with db.aiosqlite.connect(db.DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE alone_time SET note = 'old words' "
+                "WHERE guild_id = ? AND channel_id = ?",
+                (guild.id, guild.room.id),
+            )
+            await conn.commit()
+        await db.setup()
+        row = await db.alone_time_row(guild.id, guild.room.id)
+        self.assertEqual(row["note"], "", "the boot purge is the whole upgrade")
+
+
+class TheNoticeRouting(_CogCase):
+    """Notices go where the server keeps them, never into the locked room first."""
+
+    async def _lock_with_notice(self, guild, cog):
+        from cogs.alonetime import AloneTime
+
+        member = _Member(7, "rek_ter", guild=guild)
+        guild.members.append(member)
+        member.voice.channel = guild.room
+        await AloneTime.alone_start.callback(cog, _Interaction(guild, member), None, None)
+
+    async def test_a_house_channel_is_where_the_notice_lands(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        await self._lock_with_notice(guild, cog)
+        self.assertIn("has this room to themselves", _card_text(house))
+        self.assertEqual(_card_text(guild.room), "", "not into the locked room")
+
+    async def test_general_is_the_fallback_name(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        general = guild.add_text_channel("general")
+        await self._lock_with_notice(guild, cog)
+        self.assertIn("has this room to themselves", _card_text(general))
+
+    async def test_the_servers_own_setting_wins_over_the_search(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        quiet = guild.add_text_channel("quiet-news")
+        await self._setting(guild, "notice_channel", "quiet-news")
+        await self._lock_with_notice(guild, cog)
+        self.assertIn("has this room to themselves", _card_text(quiet))
+        self.assertEqual(_card_text(house), "", "the setting is the server's answer")
+
+    async def test_the_bound_commands_channel_beats_a_name_search(self):
+        """``utils/bot_channels`` is the house-channel binding, and it is asked first."""
+        guild = self._guild()
+        cog = await self._cog(guild)
+        bound = guild.add_text_channel("mod-stuff")
+        general = guild.add_text_channel("general")
+        await db.set_setting(guild.id, "bot_cmd_channel_id", bound.id)
+        await self._lock_with_notice(guild, cog)
+        self.assertIn("has this room to themselves", _card_text(bound))
+        self.assertEqual(_card_text(general), "")
+
+    async def test_the_locked_room_is_the_last_resort_and_not_the_first(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        await self._lock_with_notice(guild, cog)
+        self.assertIn(
+            "has this room to themselves", _card_text(guild.room),
+            "a server with nowhere else must still be told",
+        )
+
+    async def test_a_turned_away_member_is_noticed_in_the_house_channel(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await cog._voice_event(stranger, _state(guild.elsewhere), _state(guild.room))
+        self.assertIn("This room is on Alone Time", _card_text(house))
+        self.assertEqual(_card_text(guild.elsewhere), "", "and nowhere else")
+
+
+class TheJoinRequest(_CogCase):
+    """One request per member per five minutes, answered only by the holder."""
+
+    async def _ask(self, cog, guild, member):
+        interaction = _Interaction(guild, member)
+        await cog.ask_to_join(interaction, room=guild.room)
+        return interaction
+
+    def test_the_cooldown_is_five_minutes_and_is_not_a_server_setting(self):
+        self.assertEqual(alonetime.REQUEST_COOLDOWN_SECONDS, 300)
+        alonetime.LAST_REQUEST.clear()
+        alonetime.note_request(1, 2, now=1000.0)
+        self.assertEqual(alonetime.request_left(1, 2, now=1000.0), 300)
+        self.assertEqual(alonetime.request_left(1, 2, now=1200.0), 100)
+        self.assertEqual(alonetime.request_left(1, 2, now=1300.0), 0)
+        alonetime.LAST_REQUEST.clear()
+
+    async def test_a_request_is_delivered_to_the_holders_dm(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        interaction = await self._ask(cog, guild, stranger)
+        self.assertTrue(holder.dms, "the holder gets the request privately")
+        card = str(holder.dms[-1]["view"].to_components())
+        self.assertIn("Nosey", card)
+        self.assertIn("asked to join", card)
+        self.assertNotIn("Nosey", _card_text(guild.room), "and not in the room's chat")
+        self.assertIn("Your request is with", _said(interaction))
+
+    async def test_the_same_member_is_held_back_for_five_minutes(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await self._ask(cog, guild, stranger)
+        second = await self._ask(cog, guild, stranger)
+        said = _said(second)
+        self.assertIn("ask again in", said)
+        self.assertIn("five minutes", said.lower())
+        self.assertEqual(len(alonetime.REQUESTS), 1, "the second ask changed nothing")
+
+    async def test_the_holder_allows_it_and_the_cap_rises(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await self._ask(cog, guild, stranger)
+        message = type("Msg", (), {"id": holder.dm_ids[-1]})()
+        answer = _Interaction(guild, holder, message=message)
+        await cog.answer_request(answer, allow=True)
+        lock = alonetime.lock_for(guild.id, guild.room.id)
+        self.assertTrue(lock.admits(8))
+        self.assertEqual(guild.room.user_limit, 2, "a guest nobody can let past the cap")
+        self.assertIn("may join", _said(answer))
+        self.assertIsNone(alonetime.request_for(message.id), "one answer per request")
+
+    async def test_keep_out_puts_nobody_on_the_list(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await self._ask(cog, guild, stranger)
+        message = type("Msg", (), {"id": holder.dm_ids[-1]})()
+        answer = _Interaction(guild, holder, message=message)
+        await cog.answer_request(answer, allow=False)
+        lock = alonetime.lock_for(guild.id, guild.room.id)
+        self.assertFalse(lock.admits(8))
+        self.assertEqual(guild.room.user_limit, 1)
+        self.assertIn("not told", _said(answer))
+        self.assertIsNone(alonetime.request_for(message.id))
+
+    async def test_only_the_holder_can_answer(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await self._ask(cog, guild, stranger)
+        message = type("Msg", (), {"id": holder.dm_ids[-1]})()
+        meddler = _Member(9, "Meddler", guild=guild, perms=_Perms(manage_channels=True))
+        answer = _Interaction(guild, meddler, message=message)
+        await cog.answer_request(answer, allow=True)
+        self.assertIn("Only the holder", _said(answer))
+        self.assertFalse(alonetime.lock_for(guild.id, guild.room.id).admits(8))
+        self.assertIsNotNone(
+            alonetime.request_for(message.id), "a refused press is not an answer"
+        )
+
+    async def test_a_guest_asking_to_join_is_told_they_already_can(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        await self._locked(guild, guests=(8,))
+        guest = _Member(8, "friend", guild=guild)
+        interaction = await self._ask(cog, guild, guest)
+        self.assertIn("already allowed in", _said(interaction))
+
+    async def test_the_holder_asking_for_their_own_room_is_pointed_at_the_picker(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        interaction = await self._ask(cog, guild, holder)
+        self.assertIn("picker on your card", _said(interaction))
+
+    async def test_an_open_room_is_not_a_request_at_all(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        interaction = _Interaction(guild, stranger)
+        await cog.ask_to_join(interaction, room=guild.elsewhere)
+        self.assertIn("not locked any more", _said(interaction))
+
+    async def test_quiet_hours_has_nobody_to_ask(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        await alonetime.lock_all_voice(guild, minutes=5)
+        stranger = _Member(8, "Nosey", guild=guild)
+        interaction = await self._ask(cog, guild, stranger)
+        self.assertIn("quiet hours", _said(interaction))
+
+    async def test_an_expired_request_cannot_be_answered(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        stale = _Sent()
+        alonetime.remember_request(
+            stale.id,
+            alonetime.Request(
+                guild_id=guild.id, channel_id=guild.room.id, requester_id=8,
+                requester_name="Nosey", holder_id=holder.id,
+                asked_at=time.time() - alonetime.REQUEST_TTL_SECONDS - 5,
+            ),
+        )
+        answer = _Interaction(guild, holder, message=stale)
+        await cog.answer_request(answer, allow=True)
+        self.assertIn("expired", _said(answer))
+        self.assertIsNone(alonetime.request_for(stale.id))
+
+    async def test_the_notice_button_knows_which_room_it_is_about(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        holder = await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await cog._voice_event(stranger, _state(guild.elsewhere), _state(guild.room))
+        notice_id = house.sent_ids[-1]
+        self.assertEqual(alonetime.ask_card_room(notice_id), guild.room.id)
+        interaction = _Interaction(guild, stranger)
+        await cog.ask_to_join(interaction, notice_message_id=notice_id)
+        self.assertTrue(holder.dms, "the button delivered the same request")
+
+    async def test_a_holder_who_cannot_be_dmed_gets_the_notice_channel(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        holder = await self._locked(guild)
+
+        async def refuse(**_kwargs):
+            raise RuntimeError("DMs are closed")
+
+        holder.send = refuse
+        stranger = _Member(8, "Nosey", guild=guild)
+        interaction = await self._ask(cog, guild, stranger)
+        card = _card_text(house)
+        self.assertIn("DMs are closed to me", card, "the fallback says why it is public")
+        self.assertIn("Nosey", card)
+        self.assertIn("Your request is with", _said(interaction))
+
+    async def test_a_release_drops_every_request_for_the_room(self):
+        guild = self._guild()
+        cog = await self._cog(guild)
+        holder = await self._locked(guild)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await self._ask(cog, guild, stranger)
+        self.assertTrue(alonetime.REQUESTS)
+        await alonetime.release_channel(guild, alonetime.lock_for(guild.id, guild.room.id))
+        self.assertEqual(alonetime.REQUESTS, {}, "nothing outlives the session")
+
+
+class TheTypographicCards(_CogCase):
+    """The revamp, held to what it removed: no card this feature draws carries
+    a text emoji. The one symbol that stays is the mark on the room's own name,
+    which is where Discord's sidebar needs it — and the cards print the name
+    without it, because the card itself already says the room is locked."""
+
+    _EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
+
+    def test_a_locked_rooms_name_is_printed_without_the_mark(self):
+        self.assertEqual(alonetime.plain_name("🔒 Study"), "Study")
+        self.assertEqual(alonetime.plain_name("Lobby"), "Lobby")
+        self.assertEqual(alonetime.plain_name(""), "")
+
+    async def test_no_card_carries_a_text_emoji(self):
+        from cogs.alonetime import AloneTime
+
+        guild = self._guild()
+        cog = await self._cog(guild)
+        house = guild.add_text_channel("bot-commands")
+        holder = _Member(7, "rek_ter", guild=guild)
+        guild.members.append(holder)
+        holder.voice.channel = guild.room
+        private = _Interaction(guild, holder)
+        await AloneTime.alone_start.callback(cog, private, "reading", None)
+        stranger = _Member(8, "Nosey", guild=guild)
+        await cog._voice_event(stranger, _state(guild.elsewhere), _state(guild.room))
+        status = _Interaction(guild, holder)
+        await AloneTime.alone_status.callback(cog, status)
+        for label, text in (
+            ("the holder's card", _card_of(private)),
+            ("the public notice", _card_text(house)),
+            ("the turned-away member's card", _card_text(guild.elsewhere)),
+            ("the status card", _card_of(status)),
+        ):
+            self.assertTrue(text, f"{label} should have said something")
+            self.assertIsNone(self._EMOJI.search(text), f"{label} carries an emoji")
+        self.assertIn("🔒", guild.room.name, "the sidebar mark is not a card")
+
+    async def test_the_notice_routing_is_a_setting_on_the_card(self):
+        spec = features.get_setting("alonetime", "notice_channel")
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec.kind, "text")
+        self.assertEqual(spec.default, "")
+
+    async def test_the_help_menu_names_the_request_command(self):
+        from cogs import help as help_cog
+
+        self.assertIn("/alone ask", help_cog.HELP_MODULES["alonetime"]["desc"])
 
 
 class TheOneThingItCannotDo(unittest.TestCase):

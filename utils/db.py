@@ -930,6 +930,18 @@ async def setup():
             "locked_as": "TEXT NOT NULL DEFAULT ''",
         })
 
+        # The holder's private reason used to be stored in `note`, and it is one
+        # of the two things this feature now promises never to write down (see
+        # `utils/alonetime.py`): it lives in that process's memory for the life of
+        # the lock and nowhere else. The column stays — dropping a column on a
+        # live database is a migration with no upside, and old rows still parse —
+        # but every boot blanks it, so a lock taken before this change stops
+        # holding somebody's words the next time the bot starts. Nothing writes a
+        # non-empty value into it any more: `save_alone_time` does not even take a
+        # note, which is the shape that makes the promise hold rather than a
+        # convention someone could forget.
+        await db.execute("UPDATE alone_time SET note = '' WHERE note <> ''")
+
         # ── Servers the bot refuses to be in ─────────────────────────────────
         # The operator's own decision, which has no Discord equivalent: leaving a
         # server is `/kick` applied to the bot, and *staying* left is a list.
@@ -2224,7 +2236,6 @@ async def save_alone_time(
     holder_name: str = "",
     guests=(),
     guest_roles=(),
-    note: str = "",
     previous: str = "",
     previous_limit: int = 0,
     previous_name: str = "",
@@ -2237,6 +2248,14 @@ async def save_alone_time(
     One row per channel, replaced wholesale: a second lock on a room that is
     somehow still locked must not merge two ledgers, or a release would restore
     half of one and half of the other.
+
+    **There is no ``note`` argument, and that is the privacy promise expressed as
+    a shape.** The holder's reason is deliberately absent from this table — it is
+    session memory in ``utils/alonetime`` and nowhere else — so the strongest way
+    to keep it out of the file is to leave the writer without a way to put it
+    there. The ``note`` column is written blank on every insert and blanked again
+    at boot (see the alone_time schema), which is what stops a lock taken before
+    the change from holding somebody's words after the upgrade.
     """
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -2245,7 +2264,7 @@ async def save_alone_time(
             + ') VALUES (' + ", ".join("?" for _ in _ALONE_COLUMNS) + ')',
             (
                 int(guild_id), int(channel_id), int(holder_id or 0), str(holder_name or ""),
-                _alone_list(guests), _alone_list(guest_roles), str(note or ""),
+                _alone_list(guests), _alone_list(guest_roles), "",
                 str(previous or ""), int(previous_limit or 0), str(previous_name or ""),
                 str(locked_as or ""),
                 1 if keep else 0, 0, float(started_at or 0),

@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** October 1, 2026 · **Version 6** (AI-assisted source).
+**Effective Date:** October 1, 2026 · **Version 7** (AI-assisted source).
 
 This policy explains what this Discord bot ("the Bot") stores, why, where it goes
 and how to have it removed. It describes one deployment; the operator running it
@@ -31,6 +31,15 @@ answers for it, and using a server that runs the Bot is agreement to it.
   the holder leaves it, unless the server asked it to stay locked — and always
   when the system is switched off. Nothing about a session outlives the session,
   and the whitelist is part of the row rather than a list kept anywhere else.
+  **The reason a member gives for locking their room is never written down**: it
+  lives in the running bot's memory for as long as the lock lasts and is shown
+  back to the member who typed it alone, so it is not in the database, not in the
+  moderation log, not on the dashboard, and not something any command, page or
+  export can show — including to a server's administrators or to the operator.
+  Requests to join a locked room are treated the same way: held in memory for at
+  most thirty minutes, answerable by the holder alone, and never stored. Notices
+  about a locked room are posted in a channel the server keeps for bot output
+  rather than in the locked room's own chat.
 * **Text a person deliberately submits:** quote text, a ticket subject and
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who

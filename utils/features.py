@@ -552,9 +552,11 @@ FEATURES: tuple[Feature, ...] = (
             "another member, not a moderator, and not an administrator — because "
             "the room's capacity is capped to the people allowed in, and anybody "
             "who still gets past the locked door is moved back out. Say why you "
-            "are not to be disturbed, name the few people who may still join, let "
-            "it lift itself when you leave, or quieten every voice channel in the "
-            "server at once."
+            "are not to be disturbed — the reason is yours alone and is never "
+            "written down — name the few people who may still join, let it lift "
+            "itself when you leave, or quieten every voice channel in the server "
+            "at once. A member who was turned away can ask you to let them in, "
+            "once every five minutes."
         ),
         # One root command. Discord allows 100 top-level names per scope and the
         # subcommands live inside this one, which is why the whole feature is a
@@ -565,6 +567,7 @@ FEATURES: tuple[Feature, ...] = (
             "/alone stop — Release the room you are holding",
             "/alone status — Who holds this room, and which layers are in force",
             "/alone guests — The few people who may still join",
+            "/alone ask — Ask the holder to let you in (once every five minutes)",
             "/alone list — Every room locked in this server",
             "/alone release — Lift a lock you do not hold",
             "/alone server — Lock every voice channel for a while",
@@ -702,6 +705,26 @@ FEATURES: tuple[Feature, ...] = (
                 default=60,
                 minimum=5,
                 maximum=1440,
+            ),
+            # Where the automated notices go — the room's lock card, somebody
+            # being turned away, a lock ending. Empty is the resolved default:
+            # this server's own #bot-commands (the house channel `utils/bot_channels`
+            # already binds for automated output), then #general, and only if the
+            # server has neither does a notice fall back to the locked room's own
+            # chat. A server that wants them somewhere else says so here, by
+            # channel id or by name, and that answer wins over the search.
+            Setting(
+                id="notice_channel",
+                label="Where the notices go",
+                help=(
+                    "A channel id or name for Alone Time's notices — who locked "
+                    "what, who was turned away, and when a room opened again. "
+                    "Leave it empty and the bot uses #bot-commands, then "
+                    "#general, then the room's own chat. Notices never go into "
+                    "another member's room unless there is nowhere else."
+                ),
+                kind="text",
+                default="",
             ),
         ),
     ),

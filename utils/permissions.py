@@ -324,6 +324,9 @@ COMMAND_ACCESS: dict[str, str] = {
     "alone stop": EVERYONE,
     "alone status": EVERYONE,
     "alone guests": EVERYONE,
+    # Asking to join is the one lever a turned-away member has, so it is
+    # deliberately every member's — the rate limit is the guard, not a role.
+    "alone ask": EVERYONE,
     "alone list": CHANNELS,
     "alone release": CHANNELS,
     "alone server": ADMIN,

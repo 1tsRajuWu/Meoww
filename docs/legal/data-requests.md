@@ -62,6 +62,10 @@ DELETE FROM scheduled_messages WHERE guild_id=:guild AND created_by=:member;
 DELETE FROM ticket_feedback    WHERE guild_id=:guild AND (author_id=:member OR claimed_by=:member);
 DELETE FROM mod_cases          WHERE guild_id=:guild AND user_id=:member;
 DELETE FROM qna_questions      WHERE guild_id=:guild AND user_id=:member;
+-- the reason a locked room's holder typed, on any row written before the Bot
+-- stopped storing it: the column is blanked on every boot, and blanking it by
+-- hand is the one-line version of the same promise
+UPDATE alone_time SET note='' WHERE guild_id=:guild;
 ```
 
 Decide `mod_cases` deliberately: a case is the server's moderation record, and
@@ -108,7 +112,7 @@ immediately but does **not** delete what already exists — only this does.
 | Dashboard message history — queued, sent, per-channel result | after 90 days (`utils/scheduled.py::HISTORY_DAYS`) |
 | Meetings — the meeting, its notices and who replied to the card | after 90 days (`utils/meetings.py::HISTORY_DAYS`) |
 | Cloud snapshots | oldest pruned beyond 5, hourly (`utils/cloud_sync.py`) |
-| Alone Time — a locked voice room, its holder, its whitelist, and the room's previous and locked names | the moment the room is released, which is when the holder leaves it unless the server asked it to stay locked — and always when the system is switched off (`cogs/alonetime.py`) |
+| Alone Time — a locked voice room, its holder, its whitelist, and the room's previous and locked names | the moment the room is released, which is when the holder leaves it unless the server asked it to stay locked — and always when the system is switched off (`cogs/alonetime.py`). **A holder's reason is not stored at all**: it lives in the running Bot's memory for the life of the lock, and any row written before that was true has its `note` blanked on boot (`utils/db.py`), so there is nothing to hand over and nothing to delete. Requests to join are memory for at most thirty minutes and are never written to any table |
 | Everything else | kept until deleted, because that is the feature |
 
 ## 6. Nothing here is legal advice
