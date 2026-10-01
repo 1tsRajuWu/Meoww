@@ -2,10 +2,14 @@
 
 The eleven addresses used to forward to `/servers`, and the composer and the
 queue used to be driven by a page script talking to the JSON endpoints. Both
-changed by request, and the two suites that pinned the scripted panel
+changed by request: the two suites that pinned the scripted panel
 (`tests/test_composer.py::DashboardTemplateCase` and
-`tests/test_scheduler.py::ScheduleTemplateCase`) are retired with a reason and
-point here.
+`tests/test_scheduler.py::ScheduleTemplateCase`) were retired with a reason and
+pointed here, and they have since been **deleted**. A skipped class is a law
+that has stopped being read while still counting — thirty-nine of the suite's
+forty-one skips were those two classes, against a budget of ten — and their own
+text said this file holds the intent. What they were protecting is pinned below,
+against the page as it ships.
 
 What is pinned here is the *shape of a write* and the *ownership of a number*:
 
