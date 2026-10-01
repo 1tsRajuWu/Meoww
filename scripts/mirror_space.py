@@ -214,14 +214,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="the same plan as --check, with the commit it would make")
     args = parser.parse_args(argv)
 
-    token = os.getenv("HF_TOKEN", "").strip()
-    if not token and not args.check:
-        print("✗ HF_TOKEN is not set, so nothing can be sent. Put it in .env.", file=sys.stderr)
-        return 2
-
-    from huggingface_hub import HfApi  # noqa: PLC0415 — keeps --help instant
-
-    api = HfApi(token=token or None)
     sha, subject = head()
     if not args.check:
         changed = dirty_tracked()
@@ -239,6 +231,21 @@ def main(argv: list[str] | None = None) -> int:
                 "machine every other host proxies to, and a commit nobody else has "
                 "is one nobody can resolve to anything."
             )
+
+    # The two refusals above are facts about *this* checkout — local git
+    # questions, asked before anything is sent — while the token is only the
+    # ability to send. A machine without one still learns what is wrong with
+    # its tree, and this order is also what makes those two refusals the test
+    # suite's to hold: `tests/test_mirror_space.py` exercises both without a
+    # secret, a network, or `huggingface_hub` being installed at all.
+    token = os.getenv("HF_TOKEN", "").strip()
+    if not token and not args.check:
+        print("✗ HF_TOKEN is not set, so nothing can be sent. Put it in .env.", file=sys.stderr)
+        return 2
+
+    from huggingface_hub import HfApi  # noqa: PLC0415 — keeps --help instant
+
+    api = HfApi(token=token or None)
 
     files = tracked()
     paths, dropped = plan(api, args.repo, files)

@@ -929,8 +929,17 @@ def for_message(message_id: int) -> dict | None:
         return None
 
 
-def upcoming(guild_id: int, limit: int = 10) -> list[dict]:
-    """The meetings still ahead, soonest first."""
+def upcoming(guild_id: int, limit: int = 10, *, now: float | None = None) -> list[dict]:
+    """The meetings still ahead, soonest first.
+
+    ``now`` is the moment the question is asked at, and it is a parameter for
+    the reason every sibling reader here takes one: a reader that consults the
+    wall clock cannot be sealed in a test. The law about scoping a listing to
+    one server is where that showed up — written against a fixed clock, it
+    could only pass on the day its constant named, because the listing kept
+    comparing against the real one.
+    """
+    moment = int(time.time() if now is None else now)
     try:
         conn = _connect()
         try:
@@ -938,7 +947,7 @@ def upcoming(guild_id: int, limit: int = 10) -> list[dict]:
                 """SELECT * FROM meetings
                    WHERE guild_id = ? AND status = ? AND starts_at >= ?
                    ORDER BY starts_at ASC LIMIT ?""",
-                (int(guild_id), STATUS_SCHEDULED, int(time.time()), int(limit)),
+                (int(guild_id), STATUS_SCHEDULED, moment, int(limit)),
             ).fetchall()
             return [_decode(row) for row in rows]
         finally:

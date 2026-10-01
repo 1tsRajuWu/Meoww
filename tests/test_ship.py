@@ -38,6 +38,7 @@ import contextlib
 import io
 import json
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -51,6 +52,32 @@ WORKFLOW = ROOT / ".github" / "workflows" / "site.yml"
 #: The commit under test. Any hex string would do; this one is short enough to
 #: read in a failure message and long enough to exercise the short-hash compare.
 SHA = "75e32e4b48f2777803f8b04fc62223e99dd718f1"
+
+
+@contextlib.contextmanager
+def a_built_tree():
+    """A built directory to compare against, written here rather than assumed.
+
+    Three laws read a build: the argv of an upload names the directory the build
+    wrote, and the probe is compared byte for byte against that build. On a
+    machine that has never run ``ship.py`` — a clean checkout, or the test job —
+    there is no ``_site/`` to read, so those laws failed for a reason that has
+    nothing to do with what they claim. What they are about is the *path* and
+    the comparison; the builders themselves are pinned by
+    ``test_the_builders_are_the_ones_the_workflow_runs``, which reads
+    ``site.yml``, and no test has any business running one.
+
+    So the tree is written into a temporary directory and ``ship.ROOT`` is
+    pointed at it. The bytes matter to the probe laws and nothing else: they are
+    a sheet, and every test that reads them serves something else.
+    """
+    with tempfile.TemporaryDirectory() as root:
+        for host in ship.HOSTS:
+            probe = Path(root) / host.out / host.probe
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.write_bytes(b"the sheet this build wrote\n")
+        with mock.patch.object(ship, "ROOT", root):
+            yield
 
 
 class _Result:
@@ -179,18 +206,19 @@ class EveryHostCarriesTheCommitItWasBuiltFrom(unittest.TestCase):
             return ship.ship(ship.HOSTS), wrangler, ship.HOSTS
 
     def test_every_upload_names_the_commit_the_branch_and_the_directory(self):
-        code, wrangler, hosts = self._ship()
-        self.assertEqual(code, 0)
-        self.assertEqual(len(wrangler.deploys()), len(hosts))
-        for host, command in zip(hosts, wrangler.deploys()):
-            self.assertIn(f"--commit-hash={SHA}", command)
-            self.assertIn(f"--project-name={host.project}", command)
-            # ``--branch=main`` is what makes it a production deployment; without
-            # it the upload is a preview URL that changes nothing anybody sees.
-            self.assertIn("--branch=main", command)
-            self.assertIn(host.out, command)
-            self.assertTrue(os.path.isdir(os.path.join(ship.ROOT, host.out)),
-                            "the directory uploaded is not the one that was built")
+        with a_built_tree():
+            code, wrangler, hosts = self._ship()
+            self.assertEqual(code, 0)
+            self.assertEqual(len(wrangler.deploys()), len(hosts))
+            for host, command in zip(hosts, wrangler.deploys()):
+                self.assertIn(f"--commit-hash={SHA}", command)
+                self.assertIn(f"--project-name={host.project}", command)
+                # ``--branch=main`` is what makes it a production deployment; without
+                # it the upload is a preview URL that changes nothing anybody sees.
+                self.assertIn("--branch=main", command)
+                self.assertIn(host.out, command)
+                self.assertTrue(os.path.isdir(os.path.join(ship.ROOT, host.out)),
+                                "the directory uploaded is not the one that was built")
 
     def test_the_builders_are_the_ones_the_workflow_runs(self):
         """Where two places build one directory, they have to agree.
@@ -326,8 +354,9 @@ class TheProbeCannotBeAnsweredFromACache(unittest.TestCase):
 
     def test_a_served_file_that_differs_is_reported_with_both_hashes(self):
         host = ship.HOSTS[0]
-        with mock.patch.object(ship, "served_bytes",
-                               return_value=(b"not the sheet", "")):
+        with a_built_tree(), mock.patch.object(
+            ship, "served_bytes", return_value=(b"not the sheet", "")
+        ):
             matched, note = ship.asset_matches_build(host, SHA)
         self.assertFalse(matched)
         self.assertIn("other bytes", note)
@@ -335,7 +364,9 @@ class TheProbeCannotBeAnsweredFromACache(unittest.TestCase):
 
     def test_an_address_that_does_not_answer_is_reported_with_the_reason(self):
         host = ship.HOSTS[0]
-        with mock.patch.object(ship, "served_bytes", return_value=(None, "HTTP 404")):
+        with a_built_tree(), mock.patch.object(
+            ship, "served_bytes", return_value=(None, "HTTP 404")
+        ):
             matched, note = ship.asset_matches_build(host, SHA)
         self.assertFalse(matched)
         self.assertIn("HTTP 404", note)

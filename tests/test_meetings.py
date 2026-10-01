@@ -229,9 +229,15 @@ class Storage(unittest.TestCase):
         self.assertEqual([r["offset_seconds"] for r in rows], [300])
 
     def test_upcoming_is_scoped_to_one_server(self):
+        """Read at the clock this file books against, not at the wall's.
+
+        The listing compares against the moment it is asked, so a test with a
+        fixed ``NOW`` and no way to hand it over was a law that could only pass
+        on the day its constant named.
+        """
         meeting_id = self._meeting()
-        self.assertEqual([r["id"] for r in meetings.upcoming(GUILD_ID)], [meeting_id])
-        self.assertEqual(meetings.upcoming(GUILD_ID + 1), [])
+        self.assertEqual([r["id"] for r in meetings.upcoming(GUILD_ID, now=NOW)], [meeting_id])
+        self.assertEqual(meetings.upcoming(GUILD_ID + 1, now=NOW), [])
 
     def test_replies_take_the_last_press(self):
         meeting_id = self._meeting()
