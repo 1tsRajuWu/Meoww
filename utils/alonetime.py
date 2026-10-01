@@ -345,11 +345,24 @@ def encode_overwrite(overwrite) -> str:
     ``""`` and ``"0:0"`` are different answers — *no overwrite* and *an overwrite
     that says nothing* — and the release path has to be able to tell them apart,
     because one is restored by deleting and the other by writing.
+
+    Read through ``pair()`` first, because that is how the library itself exposes
+    one: a real ``discord.PermissionOverwrite`` keeps its flags in ``_values`` and
+    has no ``allow``/``deny`` attributes at all, so asking it for those answered
+    *none* for every room that had an overwrite. The ledger then held ``0:0``, and
+    a release flattened that room's own configuration to neutral instead of
+    putting it back — a bug that could only ever show on the one channel a server
+    had configured. The attribute path stays for stand-ins that model the pair
+    that way.
     """
     if overwrite is None:
         return ""
-    allow = getattr(overwrite, "allow", None)
-    deny = getattr(overwrite, "deny", None)
+    pair = getattr(overwrite, "pair", None)
+    if callable(pair):
+        allow, deny = pair()
+    else:
+        allow = getattr(overwrite, "allow", None)
+        deny = getattr(overwrite, "deny", None)
     return f"{int(getattr(allow, 'value', 0) or 0)}:{int(getattr(deny, 'value', 0) or 0)}"
 
 

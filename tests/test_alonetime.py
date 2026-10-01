@@ -45,7 +45,14 @@ class _Bits:
 
 
 class _Overwrite:
-    """A permission overwrite, in the shape ``encode_overwrite`` reads."""
+    """A permission overwrite **without** ``pair()``, which is the shape that is not
+    the library's.
+
+    A real ``discord.PermissionOverwrite`` has no ``allow``/``deny`` attributes and
+    is read with ``pair()``; this exists so the encoder's fallback path stays
+    covered, and the round trip below the encoder's own test uses the real class
+    through ``from_pair`` so the path production takes is the one exercised.
+    """
 
     def __init__(self, *, allow=0, deny=0):
         self.allow = _Bits(allow)
@@ -265,10 +272,28 @@ class _Interaction:
 
 
 def _said(interaction) -> str:
-    """Everything an answer to this person carried, as one searchable string."""
+    """Everything an answer to this person carried, as one searchable string.
+
+    Three shapes land in here — an embed, a plain sentence, and a **Components V2
+    card**, which has no ``embed`` at all and exists only inside its view. A reader
+    that knew the first two reported nothing for a card, which is how an assertion
+    about the card's own words could be read as passing against an empty string.
+    """
     parts: list[str] = []
-    for payload in list(interaction.response.sent) + list(interaction.followup.sent):
-        embed = payload.get("embed") if isinstance(payload, dict) else None
+    payloads = (
+        list(interaction.response.sent)
+        + list(interaction.followup.sent)
+        + list(getattr(interaction, "sent", []))
+    )
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            parts.append(str(payload))
+            continue
+        view = payload.get("view")
+        if view is not None and hasattr(view, "to_components"):
+            parts.append(str(view.to_components()))
+            continue
+        embed = payload.get("embed")
         if embed is None:
             parts.append(str(payload))
             continue
@@ -414,6 +439,21 @@ class TheLedger(unittest.TestCase):
         encoded = alonetime.encode_overwrite(_Overwrite(allow=8, deny=16))
         self.assertEqual(encoded, "8:16")
         self.assertEqual(alonetime.decode_overwrite(encoded), (8, 16))
+
+    def test_the_librarys_own_overwrite_is_read_with_pair(self):
+        """The shape that broke the ledger: a real overwrite has no ``allow``.
+
+        ``encode_overwrite`` asked for ``.allow``/``.deny``, which a real
+        ``discord.PermissionOverwrite`` does not have — ``__slots__`` is ``_values``
+        and the pair is what it exposes. Inside a server that answered *none* for
+        every room that had an overwrite, so the ledger recorded ``0:0`` and a
+        release flattened the room's own settings instead of putting them back.
+        """
+        overwrite = discord.PermissionOverwrite.from_pair(
+            discord.Permissions(8), discord.Permissions(16)
+        )
+        self.assertFalse(hasattr(overwrite, "allow"), "the shape the encoder used to assume")
+        self.assertEqual(alonetime.encode_overwrite(overwrite), "8:16")
 
     def test_text_that_is_not_a_pair_is_no_ledger_at_all(self):
         self.assertIsNone(alonetime.decode_overwrite("garbage"))
@@ -765,15 +805,19 @@ class TheRelease(_EngineCase):
     async def test_an_overwrite_the_room_already_had_is_put_back_exactly(self):
         guild = self._guild()
         room = guild.room
-        room.overwrites[guild.default_role] = _Overwrite(allow=8, deny=16)
+        room.overwrites[guild.default_role] = discord.PermissionOverwrite.from_pair(
+            discord.Permissions(8), discord.Permissions(16)
+        )
         room.user_limit = 5
         await alonetime.lock_channel(guild, room, _Member(7, guild=guild))
         lock = alonetime.lock_for(guild.id, room.id)
+        self.assertEqual(lock.previous, "8:16", "the ledger records the room's own numbers")
         await alonetime.release_channel(guild, lock)
         restored = room.overwrites[guild.default_role]
         self.assertIsInstance(restored, discord.PermissionOverwrite, "text, not a live object")
-        self.assertEqual(restored.allow.value, 8)
-        self.assertEqual(restored.deny.value, 16)
+        allowed, denied = restored.pair()
+        self.assertEqual(allowed.value, 8)
+        self.assertEqual(denied.value, 16)
         self.assertEqual(room.user_limit, 5)
 
     async def test_a_rename_made_after_the_lock_is_left_alone(self):
@@ -1153,7 +1197,8 @@ class TheCommands(_CogCase):
         self.assertEqual(row["note"], "studying")
         self.assertEqual(guild.room.user_limit, 1)
         said = _said(interaction)
-        self.assertIn("locked to you", said)
+        self.assertIn("this room is yours", said)
+        self.assertIn("capacity", said.lower())
         self.assertIn("administrator", said.lower())
 
     async def test_a_room_somebody_else_holds_is_refused_by_name(self):
@@ -1565,7 +1610,7 @@ class TheBetaSession(_CogCase):
         interaction = _Interaction(guild, holder)
         await AloneTime.alone_start.callback(cog, interaction, None, None)
         self.assertEqual(nosey.moves, [None], "nowhere to put them back: out of voice")
-        self.assertIn("locked to you", _card_of(interaction))
+        self.assertIn("this room is yours", _card_of(interaction))
 
     async def test_a_turned_away_member_gets_the_access_denied_card(self):
         guild = self._guild()
