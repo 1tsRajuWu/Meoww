@@ -37,7 +37,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from utils import alonetime, company, style
+from utils import company, style
 
 #: How often the "somebody has been alone long enough" question is asked. Every
 #: five seconds over cached members is free — no API call is made here, and the
@@ -273,13 +273,6 @@ class Company(commands.Cog):
             if guild is not None and not self._module_on(guild):
                 await self._leave(client, "the module was switched off")
                 continue
-            if alonetime.lock_for(getattr(guild, "id", None), getattr(channel, "id", 0)):
-                # Alone Time took the room while the bot was sitting in it. A
-                # companion is the one thing that lock exists to keep out, and
-                # leaving promptly is also what makes the room's capacity true
-                # again — the bot is a seat in it.
-                await self._leave(client, "the room was taken for somebody's alone time")
-                continue
             humans = company.humans_in(channel, bot_id=self._bot_id)
             if company.decide(humans=humans, here=True) == company.LEAVE:
                 await self._leave(client, "the channel emptied" if humans == 0 else "somebody real joined")
@@ -400,11 +393,6 @@ class Company(commands.Cog):
         feature can be given without a command.
         """
         for channel in company.voice_channels(guild):
-            if alonetime.lock_for(getattr(guild, "id", None), getattr(channel, "id", 0)):
-                # Somebody asked to be left alone, which is the most explicit "no"
-                # this feature can be given — a companion arriving in a room its
-                # occupant just locked would be the bot arguing with a request.
-                continue
             started = self._alone_since.get(int(getattr(channel, "id", 0)))
             if started is None or now - started < company.GRACE_SECONDS:
                 continue

@@ -851,13 +851,6 @@ def render_dashboard(**overrides) -> str:
             "page": "", "read": False, "why": "", "roster": None, "bans": [],
             "control": None, "query": "", "recent": [], "abilities": None,
         },
-        # Alone Time's ledger and its one write door, in the shape the view hands
-        # them over: `None` on every page but the Server page, which is what the
-        # template reads as *do not draw the card* against *there is nothing
-        # locked*. Left out, an undefined name renders the empty-state card — a
-        # page claiming a reading it never took.
-        alone_locks=None,
-        alone_release_url="/api/alone-time",
         overview_live={
             "read": True, "why": "", "rooms": [], "people": 0, "alone": 0, "radio": None,
         },

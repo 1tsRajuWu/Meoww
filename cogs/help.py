@@ -104,36 +104,6 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "🫂"
     },
-    "alonetime": {
-        "title": "🌙 Alone Time",
-        "desc": (
-            "Lock the voice channel you are in to yourself. Nobody else can be "
-            "inside it — not another member, not a moderator, and not an "
-            "administrator — because Discord enforces the room's **capacity** for "
-            "everybody, and anything that still gets past the locked door is moved "
-            "back out. The holder's own card carries a picker: whitelist somebody for "
-            "this session, rename the room, and it all resets when the room empties. "
-            "Say why you are not to be disturbed and it is shown back to you alone — "
-            "it is never written to the database or the log, and the notices go to "
-            "this server's own channel rather than into the locked room.\n\n"
-            "> `/alone start` — Take the room you are standing in, name it, and say why\n"
-            "> `/alone stop` — Give it back, exactly the way it was\n"
-            "> `/alone status` — Who holds this room, which layers are in force, and the privacy answer\n"
-            "> `/alone guests` — Who may still join, for this session only *(the holder)*\n"
-            "> `/alone ask` — Ask the holder to let you in, once every five minutes\n"
-            "> `/alone list` — Every locked room in this server *(Manage Channels)*\n"
-            "> `/alone release` — Lift somebody else's lock *(Manage Channels)*\n"
-            "> `/alone server` — Quiet hours: lock every voice channel for a while *(admin)*\n\n"
-            "A lock lifts itself when you leave the room, and an administrator can "
-            "always release one. What it deliberately does **not** have is a "
-            "countdown: nothing expires unless this server asks for a ceiling in the "
-            "dashboard. And one thing it cannot do is said plainly on every status "
-            "card: whether your voice **activity** shows on your Discord profile is "
-            "your own account setting (Activity Sharing) — no bot can change it."
-        ),
-        "color": 0x5865F2,
-        "emoji": "🌙"
-    },
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (
@@ -355,35 +325,7 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "📻"
     },
-    "decat": {
-        "title": "🛰️ Decat",
-        "desc": (
-            "A question goes to the operator's own Mac, which reads the live web "
-            "and answers with the pages it read. The model runs **on that "
-            "machine**, so nothing about a question is sent to a model vendor — "
-            "and this bot's host keeps nothing either, in either mode.\n\n"
-            "> `/decat <question>` — ask it. Add a picture with `image:`\n"
-            "> `mode: Public` — everyone sees the answer, and it is kept on that "
-            "machine alone\n"
-            "> `mode: Private` — only you see it, and **nothing** is written "
-            "anywhere *(the default)*\n"
-            "> `depth: Deep` — reads the web and then re-checks its own answer "
-            "*(the default)*\n"
-            "> `depth: Fast` — one quick pass, fewer pages, no re-check *(the card "
-            "says so)*\n"
-            "> `/bot decat` — whether the machine is answering *(admin)*\n\n"
-            "Every answer names its sources, and says so when it could not reach "
-            "any. Anything legal, medical, money-related, safety-related or "
-            "personal arrives with a plain note that this is an AI and not a "
-            "professional — and a question that reads like somebody in danger is "
-            "answered with a helpline rather than an opinion. While it works, the "
-            "card says so — a joke, or a short line out of `/quote` — and stays "
-            "plain for a question about somebody's own life. Ship a question and "
-            "find the machine asleep and it says *sry, offline rn*."
-        ),
-        "color": 0x5865F2,
-        "emoji": "🛰️"
-    }
+
 }
 
 
@@ -408,9 +350,7 @@ HELP_HOME_BODY = (
     "- 🎫 **Tickets** — private staff support\n"
     "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
     "- 🧱 **Server Structure** — channels and roles, with a confirmation on anything big\n"
-    "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names\n"
-    "- 🌙 **Alone Time** — take a voice channel for yourself, and keep everybody else out of it\n"
-    "- 🛰️ **Decat** — ask the operator's own Mac a question, answered from the live web"
+    "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names"
 )
 
 # The category *structure* comes from the feature registry; the prose below

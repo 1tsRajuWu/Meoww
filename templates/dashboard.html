@@ -729,64 +729,6 @@
       </div>
     </div>
 
-    {# Alone Time — the voice rooms a member has taken for themselves. A reading
-       and one write, beside the other whole-server controls: the read is this
-       project's own lock ledger, and the write is the same release the command
-       runs, so giving a room back from a browser and from Discord are one path
-       through one module. The capacity sentence is on the panel because it is the
-       part that is easy to get wrong: Discord's Administrator permission ignores
-       channel overwrites, so *the cap* is what holds a room, not the deny. #}
-    {% if alone_locks %}
-    <div class="own-card">
-      <h3>Rooms on Alone Time</h3>
-      <p class="hint">
-        A locked room belongs to the member who took it. Discord enforces the room's
-        capacity for everybody — an administrator included — and the bot moves back out
-        anybody who still gets in. Releasing one restores exactly what the room had
-        before it was taken.
-      </p>
-      <div class="own-table__scroll">
-        <table class="own-table">
-          <caption>{{ alone_locks | length }} voice channel(s) locked to somebody right now</caption>
-          <thead>
-            <tr>
-              <th scope="col">Room</th>
-              <th scope="col">Held by</th>
-              <th scope="col">For</th>
-              <th scope="col">Turned away</th>
-              <th scope="col">Give it back</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in alone_locks %}
-            <tr>
-              <th scope="row">{{ row.channel }}</th>
-              <td>{{ row.holder }}</td>
-              <td class="mono">{{ row.held }}</td>
-              <td class="mono">{{ row.turned_away }}</td>
-              <td>
-                <form class="dash-row-form" method="post" action="{{ alone_release_url }}">
-                  {{ guard(row.channel ~ ' is open again.') }}
-                  <input type="hidden" name="channel_id" value="{{ row.channel_id }}">
-                  <button class="btn btn--ghost" type="submit">Release</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% elif alone_locks is not none %}
-    <div class="own-card">
-      <h3>Rooms on Alone Time</h3>
-      <p class="hint">
-        No voice channel in this server is locked to anybody. A member takes one with
-        <code>/alone start</code> while standing in it, and it opens again when they leave.
-      </p>
-    </div>
-    {% endif %}
-
     {# The control the overview's checklist points at. It is on *this* page rather
        than on the overview because a finding is a reading and this is a write:
        the checklist says where the case cards should go and this is where they

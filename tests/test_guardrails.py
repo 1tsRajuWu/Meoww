@@ -60,9 +60,6 @@ DOORS = frozenset({"structure", "moderation_actions", "db", "discord", "discord_
 #: each change replaced before it makes it, so what is left in the cog is the
 #: `/slowmode` value and the message a locked channel's listener removes.
 DIRECT_WRITES = {
-    "alonetime.py": [
-        "channel.edit()",        # the cap follows the holder's list, and the change opens a case
-    ],
     "automod.py": [
         "message.delete()",      # a message, not server state; automod records its own actions
         "author.timeout()",      # recorded through utils.moderation_actions

@@ -159,6 +159,62 @@ the watch on keeps a `guild_modules` row naming an unknown module: harmless (the
 registry is what reads it, and nothing is left to switch), and it is the state a
 restore wants back rather than one it has to rebuild.
 
+Archived on 2026-10-06, at the owner's request: **Decat and Alone Time** — *"it will
+go direct to Delete Features ... and also delete alone cmd"*. Between them they
+held the last two command slots, which is the other half of why this is a
+retirement rather than a rewrite.
+
+**Decat** relayed a question from the bot's host to the operator's own laptop,
+where a local model answered it from the live web and the answer came back with
+its sources. It worked: the first live question was answered on that laptop in
+thirty-one seconds, and the wire had a test that needed no laptop at all. What
+finished it was the machine underneath — six gigabytes of weights on a 16 GB
+fanless Air that is also running a browser, ~1.9 GB paged out during that first
+answer, a wait measured in tens of seconds per question, and failure modes
+(*"sry, offline rn"*) that look identical whether the laptop is shut, asleep, or
+merely busy with somebody else's afternoon. Retiring it also retires the only
+place in this deployment where a question left the host at all, which is a
+sentence `TERMS.md` §8 and `PRIVACY.md` can now say without a caveat.
+
+**Alone Time** locked a voice channel to the member holding it, with the room's
+*capacity* doing the real work (Discord's Administrator permission ignores channel
+overwrites, which the feature said out loud on every card). It shipped switched
+off as a single-server beta and never left that server.
+
+| Feature | File | Notes |
+|---|---|---|
+| Decat, both halves | `cogs/decat.py`, `decat/` | The cog was the only Discord-facing file. Behind it: `decat/protocol.py` (the wire), `copy.py` (every sentence, pinned by laws), `card.py`, `relay.py` (the memory-only queue), `config.py` — and `decat/mac/`, the whole laptop half: agent, Ollama client, prompts, web and image tools, history, the switch page, `doctor`, `install.sh`, `README.md`, `requirements.txt`. |
+| Alone Time | `cogs/alonetime.py`, `utils/alonetime.py` | The `/alone` group and the voice sweep, and the ledger behind them. |
+| The suites | `tests/test_decat.py`, `tests/test_decat_mac.py`, `tests/test_alonetime.py` | The bot half, the laptop half (including the test that drives the real Flask routes with no Mac), and the lock rules. |
+
+**What was removed from the live bot**: the `Feature(id="decat", ...)` and
+`Feature(id="alonetime", ...)` entries in `utils/features.py` (**19 systems → 17**,
+**100 commands → 98**), every `alone*` row plus `decat` and `bot decat` in
+`utils/permissions.py`, both `HELP_MODULES` categories and their home-body bullets
+in `cogs/help.py`, `/bot decat` in `cogs/bot_config.py`, the two Alone Time guards
+in `cogs/company.py` (the companion left a room that had just been locked), the
+three `/api/decat/*` routes and the `/api/alone-time` door in `keep_alive.py`
+together with the `alonetime` import, the ledger reader and the template values
+behind them, the "Rooms on Alone Time" panel in `templates/dashboard.html`, the
+harness's fixture for it in `scripts/preview_dashboard.py`, the `DECAT_TOKEN` /
+`DECAT_GUILDS` block in `.env.example`, the Decat section of `docs/deployment.md`,
+the retention rows in `docs/legal/data-requests.md`, the Alone Time retention
+bullet *and* the whole "one feature is an AI" section of `PRIVACY.md`, the `/decat`
+paragraph of `TERMS.md` §8, and the listing in `docs/discord-directory.md` — which
+now reads 17 systems, 98 commands, and four switched off.
+
+**`decat` and `alone` are in `utils/commands_sync.RETIRED_COMMANDS` now**, which is
+what deletes the stale registrations from every server's picker. Without it they
+stay registered and fail on click for whoever finds them, which is exactly how
+`/dbstatus` and `/music` behaved before that list was checked against the archive
+instead of against anybody's memory.
+
+**Left in place on purpose:** the `alone_time` table and its helpers in
+`utils/db.py`, because deleting them would drop stored rows for no benefit and a
+restore wants the wood rather than the furniture. The Mac's own `~/.decat`
+(config, switch state, and the `Public` history file) is the operator's to delete;
+the login item and the switch are stopped, and the two Ollama models stay pulled.
+
 ## How to restore a feature
 
 1. Move the file back: `mv deleted_features/cogs/<name>.py cogs/`
@@ -193,7 +249,26 @@ restore wants back rather than one it has to rebuild.
    imports `time`), the `context["watch"]` block on the Live page and the
    `vc_watch` import in `keep_alive.py`, the `{% if watch %}` card in
    `templates/owner.html`, and `HELP_MODULES["watch"]` in `cogs/help.py`.
-9. For **uploads** only, also drop `upload`, `upload-big` and
+9. For **Decat and Alone Time** (the 2026-10-06 archive): move
+   `deleted_features/cogs/decat.py` back into `cogs/`, `deleted_features/decat/`
+   back to the repository root, and `deleted_features/cogs/alonetime.py` and
+   `deleted_features/utils/alonetime.py` back into `cogs/` and `utils/`; move the
+   three suites out of `deleted_features/tests/`; re-add both `Feature(...)`
+   entries to `utils/features.py` and every `alone*`, `decat` and `bot decat` row
+   to `utils/permissions.py`; restore the `HELP_MODULES` categories and home-body
+   bullets in `cogs/help.py`, `/bot decat` in `cogs/bot_config.py`, the two
+   `alonetime.lock_for` guards in `cogs/company.py`, the three `/api/decat/*`
+   routes and the `/api/alone-time` door with `_alone_time_reading` in
+   `keep_alive.py`, the panel in `templates/dashboard.html` and the fixture in
+   `scripts/preview_dashboard.py`, both blocks in `.env.example`, and the removed
+   paragraphs of `PRIVACY.md`, `TERMS.md`, `docs/deployment.md`,
+   `docs/legal/data-requests.md` and `docs/discord-directory.md` (17 systems and
+   98 commands become 19 and 100 again). **Then drop `decat` and `alone` from
+   `commands_sync.RETIRED_COMMANDS`** — that list is what deletes them from
+   Discord's picker, and it would delete them again the moment they were
+   republished. On the laptop, `bash decat/mac/install.sh` installs it all again
+   (the models are still pulled; the login item was unloaded, not removed).
+10. For **uploads** only, also drop `upload`, `upload-big` and
    `pin-upload-info` from `commands_sync.RETIRED_COMMANDS` in
    `utils/commands_sync.py` — that list is what deleted them from Discord's
    command picker, and it would delete them again the moment they are republished.

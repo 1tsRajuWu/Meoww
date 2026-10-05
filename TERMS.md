@@ -102,16 +102,14 @@ directed at children, and the operator does not knowingly hold a child's data.
 
 ## 8. AI assistance
 
-**The Bot itself calls no AI model**, and nothing you send it reaches one.
-Created and maintained **with the help of AI coding assistants and autonomous
-AI agents**, and that assistance is disclosed in the source repository's history
-rather than only here. One optional feature, `/decat`, does *answer with* a model
-— one running on the operator's own computer, never on a vendor's service, and
-the question is relayed to nothing else. It is switched off in every server until
-an administrator turns it on, and the Privacy Policy states exactly what it keeps
-and what it does not. The third document in this bundle,
-the AI & crawling policy, states what this deployment does about automated
-collection and about training use.
+**The Bot itself calls no AI model**, and nothing you send it reaches one. No
+command answers a question with a model: every reply the Bot gives is either
+something a server stored or logic written here — there is no feature that
+relays your words to a model anywhere, on this host or off it. Created and
+maintained **with the help of AI coding assistants and autonomous AI agents**,
+and that assistance is disclosed in the source repository's history rather than
+only here. The third document in this bundle, the AI & crawling policy, states
+what this deployment does about automated collection and about training use.
 
 ## 9. Subscriptions and operational fees
 

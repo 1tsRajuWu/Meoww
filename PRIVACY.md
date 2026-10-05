@@ -24,22 +24,6 @@ answers for it, and using a server that runs the Bot is agreement to it.
   the rating and comment a member leaves.
 * **Server settings:** enabled features, house-channel, log, starboard and market
   configuration, and social data members opted into (marriages, zoo, quotes).
-* **Alone Time:** while a voice room is locked, the holder's Discord id and
-  display name, the ids of the members and roles allowed in, the room's name
-  before the lock *and* the name the lock gave it, and how many people it has
-  turned away. The row is deleted the moment the room is released — which is when
-  the holder leaves it, unless the server asked it to stay locked — and always
-  when the system is switched off. Nothing about a session outlives the session,
-  and the whitelist is part of the row rather than a list kept anywhere else.
-  **The reason a member gives for locking their room is never written down**: it
-  lives in the running bot's memory for as long as the lock lasts and is shown
-  back to the member who typed it alone, so it is not in the database, not in the
-  moderation log, not on the dashboard, and not something any command, page or
-  export can show — including to a server's administrators or to the operator.
-  Requests to join a locked room are treated the same way: held in memory for at
-  most thirty minutes, answerable by the holder alone, and never stored. Notices
-  about a locked room are posted in a channel the server keeps for bot output
-  rather than in the locked room's own chat.
 * **Text a person deliberately submits:** quote text, a ticket subject and
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who
@@ -220,28 +204,6 @@ AI agents**, and the disclosure is in the Terms as well as here. What the
 deployment does about *other people's* automated reading of it — crawling,
 training use, and the pages that identify both — is the AI & crawling policy,
 which is the third document in the same bundle.
-
-**One feature is an AI, and where it runs is the whole point.** `/decat` takes a
-question and relays it to the **operator's own computer**, where a model answers
-it; the answer comes back into the server. No model vendor receives it, because
-the model is not a service — it is a program on a machine. What follows from that
-is short enough to state plainly:
-
-* **This deployment keeps nothing.** No question, no answer, no transcript, in
-  either mode. Nothing about a `/decat` question is written to a database, a log
-  or a file on the hosting side.
-* **`Private` is written down nowhere else either** — not on the operator's
-  computer, not in a counter. The answer appears once, to the person who asked.
-  Only the Discord message Discord itself stores remains, under your server's own
-  retention settings.
-* **`Public` is kept on that computer alone**, in a file only its owner can read.
-  It is not uploaded anywhere.
-* **Every answer says it came from a machine**, names the pages it read, or says
-  that it could reach none. Anything about law, medicine, money or safety carries
-  a notice that this is an AI and not a professional; a question that reads like
-  somebody in danger is answered with a helpline rather than an opinion.
-* **It is off until an administrator turns it on**, per server, and a deployment
-  may limit it to named servers.
 
 ## 8. Why we are allowed to hold it, and for how long
 

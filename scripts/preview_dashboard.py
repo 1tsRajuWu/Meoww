@@ -1211,21 +1211,6 @@ def dashboard(sub: str = "overview"):
         # a state, and a preview that showed the *empty* branch of both would show
         # nothing about any of it. The numbers are the harness's own servers.
         management=management,
-        # Alone Time's own ledger, as the harness's server would have it. Written
-        # out for the reason the rosters above are: the panel exists to show a
-        # locked room and the button that gives it back, and the empty branch would
-        # show neither. `None` on every page but the Server page, exactly as the
-        # route hands it over — the template reads the difference.
-        alone_locks=(
-            [
-                {"channel_id": "1", "channel": "Focus Room", "holder": "Rae",
-                 "guests": 0, "turned_away": 2, "held": "12m"},
-                {"channel_id": "2", "channel": "Deep Work", "holder": "nobody — quiet hours",
-                 "guests": 1, "turned_away": 0, "held": "1h 4m"},
-            ]
-            if page == "server" else None
-        ),
-        alone_release_url="/api/alone-time",
         # The page the harness was asked for, and everything the eleven sections
         # are drawn from — all of it read by production's own helpers.
         dash_page=page,
@@ -1960,21 +1945,6 @@ def api_module_settings():
     """
     _sign_in()
     return keep_alive.api_module_settings()
-
-
-@app.route("/api/alone-time", methods=["POST"])
-def api_alone_time():
-    """Releasing a locked voice room, answered by the endpoint that owns the write.
-
-    Delegated for the reason the settings forms are: the ledger, the restore and
-    the sentences are ``keep_alive``'s and ``utils/alonetime``'s, so a second copy
-    here would be a preview that reported giving a room back while production's
-    ledger still held it. The harness's stand-in bot has no gateway loop, so the
-    branch this draws is the honest middle one — the request reached the endpoint,
-    and whether Discord would take the restore was not answered.
-    """
-    _sign_in()
-    return keep_alive.api_alone_time()
 
 
 @app.route("/api/reaction-roles", methods=["POST"])

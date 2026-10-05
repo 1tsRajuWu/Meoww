@@ -58,7 +58,7 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
         is. A name registered **twice in one scope** is the defect: Discord keys a
         command by its name, so the second registration replaces the first and the
         handler behind it becomes unreachable, silently. The same rule applies
-        inside a group, where two `decat` verbs under `/bot` would be one command
+        inside a group, where two `status` verbs under `/bot` would be one command
         and one orphan.
 
         The other reading — an older copy left behind in a *different* scope — is
@@ -125,35 +125,39 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
             # so changing a line does not need a redeploy. It is one subcommand
             # with optional options rather than five, because these slots are a
             # budget — see the test below.
-            # `dbstatus` is the newest, and it arrived the way this law says the
-            # next command has to: `/dbstatus` folded into the group that already
-            # exists, because the tree was at Discord's hundred and a report is
-            # the cheapest thing to move. `decat` is the newest after that, and it
-            # is the machine half of the feature — whether the laptop behind
-            # `/decat` is answering — which belongs to the operator rather than to
-            # any server's members, so it lives here too.
+            # `dbstatus` arrived the way this law says the next command has to:
+            # `/dbstatus` folded into the group that already exists, because the
+            # tree was at Discord's hundred and a report is the cheapest thing to
+            # move. `decat` joined it for the same reason — the machine half of
+            # that feature belonged to the operator rather than to any server's
+            # members — and it left when Decat was archived, which is the same
+            # budget seen from the other side: a slot given back, not spent.
             {
-                "avatar", "banner", "bug", "db", "dbstatus", "decat", "legacy",
+                "avatar", "banner", "bug", "db", "dbstatus", "legacy",
                 "plan", "push", "status", "sync",
             },
         )
 
     def test_the_tree_stays_within_discords_cap(self):
-        """The cap is a hundred, and the tree is **at** it — so the next command must merge.
+        """The cap is a hundred, and the tree has been *at* it — so the next command merges.
 
         It sat at ninety-nine with one slot free until Alone Time took it: one
         root with seven verbs is one slot, and the alternative was a nested
         subgroup, which ``utils.permissions.walk`` cannot see and which would
-        therefore escape the audience audit. That trade is deliberate, and this
+        therefore escape the audience audit. That trade was deliberate, and this
         is the record of it — a hundred is Discord's own ceiling, and it refuses
         the *next* command outright, which is not hypothetical: this cog once
         failed to load because the tree went over.
 
-        Decat is the next command, and the law had its first real exercise: rather
-        than make room by inventing a nested subgroup, ``/dbstatus`` folded into
-        ``/bot`` (``/bot dbstatus``), which freed a slot without hiding anything
-        from the audit. A command added from here still has to be a verb on a root
-        that already exists, or pay for itself the same way.
+        Decat was the next command, and the law had its first real exercise:
+        rather than make room by inventing a nested subgroup, ``/dbstatus`` folded
+        into ``/bot`` (``/bot dbstatus``), which freed a slot without hiding
+        anything from the audit. A command added from here still has to be a verb
+        on a root that already exists, or pay for itself the same way — and the
+        tree is at **ninety-eight** now, because both of the systems that took
+        the last slots have since been archived. The freed slots are the point
+        worth reading twice: they are not a budget to spend casually, they are
+        what a `deleted_features/` retirement gives back.
         """
         self.assertLessEqual(
             len(self.registered), 100,

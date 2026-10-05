@@ -307,39 +307,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "structure limits": ADMIN,
     "starboard set": CHANNELS,
     "starboard status": EVERYONE,
-    # -- Alone Time -------------------------------------------------------- #
-    # Four of these are **every member's**, and that is the feature: the point is
-    # that somebody in a voice channel can make a room theirs without asking a
-    # moderator, and the bot performs every write — the caller needs no permission
-    # at all. What keeps a stranger out of somebody else's room is not a permission
-    # bit but the *holder* check inside the callback, the same body-check the
-    # market's role gate and `/customquote delete`'s creator check use, which is
-    # why these four are declared EVERYONE and carry no `has_permissions` at all.
-    #
-    # Seeing every locked room in a server and lifting one you do not hold is a
-    # server-management read and write, so it is `/lockdown` and `/unlock`'s
-    # audience; quiet hours over every voice channel at once is the same decision
-    # `/lockdown-server` is, at the same permission.
-    "alone start": EVERYONE,
-    "alone stop": EVERYONE,
-    "alone status": EVERYONE,
-    "alone guests": EVERYONE,
-    # Asking to join is the one lever a turned-away member has, so it is
-    # deliberately every member's — the rate limit is the guard, not a role.
-    "alone ask": EVERYONE,
-    "alone list": CHANNELS,
-    "alone release": CHANNELS,
-    "alone server": ADMIN,
-    # -- Decat ------------------------------------------------------------- #
-    # Asking a question that travels to the operator's own machine is every
-    # member's, on the same reasoning the four Alone Time rows above use: the
-    # *gate* is not a permission bit. What decides whether the command exists at
-    # all is this server's own switch plus the deployment's `DECAT_GUILDS`
-    # allow-list, both of which sit above the caller — and neither of which
-    # Discord's picker can express. A permission check here would hide the
-    # command from the members it is for inside the two servers it runs in, while
-    # changing nothing about the servers it does not.
-    "decat": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
     # The directory is everybody's, and it is the one command whose *content* is
@@ -382,10 +349,6 @@ COMMAND_ACCESS: dict[str, str] = {
     # the same report, built by ``utils.dbstats`` rather than by the cog that
     # happened to host it.
     "bot dbstatus": ADMIN,
-    # The machine half of Decat is operator tooling: whether the laptop is
-    # answering, what model it is running, how long the last answer took. None of
-    # that is a server's configuration, so it is not the server administrator's.
-    "bot decat": ADMIN,
     # -- Activity Tracker: admin-only for management ---------------------- #
     "activity me": ADMIN,
     "activity top": ADMIN,

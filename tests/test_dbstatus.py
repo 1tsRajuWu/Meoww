@@ -370,8 +370,10 @@ class TestTheMoveToTheBotGroup(unittest.TestCase):
     """``/dbstatus`` is ``/bot dbstatus`` now, and the record of why is here.
 
     Discord allows a hundred top-level commands and this tree was **at** it, so
-    the command that made room for ``/decat`` was the one that only *reports*
-    something. It is flat rather than ``/bot db health`` on purpose: a nested group
+    the command that made room was the one that only *reports* something — the
+    slot ``/decat`` had asked for, and the reason it is not back now that Decat is
+    archived is that moving a command twice is worse than leaving it where its
+    audience can find it. It is flat rather than ``/bot db health`` on purpose: a nested group
     is a shape ``utils.permissions.walk`` cannot see, so its audiences would escape
     the one audit that keeps this tree's permissions honest.
     """

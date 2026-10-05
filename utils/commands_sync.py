@@ -173,6 +173,14 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         "nowplaying", "volume", "filter", "songinfo", "lyrics",
         # The other archived cogs, which draw their own groups.
         "reactionrole-add", "giveaway", "tempvoice", "welcome", "color",
+        # Archived 2026-10-06, at the owner's request: Decat (the question that
+        # travelled to the operator's own machine) and Alone Time (one voice
+        # channel locked to the member holding it). Both drew a root command, so
+        # both keep a registration in every server that ever had the system on
+        # until this list deletes it — which is the whole reason the list is
+        # checked against ``deleted_features/`` by `tests/test_command_sync.py`
+        # now instead of against anybody's memory of what was removed.
+        "decat", "alone",
     }
 )
 
