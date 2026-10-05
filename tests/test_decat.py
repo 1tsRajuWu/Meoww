@@ -13,6 +13,9 @@ that needs those is not this half. What is checked is what the *bot* promises:
   *question*, so it cannot be absent because a model forgot;
 * the gates are two gates: the server's own switch and the deployment's
   allow-list, and neither of them can be widened by typing something;
+* and the wait itself is a card rather than Discord's placeholder — a joke line or
+  a short one out of the bot's own ``/quote`` corpus — except on somebody's own
+  life, where the joke is the one thing that must not appear;
 * and no question's words can reach the deploy's log ring, which is readable by
   anybody holding the admin passkey.
 """
@@ -402,6 +405,136 @@ class TestTheCogSaysTheRightThing(unittest.TestCase):
         for line in class_source.splitlines():
             if "description=" in line or line.strip().startswith("question=") or line.strip().startswith("mode="):
                 self.assertLessEqual(len(line), 200, line)
+
+
+class TestTheCardWhileItThinks(unittest.TestCase):
+    """The wait, which is the one part of this feature with nothing to look at.
+
+    Discord's own deferred placeholder says *"Bot is thinking…"* in Discord's
+    voice, and a Deep answer off somebody's laptop is not a short wait. So the
+    wait gets a card of its own — and the fun half of it is the half that can be
+    got wrong, because the first thing somebody upset sees is this card and not
+    the answer.
+    """
+
+    def _parts(self, question: str = "what is the capital of peru", **overrides):
+        from decat.card import describe_thinking
+
+        return describe_thinking(question, **overrides)
+
+    def test_the_line_belongs_to_the_question_and_not_to_the_moment(self):
+        """Varied between questions, stable for one — a hash, not a coin flip."""
+        self.assertEqual(self._parts(seed="job-7"), self._parts(seed="job-7"))
+        told = {self._parts(seed=f"job-{index}")["description"] for index in range(24)}
+        self.assertGreater(len(told), 1, "every question is met with the same joke")
+
+    def test_a_joke_is_never_offered_to_somebody_who_is_upset(self):
+        """The rule the whole section turns on, and the reason it is a function.
+
+        A person who has just typed that they cannot cope is not waiting to be
+        amused, and this card is the *first* thing they see rather than the last
+        — so the joke and the quote are both withheld, and the card says it is
+        being thought about properly instead.
+        """
+        for question in ("i can't cope any more", "i'm so lonely lately", "i want to die"):
+            with self.subTest(question=question):
+                parts = self._parts(
+                    question=question, seed="job-1", quote="Nah, I'd win.", who="Satoru Gojo"
+                )
+                self.assertFalse(copy.jokes_allowed(question))
+                self.assertIn(copy.THINKING_KIND, parts["description"])
+                self.assertNotIn("Nah, I'd win.", parts["description"])
+                for joke in copy.THINKING_LINES:
+                    self.assertNotIn(joke, parts["description"])
+        # And a question that is only a question still gets the fun.
+        self.assertTrue(copy.jokes_allowed("what is the capital of peru"))
+        self.assertIn(copy.pick(copy.THINKING_LINES, "job-1"), self._parts(seed="job-1")["description"])
+
+    def test_the_waiting_card_says_which_way_it_is_being_answered(self):
+        """A Fast question that sat there a minute must not look like a broken Fast."""
+        deep = self._parts(depth=protocol.DEPTH_DEEP)["footer"]
+        fast = self._parts(depth=protocol.DEPTH_FAST)["footer"]
+        self.assertNotEqual(deep, fast)
+        self.assertIn("re-reading", deep)
+        self.assertIn("no re-check", fast)
+
+    def test_a_quote_too_long_to_glance_at_is_dropped_rather_than_cut_short(self):
+        at_the_limit = self._parts(quote="y" * copy.SHORT_QUOTE_MAX, who="Somebody")
+        self.assertIn("y" * copy.SHORT_QUOTE_MAX, at_the_limit["description"])
+        self.assertIn("Somebody", at_the_limit["description"])
+        too_long = self._parts(quote="x" * (copy.SHORT_QUOTE_MAX + 1), who="Somebody")
+        self.assertNotIn("x", too_long["description"], "a trimmed quotation is a misquotation")
+
+    def test_the_corpus_is_borrowed_by_rule_so_junk_cannot_reach_the_card(self):
+        rows = [
+            {"quote": "Nah, I'd win.", "character": "Satoru Gojo", "source": "Jujutsu Kaisen"},
+            {"quote": "z" * 400, "character": "Somebody", "source": "Something"},
+            {"character": "Nobody"},
+            "not a dict",
+            None,
+        ]
+        self.assertEqual(copy.select_quote(rows, "job-1"), ("Nah, I'd win.", "Satoru Gojo · Jujutsu Kaisen"))
+        self.assertEqual(copy.select_quote([{"quote": "z" * 400}], "job-1"), ("", ""))
+        self.assertEqual(copy.select_quote([], "job-1"), ("", ""))
+        self.assertEqual(copy.select_quote(None, "job-1"), ("", ""))
+
+    def test_a_seed_that_is_not_a_sentence_still_picks_something(self):
+        for seed in ("", None, 7, "x" * 200):
+            with self.subTest(seed=seed):
+                self.assertIn(
+                    copy.pick_index(len(copy.THINKING_LINES), seed), range(len(copy.THINKING_LINES))
+                )
+        self.assertEqual(copy.pick_index(0, "job-1"), 0)
+
+    def test_every_joke_fits_on_a_card_and_reads_like_a_sentence(self):
+        for line in copy.THINKING_LINES:
+            self.assertLessEqual(len(line), 120, line)
+            self.assertTrue(line.endswith("."), line)
+
+    def test_the_waiting_card_is_the_colour_of_the_answer_coming(self):
+        from decat.card import LANE_COLOURS
+
+        self.assertEqual(self._parts(question="i'm so lonely")["colour"], LANE_COLOURS["personal"])
+        self.assertEqual(self._parts(question="is my contract legal")["colour"], LANE_COLOURS["advice"])
+        self.assertEqual(self._parts(question="capital of peru")["colour"], LANE_COLOURS["factual"])
+
+
+class TestTheWaitIsACardAndNotAPlaceholder(unittest.TestCase):
+    """Read from the source, because the alternative is Discord's own spinner."""
+
+    def test_the_cog_sends_the_card_instead_of_deferring(self):
+        source = cog_source()
+        body = source[source.index("async def decat(") :]
+        self.assertNotIn("interaction.response.defer(", body)
+        self.assertIn("await send_card(", body)
+        self.assertIn("build_thinking_card(text, depth=depth_value, seed=job.id)", body)
+        # And it goes up *before* the machine is waited on, or it is not a card
+        # about waiting at all.
+        self.assertLess(body.index("await send_card("), body.index("relay.wait, job.id"))
+        # The answer still replaces it in place, which is what makes the card a
+        # thing shown while it thinks rather than two cards per question.
+        self.assertIn("await edit_card(interaction, embed=build_card(answer, question=text))", body)
+
+    def test_the_thinking_card_is_drawn_from_the_same_rules_module_as_the_answer(self):
+        """One module holds both cards' sentences, so a rule cannot be fixed on one."""
+        self.assertIn(
+            "from decat.card import describe_answer, describe_thinking", cog_source()
+        )
+
+    def test_the_quote_corpus_actually_supplies_a_line(self):
+        """The real ``/quote`` list, borrowed rather than copied — so it must fit."""
+        try:
+            from cogs.decat import short_quote
+        except Exception as exc:  # pragma: no cover - a machine without discord.py
+            self.skipTest(f"the cog needs the Discord library here: {exc!r}")
+        picked = set()
+        for seed in (f"job-{index}" for index in range(1, 9)):
+            quote, who = short_quote(seed)
+            self.assertTrue(quote, "the corpus supplied no short line at all")
+            self.assertLessEqual(len(quote), copy.SHORT_QUOTE_MAX, quote)
+            self.assertTrue(who, f"a quote with nobody attached: {quote!r}")
+            picked.add(quote)
+        self.assertGreater(len(picked), 1, "every question is shown the same quote")
 
 
 class TestTheFeatureCannotLeakAQuestion(unittest.TestCase):

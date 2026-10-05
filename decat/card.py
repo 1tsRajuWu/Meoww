@@ -23,6 +23,32 @@ MAX_ANSWER_CHARS = 3900
 LANE_COLOURS = {"factual": 0x5865F2, "advice": 0xE8A33D, "personal": 0xEB6E9A}
 
 
+def describe_thinking(
+    question: str,
+    *,
+    depth: str = protocol.DEPTH_DEEP,
+    seed: str = "",
+    quote: str = "",
+    who: str = "",
+) -> dict:
+    """The card shown while the Mac is working: ``title``, ``description``, ``colour``, ``footer``.
+
+    Same split as the answer's, and for the same reason: every rule a reader can be
+    wronged by is here — no joke for somebody who has just said they cannot cope,
+    no quote long enough to be a thing to read rather than a thing to look at while
+    waiting, and a footer that names the work in progress rather than a spinner.
+    """
+    lane = copy.lane_of(question)
+    return {
+        "title": copy.THINKING_TITLE,
+        "description": copy.thinking_line(
+            question, depth=depth, seed=seed, quote=quote, who=who
+        ),
+        "colour": LANE_COLOURS.get(lane, LANE_COLOURS["factual"]),
+        "footer": copy.thinking_foot(depth),
+    }
+
+
 def describe_answer(answer: protocol.Answer, *, question: str) -> dict:
     """The card's contents: ``title``, ``description``, ``colour``, ``footer``, ``sources``."""
     lane = answer.lane if answer.lane in copy.TITLE_BY_LANE else "factual"

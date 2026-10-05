@@ -17,9 +17,10 @@ about *this* side:
   to hold it that way — the deploy's log ring is readable by anybody holding the
   admin passkey, and "the log is how you find out what happened" is not a reason
   to keep somebody's words in it.
-* **A refusal is answered before anything is deferred.** A deferred response
-  commits the asker to waiting; the offline line takes about a second and should
-  not arrive as an edit to a "thinking" message.
+* **A refusal is answered before the waiting card goes up.** Replying to an
+  interaction commits the asker to waiting just as a defer did; the offline line
+  takes about a second and should not arrive as an edit to a card that promised
+  the machine was working.
 """
 from __future__ import annotations
 
@@ -32,10 +33,44 @@ from discord.ext import commands
 
 from decat import config, copy, protocol
 from decat import relay as relay_module
-from decat.card import describe_answer
-from utils.style import edit_card
+from decat.card import describe_answer, describe_thinking
+from utils.style import edit_card, send_card
 
-__all__ = ["Decat", "build_card", "describe_answer", "setup"]
+__all__ = ["Decat", "build_card", "build_thinking_card", "describe_answer", "short_quote", "setup"]
+
+
+def short_quote(seed: str) -> tuple[str, str]:
+    """One line from the bot's own ``/quote`` corpus, with who said it.
+
+    Imported rather than copied, deliberately: that corpus is a few hundred lines
+    somebody maintains in ``cogs/fun.py`` with episode numbers and moods attached,
+    and a second copy of it would be a second thing to keep in step — which is the
+    failure this repository has a whole class of laws about. The import is inside
+    the function because the cog that owns the corpus is only needed while a
+    question is in flight, and because a corpus that moved or broke must leave the
+    wait with the joke lines rather than nothing at all (hence the ``except``
+    around the import: the *thinking card* is not allowed to be a failure point).
+
+    The rule about which lines qualify — short enough to glance at while waiting —
+    lives in ``decat.copy`` with the rest of the copy; this function is only the
+    borrower.
+    """
+    try:
+        from cogs.fun import QUOTES
+    except Exception:  # noqa: BLE001 — a missing corpus is not a broken question
+        return "", ""
+    return copy.select_quote(QUOTES, seed)
+
+
+def build_thinking_card(question: str, *, depth: str, seed: str) -> discord.Embed:
+    """The card that appears while the Mac works, drawn from ``decat.card``."""
+    quote, who = short_quote(seed)
+    parts = describe_thinking(question, depth=depth, seed=seed, quote=quote, who=who)
+    card = discord.Embed(
+        title=parts["title"], description=parts["description"], color=parts["colour"]
+    )
+    card.set_footer(text=parts["footer"])
+    return card
 
 
 def build_card(answer: protocol.Answer, *, question: str) -> discord.Embed:
@@ -175,7 +210,17 @@ class Decat(commands.Cog):
                 line = copy.BUSY
             return await self._say(interaction, line, ephemeral=ephemeral)
 
-        await interaction.response.defer(ephemeral=ephemeral)
+        # The wait gets a card of its own rather than Discord's own deferred
+        # placeholder ("Bot is thinking…", in Discord's voice, with nothing on it).
+        # It is sent as the *initial* response for the same reason a defer was: the
+        # asker is committed to waiting either way, and this way what they are
+        # waiting on is written down — which depth, on which machine, and a joke or
+        # a quote unless the question is one nobody should be joking about.
+        await send_card(
+            interaction,
+            embed=build_thinking_card(text, depth=depth_value, seed=job.id),
+            ephemeral=ephemeral,
+        )
         answer = await asyncio.to_thread(relay.wait, job.id, config.deadline_seconds())
         relay.settle(job.id)
 

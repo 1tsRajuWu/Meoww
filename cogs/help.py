@@ -376,7 +376,9 @@ HELP_MODULES = {
             "any. Anything legal, medical, money-related, safety-related or "
             "personal arrives with a plain note that this is an AI and not a "
             "professional — and a question that reads like somebody in danger is "
-            "answered with a helpline rather than an opinion. Ship a question and "
+            "answered with a helpline rather than an opinion. While it works, the "
+            "card says so — a joke, or a short line out of `/quote` — and stays "
+            "plain for a question about somebody's own life. Ship a question and "
             "find the machine asleep and it says *sry, offline rn*."
         ),
         "color": 0x5865F2,
