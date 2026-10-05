@@ -51,6 +51,33 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
     def test_command_tree_is_not_empty(self):
         self.assertGreater(len(self.registered), 50)
 
+    def test_no_two_commands_share_a_name(self):
+        """"Is there a double command?" is a question worth answering in code.
+
+        Two readings, and only one of them is a defect — so this pins the one that
+        is. A name registered **twice in one scope** is the defect: Discord keys a
+        command by its name, so the second registration replaces the first and the
+        handler behind it becomes unreachable, silently. The same rule applies
+        inside a group, where two `decat` verbs under `/bot` would be one command
+        and one orphan.
+
+        The other reading — an older copy left behind in a *different* scope — is
+        not visible from here and is not this test's business. It is what
+        `/dbstatus` became the day it folded into `/bot`: no such command in the
+        tree, while every server still held a registration for one. That one is the
+        sync lane's, and the changelog is where its fate is written down.
+        """
+        names = [command.name for command in self.bot.tree.get_commands()]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        self.assertEqual(duplicates, [], f"the tree registers these names twice: {duplicates}")
+
+        for parent, children in self.subcommands.items():
+            with self.subTest(group=parent):
+                repeated = sorted({name for name in children if children.count(name) > 1})
+                self.assertEqual(
+                    repeated, [], f"/{parent} registers these verbs twice: {repeated}"
+                )
+
     def test_every_gated_command_exists(self):
         missing = sorted(set(features.MODULE_COMMAND_MAP) - self.registered)
         self.assertEqual(missing, [], f"registry gates commands that don't exist: {missing}")

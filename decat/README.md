@@ -19,7 +19,9 @@ Discord ──/decat──► the bot's host ──poll──► this Mac
 bash decat/mac/install.sh
 ```
 
-It installs Ollama (Homebrew), pulls `qwen3-vl:8b` (6.1 GB, once), writes
+It installs Ollama (Homebrew), pulls `qwen3-vl:8b` and `qwen3-vl:4b` (6.1 GB and
+3.3 GB, once — the small one is what **Fast** answers with, and you can skip it by
+removing the `DECAT_FAST_MODEL` line from `agent.env`), writes
 `~/.decat/agent.env`, installs the `decat` command, and registers a login item so
 it starts at login and restarts if it stops. Then it runs `decat doctor` and tells
 you what is still missing.
@@ -49,17 +51,45 @@ Two things must match before a question can be answered:
    `/bot decat` answers this too. The two servers the deployment names in
    `DECAT_GUILDS` both have it on; anywhere else the command is not offered at all.
 
-## The switch
+## Asking for a deep answer or a fast one
 
-* **`http://127.0.0.1:8787`** — one button, plus the facts you actually want:
-  whether Ollama is up, whether the model is pulled, whether the host answers,
-  whether the search engine does. Bound to loopback, so nothing on your network
-  can reach it and it holds no credential.
-* **`decat on`** / **`decat off`** / **`decat status`** in a terminal.
+`/decat` takes a **depth**, and you pick it:
 
-While it says **off** the machine keeps polling and keeps saying "off", so the bot
-answers *"the Mac's switched off rn"* instead of *"offline"* — a switch is only
-worth having if the difference is visible from Discord.
+* **Deep** (the default) — the bigger model, and the second pass that re-reads the
+  draft against the pages it cites and deletes what they do not support. Slower,
+  and the answer says *"checked against the sources it cites"*.
+* **Fast** — one pass on the small model, one search, two pages, no re-read. It
+  says *"drafted from the sources it cites — the quick answer, not re-read"*, so
+  it never borrows a claim it did not earn.
+
+Nothing about the choosing is hidden: each card states which of the two it was,
+and the model that wrote it is in the footer. `Fast` with no `DECAT_FAST_MODEL` set
+is still one pass on the big model — quicker, just less dramatically.
+
+## Turning it on and off
+
+Three switches, and they answer three different questions. This is the whole
+answer to "how do I turn it off":
+
+* **This machine.** `decat off` / `decat on` / `decat status` in a terminal, or the
+  one button at **`http://127.0.0.1:8787`** — that page also shows the facts you
+  actually want (whether Ollama is up, whether the model is pulled, whether the
+  host answers, whether search does). Bound to loopback, so nothing on your
+  network can reach it and it holds no credential. This is the switch that lives
+  on the Mac, and it is the one the asker hears about.
+* **One server.** The **Decat** switch on that server's dashboard Systems page
+  (an administrator). Off means `/decat` is not offered in that server at all — the
+  command leaves its picker rather than refusing when somebody clicks it.
+* **The deployment.** `DECAT_GUILDS` on the host is the hard allow-list of servers
+  `/decat` may ever run in; blank means the per-server switch decides. Currently
+  the two servers named in it.
+
+While the Mac's switch says **off** the machine keeps polling and keeps saying
+"off", so the bot answers *"the Mac's switched off rn"* instead of *"offline"* — a
+switch is only worth having if the difference is visible from Discord. And
+**`/bot decat`** puts all of it in one card from Discord: whether a machine has
+polled, how long ago, what its switch says, how deep the queue is, and how the
+last answer went.
 
 ## `~/.decat/agent.env`
 
@@ -68,7 +98,7 @@ worth having if the difference is visible from Discord.
 | `DECAT_TOKEN` | the credential the host expects (see above) |
 | `DECAT_SPACE` | where the bot lives |
 | `DECAT_MODEL` | the model. `qwen3-vl:8b` is the default: vision, tool-capable, 256K context, 6.1 GB, Apache-2.0 |
-| `DECAT_FAST_MODEL` | the lane for short questions with no picture (`qwen3-vl:4b`, 3.3 GB). Blank means "same as the big one" |
+| `DECAT_FAST_MODEL` | the model a **Fast** question answers with (`qwen3-vl:4b`, 3.3 GB). Blank means "the same as the big one", and Fast still skips the re-read |
 | `DECAT_SEARCH` | `ddg` (default, no key), `brave`, `searxng`, or `none` |
 | `DECAT_SEARCH_KEY` | only for `brave` |
 | `DECAT_SEARXNG_URL` | only for `searxng` — your own instance is the most private option |

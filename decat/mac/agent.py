@@ -34,10 +34,12 @@ from decat.mac.store import History, summary
 from decat.mac.tools import image as image_tool
 from decat.mac.tools import web
 
-#: A question shorter than this, with no picture attached, goes to the fast model
-#: when one is configured: the big model's advantage is not visible at the length
-#: of a sentence, and the small one answers in a fraction of the time.
-SHORT_QUESTION = 160
+#: How many pages and searches a `fast` answer reads. Fewer, because the whole
+#: point of `fast` is the shortest path to something true rather than the most
+#: thorough one — and reading three pages to answer "what is the capital of Peru"
+#: is time the asker is standing still for.
+FAST_PAGES = 2
+FAST_QUERIES = 1
 
 
 class Transport:
@@ -140,16 +142,20 @@ class Agent:
         return self.llm
 
     def model_for(self, job: protocol.Job) -> str:
-        """The fast lane for a short question with no picture, else the big one."""
-        fast = config.fast_model()
-        if (
-            fast
-            and fast != config.model()
-            and not job.image_url
-            and len(job.question) <= SHORT_QUESTION
-        ):
-            return fast
-        return config.model()
+        """Which model answers this: the asker's depth, and nothing else.
+
+        This used to be a *heuristic* — a short question with no picture went to the
+        small model whether or not anybody wanted that — and it was the wrong place
+        for the decision. Only the person asking knows whether they are mid
+        conversation and want the sentence in two seconds, or checking a fact they
+        are about to act on; the slash command asks them, and this reads the answer.
+
+        `fast` therefore means the small model even for a long question and even
+        for a picture, because that is what was chosen. When no small model is
+        configured `config.fast_model()` is the big one, so `fast` still means what
+        it says — one pass, no second opinion — rather than pretending.
+        """
+        return config.fast_model() if job.depth == protocol.DEPTH_FAST else config.model()
 
     # ── one question ─────────────────────────────────────────────────────────
 
@@ -171,12 +177,17 @@ class Agent:
 
         result = web.WebResult(provider="none")
         if config.search_provider() != "none":
+            # Fewer pages and one query for `fast`, and the keys are *omitted*
+            # rather than passed as None: `gather` takes a count, and a None there
+            # would be a slice bound instead of a default.
+            reach = {} if job.thorough else {"pages": FAST_PAGES, "queries": FAST_QUERIES}
             try:
                 result = self._gather(
                     job.question,
                     provider=config.search_provider(),
                     api_key=config.search_key(),
                     searxng_url=config.searxng_url(),
+                    **reach,
                 )
             except Exception as exc:  # noqa: BLE001 — searching is best-effort, by design
                 result.failures.append(f"web: {type(exc).__name__}")
@@ -195,7 +206,12 @@ class Agent:
             )
             spent_ms += draft.total_ms
             text, checked = draft.text, False
-            if result.grounded:
+            # The second pass is the whole of `deep`, and skipping it is the whole
+            # of `fast` — one model call instead of two, at the price of the answer
+            # being read from sources nobody re-read. The card says which of the two
+            # it was (`copy.QUICK_LABEL`), so the saving is visible and not implied
+            # to be the stronger claim.
+            if result.grounded and job.thorough:
                 reply = client.chat(
                     prompts.verify_messages(job.question, draft.text, block), model=model
                 )

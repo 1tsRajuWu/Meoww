@@ -84,6 +84,33 @@ class TestTheWireFormat(unittest.TestCase):
         self.assertEqual(back.sources, answer.sources)
         self.assertTrue(back.verified)
 
+    def test_the_depth_survives_the_round_trip(self):
+        for depth in protocol.DEPTHS:
+            with self.subTest(depth=depth):
+                job = _job(depth=depth)
+                self.assertEqual(protocol.Job.from_wire(job.to_wire()).depth, depth)
+        self.assertEqual(_job().depth, protocol.DEPTH_DEEP, "deep is the default")
+
+    def test_an_unreadable_depth_fails_open_where_an_unreadable_mode_fails_closed(self):
+        """The asymmetry is the decision, so it is pinned as one.
+
+        An unreadable mode becomes *private* because saving is what cannot be taken
+        back; an unreadable depth becomes *deep* because the cost of the guess is a
+        few seconds and the better answer. A version that quietly failed the same
+        way in both directions would be passing this test for the wrong reason.
+        """
+        self.assertEqual(protocol.parse_depth("nonsense"), protocol.DEPTH_DEEP)
+        self.assertEqual(protocol.parse_depth(None), protocol.DEPTH_DEEP)
+        self.assertEqual(protocol.parse_mode("nonsense"), protocol.MODE_PRIVATE)
+        # Case is folded, like the mode's, because Discord hands a choice over as
+        # typed; an *unknown* word is the case that falls back.
+        self.assertEqual(
+            protocol.Job.from_wire({"id": "x", "question": "q", "depth": "FAST"}).depth,
+            protocol.DEPTH_FAST,
+        )
+        self.assertTrue(protocol.Job(id="x", question="q").thorough)
+        self.assertFalse(protocol.Job(id="x", question="q", depth="fast").thorough)
+
     def test_an_unreadable_mode_fails_closed(self):
         """No mode means nothing was chosen, and saving is what cannot be undone."""
         for value in (None, "", "public-ish", "PUBLICLY", 7):
@@ -319,6 +346,21 @@ class TestTheCogSaysTheRightThing(unittest.TestCase):
         self.assertIn(copy.GROUNDED_LABEL, parts["footer"])
         self.assertIn("qwen3-vl:8b", parts["footer"])
 
+    def test_a_grounded_answer_nobody_re_read_does_not_borrow_the_word_checked(self):
+        """The `Fast` depth's whole honesty, at the one place it could be lost.
+
+        A fast answer is read from live sources and never gone back over, so it is
+        *grounded but unverified* — the state that used to render as "checked
+        against the sources it cites", which would be this feature's own standard
+        violated by its own card.
+        """
+        parts = self._parts(verified=False, ungrounded=False)
+        self.assertIn(copy.QUICK_LABEL, parts["footer"])
+        self.assertNotIn(copy.GROUNDED_LABEL, parts["footer"])
+        # And the two states it must not be confused with still say their own thing.
+        self.assertIn(copy.GROUNDED_LABEL, self._parts(verified=True, ungrounded=False)["footer"])
+        self.assertIn(copy.UNGROUNDED_LABEL, self._parts(verified=False, ungrounded=True)["footer"])
+
     def test_an_answer_with_no_sources_says_so_instead_of_implying_citations(self):
         parts = self._parts(sources=(), verified=False, ungrounded=True)
         self.assertIn(copy.UNGROUNDED_LABEL, parts["footer"])
@@ -350,10 +392,12 @@ class TestTheCogSaysTheRightThing(unittest.TestCase):
         """Read from the source: the tree itself is loaded by ``test_commands``."""
         class_source = cog_source()
         self.assertIn('name="decat"', class_source)
-        for option in ("question", "mode", "image"):
+        for option in ("question", "mode", "depth", "image"):
             self.assertIn(option, class_source)
-        self.assertIn('value="private"', class_source)
-        self.assertIn('value="public"', class_source)
+        # Every choice's value is the word the protocol parses, so the option and
+        # the wire cannot drift by somebody "tidying" a capital letter.
+        for value in (*protocol.MODES, *protocol.DEPTHS):
+            self.assertIn(f'value="{value}"', class_source, f"no choice carries {value!r}")
         # The descriptions Discord rejects outright are the ones over 100 chars.
         for line in class_source.splitlines():
             if "description=" in line or line.strip().startswith("question=") or line.strip().startswith("mode="):

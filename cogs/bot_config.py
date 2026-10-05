@@ -525,6 +525,21 @@ class BotConfig(commands.Cog):
                 ),
                 inline=False,
             )
+        # The one question this card exists to answer that a status reading cannot:
+        # *how do I turn it off?* There are three switches and they are in three
+        # different places, so naming them here means the answer travels with the
+        # symptom rather than living in a document nobody opens.
+        card.add_field(
+            name="Turning it on and off",
+            value=(
+                "**That machine** — `decat off` / `decat on` on the laptop, or its "
+                "one button at `http://127.0.0.1:8787`. Off answers *\"the Mac's "
+                "switched off rn\"* rather than *\"offline\"*.\n"
+                "**This server** — the **Decat** switch on its dashboard Systems "
+                "page. Off means the command leaves this server's picker."
+            ),
+            inline=False,
+        )
         card.set_footer(text="Nothing this feature handles is stored on this host.")
         await interaction.followup.send(embed=card, ephemeral=True)
 

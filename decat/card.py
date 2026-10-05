@@ -36,7 +36,15 @@ def describe_answer(answer: protocol.Answer, *, question: str) -> dict:
         body = body[: max(0, room - 1)].rstrip() + "…"
     description = f"{body}\n\n{warning}" if warning else body
 
-    grounding = copy.UNGROUNDED_LABEL if answer.ungrounded else copy.GROUNDED_LABEL
+    # Three states, not two, and the middle one is the `Fast` depth: an answer
+    # read from live sources that nobody went back over. It says so rather than
+    # borrowing the stronger claim.
+    if answer.ungrounded:
+        grounding = copy.UNGROUNDED_LABEL
+    elif answer.verified:
+        grounding = copy.GROUNDED_LABEL
+    else:
+        grounding = copy.QUICK_LABEL
     footer = f"{grounding} · {copy.DISCLOSURE.format(model=answer.model or 'a local model')}"
     if answer.ms:
         footer += f" · {(answer.ms / 1000):.1f}s"

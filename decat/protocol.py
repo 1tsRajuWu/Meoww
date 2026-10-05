@@ -33,6 +33,15 @@ MODE_PUBLIC = "public"
 MODE_PRIVATE = "private"
 MODES = (MODE_PUBLIC, MODE_PRIVATE)
 
+#: How hard the laptop should work. `deep` is the default and the thorough half:
+#: the bigger model, and the second pass that re-reads the draft against its
+#: sources. `fast` is one pass on the small model, for a question somebody wants
+#: an answer to *now* — and the asker chooses, because only they know whether they
+#: are holding a conversation or checking a fact.
+DEPTH_DEEP = "deep"
+DEPTH_FAST = "fast"
+DEPTHS = (DEPTH_DEEP, DEPTH_FAST)
+
 #: Longest question the protocol carries. Discord's own option limit is 6000,
 #: and the bound here is lower on purpose: a question is a sentence somebody
 #: wants answered, and the Mac pays for every token of it twice — once to read it
@@ -59,6 +68,20 @@ def parse_mode(value: Any) -> str:
     return MODE_PRIVATE
 
 
+def parse_depth(value: Any) -> str:
+    """The depth somebody asked for, or the thorough one for anything else.
+
+    This fails *open* to ``deep``, the opposite direction from :func:`parse_mode`,
+    and the asymmetry is deliberate in both. An unreadable mode is a question
+    whose saving behaviour nobody chose, and saving is what cannot be taken back —
+    so it fails closed to *private*. An unreadable depth costs a few seconds and
+    buys the better answer, so it fails open to *deep*. A rule that failed the
+    same way in both cases would be a habit rather than a decision.
+    """
+    text = str(value or "").strip().lower()
+    return text if text in DEPTHS else DEPTH_DEEP
+
+
 @dataclass(frozen=True)
 class Job:
     """One question, on its way from Discord to the laptop."""
@@ -66,6 +89,7 @@ class Job:
     id: str
     question: str
     mode: str = MODE_PRIVATE
+    depth: str = DEPTH_DEEP
     guild_id: int = 0
     channel_id: int = 0
     user_id: int = 0
@@ -79,12 +103,18 @@ class Job:
         """Whether the *laptop* may write this exchange to its own history."""
         return self.mode == MODE_PUBLIC
 
+    @property
+    def thorough(self) -> bool:
+        """Whether this one gets the second pass. Anything but `fast` does."""
+        return self.depth != DEPTH_FAST
+
     def to_wire(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "v": VERSION,
             "id": self.id,
             "question": self.question,
             "mode": self.mode,
+            "depth": self.depth,
             "guild_id": int(self.guild_id),
             "channel_id": int(self.channel_id),
             "user_id": int(self.user_id),
@@ -102,6 +132,7 @@ class Job:
             id=str(payload["id"]),
             question=str(payload["question"]),
             mode=parse_mode(payload.get("mode")),
+            depth=parse_depth(payload.get("depth")),
             guild_id=int(payload.get("guild_id") or 0),
             channel_id=int(payload.get("channel_id") or 0),
             user_id=int(payload.get("user_id") or 0),

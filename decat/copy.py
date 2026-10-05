@@ -86,6 +86,12 @@ TITLE_BY_LANE = {
 }
 SOURCES_TITLE = "📎 Sources"
 GROUNDED_LABEL = "checked against the sources it cites"
+#: The `Fast` depth earns its own sentence, and it is not a nicety. A fast answer
+#: is grounded in sources it did not go back over, so calling it *checked* would be
+#: the same lie as dressing an ungrounded one up as cited — the two claims a reader
+#: is entitled to trust are "this was looked up" and "this was re-read", and the
+#: second one is exactly what Fast skips.
+QUICK_LABEL = "drafted from the sources it cites — the quick answer, not re-read"
 UNGROUNDED_LABEL = "⚠️ no live sources reached — this is the model's own knowledge"
 NO_QUESTION_NOTE = "asked privately by {user}"
 

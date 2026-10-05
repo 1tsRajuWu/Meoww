@@ -231,6 +231,17 @@ class TestTheAgent(unittest.TestCase):
             log=log or (lambda line: None),
         )
 
+    def _agent_with(self, gather, *, llm=None, history=None):
+        """The same agent with *this* search, so the search call itself is checkable."""
+        return agent_module.Agent(
+            transport=_FakeTransport(),
+            llm=llm or _FakeLlm(),
+            gather=gather,
+            picture=lambda url: image_tool.Picture(data="AAAA"),
+            history=history,
+            log=lambda line: None,
+        )
+
     def test_a_grounded_answer_carries_its_sources_and_says_it_checked_them(self):
         agent = self._agent()
         answer = agent.answer_job(_job())
@@ -284,17 +295,83 @@ class TestTheAgent(unittest.TestCase):
         self.assertIn("too late", answer.error)
         self.assertEqual(agent.llm.calls, [], "the model was asked about an expired question")
 
-    def test_the_fast_model_is_used_for_a_short_question_and_not_for_a_picture(self):
+    def test_the_depth_the_asker_chose_decides_the_model_and_not_the_length(self):
+        """A heuristic used to live here, and this law is the record of it leaving.
+
+        A short question is not therefore a shallow one — "is it safe to drive with
+        a broken wrist" is nine words and worth the good model — so the small one
+        answers only when somebody *asked* for speed. `Fast` on a long question and
+        `Fast` on a picture both mean the small model, because that is the choice.
+        """
         os.environ["DECAT_MODEL"] = "big:8b"
         os.environ["DECAT_FAST_MODEL"] = "small:4b"
         try:
             agent = self._agent()
-            self.assertEqual(agent.model_for(_job("hi")), "small:4b")
-            self.assertEqual(agent.model_for(_job("hi", image_url="https://x/y.png")), "big:8b")
-            self.assertEqual(agent.model_for(_job("x" * 300)), "big:8b")
+            self.assertEqual(agent.model_for(_job("hi")), "big:8b", "deep is the default, however short")
+            self.assertEqual(agent.model_for(_job("hi", depth=protocol.DEPTH_FAST)), "small:4b")
+            self.assertEqual(
+                agent.model_for(_job("x" * 300, depth=protocol.DEPTH_FAST)),
+                "small:4b",
+                "a long question was quietly upgraded away from the asker's choice",
+            )
+            self.assertEqual(
+                agent.model_for(_job("hi", depth=protocol.DEPTH_FAST, image_url="https://x/y.png")),
+                "small:4b",
+                "Fast with a picture is still Fast",
+            )
         finally:
             os.environ.pop("DECAT_MODEL", None)
             os.environ.pop("DECAT_FAST_MODEL", None)
+
+    def test_fast_with_no_small_model_is_still_the_quick_answer(self):
+        """The saving that does not depend on a second model being pulled."""
+        saved = os.environ.pop("DECAT_FAST_MODEL", None)
+        try:
+            agent = self._agent()
+            self.assertEqual(agent.model_for(_job(depth=protocol.DEPTH_FAST)), config.model())
+            fast = agent.answer_job(_job(depth=protocol.DEPTH_FAST))
+            self.assertEqual(len(agent.llm.calls), 1, "one pass is the whole point of fast")
+            self.assertFalse(fast.verified)
+        finally:
+            if saved is not None:
+                os.environ["DECAT_FAST_MODEL"] = saved
+
+    def test_fast_is_one_call_where_deep_is_two(self):
+        deep = self._agent()
+        deep.answer_job(_job())
+        self.assertEqual(len(deep.llm.calls), 2, "deep did not re-read its own draft")
+
+        fast = self._agent()
+        answer = fast.answer_job(_job(depth=protocol.DEPTH_FAST))
+        self.assertEqual(len(fast.llm.calls), 1, "fast paid for the second pass")
+        self.assertFalse(answer.verified, "a fast answer claimed to have been checked")
+        self.assertFalse(answer.ungrounded, "fast reads sources — it is quick, not ungrounded")
+        self.assertEqual(answer.sources[0][0], "One", "fast dropped the sources it did read")
+
+    def test_fast_reads_fewer_pages_because_the_short_path_is_the_point(self):
+        """Asserted against `gather`'s own default rather than a copied number."""
+        import inspect
+
+        default_pages = inspect.signature(web.gather).parameters["pages"].default
+        default_queries = inspect.signature(web.gather).parameters["queries"].default
+        assert default_pages is not None and default_queries is not None
+
+        calls = []
+
+        def gather(question, **kw):
+            calls.append(kw)
+            return _gathered(("https://a.test/1", "One", "Lima is the capital of Peru."))
+
+        agent = self._agent_with(gather)
+        agent.answer_job(_job())
+        agent.answer_job(_job(depth=protocol.DEPTH_FAST))
+        deep, fast = calls
+        self.assertNotIn("pages", deep, "deep asked for fewer pages than the default")
+        self.assertNotIn("queries", deep, "deep asked for fewer searches than the default")
+        self.assertEqual(fast["pages"], agent_module.FAST_PAGES)
+        self.assertEqual(fast["queries"], agent_module.FAST_QUERIES)
+        self.assertLess(fast["pages"], default_pages)
+        self.assertLess(fast["queries"], default_queries)
 
     def test_one_poll_answers_one_question_and_hands_it_back(self):
         transport = _FakeTransport([_job().to_wire()])
@@ -482,10 +559,57 @@ class TestTheDoctor(unittest.TestCase):
     def test_the_quick_checks_are_facts_and_do_not_raise(self):
         checks = doctor.quick_checks(fresh=True)
         names = {name for name, _ok, _detail in checks}
-        self.assertEqual(names, {"credential", "ollama", "model", "host"})
+        # Four, or five when a *second* model is configured for `Fast` — the extra
+        # line exists exactly when there is a second thing to be missing, which is
+        # the same reason the check is there at all.
+        expected = {"credential", "ollama", "model", "host"}
+        if config.fast_model() != config.model():
+            expected.add("fast model")
+        self.assertEqual(names, expected)
         for _name, ok, detail in checks:
             self.assertIsInstance(ok, bool)
             self.assertTrue(detail)
+
+    def test_a_fast_model_that_was_never_pulled_is_a_line_here_and_not_a_surprise(self):
+        """`Fast` on a machine without the small model is an error about a model.
+
+        Discovered in Discord it reads as the feature being broken, and the whole
+        reason `decat doctor` exists is that this half is a machine CI does not
+        have. The one seam — `_ollama()` — is stubbed so the message itself is
+        asserted, on whatever machine this runs.
+        """
+        class _Pulled:
+            def models(self):
+                return ["qwen3-vl:8b"]
+
+        saved_token = os.environ.pop("DECAT_TOKEN", None)
+        saved_admin = os.environ.pop("ADMIN_PASSKEY", None)
+        saved_model = os.environ.get("DECAT_MODEL")
+        saved_fast = os.environ.get("DECAT_FAST_MODEL")
+        original = doctor._ollama
+        os.environ["DECAT_MODEL"] = "qwen3-vl:8b"
+        os.environ["DECAT_FAST_MODEL"] = "qwen3-vl:4b"
+        doctor._ollama = lambda: _Pulled()
+        doctor._quick_cache = None
+        try:
+            checks = {name: (ok, detail) for name, ok, detail in doctor.quick_checks(fresh=True)}
+            self.assertIn("fast model", checks, "the Fast lane has no line in the doctor")
+            ok, detail = checks["fast model"]
+            self.assertFalse(ok)
+            self.assertIn("qwen3-vl:4b", detail)
+            self.assertIn("ollama pull qwen3-vl:4b", detail, "the line does not say how to fix it")
+            self.assertTrue(checks["model"][0], "the model that is pulled must still pass")
+        finally:
+            doctor._ollama = original
+            doctor._quick_cache = None
+            for name, value in (
+                ("DECAT_TOKEN", saved_token), ("ADMIN_PASSKEY", saved_admin),
+                ("DECAT_MODEL", saved_model), ("DECAT_FAST_MODEL", saved_fast),
+            ):
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
     def test_it_says_when_there_is_no_credential_rather_than_pretending(self):
         saved = os.environ.pop("DECAT_TOKEN", None)
@@ -572,6 +696,270 @@ class TestTheTransport(unittest.TestCase):
             url="https://space.test", token="t", get=lambda url, timeout: {"job": None}
         )
         self.assertIsNone(transport.next("on"))
+
+
+class TestTheWholeWireWithoutAMac(unittest.TestCase):
+    """Both halves, over the **real** routes, with only the model and the web faked.
+
+    The worry about a feature split across two machines is not that either half is
+    untested — both are, extensively — it is that each is tested against a *copy*
+    of the other: a fake transport here, a fake relay there, and no test anywhere
+    that the two ever agree. ``decat/protocol.py`` exists to stop that rot and its
+    own docstring says so; this is the test that makes the sentence true.
+
+    So there is no fake transport in this class. The shipped Flask app is driven
+    through ``test_client()`` (in-process, no socket, no port), the real
+    ``decat.mac.agent.Transport`` is pointed at that client by injecting only its
+    two HTTP calls, and the same routes the Space serves in production hand the
+    question out and take the answer back. Three things stand in: the model, the
+    search, and the picture fetch — the three that would otherwise need Ollama, the
+    internet and Discord.
+
+    What it buys, at the awkward price of importing the gateway into the laptop's
+    test file: a field renamed on one side and not the other fails *here*, the
+    question crosses as the bytes the route actually produced (and parses back into
+    an equal ``Job``), and the relay's promise — nothing kept, in either mode — is
+    checked through the door a real laptop uses rather than by calling the queue
+    directly.
+    """
+
+    TOKEN = "wire-test-token"
+
+    def setUp(self):
+        # In here rather than at module scope: the gateway is not a dependency of
+        # the laptop's half, and importing it at the top would make it look like one.
+        import keep_alive
+
+        from decat import relay as relay_source
+
+        self.relay_module = relay_source
+        self.client = keep_alive.app.test_client()
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.saved = {
+            name: os.environ.get(name)
+            for name in (
+                "DECAT_TOKEN", "ADMIN_PASSKEY", "DECAT_POLL_WAIT",
+                "DECAT_SEARCH", "DECAT_MODEL", "DECAT_FAST_MODEL",
+            )
+        }
+        os.environ["DECAT_TOKEN"] = self.TOKEN
+        # A held-open poll is the production behaviour and a fifteen-second wait in
+        # a test, so the wait is one second here: every poll below has a question
+        # waiting for it and returns at once, and the bound is what stops a mistake
+        # in that sentence from looking like a hang.
+        os.environ["DECAT_POLL_WAIT"] = "1"
+        os.environ["DECAT_SEARCH"] = "ddg"
+        os.environ.pop("ADMIN_PASSKEY", None)
+        relay_source.reset_shared()
+        self.relay = relay_source.shared()
+
+    def tearDown(self):
+        self.relay_module.reset_shared()
+        for name, value in self.saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    # ── the two ends, wired to each other ────────────────────────────────────
+
+    def _client_calls(self):
+        """The two HTTP calls of the real ``Transport``, answered by the real app."""
+        from urllib.parse import urlsplit
+
+        def get(url, timeout):
+            parts = urlsplit(url)
+            path = parts.path + (f"?{parts.query}" if parts.query else "")
+            response = self.client.get(path, headers={"X-Decat-Token": self.TOKEN})
+            if response.status_code >= 400:
+                raise OSError(f"HTTP {response.status_code}")
+            return response.get_json()
+
+        def post(url, payload, timeout):
+            response = self.client.post(
+                urlsplit(url).path, json=payload, headers={"X-Decat-Token": self.TOKEN}
+            )
+            if response.status_code >= 400:
+                return None  # what `Transport.answer` treats as "not delivered"
+            return response.get_json()
+
+        return get, post
+
+    def _agent(self, **overrides):
+        get, post = self._client_calls()
+        transport = overrides.pop("transport", None) or agent_module.Transport(
+            url="https://space.test", token=self.TOKEN, get=get, post=post
+        )
+        return agent_module.Agent(
+            transport=transport,
+            llm=overrides.pop("llm", None) or _FakeLlm(),
+            history=overrides.pop("history", None) or History(Path(self.dir.name) / "history"),
+            gather=overrides.pop("gather", None)
+            or (lambda *a, **k: _gathered(("https://a.test/1", "Britannica — Peru", "Lima is the capital of Peru."))),
+            picture=overrides.pop("picture", None) or (lambda url: image_tool.Picture(data="AAAA")),
+            log=overrides.pop("log", None) or (lambda line: None),
+            **overrides,
+        )
+
+    def _enqueue(self, question="what is the capital of Peru?", *, user_id=77, **overrides):
+        """Queue one question the way the slash command does, on the shared relay."""
+        now = time.time()
+        job = self.relay_module.new_job(
+            question,
+            mode=overrides.pop("mode", protocol.MODE_PRIVATE),
+            guild_id=1550227368889684058,
+            channel_id=5,
+            user_id=user_id,
+            user_name="someone",
+            now=now,
+            deadline=now + 600,
+            **overrides,
+        )
+        self.relay.enqueue(job)
+        return job
+
+    def _answer_payload(self, job_id: str, text: str = "Lima [1].") -> dict:
+        return protocol.Answer(id=job_id, text=text, sources=(("One", "https://a.test/1"),)).to_wire()
+
+    # ── the laws ─────────────────────────────────────────────────────────────
+
+    def test_the_question_leaves_as_the_routes_bytes_and_the_answer_comes_back(self):
+        job = self._enqueue()
+        agent = self._agent()
+        self.assertTrue(agent.run_once(), "the poll found nothing on the real route")
+
+        answer = self.relay.wait(job.id, timeout=5)
+        self.assertIsNotNone(answer, "the answer never reached the relay the bot reads")
+        self.assertEqual(answer.id, job.id)
+        self.assertEqual(answer.sources[0][0], "Britannica — Peru")
+        self.assertTrue(answer.verified, "a Deep question came back without its re-read")
+        self.assertFalse(answer.ungrounded)
+
+        # The card the asker would see, built from what crossed.
+        from decat.card import describe_answer
+
+        parts = describe_answer(answer, question=job.question)
+        self.assertIn("**1.**", parts["sources"])
+        self.assertIn(copy.GROUNDED_LABEL, parts["footer"])
+
+    def test_the_payload_the_route_produced_parses_back_into_the_job_that_was_queued(self):
+        """The round trip through the *bytes*, which is the rot this guards against.
+
+        A field renamed on one side and not the other is not an error anywhere — it
+        is a question whose depth, mode or picture arrives as a default — so the
+        equality is asserted on the wire payload rather than on a hand-built job.
+        """
+        job = self._enqueue(
+            "what is in this picture?",
+            depth=protocol.DEPTH_FAST,
+            mode=protocol.MODE_PUBLIC,
+            image_url="https://cdn.discordapp.com/x.png",
+        )
+        response = self.client.get(
+            "/api/decat/next?state=on&wait=0", headers={"X-Decat-Token": self.TOKEN}
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()["job"]
+        self.assertEqual(payload["v"], protocol.VERSION)
+        self.assertEqual(protocol.Job.from_wire(payload), job)
+        self.assertEqual(payload["depth"], protocol.DEPTH_FAST)
+
+    def test_a_picture_travels_as_a_url_and_this_machine_still_opens_no_port(self):
+        job = self._enqueue("what is in this picture?", image_url="https://cdn.discordapp.com/x.png")
+        seen = {}
+
+        def picture(url):
+            seen["url"] = url
+            return image_tool.Picture(data="BASE64")
+
+        agent = self._agent(picture=picture)
+        self.assertTrue(agent.run_once())
+        answer = self.relay.wait(job.id, timeout=5)
+        self.assertEqual(seen["url"], job.image_url)
+        self.assertIn("BASE64", json.dumps(agent.llm.calls[0][1]), "the picture never reached the model")
+        self.assertNotIn("couldn't read", answer.text)
+
+    def test_fast_and_deep_both_cross_and_differ_where_the_wire_says_they_should(self):
+        deep_job = self._enqueue("what is the capital of Peru?", user_id=1)
+        fast_job = self._enqueue(
+            "what is the capital of Peru?", user_id=2, depth=protocol.DEPTH_FAST
+        )
+        agent = self._agent()
+        self.assertTrue(agent.run_once())
+        self.assertTrue(agent.run_once())
+        deep = self.relay.wait(deep_job.id, timeout=5)
+        fast = self.relay.wait(fast_job.id, timeout=5)
+        self.assertTrue(deep.verified)
+        self.assertFalse(fast.verified, "a Fast question was answered twice")
+        self.assertFalse(deep.ungrounded)
+        self.assertFalse(fast.ungrounded, "Fast is quick, not ungrounded")
+        # The two depths are two model calls and one, and the wire says which is which.
+        self.assertEqual(len(agent.llm.calls), 3)
+
+    def test_only_a_public_question_reaches_a_disk_and_it_is_reached_once(self):
+        """The privacy promise, through the door a real laptop uses."""
+        history = History(Path(self.dir.name) / "history")
+        agent = self._agent(history=history)
+        self._enqueue("a private one", user_id=1)
+        self.assertTrue(agent.run_once())
+        self.assertEqual(history.count(), 0, "a Private question was written down")
+
+        self._enqueue("a public one", user_id=2, mode=protocol.MODE_PUBLIC)
+        self.assertTrue(agent.run_once())
+        self.assertEqual(history.count(), 1)
+        self.assertEqual(len(list((Path(self.dir.name) / "history").glob("*.jsonl"))), 1)
+
+    def test_the_relay_holds_nothing_once_the_answer_is_delivered(self):
+        """The sentinel is proved findable first, so "gone" means something."""
+        job = self._enqueue("what is the capital of Zzzmark?")
+        agent = self._agent()
+        agent.run_once()
+        answer = self.relay.wait(job.id, timeout=5)
+        self.assertIsNotNone(answer)
+        held = json.dumps(self.relay._jobs, default=str)
+        self.assertIn("Zzzmark", held, "the question was gone before it was ever held")
+
+        self.relay.settle(job.id)
+        self.assertEqual(self.relay.pending(), 0)
+        self.assertNotIn("Zzzmark", json.dumps(self.relay._jobs, default=str))
+        self.assertNotIn("Zzzmark", json.dumps(list(self.relay._ready)))
+        self.assertNotIn("Zzzmark", json.dumps(self.relay.stats()))
+
+    def test_a_stranger_gets_nothing_and_the_question_stays_where_it_was(self):
+        job = self._enqueue()
+        poll = self.client.get("/api/decat/next", headers={"X-Decat-Token": "wrong"})
+        self.assertEqual(poll.status_code, 401)
+        deliver = self.client.post(
+            "/api/decat/answer", json=self._answer_payload(job.id), headers={"X-Decat-Token": "wrong"}
+        )
+        self.assertEqual(deliver.status_code, 401)
+        self.assertEqual(self.relay.pending(), 1, "a stranger's poll consumed the question")
+
+    def test_an_empty_poll_is_how_the_host_learns_the_machine_is_awake(self):
+        response = self.client.get(
+            "/api/decat/next?state=on&wait=0", headers={"X-Decat-Token": self.TOKEN}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.get_json()["job"], "an empty poll invented a question")
+        stats = self.relay.stats()
+        self.assertEqual(stats["state"], "on", "the switch did not travel on the empty poll")
+        self.assertIsNotNone(stats["last_poll_seconds"])
+
+    def test_an_answer_nobody_is_waiting_for_is_refused_rather_than_kept(self):
+        """The asker's card was already edited into *went quiet*; the answer is late."""
+        job = self._enqueue()
+        self.relay.settle(job.id)  # as the cog does once the wait returns nothing
+        response = self.client.post(
+            "/api/decat/answer", json=self._answer_payload(job.id), headers={"X-Decat-Token": self.TOKEN}
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.relay.pending(), 0)
+        self.assertEqual(self.relay._jobs, {}, "the relay kept a slot for an answer nobody wanted")
+        self.assertEqual(
+            self.relay.stats()["served"], 0,
+            "an answer that could not be delivered was counted as served",
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

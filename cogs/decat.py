@@ -105,9 +105,19 @@ class Decat(commands.Cog):
         app_commands.Choice(name="Public — everyone sees it, it may be saved", value="public"),
         app_commands.Choice(name="Private — only you see it, nothing is saved", value="private"),
     ])
+    # Two ways to answer, and the asker picks because only they know which one they
+    # want: `Deep` is the whole machine — the bigger model and a second pass that
+    # re-reads the draft against its sources — and `Fast` is one pass on the small
+    # model for a question somebody wants an answer to *now*. The card says which
+    # one it was, so `Fast` never borrows the word "checked".
+    @app_commands.choices(depth=[
+        app_commands.Choice(name="Deep — reads the web, then re-checks itself", value="deep"),
+        app_commands.Choice(name="Fast — one quick pass, no re-check", value="fast"),
+    ])
     @app_commands.describe(
         question="What you want answered. Be as specific as you can.",
         mode="Whether the answer is saved at all (Private is never saved anywhere).",
+        depth="How hard to work on it. Deep is the default; Fast answers sooner.",
         image="A picture to ask about — screenshots, diagrams, photos.",
     )
     async def decat(
@@ -115,9 +125,11 @@ class Decat(commands.Cog):
         interaction: discord.Interaction,
         question: str,
         mode: app_commands.Choice[str] | None = None,
+        depth: app_commands.Choice[str] | None = None,
         image: discord.Attachment | None = None,
     ):
         mode_value = protocol.parse_mode(mode.value if mode else protocol.MODE_PUBLIC)
+        depth_value = protocol.parse_depth(depth.value if depth else protocol.DEPTH_DEEP)
         ephemeral = mode_value == protocol.MODE_PRIVATE
 
         problem = self.gate(interaction.guild_id)
@@ -144,6 +156,7 @@ class Decat(commands.Cog):
         job = relay_module.new_job(
             text,
             mode=mode_value,
+            depth=depth_value,
             guild_id=interaction.guild_id or 0,
             channel_id=interaction.channel_id or 0,
             user_id=interaction.user.id,

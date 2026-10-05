@@ -60,6 +60,10 @@ class History:
             "question": job.question,
             "answer": answer.text,
             "lane": answer.lane,
+            # The asker's own choice, recorded because it explains the rest: a
+            # `fast` row is one that was never re-read, which is the first thing
+            # somebody reading their own history will want to know.
+            "depth": job.depth,
             "verified": answer.verified,
             "ungrounded": answer.ungrounded,
             "sources": [list(pair) for pair in answer.sources],
@@ -104,6 +108,7 @@ def summary(job: protocol.Job, answer: protocol.Answer) -> dict:
     return {
         "id": job.id,
         "mode": job.mode,
+        "depth": job.depth,
         "lane": answer.lane,
         "ms": answer.ms,
         "sources": len(answer.sources),

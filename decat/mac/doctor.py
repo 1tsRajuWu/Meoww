@@ -58,19 +58,36 @@ def quick_checks(*, fresh: bool = False) -> list[tuple[str, bool, str]]:
               else "no DECAT_TOKEN and no ADMIN_PASSKEY"),
     ))
 
+    # Two models, because `/decat` has two depths: `Deep` answers with the big one
+    # and `Fast` with the small one. A `Fast` question on a machine that never
+    # pulled the small one is an error about a model, not a slow answer, so it gets
+    # its own line here rather than being discovered in Discord.
+    wanted = config.model()
+    fast = config.fast_model()
+    separate_fast = bool(fast) and fast != wanted
+
     try:
         names = _ollama().models()
         checks.append(("ollama", True, f"answering on {config.ollama_host()} ({len(names)} model(s))"))
-        wanted = config.model()
         checks.append((
             "model",
             any(name.split(":")[0] == wanted.split(":")[0] for name in names),
             f"{wanted} is pulled" if any(name == wanted for name in names)
             else f"{wanted} is not pulled — run: ollama pull {wanted}",
         ))
+        if separate_fast:
+            checks.append((
+                "fast model",
+                any(name == fast for name in names),
+                f"{fast} is pulled (what `Fast` answers with)"
+                if any(name == fast for name in names)
+                else f"{fast} is not pulled — run: ollama pull {fast} (or blank DECAT_FAST_MODEL)",
+            ))
     except Exception as exc:  # noqa: BLE001 — the check reports, it does not raise
         checks.append(("ollama", False, f"not reachable ({type(exc).__name__}) — is `ollama serve` running?"))
         checks.append(("model", False, "unknown until Ollama answers"))
+        if separate_fast:
+            checks.append(("fast model", False, "unknown until Ollama answers"))
 
     if token:
         try:

@@ -934,14 +934,17 @@ FEATURES: tuple[Feature, ...] = (
             "which reads the live web, cites what it read, and says so when it "
             "could not reach it. Pictures can be asked about too. A question is "
             "`Private` — nothing anywhere is written down — or `Public`, which is "
-            "kept on that machine alone. Anything legal, medical, money-related, "
-            "safety-related or personal arrives with a plain note that this is an "
-            "AI and not a professional, and a question that reads like somebody "
-            "in danger is answered with a helpline rather than an opinion."
+            "kept on that machine alone, and you choose how hard it works: `Deep` "
+            "re-reads its own draft against the pages it cites, `Fast` answers in "
+            "one pass and the card says it was not re-read. Anything legal, "
+            "medical, money-related, safety-related or personal arrives with a "
+            "plain note that this is an AI and not a professional, and a question "
+            "that reads like somebody in danger is answered with a helpline rather "
+            "than an opinion."
         ),
         gate_commands=("decat",),
         commands=(
-            "/decat — Ask the operator's Mac, with sources, an optional picture, and Private|Public",
+            "/decat — Ask the operator's Mac, with sources, a picture, Deep|Fast and Private|Public",
             "/bot decat — Whether that machine is answering, and how the last question went",
         ),
         cog="cogs.decat",

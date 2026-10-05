@@ -14,6 +14,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 HOME_DIR="${DECAT_HOME:-$HOME/.decat}"
 MODEL="${DECAT_MODEL:-qwen3-vl:8b}"
+# The model `Fast` answers with. Pulled here rather than left to fail later: it is
+# written into agent.env below, and a `Fast` question on a machine that only has
+# the big one is not a slow answer, it is an error about a model nobody pulled.
+FAST_MODEL="${DECAT_FAST_MODEL:-qwen3-vl:4b}"
 LABEL="com.decat.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
@@ -54,6 +58,14 @@ curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 \
 say "Pulling $MODEL (6.1 GB the first time, nothing after that)…"
 ollama pull "$MODEL"
 
+# The small one, for `Fast`. Optional in the sense that `/decat` works without it
+# once you delete the DECAT_FAST_MODEL line from agent.env — not optional in the
+# sense that asking for Fast on a machine without it is an error.
+if [ -n "$FAST_MODEL" ] && [ "$FAST_MODEL" != "$MODEL" ]; then
+  say "Pulling $FAST_MODEL as well (3.3 GB) — this is what `Fast` answers with"
+  ollama pull "$FAST_MODEL" || say "Could not pull $FAST_MODEL — `Fast` will not work until you do"
+fi
+
 # ── the config the agent reads ───────────────────────────────────────────────
 mkdir -p "$HOME_DIR/history"
 chmod 700 "$HOME_DIR"
@@ -71,7 +83,9 @@ DECAT_TOKEN=
 # Where the bot lives.
 DECAT_SPACE=https://1tsrajowo-meow.hf.space
 
-# The model, and the fast one for short questions (blank = same as the big one).
+# The model `Deep` answers with, and the smaller one `Fast` answers with.
+# Delete the DECAT_FAST_MODEL line to make Fast share the big model: it still
+# skips the re-check pass, so it is quicker, just less dramatically.
 DECAT_MODEL=qwen3-vl:8b
 DECAT_FAST_MODEL=qwen3-vl:4b
 
