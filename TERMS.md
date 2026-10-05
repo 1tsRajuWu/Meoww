@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Effective Date:** October 1, 2026 · **Version 7** (AI-assisted source).
+**Effective Date:** October 6, 2026 · **Version 8** (AI-assisted source).
 
 By inviting, configuring or using this Discord bot ("the Bot"), or by signing in
 to its dashboard and pressing the agreement there, you agree to these Terms. If
@@ -102,10 +102,14 @@ directed at children, and the operator does not knowingly hold a child's data.
 
 ## 8. AI assistance
 
-**No part of the running Bot is AI** — no model is called, and nothing you send
-reaches one. Created and maintained **with the help of AI coding assistants and
-autonomous AI agents**, and that assistance is disclosed in the source
-repository's history rather than only here. The third document in this bundle,
+**The Bot itself calls no AI model**, and nothing you send it reaches one.
+Created and maintained **with the help of AI coding assistants and autonomous
+AI agents**, and that assistance is disclosed in the source repository's history
+rather than only here. One optional feature, `/decat`, does *answer with* a model
+— one running on the operator's own computer, never on a vendor's service, and
+the question is relayed to nothing else. It is switched off in every server until
+an administrator turns it on, and the Privacy Policy states exactly what it keeps
+and what it does not. The third document in this bundle,
 the AI & crawling policy, states what this deployment does about automated
 collection and about training use.
 

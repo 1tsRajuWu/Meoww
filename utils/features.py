@@ -906,6 +906,50 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.tracker",
         help_key="tracker",
     ),
+    # Decat — ask the operator's own Mac a question, from Discord.
+    #
+    # Two halves on two machines, and it is worth being clear about which half
+    # this registry describes. The *bot's* half is one command and a queue that
+    # lives in memory; the half that does the work is a model on the operator's
+    # own laptop, run locally through Ollama so that nothing about a question is
+    # sent to any model vendor at all. So the switch below decides whether
+    # `/decat` is offered in a server, and the machine behind it is the operator's
+    # to keep awake — the command says plainly which of those two it is missing.
+    #
+    # It ships **off**, like every beta here, and the scope is a deployment fact
+    # rather than a literal in the code: `DECAT_GUILDS` names the servers it may
+    # run in, and a blank value leaves the per-server switch as the only gate —
+    # the same arrangement Alone Time uses one entry above. The hosting Space
+    # keeps **nothing**: no question, no answer, no transcript, in either mode,
+    # which is why there are no tables for this feature and nothing here to
+    # retain. A `public` question is written to the laptop's own history; a
+    # `private` one is written nowhere at all.
+    Feature(
+        id="decat",
+        name="Decat",
+        icon="🛰️",
+        category="Assistant",
+        description=(
+            "Ask a question and have it answered by the operator's own machine, "
+            "which reads the live web, cites what it read, and says so when it "
+            "could not reach it. Pictures can be asked about too. A question is "
+            "`Private` — nothing anywhere is written down — or `Public`, which is "
+            "kept on that machine alone. Anything legal, medical, money-related, "
+            "safety-related or personal arrives with a plain note that this is an "
+            "AI and not a professional, and a question that reads like somebody "
+            "in danger is answered with a helpline rather than an opinion."
+        ),
+        gate_commands=("decat",),
+        commands=(
+            "/decat — Ask the operator's Mac, with sources, an optional picture, and Private|Public",
+            "/bot decat — Whether that machine is answering, and how the last question went",
+        ),
+        cog="cogs.decat",
+        # The beta flag: off everywhere until an administrator asks for it, and
+        # the only lever that changes is `utils.modules.set_enabled`.
+        enabled_by_default=False,
+        help_key="decat",
+    ),
     Feature(
         id="system",
         name="System & Server Control",
@@ -920,7 +964,7 @@ FEATURES: tuple[Feature, ...] = (
         # system stays on when moderation is turned off.
         commands=(
             "/serverinfo", "/userinfo", "/bot sync", "/bot db",
-            "/legal privacy", "/legal tos", "/dbstatus",
+            "/legal privacy", "/legal tos", "/bot dbstatus",
             "/defaultrole set", "/defaultrole view", "/defaultrole clear",
         ),
         toggleable=False,
@@ -980,7 +1024,11 @@ CORE_COGS: tuple[str, ...] = (
 # tree ever drift apart again.)
 ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     "help", "bot", "serverinfo", "userinfo", "legal",
-    "dbstatus",
+    # `/dbstatus` used to be here and is now `/bot dbstatus`. It left this list
+    # with its name: what was ever meant by listing it is that asking whether the
+    # database is healthy does not depend on the *moderation* switch, and the
+    # group it now lives under is core by this same list — `/bot` is always
+    # reachable, and so is everything under it.
     "defaultrole",
     # `/cmd` is the index under `/help`, and it has to work in a server where
     # *every* system is switched off: that is exactly the server whose

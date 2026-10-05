@@ -98,7 +98,17 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
             # so changing a line does not need a redeploy. It is one subcommand
             # with optional options rather than five, because these slots are a
             # budget — see the test below.
-            {"avatar", "banner", "bug", "db", "legacy", "plan", "push", "status", "sync"},
+            # `dbstatus` is the newest, and it arrived the way this law says the
+            # next command has to: `/dbstatus` folded into the group that already
+            # exists, because the tree was at Discord's hundred and a report is
+            # the cheapest thing to move. `decat` is the newest after that, and it
+            # is the machine half of the feature — whether the laptop behind
+            # `/decat` is answering — which belongs to the operator rather than to
+            # any server's members, so it lives here too.
+            {
+                "avatar", "banner", "bug", "db", "dbstatus", "decat", "legacy",
+                "plan", "push", "status", "sync",
+            },
         )
 
     def test_the_tree_stays_within_discords_cap(self):
@@ -110,8 +120,13 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
         therefore escape the audience audit. That trade is deliberate, and this
         is the record of it — a hundred is Discord's own ceiling, and it refuses
         the *next* command outright, which is not hypothetical: this cog once
-        failed to load because the tree went over. A command added from here has
-        to be a verb on a root that already exists rather than a new root.
+        failed to load because the tree went over.
+
+        Decat is the next command, and the law had its first real exercise: rather
+        than make room by inventing a nested subgroup, ``/dbstatus`` folded into
+        ``/bot`` (``/bot dbstatus``), which freed a slot without hiding anything
+        from the audit. A command added from here still has to be a verb on a root
+        that already exists, or pay for itself the same way.
         """
         self.assertLessEqual(
             len(self.registered), 100,

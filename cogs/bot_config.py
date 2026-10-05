@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import config_audit, db
+from utils import config_audit, db, dbstats
 
 
 def _schedule_backup() -> None:
@@ -424,6 +424,109 @@ class BotConfig(commands.Cog):
             )
         except Exception as e:
             await interaction.followup.send(f"❌ Database update failed: {e}")
+
+    @operator_group.command(
+        name="dbstatus",
+        description="Show database health: last backup, table row counts, and the cloud connection.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dbstatus(self, interaction: discord.Interaction):
+        """The report half of the database pair — see ``/bot db`` for the repair half.
+
+        This used to be a top-level ``/dbstatus``. It moved here when Discord's
+        hundred top-level commands ran out and the command that had to make room
+        was the one that only *reports* something — and ``/bot`` is the group that
+        addresses the bot rather than a server's members, which is exactly what
+        this card is. The audience and the card are unchanged; only the address is.
+        """
+        await interaction.response.defer(ephemeral=True)
+        report = await dbstats.collect()
+        me = getattr(getattr(interaction, "guild", None), "me", None)
+        card = dbstats.embed(
+            report,
+            actor_name=getattr(interaction.user, "display_name", "somebody"),
+            actor_icon=getattr(getattr(interaction.user, "display_avatar", None), "url", None),
+            bot_icon=getattr(getattr(me, "display_avatar", None), "url", None),
+        )
+        await interaction.followup.send(embed=card, ephemeral=True)
+
+    @operator_group.command(
+        name="decat",
+        description="Whether the machine behind /decat is answering, and how the last question went.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def decat(self, interaction: discord.Interaction):
+        """The one place to find out why ``/decat`` is or is not answering.
+
+        Every reason a question can be refused is a fact this card can show: no
+        token configured, no server named, the machine never having polled, the
+        machine's switch off, the queue full, or the model simply slow. Without
+        it the only diagnostic is a script on the laptop nobody runs, which is
+        how "it worked yesterday" becomes a support conversation.
+        """
+        from decat import config as decat_config
+        from decat import relay as decat_relay
+
+        await interaction.response.defer(ephemeral=True)
+        stats = decat_relay.shared().stats()
+        stale = decat_config.heartbeat_stale()
+        age = stats["last_poll_seconds"]
+
+        if not decat_config.token():
+            machine = "❌ **Not wired up** — no `DECAT_TOKEN` and no `ADMIN_PASSKEY` on this host."
+        elif age is None:
+            machine = "❌ **Offline** — no machine has ever polled."
+        elif age > stale:
+            machine = f"❌ **Offline** — last poll **{age:.0f}s** ago."
+        elif stats["state"] == "off":
+            machine = f"⛔ **Switched off** on the machine — last poll {age:.0f}s ago."
+        else:
+            machine = f"✅ **Online** — last poll **{age:.0f}s** ago."
+
+        named = sorted(decat_config.allowed_guilds())
+        scope = ", ".join(f"`{g}`" for g in named) if named else "_no allow-list — this server's switch is the gate_"
+        card = discord.Embed(title="🛰️ Decat", color=0x5865F2, timestamp=discord.utils.utcnow())
+        card.add_field(name="Machine", value=machine, inline=False)
+        card.add_field(
+            name="Credential",
+            value=(
+                "`DECAT_TOKEN` (scoped to this feature)"
+                if decat_config.token_is_scoped()
+                else "`ADMIN_PASSKEY` **— the fallback; set `DECAT_TOKEN` to scope it.**"
+            ),
+            inline=True,
+        )
+        card.add_field(name="Servers allowed", value=scope, inline=False)
+        card.add_field(
+            name="Queue",
+            value=(
+                f"waiting **{stats['waiting']}** / cap **{stats['queue_cap']}**\n"
+                f"in flight **{stats['inflight']}** / max **{stats['concurrency']}**\n"
+                f"cooldown **{stats['cooldown']:.0f}s** per member"
+            ),
+            inline=True,
+        )
+        card.add_field(
+            name="Answers",
+            value=(
+                f"served **{stats['served']}**\n"
+                f"refused **{stats['refused']}**\n"
+                f"expired **{stats['expired']}**\n"
+                f"no live sources **{stats['ungrounded']}**"
+            ),
+            inline=True,
+        )
+        if stats["last_model"]:
+            card.add_field(
+                name="Last answer",
+                value=(
+                    f"`{stats['last_model']}` · {stats['last_lane']} · "
+                    f"{stats['last_ms'] / 1000:.1f}s"
+                ),
+                inline=False,
+            )
+        card.set_footer(text="Nothing this feature handles is stored on this host.")
+        await interaction.followup.send(embed=card, ephemeral=True)
 
     @operator_group.command(
         name="push",

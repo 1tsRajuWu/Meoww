@@ -1,7 +1,4 @@
 import datetime
-import os
-import re
-import sqlite3
 import time
 import discord
 from discord import app_commands
@@ -36,11 +33,6 @@ def _actor(interaction: discord.Interaction) -> moderation_actions.Actor:
         member=user if isinstance(user, discord.Member) else None,
         source="discord",
     )
-
-
-#: Table names this file will count. A name that is not one of these is skipped
-#: rather than quoted into a query.
-_PLAIN_IDENTIFIER = re.compile(r"[A-Za-z0-9_]+")
 
 
 def _root_command_name(interaction: discord.Interaction) -> str | None:
@@ -124,59 +116,11 @@ def _members_intent_warning(bot) -> str:
     )
 
 
-def _local_table_counts(db_path: str) -> tuple[dict[str, int], float, float, str]:
-    """Row counts, sizes and an integrity check, with blocking work done off-loop.
-
-    ``SELECT COUNT(*)`` is a full scan, and the tables that grow here are the ones
-    with the most rows — called inline this held the event loop, and therefore
-    every other command and the gateway heartbeat, for as long as the biggest
-    table took to count. The sync-status half of /dbstatus already ran in a worker
-    thread for the same reason.
-    """
-    counts: dict[str, int] = {}
-    size_kb = 0.0
-    wal_kb = 0.0
-    integrity = "unknown"
-    try:
-        conn = sqlite3.connect(db_path, timeout=5.0)
-    except sqlite3.Error as e:
-        return counts, size_kb, wal_kb, str(e)
-    try:
-        try:
-            size_kb = os.path.getsize(db_path) / 1024
-        except OSError:
-            size_kb = 0.0
-        try:
-            wal_kb = os.path.getsize(f"{db_path}-wal") / 1024
-        except OSError:
-            wal_kb = 0.0  # no WAL file is the normal case after a clean checkpoint
-        cur = conn.cursor()
-        try:
-            integrity = str(cur.execute("PRAGMA quick_check(1)").fetchone()[0])
-        except sqlite3.Error as e:
-            integrity = str(e)
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        for (name,) in cur.fetchall():
-            # A table name is an *identifier*, and an identifier cannot be a bound
-            # parameter — ``?`` stands for a value, never for a name — so a query
-            # that counts one is necessarily built by hand. The rule here is that
-            # only names that are *nothing but* letters, digits and underscores
-            # are counted at all: every table this bot creates is one of those,
-            # so a name that needs quoting is either somebody else's table or a
-            # name shaped like SQL, and a row count is not worth being the place
-            # that finds out which.
-            table = str(name)
-            if not _PLAIN_IDENTIFIER.fullmatch(table):
-                continue
-            try:
-                counts[table] = cur.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-            except sqlite3.Error:
-                counts[table] = -1  # unreadable
-    except sqlite3.Error as e:
-        print(f"[DBSTATUS] Could not read the local database: {e}", flush=True)
-    finally:
-        conn.close()
-    return counts, size_kb, wal_kb, integrity
+# ``_local_table_counts`` and ``_PLAIN_IDENTIFIER`` used to live here: they were
+# the body of ``/dbstatus``, which this cog happened to host. Both moved to
+# ``utils/dbstats`` when the command became ``/bot dbstatus`` — the report is a
+# fact about a file, not a server-control action, and it now has a home where it
+# can be read without Discord. Nothing in this cog reads the database's shape.
 
 
 class ServerControl(commands.Cog):
@@ -196,14 +140,15 @@ class ServerControl(commands.Cog):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
             cmd_name = _root_command_name(interaction)
-            # ``dbstatus`` belongs on this list for the same reason the other
-            # three do: asking whether the database is healthy has nothing to do
-            # with whether the moderation module is on. It was missing, so a
-            # server with moderation off was refused ``/dbstatus`` — and it is
-            # declared always-reachable in ``features.ALWAYS_ALLOWED_COMMANDS``,
-            # so the per-server command rule and the enforcement disagreed about
-            # it. Caught by ``tests/test_command_scope.py``.
-            if cmd_name not in ["serverinfo", "userinfo", "defaultrole", "dbstatus"]:
+            # These three belong on this list because asking what a server looks
+            # like has nothing to do with whether the *moderation* module is on —
+            # and they are declared always-reachable in
+            # ``features.ALWAYS_ALLOWED_COMMANDS``, so the per-server command rule
+            # and the enforcement must agree about them. (``dbstatus`` was a
+            # fourth until it moved under ``/bot``, which is always allowed as a
+            # group; the check below is by root name, so it stopped needing an
+            # entry the moment it stopped being a root.)
+            if cmd_name not in ["serverinfo", "userinfo", "defaultrole"]:
                 if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                     await interaction.response.send_message(
                         "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
@@ -770,146 +715,6 @@ class ServerControl(commands.Cog):
         )
         await interaction.response.send_message(f"✅ Announcement posted in {channel.mention}!", ephemeral=True)
 
-    @app_commands.command(name="dbstatus", description="Show database health: last backup, table row counts, and Supabase connection.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def dbstatus(self, interaction: discord.Interaction):
-        import asyncio  # imported here, not inside one branch: every path needs it
-
-        await interaction.response.defer(ephemeral=True)
-
-        # --- local database stats (off the event loop: see _local_table_counts) ---
-        db_path = db.DB_PATH
-        tables, db_size_kb, wal_kb, integrity = await asyncio.to_thread(
-            _local_table_counts, db_path
-        )
-
-        # --- Supabase / cloud status ---
-        from utils.cloud_sync import (
-            SUPABASE_URL,
-            SUPABASE_KEY,
-            _last_sync_hash,
-            _remote_checked,
-            _restored_from,
-            _restored_counts,
-            _storage_list,
-            BUCKET,
-            upload_refusal_reason,
-            last_upload_ts,
-        )
-        supa_ok = bool(SUPABASE_URL and SUPABASE_KEY)
-        cloud_files: list[dict] = []
-        if supa_ok:
-            cloud_files = await asyncio.to_thread(_storage_list)
-
-        # --- build the embed ---
-        embed = discord.Embed(
-            title="🗄️ Database Status",
-            color=0x5865F2,
-            timestamp=discord.utils.utcnow(),
-        )
-        embed.set_author(
-            name="DaCat — System",
-            icon_url=interaction.guild.me.display_avatar.url,
-        )
-
-        # DB size. Integrity and the WAL are here because they are the two things a
-        # row count cannot tell you: a corrupt restore and an un-checkpointed WAL
-        # both look perfectly healthy as a count of rows.
-        embed.add_field(
-            name="💾 Local Database",
-            value=(
-                f"`{db_size_kb:.1f} KB` on disk\n"
-                f"{len(tables)} table(s)\n"
-                f"WAL: `{wal_kb:.1f} KB`\n"
-                f"Integrity: {'✅ ok' if integrity == 'ok' else f'⚠️ {integrity[:60]}'}"
-            ),
-            inline=True,
-        )
-
-        # Cloud connection
-        if supa_ok:
-            current = next((f for f in cloud_files if f["name"] == "bot.db"), None)
-            snapshots = [
-                f for f in cloud_files
-                if f["name"].startswith("bot-db-") and f["name"].endswith(".db")
-            ]
-            if current:
-                size_b = current.get("metadata", {}).get("size", 0)
-                embed.add_field(
-                    name="☁️ Supabase Backup",
-                    value=(
-                        f"✅ Connected to `{BUCKET}`\n"
-                        f"Current: `{size_b / 1024:.1f} KB`\n"
-                        f"Snapshots: **{len(snapshots)}**"
-                    ),
-                    inline=True,
-                )
-            else:
-                embed.add_field(
-                    name="☁️ Supabase Backup",
-                    value="⚠️ Connected but no `bot.db` found",
-                    inline=True,
-                )
-        else:
-            embed.add_field(
-                name="☁️ Supabase Backup",
-                value="❌ Not configured (env vars missing)",
-                inline=True,
-            )
-
-        # Sync status. The refusal reason is the *whole* decision — an upload
-        # silently not happening is how a backup turns out to be days old, so
-        # this card is the place a human can see why.
-        #
-        # It talks to Supabase and reads SQLite, so it runs in a worker thread:
-        # called inline it holds the event loop — and therefore every other
-        # command, and the gateway heartbeat — for the length of a round trip.
-        refusal = await asyncio.to_thread(upload_refusal_reason, False)
-        uploaded = last_upload_ts()
-        if refusal:
-            sync_status = f"🛑 Not uploading: {refusal}"
-        elif _remote_checked and _last_sync_hash:
-            sync_status = "✅ Synced"
-            if uploaded:
-                # When, not just whether: a sync that stopped an hour ago and one
-                # that ran twelve seconds ago read identically without this.
-                age = max(0, int(time.time() - uploaded))
-                sync_status += f"\nLast upload: {age}s ago"
-        elif _remote_checked:
-            sync_status = "⚠️ Restored but not yet uploaded"
-        else:
-            sync_status = "⏳ Not yet checked"
-        if _restored_from:
-            restored_rows = sum(_restored_counts.values())
-            sync_status += f"\nRestored from `{_restored_from}` ({restored_rows} rows)"
-        if len(sync_status) > 1024:
-            sync_status = sync_status[:1021] + "…"
-        embed.add_field(
-            name="🔄 Sync Status",
-            value=sync_status,
-            inline=True,
-        )
-
-        # Row counts — chunked into 25-row fields (Discord field limit)
-        if tables:
-            lines = []
-            for name, count in sorted(tables.items()):
-                if count < 0:
-                    lines.append(f"`{name}` — ❌")
-                else:
-                    lines.append(f"`{name}` — **{count:,}** rows")
-            # Split into chunks of 15 lines each to stay under 1024 chars
-            chunk_size = 15
-            for i in range(0, len(lines), chunk_size):
-                chunk = lines[i : i + chunk_size]
-                embed.add_field(
-                    name="📊 Table Rows" + (f" ({i // chunk_size + 1})" if i else ""),
-                    value="\n".join(chunk),
-                    inline=False,
-                )
-
-        embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── default role ───────────────────────────────────────────────────────
 

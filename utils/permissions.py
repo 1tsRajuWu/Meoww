@@ -330,6 +330,16 @@ COMMAND_ACCESS: dict[str, str] = {
     "alone list": CHANNELS,
     "alone release": CHANNELS,
     "alone server": ADMIN,
+    # -- Decat ------------------------------------------------------------- #
+    # Asking a question that travels to the operator's own machine is every
+    # member's, on the same reasoning the four Alone Time rows above use: the
+    # *gate* is not a permission bit. What decides whether the command exists at
+    # all is this server's own switch plus the deployment's `DECAT_GUILDS`
+    # allow-list, both of which sit above the caller — and neither of which
+    # Discord's picker can express. A permission check here would hide the
+    # command from the members it is for inside the two servers it runs in, while
+    # changing nothing about the servers it does not.
+    "decat": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
     # The directory is everybody's, and it is the one command whose *content* is
@@ -366,7 +376,16 @@ COMMAND_ACCESS: dict[str, str] = {
     # unchanged — a switch that widened what a member may do would be a different
     # command entirely.
     "bot legacy": ADMIN,
-    "dbstatus": ADMIN,
+    # `/dbstatus` moved here when the tree hit Discord's hundred-command ceiling.
+    # The audience did not move with it — asking whether the database is healthy
+    # is still an administrator's — and neither did anything the card says: it is
+    # the same report, built by ``utils.dbstats`` rather than by the cog that
+    # happened to host it.
+    "bot dbstatus": ADMIN,
+    # The machine half of Decat is operator tooling: whether the laptop is
+    # answering, what model it is running, how long the last answer took. None of
+    # that is a server's configuration, so it is not the server administrator's.
+    "bot decat": ADMIN,
     # -- Activity Tracker: admin-only for management ---------------------- #
     "activity me": ADMIN,
     "activity top": ADMIN,

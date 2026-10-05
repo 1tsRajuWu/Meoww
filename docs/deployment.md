@@ -510,7 +510,7 @@ costs about 16 MB a day instead of 152.
 What this does *not* cover: anything written in the last moments before a hard
 kill with no warning, and any deployment where `SUPABASE_URL` /
 `SUPABASE_SERVICE_KEY` were never set — without them there is no backup at all,
-which `/dbstatus` and the dashboard's Cloud card both say out loud.
+which `/bot dbstatus` and the dashboard's Cloud card both say out loud.
 
 ## Environment Variables Required
 
@@ -670,3 +670,38 @@ The bot includes automatic cloud sync:
 - `GET /health` -> `uptime`: monitor counts and the weakest 30-day ratio. Counts
   rather than names, because the endpoint is unauthenticated; the rows live in
   `/api/uptime` behind the dashboard's sign-in.
+
+## Decat — the one feature that needs a second machine
+
+`/decat` relays a question to the operator's own computer and posts the answer
+back. Nothing else in this deployment behaves that way, so the setup is the one
+part of this document that is about a laptop rather than about a host.
+
+**On the host**, two settings (both in `.env.example`):
+
+| Setting | What it does |
+|---|---|
+| `DECAT_TOKEN` | the credential the machine presents. Blank falls back to `ADMIN_PASSKEY`, which works and is the worse choice — a laptop is the machine most likely to be lost, and the passkey opens the whole operator surface. `/bot decat` says which is in force |
+| `DECAT_GUILDS` | the servers it may run in, comma-separated. **A hard gate above the per-server switch**: a server not named here is refused even if somebody turns the system on for it |
+
+Then switch it on per server, the way every beta here works:
+`POST /api/set-module` with `{"guild_id": …, "module": "decat", "enabled": true}`
+(and `/bot sync`, or a restart, to republish that server's command list).
+
+**On the Mac**, one command: `bash decat/mac/install.sh`. It installs Ollama,
+pulls the model, writes `~/.decat/agent.env`, and installs a login item that
+answers questions and restarts itself. `decat doctor` checks the whole path —
+Ollama, the model, a measured tokens-per-second, vision, the host, the search
+engine — and the switch is a page at `http://127.0.0.1:8787` or `decat on|off`.
+
+**The three routes it uses** are `GET /api/decat/next` (the poll, held open for
+fifteen seconds, carrying the machine's on/off state), `POST /api/decat/answer`,
+and `GET /api/decat/status` for an operator's read-out. All three are in
+`keep_alive.py` and delegate to `decat/relay.py`, which is memory-only.
+
+**What to say when somebody asks whether it is a vendor AI:** it is not. The model
+is a program on that machine (`qwen3-vl:8b` by default, Apache-2.0, pulled by the
+installer), so no model provider receives a question and nothing is trained on.
+The only third party that sees anything is the search engine named in
+`DECAT_SEARCH` — and `DECAT_SEARCH=none` removes even that, at the cost of the
+answer saying it could not check anything.

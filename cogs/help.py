@@ -354,6 +354,29 @@ HELP_MODULES = {
         ),
         "color": 0x5865F2,
         "emoji": "📻"
+    },
+    "decat": {
+        "title": "🛰️ Decat",
+        "desc": (
+            "A question goes to the operator's own Mac, which reads the live web "
+            "and answers with the pages it read. The model runs **on that "
+            "machine**, so nothing about a question is sent to a model vendor — "
+            "and this bot's host keeps nothing either, in either mode.\n\n"
+            "> `/decat <question>` — ask it. Add a picture with `image:`\n"
+            "> `mode: Public` — everyone sees the answer, and it is kept on that "
+            "machine alone\n"
+            "> `mode: Private` — only you see it, and **nothing** is written "
+            "anywhere *(the default)*\n"
+            "> `/bot decat` — whether the machine is answering *(admin)*\n\n"
+            "Every answer names its sources, and says so when it could not reach "
+            "any. Anything legal, medical, money-related, safety-related or "
+            "personal arrives with a plain note that this is an AI and not a "
+            "professional — and a question that reads like somebody in danger is "
+            "answered with a helpline rather than an opinion. Ship a question and "
+            "find the machine asleep and it says *sry, offline rn*."
+        ),
+        "color": 0x5865F2,
+        "emoji": "🛰️"
     }
 }
 
@@ -380,7 +403,8 @@ HELP_HOME_BODY = (
     "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
     "- 🧱 **Server Structure** — channels and roles, with a confirmation on anything big\n"
     "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names\n"
-    "- 🌙 **Alone Time** — take a voice channel for yourself, and keep everybody else out of it"
+    "- 🌙 **Alone Time** — take a voice channel for yourself, and keep everybody else out of it\n"
+    "- 🛰️ **Decat** — ask the operator's own Mac a question, answered from the live web"
 )
 
 # The category *structure* comes from the feature registry; the prose below

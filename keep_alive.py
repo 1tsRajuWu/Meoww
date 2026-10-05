@@ -1541,6 +1541,15 @@ GATED_PREFIXES = (
     "/api/member-warnings",
     "/api/server-action",
     "/api/console/server-action",
+    # The Decat bridge: the operator's own computer polls `/api/decat/next` and
+    # posts its answer to `/api/decat/answer`, and `/api/decat/status` is the
+    # operator's read-out. None of the three is a page and none is a session —
+    # the credential is the `X-Decat-Token` header, checked in the route — so
+    # none belongs on the public side of this split, and a stranger asking for
+    # one of them should be answered nothing rather than sent an agreement.
+    # Classified here rather than left to the fail-closed default, because the
+    # default is "safe by accident" and this list is the record of a decision.
+    "/api/decat/",
 )
 
 
@@ -2101,6 +2110,131 @@ def api_set_module():
 
     _schedule_cloud_backup()
     return jsonify({"success": True, "guild_id": guild_id, "module": module_id, "enabled": enabled})
+
+
+# ── Decat: the bridge to the operator's own machine ───────────────────────────
+#
+# Three routes, because the laptop does the work: it takes one question and holds
+# the request open (`/next`), it hands the answer back (`/answer`), and an
+# operator can read what is going on (`/status`). The relay they delegate to is
+# **memory only** — no table, no file, no log line carrying anybody's words — and
+# that is deliberate rather than unfinished: this host never keeps a question or
+# an answer in either mode. A reboot loses whatever was in flight, and the asker
+# is told so.
+#
+# The credential is the laptop's own (`DECAT_TOKEN`), falling back to
+# `ADMIN_PASSKEY` when none is set so the feature works with the secrets the
+# deployment already has. It is deliberately *not* the passkey throttle: a
+# laptop that polls every fifteen seconds is not guessing at anything, and
+# counting its polls as attempts would lock out the machine that answers
+# questions. The comparison is the constant-time one, like every other secret
+# here.
+DECAT_TOKEN_HEADER = "X-Decat-Token"
+
+
+def _decat_modules():
+    """The feature's own modules, imported where they are used.
+
+    ``keep_alive`` is imported by ``bot`` at startup, and the laptop's half of
+    this feature lives outside the bot entirely — a missing or broken file there
+    must not stop the gateway from booting. Importing here keeps that a local
+    failure.
+    """
+    from decat import config as decat_config
+    from decat import protocol as decat_protocol
+    from decat import relay as decat_relay
+
+    return decat_config, decat_protocol, decat_relay
+
+
+def _decat_ok() -> bool:
+    """Whether this request carries the machine's credential."""
+    from decat import config as decat_config
+
+    expected = decat_config.token()
+    if not expected:
+        return False
+    offered = request.headers.get(DECAT_TOKEN_HEADER, "")
+    if not offered:
+        offered = str((request.get_json(silent=True) or {}).get("token") or "")
+    if not offered:
+        return False
+    return secrets.compare_digest(str(offered), str(expected))
+
+
+@app.route("/api/decat/next")
+def api_decat_next():
+    """The laptop's poll: record that it is awake, then hand it one question.
+
+    ``state`` is how the switch on the machine travels: the laptop answers the
+    question "are you switched off" on every poll, including the empty ones, so
+    the bot can say *switched off* rather than *offline* when it is the switch
+    that is stopping the answer.
+    """
+    decat_config, decat_protocol, decat_relay = _decat_modules()
+    if not _decat_ok():
+        return jsonify({"error": "Decat credential missing or wrong"}), 401
+    state = (request.args.get("state") or "").strip().lower() or None
+    try:
+        wait = float(request.args.get("wait") or decat_config.poll_wait())
+    except (TypeError, ValueError):
+        wait = decat_config.poll_wait()
+    wait = max(0.0, min(wait, decat_config.poll_wait()))
+    job = decat_relay.shared().take(wait, state=state)
+    return jsonify({"v": decat_protocol.VERSION, "job": job})
+
+
+@app.route("/api/decat/answer", methods=["POST"])
+def api_decat_answer():
+    """The laptop's answer. Deliberately silent about what it carries.
+
+    The only thing this route ever prints is a protocol version mismatch, which
+    is a fact about the *software* and not about the question — the deploy's log
+    ring is readable by anybody holding the admin passkey, so a question's words
+    are the one thing that must never land in it.
+    """
+    decat_config, decat_protocol, decat_relay = _decat_modules()
+    if not _decat_ok():
+        return jsonify({"error": "Decat credential missing or wrong"}), 401
+    data = request.get_json(silent=True) or {}
+    if not data.get("id"):
+        return jsonify({"ok": False, "error": "no job id"}), 400
+    problem = decat_protocol.version_problem(data)
+    if problem:
+        print(f"[DECAT] {problem}", flush=True)
+    try:
+        answer = decat_protocol.Answer.from_wire(data)
+    except (TypeError, ValueError) as exc:
+        print(f"[DECAT] unreadable answer payload: {type(exc).__name__}", flush=True)
+        return jsonify({"ok": False, "error": "unreadable payload"}), 400
+    ok = decat_relay.shared().answer(answer)
+    # 409 rather than 404 for a job that has gone: it is either expired or
+    # already settled, and either way the laptop's answer arrived too late to be
+    # delivered — which is what the laptop's own log should say.
+    return jsonify({"ok": ok}), (200 if ok else 409)
+
+
+@app.route("/api/decat/status")
+def api_decat_status():
+    """Counts and timings, and nothing anybody said.
+
+    Operator-only, on the same rule as ``/api/live-logs``: the reply describes the
+    deployment rather than one server, so a guild-scoped session is refused.
+    """
+    decat_config, decat_protocol, decat_relay = _decat_modules()
+    if is_authenticated():
+        if not _principal().is_operator:
+            return jsonify({"error": "Decat status is available only to an administrator sign-in."}), 403
+    elif not _passkey_ok():
+        return _passkey_denied()
+    return jsonify({
+        "version": decat_protocol.VERSION,
+        "configured": bool(decat_config.token()),
+        "scoped": decat_config.token_is_scoped(),
+        "servers": sorted(decat_config.allowed_guilds()),
+        "stale_after": decat_config.heartbeat_stale(),
+        "status": decat_relay.shared().stats(),
+    })
 
 
 @app.route("/api/voice-debug")

@@ -103,6 +103,7 @@ immediately but does **not** delete what already exists — only this does.
 | my marriage | `/divorce` |
 | my pets | `/sellanimals` |
 | a queued or scheduled message | cancel it in the dashboard |
+| a `/decat` exchange | nothing to delete here — the deployment never held it. Ask with `mode: Private` and nothing is written anywhere at all; a `Public` one lives in `~/.decat/history/` on the operator's computer |
 
 ## 5. Retention, so a request can be answered honestly
 
@@ -112,6 +113,7 @@ immediately but does **not** delete what already exists — only this does.
 | Dashboard message history — queued, sent, per-channel result | after 90 days (`utils/scheduled.py::HISTORY_DAYS`) |
 | Meetings — the meeting, its notices and who replied to the card | after 90 days (`utils/meetings.py::HISTORY_DAYS`) |
 | Cloud snapshots | oldest pruned beyond 5, hourly (`utils/cloud_sync.py`) |
+| Decat — a question and the answer to it | **never held here at all.** A question exists in the running Bot's memory from the moment it is asked until it is answered and then deleted, and with `Private` that is the entire life of it — no row, no file, no log line, not even a counter (`decat/relay.py`). With `Public` the exchange is appended to a file on **the operator's own computer**, which is where such a request is answered; nothing about it is uploaded, and no model vendor ever receives it, because the model runs on that machine |
 | Alone Time — a locked voice room, its holder, its whitelist, and the room's previous and locked names | the moment the room is released, which is when the holder leaves it unless the server asked it to stay locked — and always when the system is switched off (`cogs/alonetime.py`). **A holder's reason is not stored at all**: it lives in the running Bot's memory for the life of the lock, and any row written before that was true has its `note` blanked on boot (`utils/db.py`), so there is nothing to hand over and nothing to delete. Requests to join are memory for at most thirty minutes and are never written to any table |
 | Everything else | kept until deleted, because that is the feature |
 

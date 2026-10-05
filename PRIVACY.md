@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** October 1, 2026 · **Version 7** (AI-assisted source).
+**Effective Date:** October 6, 2026 · **Version 8** (AI-assisted source).
 
 This policy explains what this Discord bot ("the Bot") stores, why, where it goes
 and how to have it removed. It describes one deployment; the operator running it
@@ -214,12 +214,34 @@ you.
 
 ## 7. AI
 
-**No part of the running Bot is AI** — no model is called. Created and maintained
-**with the help of AI coding assistants and autonomous AI agents**, and the
-disclosure is in the Terms as well as here. What the deployment does about
-*other people's* automated reading of it — crawling, training use, and the pages
-that identify both — is the AI & crawling policy, which is the third document in
-the same bundle.
+**This deployment calls no AI provider, and nothing you send it is sent to one.**
+Created and maintained **with the help of AI coding assistants and autonomous
+AI agents**, and the disclosure is in the Terms as well as here. What the
+deployment does about *other people's* automated reading of it — crawling,
+training use, and the pages that identify both — is the AI & crawling policy,
+which is the third document in the same bundle.
+
+**One feature is an AI, and where it runs is the whole point.** `/decat` takes a
+question and relays it to the **operator's own computer**, where a model answers
+it; the answer comes back into the server. No model vendor receives it, because
+the model is not a service — it is a program on a machine. What follows from that
+is short enough to state plainly:
+
+* **This deployment keeps nothing.** No question, no answer, no transcript, in
+  either mode. Nothing about a `/decat` question is written to a database, a log
+  or a file on the hosting side.
+* **`Private` is written down nowhere else either** — not on the operator's
+  computer, not in a counter. The answer appears once, to the person who asked.
+  Only the Discord message Discord itself stores remains, under your server's own
+  retention settings.
+* **`Public` is kept on that computer alone**, in a file only its owner can read.
+  It is not uploaded anywhere.
+* **Every answer says it came from a machine**, names the pages it read, or says
+  that it could reach none. Anything about law, medicine, money or safety carries
+  a notice that this is an AI and not a professional; a question that reads like
+  somebody in danger is answered with a helpline rather than an opinion.
+* **It is off until an administrator turns it on**, per server, and a deployment
+  may limit it to named servers.
 
 ## 8. Why we are allowed to hold it, and for how long
 

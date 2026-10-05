@@ -1,4 +1,11 @@
-"""Tests for the /dbstatus command."""
+"""Tests for the database report — now ``/bot dbstatus``, in ``utils/dbstats``.
+
+The command moved when Discord's hundred top-level commands ran out, and the
+report itself moved out of the cog and into a module of its own, because it was
+always a fact about a file rather than a server-control action. The tests moved
+with it: every one of them now drives ``utils.dbstats`` or ``BotConfig.dbstatus``,
+and the last class pins the move itself so it cannot drift back.
+"""
 import os
 import sqlite3
 import tempfile
@@ -94,7 +101,7 @@ class TestDbstatusMath(unittest.TestCase):
         left out rather than reported as unreadable, which would say a readable
         table is broken.
         """
-        from cogs.server_control import _local_table_counts
+        from utils.dbstats import local_table_counts
 
         weird = os.path.join(self.tmpdir, "weird.db")
         conn = sqlite3.connect(weird)
@@ -105,7 +112,7 @@ class TestDbstatusMath(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        counts, _size_kb, _wal_kb, integrity = _local_table_counts(weird)
+        counts, _size_kb, _wal_kb, integrity = local_table_counts(weird)
         self.assertNotIn('a"b', counts)
         self.assertNotIn(-1, counts.values(), f"a table was reported unreadable: {counts}")
         # …and the ordinary table beside it is still counted, so the rule above
@@ -232,7 +239,7 @@ class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
     async def test_the_decision_is_computed_in_a_worker_thread(self):
         import threading
         from unittest.mock import patch
-        from cogs.server_control import ServerControl
+        from cogs.bot_config import BotConfig
         from utils import cloud_sync as cs
 
         seen = {}
@@ -243,10 +250,10 @@ class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
             return "blocked for the test"
 
         interaction = _FakeInteraction()
-        cog = ServerControl(bot=_BootBot())
+        cog = BotConfig(bot=_BootBot())
         with patch.object(cs, "upload_refusal_reason", side_effect=fake_refusal), \
              patch.object(cs, "_storage_list", return_value=[]):
-            await ServerControl.dbstatus.callback(cog, interaction)
+            await BotConfig.dbstatus.callback(cog, interaction)
 
         self.assertIn("thread", seen, "the card never asked whether uploads are allowed")
         self.assertNotEqual(
@@ -261,14 +268,14 @@ class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
     async def test_the_card_still_renders_without_supabase_configured(self):
         """The import of asyncio must not live inside the Supabase branch."""
         from unittest.mock import patch
-        from cogs.server_control import ServerControl
+        from cogs.bot_config import BotConfig
         from utils import cloud_sync as cs
 
         interaction = _FakeInteraction()
-        cog = ServerControl(bot=_BootBot())
+        cog = BotConfig(bot=_BootBot())
         with patch.object(cs, "SUPABASE_URL", ""), \
              patch.object(cs, "SUPABASE_KEY", ""):
-            await ServerControl.dbstatus.callback(cog, interaction)
+            await BotConfig.dbstatus.callback(cog, interaction)
         embed = interaction.followup.embeds[-1]
         field = next(f for f in embed.fields if "Supabase Backup" in f.name)
         self.assertIn("Not configured", field.value)
@@ -359,22 +366,49 @@ class TestDefaultRoleWarnsWhenItCannotWork(unittest.TestCase):
             self.assertIn("_members_intent_warning", source, name)
 
 
-class TestPermissionDeclared(unittest.TestCase):
-    """The dbstatus command is declared as admin-only."""
+class TestTheMoveToTheBotGroup(unittest.TestCase):
+    """``/dbstatus`` is ``/bot dbstatus`` now, and the record of why is here.
+
+    Discord allows a hundred top-level commands and this tree was **at** it, so
+    the command that made room for ``/decat`` was the one that only *reports*
+    something. It is flat rather than ``/bot db health`` on purpose: a nested group
+    is a shape ``utils.permissions.walk`` cannot see, so its audiences would escape
+    the one audit that keeps this tree's permissions honest.
+    """
 
     def test_command_in_access_table(self):
         from utils.permissions import COMMAND_ACCESS
-        self.assertIn("dbstatus", COMMAND_ACCESS)
-        self.assertEqual(COMMAND_ACCESS["dbstatus"], "administrator")
+        self.assertIn("bot dbstatus", COMMAND_ACCESS)
+        self.assertEqual(COMMAND_ACCESS["bot dbstatus"], "administrator")
+        self.assertNotIn(
+            "dbstatus", COMMAND_ACCESS,
+            "the old flat name is back in the audience table, which means the tree "
+            "has a command the audit cannot see",
+        )
 
-    def test_command_in_always_allowed(self):
-        from utils.features import ALWAYS_ALLOWED_COMMANDS
-        self.assertIn("dbstatus", ALWAYS_ALLOWED_COMMANDS)
+    def test_it_is_no_longer_its_own_root(self):
+        """The whole point of the move: one fewer top-level command."""
+        from utils.features import ALWAYS_ALLOWED_COMMANDS, MODULE_COMMAND_MAP
+        self.assertNotIn("dbstatus", ALWAYS_ALLOWED_COMMANDS)
+        self.assertNotIn("dbstatus", MODULE_COMMAND_MAP)
+        # `/bot` is the group that stays reachable when a module is off, and the
+        # report lives under it, so nothing is lost by leaving the flat list.
+        self.assertIn("bot", ALWAYS_ALLOWED_COMMANDS)
 
     def test_command_in_system_feature(self):
         from utils.features import FEATURES
         system = next(f for f in FEATURES if f.id == "system")
-        self.assertIn("/dbstatus", system.commands)
+        self.assertIn("/bot dbstatus", system.commands)
+        self.assertNotIn("/dbstatus", system.commands)
+
+    def test_the_report_is_readable_without_discord(self):
+        """The half that made the move worth doing: a fact about a file, testable."""
+        from utils import dbstats
+        import inspect
+
+        source = inspect.getsource(dbstats.collect)
+        self.assertIn("to_thread", source, "the blocking halves run on the loop")
+        self.assertIn("def embed", inspect.getsource(dbstats))
 
 
 if __name__ == "__main__":

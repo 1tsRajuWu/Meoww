@@ -10,6 +10,7 @@ cogs stay thin.
 | `alonetime.py` | Alone Time | `/alone start stop status guests ask list release server`, the voice sweep, and the holder's whitelist/rename/release controls |
 | `automod.py` | Automod & Shield | `/automod invites`, `/automod antispam` |
 | `bot_config.py` | The bot itself | `/bot db`, `/bot push`, `/bot sync`, `/bot avatar`, `/bot banner`, channel bindings |
+| `decat.py` | Decat | `/decat` — a question relayed to the operator's own Mac, answered there with live sources. Thin on purpose: the queue, the words and the machine half all live in `../decat/` |
 | `economy.py` | Economy & Casino | `/balance /daily /work /rob /pay /shop /buy /loan …` |
 | `fun.py` | Fun & Memes | `/meme /8ball /meow /quote /roast …` |
 | `games.py` | Mini-Games Hub | `/tictactoe /rps /trivia /mines /crash …` (plus casino games shared with economy) |

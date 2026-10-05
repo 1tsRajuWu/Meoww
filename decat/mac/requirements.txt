@@ -1,0 +1,14 @@
+# The Mac half of /decat needs nothing at all.
+#
+# That is deliberate rather than lucky: this package answers questions on a
+# laptop that may have no virtual environment, and every dependency it does not
+# have is a dependency that cannot break at 2am on a machine nobody is looking
+# at. The HTTP client is `urllib.request`, the HTML reader is `html.parser`, the
+# JSON is `json`, and the model is talked to over loopback with the same three.
+#
+# Ollama itself is not a Python package — `decat/mac/install.sh` installs it with
+# Homebrew and pulls the model.
+#
+# This file exists because a requirements file that lists nothing is clearer than
+# an absent one: the next person to add `requests` to a half of this feature gets
+# to read the paragraph above first.
