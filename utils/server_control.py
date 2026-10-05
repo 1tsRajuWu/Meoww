@@ -713,6 +713,12 @@ async def adopt_legacy_locks(guild, bot_user) -> list:
     handed out. Getting the channel back exactly as it was is not recoverable, and
     pretending otherwise would restore a lock instead of a room.
 
+    **Every server is answered in the host log, whether or not anything was
+    adopted** — how many channels were candidates and how many were claimed,
+    with their names when there are any. A pass that says nothing when it finds
+    nothing cannot be told from a pass that never ran, and this one is meant to
+    be readable back from a deploy's log ring.
+
     Returns the channels adopted, so a caller can say so.
     """
     guild_id = report_guild_id(guild)
@@ -722,22 +728,28 @@ async def adopt_legacy_locks(guild, bot_user) -> list:
         print(f"[CONTROL] could not read the lockdown ledger: {exc}", flush=True)
         return []
     candidates = adoption_candidates(guild, {int(row[0]) for row in rows})
-    if not candidates:
-        return []
-    mine = await _last_overwrite_by_this_bot(guild, candidates, bot_user)
+    mine = await _last_overwrite_by_this_bot(guild, candidates, bot_user) if candidates else set()
     adopted = [channel for channel in candidates if int(getattr(channel, "id", 0) or 0) in mine]
-    if not adopted:
-        return []
-    ledger = [(int(getattr(channel, "id", 0) or 0), "") for channel in adopted]
-    try:
-        await db.save_lockdown(
-            guild_id, ledger, int(getattr(bot_user, "id", 0) or 0), _now()
-        )
-    except Exception as exc:  # noqa: BLE001 — no ledger, no lock
-        print(f"[CONTROL] could not record the lockdowns I adopted: {exc}", flush=True)
-        return []
-    forget_lock_cache(guild_id)
-    forget_spam(guild_id)
+    if adopted:
+        ledger = [(int(getattr(channel, "id", 0) or 0), "") for channel in adopted]
+        try:
+            await db.save_lockdown(
+                guild_id, ledger, int(getattr(bot_user, "id", 0) or 0), _now()
+            )
+        except Exception as exc:  # noqa: BLE001 — no ledger, no lock
+            print(f"[CONTROL] could not record the lockdowns I adopted: {exc}", flush=True)
+            adopted = []
+        else:
+            forget_lock_cache(guild_id)
+            forget_spam(guild_id)
+    names = ", ".join(f"#{getattr(channel, 'name', '?')}" for channel in adopted)
+    print(
+        f"[CONTROL] locks older than the ledger in guild {guild_id}: "
+        f"{len(candidates)} candidate(s), adopted {len(adopted)}"
+        + (f" ({names})" if names else "")
+        + ".",
+        flush=True,
+    )
     return adopted
 
 

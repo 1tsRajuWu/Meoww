@@ -437,13 +437,10 @@ class ServerControl(commands.Cog):
                 )
                 continue
             if not adopted:
+                # The engine already answered this guild in the host log — how many
+                # channels it looked at and how many it claimed (``adopt_legacy_locks``),
+                # so there is nothing to add here and nothing to guess from silence.
                 continue
-            names = ", ".join(f"#{getattr(channel, 'name', '?')}" for channel in adopted)
-            print(
-                f"[CONTROL] adopted {len(adopted)} lockdown(s) older than the ledger in "
-                f"guild {getattr(guild, 'id', 0)}: {names}",
-                flush=True,
-            )
             await self._say_what_was_adopted(guild, adopted)
 
     @adopt.before_loop

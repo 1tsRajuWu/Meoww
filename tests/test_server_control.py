@@ -833,6 +833,25 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         self.assertEqual(await db.lockdown_rows(guild.id), [])
         self.assertIn("could not read the audit log", said.getvalue())
 
+    async def test_every_server_says_what_the_pass_looked_at(self):
+        """A pass that says nothing when it finds nothing cannot be told from a
+        pass that never ran — which is how a deploy is read back from a log ring."""
+        everyone = self._everyone()
+        theirs = self._server(everyone, self._old_lock(everyone), entries=[self._entry(user_id=99)])
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            await server_control.adopt_legacy_locks(theirs, self._bot())
+        self.assertIn(f"guild {theirs.id}", said.getvalue())
+        self.assertIn("1 candidate(s), adopted 0", said.getvalue())
+
+        mine_everyone = self._everyone()
+        mine = self._server(
+            mine_everyone, self._old_lock(mine_everyone), entries=[self._entry()]
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            adopted = await server_control.adopt_legacy_locks(mine, self._bot())
+        self.assertEqual(len(adopted), 1)
+        self.assertIn("1 candidate(s), adopted 1 (#quiet)", said.getvalue())
+
 
 class TheListenerRemovesWhatWasPostedWhileLocked(
     TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
