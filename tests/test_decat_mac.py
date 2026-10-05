@@ -132,6 +132,26 @@ class TestTheNetworkGuard(unittest.TestCase):
         url = "https://1tsrajowo-meow.hf.space/api/decat/next"
         self.assertEqual(net.checked_endpoint(url, ("1tsrajowo-meow.hf.space",)), url)
 
+    def test_plain_http_is_allowed_only_for_loopback(self):
+        """Ollama serves plain HTTP on 127.0.0.1 and nowhere else ever may.
+
+        The model's own client pins its allowed host to loopback, so the one
+        plaintext request this guard permits cannot carry the credential: the
+        Space downgraded to ``http://`` is still refused, above and below.
+        """
+        url = "http://127.0.0.1:11434/api/tags"
+        self.assertEqual(net.checked_endpoint(url, ("127.0.0.1",)), url)
+        for refused in (
+            "http://1tsrajowo-meow.hf.space/api/decat/next",  # the credential, downgraded
+            "http://169.254.169.254/latest/meta-data/",  # link-local, not loopback
+        ):
+            with self.subTest(url=refused):
+                with self.assertRaises(net.Blocked):
+                    net.checked_endpoint(refused, ("1tsrajowo-meow.hf.space", "127.0.0.1"))
+        # …and loopback itself needs to be in the allowed set to be reached at all.
+        with self.assertRaises(net.Blocked):
+            net.checked_endpoint(url, ("1tsrajowo-meow.hf.space",))
+
     def test_a_refused_host_looks_like_an_outage_to_every_caller(self):
         """``OSError`` is what the callers already catch, so a refusal reads as one."""
         with self.assertRaises(OSError):

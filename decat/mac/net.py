@@ -59,13 +59,21 @@ def checked_endpoint(url: str, allowed: tuple[str, ...]) -> str:
     HTTPS only, and no userinfo: ``https://user:pass@discord.com@evil.test/`` is
     a URL whose *userinfo* spells a name the real host does not have, which is the
     trick a host comparison written quickly falls for.
+
+    One exception to HTTPS, and the smallest one available: **plain HTTP to a
+    loopback address** — ``127.0.0.1``, ``::1``, ``localhost``. That is how Ollama
+    serves (no TLS, by design, and ``Ollama._allowed()`` pins it to loopback
+    anyway), and a packet that never leaves this machine has nothing to encrypt.
+    Every other host, including the Space, must be HTTPS — a downgrade of the
+    credential's own host is still refused.
     """
     parsed = urllib.parse.urlsplit(str(url or ""))
-    if parsed.scheme != "https":
+    host = parsed.hostname or ""
+    loopback = host in ("127.0.0.1", "::1", "localhost")
+    if parsed.scheme != "https" and not (parsed.scheme == "http" and loopback):
         raise Blocked(f"refusing a non-HTTPS request: {parsed.scheme or 'no scheme'}")
     if "@" in parsed.netloc:
         raise Blocked("refusing a URL with credentials in it")
-    host = parsed.hostname or ""
     if not host_allowed(host, allowed):
         raise Blocked(f"refusing to send anything to {host or 'a nameless host'}")
     return url
