@@ -26,9 +26,28 @@ you what is still missing.
 
 Two things must match before a question can be answered:
 
-1. **`DECAT_TOKEN` in `~/.decat/agent.env`** must equal the value the host has
-   (or leave it blank there and here, and the host's `ADMIN_PASSKEY` is used).
+1. **The credential, on both sides.** The host and this machine have to present
+   the same secret, and the host already has one: it falls back to `ADMIN_PASSKEY`
+   while its own `DECAT_TOKEN` is unset. So the quickest working setup is to put
+   the *host's* passkey here:
+
+   ```bash
+   echo 'DECAT_TOKEN=the-value-of-ADMIN_PASSKEY-on-the-host' >> ~/.decat/agent.env
+   ```
+
+   **A dedicated token is better**, and worth the two minutes: the passkey opens
+   the operator's entire dashboard, and a laptop is the machine most likely to be
+   lost. Generate one (`openssl rand -hex 32`), set it as `DECAT_TOKEN` on the
+   host — the Space's *Settings → Variables and secrets* page (as a **secret**, so
+   it is stored write-only), or
+   `POST /api/spaces/1tsRajOwO/meow/secrets` with `{"key": "DECAT_TOKEN",
+   "value": "…"}` on the Hub — and put the same value here. Leaving it blank on *this* side only works if this machine also has
+   `ADMIN_PASSKEY` in its environment, which the installer does not write. From
+   Discord, **`/bot decat` says which of the two the host is using**, so the
+   weaker choice is visible rather than assumed.
 2. **The server must have the system switched on** — an administrator, once.
+   `/bot decat` answers this too. The two servers the deployment names in
+   `DECAT_GUILDS` both have it on; anywhere else the command is not offered at all.
 
 ## The switch
 
