@@ -181,6 +181,80 @@ class TestTheCopy(unittest.TestCase):
         self.assertIn("not a person", copy.DISCLOSURE.format(model="qwen3-vl:8b"))
 
 
+class TestAQuestionThatIsNotAQuestion(unittest.TestCase):
+    """The first live question this feature ever answered was *"hi"*.
+
+    It was searched for, found nothing, and came back as a card that warned *no
+    live sources reached* over an answer explaining that a greeting is not a
+    factual question requiring verification. Every word true, none of it the
+    point. These are the rules that came out of that.
+    """
+
+    def test_a_greeting_has_nothing_to_look_up_and_a_question_does(self):
+        for greeting in (
+            "hi", "hey!", "yo", "thanks bbg 😊", "good morning everyone", "lol",
+            "you up?", "who are you?", "k", "nice one", "bye",
+        ):
+            with self.subTest(greeting=greeting):
+                self.assertFalse(copy.needs_sources(greeting))
+        for question in (
+            "what is the capital of peru", "weather in delhi tomorrow",
+            "who won the 1994 world cup", "good pizza recipe", "is it safe to drive",
+            "what does ollama cost",
+        ):
+            with self.subTest(question=question):
+                self.assertTrue(copy.needs_sources(question))
+
+    def test_a_greeting_with_a_question_bolted_on_is_a_question(self):
+        self.assertTrue(copy.needs_sources("hi, what is the capital of peru"))
+        self.assertTrue(copy.needs_sources("x" * 200), "length is not the test, but it is a guard")
+
+    def test_nothing_at_all_needs_sources_rather_than_a_reply(self):
+        """A blank question is not a greeting; it is a question with no content."""
+        for text in ("", "   ", "!!!", None):
+            with self.subTest(text=text):
+                self.assertTrue(copy.needs_sources(text))
+
+
+class TestTheModelADefaultMachineGets(unittest.TestCase):
+    """The default is the model the machine in front of the operator can hold.
+
+    The 8b was the default until this feature ran on the Air it was written for:
+    six gigabytes of weights and their cache on a 16 GB fanless laptop is not a
+    better answer, it is a swap file, and the first live question paid for it.
+    """
+
+    def test_the_default_is_the_small_model_and_the_big_one_is_named(self):
+        saved = os.environ.pop("DECAT_MODEL", None)
+        try:
+            self.assertEqual(config.model(), config.DEFAULT_MODEL)
+        finally:
+            if saved is not None:
+                os.environ["DECAT_MODEL"] = saved
+        self.assertEqual(config.DEFAULT_MODEL, "qwen3-vl:4b")
+        self.assertEqual(config.BIG_MODEL, "qwen3-vl:8b")
+        self.assertNotEqual(config.DEFAULT_MODEL, config.BIG_MODEL)
+        # One number, shared with the installer, so the two cannot drift apart.
+        self.assertEqual(config.BIG_MODEL_RAM_BYTES, 24 * 1024**3)
+
+    def test_fast_with_no_second_model_is_still_a_different_answer(self):
+        saved = os.environ.pop("DECAT_FAST_MODEL", None)
+        try:
+            self.assertEqual(config.fast_model(), config.model())
+        finally:
+            if saved is not None:
+                os.environ["DECAT_FAST_MODEL"] = saved
+
+    def test_the_weights_are_given_back_rather_than_kept_for_half_an_hour(self):
+        self.assertEqual(config.DEFAULT_KEEP_ALIVE, "10m")
+        os.environ["DECAT_KEEP_ALIVE"] = "0"
+        try:
+            self.assertEqual(config.keep_alive(), "0")
+        finally:
+            os.environ.pop("DECAT_KEEP_ALIVE", None)
+        self.assertEqual(config.keep_alive(), config.DEFAULT_KEEP_ALIVE)
+
+
 class TestTheRelayKeepsNothing(unittest.TestCase):
     def _relay(self, **kw) -> relay_module.Relay:
         clock = _Clock()
@@ -368,6 +442,21 @@ class TestTheCogSaysTheRightThing(unittest.TestCase):
         parts = self._parts(sources=(), verified=False, ungrounded=True)
         self.assertIn(copy.UNGROUNDED_LABEL, parts["footer"])
         self.assertEqual(parts["sources"], "")
+
+    def test_a_greeting_is_not_reported_as_a_search_that_failed(self):
+        """The live defect, as a law: *"hi"* is not an ungrounded answer."""
+        parts = self._parts(
+            question="hi", text="hey — what do you need?", sources=(), verified=False, ungrounded=True
+        )
+        self.assertIn(copy.PLAIN_LABEL, parts["footer"])
+        self.assertNotIn(copy.UNGROUNDED_LABEL, parts["footer"])
+        # The honest warning is not lost: a real question the web failed keeps it.
+        failed = self._parts(
+            question="what is the capital of peru", text="Lima.", sources=(),
+            verified=False, ungrounded=True,
+        )
+        self.assertIn(copy.UNGROUNDED_LABEL, failed["footer"])
+        self.assertNotIn(copy.PLAIN_LABEL, failed["footer"])
 
     def test_the_notice_is_on_the_card_when_the_question_earns_it(self):
         parts = self._parts(question="can my landlord keep my deposit", lane="advice")

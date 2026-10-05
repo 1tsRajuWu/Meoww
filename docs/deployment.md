@@ -700,8 +700,10 @@ and `GET /api/decat/status` for an operator's read-out. All three are in
 `keep_alive.py` and delegate to `decat/relay.py`, which is memory-only.
 
 **What to say when somebody asks whether it is a vendor AI:** it is not. The model
-is a program on that machine (`qwen3-vl:8b` by default, Apache-2.0, pulled by the
-installer), so no model provider receives a question and nothing is trained on.
+is a program on that machine (Apache-2.0, pulled by the installer — `qwen3-vl:4b`
+on a 16 GB machine and `qwen3-vl:8b` where there is room, chosen from the memory
+the installer finds), so no model provider receives a question and nothing is
+trained on.
 The only third party that sees anything is the search engine named in
 `DECAT_SEARCH` — and `DECAT_SEARCH=none` removes even that, at the cost of the
 answer saying it could not check anything.

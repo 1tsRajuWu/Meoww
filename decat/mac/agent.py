@@ -90,9 +90,22 @@ class Transport:
         return bool(isinstance(reply, dict) and reply.get("ok"))
 
 
+def _log(line: str) -> None:
+    """One line, written now.
+
+    Under launchd stdout is a *file*, not a terminal, so ``print`` buffers: the
+    agent's own lines sat in that buffer and reached the disk only when something
+    else flushed, which is how a summary of a successful delivery ended up *after*
+    an error that came minutes later, and how a diagnosis became a puzzle about
+    ordering. The log is the only thing anybody can read when the laptop is in
+    another room, so it is written as it happens.
+    """
+    print(line, flush=True)
+
+
 def _report_failure(exc: Exception) -> bool:
     """The answer could not be delivered — said out loud, without any words."""
-    print(f"[DECAT] could not hand the answer back ({type(exc).__name__})", flush=True)
+    _log(f"[DECAT] could not hand the answer back ({type(exc).__name__})")
     return False
 
 
@@ -118,7 +131,7 @@ class Agent:
         gather: Callable[..., web.WebResult] | None = None,
         picture: Callable[..., image_tool.Picture] | None = None,
         history: History | None = None,
-        log: Callable[[str], None] = print,
+        log: Callable[[str], None] = _log,
         clock: Callable[[], float] = time.time,
     ):
         self.transport = transport
@@ -198,11 +211,16 @@ class Agent:
         spent_ms = 0
         try:
             client = self.client()
+            # Fewer tokens of context and a shorter answer on the `fast` lane, and
+            # the budgets are passed rather than defaulted because they are memory:
+            # see the constants in `decat/mac/ollama.py` for what each one buys.
             draft = client.chat(
                 prompts.draft_messages(
                     job.question, block, lane=lane, image_b64=picture.data or None
                 ),
                 model=model,
+                num_ctx=ollama_module.DRAFT_CTX if job.thorough else ollama_module.FAST_CTX,
+                num_predict=ollama_module.DRAFT_TOKENS if job.thorough else ollama_module.FAST_TOKENS,
             )
             spent_ms += draft.total_ms
             text, checked = draft.text, False
@@ -213,7 +231,10 @@ class Agent:
             # to be the stronger claim.
             if result.grounded and job.thorough:
                 reply = client.chat(
-                    prompts.verify_messages(job.question, draft.text, block), model=model
+                    prompts.verify_messages(job.question, draft.text, block),
+                    model=model,
+                    num_ctx=ollama_module.VERIFY_CTX,
+                    num_predict=ollama_module.VERIFY_TOKENS,
                 )
                 spent_ms += reply.total_ms
                 text, checked = prompts.parse_verify(reply.text, draft.text)

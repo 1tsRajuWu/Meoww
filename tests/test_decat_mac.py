@@ -18,6 +18,7 @@ The claims being pinned, in the order somebody would worry about them:
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import tempfile
@@ -74,9 +75,12 @@ class _FakeLlm:
         self.fail = fail
         self.model = model
         self.calls = []
+        #: The memory budget each call was made with — `num_ctx`/`num_predict`.
+        self.kwargs: list[dict] = []
 
     def chat(self, messages, *, model=None, timeout=None, **kw):
         self.calls.append((model, messages))
+        self.kwargs.append(dict(kw))
         if self.fail:
             raise ollama.OllamaError(self.fail)
         text = self.draft if len(self.calls) == 1 else (self.verify or self.draft)
@@ -208,6 +212,23 @@ class TestThePrompts(unittest.TestCase):
     def test_no_sources_says_so_instead_of_pretending(self):
         self.assertEqual(prompts.source_block(""), prompts.UNGROUNDED_NOTE)
 
+    def test_a_greeting_is_not_told_that_a_search_failed(self):
+        """The live defect's other half: the words the model was given."""
+        self.assertEqual(prompts.source_block("", needed=False), prompts.NOTHING_TO_LOOK_UP)
+        self.assertNotIn("could not check", prompts.NOTHING_TO_LOOK_UP)
+        greeting = prompts.draft_messages("hi", "", lane="factual")[1]["content"]
+        self.assertIn(prompts.NOTHING_TO_LOOK_UP, greeting)
+        self.assertNotIn(prompts.UNGROUNDED_NOTE, greeting)
+        # …and a question whose sources failed still gets the honest note.
+        refused = prompts.draft_messages("what is the capital of peru", "", lane="factual")[1]["content"]
+        self.assertIn(prompts.UNGROUNDED_NOTE, refused)
+        self.assertNotIn(prompts.NOTHING_TO_LOOK_UP, refused)
+
+    def test_the_model_is_told_not_to_narrate_its_own_plumbing(self):
+        for lane in ("factual", "advice", "personal"):
+            with self.subTest(lane=lane):
+                self.assertIn("Never narrate your own process", prompts.system_for(lane))
+
     def test_every_lane_forbids_the_two_things_that_matter(self):
         for lane in ("factual", "advice", "personal"):
             prompt = prompts.system_for(lane)
@@ -238,17 +259,165 @@ class TestThePrompts(unittest.TestCase):
         self.assertEqual(prompts.topic_for_card("what is 2+2"), ("factual", ""))
 
 
+def _agent_for_test(*, llm=None, gathered=None, picture=None, history=None, transport=None, log=None):
+    """An agent with every seam faked — the piece of machinery every law here uses.
+
+    Module level rather than a method on one class because more than one class
+    needs it: the budget the laptop runs on is checked by driving a real
+    ``answer_job``, not by reading a constant.
+    """
+    return agent_module.Agent(
+        transport=transport or _FakeTransport(),
+        llm=llm or _FakeLlm(),
+        gather=lambda *a, **k: gathered if gathered is not None else _gathered(
+            ("https://a.test/1", "One", "Lima is the capital of Peru."),
+        ),
+        picture=picture or (lambda url: image_tool.Picture(data="AAAA")),
+        history=history,
+        log=log or (lambda line: None),
+    )
+
+
+class TestTheBudgetTheLaptopIsOn(unittest.TestCase):
+    """Memory, said out loud: what the model is allowed to hold and to write.
+
+    Every one of these is a number that used to be somebody else's default. On a
+    16 GB fanless Air with a browser open, "whatever Ollama decides" is how a
+    question takes thirty-one seconds and pages a gigabyte to disk.
+    """
+
+    def test_the_context_and_the_answer_length_are_pinned_in_the_request(self):
+        seen = {}
+        client = ollama.Ollama(
+            host="http://127.0.0.1:11434", model="m",
+            post=lambda url, payload, timeout: seen.update(payload)
+            or {"message": {"content": "hi"}, "model": "m"},
+        )
+        client.chat([{"role": "user", "content": "hi"}], num_ctx=1234, num_predict=56)
+        self.assertEqual(seen["options"]["num_ctx"], 1234)
+        self.assertEqual(seen["options"]["num_predict"], 56)
+        # And the defaults are the `deep` draft's budget, not a hole.
+        client.chat([{"role": "user", "content": "hi"}])
+        self.assertEqual(seen["options"]["num_ctx"], ollama.DRAFT_CTX)
+        self.assertEqual(seen["options"]["num_predict"], ollama.DRAFT_TOKENS)
+
+    def test_fast_asks_for_less_than_deep_because_that_is_the_half_of_fast_that_shows(self):
+        agent = _agent_for_test()
+        agent.answer_job(_job(depth=protocol.DEPTH_FAST))
+        self.assertEqual(agent.llm.kwargs[0]["num_ctx"], ollama.FAST_CTX)
+        self.assertEqual(agent.llm.kwargs[0]["num_predict"], ollama.FAST_TOKENS)
+
+        deep = _agent_for_test()
+        deep.answer_job(_job())
+        draft, verify = deep.llm.kwargs
+        self.assertEqual(draft["num_ctx"], ollama.DRAFT_CTX)
+        self.assertLess(ollama.FAST_CTX, ollama.DRAFT_CTX)
+        self.assertLess(ollama.FAST_TOKENS, ollama.DRAFT_TOKENS)
+        # The re-check is a short correction, not a second answer.
+        self.assertEqual(verify["num_ctx"], ollama.VERIFY_CTX)
+        self.assertLessEqual(verify["num_predict"], draft["num_predict"])
+
+    def test_the_weights_are_given_back_sooner_than_they_used_to_be(self):
+        saved = os.environ.pop("DECAT_KEEP_ALIVE", None)
+        try:
+            client = ollama.Ollama(
+                host="http://127.0.0.1:11434", model="m",
+                post=lambda url, payload, timeout: {"message": {"content": "hi"}, "model": "m"},
+            )
+            self.assertEqual(client.keep_alive, config.DEFAULT_KEEP_ALIVE)
+            self.assertEqual(client.keep_alive, "10m")
+            os.environ["DECAT_KEEP_ALIVE"] = "0"
+            self.assertEqual(
+                ollama.Ollama(host="http://127.0.0.1:11434", model="m").keep_alive, "0"
+            )
+        finally:
+            if saved is not None:
+                os.environ["DECAT_KEEP_ALIVE"] = saved
+            else:
+                os.environ.pop("DECAT_KEEP_ALIVE", None)
+
+
+class TestTheLogIsWrittenWhenItHappens(unittest.TestCase):
+    """The log is the only thing readable when the laptop is in another room.
+
+    Under launchd stdout is a file, so ``print`` buffers. That is how the summary
+    of a successful delivery ended up on disk *after* an error that came minutes
+    later, and how a question that was lost looked like a delivery that worked.
+    """
+
+    def setUp(self):
+        self.stream = _RecordingStream()
+
+    def test_the_agent_default_logger_flushes(self):
+        import contextlib
+
+        with contextlib.redirect_stdout(self.stream):
+            agent_module._log("[DECAT] one line")
+        self.assertIn("[DECAT] one line", self.stream.getvalue())
+        self.assertEqual(self.stream.flushes, 1, "the line sat in a buffer")
+
+    def test_the_default_logger_is_that_one(self):
+        import inspect
+
+        default = inspect.signature(agent_module.Agent.__init__).parameters["log"].default
+        self.assertIs(default, agent_module._log)
+
+    def test_a_refused_delivery_goes_through_the_flushing_logger(self):
+        import contextlib
+
+        with contextlib.redirect_stdout(self.stream):
+            refused = agent_module._report_failure(OSError("no route"))
+        self.assertFalse(refused)
+        self.assertIn("could not hand the answer back (OSError)", self.stream.getvalue())
+        self.assertEqual(self.stream.flushes, 1)
+
+
+class TestTheInstallerPicksAModelTheMachineCanHold(unittest.TestCase):
+    """Read, not run: this is the script a person runs once on their own laptop."""
+
+    def setUp(self):
+        root = Path(__file__).resolve().parent.parent
+        self.source = (root / "decat" / "mac" / "install.sh").read_text()
+
+    def test_the_choice_is_this_machine_s_memory(self):
+        self.assertIn("sysctl -n hw.memsize", self.source)
+        self.assertIn(
+            f"-ge {config.BIG_MODEL_RAM_BYTES // 1024**3}",
+            self.source,
+            "the installer's threshold and config.BIG_MODEL_RAM_BYTES have drifted apart",
+        )
+        self.assertIn(config.BIG_MODEL, self.source)
+        self.assertIn(config.DEFAULT_MODEL, self.source)
+
+    def test_an_explicit_choice_wins_over_the_guess(self):
+        self.assertIn('[ -n "${DECAT_MODEL:-}" ]', self.source)
+        self.assertIn("DECAT_MODEL=$MODEL", self.source, "the env file ignores what was chosen")
+        self.assertIn("DECAT_KEEP_ALIVE=", self.source)
+
+    def test_a_machine_that_took_the_small_model_does_not_download_the_big_one(self):
+        self.assertIn('FAST_MODEL="${DECAT_FAST_MODEL:-}"', self.source)
+        self.assertIn('[ "$MODEL" = "$BIG_MODEL" ]', self.source, "the second model is unconditional")
+        self.assertIn('[ -n "$FAST_MODEL" ] && [ "$FAST_MODEL" != "$MODEL" ]', self.source)
+
+    def test_the_env_template_is_not_a_script(self):
+        """It is an *expanding* heredoc, so a backtick in it would be executed."""
+        start = self.source.index('cat > "$HOME_DIR/agent.env" <<EOF')
+        block = self.source[start : self.source.index("\nEOF\n", start)]
+        self.assertNotIn("`", block)
+        self.assertNotIn("$(", block)
+        self.assertIn("$MODEL", block)
+
+    def test_one_model_at_a_time_is_set_on_the_daemon_that_holds_the_weights(self):
+        self.assertIn("sh.brew.ollama.plist", self.source)
+        self.assertIn("OLLAMA_MAX_LOADED_MODELS", self.source)
+        self.assertIn("ollama-plist.bak", self.source, "a plist edit with no backup")
+
+
 class TestTheAgent(unittest.TestCase):
     def _agent(self, *, llm=None, gathered=None, picture=None, history=None, transport=None, log=None):
-        return agent_module.Agent(
-            transport=transport or _FakeTransport(),
-            llm=llm or _FakeLlm(),
-            gather=lambda *a, **k: gathered if gathered is not None else _gathered(
-                ("https://a.test/1", "One", "Lima is the capital of Peru."),
-            ),
-            picture=picture or (lambda url: image_tool.Picture(data="AAAA")),
-            history=history,
-            log=log or (lambda line: None),
+        return _agent_for_test(
+            llm=llm, gathered=gathered, picture=picture, history=history,
+            transport=transport, log=log,
         )
 
     def _agent_with(self, gather, *, llm=None, history=None):
@@ -651,6 +820,18 @@ class TestTheDoctor(unittest.TestCase):
 
         source = inspect.getsource(doctor.main)
         self.assertIn('{"search", "host"}', source)
+
+
+class _RecordingStream(io.StringIO):
+    """A stdout that counts its flushes, so "written now" is checkable."""
+
+    def __init__(self):
+        super().__init__()
+        self.flushes = 0
+
+    def flush(self):
+        self.flushes += 1
+        return super().flush()
 
 
 class TestOllamaClient(unittest.TestCase):

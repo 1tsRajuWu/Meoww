@@ -13,11 +13,40 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 HOME_DIR="${DECAT_HOME:-$HOME/.decat}"
-MODEL="${DECAT_MODEL:-qwen3-vl:8b}"
-# The model `Fast` answers with. Pulled here rather than left to fail later: it is
-# written into agent.env below, and a `Fast` question on a machine that only has
-# the big one is not a slow answer, it is an error about a model nobody pulled.
-FAST_MODEL="${DECAT_FAST_MODEL:-qwen3-vl:4b}"
+# ── which model this machine can actually hold ──────────────────────────────
+#
+# Both models answer the same questions from the same sources; the difference is
+# 6.1 GB of weights plus a KV cache against 3.3 GB. On a desktop that is a free
+# upgrade. On a 16 GB fanless Air it is the difference between an answer and the
+# machine paging its own memory out — measured on the Air this was written for:
+# ~1.9 GB paged out during one answer, with the 8b resident. So the installer
+# picks by the RAM it finds instead of assuming the better model fits, and it
+# only downloads the one it picked: a 6 GB model nobody will load is not a
+# harmless extra, it is a thing a machine in a hurry will reach for later.
+#
+# `DECAT_MODEL` still wins when it is set — this is a default, not a gate.
+BIG_MODEL="qwen3-vl:8b"
+SMALL_MODEL="qwen3-vl:4b"
+RAM_BYTES="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+RAM_GB=$(( RAM_BYTES / 1073741824 ))
+if [ -n "${DECAT_MODEL:-}" ]; then
+  MODEL="$DECAT_MODEL"
+  say "Using DECAT_MODEL=$MODEL as asked"
+elif [ "$RAM_GB" -ge 24 ]; then
+  MODEL="$BIG_MODEL"
+  say "$RAM_GB GB of memory — $MODEL fits comfortably"
+else
+  MODEL="$SMALL_MODEL"
+  say "$RAM_GB GB of memory — using $MODEL (the 8b needs about 6.1 GB resident; set DECAT_MODEL to override)"
+fi
+
+# The second model, only where there is room for both. On a machine that took the
+# small one there is nothing to add: `Fast` reads two pages instead of three and
+# skips the re-check, which is most of the time saved anyway.
+FAST_MODEL="${DECAT_FAST_MODEL:-}"
+if [ -z "$FAST_MODEL" ] && [ "$MODEL" = "$BIG_MODEL" ]; then
+  FAST_MODEL="$SMALL_MODEL"
+fi
 LABEL="com.decat.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
@@ -55,7 +84,7 @@ done
 curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 \
   || fail "Ollama is not answering on 127.0.0.1:11434 — start it and run this again"
 
-say "Pulling $MODEL (6.1 GB the first time, nothing after that)…"
+say "Pulling $MODEL (a few GB the first time, nothing after that)…"
 ollama pull "$MODEL"
 
 # The small one, for `Fast`. Optional in the sense that `/decat` works without it
@@ -66,13 +95,38 @@ if [ -n "$FAST_MODEL" ] && [ "$FAST_MODEL" != "$MODEL" ]; then
   ollama pull "$FAST_MODEL" || say "Could not pull $FAST_MODEL — 'Fast' will not work until you do"
 fi
 
+# ── one model in memory at a time ────────────────────────────────────────────
+#
+# This is Ollama's setting, not the agent's: the weights live in the daemon, so
+# the variable has to reach the service that started it. Homebrew's plist is the
+# one place that survives a reboot, it is already carrying this machine's
+# OLLAMA_FLASH_ATTENTION / OLLAMA_KV_CACHE_TYPE lines, so the same dictionary gets
+# the cap. Backed up first, best-effort after that: a machine whose Ollama was
+# started some other way still works, it is just less protected.
+OLLAMA_PLIST="$HOME/Library/LaunchAgents/sh.brew.ollama.plist"
+if [ -f "$OLLAMA_PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
+  if /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:OLLAMA_MAX_LOADED_MODELS" "$OLLAMA_PLIST" >/dev/null 2>&1; then
+    say "Ollama already loads one model at a time"
+  else
+    cp "$OLLAMA_PLIST" "$HOME_DIR/ollama-plist.bak"
+    if /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OLLAMA_MAX_LOADED_MODELS string 1" "$OLLAMA_PLIST" >/dev/null 2>&1; then
+      say "Ollama will load one model at a time (old plist kept at $HOME_DIR/ollama-plist.bak)"
+      brew services restart ollama >/dev/null 2>&1 || true
+      for _ in $(seq 1 30); do
+        curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break
+        sleep 1
+      done
+    fi
+  fi
+fi
+
 # ── the config the agent reads ───────────────────────────────────────────────
 mkdir -p "$HOME_DIR/history"
 chmod 700 "$HOME_DIR"
 
 if [ ! -f "$HOME_DIR/agent.env" ]; then
   say "Writing $HOME_DIR/agent.env — fill in the two values it asks for"
-  cat > "$HOME_DIR/agent.env" <<'EOF'
+  cat > "$HOME_DIR/agent.env" <<EOF
 # Decat — this machine's settings. Read by the login item, not by the repo.
 #
 # The credential the bot's host expects. It is the same value the Space has as
@@ -83,18 +137,26 @@ DECAT_TOKEN=
 # Where the bot lives.
 DECAT_SPACE=https://1tsrajowo-meow.hf.space
 
-# The model `Deep` answers with, and the smaller one `Fast` answers with.
-# Delete the DECAT_FAST_MODEL line to make Fast share the big model: it still
-# skips the re-check pass, so it is quicker, just less dramatically.
-DECAT_MODEL=qwen3-vl:8b
-DECAT_FAST_MODEL=qwen3-vl:4b
+# The model that answers. Chosen by this machine's memory when it was installed:
+# the big one needs about 6.1 GB resident and the small one about 3.3 GB, and both
+# read the same web pages and write the same cited answer. Set DECAT_MODEL here
+# to switch — the model has to be pulled first: 'ollama pull qwen3-vl:8b'.
+DECAT_MODEL=$MODEL
+# What 'Fast' answers with, when it should differ from the above. Blank means
+# Fast shares the model and is still a real choice: it reads two pages instead of
+# three and skips the re-check pass, so it comes back noticeably sooner.
+DECAT_FAST_MODEL=$FAST_MODEL
+
+# How long the weights stay in memory after an answer: 10m, or 0 to give the RAM
+# back at once (the next question then pays the load again).
+DECAT_KEEP_ALIVE=10m
 
 # The only third party that ever sees anything: none | ddg | brave | searxng.
 DECAT_SEARCH=ddg
 DECAT_SEARCH_KEY=
 DECAT_SEARXNG_URL=
 
-# Where the history of `Public` questions is kept. `Private` questions are never
+# Where the history of 'Public' questions is kept. 'Private' questions are never
 # written here — or anywhere else.
 DECAT_HOME=
 EOF

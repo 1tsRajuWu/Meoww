@@ -7,7 +7,7 @@ service — it is a program on this machine.
 
 ```
 Discord ──/decat──► the bot's host ──poll──► this Mac
-                     (keeps nothing)          ├─ Ollama: qwen3-vl:8b  (local)
+                     (keeps nothing)          ├─ Ollama: a local model (3.3–6.1 GB)
                                               ├─ search + read pages
                                               ├─ answer, then check it
                                               └─ answer back ──► the Discord card
@@ -19,12 +19,20 @@ Discord ──/decat──► the bot's host ──poll──► this Mac
 bash decat/mac/install.sh
 ```
 
-It installs Ollama (Homebrew), pulls `qwen3-vl:8b` and `qwen3-vl:4b` (6.1 GB and
-3.3 GB, once — the small one is what **Fast** answers with, and you can skip it by
-removing the `DECAT_FAST_MODEL` line from `agent.env`), writes
-`~/.decat/agent.env`, installs the `decat` command, and registers a login item so
-it starts at login and restarts if it stops. Then it runs `decat doctor` and tells
-you what is still missing.
+It installs Ollama (Homebrew), **chooses a model from this machine's memory**,
+pulls it (once), writes `~/.decat/agent.env`, installs the `decat` command, and
+registers a login item so it starts at login and restarts if it stops. Then it
+runs `decat doctor` and tells you what is still missing.
+
+**The model it picks is the one the machine can hold.** `qwen3-vl:8b` needs about
+6.1 GB resident and `qwen3-vl:4b` about 3.3 GB, and both read the same pages and
+write the same cited answer — so 24 GB of memory or more gets the big one, and a
+16 GB laptop gets the small one *and does not download the big one*, because a
+6 GB model nobody will load is a thing a machine in a hurry reaches for later.
+This is not a guess about your machine: it is what the Air this was written for
+measured — with the 8b resident on 16 GB, one answer paged ~1.9 GB out to disk and
+took thirty-one seconds. `DECAT_MODEL` overrides the choice; whatever you name has
+to be pulled first (`ollama pull qwen3-vl:8b`).
 
 Two things must match before a question can be answered:
 
@@ -55,16 +63,19 @@ Two things must match before a question can be answered:
 
 `/decat` takes a **depth**, and you pick it:
 
-* **Deep** (the default) — the bigger model, and the second pass that re-reads the
-  draft against the pages it cites and deletes what they do not support. Slower,
-  and the answer says *"checked against the sources it cites"*.
-* **Fast** — one pass on the small model, one search, two pages, no re-read. It
-  says *"drafted from the sources it cites — the quick answer, not re-read"*, so
-  it never borrows a claim it did not earn.
+* **Deep** (the default) — a wider read (three pages, two searches) and the second
+  pass that re-reads the draft against those pages and deletes what they do not
+  support. Slower, and the answer says *"checked against the sources it cites"*.
+* **Fast** — one search, two pages, one pass, no re-read. It says *"drafted from
+  the sources it cites — the quick answer, not re-read"*, so it never borrows a
+  claim it did not earn.
 
-Nothing about the choosing is hidden: each card states which of the two it was,
-and the model that wrote it is in the footer. `Fast` with no `DECAT_FAST_MODEL` set
-is still one pass on the big model — quicker, just less dramatically.
+Nothing about the choosing is hidden: each card states which of the two it was and
+which model wrote it. **The two depths are not two models** — on a machine that
+took the small model, Deep and Fast are the same weights, and the difference is
+entirely the reading and the re-check, which is most of what the wait is. Set
+`DECAT_FAST_MODEL` if you want Fast to answer with a *different* model as well;
+blank it and Fast is still quicker.
 
 ## Turning it on and off
 
@@ -97,8 +108,9 @@ last answer went.
 |---|---|
 | `DECAT_TOKEN` | the credential the host expects (see above) |
 | `DECAT_SPACE` | where the bot lives |
-| `DECAT_MODEL` | the model. `qwen3-vl:8b` is the default: vision, tool-capable, 256K context, 6.1 GB, Apache-2.0 |
-| `DECAT_FAST_MODEL` | the model a **Fast** question answers with (`qwen3-vl:4b`, 3.3 GB). Blank means "the same as the big one", and Fast still skips the re-read |
+| `DECAT_MODEL` | the model. Chosen by the installer from this machine's memory — `qwen3-vl:4b` (3.3 GB) under 24 GB, `qwen3-vl:8b` (6.1 GB) at or above it. Vision, tool-capable, Apache-2.0 |
+| `DECAT_FAST_MODEL` | the model a **Fast** question answers with, when it should differ. Blank means "the same as the one above", and Fast still reads fewer pages and skips the re-read |
+| `DECAT_KEEP_ALIVE` | how long the weights stay in memory after an answer — `10m` by default. `0` gives the RAM back at once and the next question pays the load again; `-1` holds them until Ollama stops |
 | `DECAT_SEARCH` | `ddg` (default, no key), `brave`, `searxng`, or `none` |
 | `DECAT_SEARCH_KEY` | only for `brave` |
 | `DECAT_SEARXNG_URL` | only for `searxng` — your own instance is the most private option |
@@ -131,7 +143,7 @@ order they fail:
 | What it says | What it means |
 |---|---|
 | `ollama ❌ not reachable` | `ollama serve` is not running (the installer starts it at login) |
-| `model ❌ … is not pulled` | `ollama pull qwen3-vl:8b` |
+| `model ❌ … is not pulled` | `ollama pull <the model agent.env names>` |
 | `credential ❌` | `DECAT_TOKEN` is empty and there is no `ADMIN_PASSKEY` on the host side |
 | `host ❌` | the Space is asleep or the URL is wrong; open it in a browser |
 | `search ❌` | the engine is blocked on this network — `DECAT_SEARCH=none` still answers |

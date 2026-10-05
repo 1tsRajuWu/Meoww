@@ -23,11 +23,35 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
+from decat import config
 from decat.mac import net
 
-#: How long the weights stay warm. Long enough that a conversation in Discord
-#: never pays a reload, short enough that the memory comes back.
-KEEP_ALIVE = "30m"
+#: How long the weights stay warm, and the value a caller may override per client
+#: or per machine with ``DECAT_KEEP_ALIVE``.
+#:
+#: Long enough that a conversation in Discord never pays a reload, short enough
+#: that the memory comes back — and the second half of that sentence is why this
+#: is ten minutes rather than the half hour it started as: on a 16 GB laptop,
+#: holding 3.2 GB of weights after the answer is *the* thing that makes the rest
+#: of the machine slow.
+KEEP_ALIVE = config.DEFAULT_KEEP_ALIVE
+
+#: Context and answer-length budgets, in tokens, pinned rather than left to
+#: whatever the model's own default is.
+#:
+#: Both are memory. The context window is the KV cache the model keeps live for
+#: the whole answer, and the answer length is how long it keeps generating without
+#: ever giving the laptop its GPU back — so on a fanless Air the honest thing is to
+#: say the numbers out loud instead of hoping the defaults are kind. The measurements
+#: behind them: a page is excerpted to 1200 characters (~300 tokens), so a `fast`
+#: prompt is two pages plus instructions (4096 is roomy) while a `deep` draft is
+#: three pages, and the verify pass sees the sources a third time (8192 covers it).
+DRAFT_CTX = 8192
+DRAFT_TOKENS = 900
+VERIFY_CTX = 8192
+VERIFY_TOKENS = 400
+FAST_CTX = 4096
+FAST_TOKENS = 700
 
 
 class OllamaError(OSError):
@@ -54,7 +78,7 @@ class Ollama:
         host: str,
         model: str,
         timeout: float = 180.0,
-        keep_alive: str = KEEP_ALIVE,
+        keep_alive: str | None = None,
         post=None,
         get=None,
         clock=time.time,
@@ -62,7 +86,7 @@ class Ollama:
         self.host = host.rstrip("/")
         self.model = model
         self.timeout = float(timeout)
-        self.keep_alive = keep_alive
+        self.keep_alive = keep_alive or config.keep_alive()
         self._post = post or self._default_post
         self._get = get or self._default_get
         self._clock = clock
@@ -90,15 +114,25 @@ class Ollama:
         timeout: float | None = None,
         think: bool = False,
         temperature: float = 0.2,
+        num_ctx: int = DRAFT_CTX,
+        num_predict: int = DRAFT_TOKENS,
     ) -> Reply:
-        """One completion. Raises :class:`OllamaError` when it cannot be had."""
+        """One completion. Raises :class:`OllamaError` when it cannot be had.
+
+        ``num_ctx``/``num_predict`` are always sent, because both are memory and a
+        default that changes under us is a memory budget that changes under us.
+        """
         name = model or self.model
         payload = {
             "model": name,
             "messages": messages,
             "stream": False,
             "keep_alive": self.keep_alive,
-            "options": {"temperature": float(temperature)},
+            "options": {
+                "temperature": float(temperature),
+                "num_ctx": int(num_ctx),
+                "num_predict": int(num_predict),
+            },
         }
         if not think:
             # Ignored by models that do not reason, and it is an option rather

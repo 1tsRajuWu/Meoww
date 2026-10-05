@@ -62,10 +62,14 @@ def describe_answer(answer: protocol.Answer, *, question: str) -> dict:
         body = body[: max(0, room - 1)].rstrip() + "…"
     description = f"{body}\n\n{warning}" if warning else body
 
-    # Three states, not two, and the middle one is the `Fast` depth: an answer
-    # read from live sources that nobody went back over. It says so rather than
-    # borrowing the stronger claim.
-    if answer.ungrounded:
+    # Four states, and the one that is not about grounding at all comes first: a
+    # greeting is not an answer that failed to find sources, it is a message with
+    # nothing to look up, and the warning below would be a lie told in the shape of
+    # a caveat. Then the `Fast` depth in the middle — an answer read from live
+    # sources that nobody went back over — then no sources, then checked.
+    if not copy.needs_sources(question):
+        grounding = copy.PLAIN_LABEL
+    elif answer.ungrounded:
         grounding = copy.UNGROUNDED_LABEL
     elif answer.verified:
         grounding = copy.GROUNDED_LABEL

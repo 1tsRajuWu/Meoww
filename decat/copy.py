@@ -95,6 +95,12 @@ GROUNDED_LABEL = "checked against the sources it cites"
 #: second one is exactly what Fast skips.
 QUICK_LABEL = "drafted from the sources it cites — the quick answer, not re-read"
 UNGROUNDED_LABEL = "⚠️ no live sources reached — this is the model's own knowledge"
+#: The fourth state, and the one the first live question asked for: a greeting is
+#: not an ungrounded *answer*, it is not a question with anything to look up. The
+#: warning above is for a question the web failed; this is for a question the web
+#: was never going to help with, and dressing it up as a failed search is how
+#: "hi" came back with a card that read like an incident report.
+PLAIN_LABEL = "nothing here needed looking up"
 NO_QUESTION_NOTE = "asked privately by {user}"
 
 # ── the rule ────────────────────────────────────────────────────────────────
@@ -177,6 +183,73 @@ def warning_for(question: str) -> str:
     if lane_of(question) in {"advice", "personal"}:
         return PROFESSIONAL_WARNING
     return ""
+
+
+# ── when there is nothing to look up ────────────────────────────────────────
+
+#: A greeting, a thank-you, a "lol": the messages whose answer is a *reply* rather
+#: than a lookup. Kept as words rather than as a length test because length is not
+#: the property — "weather in delhi tomorrow" is 25 characters and very much a
+#: question, while "good morning everyone, hope you slept well" is 43 and is not.
+CHITCHAT_WORDS: frozenset[str] = frozenset({
+    "hi", "hello", "hey", "yo", "hiya", "sup", "wassup", "hola", "namaste",
+    "gm", "gn", "good morning", "good afternoon", "good evening", "good night",
+    "goodnight", "morning", "evening", "bye", "goodbye", "cya", "gg",
+    "good bot", "good job", "well done", "nice work", "thanks", "thank you",
+    "thanks a lot", "ty", "thx", "tysm", "np", "you're welcome", "welcome",
+    "how are you", "how're you", "how you doing", "hows it going",
+    "how is it going", "whats up", "what's up", "you there", "you up",
+    "you ok", "you okay", "love you", "ily", "who are you", "what are you",
+    "ok", "okay", "k", "cool", "nice", "nice one", "lol", "lmao", "haha", "hehe", "yay",
+    "wow", "omg", "hmm", "hm", "sure", "yep", "nope", "yes", "no", "maybe",
+    "brb", "nvm", "good luck", "gl", "congrats", "rip", "oof",
+})
+
+#: Words that make a *short* message chit-chat by opening it, so "hi decat",
+#: "thanks bbg" and "hey you two" land here without a phrase written for each.
+#: Deliberately small: every word here turns the search off, so "good" is not in
+#: it ("good pizza recipe" is a question) while "hi" is.
+CHITCHAT_OPENERS: frozenset[str] = frozenset({
+    "hi", "hello", "hey", "yo", "hiya", "sup", "gm", "gn", "thanks", "thank",
+    "ty", "thx", "tysm", "bye", "cya", "lol",
+})
+
+#: How many words an opener-phrase may run to before it is read as a question.
+CHITCHAT_MAX_WORDS = 3
+
+
+def needs_sources(question: str) -> bool:
+    """Whether this is a question with something to look up.
+
+    This predicate exists because of the first live question this feature ever
+    answered. It was *"hi"*: two characters, searched for, landing on nothing, and
+    so it came back with the footer *"⚠️ no live sources reached"* and an answer
+    that opened by explaining that a greeting is not a factual question requiring
+    verification. Every part of that was true and none of it was the point — the
+    machinery showed through, and the first thing this bot ever said to its own
+    server was an incident report about its own plumbing.
+
+    So: for a greeting, a thank-you, an acknowledgement, there is nothing to look
+    up, the prompt says so instead of apologising for a failed search, and the card
+    says *nothing here needed looking up* instead of warning about it. Everything
+    else needs sources, including every question without a question mark.
+    """
+    text = " ".join(str(question or "").lower().split())
+    if not text or len(text) > 64:
+        return True
+    bare = " ".join("".join(ch for ch in text if ch.isalpha() or ch in " '").split())
+    if not bare:
+        return True
+    if bare in CHITCHAT_WORDS:
+        return False
+    words = bare.split()
+    if len(words) <= CHITCHAT_MAX_WORDS and words[0] in CHITCHAT_OPENERS:
+        return False
+    # "good morning everyone" is a greeting; "good pizza recipe" is not, and the
+    # difference is which of the two opening words is in the list above.
+    if len(words) <= CHITCHAT_MAX_WORDS + 1 and " ".join(words[:2]) in CHITCHAT_WORDS:
+        return False
+    return True
 
 
 # ── while it is thinking ────────────────────────────────────────────────────

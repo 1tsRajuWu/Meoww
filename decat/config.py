@@ -105,15 +105,50 @@ def space_url() -> str:
     return env("DECAT_SPACE", "https://1tsrajowo-meow.hf.space").rstrip("/")
 
 
+#: The model this half runs when nobody says otherwise, and the reason it is the
+#: small one rather than the better one: the machine is a laptop.
+#:
+#: The 8b was the default until this feature ran on the Air it was written for.
+#: Six gigabytes of weights plus a KV cache is a fine trade on a desktop; on a
+#: 16 GB fanless Air that is also running a browser and Discord it *paged about
+#: 1.9 GB out* during the first live question, and the answer took 31 seconds of
+#: which a visible part was load and swap. The 4b answers the same questions from
+#: the same sources at 3.2 GB resident, and `Deep` still means what it always
+#: meant — reads more pages, then re-reads its own draft — so the depth choice
+#: survives the smaller model intact. `decat/mac/install.sh` picks by the RAM it
+#: finds; this is the value for a machine nobody has measured.
+DEFAULT_MODEL = "qwen3-vl:4b"
+
+#: The bigger model, named here so the installer and the docs agree on one string.
+BIG_MODEL = "qwen3-vl:8b"
+
+#: The RAM a machine needs before the big model is the sensible default.
+BIG_MODEL_RAM_BYTES = 24 * 1024**3
+
+#: How long the weights stay resident after an answer. Ten minutes, not the half
+#: hour this started as: the memory coming back matters more on a laptop than the
+#: next question skipping a load, and ten minutes still covers a conversation.
+DEFAULT_KEEP_ALIVE = "10m"
+
+
 def model() -> str:
-    """The default model. `qwen3-vl` because it is the one that does all of it."""
-    return env("DECAT_MODEL", "qwen3-vl:8b")
+    """This machine's model. `qwen3-vl` because it is the one that does all of it."""
+    return env("DECAT_MODEL", DEFAULT_MODEL)
 
 
 def fast_model() -> str:
-    """The lane for short questions, where the bigger model is wasted."""
+    """The lane for short questions. On one model this is the same model, and Fast
+    is still a real choice — it reads two pages instead of three and skips the
+    re-check pass, which is most of the time."""
     value = env("DECAT_FAST_MODEL")
     return value or model()
+
+
+def keep_alive() -> str:
+    """How long Ollama holds the weights after an answer (`0` gives them back at
+    once, `-1` holds them until Ollama stops, durations like `10m` are the middle).
+    """
+    return env("DECAT_KEEP_ALIVE") or DEFAULT_KEEP_ALIVE
 
 
 def ollama_host() -> str:
