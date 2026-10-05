@@ -162,6 +162,13 @@ And the jobs themselves:
    channel is held by the deny *and* by an `on_message` listener that removes
    anything a person posts into it (the bot's own card excepted); the row leaves
    when the unlock restores what was there, and the removals stop with it.
+   **A channel locked before that ledger existed is adopted at boot**: the
+   overwrite has the shape the lockdown commands write and Discord's audit log
+   says this bot was the last to change `@everyone` for it, so the missing row is
+   written — with no previous overwrite, because the old command never recorded
+   one, which makes `/unlock` *remove the deny* rather than pretend to restore a
+   room nobody wrote down. Adoption never changes a permission, and a log that
+   cannot be read adopts nothing.
 7. **The operator's own controls** (`/api/console/server-action`) — republish a
    server's command list, leave it, leave *and block* it, or take it off the
    blocklist. Operator scope only (`_require_operator_api`), so a server's own

@@ -7,7 +7,9 @@ back what was there rather than allowing `@everyone` to talk again — which on 
 server that had deliberately locked a channel would be handing out a permission
 nobody asked for.
 """
+import contextlib
 import datetime
+import io
 import os
 import unittest
 from types import SimpleNamespace
@@ -105,13 +107,14 @@ class Channel:
 
 
 class Guild:
-    def __init__(self, guild_id=424242, *, channels=()):
+    def __init__(self, guild_id=424242, *, channels=(), audit_logs=None):
         self.id = guild_id
         self.name = "Test Server"
         self.default_role = Role("@everyone")
         self.me = Role("Meow")
         self.channels = list(channels)
         self.gone = set()
+        self._audit = audit_logs
         for channel in self.channels:
             channel.guild = self
 
@@ -123,6 +126,17 @@ class Guild:
                 return channel
         return None
 
+    def audit_logs(self, **kwargs):
+        """Discord's audit log, or what a stand-in server without one answers.
+
+        The real read is what tells this bot's own lock from an administrator's,
+        so a fake that answered an empty page by default would make every
+        adoption law pass for the wrong reason. No log means no evidence.
+        """
+        if self._audit is None:
+            raise RuntimeError("this stand-in server has no audit log")
+        return self._audit(**kwargs)
+
 
 class Actor:
     id = 5
@@ -130,13 +144,23 @@ class Actor:
 
 
 class _FakeBot:
-    """Just the one question the listener asks the bot."""
+    """As much of a bot as the cog touches: the gate, the guilds, and readiness.
 
-    def __init__(self, *, enabled=True):
+    ``guilds`` is empty by default, so the adoption pass the cog now starts in
+    ``__init__`` runs once and finds nothing — a test that is not about adoption is
+    not made to be about it.
+    """
+
+    def __init__(self, *, enabled=True, guilds=()):
         self.enabled = enabled
+        self.guilds = list(guilds)
+        self.user = SimpleNamespace(id=424242, bot=True)
 
     def is_module_enabled(self, _guild_id, _module):
         return self.enabled
+
+    async def wait_until_ready(self):
+        return True
 
 
 def _forbidden() -> Exception:
@@ -187,6 +211,62 @@ class _FakeMessage:
 
     async def delete(self):
         self.deleted += 1
+
+
+class _AuditEntry:
+    """One audit-log entry, as much as the adoption pass reads of one.
+
+    ``entry_id`` is Discord's snowflake, and it is what orders two entries that
+    came out of different action reads — the pass keeps the highest one.
+    """
+
+    def __init__(self, channel_id, role_id, user_id, *, entry_id=1):
+        self.id = entry_id
+        self.target = SimpleNamespace(id=channel_id)
+        self.extra = SimpleNamespace(id=role_id)
+        self.user_id = user_id
+
+
+class _AuditPage:
+    """One page of entries, with a ``next()`` that says there is no more."""
+
+    def __init__(self, entries):
+        self._entries = list(entries)
+        self.pages = 0
+
+    def __aiter__(self):
+        return self._walk()
+
+    async def _walk(self):
+        for entry in self._entries:
+            yield entry
+
+    async def next(self):
+        self.pages += 1
+        return False
+
+
+class _AuditLog:
+    """``guild.audit_logs(...)``. The action filter is Discord's; this fake answers
+    every call with the same page, newest first, the way the real one is read —
+    or a page per action type, for the laws about two actions disagreeing.
+
+    ``by_action`` is keyed by the action's own name (``"overwrite_update"``).
+    """
+
+    def __init__(self, entries=(), *, by_action=None, raises=None):
+        self.entries = list(entries)
+        self.by_action = dict(by_action or {})
+        self.raises = raises
+        self.calls = []
+
+    def __call__(self, **kwargs):
+        if self.raises is not None:
+            raise self.raises
+        self.calls.append(kwargs)
+        action = kwargs.get("action")
+        name = getattr(action, "name", str(action))
+        return _AuditPage(self.by_action.get(name, self.entries))
 
 
 class _Response:
@@ -521,6 +601,237 @@ class ThePerChannelLock(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         await server_control.lock_channel(guild, guild.channels[0], Actor())
         thread = SimpleNamespace(id=99, parent_id=1)
         self.assertTrue(await server_control.is_locked(guild.id, thread))
+
+
+class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """A channel locked before the ledger existed arms itself at boot.
+
+    Every ``/lockdown`` before the last pass wrote a permission and nothing else,
+    which left channels that are locked *and unrecorded* — a deny the sweep walks
+    straight past, because the row is what it reads. The old lock in the beta
+    server is one of those, and the workaround was an ``/unlock`` and a second
+    ``/lockdown`` to make the bot notice.
+
+    Adoption writes the missing row, and only for the locks Discord's audit log
+    proves are this bot's own: a channel an administrator denied by hand is staff
+    talking among themselves, and deleting their messages would be this feature
+    mistaking somebody else's decision for its own.
+    """
+
+    BOT_ID = 424242
+    #: The id every stand-in ``@everyone`` in this file carries (``Role`` above).
+    EVERYONE_ID = 1
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def _everyone(self):
+        return Role("@everyone")
+
+    def _old_lock(self, everyone, channel_id=1, *, name="quiet", allow=0, kind="text", manage=True):
+        """A channel holding exactly the overwrite a pre-ledger `/lockdown` left."""
+        return Channel(
+            channel_id,
+            name,
+            kind=kind,
+            manage=manage,
+            overwrites={everyone: Overwrite(allow=allow, deny=Bits.NAMES["send_messages"])},
+        )
+
+    def _server(self, everyone, *channels, entries=()):
+        guild = Guild(channels=list(channels), audit_logs=_AuditLog(entries))
+        guild.default_role = everyone
+        for channel in channels:
+            channel.guild = guild
+        return guild
+
+    def _entry(self, channel_id=1, *, user_id=None, role_id=None):
+        """One `@everyone` overwrite change, by this bot unless told otherwise."""
+        return _AuditEntry(
+            channel_id,
+            self.EVERYONE_ID if role_id is None else role_id,
+            self.BOT_ID if user_id is None else user_id,
+        )
+
+    def _bot(self):
+        return SimpleNamespace(id=self.BOT_ID)
+
+    async def test_the_shape_of_the_old_command_is_denied_send_and_nothing_allowed(self):
+        send = Bits.NAMES["send_messages"]
+        self.assertTrue(server_control.looks_like_our_lock(Overwrite(deny=send)))
+        self.assertTrue(
+            server_control.looks_like_our_lock(
+                Overwrite(deny=send | Bits.NAMES["create_public_threads"])
+            ),
+            "the server-wide lockdown denies more permissions, and is the same lock",
+        )
+        self.assertFalse(
+            server_control.looks_like_our_lock(Overwrite(allow=1 << 10, deny=send)),
+            "an allow bit means somebody has changed this since the old command ran",
+        )
+        self.assertFalse(server_control.looks_like_our_lock(Overwrite(allow=send)))
+        self.assertFalse(server_control.looks_like_our_lock(Overwrite()))
+        self.assertFalse(server_control.looks_like_our_lock(None))
+
+    async def test_an_administrators_own_deny_is_left_exactly_where_it_is(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel, entries=[self._entry(user_id=99)])
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual(adopted, [], "somebody else's lock was adopted as ours")
+        self.assertEqual(await db.lockdown_rows(guild.id), [])
+        self.assertEqual(channel.calls, [], "adoption must not change a permission")
+
+    async def test_the_bots_own_old_lock_is_written_down_and_nothing_else_changes(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
+        rows = await db.lockdown_rows(guild.id)
+        self.assertEqual([row[0] for row in rows], [1])
+        self.assertEqual(rows[0][1], "", "the old lock left no overwrite to put back")
+        self.assertEqual(channel.calls, [], "the deny is already there; the row is the work")
+
+    async def test_an_adopted_lock_is_held_until_one_command_opens_it(self):
+        """The whole point: the old channel is enforced without a relock, and
+        `/unlock` removes the deny rather than restoring a lock nobody wrote down."""
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertTrue(await server_control.is_locked(guild.id, channel))
+        channel.calls.clear()
+        report = await server_control.unlock(guild, Actor())
+        self.assertTrue(report.ok)
+        self.assertEqual(report.restored, 1)
+        _kind, _target, overwrite, _reason = channel.calls[-1]
+        self.assertIsNone(overwrite, "the old lock's deny is removed, not inverted")
+        self.assertEqual(await db.lockdown_rows(guild.id), [])
+
+    async def test_the_cog_arms_the_old_lock_at_boot_and_says_so_in_the_log(self):
+        from cogs.server_control import ServerControl
+
+        everyone = self._everyone()
+        channel = self._old_lock(everyone, name="premier")
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        cog = ServerControl(bot=_FakeBot(enabled=True, guilds=[guild]))
+        cog.adopt.cancel()  # the boot task; this test drives that same body once, itself
+        with mock.patch.object(modlog, "post", new=mock.AsyncMock(return_value=True)) as posted:
+            await cog.adopt.coro(cog)
+        posted.assert_awaited_once()
+        self.assertIn("premier", posted.await_args.kwargs["embed"].description)
+        self.assertEqual([row[0] for row in await db.lockdown_rows(guild.id)], [1])
+
+        # And the lock it just armed is enforced by the same listener as `/lockdown`.
+        member = _FakeMember(author_id=7)
+        message = _FakeMessage(channel, author=member)
+        await cog.on_message(message)
+        self.assertEqual(message.deleted, 1, "the adopted lock does not hold")
+        self.assertEqual(len(member.dms), 1, "the sender was not warned")
+
+    async def test_a_channel_the_ledger_already_knows_is_not_adopted_again(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        await db.save_lockdown(guild.id, [(1, "0:2048")], 0, 0.0)
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual(adopted, [])
+        rows = await db.lockdown_rows(guild.id)
+        self.assertEqual([row[0] for row in rows], [1])
+        self.assertEqual(rows[0][1], "0:2048", "the undo from before the lock was overwritten")
+
+    async def test_a_lock_that_allows_something_is_not_only_ours(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone, allow=1 << 10)
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual(adopted, [], "an allow bit means somebody edited this after the old lock")
+
+    async def test_a_voice_channel_is_not_a_lockdown(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone, kind="voice")
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        self.assertEqual(await server_control.adopt_legacy_locks(guild, self._bot()), [])
+
+    async def test_a_channel_it_cannot_manage_is_left_out(self):
+        """A row for a channel whose lock it cannot lift would be a trap: the
+        messages are removed and `/unlock` cannot open the room again."""
+        everyone = self._everyone()
+        channel = self._old_lock(everyone, manage=False)
+        guild = self._server(everyone, channel, entries=[self._entry()])
+        self.assertEqual(await server_control.adopt_legacy_locks(guild, self._bot()), [])
+
+    async def test_a_channel_the_audit_log_never_mentions_is_not_adopted(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel)
+        self.assertEqual(await server_control.adopt_legacy_locks(guild, self._bot()), [])
+
+    async def test_an_entry_about_another_role_does_not_speak_for_everyone(self):
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel, entries=[self._entry(role_id=99)])
+        self.assertEqual(await server_control.adopt_legacy_locks(guild, self._bot()), [])
+
+    async def test_each_channel_is_decided_by_its_own_entries(self):
+        """One page holds both channels, and only the one the bot changed is ours."""
+        everyone = self._everyone()
+        mine, theirs = self._old_lock(everyone, 1), self._old_lock(everyone, 2)
+        guild = self._server(
+            everyone, mine, theirs,
+            entries=[self._entry(1), self._entry(2, user_id=99)],
+        )
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
+
+    async def test_the_newest_change_of_any_kind_is_the_one_that_decides(self):
+        """The three overwrite actions are separate reads, so the decision is by
+        entry id rather than by which page came back first: a bot edit from before
+        an administrator's newer hand-deny is not evidence the deny is ours, and
+        the reverse is a lock this bot placed after their older one."""
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        theirs_newer = self._server(everyone, channel)
+        theirs_newer._audit = _AuditLog(by_action={
+            "overwrite_update": [_AuditEntry(1, everyone.id, self.BOT_ID, entry_id=100)],
+            "overwrite_create": [_AuditEntry(1, everyone.id, 99, entry_id=200)],
+        })
+        self.assertEqual(
+            await server_control.adopt_legacy_locks(theirs_newer, self._bot()),
+            [],
+            "an older edit of ours was read as today's deny",
+        )
+
+        mine_newer = self._server(everyone, self._old_lock(everyone))
+        mine_newer._audit = _AuditLog(by_action={
+            "overwrite_update": [_AuditEntry(1, everyone.id, self.BOT_ID, entry_id=300)],
+            "overwrite_create": [_AuditEntry(1, everyone.id, 99, entry_id=200)],
+        })
+        adopted = await server_control.adopt_legacy_locks(mine_newer, self._bot())
+        self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
+
+    async def test_an_audit_log_that_cannot_be_read_adopts_nothing(self):
+        everyone = self._everyone()
+        guild = self._server(
+            everyone,
+            self._old_lock(everyone),
+            entries=[self._entry()],
+        )
+        guild._audit = _AuditLog(raises=RuntimeError("audit log unavailable"))
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual(adopted, [], "a log that could not be read is not evidence")
+        self.assertEqual(await db.lockdown_rows(guild.id), [])
+        self.assertIn("could not read the audit log", said.getvalue())
 
 
 class TheListenerRemovesWhatWasPostedWhileLocked(

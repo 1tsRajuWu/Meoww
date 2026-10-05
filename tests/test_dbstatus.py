@@ -3,7 +3,26 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+
+class _BootBot:
+    """As much of a bot as ``ServerControl.__init__`` and the module gate touch.
+
+    The cog starts one pass at boot that reads ``bot.guilds`` and waits for the
+    gateway. A stand-in without either would make that pass fail in a background
+    task, and an error a test did not cause is an error a test run has to explain.
+    """
+
+    def __init__(self, *, enabled=True):
+        self.guilds = ()
+        self._enabled = enabled
+
+    def is_module_enabled(self, _guild_id, _module):
+        return self._enabled
+
+    async def wait_until_ready(self):
+        return True
 
 
 class TestDbstatusMath(unittest.TestCase):
@@ -224,7 +243,7 @@ class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
             return "blocked for the test"
 
         interaction = _FakeInteraction()
-        cog = ServerControl(bot=MagicMock())
+        cog = ServerControl(bot=_BootBot())
         with patch.object(cs, "upload_refusal_reason", side_effect=fake_refusal), \
              patch.object(cs, "_storage_list", return_value=[]):
             await ServerControl.dbstatus.callback(cog, interaction)
@@ -246,7 +265,7 @@ class TestDbstatusRunsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
         from utils import cloud_sync as cs
 
         interaction = _FakeInteraction()
-        cog = ServerControl(bot=MagicMock())
+        cog = ServerControl(bot=_BootBot())
         with patch.object(cs, "SUPABASE_URL", ""), \
              patch.object(cs, "SUPABASE_KEY", ""):
             await ServerControl.dbstatus.callback(cog, interaction)
@@ -276,11 +295,9 @@ class TestServerControlModuleGate(unittest.IsolatedAsyncioTestCase):
     """/defaultrole must not inherit the Moderation module's off switch."""
 
     def _cog(self, enabled):
-        from types import SimpleNamespace
         from cogs.server_control import ServerControl
 
-        bot = SimpleNamespace(is_module_enabled=lambda _gid, _mod: enabled)
-        return ServerControl(bot=bot)
+        return ServerControl(bot=_BootBot(enabled=enabled))
 
     async def _check(self, enabled, command):
         interaction = _FakeInteraction()

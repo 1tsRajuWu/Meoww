@@ -5,7 +5,7 @@ import sqlite3
 import time
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from utils import moderation_actions, modlog, permissions, server_control, db
 from utils.style import send_card, display_name
 
@@ -166,6 +166,14 @@ class ServerControl(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # One pass, at boot: the channels locked by a `/lockdown` older than the
+        # ledger are armed here. A loop rather than an `on_ready` listener because
+        # `on_ready` fires again on every reconnect and this must not keep asking
+        # Discord's audit log the same question.
+        self.adopt.start()
+
+    def cog_unload(self):
+        self.adopt.cancel()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
@@ -403,6 +411,76 @@ class ServerControl(commands.Cog):
         )
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
+
+    # ── the locks older than the ledger ─────────────────────────────────────
+    #
+    # Every `/lockdown` before the last pass wrote a permission and nothing else,
+    # which left channels that are locked *and unrecorded* — a deny the sweep walks
+    # straight past, because the row is what it reads. This is the row being
+    # written for the locks this bot can prove are its own: the audit log says who
+    # last touched the `@everyone` overwrite, and a channel somebody denied by hand
+    # is staff talking among themselves rather than a lock of ours.
+
+    @tasks.loop(count=1)
+    async def adopt(self):
+        """Arm the channels this bot locked before it kept a ledger. Once, at boot."""
+        for guild in list(getattr(self.bot, "guilds", None) or []):
+            try:
+                adopted = await server_control.adopt_legacy_locks(
+                    guild, getattr(self.bot, "user", None)
+                )
+            except Exception as exc:  # noqa: BLE001 — one guild must not stop the rest
+                print(
+                    f"[CONTROL] the adoption pass failed in guild "
+                    f"{getattr(guild, 'id', 0)}: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                continue
+            if not adopted:
+                continue
+            names = ", ".join(f"#{getattr(channel, 'name', '?')}" for channel in adopted)
+            print(
+                f"[CONTROL] adopted {len(adopted)} lockdown(s) older than the ledger in "
+                f"guild {getattr(guild, 'id', 0)}: {names}",
+                flush=True,
+            )
+            await self._say_what_was_adopted(guild, adopted)
+
+    @adopt.before_loop
+    async def _wait_for_ready(self):
+        try:
+            await self.bot.wait_until_ready()
+        except RuntimeError:  # pragma: no cover - a stand-in bot in a unit test
+            pass
+
+    async def _say_what_was_adopted(self, guild, adopted) -> None:
+        """One card in the server's log: which of its old locks are enforced now.
+
+        In the log rather than in the channels themselves: the rooms are silent on
+        purpose, and what an administrator needs is a record they can find later
+        saying why messages started disappearing in a channel they locked weeks
+        ago — and that one command opens it again.
+        """
+        listed = "\n".join(f"• #{getattr(channel, 'name', '?')}" for channel in adopted[:20])
+        embed = discord.Embed(
+            title="🔒 Locks older than my ledger are enforced now",
+            description=(
+                "These channels were locked before I started recording what I lock, so "
+                "nothing was removing what got posted into them. The audit log says I "
+                "was the last to change their permissions, so they are mine — and they "
+                "are written down now.\n\n"
+                f"{listed}\n\n"
+                "Messages posted there are deleted and a burst is a timeout, exactly as "
+                "with `/lockdown`. `/unlock` in a channel opens it again."
+            ),
+            color=0xED4245,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_footer(text="DaCat Security")
+        try:
+            await modlog.post(guild, embed=embed, what="the adopted lockdowns")
+        except Exception as exc:  # noqa: BLE001 — the record is a courtesy, not the lock
+            print(f"[CONTROL] could not log the adopted lockdowns: {exc}", flush=True)
 
     # ── the lock's teeth ────────────────────────────────────────────────────
     #

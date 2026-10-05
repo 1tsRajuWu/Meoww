@@ -37,6 +37,14 @@ carelessly:
   anything posted anyway is deleted, whoever posted it, until the row is gone.
   The bot's own messages stay, because the card that says the channel is locked is
   one of them.
+* **A lock older than the ledger can still be recognised.** Every `/lockdown`
+  before this module wrote a permission and nothing else, which left channels that
+  are locked and unrecorded — a deny the enforcement walks straight past, because
+  the ledger is what it reads. :func:`adopt_legacy_locks` writes the missing row,
+  but only for the locks Discord's audit log proves are **this bot's own**: a
+  channel an administrator denied by hand is staff talking among themselves, and a
+  sweep that started deleting their messages and timing them out would be this
+  feature mistaking somebody else's decision for its own.
 * **Slowmode is not a lockdown.** It is offered because it is what people
   actually want during a raid — the server stays readable, nobody can flood it —
   and it is a per-channel *value* rather than a permission, so it is written
@@ -555,6 +563,182 @@ async def state(guild) -> dict:
 # business being in, which is why the enforcement reads it rather than keeping a
 # second registry that could disagree with the first: one row means one locked
 # channel, both for the undo and for the delete.
+
+
+#: Discord's own ceiling on one page of an audit log, and how many pages of each
+#: overwrite action the adoption pass reads before giving up on a channel. A lock
+#: old enough to predate the ledger is not necessarily recent, so these are a
+#: bound rather than a promise — and the pass runs once, at boot, and only when a
+#: channel actually needs asking about.
+AUDIT_PAGE = 100
+AUDIT_PAGES = 3
+
+
+def _entry_id(entry) -> int:
+    """Discord's own id for an audit-log entry: a snowflake, so ids order by time."""
+    return int(getattr(entry, "id", 0) or 0)
+
+
+def looks_like_our_lock(overwrite) -> bool:
+    """Whether an overwrite has the shape the lockdown commands write.
+
+    The per-channel `/lockdown` before this module kept a ledger called
+    ``set_permissions(everyone, send_messages=False)``, which Discord stores as
+    *allow nothing, deny Send Messages*. So the signature is two facts: Send
+    Messages is denied, and **nothing is granted** — the old command replaced the
+    overwrite rather than editing it, so any allow bit at all means somebody has
+    been here since and this is no longer only its lock. The server-wide lockdown
+    denies two more permissions and still matches, because the test is about what
+    is denied rather than about what is not.
+
+    Matching the shape makes a channel a **candidate**, never a lock: only
+    :func:`adopt_legacy_locks` decides, and it asks the audit log first.
+    """
+    if overwrite is None:
+        return False
+    deny = getattr(overwrite, "deny", None)
+    if not bool(getattr(deny, "send_messages", False)):
+        return False
+    allow = getattr(overwrite, "allow", None)
+    return not int(getattr(allow, "value", 0) or 0)
+
+
+def adoption_candidates(guild, recorded) -> list:
+    """Channels that look locked by this bot's own commands and have no row.
+
+    ``recorded`` is the ledger's channel ids, read once by the caller — this stays
+    pure so the rule can be tested without a database or a gateway.
+    """
+    found = []
+    for channel in list(getattr(guild, "channels", []) or []):
+        if int(getattr(channel, "id", 0) or 0) in recorded:
+            continue
+        if not _is_text(channel):
+            continue
+        if not looks_like_our_lock(_everyone_overwrite(channel)):
+            continue
+        ok, _why = _manageable(channel)
+        if not ok:
+            continue
+        found.append(channel)
+    return found
+
+
+async def _last_overwrite_by_this_bot(guild, candidates, bot_user) -> set:
+    """The candidate channels whose `@everyone` overwrite this bot last changed.
+
+    Discord's audit log is the only evidence a lock older than this ledger has,
+    and the **user on the newest entry for that channel and that role** is what
+    tells this bot's lock from an administrator's. That distinction is the whole
+    safety of the pass: a channel somebody denied Send Messages in by hand is
+    staff talking among themselves, and a sweep that started deleting their
+    messages and timing them out would be this feature mistaking another person's
+    decision for its own.
+
+    The three overwrite actions are **separate reads**, so the newest change to a
+    channel is not simply the first line that comes back: every entry about a
+    candidate is kept, and the one with the highest :func:`_entry_id` — a
+    snowflake, so ids order by time — is the one that decides. A bot edit from
+    before an administrator's newer hand-deny is not evidence that today's deny
+    is this bot's.
+
+    A log that cannot be read is not evidence, so nothing is adopted and the
+    reason is printed — the same rule the module follows everywhere else.
+    """
+    import discord
+
+    everyone_id = int(getattr(getattr(guild, "default_role", None), "id", 0) or 0)
+    bot_id = int(getattr(bot_user, "id", 0) or 0)
+    if not everyone_id or not bot_id:
+        return set()
+    wanted = {int(getattr(channel, "id", 0) or 0) for channel in candidates}
+    newest: dict[int, object] = {}
+    actions = (
+        discord.AuditLogAction.overwrite_update,
+        discord.AuditLogAction.overwrite_create,
+        discord.AuditLogAction.overwrite_delete,
+    )
+    for action in actions:
+        try:
+            pages = guild.audit_logs(limit=AUDIT_PAGE, action=action)
+        except Exception as exc:  # noqa: BLE001 — a fake guild, or a refused read
+            print(
+                f"[CONTROL] could not read the audit log ({type(exc).__name__}: {exc}); "
+                "no lock older than the ledger was adopted.",
+                flush=True,
+            )
+            return set()
+        try:
+            for _page in range(AUDIT_PAGES):
+                async for entry in pages:
+                    channel_id = int(getattr(getattr(entry, "target", None), "id", 0) or 0)
+                    if channel_id not in wanted:
+                        continue
+                    role_id = int(getattr(getattr(entry, "extra", None), "id", 0) or 0)
+                    if role_id != everyone_id:
+                        continue
+                    held = newest.get(channel_id)
+                    if held is None or _entry_id(entry) > _entry_id(held):
+                        newest[channel_id] = entry
+                if not await pages.next():
+                    break
+        except Exception as exc:  # noqa: BLE001 — a refused or broken read is not evidence
+            print(
+                f"[CONTROL] could not read the audit log ({type(exc).__name__}: {exc}); "
+                "no lock older than the ledger was adopted.",
+                flush=True,
+            )
+            return set()
+    return {
+        channel_id
+        for channel_id, entry in newest.items()
+        if int(getattr(entry, "user_id", 0) or 0) == bot_id
+    }
+
+
+async def adopt_legacy_locks(guild, bot_user) -> list:
+    """Arm the channels this bot locked before it kept a ledger.
+
+    Every `/lockdown` before this pass wrote a permission and nothing else, so a
+    channel locked then is a channel the sweep walks past: the deny is there and
+    there is no row for it to read. Adoption is that row being written for the
+    locks this bot can prove are its own — the audit log says who last touched the
+    `@everyone` overwrite — which is what turns *"run `/unlock` and `/lockdown`
+    again"* into *"it was already locked, and now it holds"*.
+
+    The row records **no previous overwrite**, because there is none to restore:
+    the old command replaced whatever the channel had, and it was never written
+    down. Removing the deny is therefore what `/unlock` does to an adopted
+    channel — the same action the old `/unlock` took, without the stray allow it
+    handed out. Getting the channel back exactly as it was is not recoverable, and
+    pretending otherwise would restore a lock instead of a room.
+
+    Returns the channels adopted, so a caller can say so.
+    """
+    guild_id = report_guild_id(guild)
+    try:
+        rows = await db.lockdown_rows(guild_id)
+    except Exception as exc:  # noqa: BLE001 — an unreadable ledger adopts nothing
+        print(f"[CONTROL] could not read the lockdown ledger: {exc}", flush=True)
+        return []
+    candidates = adoption_candidates(guild, {int(row[0]) for row in rows})
+    if not candidates:
+        return []
+    mine = await _last_overwrite_by_this_bot(guild, candidates, bot_user)
+    adopted = [channel for channel in candidates if int(getattr(channel, "id", 0) or 0) in mine]
+    if not adopted:
+        return []
+    ledger = [(int(getattr(channel, "id", 0) or 0), "") for channel in adopted]
+    try:
+        await db.save_lockdown(
+            guild_id, ledger, int(getattr(bot_user, "id", 0) or 0), _now()
+        )
+    except Exception as exc:  # noqa: BLE001 — no ledger, no lock
+        print(f"[CONTROL] could not record the lockdowns I adopted: {exc}", flush=True)
+        return []
+    forget_lock_cache(guild_id)
+    forget_spam(guild_id)
+    return adopted
 
 
 def is_removable(message) -> bool:
