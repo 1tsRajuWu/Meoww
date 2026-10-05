@@ -178,11 +178,23 @@ class _FakeMember:
     sweep has to survive without losing the deletion.
     """
 
-    def __init__(self, author_id=7, *, bot=False, name="member", send_raises=None, timeout_raises=None):
+    def __init__(
+        self,
+        author_id=7,
+        *,
+        bot=False,
+        name="member",
+        send_raises=None,
+        timeout_raises=None,
+        administrator=False,
+    ):
         self.id = author_id
         self.bot = bot
         self.name = name
         self.display_name = name
+        # The rank the sweep reads, as Discord reports it on a member: a whole
+        # server's lockdown is the one that leaves it talking.
+        self.guild_permissions = SimpleNamespace(administrator=administrator)
         self.dms = []
         self.timeouts = []
         self._send_raises = send_raises
@@ -376,9 +388,9 @@ class TheLockdown(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # The ledger must be written before the first permission changes.
         real = server_control.db.save_lockdown
 
-        async def watched(guild_id, rows, by, at):
+        async def watched(guild_id, rows, by, at, *, scope="channel"):
             self.order.append("ledger")
-            return await real(guild_id, rows, by, at)
+            return await real(guild_id, rows, by, at, scope=scope)
 
         return guild, watched
 
@@ -590,7 +602,7 @@ class ThePerChannelLock(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         guild = Guild(channels=[Channel(1, "general")])
         server_control.forget_lock_cache()
         with mock.patch.object(
-            server_control.db, "lockdown_rows", side_effect=RuntimeError("disk gone")
+            server_control.db, "lockdown_locks", side_effect=RuntimeError("disk gone")
         ):
             self.assertFalse(await server_control.is_locked(guild.id, guild.channels[0]))
 
@@ -819,6 +831,33 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         adopted = await server_control.adopt_legacy_locks(mine_newer, self._bot())
         self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
 
+    async def test_a_guild_where_every_channel_holds_the_old_lock_is_one_server_lockdown(self):
+        """The old server-wide command left the same overwrite on every channel and
+        nothing else does, so the adoption leaves staff able to talk through it."""
+        everyone = self._everyone()
+        guild = self._server(
+            everyone,
+            self._old_lock(everyone, 1),
+            self._old_lock(everyone, 2),
+            entries=[self._entry(1), self._entry(2)],
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual(len(adopted), 2)
+        self.assertEqual(
+            {scope for _channel_id, scope in await db.lockdown_locks(guild.id)}, {"server"}
+        )
+        self.assertIn("as one server-wide lockdown", said.getvalue())
+
+    async def test_a_lock_on_one_of_several_channels_is_adopted_as_that_channel_only(self):
+        everyone = self._everyone()
+        guild = self._server(
+            everyone, self._old_lock(everyone, 1), Channel(2, "open"), entries=[self._entry(1)]
+        )
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
+        self.assertEqual(dict(await db.lockdown_locks(guild.id))[1], "channel")
+
     async def test_an_audit_log_that_cannot_be_read_adopts_nothing(self):
         everyone = self._everyone()
         guild = self._server(
@@ -988,6 +1027,148 @@ class TheListenerRemovesWhatWasPostedWhileLocked(
         message = _FakeMessage(SimpleNamespace(id=3, name="dm"), author_id=7)
         await self.cog.on_message(message)
         self.assertEqual(message.deleted, 0)
+
+
+class TheStaffTalkThroughAWholeServerLockdown(
+    TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
+):
+    """`/lockdown-server` stops the server; it must not stop the people running it.
+
+    A channel permission cannot stop an administrator — that is why the sweep
+    exists at all — so a whole-server lockdown written as *"nobody talks"* is a
+    lockdown whose staff cannot coordinate through the raid it was declared for.
+    The server-wide command is therefore the one lock that leaves administrators
+    and the owner talking, and `/lockdown` on a single channel is the opposite
+    decision: one room, held for everyone, which is what the screenshot this
+    feature came from asks for.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+        from cogs.server_control import ServerControl
+
+        self.cog = ServerControl(bot=_FakeBot(enabled=True))
+        self.channel = Channel(1, "general")
+        self.guild = Guild(channels=[self.channel])
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def test_only_the_server_wide_lock_leaves_rank_alone(self):
+        self.assertTrue(server_control.staff_exempt("server"))
+        for other in ("channel", "", None):
+            self.assertFalse(server_control.staff_exempt(other), repr(other))
+
+    async def test_each_command_records_which_kind_of_lock_it_is(self):
+        await server_control.lock_channel(self.guild, self.channel, Actor())
+        self.assertEqual(
+            await server_control.lock_scope(self.guild.id, self.channel), "channel"
+        )
+
+        second = Channel(2, "memes")
+        second.guild = self.guild
+        self.guild.channels.append(second)
+        await server_control.lockdown(self.guild, Actor())
+        self.assertEqual(await server_control.lock_scope(self.guild.id, second), "server")
+        self.assertEqual(
+            await server_control.lock_scope(self.guild.id, self.channel), "channel",
+            "the server-wide lockdown rewrote the lock that was already there",
+        )
+
+    async def test_an_administrators_message_stays_in_a_whole_server_lockdown(self):
+        await server_control.lockdown(self.guild, Actor())
+        admin = _FakeMember(author_id=7, administrator=True)
+        message = _FakeMessage(self.channel, author=admin)
+        await self.cog.on_message(message)
+        self.assertEqual(
+            message.deleted, 0, "an administrator was swept out of a whole-server lockdown"
+        )
+        self.assertEqual(admin.dms, [], "a message that stayed is not one to warn about")
+
+    async def test_the_owner_stays_and_is_never_timed_out(self):
+        self.guild.owner_id = 42
+        await server_control.lockdown(self.guild, Actor())
+        owner = _FakeMember(author_id=42)
+        for _ in range(server_control.SPAM_LIMIT):
+            await self.cog.on_message(_FakeMessage(self.channel, author=owner))
+        self.assertEqual(owner.timeouts, [], "the owner was timed out by a whole-server lockdown")
+        self.assertEqual(owner.dms, [])
+
+    async def test_anybody_else_is_still_removed_and_warned(self):
+        await server_control.lockdown(self.guild, Actor())
+        member = _FakeMember(author_id=7)
+        message = _FakeMessage(self.channel, author=member)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 1, "a member was left talking in a locked server")
+        self.assertEqual(len(member.dms), 1, "the member was not warned")
+
+    async def test_a_staff_burst_in_a_whole_server_lockdown_earns_no_ladder(self):
+        """Nothing they send counts toward a burst — so it is not the next
+        person's window either."""
+        await server_control.lockdown(self.guild, Actor())
+        admin = _FakeMember(author_id=7, administrator=True)
+        for _ in range(server_control.SPAM_LIMIT * 2):
+            await self.cog.on_message(_FakeMessage(self.channel, author=admin))
+        self.assertEqual(admin.timeouts, [])
+        self.assertIsNone(
+            server_control.note_locked_message(self.guild.id, self.channel.id, 7, now=0.0),
+            "the sweep counted an administrator's messages toward a burst",
+        )
+
+    async def test_one_channels_lock_still_holds_the_staff(self):
+        await server_control.lock_channel(self.guild, self.channel, Actor())
+        admin = _FakeMember(author_id=7, administrator=True)
+        message = _FakeMessage(self.channel, author=admin)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 1, "a per-channel lock is meant to hold everyone")
+        self.assertEqual(len(admin.dms), 1)
+
+    async def test_a_thread_is_held_by_its_parents_scope(self):
+        await server_control.lockdown(self.guild, Actor())
+        thread = SimpleNamespace(id=99, parent_id=1)
+        self.assertEqual(await server_control.lock_scope(self.guild.id, thread), "server")
+        self.assertTrue(await server_control.is_locked(self.guild.id, thread))
+
+    async def test_a_lock_written_before_the_column_holds_everyone(self):
+        """A ledger from before this pass has no scope, and a missing answer must
+        never loosen a lock: the boot's upgrade adds the column and every old row
+        reads as the strict lock."""
+        import sqlite3
+
+        from cogs.server_control import ServerControl
+
+        guild = Guild(channels=[Channel(1, "general")])
+        conn = sqlite3.connect(db.DB_PATH)
+        conn.execute("DROP TABLE lockdown_state")
+        conn.execute(
+            "CREATE TABLE lockdown_state (guild_id INTEGER NOT NULL, channel_id INTEGER NOT NULL, "
+            "previous TEXT NOT NULL DEFAULT '', locked_at REAL NOT NULL DEFAULT 0, "
+            "locked_by INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (guild_id, channel_id))"
+        )
+        conn.execute(
+            "INSERT INTO lockdown_state (guild_id, channel_id, previous, locked_at, locked_by) "
+            "VALUES (?, 1, '', 0, 0)",
+            (guild.id,),
+        )
+        conn.commit()
+        conn.close()
+
+        await db.setup()
+        server_control.forget_lock_cache()
+        self.assertEqual(
+            await server_control.lock_scope(guild.id, guild.channels[0]),
+            "channel",
+            "an old row was read as a lock that exempts rank",
+        )
+        admin = _FakeMember(author_id=7, administrator=True)
+        message = _FakeMessage(guild.channels[0], author=admin)
+        await ServerControl(bot=_FakeBot(enabled=True)).on_message(message)
+        self.assertEqual(message.deleted, 1, "the upgraded old row stopped holding the staff")
 
 
 class TheBurstEarnsATimeout(unittest.TestCase):
@@ -1190,14 +1371,14 @@ class TheLockedChannelsAreCached(TempDatabaseMixin, unittest.IsolatedAsyncioTest
     async def test_a_burst_of_messages_reads_the_ledger_once(self):
         guild = Guild(channels=[Channel(1, "general")])
         await server_control.lock_channel(guild, guild.channels[0], Actor())
-        real = server_control.db.lockdown_rows
+        real = server_control.db.lockdown_locks
         reads = []
 
         async def counted(guild_id):
             reads.append(guild_id)
             return await real(guild_id)
 
-        with mock.patch.object(server_control.db, "lockdown_rows", new=counted):
+        with mock.patch.object(server_control.db, "lockdown_locks", new=counted):
             for _ in range(5):
                 self.assertTrue(await server_control.is_locked(guild.id, guild.channels[0]))
         self.assertEqual(len(reads), 1, "the cache answered the other four")

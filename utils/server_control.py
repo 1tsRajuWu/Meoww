@@ -44,7 +44,11 @@ carelessly:
   but only for the locks Discord's audit log proves are **this bot's own**: a
   channel an administrator denied by hand is staff talking among themselves, and a
   sweep that started deleting their messages and timing them out would be this
-  feature mistaking somebody else's decision for its own.
+  feature mistaking somebody else's decision for its own. Which *kind* of lock it
+  was is read from the find as well: the old server-wide command left the same
+  overwrite on every text channel and nothing else does, so a guild whose every
+  manageable channel is holding the shape is adopted as one server-wide lockdown
+  — the kind that leaves administrators and the owner talking.
 * **Slowmode is not a lockdown.** It is offered because it is what people
   actually want during a raid — the server stays readable, nobody can flood it —
   and it is a per-channel *value* rather than a permission, so it is written
@@ -66,6 +70,26 @@ from . import db, moderation_actions
 #: point; the other two are what the same flood looks like in a thread and as a
 #: wall of reactions, and leaving them on is how a "locked" server keeps moving.
 LOCKED_PERMISSIONS: tuple[str, ...] = ("send_messages", "create_public_threads", "add_reactions")
+
+#: Who a lock holds, as the ledger records it. ``channel`` is the per-channel
+#: `/lockdown`: held for everyone, administrators and the owner included, which is
+#: what closing one room means. ``server`` is `/lockdown-server`: members stop,
+#: **administrators and the owner keep talking**, because a permission cannot stop
+#: them anyway and a whole server nobody can coordinate through is a lockdown the
+#: staff cannot run.
+DEFAULT_LOCK_SCOPE = "channel"
+LOCK_SCOPES: tuple[str, ...] = (DEFAULT_LOCK_SCOPE, "server")
+
+
+def staff_exempt(scope) -> bool:
+    """Whether a lock with this scope leaves administrators and the owner talking.
+
+    Pure, and deliberately one condition: only the server-wide lock exempts rank.
+    A blank or unknown scope answers ``False`` — the strict reading — because the
+    row is the only thing that knows which command wrote it, and a missing answer
+    must never loosen a lock.
+    """
+    return str(scope or "") == "server"
 
 
 def _is_text(channel) -> bool:
@@ -302,7 +326,9 @@ def _now() -> float:
     return time.time()
 
 
-async def _record(guild, channels, actor: moderation_actions.Actor | None) -> str:
+async def _record(
+    guild, channels, actor: moderation_actions.Actor | None, *, scope: str = DEFAULT_LOCK_SCOPE
+) -> str:
     """Write the channels a lock is about to change down; a refusal, or ``""``.
 
     **The ledger is written first**: a change that applied and failed to record
@@ -335,7 +361,8 @@ async def _record(guild, channels, actor: moderation_actions.Actor | None) -> st
         return ""
     try:
         await db.save_lockdown(
-            report_guild_id(guild), ledger, int(getattr(actor, "id", 0) or 0), _now()
+            report_guild_id(guild), ledger, int(getattr(actor, "id", 0) or 0), _now(),
+            scope=scope,
         )
     except Exception as exc:  # noqa: BLE001 — no ledger, no lockdown
         return f"I could not write down what to undo, so nothing was changed ({exc})."
@@ -359,7 +386,10 @@ async def lockdown(guild, actor: moderation_actions.Actor | None = None) -> Repo
         report.detail = "Every channel that could be locked already is."
         return report
 
-    refusal = await _record(guild, work.change, actor)
+    # The whole-server lock is the one that leaves administrators and the owner
+    # able to talk: it stops members, and the rank that has to run the incident
+    # through it cannot be stopped by a permission anyway.
+    refusal = await _record(guild, work.change, actor, scope="server")
     if refusal:
         report.detail = refusal
         return report
@@ -624,6 +654,29 @@ def adoption_candidates(guild, recorded) -> list:
     return found
 
 
+def adoption_scope(guild, candidates) -> str:
+    """Whether the old locks this pass found were one command or the whole server.
+
+    The old `/lockdown-server` looped every text channel and wrote the same
+    one-permission overwrite the per-channel command wrote, so per channel the
+    audit log cannot tell the two apart. What tells them apart is *how many*:
+    when **every text channel this bot can manage** is holding the same shape,
+    the only command that produces that is the server-wide one — and adopting
+    those as one server-wide lockdown is what keeps administrators and the owner
+    able to talk through a raid the staff cannot otherwise coordinate. Anything
+    less is adopted as the per-channel lock it looks like, which holds for
+    everyone.
+    """
+    if len(candidates) < 2:
+        return DEFAULT_LOCK_SCOPE
+    manageable = [
+        channel
+        for channel in list(getattr(guild, "channels", []) or [])
+        if _is_text(channel) and _manageable(channel)[0]
+    ]
+    return "server" if len(candidates) >= len(manageable) else DEFAULT_LOCK_SCOPE
+
+
 async def _last_overwrite_by_this_bot(guild, candidates, bot_user) -> set:
     """The candidate channels whose `@everyone` overwrite this bot last changed.
 
@@ -719,6 +772,12 @@ async def adopt_legacy_locks(guild, bot_user) -> list:
     nothing cannot be told from a pass that never ran, and this one is meant to
     be readable back from a deploy's log ring.
 
+    What the pass cannot recover is *which command* wrote an old lock — and that
+    is what decides whether staff may talk through it — so
+    :func:`adoption_scope` answers it from the shape of the find: the old
+    server-wide command left the same overwrite on every text channel, and
+    nothing else does.
+
     Returns the channels adopted, so a caller can say so.
     """
     guild_id = report_guild_id(guild)
@@ -730,11 +789,12 @@ async def adopt_legacy_locks(guild, bot_user) -> list:
     candidates = adoption_candidates(guild, {int(row[0]) for row in rows})
     mine = await _last_overwrite_by_this_bot(guild, candidates, bot_user) if candidates else set()
     adopted = [channel for channel in candidates if int(getattr(channel, "id", 0) or 0) in mine]
+    scope = adoption_scope(guild, candidates)
     if adopted:
         ledger = [(int(getattr(channel, "id", 0) or 0), "") for channel in adopted]
         try:
             await db.save_lockdown(
-                guild_id, ledger, int(getattr(bot_user, "id", 0) or 0), _now()
+                guild_id, ledger, int(getattr(bot_user, "id", 0) or 0), _now(), scope=scope
             )
         except Exception as exc:  # noqa: BLE001 — no ledger, no lock
             print(f"[CONTROL] could not record the lockdowns I adopted: {exc}", flush=True)
@@ -743,10 +803,11 @@ async def adopt_legacy_locks(guild, bot_user) -> list:
             forget_lock_cache(guild_id)
             forget_spam(guild_id)
     names = ", ".join(f"#{getattr(channel, 'name', '?')}" for channel in adopted)
+    whole = " as one server-wide lockdown" if names and staff_exempt(scope) else ""
     print(
         f"[CONTROL] locks older than the ledger in guild {guild_id}: "
         f"{len(candidates)} candidate(s), adopted {len(adopted)}"
-        + (f" ({names})" if names else "")
+        + (f" ({names}){whole}" if names else "")
         + ".",
         flush=True,
     )
@@ -772,12 +833,13 @@ def is_removable(message) -> bool:
     return str(getattr(kind, "name", kind)).lower() in ("default", "reply")
 
 
-#: The locked channels of each server, as the last read left them. Read on every
-#: message, so it cannot be a query per message: a lock changes rarely and
-#: messages arrive in bursts. Every lock and unlock path below forgets what it
-#: touched, and the entry expires anyway — a row written by a process this one
-#: does not share still takes effect, one window late.
-_LOCKED_CACHE: dict[int, tuple[float, frozenset]] = {}
+#: The locked channels of each server, as the last read left them — each one with
+#: the scope of the lock that holds it. Read on every message, so it cannot be a
+#: query per message: a lock changes rarely and messages arrive in bursts. Every
+#: lock and unlock path below forgets what it touched, and the entry expires
+#: anyway — a row written by a process this one does not share still takes effect,
+#: one window late.
+_LOCKED_CACHE: dict[int, tuple[float, dict]] = {}
 _LOCKED_CACHE_SECONDS = 10.0
 
 
@@ -789,8 +851,8 @@ def forget_lock_cache(guild_id=None) -> None:
         _LOCKED_CACHE.pop(int(guild_id or 0), None)
 
 
-async def locked_channel_ids(guild_id) -> frozenset:
-    """Which channels this server has recorded as locked.
+async def locked_channels(guild_id) -> dict:
+    """``{channel_id: scope}`` for this server's locked channels.
 
     A read that fails answers **nothing is locked** rather than raising: the one
     caller of this deletes messages, and a database that could not be read is not
@@ -804,13 +866,20 @@ async def locked_channel_ids(guild_id) -> frozenset:
     if cached is not None and now - cached[0] < _LOCKED_CACHE_SECONDS:
         return cached[1]
     try:
-        rows = await db.lockdown_rows(key)
+        rows = await db.lockdown_locks(key)
     except Exception as exc:  # noqa: BLE001
         print(f"[CONTROL] could not read the lockdown ledger: {exc}", flush=True)
-        return cached[1] if cached is not None else frozenset()
-    ids = frozenset(int(row[0]) for row in rows)
-    _LOCKED_CACHE[key] = (now, ids)
-    return ids
+        return cached[1] if cached is not None else {}
+    held = {
+        int(channel_id): str(scope or DEFAULT_LOCK_SCOPE) for channel_id, scope in rows
+    }
+    _LOCKED_CACHE[key] = (now, held)
+    return held
+
+
+async def locked_channel_ids(guild_id) -> frozenset:
+    """Which channels this server has recorded as locked, whoever they hold."""
+    return frozenset(await locked_channels(guild_id))
 
 
 async def is_locked(guild_id, channel) -> bool:
@@ -822,12 +891,30 @@ async def is_locked(guild_id, channel) -> bool:
     permissions come from its parent. An id in the ledger and a parent id in it
     both answer yes.
     """
-    ids = await locked_channel_ids(guild_id)
-    if not ids:
+    held = await locked_channels(guild_id)
+    if not held:
         return False
     channel_id = int(getattr(channel, "id", 0) or 0)
     parent_id = int(getattr(channel, "parent_id", None) or 0)
-    return channel_id in ids or (parent_id != 0 and parent_id in ids)
+    return channel_id in held or (parent_id != 0 and parent_id in held)
+
+
+async def lock_scope(guild_id, channel) -> str:
+    """What the lock on this channel holds — ``""`` when it is not locked at all.
+
+    Asked only after :func:`is_locked` has answered yes, and answered from the
+    same cached read, so the listener pays one query per window for both
+    questions. A thread answers with its parent's scope, exactly as it does for
+    ``is_locked``.
+    """
+    held = await locked_channels(guild_id)
+    channel_id = int(getattr(channel, "id", 0) or 0)
+    if channel_id in held:
+        return held[channel_id]
+    parent_id = int(getattr(channel, "parent_id", None) or 0)
+    if parent_id and parent_id in held:
+        return held[parent_id]
+    return ""
 
 
 # ── what a burst into a locked channel earns ─────────────────────────────────

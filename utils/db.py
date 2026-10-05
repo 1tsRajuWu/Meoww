@@ -884,8 +884,23 @@ async def setup():
             previous TEXT NOT NULL DEFAULT '',
             locked_at REAL NOT NULL DEFAULT 0,
             locked_by INTEGER NOT NULL DEFAULT 0,
+            scope TEXT NOT NULL DEFAULT 'channel',
             PRIMARY KEY (guild_id, channel_id)
         )''')
+
+        # A lockdown remembers **who it holds**, not only how to undo itself. The
+        # server-wide command exists so members stop talking, and an administrator
+        # cannot be stopped by the permission — so it also has to be the lock that
+        # leaves administrators and the owner talking, or a whole server nobody
+        # can coordinate through is a lockdown the staff cannot run. The
+        # per-channel command is the opposite: it holds one room for everyone,
+        # which is what "this room is closed" means. Rows written before this
+        # column — including every legacy lock this pass adopts — read as
+        # `channel`, the strict answer, because a lock that was there before the
+        # question is not one that should loosen itself.
+        await ensure_columns(db, "lockdown_state", {
+            "scope": "TEXT NOT NULL DEFAULT 'channel'",
+        })
 
         # ── One locked voice channel, and everything needed to give it back ───
         # The same shape as the lockdown ledger above, one room at a time, for the
@@ -2122,23 +2137,50 @@ async def clear_warnings(guild_id: int, user_id: int) -> int:
 
 # ── A lockdown's ledger ──────────────────────────────────────────────────────
 
-async def save_lockdown(guild_id, rows: list[tuple[int, str]], by: int, at: float) -> int:
+async def save_lockdown(
+    guild_id, rows: list[tuple[int, str]], by: int, at: float, *, scope: str = "channel"
+) -> int:
     """Write the channels one lockdown touched, with what was there before.
 
     ``rows`` is ``(channel_id, previous)``. Written before the overwrites are
     applied, because the ledger is the undo: a lockdown that applied and then
     failed to record would be a bulk permission change with no way back.
+    ``scope`` is who the lock holds — ``channel`` for the per-channel command,
+    ``server`` for the server-wide one — and it is part of the same row because
+    the enforcement has to read both answers at once and must never have to guess
+    which command wrote a row.
     """
     if not rows:
         return 0
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executemany(
             'INSERT OR REPLACE INTO lockdown_state '
-            '(guild_id, channel_id, previous, locked_at, locked_by) VALUES (?, ?, ?, ?, ?)',
-            [(int(guild_id), int(channel_id), str(previous), float(at), int(by)) for channel_id, previous in rows],
+            '(guild_id, channel_id, previous, locked_at, locked_by, scope) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                (int(guild_id), int(channel_id), str(previous), float(at), int(by), str(scope or "channel"))
+                for channel_id, previous in rows
+            ],
         )
         await db.commit()
     return len(rows)
+
+
+async def lockdown_locks(guild_id) -> list[tuple[int, str]]:
+    """``(channel_id, scope)`` for every channel a lockdown holds.
+
+    The enforcement's reading, kept apart from :func:`lockdown_rows` on purpose:
+    the undo asks *what was here before*, the sweep asks *who is this held for*,
+    and neither should have to carry the other's fields around. A row from before
+    the column existed answers ``channel`` — the strict answer.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            'SELECT channel_id, scope FROM lockdown_state WHERE guild_id = ?',
+            (int(guild_id),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [(int(row[0]), str(row[1] or "channel")) for row in rows]
 
 
 async def lockdown_rows(guild_id) -> list[tuple[int, str, float]]:

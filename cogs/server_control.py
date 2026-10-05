@@ -88,6 +88,24 @@ def _lock_warnings(guild, channel) -> str:
     return ("\n\n" + "\n".join(said)) if said else ""
 
 
+def _is_staff(guild, member) -> bool:
+    """Whether this member is an administrator or the server's owner.
+
+    The same two ranks Discord's own permissions exempt from a channel overwrite:
+    `Administrator` and the owner bypass the deny by design. In a lock that is
+    *meant* to leave them talking, being unable to be stopped is the point — the
+    sweep would otherwise be the only thing answering their messages, and it must
+    not answer them. Read from the member's own permissions rather than from a
+    role's name: a server may call a role anything, and what matters is the power
+    Discord grants it.
+    """
+    who = int(getattr(member, "id", 0) or 0)
+    if who and who == int(getattr(guild, "owner_id", 0) or 0):
+        return True
+    granted = getattr(member, "guild_permissions", None)
+    return bool(getattr(granted, "administrator", False))
+
+
 def _members_intent_warning(bot) -> str:
     """The one thing that turns the default role into a no-op, said out loud.
 
@@ -376,8 +394,11 @@ class ServerControl(commands.Cog):
             description=(
                 f"{report.sentence()}\n"
                 "Every message sent in a locked channel is deleted until it is "
-                "unlocked — for everyone, administrators included — the sender is "
-                "warned by DM, and a burst earns a timeout."
+                "unlocked, the sender is warned by DM, and a burst earns a timeout — "
+                "but **administrators and the server's owner can still talk**, "
+                "because a whole server nobody can coordinate through is a lockdown "
+                "the staff cannot run. `/lockdown` on one channel is the stricter "
+                "lock: that one holds for everyone, administrators included."
             ),
             color=0xED4245,
             timestamp=discord.utils.utcnow()
@@ -459,6 +480,20 @@ class ServerControl(commands.Cog):
         ago — and that one command opens it again.
         """
         listed = "\n".join(f"• #{getattr(channel, 'name', '?')}" for channel in adopted[:20])
+        # Which kind of lock this was is read back from the ledger rather than
+        # guessed: an adopted server-wide lockdown leaves staff talking, an
+        # adopted per-channel one does not, and the card has to say which it is
+        # before somebody types into a channel and finds out.
+        scope = await server_control.lock_scope(guild.id, adopted[0])
+        held = (
+            "These were a whole-server lockdown, so administrators and the server's "
+            "owner can still talk there — the sweep does not touch staff in them."
+            if server_control.staff_exempt(scope)
+            else (
+                "These are per-channel locks: nobody can talk there, administrators "
+                "and the server's owner included."
+            )
+        )
         embed = discord.Embed(
             title="🔒 Locks older than my ledger are enforced now",
             description=(
@@ -467,8 +502,9 @@ class ServerControl(commands.Cog):
                 "was the last to change their permissions, so they are mine — and they "
                 "are written down now.\n\n"
                 f"{listed}\n\n"
-                "Messages posted there are deleted and a burst is a timeout, exactly as "
-                "with `/lockdown`. `/unlock` in a channel opens it again."
+                f"{held} Messages posted there by anyone else are deleted and a burst "
+                "is a timeout, exactly as with `/lockdown`. `/unlock` in a channel "
+                "opens it again."
             ),
             color=0xED4245,
             timestamp=discord.utils.utcnow(),
@@ -612,6 +648,15 @@ class ServerControl(commands.Cog):
             return
         if not await server_control.is_locked(guild.id, channel):
             return
+        author = getattr(message, "author", None)
+        if server_control.staff_exempt(
+            await server_control.lock_scope(guild.id, channel)
+        ) and _is_staff(guild, author):
+            # A whole-server lockdown is not holding the people who have to run
+            # the server through it: their messages stay, nobody is warned, and
+            # nothing they send counts toward a timeout. One channel's `/lockdown`
+            # is the opposite decision and is not answered here.
+            return
         name = str(getattr(channel, "name", "?") or "?")
         try:
             await message.delete()
@@ -629,7 +674,6 @@ class ServerControl(commands.Cog):
             # another try.
             print(f"[CONTROL] could not remove a message in #{name}: {exc}", flush=True)
             return
-        author = getattr(message, "author", None)
         strike = server_control.note_locked_message(
             guild.id, channel.id, getattr(author, "id", 0)
         )
