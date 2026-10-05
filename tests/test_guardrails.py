@@ -52,9 +52,13 @@ DOORS = frozenset({"structure", "moderation_actions", "db", "discord", "discord_
 #: Every file in ``cogs/`` that still writes to a Discord object itself, with the
 #: reason it is allowed to. Pinned rather than derived: this list is the record of
 #: a decision, and a *new* entry means somebody added a write that skips the door.
-#: The two entries marked **pre-existing** are named as gaps rather than blessed —
-#: the ticket lifecycle and the lockdown permission edits are structure changes
-#: that predate this door, and closing them is its own pass, not this one.
+#: The entry marked **pre-existing** is named as a gap rather than blessed — the
+#: ticket lifecycle is a structure change that predates this door, and closing it
+#: is its own pass, not this one. The lockdown's permission edits *were* the other
+#: gap and are closed now: `/lockdown`, `/unlock`, `/lockdown-server` and
+#: `/unlock-server` all go through ``utils/server_control``, which writes down what
+#: each change replaced before it makes it, so what is left in the cog is the
+#: `/slowmode` value and the message a locked channel's listener removes.
 DIRECT_WRITES = {
     "alonetime.py": [
         "channel.edit()",        # the cap follows the holder's list, and the change opens a case
@@ -79,9 +83,21 @@ DIRECT_WRITES = {
         "target.remove_roles()",
     ],
     "server_control.py": [
-        "channel.set_permissions()",  # pre-existing: /lockdown, stored via save_lockdown
-        "channel.edit()",             # pre-existing: /slowmode
-        "member.remove_roles()",      # pre-existing: /defaultrole clear
+        "channel.edit()",        # pre-existing: /slowmode
+        "member.remove_roles()",  # pre-existing: /defaultrole clear
+        # The lockdown's teeth. A permission cannot stop an administrator, so
+        # anything posted into a locked channel is removed instead: it is a
+        # message rather than server state, the removal goes to the host log, and
+        # which channels are locked is decided by the same ledger the undo reads
+        # (``utils.server_control``). The permission edits themselves moved into
+        # that module, which is what closed this file's other pre-existing gap.
+        "message.delete()",
+        # A burst past the lock earns a timeout, and this one is deliberately not
+        # routed through ``moderation_actions.apply``: that door refuses to act on
+        # an administrator, which is the whole thing this rule exists to ignore.
+        # The case and the log card still go through ``moderation_actions.record``
+        # and ``modlog.post``, so a rank-free timeout is a recorded one.
+        "member.timeout()",
     ],
     "social.py": [
         "msg.edit()",            # the bot editing its own embed

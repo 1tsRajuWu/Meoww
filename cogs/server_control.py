@@ -1,3 +1,4 @@
+import datetime
 import os
 import re
 import sqlite3
@@ -5,8 +6,37 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils import permissions, db
+from utils import moderation_actions, modlog, permissions, server_control, db
 from utils.style import send_card, display_name
+
+
+def _duration_words(seconds: int) -> str:
+    """A timeout length as a person would say it: 10 minutes, 1 hour, 1 day."""
+    minutes = max(1, int(seconds or 0) // 60)
+    if minutes < 60:
+        return f"{minutes} minute" + ("" if minutes == 1 else "s")
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hour" + ("" if hours == 1 else "s")
+    days = hours // 24
+    return f"{days} day" + ("" if days == 1 else "s")
+
+
+def _actor(interaction: discord.Interaction) -> moderation_actions.Actor:
+    """Who asked, in the shape every other audit reason in the bot uses.
+
+    A lockdown's reason is read by the server's own administrators in Discord's
+    audit log, so it names the person who ran the command — not this bot, which is
+    only what Discord credits the change to.
+    """
+    user = interaction.user
+    return moderation_actions.Actor(
+        id=int(getattr(user, "id", 0) or 0),
+        name=str(getattr(user, "display_name", None) or getattr(user, "name", "somebody")),
+        member=user if isinstance(user, discord.Member) else None,
+        source="discord",
+    )
+
 
 #: Table names this file will count. A name that is not one of these is skipped
 #: rather than quoted into a query.
@@ -26,6 +56,36 @@ def _root_command_name(interaction: discord.Interaction) -> str | None:
         return None
     parent = getattr(command, "root_parent", None)
     return parent.name if parent is not None else command.name
+
+
+def _lock_warnings(guild, channel) -> str:
+    """What this lock cannot do, said on the card, when it cannot do it.
+
+    Locking needs **Manage Channels**; removing needs **Manage Messages**; the
+    timeout needs **Moderate Members**. A bot can hold the first without the
+    others, and a card that promises removal *and* a timeout while neither is
+    possible is the exact kind of claim this feature exists to stop making.
+    Unknown is not a warning: a channel whose permissions could not be read gets
+    the ordinary card.
+    """
+    perms = getattr(channel, "permissions_for", None)
+    me = getattr(guild, "me", None)
+    if not callable(perms) or me is None:
+        return ""
+    try:
+        granted = perms(me)
+    except Exception:  # noqa: BLE001
+        return ""
+    said = []
+    if not getattr(granted, "manage_messages", False):
+        said.append(
+            "⚠️ I do not have **Manage Messages** here, so I cannot remove what is posted."
+        )
+    if not getattr(granted, "moderate_members", False):
+        said.append(
+            "⚠️ I do not have **Moderate Members** here, so a spammer cannot be timed out."
+        )
+    return ("\n\n" + "\n".join(said)) if said else ""
 
 
 def _members_intent_warning(bot) -> str:
@@ -231,26 +291,60 @@ class ServerControl(commands.Cog):
         embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="lockdown", description="Lock this channel so regular members cannot send messages.")
+    @app_commands.command(name="lockdown", description="Lock this channel: nobody can send, and what they send is removed.")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def lockdown(self, interaction: discord.Interaction):
-        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=False)
+        # The lock goes through the same door the server-wide one uses, so this
+        # channel lands in the ledger — which is both what `/unlock` restores from
+        # and what the force-delete listener below reads. The old body wrote the
+        # permission and nothing else, which is why unlocking it could only
+        # *allow* `@everyone` to talk.
+        report = await server_control.lock_channel(
+            interaction.guild, interaction.channel, _actor(interaction)
+        )
+        if not report.ok:
+            embed = discord.Embed(
+                title="⚠️ Channel Not Locked",
+                description=report.sentence(),
+                color=0xED4245,
+            )
+            return await send_card(interaction, embed=embed, ephemeral=True)
         embed = discord.Embed(
             title="🔒 Channel Locked Down",
-            description=f"This channel has been locked by {interaction.user.mention}.\nMembers can no longer send messages until unlocked.",
+            description=(
+                f"This channel has been locked by {interaction.user.mention}.\n"
+                "Every message sent here is deleted until it is unlocked — for "
+                "everyone, administrators included — and the sender is warned by "
+                "DM. A burst of messages earns a timeout: ten minutes, then an "
+                "hour, then a day."
+                + _lock_warnings(interaction.guild, interaction.channel)
+            ),
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="unlock", description="Unlock this channel for all members.")
+    @app_commands.command(name="unlock", description="Unlock this channel: stop removing messages and restore permissions.")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def unlock(self, interaction: discord.Interaction):
-        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=True)
+        report = await server_control.unlock_channel(
+            interaction.guild, interaction.channel, _actor(interaction)
+        )
+        if not report.ok:
+            embed = discord.Embed(
+                title="⚠️ Channel Not Unlocked",
+                description=report.sentence(),
+                color=0xED4245,
+            )
+            return await send_card(interaction, embed=embed, ephemeral=True)
         embed = discord.Embed(
             title="🔓 Channel Unlocked",
-            description=f"This channel has been unlocked by {interaction.user.mention}.\nChat permissions have been restored.",
+            description=(
+                f"This channel has been unlocked by {interaction.user.mention}.\n"
+                "Messages are kept again, and the permissions are the ones that "
+                "were here before the lockdown."
+            ),
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
@@ -261,17 +355,22 @@ class ServerControl(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def lockdown_server(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        count = 0
-        for channel in interaction.guild.text_channels:
-            try:
-                await channel.set_permissions(interaction.guild.default_role, send_messages=False)
-                count += 1
-            except discord.Forbidden:
-                pass
-        
+        report = await server_control.lockdown(interaction.guild, _actor(interaction))
+        if not report.ok:
+            embed = discord.Embed(
+                title="⚠️ Server Lockdown Did Not Happen",
+                description=report.sentence(),
+                color=0xED4245,
+            )
+            return await send_card(interaction, embed=embed)
         embed = discord.Embed(
             title="🚨 Server-Wide Lockdown Activated",
-            description=f"**{count}** channel(s) have been locked by {interaction.user.mention}.\nAll public chat has been suspended.",
+            description=(
+                f"{report.sentence()}\n"
+                "Every message sent in a locked channel is deleted until it is "
+                "unlocked — for everyone, administrators included — the sender is "
+                "warned by DM, and a burst earns a timeout."
+            ),
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
@@ -282,22 +381,193 @@ class ServerControl(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def unlock_server(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        count = 0
-        for channel in interaction.guild.text_channels:
-            try:
-                await channel.set_permissions(interaction.guild.default_role, send_messages=True)
-                count += 1
-            except discord.Forbidden:
-                pass
-
+        # The server-wide undo restores each channel's *own* previous overwrite
+        # rather than allowing `@everyone` to talk, so a channel that was already
+        # locked before the incident is not opened by lifting the lockdown.
+        report = await server_control.unlock(interaction.guild, _actor(interaction))
+        if not report.ok:
+            embed = discord.Embed(
+                title="⚠️ Server Lockdown Not Lifted",
+                description=report.sentence(),
+                color=0xED4245,
+            )
+            return await send_card(interaction, embed=embed)
         embed = discord.Embed(
             title="🔓 Server-Wide Lockdown Lifted",
-            description=f"**{count}** channel(s) have been unlocked by {interaction.user.mention}.\nPublic chat permissions restored.",
+            description=(
+                f"{report.sentence()}\n"
+                "Messages are kept in those channels again."
+            ),
             color=0x57F287,
             timestamp=discord.utils.utcnow()
         )
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
+
+    # ── the lock's teeth ────────────────────────────────────────────────────
+    #
+    # A permission overwrite cannot stop an administrator. Discord's
+    # `Administrator` permission and a server's owner bypass channel permissions
+    # **by design**, which is how a channel this bot had already locked still had
+    # an administrator talking in it: the deny reads as locked and is not one. The
+    # ledger is what answers that — the messages are removed, the person is told
+    # in their own DMs, and a burst past the wall is a timeout. There is no rank
+    # the sweep skips: a locked channel is an incident, and the person still
+    # typing in it is the one it is for.
+
+    def _sweep_actor(self) -> moderation_actions.Actor:
+        """The sweep named as its own actor: no person asked for this one."""
+        bot_user = getattr(self.bot, "user", None)
+        return moderation_actions.Actor(
+            id=int(getattr(bot_user, "id", 0) or 0),
+            name="the lockdown sweep",
+            source="discord",
+        )
+
+    async def _time_out_the_flood(
+        self, guild, member, strike: server_control.Strike, where: str
+    ) -> str:
+        """Time out a burst past the lock and record it; a refusal sentence, or ``""``.
+
+        Deliberately not routed through ``moderation_actions.apply``: that door's
+        hierarchy guard exists so a *moderator* cannot act on an administrator, and
+        this is not a moderator's decision — it is the lock's own rule, and the
+        rank of the person typing is what it is there to ignore. Discord's own
+        limits still apply and are reported rather than swallowed: the **Moderate
+        Members** permission, a role above mine, and the server's owner, whom
+        Discord does not let any bot time out.
+        """
+        who = int(getattr(member, "id", 0) or 0)
+        seconds = int(strike.seconds or 0)
+        reason = f"spamming a locked channel (#{where}): {strike.sentence()}"
+        actor = self._sweep_actor()
+        if who and who == int(getattr(guild, "owner_id", 0) or 0):
+            detail = "Discord does not let a bot time out the server's owner, so that part was refused."
+        else:
+            try:
+                await member.timeout(datetime.timedelta(seconds=seconds), reason=reason)
+                detail = ""
+            except discord.Forbidden:
+                detail = (
+                    "Discord refused the timeout — I need **Moderate Members**, and my "
+                    "role has to sit above theirs."
+                )
+            except (discord.NotFound, discord.HTTPException) as exc:
+                detail = f"Discord refused the timeout ({type(exc).__name__})."
+        if detail:
+            print(
+                f"[CONTROL] could not time out {who or '?'} for spamming #{where}: {detail}",
+                flush=True,
+            )
+            try:
+                await modlog.post(
+                    guild,
+                    moderation_actions.failure_note_card("timeout", guild, member, actor, detail),
+                    what=f"the refused lockdown timeout for member {who}",
+                )
+            except Exception as exc:  # noqa: BLE001 — the refusal is already printed
+                print(f"[CONTROL] could not log the refused timeout: {exc}", flush=True)
+            return detail
+        try:
+            await moderation_actions.record(guild, "timeout", member, actor, reason)
+        except Exception as exc:  # noqa: BLE001 — the timeout landed; the record is bookkeeping
+            print(f"[CONTROL] timed out {who} but could not record it: {exc}", flush=True)
+        print(f"[CONTROL] timed out {who or '?'} for spamming #{where} ({seconds}s)", flush=True)
+        return ""
+
+    async def _warn_by_dm(self, guild, member, channel, strike, refusal: str) -> None:
+        """The strict half: the person is told, personally, that it was not a glitch.
+
+        A DM rather than a line in the room, because a bot sentence under a deleted
+        message is a conversation, and a locked channel is not having one. An inbox
+        that refuses it is written to the host log; the modlog card, when the burst
+        earned one, is the record either way.
+        """
+        where = f"#{getattr(channel, 'name', '?')}"
+        lines = [
+            f"Your message in **{where}** was removed. That channel is **locked**: nothing "
+            "posted there is kept, and that is true of every member — administrators and "
+            "the server's owner included.",
+        ]
+        if strike is None:
+            lines.append(
+                f"Send a burst of {server_control.SPAM_LIMIT} in a few seconds and you will be "
+                "timed out: ten minutes first, then an hour, then a day."
+            )
+        else:
+            lines.append(
+                f"You sent **{strike.messages}** messages into it inside "
+                f"{int(server_control.SPAM_WINDOW_SECONDS)} seconds, so this is timeout "
+                f"**{strike.offences}** of the ladder: **{_duration_words(strike.seconds)}**."
+            )
+            if refusal:
+                lines.append(refusal)
+        embed = discord.Embed(
+            title="🔒 You wrote in a locked channel",
+            description="\n\n".join(lines),
+            color=0xED4245,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Server", value=str(getattr(guild, "name", "this server")), inline=True)
+        embed.set_footer(text="DaCat Security · /unlock in the channel lifts it")
+        try:
+            await send_card(member, embed=embed)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(
+                f"[CONTROL] could not warn {getattr(member, 'id', '?')} by DM: {exc}",
+                flush=True,
+            )
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Remove anything posted into a locked channel, whoever posted it."""
+        guild = getattr(message, "guild", None)
+        channel = getattr(message, "channel", None)
+        if guild is None or channel is None:
+            return
+        if not hasattr(channel, "id"):
+            return
+        if not server_control.is_removable(message):
+            return  # the bot's own cards — the lockdown notice is one of them
+        if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(
+            guild.id, "moderation"
+        ):
+            # A server that has turned Moderation off is not policed by this
+            # either; the switch is the same switch that refuses `/lockdown`.
+            return
+        if not await server_control.is_locked(guild.id, channel):
+            return
+        name = str(getattr(channel, "name", "?") or "?")
+        try:
+            await message.delete()
+        except discord.Forbidden:
+            # The one refusal worth naming: the lock still denies the permission,
+            # but the sweep needs **Manage Messages** of its own to act on it.
+            print(
+                f"[CONTROL] cannot remove a message in #{name} while locked — "
+                "I need **Manage Messages** there.",
+                flush=True,
+            )
+            return
+        except (discord.NotFound, discord.HTTPException) as exc:
+            # A message already gone is fine, and either way the next one is
+            # another try.
+            print(f"[CONTROL] could not remove a message in #{name}: {exc}", flush=True)
+            return
+        author = getattr(message, "author", None)
+        strike = server_control.note_locked_message(
+            guild.id, channel.id, getattr(author, "id", 0)
+        )
+        refusal = ""
+        if strike is not None:
+            refusal = await self._time_out_the_flood(guild, author, strike, name)
+        if author is not None:
+            await self._warn_by_dm(guild, author, channel, strike, refusal)
+        print(
+            f"[CONTROL] removed a message in #{name} while locked "
+            f"(author {getattr(author, 'id', '?')})",
+            flush=True,
+        )
 
     @app_commands.command(name="slowmode", description="Set slowmode delay for this channel (seconds, 0 to disable).")
     @app_commands.describe(seconds="Delay in seconds (0 to 21600)")

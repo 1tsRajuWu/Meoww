@@ -157,6 +157,11 @@ And the jobs themselves:
    asked is written down. A lockdown writes its ledger **before** it touches a
    channel: a bulk permission change that failed to record itself would have no
    undo, and the undo is the whole reason a lockdown is allowed to be one click.
+   **That same ledger is what enforces the lock** — Discord's `Administrator`
+   permission and a guild owner bypass channel overwrites by design, so a locked
+   channel is held by the deny *and* by an `on_message` listener that removes
+   anything a person posts into it (the bot's own card excepted); the row leaves
+   when the unlock restores what was there, and the removals stop with it.
 7. **The operator's own controls** (`/api/console/server-action`) — republish a
    server's command list, leave it, leave *and block* it, or take it off the
    blocklist. Operator scope only (`_require_operator_api`), so a server's own

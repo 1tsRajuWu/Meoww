@@ -7,12 +7,14 @@ back what was there rather than allowing `@everyone` to talk again — which on 
 server that had deliberately locked a channel would be handing out a permission
 nobody asked for.
 """
+import datetime
 import os
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from tests.support import TempDatabaseMixin
-from utils import db, server_control
+from utils import db, moderation_actions, modlog, server_control
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -125,6 +127,126 @@ class Guild:
 class Actor:
     id = 5
     label = "Admin (website)"
+
+
+class _FakeBot:
+    """Just the one question the listener asks the bot."""
+
+    def __init__(self, *, enabled=True):
+        self.enabled = enabled
+
+    def is_module_enabled(self, _guild_id, _module):
+        return self.enabled
+
+
+def _forbidden() -> Exception:
+    """Discord's own 403, built the way discord.py wants one."""
+    import discord
+
+    return discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "no perms")
+
+
+class _FakeMember:
+    """A member as much as the sweep touches one: a DM and a timeout.
+
+    ``send_raises`` is a closed inbox and ``timeout_raises`` is Discord refusing
+    the timeout (a role above the bot's, or the owner) — the two refusals the
+    sweep has to survive without losing the deletion.
+    """
+
+    def __init__(self, author_id=7, *, bot=False, name="member", send_raises=None, timeout_raises=None):
+        self.id = author_id
+        self.bot = bot
+        self.name = name
+        self.display_name = name
+        self.dms = []
+        self.timeouts = []
+        self._send_raises = send_raises
+        self._timeout_raises = timeout_raises
+
+    async def send(self, **payload):
+        if self._send_raises is not None:
+            raise self._send_raises
+        self.dms.append(payload)
+
+    async def timeout(self, until, *, reason=""):
+        if self._timeout_raises is not None:
+            raise self._timeout_raises
+        self.timeouts.append((until, reason))
+
+
+class _FakeMessage:
+    """A message as much as the listener touches one."""
+
+    def __init__(self, channel, *, author_bot=False, author_id=7, kind="default", author=None):
+        self.channel = channel
+        self.guild = getattr(channel, "guild", None)
+        self.author = author if author is not None else _FakeMember(author_id, bot=author_bot)
+        self.type = kind
+        self.deleted = 0
+
+    async def delete(self):
+        self.deleted += 1
+
+
+class _Response:
+    def __init__(self):
+        self.messages = []
+
+    def is_done(self):
+        return False
+
+    async def send_message(self, **payload):
+        self.messages.append(payload)
+
+
+class _Followup:
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, **payload):
+        self.messages.append(payload)
+
+
+class _FakeInteraction:
+    """Just enough of an interaction to drive the real command callbacks."""
+
+    def __init__(self, guild, channel, *, user_id=42, name="R A J"):
+        self.guild = guild
+        self.guild_id = guild.id
+        self.channel = channel
+        self.user = SimpleNamespace(
+            id=user_id, display_name=name, name=name.lower(), mention=f"<@{user_id}>"
+        )
+        self.response = _Response()
+        self.followup = _Followup()
+
+    async def edit_original_response(self, **_payload):
+        return None  # nothing here edits its own reply, but send_card looks for it
+
+
+def _payload_text(payload) -> str:
+    """Everything a card payload says, whether it went out as a layout or an embed."""
+    view = payload.get("view")
+    if view is not None and hasattr(view, "to_components"):
+        parts: list = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("content"), str):
+                    parts.append(node["content"])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(view.to_components())
+        return " ".join(parts)
+    embed = payload.get("embed")
+    if embed is not None:
+        return f"{getattr(embed, 'title', '')} {getattr(embed, 'description', '')}"
+    return str(payload.get("content") or "")
 
 
 class ThePlan(unittest.TestCase):
@@ -301,6 +423,462 @@ class TheUndo(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.blocked, 1)
         left = [channel_id for channel_id, _p, _a in await db.lockdown_rows(guild.id)]
         self.assertEqual(left, [2], "the one that failed is still owed an undo")
+
+
+class ThePerChannelLock(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """One channel, the same ledger — and the same rows the listener reads.
+
+    The per-channel `/lockdown` used to write a permission and nothing else, so
+    the only way to open that channel was to allow `@everyone` to talk. It keeps
+    the ledger now, which is also what makes a locked channel's messages removable
+    without a second registry to disagree with the undo.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    async def test_a_lock_forgets_the_ladder_the_last_incident_built(self):
+        """The ladder is per incident: a fresh lock is not the one somebody was climbing."""
+        guild = Guild(channels=[Channel(1, "general")])
+        for _ in range(server_control.SPAM_LIMIT - 1):
+            server_control.note_locked_message(guild.id, 1, 3, now=0.0)
+        await server_control.lock_channel(guild, guild.channels[0], Actor())
+        self.assertIsNone(server_control.note_locked_message(guild.id, 1, 3, now=0.1))
+
+    async def test_an_unlock_forgets_the_ladder_too(self):
+        guild = Guild(channels=[Channel(1, "general")])
+        await server_control.lock_channel(guild, guild.channels[0], Actor())
+        for _ in range(server_control.SPAM_LIMIT):
+            server_control.note_locked_message(guild.id, 1, 3, now=0.0)
+        await server_control.unlock_channel(guild, guild.channels[0], Actor())
+        self.assertIsNone(server_control.note_locked_message(guild.id, 1, 3, now=0.1))
+
+    async def test_one_channel_is_recorded_by_the_same_ledger(self):
+        channel = Channel(1, "general")
+        guild = Guild(channels=[channel])
+        report = await server_control.lock_channel(guild, channel, Actor())
+        self.assertTrue(report.ok)
+        rows = await db.lockdown_rows(guild.id)
+        self.assertEqual([row[0] for row in rows], [1])
+        self.assertEqual(await server_control.locked_channel_ids(guild.id), frozenset({1}))
+        self.assertIs(channel.overwrites[guild.default_role].send_messages, False)
+
+    async def test_a_second_lock_keeps_the_overwrite_from_before_the_first(self):
+        """The row is the undo. Re-recording it with the lockdown's own deny would
+        leave the undo restoring the *lock*."""
+        everyone = Role("@everyone")
+        channel = Channel(1, "quiet", overwrites={everyone: Overwrite(deny=1 << 11)})
+        guild = Guild(channels=[channel])
+        guild.default_role = everyone
+        await server_control.lockdown(guild, Actor())
+        original = await db.lockdown_rows(guild.id)
+        await server_control.lock_channel(guild, channel, Actor())
+        self.assertEqual(await db.lockdown_rows(guild.id), original)
+
+    async def test_unlocking_one_channel_leaves_the_others_locked(self):
+        first, second = Channel(1, "general"), Channel(2, "memes")
+        guild = Guild(channels=[first, second])
+        await server_control.lockdown(guild, Actor())
+        report = await server_control.unlock_channel(guild, first, Actor())
+        self.assertTrue(report.ok)
+        left = await db.lockdown_rows(guild.id)
+        self.assertEqual([row[0] for row in left], [2], "only the one that was released")
+        self.assertEqual(await server_control.locked_channel_ids(guild.id), frozenset({2}))
+        self.assertNotIn(guild.default_role, first.overwrites)
+
+    async def test_a_channel_locked_before_there_was_a_ledger_is_still_unlocked(self):
+        """No row, an overwrite: the honest undo is removing it, not allowing it."""
+        everyone = Role("@everyone")
+        channel = Channel(1, "general", overwrites={everyone: Overwrite(deny=1 << 11)})
+        guild = Guild(channels=[channel])
+        guild.default_role = everyone
+        report = await server_control.unlock_channel(guild, channel, Actor())
+        self.assertTrue(report.ok)
+        self.assertNotIn(everyone, channel.overwrites, "the deny was removed, not inverted")
+        self.assertFalse(await server_control.is_locked(guild.id, channel))
+
+    async def test_a_failed_reading_answers_nothing_is_locked(self):
+        """A database that could not be read is not a reason to delete messages."""
+        guild = Guild(channels=[Channel(1, "general")])
+        server_control.forget_lock_cache()
+        with mock.patch.object(
+            server_control.db, "lockdown_rows", side_effect=RuntimeError("disk gone")
+        ):
+            self.assertFalse(await server_control.is_locked(guild.id, guild.channels[0]))
+
+    async def test_a_thread_is_held_by_the_channel_it_hangs_under(self):
+        """The lockdown denies *creating* a public thread; one that existed is
+        still a place to type, and its permissions are its parent's."""
+        guild = Guild(channels=[Channel(1, "general")])
+        await server_control.lock_channel(guild, guild.channels[0], Actor())
+        thread = SimpleNamespace(id=99, parent_id=1)
+        self.assertTrue(await server_control.is_locked(guild.id, thread))
+
+
+class TheListenerRemovesWhatWasPostedWhileLocked(
+    TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
+):
+    """
+    Discord's permissions cannot stop an administrator, and a channel that still
+    had an administrator talking in it after `/lockdown` is the defect this covers:
+    the deny reads as locked, and the sweep is what makes it one.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+        from cogs.server_control import ServerControl
+
+        self.cog = ServerControl(bot=_FakeBot(enabled=True))
+        self.channel = Channel(1, "general")
+        self.guild = Guild(channels=[self.channel])
+        await server_control.lock_channel(self.guild, self.channel, Actor())
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    async def _burst(self, member, count=None):
+        """Send ``count`` messages into the locked channel, as the sweep sees them."""
+        count = server_control.SPAM_LIMIT if count is None else count
+        for _ in range(count):
+            await self.cog.on_message(_FakeMessage(self.channel, author=member))
+
+    async def test_every_removed_message_warns_its_sender_by_dm(self):
+        member = _FakeMember(author_id=7)
+        await self.cog.on_message(_FakeMessage(self.channel, author=member))
+        self.assertEqual(len(member.dms), 1, "the sender was not told")
+        said = _payload_text(member.dms[0])
+        self.assertIn("locked", said)
+        self.assertIn("removed", said)
+        self.assertIn("administrators and the server's owner included", said)
+        self.assertIn("timed out", said, "the strict part is not on the card")
+
+    async def test_a_burst_is_timed_out_whether_or_not_they_are_an_administrator(self):
+        member = _FakeMember(author_id=7)
+        await self._burst(member, server_control.SPAM_LIMIT - 1)
+        self.assertEqual(member.timeouts, [], "four messages are not a burst")
+        await self._burst(member, 1)
+        self.assertEqual(len(member.timeouts), 1, "the fifth message was not a burst")
+        until, reason = member.timeouts[0]
+        self.assertEqual(until, datetime.timedelta(seconds=server_control.SPAM_TIMEOUTS[0]))
+        self.assertIn("locked", reason)
+        self.assertIn("10 minutes", _payload_text(member.dms[-1]))
+
+    async def test_the_timeout_is_recorded_as_a_case(self):
+        member = _FakeMember(author_id=7)
+        with mock.patch.object(moderation_actions, "record", new=mock.AsyncMock()) as recorded:
+            await self._burst(member)
+        recorded.assert_awaited_once()
+        guild_arg, action, target_arg = recorded.await_args.args[:3]
+        self.assertEqual(action, "timeout")
+        self.assertIs(target_arg, member)
+        self.assertEqual(guild_arg, self.guild)
+
+    async def test_a_refused_timeout_is_told_to_the_member_and_written_to_the_log(self):
+        member = _FakeMember(author_id=7, timeout_raises=_forbidden())
+        with mock.patch.object(modlog, "post", new=mock.AsyncMock(return_value=True)) as posted:
+            await self._burst(member)
+        self.assertEqual(member.timeouts, [])
+        posted.assert_awaited()
+        self.assertIn("refused", _payload_text(member.dms[-1]))
+
+    async def test_the_owner_is_warned_and_discord_is_never_asked_to_time_them_out(self):
+        """No bot may time out the server's owner: the attempt would be a 403 every
+        time, and saying so on the card is better than pretending it landed."""
+        self.guild.owner_id = 42
+        member = _FakeMember(author_id=42)
+        await self._burst(member)
+        self.assertEqual(member.timeouts, [])
+        self.assertIn("owner", _payload_text(member.dms[-1]))
+
+    async def test_a_closed_inbox_does_not_stop_the_removal(self):
+        member = _FakeMember(author_id=7, send_raises=_forbidden())
+        message = _FakeMessage(self.channel, author=member)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 1)
+
+    async def test_the_warning_goes_to_the_member_and_not_into_the_locked_room(self):
+        """The room is the thing being kept silent, and a bot line under a deleted
+        message is a conversation — so the warning is a DM, and this channel fake
+        has no ``send`` for one to slip into."""
+        member = _FakeMember(author_id=7)
+        await self.cog.on_message(_FakeMessage(self.channel, author=member))
+        self.assertEqual(len(member.dms), 1, "the warning was not delivered to the member")
+
+    async def test_it_removes_an_administrators_message_like_any_other(self):
+        message = _FakeMessage(self.channel, author_id=7)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 1, "the administrator's message was left behind")
+
+    async def test_it_leaves_the_bots_own_card_where_the_channel_can_read_it(self):
+        message = _FakeMessage(self.channel, author_bot=True)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 0)
+
+    async def test_it_leaves_discords_own_notices_alone(self):
+        message = _FakeMessage(self.channel, kind="pins_add")
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 0)
+
+    async def test_unlocking_forgets_the_lock_the_same_moment(self):
+        await server_control.unlock_channel(self.guild, self.channel, Actor())
+        message = _FakeMessage(self.channel, author_id=7)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 0, "the row is away, so the removal stops")
+
+    async def test_a_server_that_turned_moderation_off_is_not_policed(self):
+        from cogs.server_control import ServerControl
+
+        cog = ServerControl(bot=_FakeBot(enabled=False))
+        message = _FakeMessage(self.channel, author_id=7)
+        await cog.on_message(message)
+        self.assertEqual(message.deleted, 0)
+
+    async def test_a_message_in_a_channel_it_does_not_manage_is_left_alone(self):
+        other = Channel(2, "memes")
+        self.guild.channels.append(other)
+        other.guild = self.guild
+        message = _FakeMessage(other, author_id=7)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 0)
+
+    async def test_a_direct_message_is_not_a_channel_anybody_locked(self):
+        message = _FakeMessage(SimpleNamespace(id=3, name="dm"), author_id=7)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 0)
+
+
+class TheBurstEarnsATimeout(unittest.TestCase):
+    """Four messages are somebody ignoring a notice; five are a flood.
+
+    The rules are pure and the clock is injected, so every rung of the ladder and
+    every edge of the window is a test rather than a stopwatch.
+    """
+
+    def setUp(self):
+        server_control.forget_spam()
+
+    def tearDown(self):
+        server_control.forget_spam()
+
+    def _burst(self, start):
+        """``SPAM_LIMIT`` messages all inside one window; the strike, if any."""
+        strike = None
+        for _ in range(server_control.SPAM_LIMIT):
+            strike = server_control.note_locked_message(1, 2, 3, now=start)
+        return strike
+
+    def test_the_messages_below_the_limit_are_not_a_burst(self):
+        for index in range(server_control.SPAM_LIMIT - 1):
+            self.assertIsNone(
+                server_control.note_locked_message(1, 2, 3, now=index * 0.1)
+            )
+
+    def test_the_message_that_reaches_the_limit_is_a_strike(self):
+        for index in range(server_control.SPAM_LIMIT - 1):
+            server_control.note_locked_message(1, 2, 3, now=index * 0.1)
+        strike = server_control.note_locked_message(1, 2, 3, now=1.0)
+        self.assertIsNotNone(strike)
+        self.assertEqual(strike.messages, server_control.SPAM_LIMIT)
+        self.assertEqual(strike.offences, 1)
+        self.assertEqual(strike.seconds, server_control.SPAM_TIMEOUTS[0])
+
+    def test_the_ladder_escalates_and_holds_at_its_last_rung(self):
+        self.assertEqual(
+            [server_control.spam_timeout(offences) for offences in (1, 2, 3, 4, 9)],
+            [600, 3600, 86400, 86400, 86400],
+        )
+
+    def test_a_burst_an_hour_later_starts_at_the_bottom_again(self):
+        later = server_control.SPAM_ESCALATION_SECONDS + 1
+        self.assertEqual(self._burst(0.0).offences, 1)
+        self.assertEqual(self._burst(60.0).offences, 2, "a second burst inside the hour is worse")
+        self.assertEqual(
+            self._burst(later * 3).offences, 1, "an hour of quiet is not an escalation"
+        )
+
+    def test_messages_outside_the_window_are_never_a_burst(self):
+        apart = server_control.SPAM_WINDOW_SECONDS + 1
+        for index in range(server_control.SPAM_LIMIT * 3):
+            strike = server_control.note_locked_message(1, 2, 3, now=index * apart)
+        self.assertIsNone(strike)
+
+    def test_one_persons_burst_does_not_time_out_another(self):
+        for _ in range(server_control.SPAM_LIMIT - 1):
+            server_control.note_locked_message(1, 2, 3, now=0.0)
+        self.assertIsNone(server_control.note_locked_message(1, 2, 4, now=0.1))
+
+    def test_another_channel_has_its_own_window(self):
+        for _ in range(server_control.SPAM_LIMIT - 1):
+            server_control.note_locked_message(1, 2, 3, now=0.0)
+        self.assertIsNone(server_control.note_locked_message(1, 9, 3, now=0.1))
+
+    def test_forgetting_one_server_leaves_the_others_alone(self):
+        for _ in range(server_control.SPAM_LIMIT - 1):
+            server_control.note_locked_message(1, 2, 3, now=0.0)
+            server_control.note_locked_message(7, 2, 3, now=0.0)
+        server_control.forget_spam(7)
+        self.assertIsNotNone(server_control.note_locked_message(1, 2, 3, now=0.1))
+        self.assertIsNone(server_control.note_locked_message(7, 2, 3, now=0.1))
+
+
+class TheCardSaysWhatTheLockCannotDo(unittest.TestCase):
+    """A lock that promises deletion and a timeout while the permissions are
+    missing is exactly the claim this feature exists to stop making. Locking needs
+    **Manage Channels**, removing needs **Manage Messages**, the timeout needs
+    **Moderate Members**, and a bot can hold the first without the others.
+    """
+
+    @staticmethod
+    def _guild():
+        return Guild(channels=[])
+
+    @staticmethod
+    def _channel(**perms):
+        return SimpleNamespace(
+            name="general", permissions_for=lambda _me: Perms(manage_channels=True, **perms)
+        )
+
+    def test_a_channel_that_can_do_both_says_nothing_extra(self):
+        from cogs.server_control import _lock_warnings
+
+        channel = self._channel(manage_messages=True, moderate_members=True)
+        self.assertEqual(_lock_warnings(self._guild(), channel), "")
+
+    def test_a_channel_without_manage_messages_says_the_removal_cannot_happen(self):
+        from cogs.server_control import _lock_warnings
+
+        channel = self._channel(manage_messages=False, moderate_members=True)
+        self.assertIn("Manage Messages", _lock_warnings(self._guild(), channel))
+
+    def test_a_channel_without_moderate_members_says_the_timeout_cannot_happen(self):
+        from cogs.server_control import _lock_warnings
+
+        channel = self._channel(manage_messages=True, moderate_members=False)
+        self.assertIn("Moderate Members", _lock_warnings(self._guild(), channel))
+
+    def test_both_missing_is_both_sentences(self):
+        from cogs.server_control import _lock_warnings
+
+        said = _lock_warnings(self._guild(), self._channel())
+        self.assertIn("Manage Messages", said)
+        self.assertIn("Moderate Members", said)
+
+    def test_a_channel_it_could_not_read_is_not_a_warning(self):
+        from cogs.server_control import _lock_warnings
+
+        self.assertEqual(_lock_warnings(self._guild(), SimpleNamespace(name="general")), "")
+
+
+class TheCommandAndTheListenerAreOnePath(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """The report this pass came from, driven end to end.
+
+    `/lockdown` from the screenshot, then the administrator who ran it typing —
+    and the message is gone. Everything else in this file tests one half; this
+    drives the real command callback, the real ledger and the real listener over
+    the same fakes, which is the shape the beta server sees.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+        from cogs.server_control import ServerControl
+
+        self.cog = ServerControl(bot=_FakeBot(enabled=True))
+        self.channel = Channel(1, "premier")
+        # This bot holds both permissions, so the card promises removal without the
+        # warning and the fakes do not decide the outcome.
+        self.channel.permissions_for = lambda _me: Perms(
+            manage_channels=True, manage_messages=True, moderate_members=True
+        )
+        self.guild = Guild(channels=[self.channel])
+        self.interaction = _FakeInteraction(self.guild, self.channel)
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def _said(self) -> str:
+        payloads = self.interaction.response.messages + self.interaction.followup.messages
+        return " ".join(_payload_text(payload) for payload in payloads)
+
+    async def test_the_lock_command_records_the_channel_the_listener_then_clears(self):
+        from cogs.server_control import ServerControl
+
+        await ServerControl.lockdown.callback(self.cog, self.interaction)
+        said = self._said()
+        self.assertIn("deleted", said, "the card does not say what the lock does")
+        self.assertIn("administrators included", said)
+        self.assertIn("<@42>", said, "the card does not name who locked it")
+        self.assertEqual([row[0] for row in await db.lockdown_rows(self.guild.id)], [1])
+
+        # The administrator who ran the lock, typing under its card: the message is
+        # removed and the warning reaches them in their own DMs.
+        admin = _FakeMember(author_id=42)
+        message = _FakeMessage(self.channel, author=admin)
+        await self.cog.on_message(message)
+        self.assertEqual(message.deleted, 1, "the message the screenshot is about stayed")
+        self.assertEqual(len(admin.dms), 1, "the sender was not warned")
+        self.assertIn("locked", _payload_text(admin.dms[0]))
+
+        # The unlock goes through its own callback, and the removal stops with it.
+        await ServerControl.unlock.callback(self.cog, self.interaction)
+        again = _FakeMessage(self.channel, author=admin)
+        await self.cog.on_message(again)
+        self.assertEqual(again.deleted, 0)
+        self.assertEqual(len(admin.dms), 1, "a message that was kept is not warned about")
+        self.assertEqual(await db.lockdown_rows(self.guild.id), [])
+
+
+class TheLockedChannelsAreCached(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """The question is asked on every message, so the answer cannot be a query."""
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+
+    async def test_a_burst_of_messages_reads_the_ledger_once(self):
+        guild = Guild(channels=[Channel(1, "general")])
+        await server_control.lock_channel(guild, guild.channels[0], Actor())
+        real = server_control.db.lockdown_rows
+        reads = []
+
+        async def counted(guild_id):
+            reads.append(guild_id)
+            return await real(guild_id)
+
+        with mock.patch.object(server_control.db, "lockdown_rows", new=counted):
+            for _ in range(5):
+                self.assertTrue(await server_control.is_locked(guild.id, guild.channels[0]))
+        self.assertEqual(len(reads), 1, "the cache answered the other four")
+
+    async def test_locking_and_unlocking_forget_what_was_cached(self):
+        guild = Guild(channels=[Channel(1, "general")])
+        self.assertFalse(await server_control.is_locked(guild.id, guild.channels[0]))
+        await server_control.lock_channel(guild, guild.channels[0], Actor())
+        self.assertTrue(await server_control.is_locked(guild.id, guild.channels[0]))
+        await server_control.unlock_channel(guild, guild.channels[0], Actor())
+        self.assertFalse(await server_control.is_locked(guild.id, guild.channels[0]))
 
 
 class TheSlowmode(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
