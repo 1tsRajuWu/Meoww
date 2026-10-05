@@ -41,6 +41,54 @@ async def ensure_columns(db, table: str, columns: dict[str, str]) -> list[str]:
     return added
 
 
+# ── The lockdown ledger's own shape ──────────────────────────────────────────
+#
+# "Lock every channel" is a bulk write over somebody else's server, and the shape
+# that makes it safe is that it remembers what it *changed*: one row per channel
+# the lockdown touched, holding the overwrite that was there before. Unlocking
+# then restores what the server had rather than blanket-allowing `@everyone` to
+# talk. `previous` is the overwrite target as three numbers (allow, deny, and
+# whether it existed at all); an empty string means there was nothing there and
+# the row should be removed on unlock.
+#
+# `scope` is who a lock holds: the server-wide command exists so members stop
+# talking while administrators and the owner still can, which is only possible if
+# the row says which command wrote it. It was added after the table shipped, so
+# its statement lives here once and is run by **two** callers — the boot
+# (`setup`) and the ledger's own readers and writer — because a database the
+# cloud restore swaps in under a running process can predate the column. Without
+# that second caller the sweep answered ``no such column: scope`` and read as
+# "nothing is locked": a lockdown that silently stops enforcing.
+LOCKDOWN_SCHEMA: str = '''CREATE TABLE IF NOT EXISTS lockdown_state (
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            previous TEXT NOT NULL DEFAULT '',
+            locked_at REAL NOT NULL DEFAULT 0,
+            locked_by INTEGER NOT NULL DEFAULT 0,
+            scope TEXT NOT NULL DEFAULT 'channel',
+            PRIMARY KEY (guild_id, channel_id)
+        )'''
+
+#: The columns a restored copy of the ledger may be missing. A row written before
+#: the column existed reads as ``channel`` — the strict answer, because a lock
+#: that was there before the question is not one that should loosen itself.
+LOCKDOWN_COLUMNS: dict[str, str] = {"scope": "TEXT NOT NULL DEFAULT 'channel'"}
+
+
+async def ensure_lockdown_schema(db) -> list[str]:
+    """Make the ledger exist, with every column the code reads, on ``db``.
+
+    Run on the connection that is about to use the ledger rather than trusting
+    the boot's ``setup()``: ``utils.cloud_sync`` restores a backup by replacing
+    ``bot.db`` with ``os.replace``, so a file the process is using can be older
+    than the code reading it. ``CREATE TABLE IF NOT EXISTS`` is a no-op on an
+    existing table, which is why the column is added by ``ensure_columns`` as
+    well. Idempotent and cheap, so a reader may call it every time.
+    """
+    await db.execute(LOCKDOWN_SCHEMA)
+    return await ensure_columns(db, "lockdown_state", LOCKDOWN_COLUMNS)
+
+
 def connect(path: str | None = None) -> sqlite3.Connection:
     """Open a SQLite connection with a busy timeout so concurrent reads/writes
     from the bot and the web dashboard wait instead of failing with
@@ -869,38 +917,10 @@ async def setup():
         )''')
 
         # ── A lockdown's own undo, and why it needs one ──────────────────────
-        # "Lock every channel" is a bulk write over somebody else's server, and
-        # the shape that makes it safe is that it remembers what it *changed*:
-        # one row per channel the lockdown touched, holding the overwrite that
-        # was there before. Unlocking then restores what the server had rather
-        # than blanket-allowing `@everyone` to talk — which on a server that had
-        # deliberately locked a channel would be the lockdown's undo handing out
-        # a permission nobody asked for. `previous` is the overwrite target as
-        # three numbers (allow, deny, and whether it existed at all); NULL means
-        # there was nothing there and the row should be removed on unlock.
-        await db.execute('''CREATE TABLE IF NOT EXISTS lockdown_state (
-            guild_id INTEGER NOT NULL,
-            channel_id INTEGER NOT NULL,
-            previous TEXT NOT NULL DEFAULT '',
-            locked_at REAL NOT NULL DEFAULT 0,
-            locked_by INTEGER NOT NULL DEFAULT 0,
-            scope TEXT NOT NULL DEFAULT 'channel',
-            PRIMARY KEY (guild_id, channel_id)
-        )''')
-
-        # A lockdown remembers **who it holds**, not only how to undo itself. The
-        # server-wide command exists so members stop talking, and an administrator
-        # cannot be stopped by the permission — so it also has to be the lock that
-        # leaves administrators and the owner talking, or a whole server nobody
-        # can coordinate through is a lockdown the staff cannot run. The
-        # per-channel command is the opposite: it holds one room for everyone,
-        # which is what "this room is closed" means. Rows written before this
-        # column — including every legacy lock this pass adopts — read as
-        # `channel`, the strict answer, because a lock that was there before the
-        # question is not one that should loosen itself.
-        await ensure_columns(db, "lockdown_state", {
-            "scope": "TEXT NOT NULL DEFAULT 'channel'",
-        })
+        # One definition, run on boot here and again by the ledger's own readers
+        # and writer — see ``LOCKDOWN_SCHEMA`` for what the table holds and why
+        # the second caller exists.
+        await ensure_lockdown_schema(db)
 
         # ── One locked voice channel, and everything needed to give it back ───
         # The same shape as the lockdown ledger above, one room at a time, for the
@@ -2153,6 +2173,7 @@ async def save_lockdown(
     if not rows:
         return 0
     async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_lockdown_schema(db)
         await db.executemany(
             'INSERT OR REPLACE INTO lockdown_state '
             '(guild_id, channel_id, previous, locked_at, locked_by, scope) '
@@ -2175,6 +2196,7 @@ async def lockdown_locks(guild_id) -> list[tuple[int, str]]:
     the column existed answers ``channel`` — the strict answer.
     """
     async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_lockdown_schema(db)
         async with db.execute(
             'SELECT channel_id, scope FROM lockdown_state WHERE guild_id = ?',
             (int(guild_id),),
@@ -2186,6 +2208,7 @@ async def lockdown_locks(guild_id) -> list[tuple[int, str]]:
 async def lockdown_rows(guild_id) -> list[tuple[int, str, float]]:
     """``(channel_id, previous, locked_at)`` for every channel a lockdown holds."""
     async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_lockdown_schema(db)
         async with db.execute(
             'SELECT channel_id, previous, locked_at FROM lockdown_state WHERE guild_id = ?',
             (int(guild_id),),
@@ -2197,6 +2220,7 @@ async def lockdown_rows(guild_id) -> list[tuple[int, str, float]]:
 async def forget_lockdown(guild_id, channel_ids=None) -> int:
     """Forget the ledger — all of it, or the channels that were released."""
     async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_lockdown_schema(db)
         if channel_ids:
             await db.executemany(
                 'DELETE FROM lockdown_state WHERE guild_id = ? AND channel_id = ?',

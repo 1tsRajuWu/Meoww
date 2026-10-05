@@ -1170,6 +1170,44 @@ class TheStaffTalkThroughAWholeServerLockdown(
         await ServerControl(bot=_FakeBot(enabled=True)).on_message(message)
         self.assertEqual(message.deleted, 1, "the upgraded old row stopped holding the staff")
 
+    async def test_a_restored_ledger_heals_without_a_boot(self):
+        """``utils.cloud_sync`` replaces ``bot.db`` with ``os.replace`` under a
+        running process, so the file can be older than the code reading it. The
+        reader must add the missing column itself — no ``db.setup()`` here — or
+        the sweep answers as if nothing were locked and stops enforcing.
+        """
+        import sqlite3
+
+        from cogs.server_control import ServerControl
+
+        guild = Guild(channels=[Channel(1, "general")])
+        conn = sqlite3.connect(db.DB_PATH)
+        conn.execute("DROP TABLE lockdown_state")
+        conn.execute(
+            "CREATE TABLE lockdown_state (guild_id INTEGER NOT NULL, channel_id INTEGER NOT NULL, "
+            "previous TEXT NOT NULL DEFAULT '', locked_at REAL NOT NULL DEFAULT 0, "
+            "locked_by INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (guild_id, channel_id))"
+        )
+        conn.execute(
+            "INSERT INTO lockdown_state (guild_id, channel_id, previous, locked_at, locked_by) "
+            "VALUES (?, 1, '', 0, 0)",
+            (guild.id,),
+        )
+        conn.commit()
+        conn.close()
+
+        # Deliberately no ``await db.setup()``: this is the older, restored file.
+        server_control.forget_lock_cache()
+        self.assertEqual(
+            await server_control.lock_scope(guild.id, guild.channels[0]),
+            "channel",
+            "an older ledger was not brought up to the code's shape on the read",
+        )
+        admin = _FakeMember(author_id=7, administrator=True)
+        message = _FakeMessage(guild.channels[0], author=admin)
+        await ServerControl(bot=_FakeBot(enabled=True)).on_message(message)
+        self.assertEqual(message.deleted, 1, "the healed old row stopped holding the staff")
+
 
 class TheBurstEarnsATimeout(unittest.TestCase):
     """Four messages are somebody ignoring a notice; five are a flood.
