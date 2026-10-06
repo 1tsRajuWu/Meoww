@@ -67,11 +67,14 @@ def _hardened(guild):
 
     A law about one finding should not carry four more that nobody asked about —
     and a real server with the filter off *should* be told, which is why these are
-    set rather than removed from the engine.
+    set rather than removed from the engine. The values are **Discord's own enum
+    objects**, not ints and strings that stand in for them: the first version of
+    `mfa_level` here was the int ``1``, and the engine's ``int()`` on the real
+    enum value raised ``TypeError`` on every live `/check`.
     """
     guild.verification_level = discord.VerificationLevel.medium
     guild.explicit_content_filter = discord.ContentFilter.all_members
-    guild.mfa_level = 1
+    guild.mfa_level = discord.MFALevel.require_2fa
     return guild
 
 
@@ -452,6 +455,38 @@ class TheSettingsTheServerKeeps(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([f.level for f in found], [security_check.NOTE])
         self.assertIn("is not set", found[0].title)
+
+    async def test_the_enum_discord_really_sends_is_read_without_int(self):
+        """The second fake-vs-real defect in this file, found live the same way.
+
+        ``guild.mfa_level`` is an enum **value** in discord.py 2.4+ and it has
+        **no ``__int__``**, so the engine's ``int()`` raised ``TypeError: int()
+        argument must be a string, a bytes-like object or a real number, not
+        '_EnumValue_MFALevel'`` — every real `/check` answered *an unexpected
+        error occurred* while every law here passed, because the fakes answered
+        the plain int ``1``. It is also **truthy even when it is ``disabled``**
+        (``bool`` is the object) and ``disabled == 1`` is False, so neither
+        ``bool()`` nor ``== 1`` would have been honest either: ``.value`` is the
+        only read that is.
+        """
+        logs = Channel(5, "logs")
+        logs.permissions_for = lambda _me: Perms(send_messages=True, embed_links=True)
+        guild = self._guild(log_channel=logs)
+        settings = {"log_channel_id": 5, "default_role_id": 9}
+
+        guild.mfa_level = discord.MFALevel.require_2fa
+        self.assertEqual(
+            await self._findings(guild, values=settings), [],
+            "2FA is required and the card said it was not",
+        )
+
+        guild.mfa_level = discord.MFALevel.disabled
+        found = await self._findings(guild, values=settings)
+        self.assertEqual([f.level for f in found], [security_check.NOTE])
+        self.assertIn("2FA", found[0].title)
+
+        guild.mfa_level = 1  # the older discord.py shape: the int itself
+        self.assertEqual(await self._findings(guild, values=settings), [])
 
     async def test_an_unreadable_setting_is_named_rather_than_invented(self):
         guild = self._guild()

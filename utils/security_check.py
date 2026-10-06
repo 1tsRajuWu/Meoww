@@ -506,7 +506,7 @@ async def settings_findings(guild, *, bot=None) -> list:
                 detail="Nobody is scanning uploaded media. It is one switch in **Safety Setup**.",
             )
         )
-    if not int(getattr(guild, "mfa_level", 0) or 0):
+    if not _mfa_required(guild):
         found.append(
             Finding(
                 level=NOTE,
@@ -604,6 +604,29 @@ async def settings_findings(guild, *, bot=None) -> list:
             )
         )
     return found
+
+
+def _mfa_required(guild) -> bool:
+    """Whether this server makes its moderators use 2FA, from either shape.
+
+    discord.py 2.4+ hands back an enum **value** (``MFALevel.require_2fa``), and
+    ``.value`` is the only honest read of it: it has **no ``__int__``**, so
+    ``int()`` raises — which is what answered every real `/check` with *an
+    unexpected error occurred*, while the laws passed because their fake was the
+    plain int ``1`` — and it is **truthy even for ``disabled``**, so ``bool()``
+    is wrong too, and ``disabled == 1`` is ``False``, so comparing to the bit is
+    wrong as well. Older discord.py hands back the int itself, and both are read
+    here. A name this module has never seen is read as *not required*, which is
+    the loud direction: the card tells the server about a switch rather than
+    silently assuming it is on.
+    """
+    level = getattr(guild, "mfa_level", 0)
+    value = getattr(level, "value", None)
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(level, int):
+        return bool(level)
+    return str(getattr(level, "name", level) or "").lower() in ("require_2fa", "elevated")
 
 
 async def _has_default_role(guild) -> bool:
