@@ -49,6 +49,23 @@ carelessly:
   overwrite on every text channel and nothing else does, so a guild whose every
   manageable channel is holding the shape is adopted as one server-wide lockdown
   — the kind that leaves administrators and the owner talking.
+* **The deny has to reach the overwrites somebody was let in through.** Discord
+  applies a role's and a member's channel overwrite **after** `@everyone`'s, so
+  an allow there beats the deny: a lock that denies `@everyone` alone is a lock on
+  paper on any channel a person has been granted access to — which is every
+  channel somebody was ever let into, private ones included. A lock therefore
+  denies its permissions on *every* overwrite that grants them, and the ledger
+  records each one's old value so the undo puts back exactly what the lock took.
+  It **merges** `@everyone`'s overwrite rather than replacing it, too: a
+  replacement says nothing about the bits it does not mention, and a lockdown
+  once handed a channel back to the whole server by leaving `View Channel` out of
+  the overwrite it wrote.
+* **A lock can also be asked to hide.** ``hide`` denies `View Channel` on the way
+  past, which is what makes a channel *private* rather than merely quiet, and it
+  spares the overwrites of the people who can open it again — whoever asked, and
+  any role holding **Manage Channels**. Their sight is spared and their messages
+  are not: an ordinary lock still holds them, because "nobody can talk" is what a
+  lock means.
 * **Slowmode is not a lockdown.** It is offered because it is what people
   actually want during a raid — the server stays readable, nobody can flood it —
   and it is a per-channel *value* rather than a permission, so it is written
@@ -56,6 +73,7 @@ carelessly:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -70,6 +88,12 @@ from . import db, moderation_actions
 #: point; the other two are what the same flood looks like in a thread and as a
 #: wall of reactions, and leaving them on is how a "locked" server keeps moving.
 LOCKED_PERMISSIONS: tuple[str, ...] = ("send_messages", "create_public_threads", "add_reactions")
+
+#: What makes a channel *private* rather than merely quiet: the bit Discord hides
+#: a channel with. Denied only by a lock that was asked to hide — never by the
+#: ordinary one, because a lock that also took the room off everybody's list would
+#: be a different decision wearing the same name.
+HIDDEN_PERMISSIONS: tuple[str, ...] = ("view_channel",)
 
 #: Who a lock holds, as the ledger records it. ``channel`` is the per-channel
 #: `/lockdown`: held for everyone, administrators and the owner included, which is
@@ -115,14 +139,286 @@ def _everyone_overwrite(channel):
     return getattr(channel, "overwrites", {}).get(everyone) if hasattr(channel, "overwrites") else None
 
 
-def _denies(overwrite) -> bool:
-    """Whether an overwrite already denies everything a lockdown would remove."""
+def _overwrites(channel) -> dict:
+    """A channel's own overwrites as ``{target: overwrite}``, or ``{}`` if unreadable.
+
+    A cache that has not filled, or a stand-in channel in a test, is a channel
+    with nothing to leak through rather than a reason to raise: the other half of
+    the lock — the deny on `@everyone` — is written either way.
+    """
+    held = getattr(channel, "overwrites", None)
+    if held is None:
+        return {}
+    try:
+        return dict(held)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _mask(permissions) -> int:
+    """A permission bitfield as an int, whether it is Discord's or a stand-in's."""
+    return int(getattr(permissions, "value", 0) or 0)
+
+
+def _pair(overwrite):
+    """An overwrite's ``(allow, deny)`` bitfields, from either shape it arrives in.
+
+    **``discord.PermissionOverwrite`` has no ``allow`` attribute** — it has
+    ``pair()`` — and reading one off the object by name answered ``None`` on the
+    only shape that matters on Discord. Every overwrite therefore looked like it
+    granted nothing and denied nothing, which is how this engine's first version
+    passed its own tests (whose stand-in *did* have the attribute) and did nothing
+    at all in the server it was written for. The stand-in is shaped like the real
+    object now, so a reader of the wrong attribute cannot pass either way.
+    """
     if overwrite is None:
-        return False
-    deny = getattr(overwrite, "deny", None)
-    if deny is None:
-        return False
-    return all(bool(getattr(deny, permission, False)) for permission in LOCKED_PERMISSIONS)
+        return None, None
+    read = getattr(overwrite, "pair", None)
+    if callable(read):
+        try:
+            return read()
+        except Exception:  # noqa: BLE001 — an unreadable overwrite grants nothing
+            return None, None
+    return getattr(overwrite, "allow", None), getattr(overwrite, "deny", None)
+
+
+def _allows(overwrite, names) -> bool:
+    """Whether this overwrite **explicitly grants** any of ``names``.
+
+    Read from the overwrite rather than from a member's computed permissions,
+    because only an allow in the channel's own overwrites can beat the deny this
+    lock is about to write — a permission a role holds at the server level is
+    cleared by the `@everyone` deny on its way down.
+    """
+    allow, _deny = _pair(overwrite)
+    return any(bool(getattr(allow, name, False)) for name in names)
+
+
+def _denies_all(overwrite, names) -> bool:
+    """Whether this overwrite explicitly denies every one of ``names``."""
+    _allow, deny = _pair(overwrite)
+    return all(bool(getattr(deny, name, False)) for name in names)
+
+
+def leaks(channel, names=LOCKED_PERMISSIONS) -> list:
+    """The overwrites that would let somebody through a lock on this channel.
+
+    `@everyone` is never one of them: it is where the deny is written. Everything
+    else that grants one of the locked permissions is — the role the server gave
+    the room to, the member a ticket let in — and this list is why a lock holds.
+    """
+    everyone = getattr(getattr(channel, "guild", None), "default_role", None)
+    return [
+        target
+        for target, overwrite in _overwrites(channel).items()
+        if target is not everyone and _allows(overwrite, names)
+    ]
+
+
+def _holds(channel, names=LOCKED_PERMISSIONS) -> bool:
+    """Whether this channel already holds a lock: nobody is allowed in.
+
+    Both halves are asked, and the second is the one that was missing. The
+    `@everyone` deny is what reads as locked in Discord's own panel; an allow on
+    somebody else's overwrite is what makes it a lock in name only — so a channel
+    whose deny is being beaten is a channel a lockdown should *change* rather than
+    report as already locked and walk past.
+    """
+    return _denies_all(_everyone_overwrite(channel), names) and not leaks(channel, names)
+
+
+def lock_names(hide: bool = False) -> tuple[str, ...]:
+    """What a lock denies: the three, plus `View Channel` when it was asked to hide."""
+    return LOCKED_PERMISSIONS + (HIDDEN_PERMISSIONS if hide else ())
+
+
+def _target_id(target) -> int:
+    return int(getattr(target, "id", 0) or 0)
+
+
+def _target_key(guild, target) -> str:
+    """How one overwrite is named in the ledger: ``everyone``, or its own id.
+
+    An id rather than a kind and an id: Discord's snowflakes are unique across
+    roles and members, and an id is also what a restore can still act on when the
+    role — or the member's cache entry — is no longer around to be looked up.
+    """
+    if target is not None and target is getattr(guild, "default_role", None):
+        return "everyone"
+    return str(_target_id(target))
+
+
+def _resolve_target(guild, key):
+    """The role or member a ledger key names, or an ``Object`` standing in for one.
+
+    The stand-in matters: an overwrite that was put back on the wrong target, or
+    skipped because a member fell out of the cache, would leave the channel open
+    in exactly the way this ledger exists to prevent.
+    """
+    import discord
+
+    if str(key) == "everyone":
+        return getattr(guild, "default_role", None)
+    try:
+        target_id = int(key)
+    except (TypeError, ValueError):
+        return None
+    get_role = getattr(guild, "get_role", None)
+    role = get_role(target_id) if callable(get_role) else None
+    if role is not None:
+        return role
+    get_member = getattr(guild, "get_member", None)
+    member = get_member(target_id) if callable(get_member) else None
+    return member if member is not None else discord.Object(id=target_id)
+
+
+def _overwrite_for(channel, target_id):
+    """A channel's overwrite for one target id, with the key it is stored under."""
+    if not int(target_id or 0):
+        return None, None
+    for target, overwrite in _overwrites(channel).items():
+        if _target_id(target) == int(target_id):
+            return target, overwrite
+    return None, None
+
+
+@dataclass
+class _Change:
+    """One overwrite a lock is about to rewrite, and what it looks like now."""
+
+    target: object
+    #: The channel's overwrite for that target as it is right now, or ``None``.
+    overwrite: object
+    #: ``"allow:deny"`` as :func:`_describe` writes it, or ``""`` for no overwrite.
+    previous: str
+    #: The permissions to deny **here** — a hidden lock spares a keeper's sight.
+    names: tuple
+
+
+def keepers(guild, actor=None, *, hide: bool = False) -> frozenset:
+    """Whose **sight** of a hidden channel the lock spares, by overwrite id.
+
+    Empty for an ordinary lock. ``hide`` is where this matters: it takes a channel
+    off everybody's list, and the people who have to be able to open it again are
+    the ones who already run the server — whoever asked, and any role holding
+    **Manage Channels**. Keeping those keeps their sight of the room only: their
+    allow to *talk* is still denied, because "nobody can talk" is what a lock
+    means. The bot's own overwrite is never a target at all, whether it is hidden
+    or not — see :func:`_lock_targets`.
+    """
+    if not hide:
+        return frozenset()
+    keep = set()
+    member = getattr(actor, "member", None)
+    if member is not None:
+        keep.add(_target_id(member))
+        for role in list(getattr(member, "roles", None) or []):
+            keep.add(_target_id(role))
+    for role in list(getattr(guild, "roles", None) or []):
+        if bool(getattr(getattr(role, "permissions", None), "manage_channels", False)):
+            keep.add(_target_id(role))
+    keep.discard(0)
+    return frozenset(keep)
+
+
+def _lock_targets(guild, channel, names, keep=frozenset()) -> list:
+    """The overwrites one lock has to change: `@everyone` first, then the leaks.
+
+    `@everyone` is here whenever it does not already deny everything the lock
+    denies, and every other overwrite is here only while it **grants** one of
+    them. That second half was the defect: Discord applies a role's and a member's
+    overwrite *after* `@everyone`'s, so an allow there beats the deny, and a lock
+    that denied `@everyone` alone was one people could see and type through.
+
+    ``keep`` protects a target's hold on `View Channel` — never its voice in the
+    channel, which is the lock — so a hidden room stays reachable to the people
+    who would have to open it again. **The bot's own overwrite is not a target at
+    all**, and not out of politeness: the card it posts into the room it just
+    locked, and the messages it removes from it, both need the allow it already
+    had.
+    """
+    everyone = getattr(guild, "default_role", None)
+    bot_id = _target_id(getattr(guild, "me", None))
+    held = _overwrites(channel)
+    changes = []
+    current = held.get(everyone) if everyone is not None else None
+    if not _denies_all(current, names):
+        changes.append(
+            _Change(target=everyone, overwrite=current, previous=_describe(current), names=tuple(names))
+        )
+    for target, overwrite in held.items():
+        if target is everyone or _target_id(target) == bot_id or _target_id(target) in keep:
+            continue
+        if not _allows(overwrite, names):
+            continue
+        changes.append(
+            _Change(
+                target=target, overwrite=overwrite, previous=_describe(overwrite), names=tuple(names)
+            )
+        )
+    for target, overwrite in held.items():
+        # A keeper keeps sight of a hidden channel and nothing else: it is the
+        # `View Channel` allow that is spared, not the allow that lets them talk.
+        if target is everyone or _target_id(target) == bot_id or _target_id(target) not in keep:
+            continue
+        wanted = tuple(name for name in names if name not in HIDDEN_PERMISSIONS)
+        if _allows(overwrite, wanted):
+            changes.append(
+                _Change(
+                    target=target, overwrite=overwrite, previous=_describe(overwrite), names=wanted
+                )
+            )
+    return changes
+
+
+def _denied(overwrite, names):
+    """``overwrite`` with ``names`` denied — **merged**, never replaced.
+
+    The old body sent a fresh ``PermissionOverwrite(**{name: False})``, which
+    Discord stores as *deny these three, say nothing about anything else*. A
+    replacement overwrite is not a deny, it is a wipe: on a channel that had been
+    made private by hand, `@everyone view_channel=False` was one of the bits it
+    said nothing about, so the lock handed the room back to every member it had
+    just locked. This keeps every bit the overwrite had and adds the deny to it.
+    """
+    import discord
+
+    allow, deny = _pair(overwrite)
+    merged = discord.PermissionOverwrite.from_pair(
+        discord.Permissions(_mask(allow)), discord.Permissions(_mask(deny))
+    )
+    merged.update(**{name: False for name in names})
+    return merged
+
+
+def _previous_document(guild, changes) -> str:
+    """Every overwrite one lock is about to rewrite, as the ledger's one column.
+
+    A JSON object keyed by :func:`_target_key`, because a lock can now change
+    more than `@everyone` and the undo has to put back *each* one. A row written
+    before this holds one ``allow:deny`` string, and one string can only ever have
+    been about `@everyone` — :func:`_ledger_previous` reads it as exactly that, so
+    the old rows keep restoring the way they always did.
+    """
+    if not changes:
+        return ""
+    return json.dumps({_target_key(guild, change.target): change.previous for change in changes})
+
+
+def _ledger_previous(previous) -> dict:
+    """``{target key: "allow:deny"}`` from a ledger row, in either shape."""
+    raw = str(previous or "")
+    if not raw:
+        return {}
+    if not raw.startswith("{"):
+        return {"everyone": raw}
+    try:
+        held = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(held, dict):
+        return {}
+    return {str(key): str(value or "") for key, value in held.items()}
 
 
 def _describe(overwrite) -> str:
@@ -133,11 +429,8 @@ def _describe(overwrite) -> str:
     """
     if overwrite is None:
         return ""
-    allow = getattr(overwrite, "allow", None)
-    deny = getattr(overwrite, "deny", None)
-    allowed = int(getattr(allow, "value", 0) or 0)
-    denied = int(getattr(deny, "value", 0) or 0)
-    return f"{allowed}:{denied}"
+    allow, deny = _pair(overwrite)
+    return f"{_mask(allow)}:{_mask(deny)}"
 
 
 def _from_description(text: str):
@@ -156,9 +449,9 @@ class Plan:
     """What a lockdown would do, before it does it."""
 
     guild_id: int = 0
-    #: Channels whose `@everyone` would gain the deny.
+    #: Channels whose overwrites would gain the deny.
     change: list = field(default_factory=list)
-    #: Channels already denied — nothing to change, and saying so is the point.
+    #: Channels that already hold it — nothing to change, and saying so is the point.
     already_locked: list = field(default_factory=list)
     #: Channels this bot cannot change a permission on, with the reason.
     blocked: list[tuple] = field(default_factory=list)
@@ -216,8 +509,7 @@ def plan(guild) -> Plan:
         if not ok:
             result.blocked.append((channel, why))
             continue
-        overwrite = _everyone_overwrite(channel)
-        if _denies(overwrite):
+        if _holds(channel):
             result.already_locked.append(channel)
             continue
         result.change.append(channel)
@@ -234,6 +526,8 @@ class Report:
     restored: int = 0
     already: int = 0
     blocked: int = 0
+    #: Overwrites beyond `@everyone` that had been allowed to talk and are not now.
+    evicted: int = 0
     detail: str = ""
     failures: list[tuple] = field(default_factory=list)
     channels: int = 0
@@ -247,6 +541,11 @@ class Report:
                 said += f" {self.already} were already locked."
             if self.blocked:
                 said += f" {self.blocked} could not be managed."
+            if self.evicted:
+                said += (
+                    f" {self.evicted} overwrite(s) that had been let in — a role or a "
+                    "member the deny on `@everyone` does not reach — were denied too."
+                )
             return said
         if self.action == "unlock":
             said = f"Restored **{self.restored}** channel(s) to what they were before."
@@ -263,60 +562,99 @@ class Report:
             "restored": self.restored,
             "already": self.already,
             "blocked": self.blocked,
+            "evicted": self.evicted,
             "failures": [{"channel": str(channel), "detail": detail} for channel, detail in self.failures],
             "detail": self.detail,
             "said": self.sentence(),
         }
 
 
-async def _set_deny(guild, channel, actor: moderation_actions.Actor | None) -> tuple[bool, str]:
-    """Add the lockdown's deny to one channel's `@everyone` overwrite."""
-    import discord
+async def _apply_lock(
+    guild, channel, actor: moderation_actions.Actor | None, *, names=LOCKED_PERMISSIONS,
+    keep=frozenset(),
+) -> tuple[int, int, str]:
+    """Write one channel's lock; ``(overwrites, leaks closed, refusal or "")``.
 
+    Every overwrite that grants one of ``names`` is rewritten, not only
+    `@everyone`, because an allow there beats the deny — that is the whole reason
+    this is a loop over a list rather than one call to Discord. The first refusal
+    stops this channel and is reported as it happened; the caller carries on with
+    the next one, exactly as it did when there was one overwrite to write.
+    """
+    changes = _lock_targets(guild, channel, names, keep)
     everyone = getattr(guild, "default_role", None)
-    if everyone is None:
-        return False, "that server has no default role to change"
-    overwrite = discord.PermissionOverwrite(**{name: False for name in LOCKED_PERMISSIONS})
-    try:
-        await channel.set_permissions(
-            everyone, overwrite=overwrite,
-            reason=f"lockdown by {actor.label if actor else 'the website'}",
-        )
-    except Exception as exc:  # noqa: BLE001 — one channel must not stop the rest
-        return False, f"{type(exc).__name__}: {exc}"[:200]
-    return True, ""
+    if everyone is None and changes:
+        return 0, 0, "that server has no default role to change"
+    reason = f"{'hide' if HIDDEN_PERMISSIONS[0] in names else 'lockdown'} by "
+    reason += actor.label if actor else "the website"
+    written = closed = 0
+    for change in changes:
+        try:
+            await channel.set_permissions(
+                change.target, overwrite=_denied(change.overwrite, change.names), reason=reason,
+            )
+        except Exception as exc:  # noqa: BLE001 — one overwrite must not stop the rest
+            return written, closed, f"{type(exc).__name__}: {exc}"[:200]
+        written += 1
+        if change.target is not everyone:
+            closed += 1
+    return written, closed, ""
 
 
 async def _restore(guild, channel, previous: str, actor: moderation_actions.Actor | None) -> tuple[bool, str]:
-    """Put one channel's `@everyone` overwrite back the way the ledger found it."""
+    """Put back **every overwrite** the lock changed, from the row that recorded them.
+
+    A row written before the lock could touch more than `@everyone` holds one
+    ``allow:deny`` string, and one string can only ever have been about
+    `@everyone` — :func:`_ledger_previous` reads it as exactly that, so an old row
+    restores the way it always did. An *empty* row is a lock older than the ledger:
+    there is nothing to put back, so the deny is **removed** rather than inverted,
+    which is the closest thing to an undo that is still honest.
+    """
     import discord
 
     everyone = getattr(guild, "default_role", None)
     if everyone is None:
         return False, "that server has no default role to change"
-    parsed = _from_description(previous)
-    try:
-        if parsed is None:
-            # There was no overwrite. Deleting it is the restore; allowing it
-            # would leave a permission the server never granted.
-            current = _everyone_overwrite(channel)
-            if current is None:
-                return True, ""
-            await channel.set_permissions(
-                everyone, overwrite=None,
-                reason=f"lockdown lifted by {actor.label if actor else 'the website'}",
-            )
+    reason = f"lockdown lifted by {actor.label if actor else 'the website'}"
+    recorded = _ledger_previous(previous)
+    if not recorded:
+        existing, _overwrite = _overwrite_for(channel, _target_id(everyone))
+        if existing is None:
             return True, ""
-        allow, deny = parsed
-        overwrite = discord.PermissionOverwrite.from_pair(
-            discord.Permissions(allow), discord.Permissions(deny)
-        )
-        await channel.set_permissions(
-            everyone, overwrite=overwrite,
-            reason=f"lockdown lifted by {actor.label if actor else 'the website'}",
-        )
-    except Exception as exc:  # noqa: BLE001
-        return False, f"{type(exc).__name__}: {exc}"[:200]
+        try:
+            await channel.set_permissions(everyone, overwrite=None, reason=reason)
+        except Exception as exc:  # noqa: BLE001
+            return False, f"{type(exc).__name__}: {exc}"[:200]
+        return True, ""
+    refused = []
+    for key, described in recorded.items():
+        target = _resolve_target(guild, key)
+        if target is None:
+            refused.append(f"{key} (not a role or member of this server)")
+            continue
+        current, _overwrite = _overwrite_for(channel, _target_id(target))
+        parsed = _from_description(described)
+        try:
+            if parsed is None:
+                # There was no overwrite for this target. Deleting it is the
+                # restore; allowing it would leave a permission nobody granted.
+                if current is None:
+                    continue
+                await channel.set_permissions(target, overwrite=None, reason=reason)
+                continue
+            allow, deny = parsed
+            await channel.set_permissions(
+                target,
+                overwrite=discord.PermissionOverwrite.from_pair(
+                    discord.Permissions(allow), discord.Permissions(deny)
+                ),
+                reason=reason,
+            )
+        except Exception as exc:  # noqa: BLE001 — one refusal must not stop the rest
+            refused.append(f"{key}: {type(exc).__name__}")
+    if refused:
+        return False, "; ".join(refused)[:200]
     return True, ""
 
 
@@ -327,18 +665,29 @@ def _now() -> float:
 
 
 async def _record(
-    guild, channels, actor: moderation_actions.Actor | None, *, scope: str = DEFAULT_LOCK_SCOPE
+    guild,
+    channels,
+    actor: moderation_actions.Actor | None,
+    *,
+    scope: str = DEFAULT_LOCK_SCOPE,
+    names=LOCKED_PERMISSIONS,
+    keep=frozenset(),
 ) -> str:
     """Write the channels a lock is about to change down; a refusal, or ``""``.
 
     **The ledger is written first**: a change that applied and failed to record
     itself would have no undo, and the undo is the whole reason this is safe to
     offer at all. A channel that is *already* in the ledger is left exactly as it
-    is, because its row holds the overwrite from **before the first lock** —
+    is, because its row holds the overwrites from **before the first lock** —
     recording it again would store the lock's own deny and leave the undo
     restoring the lock instead of the room. That is what a second `/lockdown` on
     an already-locked channel reaches, and what a per-channel lock inside a
     server-wide one reaches.
+
+    What a row holds is :func:`_previous_document`: the old value of *every*
+    overwrite this lock is about to rewrite, `@everyone`'s first — one JSON object
+    in the column that used to hold one ``allow:deny`` string, which
+    :func:`_ledger_previous` still reads.
     """
     try:
         held = {
@@ -353,7 +702,10 @@ async def _record(
         print(f"[CONTROL] could not read the lockdown ledger: {exc}", flush=True)
         held = set()
     ledger = [
-        (int(getattr(channel, "id", 0) or 0), _describe(_everyone_overwrite(channel)))
+        (
+            int(getattr(channel, "id", 0) or 0),
+            _previous_document(guild, _lock_targets(guild, channel, names, keep)),
+        )
         for channel in channels
         if int(getattr(channel, "id", 0) or 0) not in held
     ]
@@ -377,6 +729,8 @@ async def lockdown(guild, actor: moderation_actions.Actor | None = None) -> Repo
     this is safe to offer from a web page.
     """
     report = Report(action="lockdown")
+    names = lock_names()
+    keep = keepers(guild, actor)
     work = plan(guild)
     report.already = len(work.already_locked)
     report.blocked = len(work.blocked)
@@ -389,7 +743,9 @@ async def lockdown(guild, actor: moderation_actions.Actor | None = None) -> Repo
     # The whole-server lock is the one that leaves administrators and the owner
     # able to talk: it stops members, and the rank that has to run the incident
     # through it cannot be stopped by a permission anyway.
-    refusal = await _record(guild, work.change, actor, scope="server")
+    refusal = await _record(
+        guild, work.change, actor, scope="server", names=names, keep=keep
+    )
     if refusal:
         report.detail = refusal
         return report
@@ -397,9 +753,12 @@ async def lockdown(guild, actor: moderation_actions.Actor | None = None) -> Repo
     forget_spam(report_guild_id(guild))
 
     for channel in work.change:
-        ok, detail = await _set_deny(guild, channel, actor)
-        if ok:
+        written, closed, detail = await _apply_lock(
+            guild, channel, actor, names=names, keep=keep
+        )
+        if written:
             report.changed += 1
+            report.evicted += closed
             continue
         report.failures.append((getattr(channel, "name", getattr(channel, "id", "?")), detail))
 
@@ -459,7 +818,7 @@ async def unlock(guild, actor: moderation_actions.Actor | None = None) -> Report
 
 
 async def lock_channel(
-    guild, channel, actor: moderation_actions.Actor | None = None
+    guild, channel, actor: moderation_actions.Actor | None = None, *, hide: bool = False
 ) -> Report:
     """Lock **one** channel, by the same door the server-wide lockdown uses.
 
@@ -467,18 +826,27 @@ async def lock_channel(
     which is why unlocking that channel could only *allow* `@everyone` to talk —
     a permission the server may never have granted. It keeps the same ledger now:
     one row, the same undo, and the same row the force-delete listener reads.
+
+    ``hide`` is the same lock with `View Channel` denied on the way past: the
+    channel is taken off everybody's list rather than merely going quiet, which is
+    what a person means by *making it private*. Whoever asked and every role that
+    can manage channels keep their sight of it, because a channel nobody can see
+    is a channel nobody can open again.
     """
+    names = lock_names(hide)
+    keep = keepers(guild, actor, hide=hide)
     report = Report(action="lockdown")
     report.channels = 1
-    refusal = await _record(guild, [channel], actor)
+    refusal = await _record(guild, [channel], actor, names=names, keep=keep)
     if refusal:
         report.detail = refusal
         return report
     forget_lock_cache(report_guild_id(guild))
     forget_spam(report_guild_id(guild))
-    ok, detail = await _set_deny(guild, channel, actor)
-    if ok:
+    written, closed, detail = await _apply_lock(guild, channel, actor, names=names, keep=keep)
+    if written:
         report.changed = 1
+        report.evicted = closed
         report.ok = True
         return report
     report.blocked = 1
@@ -624,13 +992,10 @@ def looks_like_our_lock(overwrite) -> bool:
     Matching the shape makes a channel a **candidate**, never a lock: only
     :func:`adopt_legacy_locks` decides, and it asks the audit log first.
     """
-    if overwrite is None:
-        return False
-    deny = getattr(overwrite, "deny", None)
+    allow, deny = _pair(overwrite)
     if not bool(getattr(deny, "send_messages", False)):
         return False
-    allow = getattr(overwrite, "allow", None)
-    return not int(getattr(allow, "value", 0) or 0)
+    return not _mask(allow)
 
 
 def adoption_candidates(guild, recorded) -> list:

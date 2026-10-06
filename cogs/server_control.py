@@ -263,15 +263,26 @@ class ServerControl(commands.Cog):
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="lockdown", description="Lock this channel: nobody can send, and what they send is removed.")
+    @app_commands.describe(
+        hide=(
+            "Also make it private: hide it from every role that cannot manage "
+            "channels."
+        )
+    )
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def lockdown(self, interaction: discord.Interaction):
+    async def lockdown(self, interaction: discord.Interaction, hide: bool = False):
         # The lock goes through the same door the server-wide one uses, so this
         # channel lands in the ledger — which is both what `/unlock` restores from
         # and what the force-delete listener below reads. The old body wrote the
         # permission and nothing else, which is why unlocking it could only
         # *allow* `@everyone` to talk.
+        #
+        # ``hide`` is the same lock with View Channel denied as well, and it is
+        # here on the per-channel command only: taking one room off everybody's
+        # list is a decision somebody makes about that room, while hiding a whole
+        # server is an outage, not a lockdown.
         report = await server_control.lock_channel(
-            interaction.guild, interaction.channel, _actor(interaction)
+            interaction.guild, interaction.channel, _actor(interaction), hide=hide
         )
         if not report.ok:
             embed = discord.Embed(
@@ -280,16 +291,31 @@ class ServerControl(commands.Cog):
                 color=0xED4245,
             )
             return await send_card(interaction, embed=embed, ephemeral=True)
+        # What a lock *does about* an allow is worth one sentence on the card,
+        # because it is the difference people reported: a role or a member that
+        # had been let into the channel keeps typing through a deny that only
+        # names `@everyone`.
+        description = (
+            f"This channel has been locked by {interaction.user.mention}.\n"
+            "Every message sent here is deleted until it is unlocked — for "
+            "everyone, administrators included — and the sender is warned by "
+            "DM. A burst of messages earns a timeout: ten minutes, then an "
+            "hour, then a day.\n\n"
+            "Any role or member that had been **allowed** to talk here has lost "
+            "that allow too: an allow in a channel's own overwrites beats a deny "
+            "on `@everyone`, which is how a locked channel could still have "
+            "people typing in it."
+        )
+        if hide:
+            description += (
+                "\n\nThe channel is **hidden** as well — it is off every role's "
+                "list except the ones that can manage channels and whoever asked "
+                "for it, so the members who could see it cannot any more. "
+                "`/unlock` gives the visibility back exactly as it was."
+            )
         embed = discord.Embed(
-            title="🔒 Channel Locked Down",
-            description=(
-                f"This channel has been locked by {interaction.user.mention}.\n"
-                "Every message sent here is deleted until it is unlocked — for "
-                "everyone, administrators included — and the sender is warned by "
-                "DM. A burst of messages earns a timeout: ten minutes, then an "
-                "hour, then a day."
-                + _lock_warnings(interaction.guild, interaction.channel)
-            ),
+            title="🔒 Channel Hidden and Locked" if hide else "🔒 Channel Locked Down",
+            description=description + _lock_warnings(interaction.guild, interaction.channel),
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
@@ -314,7 +340,9 @@ class ServerControl(commands.Cog):
             description=(
                 f"This channel has been unlocked by {interaction.user.mention}.\n"
                 "Messages are kept again, and the permissions are the ones that "
-                "were here before the lockdown."
+                "were here before the lockdown — including the visibility of a "
+                "lock that was asked to hide: every overwrite it rewrote, for a "
+                "role or a member as much as for `@everyone`, is back."
             ),
             color=0x57F287,
             timestamp=discord.utils.utcnow()

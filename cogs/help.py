@@ -240,7 +240,7 @@ HELP_MODULES = {
             "> `/serverinfo` — Server overview, boost level, and statistics\n"
             "> `/userinfo [member]` — Member profile, roles, and join date\n"
             "> `/announce <channel> <message>` — Send formatted community announcements\n"
-            "> `/lockdown` & `/unlock` — Emergency channel lockdown; messages sent while locked are removed\n"
+            "> `/lockdown [hide]` & `/unlock` — Emergency channel lockdown; what is sent while locked is removed, and `hide:True` makes the channel private while it is locked\n"
             "> `/slowmode <seconds>` — Adjust channel chat cooldown\n"
             "> `/bot sync` — Force re-sync all slash commands directly to this server\n"
             "> `/bot db` — Verify all database tables and default channels\n"

@@ -173,7 +173,21 @@ And the jobs themselves:
    administrators and the owner talking — a permission cannot stop them anyway,
    and a whole server nobody can coordinate through is a lockdown the staff
    cannot run — while `/lockdown` holds one room for everyone, and rows written
-   before that column existed read as the strict lock.
+   before that column existed read as the strict lock. **And a deny has to reach
+   the overwrites somebody was let in through**: Discord applies a role's and a
+   member's overwrite *after* `@everyone`'s, so an allow there beats the deny, and
+   the lock therefore writes its deny on every overwrite that grants one — merging
+   `@everyone`'s rather than replacing it, because a replacement overwrite says
+   nothing about the bits it does not mention and a lockdown once deleted a
+   private channel's `View Channel=False` that way, handing the room back to the
+   whole server. The row records each of those overwrites, so `/unlock` puts a
+   role's allow back as well as `@everyone`'s, and the bot's own overwrite is
+   never a target — the card it posts into the room it just locked needs the
+   allow it already had. `/lockdown hide:True` is that same lock with
+   `View Channel` denied on the way past (the *private* room rather than the quiet
+   one), sparing only the sight of whoever asked and of any role that can manage
+   channels, because a hidden channel its own moderators cannot see is a channel
+   nobody can open again.
 7. **The operator's own controls** (`/api/console/server-action`) — republish a
    server's command list, leave it, leave *and block* it, or take it off the
    blocklist. Operator scope only (`_require_operator_api`), so a server's own

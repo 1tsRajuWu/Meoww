@@ -41,8 +41,9 @@ class Bits:
     statement about itself.
     """
 
-    #: Discord's own bit for each permission a lockdown removes.
+    #: Discord's own bit for each permission the lockdown engine reads.
     NAMES = {
+        "view_channel": 1 << 10,
         "send_messages": 1 << 11,
         "create_public_threads": 1 << 34,
         "add_reactions": 1 << 6,
@@ -63,18 +64,32 @@ ALL_LOCKED = Bits.NAMES["send_messages"] | Bits.NAMES["create_public_threads"] |
 
 
 class Overwrite:
-    """A permission overwrite, as the two bitfields the ledger stores."""
+    """A permission overwrite, **shaped like Discord's own object**.
+
+    ``pair()`` and not ``allow``/``deny`` attributes, and that is the point:
+    `discord.PermissionOverwrite` has no ``allow`` attribute at all, so a stand-in
+    that offered one let the engine read the wrong attribute and pass here while
+    doing nothing whatever on Discord — which it did, until a read-back of the
+    real object caught it. Now this stand-in would fail the same way the real one
+    did, and loudly.
+    """
 
     def __init__(self, *, allow=0, deny=0):
-        self.allow = Bits(allow)
-        self.deny = Bits(deny)
+        self._allow = Bits(allow)
+        self._deny = Bits(deny)
+
+    def pair(self):
+        return self._allow, self._deny
 
 
 class Role:
-    def __init__(self, name="role", position=0):
+    def __init__(self, name="role", position=0, *, id=1, manage_channels=False):
         self.name = name
         self.position = position
-        self.id = 1
+        self.id = id
+        # What the role grants server-wide. Only a *hide* reads it: it is how the
+        # people who could open the channel again are told from everybody else.
+        self.permissions = SimpleNamespace(manage_channels=manage_channels)
 
     def __ge__(self, other):
         return self.position >= getattr(other, "position", 0)
@@ -107,12 +122,16 @@ class Channel:
 
 
 class Guild:
-    def __init__(self, guild_id=424242, *, channels=(), audit_logs=None):
+    def __init__(self, guild_id=424242, *, channels=(), audit_logs=None, roles=(), members=()):
         self.id = guild_id
         self.name = "Test Server"
         self.default_role = Role("@everyone")
-        self.me = Role("Meow")
+        # My own member, under the id the bot's user carries: a lock never touches
+        # it, so a fake where it collided with `@everyone` could not tell.
+        self.me = Role("Meow", id=424242)
         self.channels = list(channels)
+        self.roles = [self.default_role, self.me, *roles]
+        self.members = list(members)
         self.gone = set()
         self._audit = audit_logs
         for channel in self.channels:
@@ -124,6 +143,18 @@ class Guild:
         for channel in self.channels:
             if channel.id == channel_id:
                 return channel
+        return None
+
+    def get_role(self, role_id):
+        for role in [self.default_role, *self.roles]:
+            if int(getattr(role, "id", 0) or 0) == int(role_id):
+                return role
+        return None
+
+    def get_member(self, member_id):
+        for member in self.members:
+            if int(getattr(member, "id", 0) or 0) == int(member_id):
+                return member
         return None
 
     def audit_logs(self, **kwargs):
@@ -187,11 +218,14 @@ class _FakeMember:
         send_raises=None,
         timeout_raises=None,
         administrator=False,
+        roles=(),
     ):
         self.id = author_id
         self.bot = bot
         self.name = name
         self.display_name = name
+        # Who a *hide* spares when this member is the one who asked for it.
+        self.roles = list(roles)
         # The rank the sweep reads, as Discord reports it on a member: a whole
         # server's lockdown is the one that leaves it talking.
         self.guild_permissions = SimpleNamespace(administrator=administrator)
@@ -692,6 +726,41 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         self.assertFalse(server_control.looks_like_our_lock(Overwrite(allow=send)))
         self.assertFalse(server_control.looks_like_our_lock(Overwrite()))
         self.assertFalse(server_control.looks_like_our_lock(None))
+
+    async def test_the_shape_is_read_from_discords_object_and_not_an_attribute_it_lacks(self):
+        """`discord.PermissionOverwrite` has ``pair()`` and **no** ``allow``/
+        ``deny`` attributes.
+
+        Reading one off it by name answered ``None``, which made every overwrite
+        look like *denies nothing, allows nothing* — so `plan()` never called a
+        channel already locked and the adoption pass could never have claimed a
+        lock on a real server, while both passed here against a stand-in that had
+        the attribute. Every other law in this file uses the stand-in (shaped like
+        Discord's object now); this one is the real object, so the two agree about
+        what is being read rather than about what a fake happens to offer.
+        """
+        import discord
+
+        send = Bits.NAMES["send_messages"]
+        self.assertTrue(
+            server_control.looks_like_our_lock(discord.PermissionOverwrite(send_messages=False))
+        )
+        self.assertFalse(
+            server_control.looks_like_our_lock(
+                discord.PermissionOverwrite(view_channel=True, send_messages=False)
+            )
+        )
+        self.assertEqual(
+            server_control._describe(discord.PermissionOverwrite(send_messages=False)),
+            f"0:{send}",
+            "the ledger does not store what Discord's own object holds",
+        )
+        self.assertTrue(
+            server_control._allows(
+                discord.PermissionOverwrite(send_messages=True), ("send_messages",)
+            ),
+            "an allow on Discord's own object did not read as one",
+        )
 
     async def test_an_administrators_own_deny_is_left_exactly_where_it_is(self):
         everyone = self._everyone()
@@ -1393,6 +1462,18 @@ class TheCommandAndTheListenerAreOnePath(TempDatabaseMixin, unittest.IsolatedAsy
         self.assertEqual(len(admin.dms), 1, "a message that was kept is not warned about")
         self.assertEqual(await db.lockdown_rows(self.guild.id), [])
 
+    async def test_the_hide_option_hides_the_channel_and_the_card_says_so(self):
+        """The option is the answer to *my private channel is still visible*: the
+        `@everyone` deny is the half a role's own allow can beat, so the lock has
+        to be asked to deny `View Channel` on every overwrite that grants it."""
+        from cogs.server_control import ServerControl
+
+        await ServerControl.lockdown.callback(self.cog, self.interaction, True)
+        said = self._said().lower()
+        self.assertIn("hidden", said, "the card does not say the channel was hidden")
+        self.assertIn("unlock", said, "the card does not say how to bring it back")
+        self.assertIs(self.channel.overwrites[self.guild.default_role].view_channel, False)
+
 
 class TheLockedChannelsAreCached(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     """The question is asked on every message, so the answer cannot be a query."""
@@ -1430,6 +1511,244 @@ class TheLockedChannelsAreCached(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         self.assertFalse(await server_control.is_locked(guild.id, guild.channels[0]))
 
 
+class TheOverwritesThatWereAllowedIn(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """The reported bug, as laws: a deny on `@everyone` alone is not a lock.
+
+    Discord applies a role's and a member's channel overwrite **after**
+    `@everyone`'s, so an explicit allow there beats the deny — which is how a
+    channel could read as locked and still have people seeing it and typing in it.
+    Two halves are pinned here: the lock denies every overwrite that granted the
+    permission, and the ledger puts **each** of them back, because an undo that
+    restored `@everyone` and forgot the role would leave the channel open the
+    moment somebody typed `/unlock`.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    async def test_the_overwrite_it_found_is_kept_and_the_deny_is_added_to_it(self):
+        """A private channel's `View Channel=False` is not the lock's to take away.
+
+        The old body sent a fresh overwrite, which Discord stores as *deny these
+        three, say nothing about anything else* — so locking a room that had been
+        made private handed it back to every member."""
+        everyone = Role("@everyone")
+        channel = Channel(
+            1,
+            "private",
+            overwrites={
+                everyone: Overwrite(
+                    deny=Bits.NAMES["view_channel"] | Bits.NAMES["send_messages"]
+                )
+            },
+        )
+        guild = Guild(channels=[channel])
+        guild.default_role = everyone
+        await server_control.lock_channel(guild, channel, Actor())
+        held = channel.overwrites[everyone]
+        self.assertIs(
+            held.view_channel, False, "the lock handed a private channel back to the server"
+        )
+        self.assertIs(held.send_messages, False)
+        self.assertIs(held.add_reactions, False)
+        self.assertIs(held.create_public_threads, False)
+
+    async def test_a_role_that_had_been_allowed_to_talk_is_denied_too(self):
+        normal = Role("Normal", id=7)
+        channel = Channel(
+            1,
+            "general",
+            overwrites={
+                normal: Overwrite(allow=Bits.NAMES["send_messages"] | Bits.NAMES["add_reactions"])
+            },
+        )
+        guild = Guild(channels=[channel], roles=[normal])
+        report = await server_control.lock_channel(guild, channel, Actor())
+        held = channel.overwrites[normal]
+        self.assertIs(held.send_messages, False, "a role's allow beat the deny")
+        self.assertIs(held.add_reactions, False)
+        self.assertIsNone(held.view_channel, "an ordinary lock does not hide the channel")
+        self.assertEqual(report.evicted, 1, "the card cannot say it closed an allow it did not")
+
+    async def test_a_member_a_ticket_let_in_is_denied_too(self):
+        member = _FakeMember(author_id=9)
+        channel = Channel(
+            1,
+            "ticket-raj",
+            overwrites={
+                member: Overwrite(allow=Bits.NAMES["view_channel"] | Bits.NAMES["send_messages"])
+            },
+        )
+        guild = Guild(channels=[channel], members=[member])
+        await server_control.lock_channel(guild, channel, Actor())
+        held = channel.overwrites[member]
+        self.assertIs(held.send_messages, False, "the member a ticket let in kept talking")
+        self.assertIs(held.view_channel, True, "an ordinary lock does not hide the room either")
+
+    async def test_the_bots_own_allow_is_left_alone(self):
+        """Not politeness: the card it posts into the room, and the messages it
+        removes from it, both need the allow it already had."""
+        me = _FakeMember(author_id=424242, bot=True)
+        channel = Channel(1, "general", overwrites={me: Overwrite(allow=Bits.NAMES["send_messages"])})
+        guild = Guild(channels=[channel], members=[me])
+        await server_control.lock_channel(guild, channel, Actor())
+        allow, _deny = channel.overwrites[me].pair()
+        self.assertTrue(allow.send_messages, "the lock took away my own room to work in")
+
+    def test_a_channel_somebody_can_still_talk_in_is_not_already_locked(self):
+        everyone = Role("@everyone")
+        normal = Role("Normal", id=7)
+        channel = Channel(
+            1,
+            "quiet",
+            overwrites={
+                everyone: Overwrite(deny=ALL_LOCKED),
+                normal: Overwrite(allow=Bits.NAMES["send_messages"]),
+            },
+        )
+        guild = Guild(channels=[channel], roles=[normal])
+        guild.default_role = everyone
+        plan = server_control.plan(guild)
+        self.assertEqual([held.id for held in plan.change], [1])
+        self.assertEqual(plan.already_locked, [], "a lock anybody can type through was reported as held")
+
+    async def test_the_undo_puts_the_allow_it_stripped_back(self):
+        normal = Role("Normal", id=7)
+        channel = Channel(
+            1,
+            "general",
+            overwrites={
+                normal: Overwrite(
+                    allow=Bits.NAMES["send_messages"], deny=Bits.NAMES["add_reactions"]
+                )
+            },
+        )
+        guild = Guild(channels=[channel], roles=[normal])
+        await server_control.lock_channel(guild, channel, Actor())
+        self.assertIs(channel.overwrites[normal].send_messages, False)
+        report = await server_control.unlock_channel(guild, channel, Actor())
+        self.assertTrue(report.ok)
+        held = channel.overwrites[normal]
+        self.assertIs(held.send_messages, True, "the role's allow was not put back")
+        self.assertIs(held.add_reactions, False, "a deny the lock found was dropped by the undo")
+        self.assertIsNone(held.view_channel)
+
+    async def test_a_row_written_before_this_pass_still_restores_the_everyone_overwrite(self):
+        """One ``allow:deny`` string can only ever have been about `@everyone`."""
+        everyone = Role("@everyone")
+        channel = Channel(1, "quiet", overwrites={everyone: Overwrite(deny=ALL_LOCKED)})
+        guild = Guild(channels=[channel])
+        guild.default_role = everyone
+        await db.save_lockdown(guild.id, [(1, f"{Bits.NAMES['send_messages']}:0")], 5, 0)
+        report = await server_control.unlock_channel(guild, channel, Actor())
+        self.assertTrue(report.ok)
+        held = channel.overwrites[everyone]
+        self.assertIs(held.send_messages, True, "an old row stopped restoring")
+        self.assertIsNone(held.add_reactions, "the row was read as more than the one overwrite")
+
+
+class TheHiddenLock(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """`/lockdown hide:True`: the same lock, with the channel off the list.
+
+    The report begins with a private channel the normal role could still see —
+    `@everyone view_channel=False` and an allow for the role, which is the one
+    overwrite a deny on `@everyone` cannot answer. A hide denies `View Channel`
+    everywhere it is granted, and spares the two overwrites the room needs to be
+    openable again: the bot's own, and the people who can manage channels. Their
+    sight is spared and their voice is not — an ordinary lock still holds them.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def _guild(self, channel, *roles):
+        guild = Guild(channels=[channel], roles=list(roles))
+        guild.default_role = Role("@everyone")
+        return guild
+
+    async def test_it_hides_the_channel_from_the_role_that_was_allowed_to_see_it(self):
+        normal = Role("Normal", id=7)
+        manager = Role("Moderator", id=8, manage_channels=True)
+        channel = Channel(
+            1,
+            "premier",
+            overwrites={
+                normal: Overwrite(
+                    allow=Bits.NAMES["view_channel"] | Bits.NAMES["send_messages"]
+                ),
+                manager: Overwrite(
+                    allow=Bits.NAMES["view_channel"] | Bits.NAMES["send_messages"]
+                ),
+            },
+        )
+        guild = self._guild(channel, normal, manager)
+        await server_control.lock_channel(guild, channel, Actor(), hide=True)
+        self.assertIs(channel.overwrites[guild.default_role].view_channel, False)
+        self.assertIs(
+            channel.overwrites[normal].view_channel, False, "the normal role still sees it"
+        )
+        self.assertIs(channel.overwrites[normal].send_messages, False, "the normal role can still talk")
+        self.assertIs(
+            channel.overwrites[manager].view_channel,
+            True,
+            "the people who can open it again lost sight of it",
+        )
+        self.assertIs(
+            channel.overwrites[manager].send_messages, False, "a keeper could still talk through it"
+        )
+
+    async def test_the_undo_gives_every_bit_of_visibility_back(self):
+        normal = Role("Normal", id=7)
+        channel = Channel(
+            1,
+            "premier",
+            overwrites={
+                normal: Overwrite(allow=Bits.NAMES["view_channel"] | Bits.NAMES["send_messages"])
+            },
+        )
+        guild = self._guild(channel, normal)
+        await server_control.lock_channel(guild, channel, Actor(), hide=True)
+        report = await server_control.unlock_channel(guild, channel, Actor())
+        self.assertTrue(report.ok)
+        self.assertNotIn(
+            guild.default_role, channel.overwrites,
+            "the hide left an overwrite the channel never had",
+        )
+        self.assertIs(channel.overwrites[normal].view_channel, True)
+        self.assertIs(channel.overwrites[normal].send_messages, True)
+
+    async def test_the_bot_keeps_its_own_sight_of_a_hidden_channel(self):
+        me = _FakeMember(author_id=424242, bot=True)
+        channel = Channel(1, "premier", overwrites={me: Overwrite(allow=Bits.NAMES["view_channel"])})
+        guild = Guild(channels=[channel], members=[me])
+        await server_control.lock_channel(guild, channel, Actor(), hide=True)
+        allow, _deny = channel.overwrites[me].pair()
+        self.assertTrue(allow.view_channel, "a hidden channel my own reader cannot see")
+
+    async def test_a_hidden_channel_is_a_locked_channel_too(self):
+        guild = self._guild(Channel(1, "premier"))
+        report = await server_control.lock_channel(guild, guild.channels[0], Actor(), hide=True)
+        self.assertTrue(report.ok)
+        self.assertEqual(await server_control.locked_channel_ids(guild.id), frozenset({1}))
+        self.assertEqual(await server_control.lock_scope(guild.id, guild.channels[0]), "channel")
+
+
 class TheSlowmode(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.use_temp_database()
@@ -1462,13 +1781,24 @@ class TheSlowmode(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.blocked, 1)
 
     async def test_the_state_reading_reports_what_is_locked_and_what_would_change(self):
+        """The plan half of this reading was dead until the overwrite reader was
+        fixed: `_denies` asked a `PermissionOverwrite` for an ``allow``/
+        ``deny`` attribute it does not have, so *already locked* was never true on
+        a real server and this law used to pin that (``already_locked == 0``
+        **after** a lockdown, which is a claim that a lockdown changed nothing).
+        The straight answer is the one asserted now.
+        """
         guild = Guild(channels=[Channel(1, "general"), Channel(2, "memes")])
         self.assertEqual((await server_control.state(guild))["locked"], 0)
         await server_control.lockdown(guild, Actor())
         reading = await server_control.state(guild)
         self.assertEqual(reading["locked"], 2)
         self.assertEqual([channel["name"] for channel in reading["channels"]], ["general", "memes"])
-        self.assertEqual(reading["counts"]["already_locked"], 0)
+        self.assertEqual(
+            reading["counts"]["already_locked"], 2,
+            "a lockdown is not reported as having left work to do",
+        )
+        self.assertEqual(reading["counts"]["change"], 0)
 
 
 class TheReport(unittest.TestCase):
@@ -1489,6 +1819,16 @@ class TheReport(unittest.TestCase):
         self.assertIn("2 were already locked", said)
         self.assertIn("3 could not be managed", said)
         self.assertFalse(report.to_dict()["failures"])
+
+    def test_a_report_says_when_the_lock_closed_an_allow_as_well(self):
+        """A lock that had to take an allow away is a different event from one
+        that only had to write its own deny, and the panel says which happened."""
+        from utils.server_control import Report
+
+        report = Report(action="lockdown", ok=True, changed=1, evicted=2)
+        self.assertIn("2 overwrite(s)", report.sentence())
+        self.assertEqual(report.to_dict()["evicted"], 2)
+        self.assertNotIn("overwrite(s)", Report(action="lockdown", ok=True, changed=1).sentence())
 
 
 if __name__ == "__main__":
