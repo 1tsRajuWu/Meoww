@@ -1110,9 +1110,36 @@ async def _last_overwrite_by_this_bot(guild, candidates, bot_user) -> set:
                 flush=True,
             )
             return set()
+        # discord.py 2.x hands back an **async generator**, which crosses its own
+        # pages and has **no ``.next()``** — that method belonged to the 1.x
+        # ``AsyncIterator``. Calling it here raised ``AttributeError`` on every
+        # real guild, the read was judged "broken", and nothing was ever adopted:
+        # the boot said *0 adopted* while the sweep walked past every old lock.
+        # The generator is consumed directly and bounded by ``limit`` — the page
+        # loop it replaces drew from the same pool of entries either way. A fake
+        # that still exposes ``.next()`` (the tests' old 1.x-shaped stand-in) is
+        # paged as before, so neither shape silently stops early.
         try:
-            for _page in range(AUDIT_PAGES):
+            if hasattr(pages, "next"):
+                for _page in range(AUDIT_PAGES):
+                    async for entry in pages:
+                        channel_id = int(getattr(getattr(entry, "target", None), "id", 0) or 0)
+                        if channel_id not in wanted:
+                            continue
+                        role_id = int(getattr(getattr(entry, "extra", None), "id", 0) or 0)
+                        if role_id != everyone_id:
+                            continue
+                        held = newest.get(channel_id)
+                        if held is None or _entry_id(entry) > _entry_id(held):
+                            newest[channel_id] = entry
+                    if not await pages.next():
+                        break
+            else:
+                count = 0
                 async for entry in pages:
+                    count += 1
+                    if count > AUDIT_PAGE * AUDIT_PAGES:
+                        break
                     channel_id = int(getattr(getattr(entry, "target", None), "id", 0) or 0)
                     if channel_id not in wanted:
                         continue
@@ -1122,8 +1149,6 @@ async def _last_overwrite_by_this_bot(guild, candidates, bot_user) -> set:
                     held = newest.get(channel_id)
                     if held is None or _entry_id(entry) > _entry_id(held):
                         newest[channel_id] = entry
-                if not await pages.next():
-                    break
         except Exception as exc:  # noqa: BLE001 — a refused or broken read is not evidence
             print(
                 f"[CONTROL] could not read the audit log ({type(exc).__name__}: {exc}); "

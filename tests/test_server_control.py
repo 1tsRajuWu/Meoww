@@ -927,6 +927,24 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
         self.assertEqual(dict(await db.lockdown_locks(guild.id))[1], "channel")
 
+    async def test_the_real_async_generator_shape_is_consumed_and_adopts(self):
+        """discord.py 2.x's ``audit_logs`` is an **async generator**: it has no
+        ``.next()`` to await, which is what the paging loop called — so every real
+        read raised ``AttributeError`` and **no old lock was ever adopted**, while
+        every law here passed against a 1.x-shaped fake. The fake below is the
+        real shape, and it is what found the defect in the first place: the boot
+        log said *0 candidate(s) adopted* on a guild holding ten of them."""
+        everyone = self._everyone()
+        channel = self._old_lock(everyone)
+        guild = self._server(everyone, channel)
+
+        async def real_shape(**_kwargs):
+            yield _AuditEntry(1, everyone.id, self.BOT_ID)
+
+        guild._audit = real_shape
+        adopted = await server_control.adopt_legacy_locks(guild, self._bot())
+        self.assertEqual([getattr(one, "id", 0) for one in adopted], [1])
+
     async def test_an_audit_log_that_cannot_be_read_adopts_nothing(self):
         everyone = self._everyone()
         guild = self._server(
