@@ -206,6 +206,35 @@ MEETINGS_SCHEMA: tuple[str, ...] = (
 )
 
 
+#: The one-time claim's own shape: one row per member, ever.
+#:
+#: ``/claim`` gives a member, once, the floor of coins and level that
+#: ``utils/claims`` publishes. The latch is a *row* rather than a column on
+#: ``economy`` for two reasons: a member who claims without ever holding coins
+#: gets a row here and a wallet that is created by the same transaction, and the
+#: primary key is what makes the second claim impossible rather than merely
+#: unlikely — two claims arriving in the same instant cannot both insert it.
+#: ``money``/``xp``/``level`` are the record of what was handed over, so the
+#: grant can be read back and audited instead of recomputed from a ceiling that
+#: may since have moved.
+#:
+#: Written out once, in ``CLAIM_SCHEMA``, because the claim's writer
+#: (``utils.claims.claim_once``) is a second caller: a database the cloud restore
+#: swaps in under a running process can predate this table, and a boot that
+#: already ran is not a promise that it exists.
+CLAIM_SCHEMA: tuple[str, ...] = (
+    '''CREATE TABLE IF NOT EXISTS claim_grants (
+            guild_id INTEGER,
+            user_id INTEGER,
+            claimed_at TEXT,
+            money INTEGER DEFAULT 0,
+            xp INTEGER DEFAULT 0,
+            level INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
+        )''',
+)
+
+
 async def setup():
     async with aiosqlite.connect(DB_PATH) as db:
         # WAL lets the web dashboard write while the bot reads, instead of both
@@ -306,6 +335,12 @@ async def setup():
             vc_coins_per_min INTEGER DEFAULT 2,
             vc_xp_per_min INTEGER DEFAULT 3
         )''')
+        # ── The one-time claim's latch ──────────────────────────────────────
+        # Created here and again by the claim's own writer — see
+        # ``CLAIM_SCHEMA`` for what the row holds and why it is the table that
+        # makes a second claim impossible.
+        for statement in CLAIM_SCHEMA:
+            await db.execute(statement)
         await db.execute('''CREATE TABLE IF NOT EXISTS custom_quotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER,

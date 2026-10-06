@@ -559,6 +559,8 @@ FEATURES: tuple[Feature, ...] = (
             "/check — Audit every channel for permission holes: the allow that "
             "beats a deny, the private channel a role can still see, and the lock "
             "whose deny is gone",
+            "/claim — One chance per member to claim a floor of coins and level "
+            "after a restore, up to a published ceiling",
         ),
         toggleable=False,
         help_key="system",
@@ -599,6 +601,10 @@ CORE_COGS: tuple[str, ...] = (
     "cogs.bot_config",
     "cogs.automod",
     "cogs.support",
+    # `cogs.claims` is here for `/claim`'s own reason: it is a core command, so
+    # it must not load inside a feature cog whose `interaction_check` would
+    # refuse it on a server that switched that system off.
+    "cogs.claims",
 )
 
 # Commands that are always reachable regardless of module state. (The old
@@ -623,6 +629,13 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     # administrator needs to read what there is to switch on. It reads the module
     # states rather than being governed by them, and it does its own scoping.
     "cmd",
+    # `/claim` restores two figures that belong to the *member* — a wallet and a
+    # level — and it is the answer to a restore that lost them. Gating it on the
+    # economy or the leveling switch would make a server that switched either off
+    # unable to give its members back what they had earned, which is the one
+    # server where the command matters most. Its own latch makes it once ever, so
+    # nothing is lost by leaving the door open.
+    "claim",
 })
 
 # Commands that are safe to run in a DM (or that handle their own guild check).

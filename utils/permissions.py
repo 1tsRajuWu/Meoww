@@ -137,6 +137,12 @@ COMMAND_ACCESS: dict[str, str] = {
     "inventory": EVERYONE,
     "loan": EVERYONE,
     "repay": EVERYONE,
+    # `/claim` pays a member their own coins and gives back their own level, and
+    # it reads and writes nothing else. It is not gated on the economy or the
+    # leveling switch (see `features.ALWAYS_ALLOWED_COMMANDS`), and it can only
+    # ever pay once per member, so there is no audience narrower than the member
+    # it is for.
+    "claim": EVERYONE,
     # -- Admin economy: the coins of others ------------------------------- #
     "eco-admin add": ADMIN,
     "eco-admin remove": ADMIN,

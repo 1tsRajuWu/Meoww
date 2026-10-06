@@ -8,6 +8,7 @@ cogs stay thin.
 | File | Feature | Commands you'll recognize |
 |---|---|---|
 | `automod.py` | Automod & Shield | `/automod invites`, `/automod antispam` |
+| `claims.py` | One-time claim | `/claim` (one chance per member: up to 25,000 🪙 and Level 25, once) |
 | `bot_config.py` | The bot itself | `/bot db`, `/bot push`, `/bot sync`, `/bot avatar`, `/bot banner`, channel bindings |
 | `economy.py` | Economy & Casino | `/balance /daily /work /rob /pay /shop /buy /loan …` |
 | `fun.py` | Fun & Memes | `/meme /8ball /meow /quote /roast …` |
