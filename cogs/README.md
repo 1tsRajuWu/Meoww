@@ -20,7 +20,6 @@ cogs stay thin.
 | `moderation.py` | Moderation & Logs | `/ban /kick /mute /warn /purge /modlog …` |
 | `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /slowmode /defaultrole …` |
 | `social.py` | Social Roleplay | `/action /marry /ship /hunt /zoo /uwu …` |
-| `starboard.py` | Starboard | `/starboard set limit status` + reaction listener |
 | `tickets.py` | Support Tickets | `/ticket setup` + panel buttons + ratings |
 | `tracker.py` | Activity Tracker | `/activity /activity-top /activity-channel` |
 

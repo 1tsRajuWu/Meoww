@@ -25,7 +25,6 @@ import { Systems } from "./pages/Systems";
 import { Commands } from "./pages/Commands";
 import { Economy } from "./pages/Economy";
 import { OpsPage } from "./pages/Ops";
-import { Questions } from "./pages/Questions";
 import { Access } from "./pages/Access";
 import { Changes } from "./pages/Changes";
 import { God } from "./pages/God";
@@ -86,7 +85,6 @@ function Router({
     if (path === "/commands") return { kind: "commands" as const };
     if (path === "/economy") return { kind: "economy" as const };
     if (path === "/ops") return { kind: "ops" as const };
-    if (path === "/questions") return { kind: "questions" as const };
     if (path === "/access") return { kind: "access" as const };
     if (path === "/changes") return { kind: "changes" as const };
     if (path === "/god") return { kind: "god" as const };
@@ -152,7 +150,6 @@ function Router({
     if (page.kind === "commands") return <Commands servers={servers} />;
     if (page.kind === "economy") return <Economy onGone={toast} />;
     if (page.kind === "ops") return <OpsPage />;
-    if (page.kind === "questions") return <Questions />;
     if (page.kind === "access") return <Access />;
     if (page.kind === "changes") return <Changes />;
     if (page.kind === "god") return <God onGone={toast} />;

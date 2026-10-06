@@ -19,10 +19,15 @@ For the member's own view, the Bot already answers most of it: `/rank`,
 `/warnings`. For a formal request, copy the live database off the host and query
 it read-only:
 
-An anonymous question is keyed to the asker (`qna_questions.user_id` and
-`qna_questions.user_name`) — the `id` in that table is the *question*, not the
-person. Deleting those rows deletes the question and the record of who asked
-it, including any answer already sent.
+**Retired features still hold rows, and a request still reaches them.** `/qna`
+was archived on 2026-10-06 and nothing writes to its tables any more, but the
+rows were deliberately left in place — an anonymous question is keyed to the
+asker (`qna_questions.user_id` and `qna_questions.user_name`), where the `id` in
+that table is the *question* rather than the person, and deleting those rows
+deletes the question and the record of who asked it. The same goes for
+`starboard_posts` / `starboard_settings` and the four `radio_*` preference
+columns: the commands are gone, the rows are not, and they are deleted by exactly
+the statements below.
 
 ```bash
 sqlite3 bot.db ".mode insert" \
@@ -35,7 +40,8 @@ The tables keyed to one member (`user_id`, unless noted): `activity_messages`,
 `warnings`, `tempvoice_channels` (`owner_id`), `giveaway_entries`,
 `scheduled_messages` (`created_by`), `marriages` (`user1_id` / `user2_id`),
 `mod_cases` (`user_id` and `moderator_id`), `ticket_feedback` (`author_id` and
-`claimed_by`), `qna_questions` (`user_id` and `user_name`).
+`claimed_by`), `qna_questions` (`user_id` and `user_name` — retired, still
+queryable, still deleted the same way).
 
 ## 2. Delete one member's data
 
@@ -78,8 +84,9 @@ before it — in the Supabase dashboard, or with `utils/cloud_sync._storage_dele
 A restart before that prunes nothing and can restore what you just deleted.
 
 Rows that live in Discord rather than the database go with their messages: a
-ticket transcript is a file in a channel, a starboard pin is a message, a bug
-report is a message in a bug channel. Delete the message or the channel.
+ticket transcript is a file in a channel — including the starboard pins left by
+the retired feature, which are ordinary messages in a channel — and a bug report
+is a message in a bug channel. Delete the message or the channel.
 
 ## 3. Delete a whole server's data
 
@@ -87,7 +94,7 @@ Everything keyed by `guild_id` (`activity_*`, `economy`, `user_levels`,
 `warnings`, `mod_cases`, `tickets`, `scheduled_messages`, `starboard_posts`,
 `marriages`, `user_animals`, `market_*`, `guild_settings`, `guild_modules`,
 `level_roles`, `level_settings`, `shop`, `starboard_settings`, `tempvoice_*`,
-`reaction_roles`, `giveaways`, `giveaway_entries`, `music_247`,
+`reaction_roles`, `giveaways`, `giveaway_entries`, `radio_stay`, `radio_last`,
 `alone_time`, `qna_questions`), then the
 snapshot step above. Removing the Bot from the server stops new collection
 immediately but does **not** delete what already exists — only this does.

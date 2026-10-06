@@ -19,16 +19,6 @@ stops". Two kinds of thing are probed, because the bot sends two kinds:
   fetched at use time and verified before they are sent (:mod:`utils.gifs`). The
   question here is whether the *resolver* still produces something: a provider
   that quietly changed its payload shape fails this while answering ``200``.
-* **The stream path itself** — one station opened all the way to bytes
-  (:func:`utils.radio_stream.self_check`). This is the only target that is not a
-  *link*: it is the host's ability to play a station, and it fails in a way no URL
-  can.
-  Every station URL below can be perfectly healthy while the deployment has no
-  route to the outside world, or a proxy that used to work has stopped, and
-  nothing else in this module would notice — the difference between one broken
-  link and a host that cannot play anything is exactly the difference this target
-  exists to draw.
-
 Three rules, all learned from what went wrong:
 
 * **Absent is not the same as fine, and neither is a ``200``.** A URL is healthy
@@ -43,7 +33,6 @@ Three rules, all learned from what went wrong:
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import time
@@ -51,7 +40,7 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
-from . import config_audit, db, gifs, radio_stream
+from . import config_audit, db, gifs
 
 #: Where this check's clock lives. Guild ``0`` is the application's own row, the
 #: same sentinel ``utils.presence`` uses for a value that belongs to no server.
@@ -94,13 +83,9 @@ MEDIA_EXTENSIONS: tuple[str, ...] = (
     ".gif", ".png", ".jpg", ".jpeg", ".webp", ".avif",
     ".mp4", ".webm", ".mov", ".mp3", ".aac", ".ogg", ".oga", ".wav", ".m4a",
 )
-#: ``.aac`` is here because the note on :data:`STREAM_HOSTS` below has claimed it
-#: since that list was written — *"the extension test saw the 31 ending in
-#: ``.mp3``/``.aac``"* — while this tuple did not contain it. The prose and the
-#: code disagreed, and the code won quietly: an AAC stream written down as a
-#: station was not recognised as media, so the weekly check would never ask about
-#: it. Found by adding one (LOS40, in the per-language pass) and watching
-#: ``tests/test_radio.py`` name it as unprobed.
+#: ``.aac`` used to be missing from this tuple while a comment below claimed it
+#: was there: the prose and the code disagreed and the code won quietly, so a
+#: stream written down as a station was never asked about.
 #: Hosts that serve media at extension-less paths. Asking for a URL on one of
 #: these is worth it even when the path has no dot in it.
 CDN_HOSTS: tuple[str, ...] = (
@@ -112,63 +97,6 @@ CDN_HOSTS: tuple[str, ...] = (
 #: (CDNs do it), but an HTML page is never media whatever extension it was asked
 #: for under.
 MEDIA_PREFIXES: tuple[str, ...] = ("image/", "audio/", "video/", "application/ogg")
-
-#: Hosts that serve media at a URL with **no file extension**, which is the one shape
-#: the extension test below cannot recognise.
-#:
-#: This list exists because of the radio catalogue, and the size of the gap is the
-#: argument for it: of 122 stations, the extension test saw the 31 ending in
-#: ``.mp3``/``.aac`` and skipped the other **91** — ``https://stream.laut.fm/lofi`` and
-#: ``https://listen.moe/stream`` are a host and a word. That is this module's own bug,
-#: one level down from the one it was written for: a dead stream that nothing checks,
-#: because nothing recognised it as a stream. Nothing was *broken* while it went
-#: unnoticed; the point is that nothing would have *said* so, which is the entire job.
-#:
-#: Ports are part of the host here, because :func:`_is_media_url` compares what the
-#: URL says. Streaming hosts are usually not the CDN hosts above — they are icecast,
-#: Shoutcast and Azura servers — so this is a different kind of name and is kept
-#: apart from them deliberately.
-STREAM_HOSTS: tuple[str, ...] = (
-    "admin.stream.rinse.fm",  # Kool FM London
-    "drive.uber.radio",  # the Hindi chart stations
-    "glzwizzlv.bynetcdn.com",  # Galei Tzahal, Israel
-    "ice1.somafm.com",  # the SomaFM catalogue
-    "icecast.live.yle.fi",  # Yle Radio 1, Finland — the path ends in
-                            # ``icecast.audio``, which is a server's word rather
-                            # than an extension, so the host is what names it
-    "icecast.omroep.nl",  # NPO Radio 1 and 2, Dutch public radio
-    "icecast.radiofrance.fr",  # France Musique's opera channel
-    "jenny.torontocast.com:2000",  # J1 HITS, Japan (and :2020 above is another)
-    "kpophits.stream.laut.fm",
-    "listen.moe",  # J-Pop and K-Pop
-    "live1.sr.se",  # Sveriges Radio P1
-    "lyd.nrk.no",  # NRK P1, Norway
-    "online.radioroks.ua",  # Radio ROKS, Ukraine — an icecast path rather than a
-                            # file, so the host is what names it
-    "maggie.torontocast.com:2020",
-    "manager7.streamradio.fr:1435",
-    "radiostreaming.ert.gr",  # ERT Kosmos, Greek public radio
-    "radio.plaza.one",
-    "rmfstream.pl",  # RMF FM, Poland — the subdomain rotates (rs6-krk2, rs7-…),
-                     # so the *domain* is declared and every rotation is covered
-    "stream-143.zeno.fm",
-    "stream-37.zeno.fm",
-    "stream.brokenbeats.net",
-    "stream.cinz.net",
-    "stream.laut.fm",  # the largest single group: one station per genre
-    "stream.radiojar.com",  # Trax Streaming, Jakarta — a Radiojar token path
-    "stream.radioparadise.com",
-    "stream.srg-ssr.ch",  # Swiss Jazz/Classic/Pop and SRF 3
-    "stream.zeno.fm",
-    "stream0.wfmu.org",
-    "stream4.srr.ro:8443",  # Radio România Actualități — the port is part of it
-    "uk2.streamingpulse.com",
-    "www.ukbassradio.com",
-)
-
-#: Both kinds, kept separate above so a reader can tell a CDN name from a streaming
-#: one — they need different rules, because an icecast root *is* the stream.
-MEDIA_HOSTS: tuple[str, ...] = CDN_HOSTS + STREAM_HOSTS
 
 #: Where a hardcoded URL can live. Declared rather than walked at large: tests
 #: hold deliberately broken URLs, ``docs/`` quotes examples, and
@@ -214,12 +142,6 @@ def _is_media_url(url: str) -> bool:
     # picture, on a link that was never meant to be fetched.
     after_host = path.split("//", 1)[-1]
     host = after_host.split("/", 1)[0].lower()
-    if any(host == known or host.endswith("." + known) for known in STREAM_HOSTS):
-        # Declared, so it needs no shape test at all. An icecast server's *root* is
-        # the stream — ``https://stream.cinz.net/`` is one — and the empty-path rule
-        # below exists to keep an *inferred* constant out of the probe list, which is
-        # a different question from a host somebody wrote down as a station.
-        return True
     if "/" not in after_host or not after_host.split("/", 1)[1].strip("/"):
         return False
     return any(host == known or host.endswith("." + known) for known in CDN_HOSTS)
@@ -285,15 +207,14 @@ def _walk(path: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+
+
 def declared() -> tuple[Target, ...]:
-    """The media this bot *makes*: one target per action, one per pet — plus the
-    stream path, which is what makes the radio playable.
+    """The media this bot *makes*: one target per action, one per pet.
 
     Read off the resolver's own tables, so an action added there is checked
     without anybody remembering to add it here — and a test fails if the two ever
-    drift apart. The stream target is the same idea one level up: its probe target
-    is read from :func:`utils.radio_stream.probe_target`, so a deployment that
-    overrides ``STREAM_PROBE_TARGET`` is checked against what it configured.
+    drift apart.
     """
     targets = [
         Target(name=f"action:{action}", kind="action", source="utils/gifs.py")
@@ -303,32 +224,15 @@ def declared() -> tuple[Target, ...]:
         Target(name=f"pet:{kind}", kind="pet", source="utils/gifs.py")
         for kind in sorted(gifs.PET_SOURCES)
     ]
-    targets.append(
-        Target(
-            name=STREAM_TARGET,
-            kind="stream",
-            url=radio_stream.probe_target(),
-            source="utils/radio_stream.py",
-        )
-    )
     return tuple(targets)
-
-
-#: The stream target, named once because three places read it: the target list,
-#: the console's radio panel and this module's own reading of the last pass.
-STREAM_TARGET = "stream:radio"
 
 
 def targets(root: str | None = None) -> tuple[Target, ...]:
     """Everything one pass asks about: what is written down, and what is made.
 
-    A URL a *declared* target names is not asked about twice. The stream target is
-    the reason: its whole job is to open one real station, and the station it opens
-    is also in the catalogue — so the scan finds the same URL in ``utils/radio_catalogue.py``
-    and the pass would report 151 checks over 150 addresses. Two probes of one URL
-    is a wasted request and a count that overstates how much of the catalogue was
-    checked, which is the one number this module exists to report honestly. The
-    declared target wins the name, because it is the one that says *what* broke.
+    A URL a *declared* target names is not asked about twice: two probes of one URL
+    is a wasted request and a count that overstates how much was checked, which is
+    the one number this module exists to report honestly.
     """
     declared_targets = declared()
     claimed = {target.url for target in declared_targets if target.url}
@@ -424,33 +328,6 @@ async def _probe(session, url: str) -> tuple[bool, str]:
 LEFT_EMPTY = "the resolver produced nothing (provider or file)"
 
 
-#: The reason a stream target carries when the probe can say nothing better. It
-#: is an assertion target, like :data:`LEFT_EMPTY`: the card's whole value is that
-#: the *kind* of failure is legible, because "this host has no route out" and
-#: "the station refused the request" are different afternoons.
-STREAM_FAILED = "this host could not open a station it has always been able to open"
-
-
-async def _open_stream() -> tuple[bool, str]:
-    """Open one station, off the event loop.
-
-    ``self_check`` is synchronous network work with a timeout of its own, so it
-    goes to a thread rather than blocking the pass — a check that stutters the
-    gateway while it runs is a check that gets switched off.
-    """
-    try:
-        probe = await asyncio.to_thread(radio_stream.self_check)
-    except Exception as exc:  # noqa: BLE001 — the pass must not raise
-        return False, f"the stream check itself failed ({type(exc).__name__})"
-    if probe.healthy:
-        return True, ""
-    if probe.unreachable:
-        # Deliberately shaped like the link probe's own transport failure, so the
-        # pass files it as ``unchecked``: a host that could not open a connection
-        # is not a finding about a stream, and a reader of the card must not have
-        # to tell those apart.
-        return False, f"no answer ({probe.reason})"
-    return False, probe.reason or STREAM_FAILED
 
 
 async def _resolve(target: Target) -> tuple[str | None, str]:
@@ -490,9 +367,6 @@ async def check(*, session=None, root: str | None = None, now: int | None = None
         for target in everything:
             if target.kind == "file":
                 healthy, reason = await _probe(session, target.url)
-                url = target.url
-            elif target.kind == "stream":
-                healthy, reason = await _open_stream()
                 url = target.url
             else:
                 url, reason = await _resolve(target)
@@ -595,38 +469,6 @@ def card_body(verdict: Verdict) -> str:
 
 #: Discord's description limit, minus room for the sentence above it.
 MAX_CARD_CHARS = 3800
-
-
-def stream_state() -> dict:
-    """What the last pass found about the stream path, without asking again.
-
-    The console panel and ``/health`` both want this, and neither may trigger a
-    network call: one is a page that polls, the other is unauthenticated. So it
-    reads the last verdict and says plainly when there is not one yet — *not
-    checked* is a state a reader can act on (``/radio doctor`` asks now), and it
-    is the honest answer for a process that has just restarted.
-
-    Read off the same verdict the link findings come from, because it *is* the same
-    pass: the check opens a real station, so a host with no route out reports here
-    once and shows up on the console without a second probe.
-    """
-    verdict = _state["last"]
-    if verdict is None:
-        return {
-            "status": "unknown",
-            "detail": "no station has been opened in this process yet",
-            "checked_seconds_ago": None,
-        }
-    age = max(0, int(time.time()) - verdict.at)
-    if STREAM_TARGET in verdict.dead:
-        return {"status": "failed", "detail": verdict.dead[STREAM_TARGET], "checked_seconds_ago": age}
-    if STREAM_TARGET in verdict.unchecked:
-        return {
-            "status": "unreachable",
-            "detail": verdict.unchecked[STREAM_TARGET],
-            "checked_seconds_ago": age,
-        }
-    return {"status": "ok", "detail": "", "checked_seconds_ago": age}
 
 
 def health_json() -> dict:

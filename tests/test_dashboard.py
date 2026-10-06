@@ -409,18 +409,18 @@ class OverviewLive(_DashboardFixture):
         self.assertEqual(live["people"], 0)
         self.assertTrue(live["why"], "an unread panel owes its reader a sentence")
 
-    def test_the_page_draws_both_panels_with_a_reading_in_them(self):
-        """The two panels an administrator actually opens this page for.
+    def test_the_page_draws_the_panels_with_a_reading_in_them(self):
+        """The panels an administrator actually opens this page for.
 
         A read that found nothing is a *reading* and says so: the fix for an empty
-        Overview is not to invent a number, it is to draw the two panels and let
-        them say what they found — and the cold-process sentence above is asserted
-        on the helper, where the branch lives.
+        Overview is not to invent a number, it is to draw the panel and let it say
+        what it found — and the cold-process sentence above is asserted on the
+        helper, where the branch lives.
         """
         self.sign_in()
         body = self.client.get("/dashboard").data.decode()
         self.assertIn("In voice right now", body)
-        self.assertIn("The radio", body)
+        self.assertIn("Needs a look", body)
         self.assertIn("Nobody is in a voice channel. That is the reading, not a failure.", body)
         self.assertNotIn("Nothing was read for this render.", body, "this render did read")
 

@@ -562,50 +562,6 @@ class _PreviewServer:
             return None
 
 
-class _PreviewCompany:
-    """The voice companion, as ``cogs.company.Company.snapshot`` answers it.
-
-    Shaped from the same dict the real cog returns — sitting, waiting, left_us,
-    blocked_seconds, grace and cooldown — rather than from the console's own
-    idea of it, so the preview fails in the same way the page would if that shape
-    ever changed.
-    """
-
-    def __init__(self, guild, channel, person):
-        self._guild = guild
-        self._channel = channel
-        self._person = person
-
-    def snapshot(self) -> dict:
-        if self._channel is None or self._person is None:
-            return {}
-        return {
-            "sitting": {
-                "guild_id": str(self._guild.id),
-                "guild": self._guild.name,
-                "channel_id": str(self._channel.id),
-                "channel": self._channel.name,
-                "person_id": str(self._person.id),
-                # The same reading ``keep_alive._live_name`` makes: a display
-                # name where the object has one, and the plain name otherwise —
-                # these stand-ins carry only the second, exactly as a member
-                # without the Server Members intent does.
-                "person": getattr(self._person, "display_name", None)
-                or getattr(self._person, "name", ""),
-                "since": int(time.time()) - 214,
-                "streaming": False,
-                "video": True,
-                "greeted": True,
-                "reason": "they were alone in the room",
-            },
-            "waiting": [],
-            "left_us": [],
-            "blocked_seconds": 0,
-            "grace_seconds": 12.0,
-            "cooldown_seconds": 300.0,
-        }
-
-
 class _PreviewBot:
     """The gateway the console's real views read.
 
@@ -677,14 +633,14 @@ class _PreviewBot:
         return self.get_guild(guild_id) is not None
 
     def get_user(self, user_id):
-        """The member the Questions page is about to answer, as a DM target.
+        """The member a card that DMs somebody is about, as a DM target.
 
-        ``cogs.qna.deliver_answer`` opens with ``client.get_user(id)`` and falls
-        back to ``fetch_user``, then DMs whoever it got — and answers the operator
-        *"I couldn't look their account up"* when both come back empty. None of
-        that needs a gateway to be true, and without it the one write this page
-        has could never be driven in a preview: every reply would report a refusal
-        that the deployment it is standing in for would not have made.
+        A reader opens with ``client.get_user(id)`` and falls back to
+        ``fetch_user``, then DMs whoever it got — and answers the caller *"I
+        couldn't look their account up"* when both come back empty. None of that
+        needs a gateway to be true, and without it a prefilled DM card could not
+        be driven in a preview at all: every send would report a refusal that the
+        deployment it is standing in for would not have made.
 
         **Synchronous, like Discord's own**: returning ``fetch_user``'s awaitable
         here — which is what the first version of this did — hands
@@ -711,31 +667,8 @@ class _PreviewBot:
         )
         return _PreviewUser(member, user_id)
 
-    def get_cog(self, name):
-        """The voice companion, as the Live page reads it.
-
-        Only one cog is stood up, and only for the same reason the gateways above
-        exist: the companion card's *three* readings (who is alone, who is live,
-        where the bot is sitting) are worth looking at, and a preview that showed
-        "not sitting with anybody" under a card that explains what it would look
-        like is a preview of the empty state only. Nothing here is read by
-        anything but ``/api/console/live``.
-        """
-        if name != "Company":
-            return None
-        first = self.guilds[0] if self.guilds else None
-        if first is None:
-            return None
-        focus = next(
-            (channel for channel in first.voice_channels if channel.name == "Focus Room"),
-            None,
-        )
-        person = first.members[1] if len(first.members) > 1 else None
-        return _PreviewCompany(first, focus, person)
-
-
 class _PreviewUser:
-    """The asker, as the DM target ``cogs.qna.deliver_answer`` needs.
+    """A stand-in member, so a card that DMs somebody has somewhere to send to.
 
     Only ``send`` matters: the delivery builds the card, hands it to ``send``, and
     reads nothing back but the absence of an exception. Keeping what was sent
@@ -847,57 +780,6 @@ def seed_economy() -> int:
     return written
 
 
-def seed_questions() -> int:
-    """Give the Questions page something true to draw. Returns rows written.
-
-    Seeds the real table with the real columns, so what the page reads is the
-    deployment's own reader (``qna.owner_inbox_sync``) rather than a copy of it,
-    and only when the table is empty — re-running the harness must not resurrect
-    a question somebody answered through the console a minute earlier.
-
-    The names are the harness's own stand-in members, and one row is left
-    *unrelayed* on purpose: a question the channel never saw is the one state the
-    page can show that a hand-written mock never would, and it is the state an
-    operator most needs to notice.
-    """
-    from utils import qna as _qna
-
-    conn = _db.connect()
-    written = 0
-    try:
-        conn.execute(_qna.CREATE_TABLE)
-        existing = conn.execute(f"SELECT COUNT(*) FROM {_qna.TABLE}").fetchone()[0]
-        if existing:
-            return 0
-        guild = GUILDS[0]
-        for index, (text, relayed, age) in enumerate(
-            (
-                ("why does the level-up card say cat when the server is set to neutral?", True, 420),
-                ("could the starboard threshold be per-channel? half the server is memes", True, 3_900),
-                ("are you the same meow that was in the other server? asking for nobody", False, 7_500),
-            )
-        ):
-            member = MEMBERS[index % len(MEMBERS)]
-            conn.execute(
-                f"INSERT INTO {_qna.TABLE} "
-                "(guild_id, guild_name, user_id, user_name, question, asked_at, relayed, "
-                " relay_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    # ``label`` rather than ``sub``: the stored name is what the
-                    # owner's DM renders, and ``@raj`` is the harness's mention
-                    # form rather than a member's name.
-                    guild["id"], guild["name"], int(member["id"]), member["label"],
-                    text, time.time() - age, 1 if relayed else 0,
-                    "" if relayed else "the webhook did not accept it (HTTPError)",
-                ),
-            )
-            written += 1
-        conn.commit()
-    finally:
-        conn.close()
-    return written
-
-
 def seed_sessions() -> int:
     """Give the Access page something true to draw. Returns rows written.
 
@@ -970,7 +852,6 @@ for _rule, _name, _view in (
     # answer is a redirect to the donation page rather than a document.
     ("/systems", "systems_page", keep_alive.systems_page),
     ("/start", "start_page", keep_alive.start_page),
-    ("/radio", "radio_page", keep_alive.radio_page),
     ("/ai", "policy_ai", keep_alive.policy_ai),
     ("/support", "route_support_redirect", keep_alive.route_support_redirect),
     # The dashboard's own topbar links to Pricing, and the landing page links to
@@ -1259,14 +1140,11 @@ def dashboard(sub: str = "overview"):
         toggle_url="/api/toggle",
         toggle_all_url="/api/toggle-all",
         # The Overview's own panel, read by production's own reader rather than
-        # written out here. It used to be a hand-built dict, and the radio rebuild
-        # is what that cost: the block described a player with a **queue** and a
-        # song's *title* and *provider* — the shape of the system that was retired
-        # — and the preview would have drawn an empty radio panel with no way to
-        # tell a broken page from a stale fixture. ``_seed_radio`` puts a real
-        # player in the real registry instead, so the panel is painted by
-        # ``keep_alive._overview_live`` from the same shapes production reads,
-        # which is the only version of this that cannot drift.
+        # written out here. A hand-built dict is what this used to be, and the cost
+        # was measured: the block described shapes production had already stopped
+        # sending, so the preview would have drawn an empty panel with no way to
+        # tell a broken page from a stale fixture. Read from ``_overview_live`` and
+        # the fixture cannot drift.
         overview_live=_preview_overview(guild["id"]),
         # The front page's checklist, taken by production's own reader over this
         # harness's switches, its seeded store and its gateway-less server — so
@@ -1286,64 +1164,8 @@ def dashboard(sub: str = "overview"):
     )
 
 
-class _PreviewVoice:
-    """A voice client for the preview's player: connected, playing, in a room."""
-
-    def __init__(self, channel):
-        self.channel = channel
-        self._playing = True
-
-    def is_connected(self) -> bool:
-        return True
-
-    def is_playing(self) -> bool:
-        return self._playing
-
-    def is_paused(self) -> bool:
-        return False
-
-    def stop(self) -> None:
-        self._playing = False
-
-    async def disconnect(self, force: bool = False) -> None:
-        self._playing = False
-
-    async def move_to(self, channel) -> None:
-        self.channel = channel
-
-
-def _seed_radio(guild_id: int) -> None:
-    """Put a real player in the real registry, so the radio panel is a reading.
-
-    Nothing here is a stand-in for the *payload*: ``radio_stream.RadioPlayer`` is
-    the object the bot itself builds, the station is a row of the shipped table,
-    and only the socket — the one thing this process cannot have — is a stub. The
-    panel is then whatever ``status()`` says about it, which is the same object
-    the operator console and the dashboard read in production.
-    """
-    from utils import radio_catalogue, radio_stream
-
-    guild = keep_alive.BOT_INSTANCE.get_guild(guild_id) if keep_alive.BOT_INSTANCE else None
-    channels = list(getattr(guild, "voice_channels", []) or [])
-    if not channels:
-        return
-    playing = radio_stream.RadioPlayer(keep_alive.BOT_INSTANCE, int(guild_id))
-    playing.voice_client = _PreviewVoice(channels[0])
-    # A station somebody asked for by name, so the card shows a genre, a language
-    # and a country rather than the first row of the file.
-    playing.current = next(
-        (row for row in radio_catalogue.CATALOGUE if row.country and row.language),
-        radio_catalogue.CATALOGUE[0],
-    )
-    playing.requester = "Wren"
-    playing.engine = "ffmpeg encode 128 kbps"
-    playing.stay = True
-    playing._started_at = time.monotonic() - 42.0
-
-
 def _preview_overview(guild_id: int) -> dict:
     """The Overview panel, read by production's own reader."""
-    _seed_radio(guild_id)
     return keep_alive._overview_live(guild_id)
 
 
@@ -2543,10 +2365,9 @@ if __name__ == "__main__":
     seeded = seed_economy()
     counted = seed_activity()
     signed_in = seed_sessions()
-    asked = seed_questions()
     print(
         f"[PREVIEW] gateway: {len(GUILDS)} servers; economy: {seeded} seeded row(s); "
-        f"activity: {counted} server(s); sessions: {signed_in}; questions: {asked}",
+        f"activity: {counted} server(s); sessions: {signed_in}",
         flush=True,
     )
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8099")))

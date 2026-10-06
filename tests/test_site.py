@@ -467,142 +467,6 @@ class ThePricingPage(unittest.TestCase):
         self.assertNotIn("There is no paid tier", body)
 
 
-class TheRadioTableCanBeAsked(unittest.TestCase):
-    """``/radio`` renders 308 stations and opens with two dozen of them.
-
-    The page it replaces listed the first forty-eight and then told the visitor
-    to go and type into Discord — a table that answers questions about the bot
-    by asking you to leave the page. What replaces it is a list with a search
-    and the catalogue's own two menus in front of it, and every assertion below
-    is a way that could go quietly wrong: a station that gets no row, a row with
-    no haystack (so searching its own name cannot find it), an option in a menu
-    that the table does not hold, a cap that is off by one, or a count printed
-    on the page that is not the count of the thing it names.
-    """
-
-    def setUp(self):
-        self.client = keep_alive.app.test_client()
-        from utils import radio_catalogue
-
-        self.catalogue = radio_catalogue.CATALOGUE
-        self.index = radio_catalogue.index()
-
-    def _page(self):
-        response = self.client.get("/radio")
-        self.assertEqual(response.status_code, 200)
-        return response.get_data(as_text=True)
-
-    def test_every_station_gets_a_row_that_can_be_found_by_its_own_name(self):
-        """One row per station, and each row carries its own haystack.
-
-        The haystack is what the page's search reads, so an empty one is a row
-        that the search cannot match however hard a visitor types — and it
-        carries the name, country, language and genre, because those are the
-        words the placeholder promises.
-        """
-        body = self._page()
-        # The rebuild dropped the search box — and with it `data-search`, which
-        # only ever existed for the box to read. What the law is about survives
-        # it: one row per station in the catalogue, each carrying that station's
-        # own name as the thing a visitor copies and the table can be asked for.
-        self.assertEqual(
-            body.count('data-copy="'), len(self.catalogue),
-            "the page does not render one row per station",
-        )
-        # Unescaped, because a station called "I♥MUSIC & CHILL" is written into
-        # the markup as `&amp;` — and the row a visitor searches for is the one
-        # the *browser* holds, which is the unescaped one.
-        text = html.unescape(body).lower()
-        for station in self.catalogue[:20]:
-            with self.subTest(station=station.name):
-                self.assertIn(
-                    station.name.lower(),
-                    text,
-                    "a station in the table has no row to be found by",
-                )
-
-    def test_the_page_holds_the_whole_table_and_says_so(self):
-        """The cap left with the script, and the page states what it holds.
-
-        There used to be a ``STATION_PREVIEW`` here: twenty-four rows drawn and
-        the other two hundred and eighty marked `data-beyond` for a button to
-        reveal. Every one of those rows was in the document anyway — that was the
-        point of marking them rather than omitting them — so the cap only ever
-        decided what a reader could *see*, and it took a script to change that.
-
-        The rebuild keeps the rule and drops the machinery: one disclosure holds
-        every row, the browser opens it, and the summary line names the count. So
-        the law that mattered (the sentence and the rows are one number) is
-        asserted against the sentence the page now writes.
-        """
-        body = self._page()
-        self.assertNotIn("data-beyond", body, "the script's cap came back")
-        self.assertIn(
-            f"All {len(self.catalogue)} stations",
-            body,
-            "the disclosure does not name how much it is holding",
-        )
-        self.assertEqual(
-            body.count('data-copy="'), len(self.catalogue),
-            "the disclosure does not hold every row of the table",
-        )
-
-    def test_the_page_counts_what_the_catalogue_counts(self):
-        """Three numbers, read from the index the bot's picker reads.
-
-        The lede's counts were computed in the template from the rows it had
-        sliced; they now come from the catalogue's own index, so the page cannot
-        advertise a language the picker does not count.
-        """
-        body = " ".join(self._page().split())
-        self.assertIn(
-            f"{len(self.catalogue)} stations in {len(self.index.languages)} languages "
-            f"across {len(self.index.countries)} countries",
-            body,
-            "the page's own three counts are not the catalogue's",
-        )
-
-    def test_the_two_menus_offer_the_catalogue_and_nothing_else(self):
-        """The language and country options are the index's own names.
-
-        A hand-kept list of countries is how a page offers a station the bot
-        would refuse to play, which is the failure the registry readers exist to
-        prevent — so the menus are read out of the table rather than written
-        beside it.
-        """
-        body = self._page()
-        # The two menus are gone with the script that filtered them, so what is
-        # asserted is the property they were there to guarantee: every language
-        # and country this page offers a visitor is one the catalogue actually
-        # holds, because they are read off the rows rather than written beside
-        # them. A tag for each is what the rebuild draws.
-        shown = set(re.findall(r'<span class="mw-tag">([^<]+)</span>', body))
-        for name, _count in self.index.languages:
-            with self.subTest(language=name):
-                self.assertIn(name, shown, "the page offers a language its own table does not hold")
-        for name in self.index.countries:
-            with self.subTest(country=name):
-                self.assertIn(name, shown, "the page offers a country its own table does not hold")
-
-    def test_the_ad_free_tag_is_shown_where_the_table_holds_one(self):
-        """The badge comes from the station's own tags, counted here.
-
-        "Ad-free" is the one claim on this page a visitor might choose a station
-        by, so it is counted rather than spot-checked: the page shows it exactly
-        as often as the catalogue records it.
-        """
-        body = self._page()
-        expected = sum(1 for station in self.catalogue if "ad-free" in station.tags)
-        self.assertGreater(expected, 0, "the catalogue has no ad-free tag left")
-        self.assertEqual(
-            body.count('<span class="mw-tag">ad-free</span>'),
-            expected,
-            "the page shows the ad-free tag a different number of times than the table holds it",
-        )
-        self.assertEqual(
-            self.index.ad_free, expected,
-            "the index counts a different number of ad-free stations than the rows do",
-        )
 
 
 class TheSiteIsOneDesign(unittest.TestCase):
@@ -759,7 +623,6 @@ class EveryPublicPageSharesOneFrame(unittest.TestCase):
         "/",
         "/systems",
         "/start",
-        "/radio",
         "/pricing",
         "/privacy",
         "/terms",
@@ -905,7 +768,7 @@ class EverySignedInPageSharesThatSameFrame(_DashboardFixture):
                     )
 
     def test_the_system_cards_print_commands_a_person_can_type(self):
-        """A card offered `//starboard set`, and a doubled slash is not a command.
+        """A card offered `//market buy`, and a doubled slash is not a command.
 
         The registry writes every command **as a person types it**, leading slash
         included (`"/market buy"`), and the card's line prefixed one of its own —

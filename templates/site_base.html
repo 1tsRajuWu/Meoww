@@ -78,7 +78,6 @@
           ('home', 'Home', '/'),
           ('systems', 'Systems', '/systems'),
           ('start', 'Get started', '/start'),
-          ('radio', 'Radio', '/radio'),
         ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
         {% for item in destinations %}
         <a class="nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>
@@ -131,7 +130,6 @@
           <div class="foot__list">
             <a href="/systems">Every system</a>
             <a href="/start">Getting started</a>
-            <a href="/radio">Radio</a>
           </div>
         </div>
         <div>

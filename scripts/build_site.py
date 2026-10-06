@@ -64,12 +64,6 @@ DEFAULT_LIVE_APP = "https://1tsrajowo-meow.hf.space"
 PAGES = (
     ("/", "index.html"),
     ("/systems", "systems.html"),
-    # The radio's own page, and the reason it is one: its failures are quiet (a
-    # connected bot, a card that says "playing", and silence), so the things a
-    # reader would otherwise discover by being disappointed are written down here
-    # instead. On the site rather than only in Discord because a policy is not the
-    # only thing worth reading before you trust a bot.
-    ("/radio", "radio.html"),
     ("/start", "start.html"),
     ("/pricing", "pricing.html"),
     ("/privacy", "privacy.html"),
@@ -332,11 +326,6 @@ def _redirects_file() -> str:
         "# Cloudflare Pages natively serves clean extensionless URLs (e.g. /pricing -> pricing.html).\n"
         "# Explicit 200 rewrites to .html files are omitted to avoid circular 308 redirect loops.\n"
         "\n"
-        "# The page this one used to be. A URL somebody bookmarked is not a mistake\n"
-        "# to punish, so the old address answers with the new one — on the static\n"
-        "# host as well as in the app, or a link shared last month would land on the\n"
-        "# cleanup and 404 while the live app redirected it.\n"
-        "/music /radio 301\n"
     )
 
 

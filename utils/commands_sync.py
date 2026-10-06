@@ -181,6 +181,13 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         # checked against ``deleted_features/`` by `tests/test_command_sync.py`
         # now instead of against anybody's memory of what was removed.
         "decat", "alone",
+        # Archived the same day, in the second pass: Starboard, Server Structure,
+        # Voice Company and the legacy pair (Radio and Anonymous Q&A). Every one
+        # of them drew a root command, and every one of those roots is still
+        # registered in every server — the five names below are the only thing
+        # that takes them out. The comments in ``deleted_features/README.md`` say
+        # what each of them was; this list says that they are gone.
+        "starboard", "structure", "company", "radio", "qna",
     }
 )
 

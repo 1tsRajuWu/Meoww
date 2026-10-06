@@ -170,9 +170,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "crash": EVERYONE,
     "dice": EVERYONE,
     "divorce": EVERYONE,
-    # One administrator decides whether the bot sits in the server's voice
-    # channels; a member cannot opt a whole server into being visited.
-    "company": GUILD,
     "flavor": GUILD,
     "flex": EVERYONE,
     "gamble": EVERYONE,
@@ -198,31 +195,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "trivia": EVERYONE,
     "uwu": EVERYONE,
     "zoo": EVERYONE,
-    # -- Anonymous Q&A ------------------------------------------------------ #
-    # Asking is for everyone — that is the feature — and so is receiving the
-    # answer, which arrives as a DM the bot sends rather than as a command.
-    "qna ask": EVERYONE,
-    # The inbox and the reply are the **operator's**, not the server's: the whole
-    # promise is that the people who answer can be counted, and that they are the
-    # people running the deployment rather than any administrator holding a
-    # permission bit in some server. Checked in the callback — Discord has no
-    # permission that means "this one account", and none that means "the Dev role
-    # of *that* server" — and both also refuse outside the bot's own server.
-    "qna inbox": DEV,
-    "qna reply": DEV,
-
-    # -- Radio: everyone plays, the server owner keeps the seat ----------------- #
-    # Playing is deliberately open to any member: it is a shared room, and every
-    # other bot people have used lets them put something on. The three settings
-    # that change what *everyone* hears — the language, the advertising mode and
-    # the seat — travel as options on `/radio play` and are **saved** only for a
-    # caller with Manage Server; a member without it gets their choice for the
-    # start they asked for, which is why the command itself is EVERYONE.
-    "radio play": EVERYONE,
-    "radio stop": EVERYONE,
-    # The readout names the host's own paths and libraries, which is the
-    # operator's business rather than a member's.
-    "radio doctor": ADMIN,
     "customquote add": EVERYONE,
     "customquote get": EVERYONE,
     "customquote list": EVERYONE,
@@ -291,22 +263,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "meeting cancel": GUILD,
     "meeting list": EVERYONE,
     "meeting view": EVERYONE,
-    # -- Server Structure -------------------------------------------------- #
-    # Declared at the permission each one *needs*, which is also what Discord
-    # itself checks on the command — a structure command offered to somebody who
-    # cannot run it is a picker entry that answers "Missing Permissions".
-    "structure channel-create": CHANNELS,
-    "structure channel-delete": CHANNELS,
-    "structure channel-archive": CHANNELS,
-    "structure role-create": ROLES,
-    "structure role-delete": ROLES,
-    "structure role-purge": ROLES,
-    # The ceilings are the administrator's to look at, and looking is all it does:
-    # changing one is a stored setting rather than a command, deliberately, because
-    # a limit that a command can raise is not a limit.
-    "structure limits": ADMIN,
-    "starboard set": CHANNELS,
-    "starboard status": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
     # The directory is everybody's, and it is the one command whose *content* is
@@ -337,12 +293,6 @@ COMMAND_ACCESS: dict[str, str] = {
     # activation on it, which is why this is not the operator's OWNER tier. The
     # key is the proof of purchase, so there is nothing here to guess at.
     "bot plan": ADMIN,
-    # The legacy systems are the same shape of decision as the plan: *this*
-    # server's feature set, made by whoever administers it. The two commands it
-    # switches are everyone's to run once it is on, and their own rows below are
-    # unchanged — a switch that widened what a member may do would be a different
-    # command entirely.
-    "bot legacy": ADMIN,
     # `/dbstatus` moved here when the tree hit Discord's hundred-command ceiling.
     # The audience did not move with it — asking whether the database is healthy
     # is still an administrator's — and neither did anything the card says: it is

@@ -16,7 +16,7 @@ Three claims are worth a law each, because each one fails silently:
   a page arguing with itself; the operator's fleet lock refuses a system's
   settings for the same reason it refuses its switch.
 * **The default is the reader's.** ``features.setting_value`` is what the bot
-  reads when a server has never saved anything, and `utils/confirmations` takes
+  reads when a server has never saved anything, and the automod card takes
   its ceilings from the same declarations — a second copy of a default is how
   the guard and the page come to disagree about what "unchanged" means.
 """
@@ -28,7 +28,7 @@ import keep_alive
 from tests.support import TempDatabaseMixin
 from tests.test_composer import CHANNEL_ID, GUILD_ID, MEMBER_ID, ROLE_ID
 from tests.test_dashboard import _DashboardFixture
-from utils import confirmations, db, features, modules
+from utils import db, features, modules
 
 #: The seven rules Auto Moderation declares, as the ids a form posts.
 AUTOMOD_SETTINGS = {
@@ -57,22 +57,6 @@ class TheDeclarations(unittest.TestCase):
         self.assertEqual(
             {spec.id for spec in automod.settings_specs()}, AUTOMOD_SETTINGS
         )
-
-    def test_the_structure_ceilings_are_declared_once(self):
-        """``utils/confirmations`` reads the registry rather than repeating it."""
-        declared = {
-            spec.id: spec.default for spec in features.settings_for("structure")
-        }
-        self.assertEqual(dict(confirmations.CEILINGS), declared)
-        self.assertEqual(
-            confirmations.MAX_CEILING,
-            max(spec.maximum for spec in features.settings_for("structure")),
-        )
-        extra = [
-            spec for spec in features.settings_for("structure")
-            if spec.kind != "int" or spec.minimum is None or spec.maximum is None
-        ]
-        self.assertEqual(extra, [], "a ceiling with no bounds cannot be validated")
 
     def test_a_card_carries_the_controls_and_their_bounds(self):
         modules_meta = {m["id"]: m for m in features.dashboard_modules()}

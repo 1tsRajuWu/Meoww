@@ -828,10 +828,10 @@ class Meetings(commands.Cog):
 
     @meeting_group.command(
         name="create",
-        description="Book a meeting — fill it in privately, or pass everything at once.",
+        description="Book a meeting — a private card first, announced once you press Book it.",
     )
     @app_commands.describe(
-        title="What the meeting is called. Leave this and `when` empty to fill it in privately.",
+        title="What the meeting is called — it lands on the private card.",
         when="When it starts: `tomorrow 18:00`, `in 2 hours`, `2026-10-03 18:00`. UTC unless you add `+2`.",
         channel="Where the announcement and notices are posted. Defaults to here.",
         voice="The voice channel the meeting takes place in.",
@@ -853,51 +853,22 @@ class Meetings(commands.Cog):
         agenda: app_commands.Range[str, 1, 900] | None = None,
         notices: str | None = None,
     ):
-        """Two ways in, and both end in :meth:`_book`.
+        """One way in, and it is the private card.
 
-        Passing ``title`` and ``when`` books it in one command, exactly as it
-        always has. Leaving either out opens the **private draft**: the details
-        are collected on a card only the asker can see, nothing is written while
-        it is a draft, and pressing *Book it* writes the row and posts the same
-        announcement the one-shot path posts. Whatever was passed alongside the
-        missing half seeds the draft instead of being dropped.
+        Every option here *seeds the draft* rather than booking it: the ephemeral
+        card is always the first surface, only the person who ran the command can
+        see it, and nothing is written — no row, no announcement — until **Book
+        it** is pressed. Passing the whole meeting on the command line is not a
+        second path, it is a draft that arrives ready, so the promises live in one
+        place (``_book``) instead of two that can drift.
         """
         guild = interaction.guild
         if guild is None:
             return
 
-        if not (title and when):
-            return await self._open_draft(
-                interaction, title=title, when=when, channel=channel, voice=voice,
-                role=role, where=where, agenda=agenda, notices=notices,
-            )
-
-        now = int(time.time())
-        starts_at, error = meetings.parse_when(when, now)
-        if error:
-            return await _refuse(interaction, f"❌ {error}", title="I couldn't read that time")
-
-        offsets, error = meetings.parse_notices(
-            (notices or "").strip() or meetings.DEFAULT_NOTICES
-        )
-        if error:
-            return await _refuse(interaction, f"❌ {error}", title="I couldn't read those notices")
-
-        target = channel or interaction.channel
-        blocked = _postable(guild, target)
-        if blocked:
-            return await _refuse(interaction, f"❌ {blocked}", title="I can't post there")
-
-        await self._book(
-            interaction,
-            target=target,
-            title=str(title),
-            starts_at=starts_at,
-            offsets=offsets,
-            voice=voice,
-            role=role,
-            where=str(where or ""),
-            agenda=str(agenda or ""),
+        await self._open_draft(
+            interaction, title=title, when=when, channel=channel, voice=voice,
+            role=role, where=where, agenda=agenda, notices=notices,
         )
 
     # ── the draft, and the one write both ways in go through ────────────── #

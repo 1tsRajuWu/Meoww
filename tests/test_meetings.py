@@ -702,6 +702,12 @@ class _FakeGuild:
     def get_channel_or_thread(self, channel_id: int):
         return self._channel if channel_id == self._channel.id else None
 
+    def get_role(self, role_id: int):
+        # A draft keeps the audience as an *id* — it has to survive a restart the
+        # role object does not — so booking re-resolves it here, and a fake guild
+        # that cannot answer one silently loses the ping the card promised.
+        return SimpleNamespace(id=int(role_id), mention=f"<@&{role_id}>")
+
 
 def _interaction(guild, channel, bot, *, user_id: int = 5):
     return SimpleNamespace(
@@ -904,9 +910,15 @@ class MeetingsHarness(unittest.IsolatedAsyncioTestCase):
 
 
 class TheWholeLifeOfAMeeting(MeetingsHarness):
-    """Book it, press a button, move it, cancel it — the flow, driven end to end."""
+    """The private card, then the button, then the flow — driven end to end.
+
+    `/meeting create` has no one-shot path any more: every option seeds the draft
+    and the meeting exists only after *Book it*, so this class presses the button
+    rather than reaching past it.
+    """
 
     async def _create(self, **overrides) -> dict:
+        """A whole meeting through the button, leaving the press on ``self.book``."""
         args = dict(
             title="Sprint planning",
             when="tomorrow 18:00",
@@ -918,18 +930,23 @@ class TheWholeLifeOfAMeeting(MeetingsHarness):
             notices="1h,15m",
         )
         args.update(overrides)
-        await self.cog_module.Meetings.meeting_create.callback(
-            self.cog, self.interaction, *args.values()
-        )
+        panel = await self._open_draft(**args)
+        # Nothing exists yet: what the command sent is the private card, and the
+        # channel has heard nothing.
+        self.assertEqual(meetings.upcoming(GUILD_ID), [], "the command booked without asking")
+        self.assertEqual(self.channel.sent, [], "the command announced itself")
+        press = self._press()
+        await _button(panel, "Book it").callback(press)
+        self.book = press
         rows = meetings.upcoming(GUILD_ID)
-        self.assertTrue(rows, f"nothing was booked: {self.interaction.response.messages}")
+        self.assertTrue(rows, f"nothing was booked: {press.response.edits}")
         return rows[-1]
 
     async def test_book_press_move_and_cancel(self):
         meeting = await self._create()
 
         # ── the announcement landed, with its buttons and its audience ──
-        self.assertTrue(self.interaction.response.deferred)
+        self.assertTrue(self.book.response.deferred, "the booking skipped the defer")
         self.assertEqual(len(self.channel.sent), 1)
         message, packet = self.channel.sent[0]
         self.assertEqual(
@@ -940,7 +957,7 @@ class TheWholeLifeOfAMeeting(MeetingsHarness):
         self.assertEqual(meeting["announce_message_id"], message.id)
 
         # ── the receipt names the queue that was actually written ──
-        receipt = [view for _t, view, eph, _a in self.sent if eph][-1]
+        receipt = self.book.response.edits[-1]["view"]
         self.assertIn("Meeting scheduled", _text(receipt))
         self.assertIn("Open the announcement card", _text(receipt))
         self.assertIn("Room 2", _text(receipt))
@@ -982,18 +999,21 @@ class TheWholeLifeOfAMeeting(MeetingsHarness):
         self.assertGreaterEqual(len(message.edits), 3)
         self.assertEqual(meetings.upcoming(GUILD_ID), [])
 
-    async def test_a_junk_time_is_refused_before_anything_is_written(self):
-        before = set(meetings.upcoming(GUILD_ID))
-        await self.cog_module.Meetings.meeting_create.callback(
-            self.cog, self.interaction, "Whatever", "banana", None, None, None, None, None, None
-        )
-        self.assertEqual(set(meetings.upcoming(GUILD_ID)), before)
-        self.assertEqual(self.channel.sent, [], "a refused meeting posted a card")
-        refusal = self.interaction.response.messages
-        self.assertTrue(refusal, "the refusal was never sent")
-        text = _text(refusal[0]["view"])
+    async def test_a_junk_time_keeps_the_draft_and_writes_nothing(self):
+        """A bad time is something the card can still be corrected on.
+
+        What used to be a refusal that took the whole command down with it is now
+        the private card carrying the warning — every other word it was given is
+        still on it — and nothing has been booked either way.
+        """
+        panel = await self._open_draft(title="Whatever", when="banana")
+        self.assertEqual(meetings.upcoming(GUILD_ID), [], "a draft wrote a meeting")
+        self.assertEqual(self.channel.sent, [], "a card nobody could read was announced")
+        text = _text(panel)
         self.assertIn("couldn't read", text)
         self.assertIn(meetings.WHEN_HINT, text)
+        self.assertIn("Whatever", text, "a bad time lost the name that came with it")
+        self.assertTrue(_button(panel, "Book it").disabled, "a timeless draft is bookable")
 
     async def test_a_card_that_will_not_post_drops_the_meeting(self):
         """The rollback is the point: a list that promises a card nobody saw.
@@ -1002,20 +1022,19 @@ class TheWholeLifeOfAMeeting(MeetingsHarness):
         through — because that is the real shape of the failure: Discord
         refusing the one call that makes the meeting visible to anybody else.
         """
-        interaction = _interaction(self.guild, self.channel, self.bot)
-
         async def flaky(target, view, **kwargs):
             if isinstance(target, _FakeChannel):
                 raise RuntimeError("Discord said no")
             return await self._base_send(target, view, **kwargs)
 
         with mock.patch.object(self.cog_module, "send_panel", new=flaky):
-            await self.cog_module.Meetings.meeting_create.callback(
-                self.cog, interaction, "Ghost", "tomorrow 18:00",
-                None, None, None, None, None, None,
-            )
+            panel = await self._open_draft(title="Ghost", when="tomorrow 18:00")
+            press = self._press()
+            await _button(panel, "Book it").callback(press)
         self.assertEqual(meetings.upcoming(GUILD_ID), [])
-        self.assertIn("dropped the meeting", interaction.followup.messages[-1]["content"])
+        said = [edit["content"] for edit in press.response.edits if edit["content"]]
+        self.assertTrue(said, "the rollback said nothing at all")
+        self.assertIn("dropped the meeting", said[-1])
 
     async def test_the_sweep_sends_a_due_notice_into_the_meetings_own_channel(self):
         """The loop half of the feature, against the real queue.
@@ -1093,9 +1112,9 @@ class ThePrivateDraft(MeetingsHarness):
     asker sees it** (an ephemeral card, plus a check that refuses anybody else),
     **nothing exists while it is a draft** (no row, so `/meeting list` cannot
     promise a meeting whose card is nowhere), and **finishing it writes exactly
-    the meeting the one-shot command writes** — the row, the announcement with
-    its reply buttons, the notices and the receipt all come out of the one code
-    path both doors share, which is what these tests are really about.
+    the meeting the command described** — the row, the announcement with its
+    reply buttons, the notices and the receipt all come out of the one code path
+    the button and the options share, which is what these tests are really about.
     """
 
     async def test_the_draft_opens_privately_and_writes_nothing(self):
@@ -1301,15 +1320,25 @@ class ThePrivateDraft(MeetingsHarness):
         self.assertEqual(self.channel.sent, [])
         self.assertIn("passed while this draft was open", _text(press.response.edits[-1]["view"]))
 
-    async def test_the_plain_command_still_books_in_one_go(self):
-        """The door that was always there: two options, no draft in between."""
+    async def test_every_option_still_opens_the_private_card(self):
+        """The inverse of the door that used to stand here: nothing books in one go.
+
+        Two options, every option, or none — the card is the first surface each
+        time, because the announcement is a decision rather than a side effect of
+        a long command, and the person who typed it is the person who owns the
+        draft. A filled-in one is a press away from the meeting, not a meeting.
+        """
         await self.cog_module.Meetings.meeting_create.callback(
             self.cog, self.interaction, "Standup", "tomorrow 09:00",
             None, None, None, None, None, None,
         )
-        self.assertEqual(len(meetings.upcoming(GUILD_ID)), 1)
-        self.assertEqual(self.interaction.response.messages, [], "a draft was opened anyway")
-        self.assertEqual(len(self.channel.sent), 1)
+        self.assertEqual(meetings.upcoming(GUILD_ID), [], "the command booked without asking")
+        self.assertEqual(self.channel.sent, [], "the command announced itself")
+        packets = self.interaction.response.messages
+        self.assertTrue(packets and packets[-1]["ephemeral"], "the card was not private")
+        panel = packets[-1]["view"]
+        self.assertIn("Standup", _text(panel))
+        self.assertFalse(_button(panel, "Book it").disabled, "a filled-in draft is not bookable")
 
     async def test_half_the_options_open_a_draft_instead_of_arguing(self):
         """A title with no time is not an error; it is the start of a draft."""
@@ -1394,13 +1423,14 @@ class TheWriteThatWouldNotLand(MeetingsHarness):
         with mock.patch.object(
             db, "run_atomic", side_effect=sqlite3.OperationalError("no such table: meetings")
         ):
-            await self.cog_module.Meetings.meeting_create.callback(
-                self.cog, self.interaction, "Doomed", "tomorrow 18:00",
-                None, None, None, None, None, None,
-            )
+            # Nothing is written while it is a draft, so the failure only has one
+            # moment it can happen at: the button.
+            panel = await self._open_draft(title="Doomed", when="tomorrow 18:00")
+            press = self._press()
+            await _button(panel, "Book it").callback(press)
         self.assertEqual(meetings.upcoming(GUILD_ID), [])
         self.assertEqual(self.channel.sent, [], "a failed write announced itself")
-        refusal = self.interaction.followup.messages[-1]["content"]
+        refusal = [edit["content"] for edit in press.response.edits if edit["content"]][-1]
         self.assertIn("refused the write", refusal)
         self.assertIn("no such table: meetings", refusal)
         self.assertIn("nothing is half-announced", refusal)

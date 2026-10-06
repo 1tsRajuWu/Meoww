@@ -362,18 +362,6 @@ SETTINGS: tuple[Setting, ...] = (
         secret=True,
     ),
     Setting(
-        "QNA_WEBHOOK_URL",
-        CAPABILITY,
-        "the webhook `/qna` posts anonymous questions through — the channel that "
-        "takes questions with nobody's name on them",
-        "`/qna ask` refuses and says which setting is missing, because a question "
-        "box with nowhere to post to is indistinguishable from a broken one. The "
-        "webhook is a credential: anybody holding the URL can post into that "
-        "channel as the box, which is why it lives in the environment and no "
-        "command or dashboard page can set it.",
-        secret=True,
-    ),
-    Setting(
         "BOT_SERVER_GUILD_ID",
         CAPABILITY,
         "which server is the bot's home, for bug reports filed where the server "
@@ -392,21 +380,6 @@ SETTINGS: tuple[Setting, ...] = (
         "page, and the conversation lives in the database rather than in Discord's "
         "history so the card still draws during an outage. Set it to 0 to switch "
         "the bridge off.",
-    ),
-    Setting(
-        "UPDATE_CHANNEL_ID",
-        CAPABILITY,
-        "the channel release notes are posted to",
-        "the compiled default channel is used, which exists in the bot's home "
-        "server only \u2014 in any other server the update announcement has nowhere "
-        "to go.",
-    ),
-    Setting(
-        "UPDATE_ROLE_ID",
-        CAPABILITY,
-        "the role the update announcement pings",
-        "the compiled default role is pinged, which exists in the bot's home "
-        "server only.",
     ),
     Setting(
         "SILENT_UPDATES",
@@ -475,8 +448,8 @@ SETTINGS: tuple[Setting, ...] = (
         "PLAN_ENFORCEMENT", TUNING,
         "whether a licence is required for the paid systems",
         "ships off, on purpose: switching it on withholds Support Tickets, "
-        "Economy, the Market, Starboard and the Activity Tracker from every "
-        "server that has not activated a licence.",
+        "Economy, the Market and the Activity Tracker from every server that "
+        "has not activated a licence.",
     ),
     Setting(
         "LEMONSQUEEZY_CHECKOUT_PRO",
@@ -693,7 +666,7 @@ SETTINGS: tuple[Setting, ...] = (
     # extractor's own settings (cookies, PO token, visitor data, source order and
     # an outbound proxy) are gone with it — they were the answers to a provider
     # deciding a datacenter address is a bot, and nothing left in this bot asks a
-    # provider anything. Radio is a URL and ffmpeg.
+    # provider anything.
     Setting(
         "MEOW_FFMPEG", TUNING,
         "an explicit ffmpeg binary for the radio, for a host whose ffmpeg "
@@ -701,17 +674,6 @@ SETTINGS: tuple[Setting, ...] = (
         "a system ffmpeg is looked for on ``PATH``, and then the static build "
         "shipped by ``imageio-ffmpeg`` is used — so this is only ever needed to "
         "*override* a working default.",
-    ),
-    Setting(
-        "STREAM_PROBE_TARGET", TUNING,
-        "the station the weekly self-check opens and the console's stream row reads, "
-        "which is how a host that can no longer reach *any* stream reports itself "
-        "instead of every `/radio` failing quietly one at a time",
-        "SomaFM's Groove Salad is used: an icecast stream that has been up for "
-        "years, owned by nobody's catalogue and needing no account. Set this only "
-        "when the default cannot be reached from where this runs — a probe station "
-        "that goes off the air would report the host as broken, which is the check "
-        "becoming the fault it exists to find.",
     ),
 )
 

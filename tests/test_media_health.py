@@ -8,13 +8,6 @@ the tree that may hold a link and skips the places that deliberately hold broken
 ones, that a probe distinguishes "dead" from "could not ask", and that a clean
 week is silence while a dead link is said exactly once.
 
-The fourth thing joined later and is a different kind of finding: the **stream
-path**. Every URL in the tree — every station in the catalogue included — can be
-healthy on the day the radio stops working, because the fault is that this host cannot
-open a connection at all. So one target opens a known station end to end, and the
-tests keep that target honest: it is the last one, it is only one, it names the URL
-it opened, its station is a setting rather than a constant, and the station it opens
-is not asked about twice by the scan that finds the same URL in the catalogue.
 """
 import json
 import os
@@ -24,7 +17,7 @@ import unittest
 from unittest import mock
 
 from tests.support import TempDatabaseMixin
-from utils import config_audit, db, gifs, media_health, radio_stream
+from utils import config_audit, db, gifs, media_health
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -117,54 +110,8 @@ class WhatIsDeclared(unittest.TestCase):
         scanned = [t for t in media_health.scan_source(ROOT) if t.url not in claimed]
         self.assertEqual(len(everything), len(declared_targets) + len(scanned))
 
-    def test_the_stream_path_is_the_last_target_and_only_one(self):
-        everything = media_health.targets(ROOT)
-        streams = [t for t in everything if t.kind == "stream"]
-        self.assertEqual(len(streams), 1)
-        self.assertEqual(streams[0].name, "stream:radio")
-        self.assertEqual(streams[0].url, radio_stream.probe_target())
-        self.assertEqual(streams[0].source, "utils/radio_stream.py")
-        # Declared first, scanned after: the *made* targets are the ones a reader
-        # can act on, and the stream target is the last of them.
-        self.assertIs(everything[len(media_health.declared()) - 1], streams[0])
-        self.assertEqual(streams[0].kind, everything[len(media_health.declared()) - 1].kind)
-
-    def test_the_station_it_opens_is_claimed_rather_than_probed_twice(self):
-        """The probe station is *in the catalogue*, so the scan finds it too.
-
-        A declared target wins the name for a URL it already names: two probes of one
-        address is a wasted request and a count that overstates how much of the
-        catalogue was checked — and the name it keeps is the one that says *what*
-        broke rather than where the URL happens to be written.
-        """
-        urls = [target.url for target in media_health.targets(ROOT) if target.url]
-        self.assertEqual(len(urls), len(set(urls)), "one URL, one probe")
-        self.assertIn(radio_stream.probe_target(), urls)
-
-    def test_the_probe_station_is_a_setting_and_has_a_default(self):
-        """An operator whose network a station cannot reach can point the check at
-        another one without a release — and with nothing set, it opens the default."""
-        self.assertEqual(radio_stream.probe_target(), radio_stream.DEFAULT_PROBE_TARGET)
-        with mock.patch.object(config_audit, "get", lambda key, *a: "https://example.test/stream"):
-            self.assertEqual(radio_stream.probe_target(), "https://example.test/stream",)
-            self.assertEqual(
-                [t.url for t in media_health.declared() if t.kind == "stream"],
-                ["https://example.test/stream"],
-            )
-        self.assertEqual(
-            radio_stream.probe_target(),
-            radio_stream.DEFAULT_PROBE_TARGET,
-            "the default is what a deployment with no setting asks for",
-        )
-
-
 def _image(status=200, content_type="image/gif"):
     return {"status": status, "content_type": content_type}
-
-
-async def _stream_ok():
-    """The stream path as a working one answers, for the cases about links."""
-    return True, ""
 
 
 class _Content:
@@ -206,18 +153,13 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         media_health.reset()
 
-    async def _check(self, urls, *, live=True, resolved=None, stream=None):
+    async def _check(self, urls, *, live=True, resolved=None):
         """One pass over a tree of made-up links, with the resolver stubbed.
 
         ``live`` says whether the links written into that tree answer with media
         or are gone; ``resolved`` names the declared targets whose resolver answer
         should be something other than healthy, and a value of ``None`` there
         means it produced nothing at all.
-
-        The stream path is stubbed for the same reason the resolver is: the real
-        one opens a station over the network, and a test that needs an icecast
-        server to be reachable is a test that fails for reasons that are not this
-        code. ``stream`` is the reason to report instead, when a case wants one.
         """
         with tempfile.TemporaryDirectory() as folder:
             os.makedirs(os.path.join(folder, "cogs"))
@@ -231,14 +173,10 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
                     return answer, ("" if answer else media_health.LEFT_EMPTY)
                 return RESOLVED_OK, ""
 
-            async def fake_open_stream():
-                return (False, stream) if stream else (True, "")
-
             routes = {url: _image() for url in urls} if live else {}
             routes[RESOLVED_OK] = _image()
             session = _Session(routes)
-            with mock.patch.object(media_health, "_resolve", new=fake_resolve), \
-                    mock.patch.object(media_health, "_open_stream", new=fake_open_stream):
+            with mock.patch.object(media_health, "_resolve", new=fake_resolve):
                 return await media_health.check(session=session, root=folder, now=1000)
 
     async def test_a_healthy_tree_is_clean(self):
@@ -268,8 +206,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
             async def healthy_resolve(_target):
                 return RESOLVED_OK, ""
 
-            with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                    mock.patch.object(media_health, "_open_stream", new=_stream_ok):
+            with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
                 verdict = await media_health.check(session=_Wrong({}), root=folder, now=1000)
         self.assertIn("not media", verdict.dead["cogs/card.py:1"])
 
@@ -288,8 +225,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
             async def healthy_resolve(_target):
                 return RESOLVED_OK, ""
 
-            with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                    mock.patch.object(media_health, "_open_stream", new=_stream_ok):
+            with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
                 verdict = await media_health.check(session=_Dead({}), root=folder, now=1000)
         self.assertEqual(verdict.dead, {})
         self.assertIn("no answer", verdict.unchecked["cogs/card.py:1"])
@@ -307,103 +243,6 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("pet:cat", verdict.dead)
         self.assertNotIn("pet:cat", verdict.kinds)
 
-    async def test_a_stream_path_that_will_not_open_is_a_finding_about_a_station(self):
-        """The one target that is not a link, on a day every link is healthy.
-
-        Nothing else in this pass would notice: the catalogue's own URLs are probed
-        as URLs and answer, and no picture or sound in the tree has moved. What is
-        broken is the *path* — this host cannot open a station it always could — and
-        the finding names it as such rather than as a dead picture.
-        """
-        verdict = await self._check(
-            ["https://i.imgur.com/ok.gif"],
-            stream="the station answered HTTP 403",
-        )
-        self.assertEqual(list(verdict.names), ["stream:radio"])
-        self.assertEqual(verdict.dead["stream:radio"], "the station answered HTTP 403")
-        self.assertEqual(verdict.kinds["stream:radio"], "stream")
-        # It *does* name a URL, unlike the extractor it replaced: the station is a
-        # link, so there is something for a reader to open and see for themselves.
-        self.assertEqual(verdict.places["stream:radio"], radio_stream.probe_target())
-        self.assertFalse(verdict.healthy)
-        self.assertIn("stream:radio", media_health.describe(verdict))
-        self.assertIn("stream:radio", media_health.card_body(verdict))
-
-    async def test_a_working_stream_path_is_not_a_finding(self):
-        verdict = await self._check([])
-        self.assertNotIn("stream:radio", verdict.dead)
-        self.assertNotIn("stream:radio", verdict.kinds)
-
-    async def test_the_stream_state_a_console_reads_comes_from_that_verdict(self):
-        """No second probe, and an honest state when there is no verdict yet.
-
-        The console polls and ``/health`` is unauthenticated, so neither may open a
-        station: both read the last pass. *Not asked since this process started* is a
-        state a reader can act on (``/radio doctor`` asks now), which is why it is its
-        own status rather than being folded into "broken".
-        """
-        media_health.reset()
-        self.assertEqual(media_health.stream_state()["status"], "unknown")
-        self.assertIsNone(media_health.stream_state()["checked_seconds_ago"])
-
-        healthy = await self._check([])
-        media_health.record(healthy)
-        state = media_health.stream_state()
-        self.assertEqual(state["status"], "ok")
-        self.assertEqual(state["detail"], "")
-        self.assertIsNotNone(state["checked_seconds_ago"])
-
-    async def test_a_station_refusing_the_request_is_a_failure_not_an_unknown(self):
-        """`unreachable` is about *this host's* network and nothing else.
-
-        A station that answers 403 has answered, and calling that "could not ask"
-        would hide the one failure an operator can go and see for themselves.
-        """
-        verdict = await self._check([], stream="the station answered HTTP 403")
-        media_health.record(verdict)
-        state = media_health.stream_state()
-        self.assertEqual(state["status"], "failed")
-        self.assertIn("403", state["detail"])
-
-    async def test_a_network_that_cannot_reach_any_station_is_not_a_finding(self):
-        """The contract between ``_open_stream`` and the pass: a station refusing
-        the request is a *finding*, and a host with no route out is *unchecked*.
-        Only one of those is worth waking somebody for, and the pass tells them
-        apart by the reason's own shape — a host with no network is not a booking
-        about a stream."""
-        probe = radio_stream.Probe(
-            healthy=False,
-            reason="this host could not open the station (URLError)",
-            target="https://example.test/stream",
-            unreachable=True,
-            at=1000.0,
-        )
-        with mock.patch.object(radio_stream, "self_check", lambda *a, **k: probe):
-            healthy, reason = await media_health._open_stream()
-        self.assertFalse(healthy)
-        self.assertTrue(reason.startswith("no answer"), reason)
-
-        refused = radio_stream.Probe(
-            healthy=False,
-            reason="the station answered HTTP 404",
-            target="https://example.test/stream",
-            unreachable=False,
-            at=1000.0,
-        )
-        with mock.patch.object(radio_stream, "self_check", lambda *a, **k: refused):
-            healthy, reason = await media_health._open_stream()
-        self.assertFalse(healthy)
-        self.assertFalse(reason.startswith("no answer"), reason)
-        self.assertIn("404", reason, "the answer travels with the finding")
-
-    async def test_a_probe_that_could_say_nothing_still_names_the_mechanism(self):
-        """A probe with an empty reason must not report an empty finding."""
-        blank = radio_stream.Probe(healthy=False, reason="", target="", at=1000.0)
-        with mock.patch.object(radio_stream, "self_check", lambda *a, **k: blank):
-            healthy, reason = await media_health._open_stream()
-        self.assertFalse(healthy)
-        self.assertEqual(reason, media_health.STREAM_FAILED)
-
     async def test_the_counts_add_up(self):
         verdict = await self._check([], resolved={"pet:cat": None})
         counts = verdict.counts
@@ -420,8 +259,7 @@ class OnePass(unittest.IsolatedAsyncioTestCase):
         async def healthy_resolve(_target):
             return RESOLVED_OK, ""
 
-        with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                mock.patch.object(media_health, "_open_stream", new=_stream_ok):
+        with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
             verdict = await media_health.check(session=_Exploding(), root=ROOT, now=1000)
         self.assertGreater(verdict.checked, 0)
         self.assertTrue(verdict.unchecked)
@@ -701,9 +539,9 @@ class ItNeverBlocksTheBot(unittest.IsolatedAsyncioTestCase):
         """One pass with no network at all: every target must land in ``unchecked``
         rather than raising, because this runs inside the bot's own loop.
 
-        The stream check is stubbed *as offline* rather than left real: two of the
-        findings here are about a network that is not there, and a pass that opened
-        a real station would be testing the opposite of what it claims.
+        Every finding here is about a network that is not there, which is the point:
+        a pass that could reach anybody would be testing the opposite of what this
+        one claims.
         """
         class _Offline:
             async def get(self, *args, **kwargs):
@@ -712,12 +550,8 @@ class ItNeverBlocksTheBot(unittest.IsolatedAsyncioTestCase):
         async def healthy_resolve(_target):
             return RESOLVED_OK, ""
 
-        async def offline_stream():
-            return False, "no answer (this host could not open the station)"
-
         media_health.reset()
-        with mock.patch.object(media_health, "_resolve", new=healthy_resolve), \
-                mock.patch.object(media_health, "_open_stream", new=offline_stream):
+        with mock.patch.object(media_health, "_resolve", new=healthy_resolve):
             verdict = await media_health.check(session=_Offline(), root=ROOT, now=1000)
         self.assertGreater(verdict.checked, 10)
         self.assertEqual(verdict.dead, {})

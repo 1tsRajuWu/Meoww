@@ -72,9 +72,9 @@ class ModuleStateCase(TempDatabaseMixin, unittest.TestCase):
             conn.close()
         modules.invalidate(111)
         states = modules.get_states(111)
-        for retired in ("tempvoice", "welcome", "giveaways"):
+        for retired in ("tempvoice", "welcome", "giveaways", "legacy"):
             self.assertNotIn(retired, states)
-        self.assertIn("legacy", states, "the legacy systems are a live feature again")
+        self.assertIn("meetings", states, "a live feature went missing with them")
 
     def test_the_migration_leaves_no_row_for_a_retired_module(self):
         """A retired module's row is deleted, not merely ignored.

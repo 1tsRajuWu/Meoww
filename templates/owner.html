@@ -278,7 +278,6 @@
       <p class="hint">Nobody is in a voice channel on this server right now, and that is a reading
         rather than an error — the roster answered.</p>
       {% endif %}
-      {% if live.radio is mapping %}{{ facts('The companion', live.radio) }}{% endif %}
       {% else %}
       <p class="notice notice--bad" role="alert">{{ live.why or 'The voice roster could not be read.' }}</p>
       {% endif %}
@@ -722,57 +721,6 @@
       </li>
       {% endfor %}
     </ul>
-    {% endif %}
-  </div>
-</section>
-{% endif %}
-
-{% if console_page == 'questions' %}
-<section class="band" id="{{ page_anchor }}">
-  <div class="wrap">
-    <div class="own-grid">
-      {{ chip('Open', inbox.open if inbox.open is defined else '—') }}
-      {{ chip('Answered', inbox.answered if inbox.answered is defined else '—') }}
-      {{ chip('Shown', inbox.shown if inbox.shown is defined else '—') }}
-    </div>
-    {% if not inbox.available %}
-    <p class="notice notice--bad" role="alert">
-      The question box could not be read: {{ inbox.because or 'no reason was given' }}. That is not
-      the same as an empty box.
-    </p>
-    {% elif inbox.rows %}
-    <p class="hint">
-      A reply is a DM, sent as the bot — so answering one here is the same call <code>/qna reply</code>
-      makes, through the same claim-then-send order. That order is what stops an asker being messaged
-      twice, so this is a door onto one implementation rather than a second copy of it.
-    </p>
-    {% for row in inbox.rows %}
-    <article class="own-card own-question">
-      <h3>{{ row.question or '—' }}</h3>
-      <dl class="own-facts">
-        <div class="own-fact"><dt>asked by</dt><dd class="mono">{{ row.asker or 'unknown' }}</dd></div>
-        <div class="own-fact"><dt>server</dt><dd>{{ row.server or '—' }}</dd></div>
-        <div class="own-fact"><dt>when</dt><dd class="mono">{{ row.asked or '—' }}</dd></div>
-        <div class="own-fact"><dt>relayed</dt>
-          <dd>{% if row.relayed %}yes{% else %}no{% if row.relay_detail %} — {{ row.relay_detail }}{% endif %}{% endif %}</dd>
-        </div>
-      </dl>
-      <form method="post" action="/api/console/questions/reply">
-        {{ guard('Answered — it is on its way as a DM.') }}
-        <input type="hidden" name="id" value="{{ row.id }}">
-        <label class="field">
-          <span class="field__label">Answer</span>
-          <textarea class="input" name="answer" rows="3" maxlength="1000" required
-                    placeholder="What the asker is DMed"></textarea>
-        </label>
-        <button class="btn btn--primary" type="submit">Answer {{ row.asker or 'this asker' }}</button>
-      </form>
-    </article>
-    {% endfor %}
-    {% else %}
-    <p class="hint">
-      Nothing in the box. Read from the same table the bot's own inbox reads.
-    </p>
     {% endif %}
   </div>
 </section>

@@ -85,10 +85,10 @@ class Plan:
 
 #: The systems the pricing page sells as Pro-only, by the ids in
 #: ``utils/features.py`` — Support Tickets, Economy & Casino, Market (Live
-#: Trading), Starboard and the Activity Tracker. Everything else (moderation,
-#: automod, leveling, fun, games, social) is free, which is what makes the free
-#: tier a real product rather than a demo.
-PRO_MODULES = frozenset({"tickets", "economy", "market", "starboard", "tracker"})
+#: Trading) and the Activity Tracker. Everything else (moderation, automod,
+#: leveling, fun, games, social) is free, which is what makes the free tier a
+#: real product rather than a demo.
+PRO_MODULES = frozenset({"tickets", "economy", "market", "tracker"})
 
 FREE = Plan(
     id="free",

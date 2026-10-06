@@ -81,7 +81,7 @@ A test is a Python script that simulates running a command or database query in 
 ### 2. Why are there so many test files?
 There are over 2,150 automated tests in this project. Each file tests a specific area:
 - `test_economy.py` tests balances, transfers, and shop purchases.
-- `test_company.py` tests the voice companion logic.
+- `test_meetings.py` tests the meeting schedule, its private draft card and its notices.
 - `test_permissions.py` verifies regular members cannot run admin commands.
 - `test_db_isolation.py` verifies server A cannot access server B's data.
 
@@ -96,7 +96,7 @@ You don't need to run all 2,000+ tests every time. You can run just the test fil
 .venv/bin/pytest tests/test_games_money.py
 
 # Run only one specific test function:
-.venv/bin/pytest tests/test_company.py -k "test_the_card_says_how_to_turn_it_off"
+.venv/bin/pytest tests/test_meetings.py -k "test_the_draft_opens_privately_and_writes_nothing"
 
 # Run the entire test suite:
 .venv/bin/pytest

@@ -94,9 +94,10 @@ def setting_value(spec: Setting, raw):
     """The value in force for a stored raw one, or the declared default.
 
     Anything unreadable, unparsable or out of range falls back to the default
-    rather than being clamped *upwards*: the only direction of corruption that
+    rather    than being clamped *upwards*: the only direction of corruption that
     matters is a stored number silently becoming a larger allowance than the
-    default (the same rule ``utils.confirmations`` applies to its ceilings).
+    default.
+
     """
     if raw is None or str(raw).strip() == "":
         return spec.default
@@ -304,10 +305,9 @@ FEATURES: tuple[Feature, ...] = (
     # A server that wants human moderators but no robot deleting its members'
     # messages had no switch, and the dashboard had nothing to draw.
     #
-    # `cogs.automod` still loads through CORE_COGS for the same mechanical
-    # reason radio and qna do — one `Feature.cog` path cannot hold a feature that
-    # is one file plus a registry row — and it gates itself on "automod" rather
-    # than on moderation. The settings below are the whole of its card: the two
+    # `cogs.automod` still loads through CORE_COGS because one `Feature.cog` path
+    # cannot hold a feature that is one file plus a registry row — and it gates
+    # itself on "automod" rather than on moderation. The settings below are the whole of its card: the two
     # filters that already existed, the flood rule the cog used to hardcode, and
     # the link filter the old copy advertised before any code implemented it.
     Feature(
@@ -319,8 +319,10 @@ FEATURES: tuple[Feature, ...] = (
             "The automatic shields, on their own switch: invite links, ordinary "
             "links (with an allowlist) and message floods are handled the moment "
             "they happen, each one leaving a case in the moderation log and a "
-            "notice naming `/appeal`. Every threshold and length below is this "
-            "server's to set."
+            "notice naming `/appeal`. Discord's native AutoMod can block invites "
+            "and floods before they reach the bot, while the local log keeps the "
+            "server's detailed audit trail. Every threshold and length below is "
+            "this server's to set."
         ),
         gate_commands=("automod",),
         commands=(
@@ -403,28 +405,6 @@ FEATURES: tuple[Feature, ...] = (
             ),
         ),
     ),
-    # The one line above the starboard entry used to say Automod & Shield was
-    # merged into Moderation & Logs. It is not merged any more — see the entry
-    # above and `cogs/automod.py`'s own note about which switch it answers to.
-    Feature(
-        id="starboard",
-        name="Starboard",
-        icon="⭐",
-        category="Community",
-        description=(
-            "Automated star reaction tracking, community showcase cards, "
-            "attachment previews."
-        ),
-        gate_commands=("starboard",),
-        # Two subcommands, and the list names exactly those: there has never
-        # been a `/starboard limit` (the reaction threshold is an argument of
-        # `set`), and listing it made the page offer a command that answers
-        # "unknown command" when somebody typed it.
-        commands=("/starboard set", "/starboard status"),
-        cog="cogs.starboard",
-        enabled_by_default=False,  # temporarily off — see the market entry
-        help_key="starboard",
-    ),
     Feature(
         id="tickets",
         name="Support Tickets",
@@ -499,91 +479,6 @@ FEATURES: tuple[Feature, ...] = (
         help_key="games",
     ),
     Feature(
-        id="company",
-        name="Voice Company",
-        icon="🫂",
-        category="Community",
-        description=(
-            "When somebody is alone in a voice channel the bot joins, deafened and "
-            "muted, and says hello — and it shows on the owner's dashboard who is "
-            "alone and who is live."
-        ),
-        # The command *is* the setting, so it is the whole gate: /company is how a
-        # server decides whether the bot does this at all.
-        gate_commands=("company",),
-        commands=("/company — auto or off, and whether I say hello",),
-        cog="cogs.company",
-        enabled_by_default=False,  # temporarily off — see the market entry
-        help_key="company",
-    ),
-    Feature(
-        id="structure",
-        name="Server Structure",
-        icon="🧱",
-        category="Management",
-        description=(
-            "Channels and roles, built and cleared away from Discord: make a "
-            "channel or a role, delete one, or clear a whole category out. Every "
-            "action over this server's ceiling stops and asks whoever typed the "
-            "command to confirm it, and every one of them — refused ones included "
-            "— opens a case in the server's own moderation log."
-        ),
-        gate_commands=("structure",),
-        commands=(
-            "/structure channel-create — a text channel, optionally private",
-            "/structure channel-delete — delete one channel and its messages",
-            "/structure channel-archive — clear a category out, confirmed",
-            "/structure role-create — make a role, with a colour",
-            "/structure role-delete — delete a role",
-            "/structure role-purge — take a role off everybody who has it, confirmed",
-            "/structure limits — what this server asks you to confirm",
-        ),
-        cog="cogs.structure",
-        help_key="structure",
-        settings=(
-            Setting(
-                id="channel_delete",
-                label="Channels one command may delete",
-                help="Above this, `/structure channel-delete` stops and asks.",
-                kind="int",
-                default=1,
-                minimum=0,
-                maximum=200,
-                key="confirmation_ceiling.channel_delete",
-            ),
-            Setting(
-                id="channel_archive",
-                label="Channels one archive may clear out",
-                help="Above this, `/structure channel-archive` stops and asks.",
-                kind="int",
-                default=3,
-                minimum=0,
-                maximum=200,
-                key="confirmation_ceiling.channel_archive",
-            ),
-            Setting(
-                id="role_delete",
-                label="Roles one command may delete",
-                help="Above this, `/structure role-delete` stops and asks.",
-                kind="int",
-                default=1,
-                minimum=0,
-                maximum=200,
-                key="confirmation_ceiling.role_delete",
-            ),
-            Setting(
-                id="role_purge",
-                label="Members one role-purge may touch",
-                help="Above this, `/structure role-purge` stops and asks.",
-                kind="int",
-                default=5,
-                minimum=0,
-                maximum=200,
-                key="confirmation_ceiling.role_purge",
-            ),
-        ),
-    ),
-    Feature(
         id="reaction_roles",
         name="Reaction Roles",
         icon="🎭",
@@ -616,7 +511,7 @@ FEATURES: tuple[Feature, ...] = (
         # counts these rows and a group name nobody can run is a row the front
         # page advertises anyway.
         commands=(
-            "/meeting create — Book one: when, where, who to ping, and the notices",
+            "/meeting create — Book one on a private card: when, where, who to ping, and the notices",
             "/meeting list — What this server has coming up",
             "/meeting view — One in detail, with replies and notice status",
             "/meeting reschedule — Move it and rebuild its notices",
@@ -625,55 +520,6 @@ FEATURES: tuple[Feature, ...] = (
         ),
         cog="cogs.meetings",
         help_key="meetings",
-    ),
-    # Radio and the anonymous question box: **off by default**, one flag per
-    # server.
-    #
-    # "Off by default, and one flag per server" is not a new mechanism: it is
-    # what this registry already does. `enabled_by_default=False` is the default
-    # state, `command_scope.is_available` already removes a disabled command from
-    # *that server's* picker rather than merely refusing it, and
-    # `modules.set_enabled` already writes the per-server flag. So offering them
-    # is a registry edit — and because the commands keep their own names, nothing
-    # goes into `commands_sync.RETIRED_COMMANDS` and no server's muscle memory is
-    # broken. A `/legacy` group would have been the louder change and the bigger
-    # lie: the commands would still work, nobody would know where they went.
-    #
-    # **The name is a decision, not a leftover.** It read *Legacy — Radio &
-    # Anonymous Q&A* under a `Legacy` category, and `/systems` prints
-    # "{name} arrives switched off" — so the page told a visitor Radio was legacy
-    # and switched off, which reads as a service being retired. Nothing is: off is
-    # the default the switch beside it declares. The **id** stays `legacy` — a
-    # command choice value, a per-server row and a `/systems#cmd-legacy` anchor —
-    # so renaming it is a migration with no reader-visible reward.
-    Feature(
-        id="legacy",
-        name="Radio & Anonymous Q&A",
-        icon="📻",
-        category="Community",
-        description=(
-            "Off in every server to begin with: switched off until an "
-            "administrator asks for them, and one flag offers both. Radio plays "
-            "any station the table holds, and the question box relays a member's "
-            "question with nobody's name on it."
-        ),
-        # Two roots, one switch: the brief is explicit that this is one flag a
-        # server turns on, not two more things to configure.
-        gate_commands=("qna", "radio"),
-        commands=(
-            "/radio play — a station by name, genre, language or country",
-            "/radio stop — end it and give the channel back",
-            "/radio doctor — what this host can and cannot do for voice",
-            "/qna ask — Ask something with nobody's name on it, in any server",
-            "/qna inbox — The questions waiting for an answer (bot's own server)",
-            "/qna reply — Answer one, by DM (bot's own server)",
-        ),
-        # No cog of its own: `Feature.cog` holds one path and this feature is two
-        # files, so both are loaded as core cogs and gate themselves. See
-        # `CORE_COGS` below.
-        cog=None,
-        enabled_by_default=False,
-        help_key="legacy",
     ),
     Feature(
         id="tracker",
@@ -735,14 +581,6 @@ SHARED_GATES: Mapping[str, tuple[str, ...]] = {
 
 # Cogs that are not a feature of their own (core utilities / docs / config).
 #
-# `cogs.radio` and `cogs.qna` are here rather than on the legacy feature for one
-# mechanical reason — `Feature.cog` holds a single path and the legacy module is
-# two files — and they are safe here because "always loaded" and "always runnable"
-# stopped being the same thing when the registry gained a gate: every command in
-# both cogs checks `is_module_enabled(guild, "legacy")` before it does anything,
-# and `command_scope` keeps them out of a picker that has not opted in. Loading a
-# cog registers its commands; it does not offer them.
-#
 # `cogs.automod` is here for the same mechanical reason: Auto Moderation is one
 # file plus a registry row, so the cog loads as a core cog and gates itself on
 # "automod" — one switch runs the invite, link and flood filters together.
@@ -756,8 +594,6 @@ CORE_COGS: tuple[str, ...] = (
     "cogs.help",
     "cogs.legal",
     "cogs.bot_config",
-    "cogs.radio",
-    "cogs.qna",
     "cogs.automod",
     "cogs.support",
 )
@@ -787,11 +623,6 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
 # raised AttributeError and answered with "An unexpected error occurred".
 DM_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     "help", "legal", "uwu", "8ball",
-    # The owner answers questions from a DM — the card's button is answered in
-    # one, and ``/qna reply`` has to be reachable from the same place or the
-    # feature is discoverable only by whoever remembers it. ``/qna ask`` checks
-    # for a server itself and says so, since a question is posted *somewhere*.
-    "qna",
 })
 
 
@@ -1025,9 +856,9 @@ def ships_off() -> list[dict]:
     The third answer to *which of these is not like the others*: most systems
     arrive on and can be switched off, :func:`always_on_names` names the ones
     that cannot be switched off at all, and these arrive **off**. A visitor who
-    installs the bot and is refused by `/radio` has been told nothing by a page
-    that described the system only as *switchable like the rest*, so the page
-    that lists every system prints this — on the page the reader is counting
+    installs the bot and is refused by `/market board` has been told nothing by
+    a page that described the system only as *switchable like the rest*, so the
+    page that lists every system prints this — on the page the reader is counting
     systems on, which is where a total over a shorter list gets explained.
 
     The sentence is the feature's own ``description`` rather than a summary of

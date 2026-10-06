@@ -48,17 +48,17 @@ import html as _html
 import ipaddress
 from flask import (
     Flask, render_template, request, redirect, send_from_directory, session, jsonify,
-    url_for, Response, abort,
+    Response, abort,
 )
 from utils import (
-    ai_guard, alert_webhook, brand, broadcast, command_publish, command_scope, company,
+    ai_guard, alert_webhook, brand, broadcast, command_publish, command_scope,
     compression,
     config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
     # `health` is the name this module's own `/health` route already owns, so the
     # checklist is aliased the way `levels` is: one name, one meaning, and an
     # import that shadows a route is a page that raises on every render.
     health as health_checks, hub, identity, levels as levels_module, media_health, meowfee,
-    moderation_actions, modlog, modules, pause, permissions, plans, principal, qna,
+    moderation_actions, modlog, modules, pause, permissions, plans, principal,
     ratelimit, scheduled, server_control, sessions, site_guard, support,
     uptime_status, webdocs,
 )
@@ -1464,15 +1464,6 @@ PUBLIC_PREFIXES = (
     "/market",
     "/health",
     "/hub",
-    # A feature's own page, in the public nav beside the other product pages.
-    # Found by fixing the check that exists to catch exactly this: `/music` was on
-    # *neither* list, and the list it was missing from made it a signed-in surface
-    # — the agreement stood in front of the marketing page for a music feature,
-    # and it was served `noindex`, which is the wrong answer twice over. The
-    # rename kept the old address here as well as on the route, because an old
-    # link must reach the redirect rather than the agreement.
-    "/radio",
-    "/music",
     "/login",
     "/logout",
     "/agree",
@@ -2154,30 +2145,18 @@ def api_voice_debug():
             })
 
     started, connected = _gateway_state()
-    # The same probe the boot line and /radio doctor read, so this endpoint can
-    # never report a different host than they do.
+    # The same probe the boot line reads, so this endpoint can never report a
+    # different host than it does.
     try:
         from utils import voice_caps  # noqa: PLC0415
 
         caps = voice_caps.probe(refresh=True).to_dict()
     except Exception as exc:
         caps = {"playable": None, "why": f"probe failed ({type(exc).__name__})"}
-    # The one reading a capability probe cannot give: whether this host can
-    # actually open a station. It is asked here rather than read from the weekly
-    # pass's last verdict because this endpoint's whole job is to answer for the
-    # host *now* — and it reports the kind of failure, not just the fact of one.
-    try:
-        from utils import radio_stream  # noqa: PLC0415
-
-        stream = radio_stream.self_check().to_dict()
-    except Exception as exc:  # noqa: BLE001 — a diagnostic that 500s is not a diagnostic
-        stream = {"healthy": None, "reason": f"the check could not run ({type(exc).__name__})"}
-
     return jsonify({
         "bot_ready": started,
         "gateway": _gateway_label(started, connected),
         "caps": caps,
-        "stream": stream,
         "opus_finder": opus_finder,
         "opus_loaded": is_opus_loaded,
         "system_ffmpeg": shutil.which("ffmpeg"),
@@ -3082,131 +3061,6 @@ def _start_page():
 # the document, two dozen of them are on screen, and the search and the two
 # filters reach all of them. The number is here rather than in the template
 # because the tests hold the page and the sheet to it.
-STATION_PREVIEW = 24
-
-
-def _station_rows(stations: list) -> list[dict]:
-    """The catalogue as rows the page can filter, one per station.
-
-    Read out of :mod:`utils.radio_catalogue` rather than written down, for the
-    reason every list on this site is read from its registry: a page that names
-    a station the bot would refuse to play is the failure those readers exist to
-    prevent. Each row carries its own haystack — name, description, genre,
-    country, language and the ad-free tag, lowercased — so the page's search has
-    one author and the template has none, which is the shape
-    :func:`_command_groups` already uses for the command reference.
-    """
-    rows: list[dict] = []
-    for station in stations:
-        ad_free = "ad-free" in (getattr(station, "tags", ()) or ())
-        rows.append({
-            "name": station.name,
-            "icon": station.icon,
-            "desc": station.desc,
-            "genre": station.genre,
-            "country": station.country,
-            "language": station.language,
-            "ad_free": ad_free,
-            "search": " ".join(
-                part for part in (
-                    station.name,
-                    station.genre,
-                    station.country,
-                    station.language,
-                    *(getattr(station, "tags", ()) or ()),
-                ) if part
-            ).lower(),
-        })
-    return rows
-
-
-def _radio_page():
-    """Radio, on the site: what it does, and what it refuses to pretend.
-
-    The command list is read out of ``utils/features`` rather than written here,
-    for the reason every other page reads the registry — a page that lists a
-    command the bot does not have is the failure this project keeps meeting. The
-    table comes from :mod:`utils.radio_catalogue` for the same reason, and it is
-    read rather than written so the page cannot advertise a station the bot would
-    refuse to play.
-
-    The page's last section is the one that makes it worth publishing: a stream
-    can still go quiet, and what the bot does about it — ask again, then say so —
-    is the part a visitor cannot discover until it happens to them.
-    """
-    # The registry holds **one** feature for radio and the question box — the
-    # legacy module — so the radio commands are the `/radio` half of it. This
-    # looked the id `"radio"` up, which no feature has answered to since those two
-    # became one flag: `features.get` answers ``None`` rather than raising, the
-    # template reads ``radio_commands`` as empty, and the page's own section —
-    # headed *One group, three faces* — shipped with **no commands in it at all**,
-    # on the page a visitor reads to decide whether to ask for the system.
-    feature = features.get("legacy")
-    entries = features.feature_entries(feature) if feature else ()
-    # Just the radio three: the switch also carries `/qna`, and this page is the
-    # radio's. The name is what a person types, so the note after the em dash is
-    # the template's own sentence rather than a second copy of the registry's.
-    radio_commands = [
-        name for name, _note in entries if name.lstrip("/").split()[0] == "radio"
-    ]
-    stations: list = []
-    index = None
-    try:
-        from utils import radio_catalogue  # noqa: PLC0415
-
-        stations = list(radio_catalogue.CATALOGUE)
-        index = radio_catalogue.index()
-    except Exception as exc:
-        print(f"[SITE] could not read the stations for /radio: {exc}", flush=True)
-
-    rows = _station_rows(stations)
-    # The counts and the two filter menus come from the catalogue's own index,
-    # so the page cannot offer a language or a country its picker does not
-    # count. A table that could not be read at all falls back to the rows, which
-    # keeps the page's own arithmetic true rather than printing zeroes.
-    station_languages = (
-        [name for name, _ in index.languages] if index
-        else sorted({row["language"] for row in rows if row["language"]})
-    )
-    station_countries = (
-        list(index.countries) if index
-        else sorted({row["country"] for row in rows if row["country"]})
-    )
-
-    return render_template(
-        "radio.html",
-        **_site_context(),
-        current="radio",
-        meta_description=(
-            f"Radio in {_bot_display_name()}: 24/7 stations in every language and "
-            "country the table could verify, one command for all of it, and an "
-            "honest word about what can go wrong."
-        ),
-        radio_commands=radio_commands,
-        stations=stations,
-        station_rows=rows,
-        station_preview=STATION_PREVIEW,
-        station_languages=station_languages,
-        station_countries=station_countries,
-        index=index,
-    )
-
-
-@app.route("/radio")
-def radio_page():
-    return _radio_page()
-
-
-@app.route("/music")
-def music_page():
-    """The address this page used to have, kept alive.
-
-    A redirect rather than a second route because a URL somebody bookmarked is
-    not a mistake to punish: the page moved, and 301 is the sentence for that.
-    """
-    return redirect(url_for("radio_page"), code=301)
-
-
 @app.route("/")
 def home():
     user_agent = request.headers.get("User-Agent", "").lower()
@@ -6631,11 +6485,10 @@ OWNER_PAGES = (
     ("commands", "Commands", "/owner/commands", "commands"),
     ("economy", "Economy", "/owner/economy", "economy"),
     ("ops", "Ops", "/owner/ops", "ops"),
-    ("questions", "Questions", "/owner/questions", "questions"),
     # The support bridge, on its own page because a conversation is not a card:
-    # the transcript is the thing an operator came for, and a room's worth of
-    # messages in the middle of the questions inbox would be the page's longest
-    # section with the least to do with its heading.
+    # the transcript is the thing an operator came for, and a card's worth of
+    # messages in the middle of a page would be its longest section with the
+    # least to do with its heading.
     ("support", "Support", "/owner/support", "support"),
     ("access", "Access", "/owner/access", "access"),
     ("changes", "Changes", "/owner/changes", "changes"),
@@ -6659,7 +6512,7 @@ OWNER_PAGES = (
 #: no page missing from the groups, and nothing named twice.
 OWNER_GROUPS = (
     ("Fleet", ("live", "servers", "systems")),
-    ("Work", ("commands", "economy", "ops", "questions", "support")),
+    ("Work", ("commands", "economy", "ops", "support")),
     ("Owner", ("access", "changes", "god")),
 )
 
@@ -6704,10 +6557,6 @@ OWNER_PAGE_COPY = {
         "Ops",
         "The host: what the monitor saw, what the site guard made of this process, and what the "
         "configuration is missing.",
-    ),
-    "questions": (
-        "Questions",
-        "What strangers asked the bot in their own servers, and whether each one has an answer.",
     ),
     "support": (
         "Support",
@@ -7083,8 +6932,6 @@ def _owner_context(page: str, guild_id=None) -> dict:
         # this console is not, so the names come with it. The same reason the
         # console's JSON overview already carries them.
         context["health"]["config"]["named"] = config_audit.attention_json()
-    if page == "questions":
-        context["inbox"] = qna.owner_inbox_sync(limit=20)
     if page == "support":
         # The bridge's whole reading — the address, the two permissions that
         # decide whether it works, and the tail of the conversation — from the
@@ -8345,83 +8192,6 @@ def _live_bot_voice() -> list[dict]:
     return rows
 
 
-def _live_radio(guild_id) -> dict:
-    """What the radio is doing in one server, and what this host can do.
-
-    Three halves in one block because they answer one question — *is the radio
-    working here, and if not, why not* — and the last two are the ones nobody can
-    discover from the page otherwise. The capability reading comes from
-    :mod:`utils.voice_caps`, the same probe ``/radio doctor``, the boot line and
-    ``/api/voice-debug`` read, so a console that said "fine" while the bot's own
-    doctor said otherwise is not a state this can reach.
-
-    ``read.player`` is false when this guild has no player yet, which is a
-    different sentence from "a player that is idle" — the first means nobody has
-    started the radio since the last restart.
-
-    The stream path is the one that cannot be inferred from either of the others:
-    every capability can be present, every station URL healthy and the host
-    firewalled off from the outside world. It is read from the **weekly pass's own
-    verdict** rather than asked live, because this is a page that polls and
-    opening a station is a network round trip — so the panel says when it was last
-    asked rather than pretending to have asked.
-    """
-    try:
-        from utils import media_health, radio_stream, voice_caps  # noqa: PLC0415
-
-        caps = voice_caps.probe().to_dict()
-        stream = media_health.stream_state()
-    except Exception as exc:
-        return {
-            "read": {"player": False, "caps": False},
-            "why": f"the radio modules could not be read ({type(exc).__name__})",
-            "caps": None,
-            "player": None,
-            "stream": None,
-            "catalogue": None,
-        }
-
-    entry = None
-    try:
-        key = int(guild_id or 0)
-    except (TypeError, ValueError):
-        key = 0
-    holder = getattr(radio_stream, "PLAYERS", {}).get(key)
-    if holder is not None:
-        try:
-            entry = holder.status()
-        except Exception as exc:
-            entry = {"error": f"{type(exc).__name__}: {exc}"}
-    # The width of the table, which is the one reading here that is about the
-    # *members* rather than about the host. It is also the only place the language
-    # and country coverage can be read without opening Discord: "is there anything
-    # here in my language" is a question a server's administrator gets asked, and
-    # its answer was previously a number nobody had.
-    catalogue = None
-    try:
-        from utils import radio_catalogue  # noqa: PLC0415
-
-        index = radio_catalogue.index()
-        catalogue = {
-            "stations": index.stations,
-            "languages": len(index.languages),
-            "countries": len(index.countries),
-            "wordless": index.wordless,
-            "unlabelled": index.unlabelled,
-            "ad_free": index.ad_free,
-        }
-    except Exception:
-        catalogue = None
-    return {
-        "read": {"player": holder is not None, "caps": True},
-        "why": "" if caps.get("playable") else "; ".join(caps.get("missing") or []),
-        "caps": caps,
-        "player": entry,
-        "stream": stream,
-        "catalogue": catalogue,
-    }
-
-
 def _overview_live(guild_id) -> dict:
     """What this server is doing *right now*, for the page somebody opens first.
 
@@ -8448,7 +8218,6 @@ def _overview_live(guild_id) -> dict:
             "rooms": [],
             "people": 0,
             "alone": 0,
-            "radio": None,
         }
     rooms: list[dict] = []
     people = 0
@@ -8488,121 +8257,6 @@ def _overview_live(guild_id) -> dict:
         "rooms": rooms[:8],
         "people": people,
         "alone": alone,
-        "radio": _live_radio(guild_id),
-    }
-
-
-def _live_companion(guild, guild_id, channels: list[dict]) -> dict:
-    """Who is alone right now, who is live, and where the companion is sitting.
-
-    One block because it answers one question an operator asks — *is anybody
-    sitting in a room on their own, and is the bot in there with them?* — and the
-    answer is what the companion acts on. Nothing here is stored: the rooms are
-    read off the same voice rosters the page has just been handed, so a room that
-    emptied in the last second is already gone from the list.
-
-    The limit is stated rather than papered over: **a bot cannot watch a Go Live
-    stream.** Discord has no API for it and the gateway carries no video, so what
-    the ``streaming`` flag means here is the fact (``self_stream`` on somebody's
-    voice state), and the console shows the fact. A page that showed a picture
-    would be showing somebody something that does not exist.
-    """
-    rooms = []
-    live = []
-    for channel in channels:
-        if channel["kind"] != "voice":
-            continue
-        people = channel["people"]
-        for person in people:
-            if person["bot"]:
-                continue
-            if person["streaming"] or person["video"]:
-                live.append({
-                    "id": person["id"],
-                    "name": person["name"],
-                    "channel_id": channel["id"],
-                    "channel": channel["name"],
-                    "streaming": person["streaming"],
-                    "video": person["video"],
-                })
-        # Somebody on their own: one person in the room and nobody else at all.
-        # A second *bot* in there counts, which is the same rule the companion
-        # itself follows — a radio bot is company of a kind, and a room with two
-        # silent bots in it is not a room where anybody is alone.
-        if len(people) == 1 and not people[0]["bot"]:
-            person = people[0]
-            rooms.append({
-                "channel_id": channel["id"],
-                "channel": channel["name"],
-                "category": channel["category"],
-                "person_id": person["id"],
-                "person": person["name"],
-                "streaming": person["streaming"],
-                "video": person["video"],
-                "seconds": None,
-            })
-
-    cog = None
-    getter = getattr(BOT_INSTANCE, "get_cog", None) if BOT_INSTANCE else None
-    if callable(getter):
-        try:
-            cog = getter("Company")
-        except Exception:
-            cog = None
-    snapshot = {}
-    if cog is not None and hasattr(cog, "snapshot"):
-        try:
-            snapshot = dict(cog.snapshot() or {})
-        except Exception:
-            snapshot = {}
-
-    # How long each person has been on their own, where the live loop has an
-    # opinion. The timer only starts on a voice event, so a room this process has
-    # never seen change carries no age rather than a made-up one.
-    waiting = {
-        str(room.get("channel_id")): int(room.get("waiting_seconds") or 0)
-        for room in snapshot.get("waiting") or []
-    }
-    for room in rooms:
-        if room["channel_id"] in waiting:
-            room["seconds"] = waiting[room["channel_id"]]
-
-    sitting = snapshot.get("sitting") or None
-    if sitting is not None and str(sitting.get("guild_id", "")) != _console_id(guild_id):
-        # The companion is somewhere else entirely: said, not shown as if it were
-        # in this server, because the console is looking at one server at a time.
-        sitting = dict(sitting, elsewhere=True)
-
-    settings = None
-    if guild_id:
-        settings = company.settings_from(
-            db.read_setting_sync(int(guild_id), company.MODE_KEY, None),
-            db.read_setting_sync(int(guild_id), company.GREETING_KEY, None),
-        )
-
-    return {
-        # ``loaded`` is about this *process* rather than about the server: a
-        # deployment where the companion never loaded still has live voice rooms
-        # (those come from the gateway) and no clock of its own.
-        "read": {
-            "rooms": guild is not None,
-            "loaded": bool(snapshot),
-            "settings": settings is not None,
-        },
-        "settings": (
-            {"mode": settings.mode, "greeting": settings.greeting, "on": settings.enabled}
-            if settings is not None
-            else None
-        ),
-        "rooms": rooms,
-        "live": live,
-        "sitting": sitting,
-        "grace_seconds": snapshot.get("grace_seconds", company.GRACE_SECONDS),
-        "cooldown_seconds": snapshot.get("cooldown_seconds", company.COOLDOWN_SECONDS),
-        "blocked_seconds": int(snapshot.get("blocked_seconds") or 0),
-        "left_us": list(snapshot.get("left_us") or []),
-        "emoji": company.EMOJI_URL,
-        "emoji_name": company.EMOJI_NAME,
     }
 
 
@@ -8672,9 +8326,6 @@ def api_console_live():
 
     voice_channels = [channel for channel in channels if channel["kind"] == "voice"]
     in_voice = sum(len(channel["people"]) for channel in voice_channels)
-    # Read once: the block walks every voice roster, and the payload carries it
-    # twice over (its own key, and its ``read`` flags under the page's ``read``).
-    company_block = _live_companion(guild, row["id"], channels)
     started, connected = _gateway_state()
     # Read once, not twice: each call walks every cached member.
     presence = _live_presence(guild) if guild is not None else None
@@ -8712,21 +8363,12 @@ def api_console_live():
             "voice": bool(voice_channels),
             "presence": presence is not None,
             "tracker": activity["read"],
-            # One flag for the page's own gap notice, because the sentence a
-            # reader needs is "the companion is not running here" rather than
-            # three sub-flags. The detail stays in ``company.read``.
-            "company": bool(company_block["read"]["loaded"]),
         },
         "presence": presence,
         "channels": channels,
         "exceeded": exceeded,
-        "company": company_block,
         "talkers": _live_talkers(row["id"], guild),
         "bot_voice": _live_bot_voice(),
-        # What the radio is doing here, and whether this host can play at all. The
-        # second half is the reason the block exists: "nobody has started the
-        # radio" and "the radio cannot play on this host" used to look identical.
-        "radio": _live_radio(row["id"]),
         "totals": {
             "channels": len(channels),
             "text": sum(1 for channel in channels if channel["kind"] == "text"),
@@ -9497,121 +9139,6 @@ def api_console_changes():
         return denied
     entries, total = hub.read_changelog(HUB_CHANGELOG, limit=hub.CHANGES_SHOWN)
     return jsonify({"success": True, "entries": entries, "total": total})
-
-
-@app.route("/api/console/questions")
-def api_console_questions():
-    """The anonymous question box, on the one screen allowed to show a name.
-
-    This page puts a member's name beside something the member was promised would
-    never carry it, and that is the feature rather than a leak: what the box
-    promises is that **the channel** sees no name and that **one person** does.
-    The gate is ``_require_operator_api`` like every other console route, and the
-    public half is built by ``utils/qna.relay_payload`` from a closed field list,
-    which cannot carry a name no matter what this route returns — asserted in
-    ``tests/test_qna.py`` rather than intended here.
-
-    Read synchronously and off a connection of its own (``owner_inbox_sync``):
-    this has to answer while the bot is restarting, which is exactly when nobody's
-    event loop is available and when an operator opens the page.
-    """
-    denied = _require_operator_api()
-    if denied:
-        return denied
-
-    try:
-        limit = max(1, min(100, int(request.args.get("limit", 20))))
-    except (TypeError, ValueError):
-        limit = 20
-
-    reading = qna.owner_inbox_sync(limit=limit)
-    return jsonify({
-        "success": True,
-        "questions": reading["rows"],
-        "totals": {"open": reading["open"], "answered": reading["answered"]},
-        # Whether there is anywhere to relay *to*, which is the difference between
-        # a quiet box and a broken one — `/qna ask` refuses by naming this
-        # setting, and the page says the same sentence rather than leaving an
-        # operator to wonder why nothing is arriving.
-        "relay": {"configured": reading["configured"], "setting": reading["setting"]},
-        "read": {
-            "questions": {"ok": reading["available"], "because": reading["because"]},
-        },
-        "max_answer": qna.MAX_ANSWER,
-    })
-
-
-@app.route("/api/console/questions/reply", methods=["POST"])
-@_form_door
-def api_console_questions_reply():
-    """Answer one question from the console — the same DM ``/qna reply`` sends.
-
-    The delivery is ``cogs.qna.deliver_answer``, called on the bot's own loop
-    rather than reimplemented: the order inside it (claim the question, then DM,
-    then put it back if Discord refuses the DM) is what stops an asker being DMed
-    twice and what stops an answer being lost, so a second copy here would be a
-    second place for that order to be wrong. All this route adds is the gate, the
-    parsing, and the console's word for where a question goes back to.
-
-    An outcome that changed nothing — an empty box, a question already answered,
-    a refused DM — is answered ``success: true`` with the sentence that says so,
-    the way the Access page reports a revocation that had already happened. A
-    *failure to ask the question* (the bot is not in this process, the loop did
-    not answer) is a refusal instead, because nothing was attempted.
-    """
-    denied = _require_operator_api()
-    if denied:
-        return denied
-
-    data = _json_or_form()
-    question_id = _int_or_none(data.get("id"))
-    if question_id is None:
-        return jsonify({"success": False, "error": "Which question?"}), 400
-    answer = str(data.get("answer") or "")
-
-    if BOT_INSTANCE is None:
-        return jsonify({
-            "success": False,
-            "error": (
-                "This process has no bot in it, so there is nobody to send the "
-                "DM as. Nothing was lost — the question is still waiting."
-            ),
-        }), 503
-
-    from cogs import qna as qna_cog  # noqa: PLC0415 — after the gate, by design
-
-    try:
-        result = _run_on_bot_loop(
-            qna_cog.deliver_answer(BOT_INSTANCE, question_id, answer), timeout=25
-        )
-    except Exception as exc:  # noqa: BLE001 — a refused request is an answer
-        # A timeout means *unknown*, never "did not happen" (see
-        # ``_run_on_bot_loop``), so the sentence does not claim nothing was sent.
-        print(f"[QNA] The console could not deliver an answer: {exc}", flush=True)
-        return jsonify({
-            "success": False,
-            "error": (
-                "Discord did not answer in time, so this is unknown rather than "
-                "failed — reopen the page before sending it again."
-            ),
-        }), 500
-
-    # ``bold=False``: the sentence is authored for a Discord card, and this is the
-    # one surface where ``**DaCat**`` would reach a person as four asterisks.
-    said = qna_cog.answer_sentence(result, inbox="this list", bold=False)
-    if result.get("ok"):
-        print(
-            f"[QNA] Answered {result.get('handle')} from the console — DMed, "
-            "nothing posted.",
-            flush=True,
-        )
-    return jsonify({
-        "success": True,
-        "sent": bool(result.get("ok")),
-        "said": said,
-        "handle": result.get("handle") or "",
-        "asker": result.get("asker") or "",
-    })
 
 
 @app.route("/api/reaction-roles", methods=["POST"])
@@ -12789,4 +12316,3 @@ def keep_alive(bot=None):
     t = Thread(target=run)
     t.daemon = True
     t.start()
-

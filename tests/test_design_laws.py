@@ -1875,63 +1875,31 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
                     found[name.strip()] = value.strip()
         return found
 
-    def test_the_rows_share_their_width_rather_than_letting_one_take_it(self):
-        """Re-pointed at the row that replaced the one this was written about.
-
-        It read ``.lp-rows li.lp-row`` — a flex row whose columns had no basis,
-        so the label was held at its longest word and a phone squeezed the
-        sentence instead of moving it down. The rebuild answered the same defect
-        with a **stated grid** rather than a flex basis: the catalogue's rows are
-        ``.radio-row`` in ``static/pages.css``, with an explicit
-        ``grid-template-columns`` at the page width *and* at 760px, and no
-        ``wrap--narrow`` anywhere that would put them back in a half-width
-        column. The pair of those is asserted as one rule — the columns are
-        stated at both sizes — by ``TheCatalogueIsARowWide`` in
-        ``tests/test_pages_site.py``, which is where this claim lives now. What
-        is left here is the half that is about *this* file's vocabulary: the
-        rebuilt row must not go back to being sized by its content.
-        """
-        sheet = read(os.path.join(os.path.dirname(TEMPLATES), "static", "pages.css"))
-        self.assertRegex(
-            " ".join(sheet.split()),
-            r"\.radio-row \{[^}]*grid-template-columns",
-            ".radio-row is not a stated grid, so its label column is sized by "
-            "whatever its longest word happens to be and the sentence takes the "
-            "row — the defect this law was written about, in the row that "
-            "replaced the one it named",
-        )
-
     def test_the_tag_cannot_be_broken_at_its_own_hyphen(self):
-        """Re-pinned to the markup the page writes now.
+        """Re-pinned to the markup the pages write now.
 
-        This law spent the rebuild pointing at ``.lp-tag`` and at
-        ``<span class="lp-tag">ad-free</span>`` — the class of a page that no
-        longer exists. It failed for a year of commits about the *absence* of a
-        thing rather than about the defect it was written for, which is that a
-        line breaker treats a hyphen as an invitation: ``ad-`` on one line and
-        ``free`` on the next. The class is ``.tag`` now, it lives in the shared
-        sheet rather than the page's own, and the tag itself is written by the
-        station rows — from the catalogue's own ``ad-free`` tag, so the page
-        cannot show a badge the table does not hold.
+        This law spent a rebuild pointing at ``.lp-tag`` on a page that no longer
+        exists, failing for a year of commits about the *absence* of a thing
+        rather than about the defect it was written for, which is that a line
+        breaker treats a hyphen as an invitation: ``ad-`` on one line and
+        ``free`` on the next. The class is ``.mw-tag`` now and it lives in the
+        shared sheet, and the tag itself is written by the home page — where one
+        of them carries a two-word label, which is exactly the shape the rule
+        exists to hold together.
         """
-        # The rebuild moved the tag into the new sheet and renamed it, which is
-        # the same thing this law has watched happen twice: it spent a rebuild
-        # pointing at `.lp-tag`, and it reads the class out of the current
-        # vocabulary rather than remembering one.
         css = read(os.path.join(os.path.dirname(TEMPLATES), "static", "meoww.css"))
         self.assertEqual(
             self._declarations(css, ".mw-tag").get("white-space"), "nowrap",
-            ".mw-tag is what holds \"ad-free\" together: a hyphen is a break "
-            "opportunity to a line breaker",
+            ".mw-tag is what holds a two-word label together: a hyphen is a "
+            "break opportunity to a line breaker",
         )
         # Asserted as a search rather than with ``assertIn``: a failure here
-        # would otherwise print the whole template, which is prose about the
-        # radio feature and not one line of it about the tag.
-        template = read(os.path.join(TEMPLATES, "radio.html"))
+        # would print a whole page rather than the one line that matters.
+        template = read(os.path.join(TEMPLATES, "home.html"))
         self.assertTrue(
-            re.search(r'<span class="mw-tag">ad-free</span>', template),
-            "the template writes \"ad-free\" without a tag class, so the rule "
-            "above guards nothing and the tag breaks after its hyphen",
+            re.search(r'<span class="mw-tag">', template),
+            "the page writes no tag, so the rule above guards nothing and a "
+            "label that needs holding together breaks at its own hyphen",
         )
 
     #: The notes that are a *value* — a reading that belongs at the row's right

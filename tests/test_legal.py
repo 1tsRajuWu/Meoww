@@ -481,7 +481,7 @@ class TestTheAIDisclosure(unittest.TestCase):
         )
         short = (
             "A community bot for moderation, tickets with transcripts, leveling, an economy "
-            "with a shop and a live market, a starboard, a 365-day activity tracker, and a "
+            "with a shop and a live market, a 365-day activity tracker, and a "
             "web dashboard with a message composer."
         )
         self.assertIn(short, flat)

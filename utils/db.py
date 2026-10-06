@@ -514,24 +514,6 @@ async def setup():
         # does with the old rows and why they are left in place.
         await _carry_radio_rename(db)
 
-        # The two systems that came before the management tier now live behind one
-        # **legacy** module that is off by default — and both of them used to be on
-        # by default, so without this every server that never touched a switch
-        # would wake up with two command groups gone from its picker and nothing
-        # saying why. That is the silent breaking change the reorganisation is not
-        # allowed to be, so the state is *carried* rather than asked for, on
-        # evidence, once — see :func:`_carry_legacy_module` for the rule.
-        async with db.execute(
-            "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'legacy_module_v1'"
-        ) as cur:
-            _legacy_carried = await cur.fetchone()
-        if not _legacy_carried:
-            await _carry_legacy_module(db)
-            await db.execute(
-                "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) "
-                "VALUES (0, 'legacy_module_v1', '1')"
-            )
-
         # One-time migration for the 1:1 rate change (250 coins per dollar became
         # 1). Every stored market amount is in coin units, so without this every
         # existing holder's cost basis would be 250x the value of their position —
@@ -578,21 +560,22 @@ async def setup():
                 "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v1', '1')"
             )
 
-        # One-time migration: Market, Starboard, Voice Company and Radio/Q&A
-        # (the legacy module) are shipped switched OFF — the owner asked for them
-        # disabled for now. Saved rows are deleted rather than flipped to 0, the
-        # same move as the v1 block above: no row means "fall back to the
+        # One-time migration: the Market ships switched OFF — the owner asked for
+        # it disabled for now. Saved rows are deleted rather than flipped to 0,
+        # the same move as the v1 block above: no row means "fall back to the
         # registry's default", and `modules._load_from_db` merges defaults first.
-        # Runs exactly once, so an administrator can turn any of them back on
-        # afterwards and have it stick.
+        # Runs exactly once, so an administrator can turn it back on afterwards
+        # and have it stick. (The three systems that used to be named here —
+        # Starboard, Voice Company and Radio/Q&A — have since been retired, so a
+        # saved row for any of them is inert: `modules._load_from_db` ignores an
+        # id the registry no longer declares.)
         async with db.execute(
             "SELECT value FROM guild_settings WHERE guild_id = 0 AND key = 'modules_default_off_v2'"
         ) as cur:
             _migrated_v2 = await cur.fetchone()
         if not _migrated_v2:
             await db.execute(
-                "DELETE FROM guild_modules WHERE module_name IN "
-                "('market', 'starboard', 'company', 'legacy')"
+                "DELETE FROM guild_modules WHERE module_name = 'market'"
             )
             await db.execute(
                 "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (0, 'modules_default_off_v2', '1')"
@@ -1018,19 +1001,13 @@ async def setup():
         )
 
         # ── The anonymous question box ───────────────────────────────────────
-        # The one table whose *contents* are a promise rather than a record: the
-        # question and the asker are in the same row and the feature only works
-        # if the two readings of that row cannot be confused — the public half is
-        # built from a closed field list in ``utils/qna``, and the name is
-        # rendered only in the owner's own DM and inbox.
-        #
-        # The schema is defined beside those rules and imported here rather than
-        # copied, so a column added there cannot be missing from a database that
-        # boots. Imported inside the function on purpose: ``utils/qna`` reads
-        # this module, and a module-level import here would be a cycle.
-        from utils import qna as _qna  # noqa: PLC0415
-
-        await db.execute(_qna.CREATE_TABLE)
+        # **Retired 2026-10-06, and any table that already exists is left
+        # alone.** ``qna_questions`` holds every question ever asked with the
+        # asker's name beside it, and nothing reads it now — but dropping it
+        # would destroy the only copy of a record somebody was promised is kept,
+        # for a feature that may come back. Nothing creates it any more: it was
+        # ``utils/qna.CREATE_TABLE`` and that module is in
+        # ``deleted_features/``, so the schema returns with it.
 
         # ── The support bridge ────────────────────────────────────────────────
         # The conversation an operator holds from the web: every message posted
@@ -1042,7 +1019,8 @@ async def setup():
         # from Discord's own ``created_at`` rather than from the clock here, so a
         # pulled message lands where it belongs in the conversation. Both are
         # defined beside the rest of the rules in ``utils/support`` and imported
-        # here rather than copied, for the reason the question box above is.
+        # here rather than copied, for the reason the reaction-role and level
+        # tables are.
         from utils import support as _support  # noqa: PLC0415
 
         await db.execute(_support.CREATE_TABLE)
@@ -2550,77 +2528,6 @@ async def radio_seats() -> list[tuple[int, int]]:
         async with db.execute('SELECT guild_id, channel_id FROM radio_stay WHERE enabled = 1') as cur:
             rows = await cur.fetchall()
             return [(int(r[0]), int(r[1] or 0)) for r in rows]
-
-
-#: The module id the two pre-reorganisation systems were folded into: one row in
-#: ``guild_modules`` per server, because that is how this schema spells "this
-#: server's feature set". Written down here as well as in the feature registry
-#: because a migration has to name the row it writes, and a test holds the two
-#: spellings together rather than trusting that they match.
-LEGACY_MODULE_ID = "legacy"
-
-
-async def _carry_legacy_module(db) -> None:
-    """Turn the legacy module on for the servers that were actually using it.
-
-    Two sources of truth, in this order, because they answer different questions:
-
-    * **A stored row is a decision.** A server that deliberately turned radio or
-      the question box *on* said so, and that is carried exactly. (Its off rows
-      are deliberately **not** carried as off: a server that switched one off and
-      used the other keeps the other, and "off" for a system it may never have
-      seen is already the new default.)
-    * **Evidence of use is a fact.** A server with no row at all was on by
-      default, so it is carried when something was left behind — a held seat, the
-      station it last played, a saved language or advertising preference, or a
-      question that went through the box. A server with none of those never used
-      either system, and off is the honest answer for it rather than a guess about
-      a default nobody chose.
-
-    Read through ``sqlite_master`` first, because ``qna_questions`` is created by
-    ``utils.qna`` rather than by this module, so a database this process has never
-    opened the questions against does not have it — and naming a table that is not
-    there would fail the whole migration rather than skip one source of evidence.
-
-    Idempotent by construction: every statement is ``INSERT OR IGNORE``, the union
-    of the evidence sources is deduplicated, and the marker at the call site keeps
-    a second boot from running it at all. The old ``radio`` / ``qna`` rows are left
-    exactly where they are — ``modules._load_from_db`` ignores ids the registry no
-    longer declares, so they are inert, and a rollback to the release before this
-    one finds its own state untouched. That is the rule this project already
-    follows for a rename, and it applies to a demotion too.
-    """
-    async with db.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' "
-        "AND name IN ('radio_stay', 'radio_last', 'qna_questions')"
-    ) as cur:
-        present = {str(row[0]) for row in await cur.fetchall()}
-
-    # The stations a server actually played, the seat it asked the bot to hold,
-    # and the questions that went through its box.
-    evidence = [f"SELECT guild_id FROM {table}" for table in ("radio_stay", "radio_last", "qna_questions") if table in present]
-    # And the two preferences a server saves about the radio, under both spellings:
-    # ``_carry_radio_rename`` above copies the old keys forward, so a database that
-    # has only been through that pass still has its evidence in reach.
-    evidence.append(
-        "SELECT guild_id FROM guild_settings WHERE key IN "
-        "('radio_language', 'radio_ads', 'music_radio_language', 'music_radio_ads')"
-    )
-
-    await db.execute(
-        "INSERT OR IGNORE INTO guild_modules (guild_id, module_name, enabled, updated_at) "
-        "SELECT guild_id, ?, 1, CURRENT_TIMESTAMP FROM ("
-        + " UNION ".join(evidence)
-        + ") WHERE guild_id NOT IN (SELECT guild_id FROM guild_modules "
-        "WHERE module_name IN ('radio', 'qna'))",
-        (LEGACY_MODULE_ID,),
-    )
-    await db.execute(
-        "INSERT OR IGNORE INTO guild_modules (guild_id, module_name, enabled, updated_at) "
-        "SELECT guild_id, ?, 1, CURRENT_TIMESTAMP FROM guild_modules "
-        "WHERE module_name IN ('radio', 'qna') AND enabled = 1",
-        (LEGACY_MODULE_ID,),
-    )
 
 
 #: The shortest a real Discord guild id can be. Snowflakes have been seventeen

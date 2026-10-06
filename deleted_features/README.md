@@ -215,11 +215,94 @@ restore wants the wood rather than the furniture. The Mac's own `~/.decat`
 (config, switch state, and the `Public` history file) is the operator's to delete;
 the login item and the switch are stopped, and the two Ollama models stay pulled.
 
+---
+
+Archived on 2026-10-06 (second pass), at the owner's request: **the starboard, Server
+Structure, the company companion, radio, and Anonymous Q&A** — *"remove starboard,
+company, legacy, and optimise the codebase and cmds"*, with `/shop` and `/buy`
+deliberately kept (they do different work: browsing and buying) and `/meeting create`
+changed in the same pass so that it **always** opens its private draft card first.
+
+Four of the five were systems a server could switch on from the dashboard; **legacy**
+was the module whose only command left was `/bot legacy` (the switch that turned Q&A
+on), so the two retired together. Between them they held every system that had been
+kept alive for a small audience rather than because the product needed it.
+
+| Feature | File | Notes |
+|---|---|---|
+| Starboard | `cogs/starboard.py` | `/starboard set`, `/starboard status` and the reaction listener; `starboard_posts` / `starboard_settings` stay in the database. |
+| Server Structure | `cogs/structure.py`, `utils/structure.py`, `utils/confirmations.py` | The confirmed channel/role management tier — `/structure *`. `utils/confirmations.py` was imported by this cog alone, so it travelled with it. |
+| The company companion | `cogs/company.py`, `utils/company.py` | The one thing the bot did that nobody asked for: joining a voice channel whose only occupant was one person. |
+| Radio | `cogs/radio.py`, `utils/radio.py`, `utils/radio_catalogue.py`, `utils/radio_stream.py`, `templates/radio.html`, `scripts/probe_stations.py` | `/radio play`, `/radio stop`, `/radio doctor` — archived with the station table and the player, and with the probe that rebuilt the table. |
+| Anonymous Q&A, and the legacy switch | `cogs/qna.py`, `utils/qna.py` | `/qna ask`, `/qna inbox`, `/qna reply`, and `/bot legacy` — the switch that was their only remaining reader. |
+| The suites | `tests/test_starboard.py`, `tests/test_company.py`, `tests/test_radio.py`, `tests/test_qna.py`, `tests/test_legacy_module.py`, `tests/test_guardrails.py` | Verbatim. `test_guardrails.py` held two things: the management tier's own ceilings, and the tree-wide law that every direct write is written down. The first half belongs to Server Structure and was archived with it; the second was **re-created as the live `tests/test_direct_writes.py`**, because it is about `cogs/` rather than about any one feature. |
+| Starboard's half of a shared suite | `tests/test_starboard.py` (from `tests/test_starboard_and_admin.py`) | That file held starboard *and* the console's coin-removal laws; the live `tests/test_admin_coin_removal.py` is the second half, which is still about a page that exists. |
+
+**What was removed from the live bot**: the four `Feature(...)` entries (plus
+`legacy`) in `utils/features.py` — **17 systems → 13, 98 commands → 93** — every
+`starboard`, `structure`, `company`, `radio`, `qna` and `bot legacy` row in
+`utils/permissions.py`, the five `HELP_MODULES` categories and their home-body bullets
+in `cogs/help.py`, `/bot legacy` in `cogs/bot_config.py`, the `PRO_MODULES` set in
+`utils/plans.py`, the `structure` row in `utils/health.py`'s checks, the stream half of
+`utils/media_health.py` (its third kind of target, `STREAM_HOSTS`, `stream_state()` and
+the `radio_stream` import), the `QNA_WEBHOOK_URL` and `STREAM_PROBE_TARGET` settings in
+`utils/config_audit.py` and their blocks in `.env.example`, in `keep_alive.py` the
+`/radio` + `/music` routes and their page, `/api/voice-debug`'s stream probe, the
+`questions` page and its two `/api/console/questions*` routes, the `company`/`radio`
+keys in the live payload and the now-unused `url_for` import, in the console
+`pages/Questions.tsx` (deleted), the Live page's Radio panel and Companion gap, the
+`questions`/`radio`/`company` blocks of `api.ts`, `types.ts` and `lib/payload.ts`, in
+the templates the dashboard's radio card and the `console_page == 'questions'` block,
+the nav and footer links to `/radio` in all three site templates, `templates/radio.html`
+itself, the `.radio-row` block in `static/pages.css`, the radio and Q&A laws of
+`tests/test_site.py`, `tests/test_pages_site.py`, `tests/test_theme.py`,
+`tests/test_meoww_site.py`, `tests/test_ai_guard.py` and `tests/test_media_health.py`,
+`scripts/build_site.py`'s `/radio` page and its 301, `scripts/preview_dashboard.py`'s
+radio/company/questions fixtures, and the Q&A and starboard paragraphs of
+`PRIVACY.md`, `TERMS.md`, `docs/legal/data-requests.md`, `docs/discord-directory.md`
+and `docs/architecture.md`.
+
+**`starboard`, `structure`, `company`, `radio` and `qna` are in
+`utils/commands_sync.RETIRED_COMMANDS` now**, which is what deletes their stale
+registrations from every server's picker on the next publish. That list only deletes
+what the registry no longer declares, so it is safe to leave in place — and it is the
+reason these five names will disappear from Discord without anybody deleting them by
+hand.
+
+**Left in place on purpose:** the `starboard_posts`, `starboard_settings`, `radio_stay`,
+`radio_last` and `qna_questions` tables in `utils/db.py`, including the question rows —
+an unanswered question is somebody waiting for an answer, and a deletion request still
+reaches them (`docs/legal/data-requests.md` says so in the same words). The
+`guild_modules` rows that switched these systems on are left alone for the same reason
+the voice-chat watch's were: harmless, and the state a restore wants back.
+
+**Not an archive, but part of the same pass:** `/meeting create` now opens its private
+card every time, whatever it was given on the command line — the options *seed* the
+draft and nothing is written until **Book it** is pressed. The one-shot path was deleted
+rather than kept beside it, so there is one set of promises (`Meetings._book`) instead of
+two that could drift; `/shop` and `/buy` were left exactly as they were.
+
+**And one module that nothing imported at all:** `utils/update_notify.py` (137 lines)
+had no caller anywhere in the tree — the release-note path it was written for lives in
+`bot.py` and `utils/version.py` now — so it went, along with the two settings only it
+read (`UPDATE_CHANNEL_ID`, `UPDATE_ROLE_ID`, from `utils/config_audit.py` and
+`.env.example`). Both directions of the audit law are what proved it: the registry
+cannot describe a setting nothing reads, and `.env.example` cannot document one.
+
 ## How to restore a feature
 
+**Steps 1–5 name the places these things lived in 2026-09-13; the registry is now the
+only source of them** — `utils/features.py` holds the `Feature(...)` entries, and
+`cogs/help.py`, `utils/permissions.py`, the dashboard's switches, the site and the
+command scope all derive from it. A restored feature wants its `Feature(...)`, its
+`HELP_MODULES` category and its access rows, and then `cogs.<name>` back in the
+registry's own `cog` field rather than in `bot.py`.
+
 1. Move the file back: `mv deleted_features/cogs/<name>.py cogs/`
-2. Re-add `cogs.<name>` to `INITIAL_COGS` in `bot.py`.
-3. Re-add its command names to `MODULE_COMMAND_MAP` in `bot.py`.
+2. Re-add `cogs.<name>` to `INITIAL_COGS` in `bot.py` (see the note above: the
+   registry's `cog` field is what loads it now).
+3. Re-add its command names to `MODULE_COMMAND_MAP` in `bot.py` (now
+   `features.MODULE_COMMAND_MAP`, derived from `gate_commands` and `SHARED_GATES`).
 4. Re-add the dashboard card to `AVAILABLE_MODULES` in `keep_alive.py`.
 5. Re-add its help category in `cogs/help.py` (and the home-body bullet).
 6. For **radio** as it was before the rebuild (`radio_2026_09/`): move
@@ -272,3 +355,30 @@ the login item and the switch are stopped, and the two Ollama models stay pulled
    `pin-upload-info` from `commands_sync.RETIRED_COMMANDS` in
    `utils/commands_sync.py` — that list is what deleted them from Discord's
    command picker, and it would delete them again the moment they are republished.
+11. For **the five retired on 2026-10-06** (second pass: starboard, Server
+   Structure, the company companion, radio, Anonymous Q&A and `/bot legacy`): move
+   the archived cogs and utils back from `deleted_features/cogs/` and
+   `deleted_features/utils/`, `templates/radio.html` back into `templates/` and
+   `scripts/probe_stations.py` back into `scripts/`; move the archived suites out of
+   `deleted_features/tests/` (note that `test_guardrails.py` and
+   `test_starboard_and_admin.py` were split, so what is live under those names today is
+   deliberately not the same file); re-add the five `Feature(...)` entries to
+   `utils/features.py` and every row to `utils/permissions.py`; restore the
+   `HELP_MODULES` categories in `cogs/help.py`, `/bot legacy` in `cogs/bot_config.py`,
+   the `PRO_MODULES` entry in `utils/plans.py`, the `structure` row in
+   `utils/health.py`, the stream half of `utils/media_health.py`, the two settings in
+   `utils/config_audit.py` and their blocks in `.env.example`; in `keep_alive.py`
+   restore the `/radio` page and routes, the `/api/console/questions*` routes and the
+   `OWNER_PAGES` entry, the `voice-debug` stream probe and the `company`/`radio` keys of
+   the live payload; in the console restore `pages/Questions.tsx`, the Live page's Radio
+   panel and the three blocks of `api.ts` / `types.ts` / `lib/payload.ts` (then
+   `cd console && npm run build`, which stamps the bundle the suite compares against);
+   restore the dashboard's radio card and the questions block in
+   `templates/dashboard.html`, the nav and footer links in the three site templates, the
+   `/radio` page in `scripts/build_site.py` and its 301, and the paragraphs this pass
+   rewrote in `PRIVACY.md`, `TERMS.md`, `docs/legal/data-requests.md`,
+   `docs/discord-directory.md` and `docs/architecture.md`. **Then drop `starboard`,
+   `structure`, `company`, `radio` and `qna` from `commands_sync.RETIRED_COMMANDS`** —
+   while they are there, the publisher deletes them again the moment they are
+   republished. `utils/update_notify.py` is not part of this: nothing imported it, and
+   restoring it means finding a caller first.

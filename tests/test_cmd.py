@@ -14,8 +14,8 @@ lie without looking wrong:
   permission bit at all (the server owner, the operator, the market's role).
 * **the silence.** A member searching for ``ban`` and being told "nothing found"
   is the failure this feature exists to remove, so the withheld half is pinned:
-  named with its reason where a member can act on one, and *counted* rather than
-  named where naming it would advertise the operator's own inbox.
+  named  with its reason where a member can act on one, and *counted* rather than
+  named where naming it would advertise one of the operator's own.
 """
 import re
 import unittest
@@ -512,23 +512,61 @@ class TestTheCard(DirectoryCase):
         self.assertIn("match **market buy**", text)
         self.assertNotIn("No command you can run matches", text)
 
-    def test_the_operator_rows_are_counted_and_never_named(self):
-        """The one silence on the card, and it is the rule ``permissions`` states.
+    def test_a_withheld_row_is_named_beside_why_it_is_withheld(self):
+        """Named, never silently dropped: an unlisted row reads as nonexistent.
 
-        ``/qna inbox`` is the operator's: naming it on a member's card advertises
-        the inbox in every server the bot is in, which is why the picker visibility
-        for that audience is administrator and why the card counts it instead.
+        The card's whole job is answering *"does this exist, and may I run it"*,
+        so a row this member cannot run is printed with the reason — which is the
+        sentence they can act on: ask for the permission, or ask for the system
+        to be switched on.
         """
         viewer = viewer_for(discord.Permissions.none(), states=ALL_ON)
         scoped = directory.scope(self.rows, viewer)
-        operator = [entry for entry in scoped.withheld if entry.reason.kind == directory.OPERATOR]
-        self.assertTrue(operator, "nothing on this card is operator-only, so this proves nothing")
-        text = rendered_text(self.card(viewer, system="legacy"))
-        for entry in operator:
-            if entry.command.system_id != "legacy":
-                continue
-            self.assertNotIn(entry.command.text, text)
-        self.assertIn(f"only the operator can run", text)
+        withheld = [
+            entry for entry in scoped.withheld
+            if entry.reason.kind == directory.PERMISSION
+            and entry.command.system_id == "system"
+        ]
+        self.assertTrue(withheld, "nothing on this card needs a permission, so this proves nothing")
+        text = rendered_text(self.card(viewer, system="system"))
+        for entry in withheld:
+            with self.subTest(row=entry.command.text):
+                self.assertIn(entry.command.text, text)
+                self.assertIn(entry.reason.text, text)
+
+    def test_the_operators_own_rows_are_counted_and_never_named(self):
+        """The one silence on the card, and it is the rule ``permissions`` states.
+
+        ``/qna inbox`` was the last row the operator kept to themselves, and it is
+        gone with the system — so the law is pinned where it lives rather than
+        through a registry that no longer has a row to exercise it. The two rows
+        are written the way ``refusal`` writes them: a member reading a name they
+        may not have is a leak, and a *count* beside the rows they can act on is
+        not.
+        """
+
+        def row(path: str) -> directory.Command:
+            return directory.Command(
+                path=path, root=path.split()[0], system_id="system",
+                system="System", icon="⚙️", note="", audience=permissions.DEV,
+            )
+
+        lines = help_cog._withheld_lines([
+            directory.Held(
+                row("bot db"),
+                directory.Reason(directory.OPERATOR, "only the operator can run this"),
+            ),
+            directory.Held(
+                row("ban"),
+                directory.Reason(directory.PERMISSION, "needs **Ban Members**"),
+            ),
+        ])
+        text = "\n".join(lines)
+        self.assertNotIn("/bot db", text)
+        self.assertIn("…and 1 only the operator can run.", text)
+        # The public half is untouched: the count is an addition, not a curtain.
+        self.assertIn("/ban", text)
+        self.assertIn("needs **Ban Members**", text)
 
     def test_the_menu_offers_exactly_the_systems_this_member_can_run(self):
         viewer = viewer_for(discord.Permissions.none())

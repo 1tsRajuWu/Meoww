@@ -19,7 +19,7 @@ security, and policy requirements:
 |---|---|---|
 | **Privacy Policy URL** | ✅ Ready at `/privacy` | Served by `keep_alive.py` and `scripts/build_site.py` from `PRIVACY.md` |
 | **Terms of Service URL** | ✅ Ready at `/terms` | Served from `TERMS.md` through the same renderer |
-| **Global Slash Commands** | ✅ 97 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
+| **Global Slash Commands** | ✅ 93 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
 | **Command Descriptions** | ✅ Every command documented | Provided via `@app_commands.describe` and docstrings across `cogs/*.py` |
 | **No Mandatory Privileged Intents** | ✅ Default off | Bot operates fully without privileged gateway intents (`bot.py`) |
 | **No User Bots / Self-Bots** | ✅ Compliant | Built on discord.py as an official application |
@@ -56,8 +56,7 @@ All listing management takes place at the [Discord Developer Portal](https://dis
 
 ### Step 4: Configure App Directory Listing
 1. In the sidebar, select **App Directory**.
-2. Enter the prepared listing copy (see Section 3 below):
-   - **Short Description**: 195 characters summarizing key features.
+2. Enter the prepared listing copy (see Section 3 below):    - **Short Description**: 182 characters summarizing key features.
    - **Detailed Description**: Full markdown breakdown of features, commands, and disclosures.
    - **Primary Category**: Select *Community* or *Moderation*.
    - **Secondary Category**: Select *Utility*, *Economy*, or *Entertainment*.
@@ -75,24 +74,23 @@ All listing management takes place at the [Discord Developer Portal](https://dis
 This copy is directly aligned with `utils/features.py` and the legal documentation.
 (Monitored by `tests/test_legal.py` to prevent drift between code and public text.)
 
-### Short Description (195 characters)
+### Short Description (182 characters)
 ```text
-A community bot for moderation, tickets with transcripts, leveling, an economy with a shop and a live market, a starboard, a 365-day activity tracker, and a web dashboard with a message composer.
+A community bot for moderation, tickets with transcripts, leveling, an economy with a shop and a live market, a 365-day activity tracker, and a web dashboard with a message composer.
 ```
-*(195 characters, fits within Discord's summary field limits.)*
+*(182 characters, fits within Discord's summary field limits.)*
 
 ### Detailed Description
 ```markdown
-DaCat is a moderation and community bot that stays out of your way. It brings 17 systems and 98 slash commands: automod on its own switch with tunable invite, link and flood filters, moderation and logging, reaction roles that hand a role out from an emoji, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, building and clearing away the server's own channels and roles with a recorded case for every change, a per-channel activity tracker keeping a 365-day window, and staff meetings booked from Discord with a time, a place, notices that go out before it starts and reply buttons on the card. Four ship switched off in every server until an administrator turns them on — a live market with real-time quotes, a starboard, a voice companion that sits with somebody alone in a voice channel, and the legacy pair of an anonymous question box that relays what you ask without your name and DMs the answer back with radio in a voice channel with stations in any genre or language; one command offers those last two together, `/bot legacy`.
+DaCat is a moderation and community bot that stays out of your way. It brings 13 systems and 93 slash commands: automod on its own switch with tunable invite, link and flood filters, moderation and logging, reaction roles that hand a role out from an emoji, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, a per-channel activity tracker keeping a 365-day window, and staff meetings booked from Discord with a time, a place, notices that go out before it starts and reply buttons on the card. One ships switched off in every server until an administrator turns it on — a live market with real-time quotes.
 
 Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
 
 ### Key Systems & Commands
-- **Moderation & Automod**: `/warn`, `/mute`, `/kick`, `/ban`, `/appeal`, `/lockdown`, `/cases`, anti-invite and link filters — every automatic action is written to a moderation log, and the member it hit can run `/appeal` for a human review. A locked channel also removes what is posted into it, administrators and the owner included: a channel permission cannot stop an administrator, so the channel is held by its permission *and* by the bot's own sweep until `/unlock`. The whole-server `/lockdown-server` is the one exception, and deliberately so — it leaves **administrators and the server's owner talking**, because a server nobody can coordinate through is a lockdown the staff cannot run. `/lockdown` on a single channel keeps the strict answer and holds for everyone.
+- **Moderation & Automod**: `/warn`, `/mute`, `/kick`, `/ban`, `/appeal`, `/lockdown`, `/modlog`, anti-invite and link filters — every automatic action is written to a moderation log, and the member it hit can run `/appeal` for a human review. A locked channel also removes what is posted into it, administrators and the owner included: a channel permission cannot stop an administrator, so the channel is held by its permission *and* by the bot's own sweep until `/unlock`. The whole-server `/lockdown-server` is the one exception, and deliberately so — it leaves **administrators and the server's owner talking**, because a server nobody can coordinate through is a lockdown the staff cannot run. `/lockdown` on a single channel keeps the strict answer and holds for everyone.
 - **Support Tickets**: Transcripts, ratings, and ticket claiming via buttons and modals.
-- **Anonymous Q&A** *(legacy, off by default)*: `/qna ask` posts a question through the bot's own webhook with nobody's name on it — in any server the bot is in, since the bot's own server is where the operator answering already reads everything; the asker is shown only to the bot's owner and, in that server, its Dev role, and the answer is DMed back. A server turns it on with `/bot legacy state:On`.
 - **Leveling & Activity**: XP rewards for text and voice, level-roles, and a 365-day per-channel tracker (`/activity me`, `/rank`).
-- **Meetings & Notices**: `/meeting create` books a staff or team meeting — when, where, who to ping, and a notice schedule like `1h,15m` — and posts a card with reply buttons; `/meeting reschedule`, `/meeting ping` and `/meeting cancel` move it, tell people now, or stand the notices down.
+- **Meetings & Notices**: `/meeting create` opens a card only the person who ran it can see — when, where, who to ping, and a notice schedule like `1h,15m` — and the announcement with its reply buttons is posted only when they press **Book it**; `/meeting reschedule`, `/meeting ping` and `/meeting cancel` move it, tell people now, or stand the notices down.
 - **Economy & Market**: `/balance`, `/daily`, `/pay`, shop, loans, and real-time public market quotes (`/market board`, `/market buy`, `/market chart`).
 - **Dashboard & Composer**: Web-based module toggles and scheduled announcement composer (`/help` -> Open Dashboard).
 - **Command Directory**: `/cmd` lists every command the bot offers, grouped by system and searchable — and scoped, so each member sees the commands they can actually run in that server, with the reason named for every one they cannot.

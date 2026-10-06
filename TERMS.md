@@ -12,7 +12,7 @@ They are between you and the operator of the deployment you are using.
 The Bot is a self-hosted community bot: moderation, logging and automod filters;
 tickets with transcripts and close-time ratings; a leveling system with XP and
 automatic role rewards; a coin economy with a shop, loans and casino games; a
-live market; a starboard; social roleplay; fun commands and mini-games; a
+live market; social roleplay; fun commands and mini-games; a
 per-channel activity tracker keeping a 365-day window; and a web dashboard for
 staff — module toggles, a message composer that can post **now or on a schedule**
 in up to five channels, live market charts, and a bug-report command. It is

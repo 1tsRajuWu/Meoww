@@ -105,210 +105,6 @@ class RewriteUrlCase(unittest.TestCase):
         self.assertEqual(build_site.rewrite_url("pricing.html", LIVE), "pricing.html")
 
 
-class TheCatalogueIsARowWide(unittest.TestCase):
-    """A *table* in a two-column row is a page with half of it empty.
-
-    The radio page's catalogue is the station table — 308 rows — and it sat in
-    the panel row beside a card. Measured on the built page: the column holding
-    it came out **34,178px** tall beside its sibling's 421px, so the row's second
-    column was empty for 99% of a 38,310px scroll and the card parked at the
-    bottom of it was never reached by anybody. A section that holds a table says
-    which shape it is, and the two files that have to agree about that are held
-    to each other here, because dropping the class from the template or the rule
-    from the sheet are both silent — the page still renders, just badly.
-    """
-
-    TEMPLATE = ROOT / "templates" / "radio.html"
-    SHEET = ROOT / "static" / "pages.css"
-
-    def test_the_radioPage_puts_its_catalogue_in_a_wide_row(self):
-        """The template half: the rows exist, and nothing narrows their wrap.
-
-        The rebuild dropped the panel row the squeeze happened in — there is no
-        two-column shape left to fall into — so what is checkable now is that
-        the catalogue is one list of rows in the frame's own vocabulary, and that
-        no `wrap--narrow` (the only narrowing this design has) wraps the page.
-        """
-        markup = self.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn(
-            'class="mw-commands"',
-            markup,
-            "the catalogue's rows left the page",
-        )
-        self.assertNotIn(
-            "wrap--narrow",
-            markup,
-            "the catalogue is back in a half-width column beside a card",
-        )
-
-    def test_the_sheet_gives_that_row_one_column_and_its_rows_two(self):
-        """The sheet half: the rows are laid across the width — declared.
-
-        Dropping the rule is silent: the page still renders, just badly, which
-        is the half of the pair this test holds.
-        """
-        sheet = self.SHEET.read_text(encoding="utf-8")
-        halves = sheet.split(".radio-row {", 1)
-        self.assertEqual(len(halves), 2, "the sheet does not lay out .radio-row")
-        body = halves[1].split("}", 1)[0]
-        self.assertIn(
-            "grid-template-columns",
-            body,
-            "the catalogue's rows are not laid out across the width",
-        )
-
-    def test_the_row_states_its_phone_shape_as_well(self):
-        """Measured at 390px: a four-column row has to say what it becomes.
-
-        The rebuilt row shipped with the desktop grid and **no** phone rule, and
-        every station grew to **320px** — two dozen of them were 7,856px, which
-        is the wall the rebuild existed to take away, rebuilt one row at a time.
-        Four columns in 390px is not a layout that wraps; it is a layout that
-        squeezes, and nothing else in this file could see it, because every other
-        law here reads markup or declarations rather than a screen.
-        """
-        sheet = self.SHEET.read_text(encoding="utf-8")
-        self.assertRegex(
-            sheet,
-            r"@media \(max-width: 760px\) \{[^@]*\.radio-row \{[^}]*grid-template-columns",
-            "the sheet states no phone shape for .radio-row, so four columns stand "
-            "on a 390px screen and every row becomes a card",
-        )
-
-    def test_the_copy_button_sits_inside_the_row_it_copies_and_is_drawn(self):
-        """The two halves this law has always held together, holding together.
-
-        It was written about a *reveal*: the station table's *Copy* rested at
-        `opacity: 0` and the rule that raised it named `.command`, while a station
-        row was `<li class="radio-row">` — so on a desktop pointer not one of the
-        308 buttons ever appeared, and an invisible control sitting in the middle
-        of every row was where a click landed.
-
-        The rebuild answered that by removing the question rather than the bug:
-        the control is drawn always, because a button revealed by a pointer is a
-        button that does not exist on a touch screen. So there is no reveal to
-        match any more, and what is asserted is what the rule was for — the
-        button is inside the row whose station it copies, it copies that
-        station's own name, and the sheet draws it as a 44px target.
-        """
-        markup = self.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn(
-            'data-copy="{{ station.name }}"',
-            markup,
-            "the station row no longer copies its own name",
-        )
-        self.assertIn('class="mw-copy"', markup, "the row lost its copy control")
-        sheet = (ROOT / "static" / "meoww.css").read_text(encoding="utf-8")
-        self.assertIn("\n.mw-copy {", sheet, "the sheet does not state .mw-copy")
-        self.assertIn(
-            "min-height: var(--mw-tap)",
-            sheet.split("\n.mw-copy {", 1)[1].split("}", 1)[0],
-            "the copy control is not a finger-sized target",
-        )
-
-
-class TheTableCanBeAskedAQuestion(unittest.TestCase):
-    """``/radio``'s catalogue is 308 rows, and it used to be a wall of them.
-
-    Measured on the served page at 390px: section 02 was **7,476px — two thirds
-    of the page — one list, and 690 of the page's 1,097 words**, with no search,
-    no filter and no way to ask about a language or a country. It capped itself
-    at forty-eight rows and said so, which is honest and still a wall: the rows
-    a visitor wanted were the ones that were not shown, and the only advice the
-    page had was to go and type into Discord.
-
-    The rebuild answered it without a script: every row is in one `<details>`,
-    which the browser opens, and the summary line names the count. So the pair
-    these laws hold together is no longer *template and sheet* (a cap needs both
-    to agree) but *template and catalogue* — the page draws the table it was
-    handed, offers nothing the table does not hold, and hides nothing behind a
-    file that might not load.
-    """
-
-    TEMPLATE = ROOT / "templates" / "radio.html"
-    SHEET = ROOT / "static" / "pages.css"
-    SCRIPT = ROOT / "static" / "motion.js"
-
-    def test_the_cap_left_with_the_script_and_every_row_stayed(self):
-        """One number, one author — and after the rebuild that number is *all*.
-
-        The cap needed three things to agree: the template that marked the rows
-        beyond it (``loop.index > station_preview``), the sheet that hid the mark,
-        and the script that lifted it. Every one of those rows was in the document
-        anyway, so the cap only ever decided what a reader could *see*.
-
-        The rebuild holds the rule and drops the machinery: one `<details>` holds
-        every row, the browser opens it, and the summary line names the count. So
-        this asserts the stronger property directly — no row is marked as beyond
-        anything, and every station in the table is drawn.
-        """
-        markup = self.TEMPLATE.read_text(encoding="utf-8")
-        self.assertNotIn("station_preview", markup, "the script's cap came back")
-        self.assertIn(
-            "for station in station_rows",
-            markup,
-            "the page stopped drawing one row per station",
-        )
-
-    def test_no_dead_control_is_shipped_to_the_reader_who_has_no_script(self):
-        """A control that does nothing without its file is not shown.
-
-        The old page shipped its search box and two menus `hidden` and let
-        ``motion.js`` un-hide them, which was the right rule applied to a design
-        that needed a script to be readable. The rebuild removed the need instead:
-        the page is one disclosure and no filtering at all, so there is nothing to
-        hide and nothing to un-hide.
-        """
-        markup = self.TEMPLATE.read_text(encoding="utf-8")
-        for gone in ("data-station-tools", "data-station-more", "data-station-search"):
-            self.assertNotIn(gone, markup, f"{gone} came back and cannot work on its own")
-        self.assertNotIn("hidden", markup, "the rebuilt page hides a control again")
-
-    def test_the_script_carries_no_wiring_for_a_control_the_page_no_longer_draws(self):
-        """The other half of the pair — and the half that is *not* done yet.
-
-        `motion.js` still holds `wireStationExplorer`, the search box's filter,
-        the two menus' readers and the cap-lifting button, and the page it was
-        written for no longer draws any of them. It is dead wiring on a shared
-        file: harmless (the walk finds nothing and returns), and recorded here
-        rather than deleted in this pass, because that file carries another
-        change in flight and a deletion made beside it would be the second edit
-        on one surface. The next simplify pass owns it, and this test is what
-        remembers the debt instead of a comment nobody reads.
-        """
-        script = self.SCRIPT.read_text(encoding="utf-8")
-        self.assertIn(
-            "wireStationExplorer",
-            script,
-            "the dead station wiring has been removed — delete this test with it",
-        )
-
-    def test_the_filter_is_the_catalogue_rather_than_a_copy_of_it(self):
-        """What the page offers a visitor is what the table holds.
-
-        A hand-kept list of languages is how a page offers a language the table
-        cannot play — this project's most-repeated defect, one page over. The old
-        page answered it with two menus drawn from the catalogue's index; the
-        rebuild answers it by drawing each station's own language and country as
-        tags on its row, so a name on this page is a name some station carries.
-        """
-        markup = self.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn('{% if station.language %}<span class="mw-tag">{{ station.language }}</span>', markup)
-        self.assertIn('{% if station.country %}<span class="mw-tag">{{ station.country }}</span>', markup)
-        self.assertNotIn("<select", markup, "a menu came back that only a script could filter")
-
-    def test_the_button_label_is_counted_rather_than_written_down(self):
-        """*Show the first N* reads N off the rows the template marked.
-
-        The first draft of the script hardcoded 24 next to the template's own
-        number, which is the shape every one of these laws exists to catch: the
-        two agree until somebody changes one.
-        """
-        script = self.SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('row.hasAttribute("data-beyond")', script)
-        self.assertNotIn('"Show the first 24"', script)
-
-
 class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
     """``--out .`` is how a private repository becomes a public website.
 
@@ -358,9 +154,9 @@ class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
         This is a defect that shipped: `/music` was retired and the *file* of its
         old page was still in the build directory, so every deploy uploaded it
         again — a page advertising "a live queue with real-time audio effects",
-        next to the `_redirects` rule meant to answer that address with `/radio`.
-        A static host publishes everything it is handed, so a leftover is a page
-        nobody chose to publish.
+        next to the `_redirects` rule meant to answer that address with the page
+        that replaced it. A static host publishes everything it is handed, so a
+        leftover is a page nobody chose to publish.
         """
         out = tempfile.mkdtemp(prefix="meow-site-")
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
@@ -378,7 +174,7 @@ class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
 
         self.assertFalse(stale.exists(), "a retired page was left to be published")
         self.assertFalse(buried.exists(), "a stale asset was left to be published")
-        self.assertTrue((Path(out) / "radio.html").is_file(), "the live page is missing")
+        self.assertTrue((Path(out) / "pricing.html").is_file(), "the live page is missing")
 
 
 class BuiltSiteCase(unittest.TestCase):
@@ -429,79 +225,6 @@ class BuiltSiteCase(unittest.TestCase):
     def test_the_thing_github_pages_needs_is_present(self):
         """Jekyll would otherwise process the site — and silently drop underscores."""
         self.assertTrue((Path(self.out) / ".nojekyll").is_file())
-
-    def test_the_page_about_the_switched_off_system_says_that_it_is_off(self):
-        """Radio's page promised three commands and never mentioned the gate.
-
-        Radio and the anonymous question box are one system that ships *off*: an
-        administrator has to offer it to a server before `/radio` answers at all.
-        `/radio` is in the header of every page on this site, and its own page —
-        the only place a visitor can read what the system does — described the
-        commands, the station table and the failure modes, and closed by calling
-        it *"switchable like the rest"*, which a reader takes to mean available
-        and optionally off. So a visitor installed the bot, typed `/radio`, and was
-        refused for a fact no page had told them, and the one number a refusal
-        can be answered with was nowhere on the site either.
-
-        Read off the built page rather than the template, because the template is
-        not what a visitor is served. The claim is the pair: this system arrives
-        off, and this is the command that offers it.
-        """
-        body = (Path(self.out) / "radio.html").read_text(encoding="utf-8")
-        self.assertIn(
-            "/bot legacy state:On",
-            body,
-            "the radio page never names the command that turns the system on",
-        )
-        self.assertRegex(
-            body,
-            r"switched off",
-            "the radio page describes a system that ships off without saying so",
-        )
-        # And the same fact, where a reader counts systems: the registry's own
-        # sentence for it, on the page that lists all fifteen. That page is
-        # `/systems` now — the front door's own fifteen-row band was a third of
-        # its height and a second copy of one list, so it names four systems in
-        # the panel beside its hero and links here for the rest.
-        self.assertIn(
-            "switched off until an administrator asks for them",
-            self.pages["systems.html"],
-            "/systems lists the legacy system as though it were switched on",
-        )
-
-    def test_the_radio_page_lists_the_radio_commands(self):
-        """A heading promising *three faces* over an empty list, on the live page.
-
-        ``/radio``'s route asked the registry for a feature called ``"radio"``.
-        There has been no such feature since radio and the anonymous question box
-        became one switch called ``legacy``, and ``features.get`` answers ``None``
-        rather than raising — so the route passed an empty list, the template
-        read it as nothing, and the section that is the page's whole answer to
-        *what do I type* shipped with no commands in it. The tests that existed
-        read the catalogue, the cap and the failure modes, and none of them
-        counted the rows under that heading.
-
-        Tied to the registry rather than to three literals: the rows are the
-        ``/radio`` half of the legacy feature, so retiring a subcommand retires
-        its row instead of leaving this test demanding one.
-        """
-        legacy = features.get("legacy")
-        self.assertIsNotNone(legacy, "the registry has no legacy feature to read")
-        declared = [
-            name
-            for name, _note in features.feature_entries(legacy)
-            if name.lstrip("/").split()[0] == "radio"
-        ]
-        self.assertGreaterEqual(len(declared), 3, declared)
-        body = (Path(self.out) / "radio.html").read_text(encoding="utf-8")
-        for name in declared:
-            with self.subTest(command=name):
-                self.assertIn(
-                    f"<code>{name}</code>",
-                    body,
-                    "the radio page does not show a command the registry declares, so "
-                    "its own section renders as an empty list",
-                )
 
     def test_not_one_root_relative_url_survives_anywhere(self):
         """The whole class of 404 this build exists to prevent.

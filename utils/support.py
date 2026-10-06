@@ -729,10 +729,10 @@ async def pull(channel, *, limit: int = PULL_LIMIT) -> dict:
 def reading(row) -> dict:
     """One row as a surface draws it.
 
-    The stamp is made here rather than in a template for the reason
-    ``utils/qna`` makes its own: four environments render these pages and only
-    one of them has this app's filters, so a page that formatted an epoch itself
-    would be a page that reads differently wherever it is previewed.
+    The stamp is made here rather than in a template: four environments render
+    these pages and only one of them has this app's filters, so a page that
+    formatted an epoch itself would be a page that reads differently wherever it
+    is previewed. (``utils/qna``, archived 2026-10-06, made the same call.)
     """
     record = row or {}
     try:
@@ -772,10 +772,9 @@ def reading(row) -> dict:
 def transcript_sync(limit: int = SHOWN) -> dict:
     """The conversation as a Flask thread reads it — synchronously, from disk.
 
-    Synchronous for the reason ``utils/qna.owner_inbox_sync`` is: a page that
-    could only be drawn while the bot's loop was running would show nothing
-    during exactly the restarts an operator opens it to check on, and the
-    conversation is on disk either way.
+    Synchronous on purpose: a page that could only be drawn while the bot's loop
+    was running would show nothing during exactly the restarts an operator opens
+    it to check on, and the conversation is on disk either way.
 
     ``read`` is not decoration. An unreadable database and an empty conversation
     both produce no rows, and the card must not describe the first as the second.

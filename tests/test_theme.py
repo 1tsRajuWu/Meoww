@@ -53,7 +53,7 @@ BASE = ROOT / "templates" / "site_base.html"
 
 #: Pages that extend the shared base. A page that wears the site's look without
 #: the site's head gets no theme and no error either.
-SHARED = ("home.html", "systems.html", "start.html", "pricing.html", "radio.html")
+SHARED = ("home.html", "systems.html", "start.html", "pricing.html")
 
 #: The palettes the sheet declares, and the one that is the stylesheet's default
 #: rather than a block. `system` is a *choice* the visitor makes, not a palette:

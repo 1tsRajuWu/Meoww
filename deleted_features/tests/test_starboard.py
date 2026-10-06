@@ -1,16 +1,17 @@
-"""The starboard's reaction-remove path and the admin coin removal.
+"""The starboard's reaction-remove path, kept with the archived cog.
 
-Both were found by a static pass over the tree after the previous round of fixes:
+Everything starboard-shaped from ``tests/test_starboard_and_admin.py``, which
+began as one file because both halves were found by the same static pass:
+``on_raw_reaction_remove`` edited the card inside a bare ``except: pass`` and
+returned, so a card that had been deleted left the row pointing at a dead
+message forever (the add path self-heals; this one did not) and the stored
+``stars_count`` was never refreshed.
 
-* ``on_raw_reaction_remove`` edited the card inside a bare ``except: pass`` and
-  returned, so a card that had been deleted left the row pointing at a dead
-  message forever (the add path self-heals; this one did not) and the stored
-  ``stars_count`` was never refreshed.
-* Retiring a card deleted its row even when the message itself could not be
-  deleted, so the next star posted a duplicate next to the card that was still
-  there.
-* ``/eco-admin remove`` debited with ``update_wallet(-amount)``, which clamps at
-  zero — the confirmation then claimed it removed coins that never existed.
+The other half — ``/eco-admin remove`` debiting with ``update_wallet(-amount)``,
+which clamps at zero and let the confirmation claim it removed coins that never
+existed — is still live, in ``tests/test_admin_coin_removal.py``.
+
+Imports ``cogs.starboard``, so it only runs again once the cog is restored.
 """
 import unittest
 from types import SimpleNamespace
@@ -18,7 +19,6 @@ from unittest import mock
 
 import discord
 
-from cogs import economy as economy_module
 from cogs import starboard as starboard_module
 from tests.support import TempDatabaseMixin
 from utils import db
@@ -36,17 +36,6 @@ def _row():
             "SELECT starboard_message_id, stars_count FROM starboard_posts WHERE original_message_id=?",
             (MESSAGE,),
         ).fetchone()
-    finally:
-        conn.close()
-
-
-def _wallet(user_id: int) -> int:
-    conn = db.connect()
-    try:
-        row = conn.execute(
-            "SELECT wallet FROM economy WHERE user_id=? AND guild_id=?", (user_id, GUILD)
-        ).fetchone()
-        return int(row[0]) if row else 0
     finally:
         conn.close()
 
@@ -116,43 +105,14 @@ class _Bot:
         return True
 
 
-class _FakeResponse:
-    def __init__(self):
-        self.messages = []
-
-    async def send_message(self, content=None, **kwargs):
-        self.messages.append({"content": content, **kwargs})
-
-
-class _Member:
-    def __init__(self, uid, wallet):
-        self.id = uid
-        self.display_name = f"User{uid}"
-        self.mention = f"<@{uid}>"
-        self._wallet = wallet
-
-    @property
-    def roles(self):
-        return []
-
-
-class _Interaction:
-    def __init__(self, uid=1):
-        self.user = SimpleNamespace(id=uid, display_name=f"Admin{uid}")
-        self.guild = SimpleNamespace(id=GUILD, owner_id=999)   # someone else owns it
-        self.response = _FakeResponse()
-        self.client = SimpleNamespace(is_owner=_async_false)
-
-
-async def _async_false(*_a, **_k):
-    return False
+async def _async_noop(*_a, **_k):
+    return None
 
 
 class _StarboardCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         path = self.use_temp_database("starboard.db")
         starboard_module.DB_PATH = path
-        economy_module.DB_PATH = path
         await db.setup()
         conn = db.connect()
         try:
@@ -190,10 +150,6 @@ class _StarboardCase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(starboard_module, "send_card", new=fake_send_card), \
              mock.patch.object(starboard_module, "edit_card", new=_async_noop):
             await starboard_module.Starboard.on_raw_reaction_remove(cog, self._payload())
-
-
-async def _async_noop(*_a, **_k):
-    return None
 
 
 class RemoveResyncsTheCard(_StarboardCase):
@@ -242,61 +198,6 @@ class RemoveResyncsTheCard(_StarboardCase):
         row = _row()
         self.assertIsNotNone(row, "the row was dropped while the card is still visible")
         self.assertEqual(row[0], 999)
-
-
-class AdminRemoveNeverLies(_StarboardCase):
-    async def _remove(self, member, amount):
-        cog = economy_module.Economy(bot=None)
-        interaction = _Interaction()
-        with mock.patch.object(economy_module, "send_card", new=_async_noop):
-            await economy_module.Economy.removemoney.callback(cog, interaction, member, amount)
-        return interaction
-
-    async def test_removing_more_than_the_wallet_holds_takes_only_what_is_there(self):
-        conn = db.connect()
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO economy (user_id, guild_id, wallet, bank) VALUES (7, ?, 50, 0)",
-                (GUILD,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        await self._remove(_Member(7, 50), 10_000)
-
-        self.assertEqual(_wallet(7), 0, "clamping must not leave a hidden balance")
-
-    async def test_a_wallet_with_no_coins_is_refused(self):
-        conn = db.connect()
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO economy (user_id, guild_id, wallet, bank) VALUES (8, ?, 0, 0)",
-                (GUILD,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        interaction = await self._remove(_Member(8, 0), 100)
-
-        self.assertEqual(_wallet(8), 0)
-        self.assertIn("no coins", interaction.response.messages[-1]["content"])
-
-    async def test_a_full_removal_moves_exactly_the_requested_amount(self):
-        conn = db.connect()
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO economy (user_id, guild_id, wallet, bank) VALUES (9, ?, 500, 0)",
-                (GUILD,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-        await self._remove(_Member(9, 500), 200)
-
-        self.assertEqual(_wallet(9), 300)
 
 
 if __name__ == "__main__":

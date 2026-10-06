@@ -281,42 +281,6 @@ export type Changes = {
   total: number;
 };
 
-/**
- * One anonymous question, as the operator's own screen shows it.
- *
- * `asker` and `asker_id` are the private half of the box's promise — the channel
- * a question is relayed to carries neither, and the only two readers of them are
- * this page and the DM the bot sends. `handle` is the public half: the id in hex,
- * which is what the channel saw.
- */
-export type QuestionRow = {
-  id: number;
-  /** `anon 4F2A` — what the question is called in the channel. */
-  handle: string;
-  question: string;
-  /** The asker's name, and their id as text (a snowflake is never a number). */
-  asker: string;
-  asker_id: string;
-  server: string;
-  /** When it arrived, in the operator's own clock: `22 Sep 2026, 03:33 IST`. */
-  asked: string;
-  asked_at: number;
-  /** Whether the relay webhook took it. A question the channel never saw is a
-   * different finding from one that is merely waiting. */
-  relayed: boolean;
-  relay_detail: string;
-};
-
-export type QuestionsPayload = {
-  success: true;
-  questions: QuestionRow[];
-  totals: { open: number; answered: number };
-  relay: { configured: boolean; setting: string };
-  read: { questions: { ok: boolean; because: string } };
-  /** The server's own cap, so the box cannot offer a length the DM would refuse. */
-  max_answer: number;
-};
-
 /** One person sitting in a voice channel, with the flags that matter from
  * outside the channel. `id` is text for the usual reason. */
 export type VoicePerson = {
@@ -353,78 +317,6 @@ export type LiveChannel = {
   voice_seconds_week: number;
 };
 
-/** Somebody on their own in a voice room, or live in one.
- *
- * `seconds` is how long the companion's own clock has had this person alone, and
- * it is **`null` when that is not known** rather than `0` — the clock starts on a
- * voice event, so a room this process has watched since it booted carries an age
- * and one it inherited does not.
- */
-export type CompanyRoom = {
-  channel_id: string;
-  channel: string;
-  category: string;
-  person_id: string;
-  person: string;
-  streaming: boolean;
-  video: boolean;
-  seconds: number | null;
-};
-
-/** A person streaming or on camera, and the room they are doing it in. */
-export type CompanyLive = {
-  id: string;
-  name: string;
-  channel_id: string;
-  channel: string;
-  streaming: boolean;
-  video: boolean;
-};
-
-/**
- * What the voice companion is doing, as the console reads it.
- *
- * Two facts are deliberately *not* here, because they do not exist: a bot cannot
- * watch a Go Live stream (Discord has no API for it, and the gateway carries no
- * video), and a reading of "alone" is about the room rather than about the person
- * — so `live[].streaming` is the fact that somebody is live, never a picture.
- */
-export type CompanyPayload = {
-  /** `loaded` is about the process rather than the server: a deployment where
-   * the companion never loaded still has live voice rooms (they come from the
-   * gateway) and no clock of its own. */
-  read: { rooms: boolean; loaded: boolean; settings: boolean };
-  settings: { mode: string; greeting: boolean; on: boolean } | null;
-  /** Voice rooms whose only occupant is one person, alone right now. */
-  rooms: CompanyRoom[];
-  /** Everybody streaming or on camera in this server. */
-  live: CompanyLive[];
-  /** Where the companion itself is sitting, if it is sitting anywhere. */
-  sitting: {
-    guild_id: string;
-    guild: string;
-    channel_id: string;
-    channel: string;
-    person_id: string;
-    person: string;
-    since: number;
-    streaming: boolean;
-    video: boolean;
-    greeted: boolean;
-    reason: string;
-    /** True when the companion is connected somewhere *else* — a different
-     * server — which this page says rather than drawing as if it were here. */
-    elsewhere?: boolean;
-  } | null;
-  grace_seconds: number;
-  cooldown_seconds: number;
-  blocked_seconds: number;
-  left_us: string[];
-  /** The :pastelpink: picture the greeting carries. */
-  emoji: string;
-  emoji_name: string;
-};
-
 /**
  * What one server is *doing*, as `/api/console/live` answers it.
  *
@@ -445,11 +337,7 @@ export type LivePayload = {
     voice: boolean;
     presence: boolean;
     tracker: boolean;
-    /** Whether the voice companion is running on this deployment. */
-    company: boolean;
   };
-  /** The voice companion: who is alone, who is live, where the bot is sitting. */
-  company: CompanyPayload;
   presence: {
     online: number;
     idle: number;
@@ -470,100 +358,6 @@ export type LivePayload = {
     playing: boolean;
     paused: boolean;
   }[];
-  /**
-   * What the radio player is doing here, whether this host can play at all, and
-   * whether it can open a station.
-   *
-   * All three in one block because "nobody has started the radio", "the radio
-   * cannot play on this host" and "this host cannot reach a station" used to look
-   * identical on this page — and the second and third are the faults an operator
-   * can actually fix, in different ways. `caps.playable` is `null` when the probe
-   * could not be run at all, which is a third state and is drawn as one.
-   *
-   * `stream` is read from the weekly pass rather than asked live (opening a
-   * station is a network round trip and this page polls), so it carries the age of
-   * the reading and an `unknown` state for a process that has not run one.
-   */
-  radio: {
-    read: { player: boolean; caps: boolean };
-    /**
-     * How wide the station table is: how many stations this bot can play, how many
-     * languages they can answer a search in, how many countries have a verified
-     * station of their own, and how many carry no language tag at all.
-     *
-     * The only reading in this block that is about the *members* rather than about
-     * the host, and the reason it is carried: "is there anything here in my
-     * language, or from where I am?" is a question an administrator gets asked,
-     * and its answer was previously a number nobody had, on either side of the
-     * bot. The two blank counts travel with it and are kept apart, because
-     * *these have no language* and *this table has not established which* are
-     * different facts about a station and only one of them is a gap. `null` when
-     * the table could not be read, which is a third state and is drawn as one
-     * rather than as zero.
-     */
-    catalogue: {
-      stations: number;
-      languages: number;
-      countries: number;
-      /** No words at all — the entry carries the table's own `instrumental` tag. */
-      wordless: number;
-      /** Words in whatever the music is in, which the table has not established. */
-      unlabelled: number;
-      /** Stations whose own site says they carry no advertising. */
-      ad_free: number;
-    } | null;
-    stream: {
-      /** `unreachable` is the one that is not a finding *about a stream*: this
-       * host could not open the connection at all, which is a network fact rather
-       * than a station going dark. Both are drawn, and drawn differently. */
-      status: "ok" | "failed" | "unreachable" | "unknown";
-      detail: string;
-      checked_seconds_ago: number | null;
-    } | null;
-    why: string;
-    caps: {
-      playable: boolean | null;
-      quality?: string;
-      ffmpeg?: string | null;
-      ffmpeg_source?: string;
-      opus?: boolean;
-      opus_source?: string;
-      live_volume?: boolean;
-      dave?: boolean;
-      dave_version?: string | null;
-      dave_problem?: string | null;
-      missing?: string[];
-    } | null;
-    player: {
-      guild_id: number;
-      connected: boolean;
-      channel: string | null;
-      playing: boolean;
-      paused: boolean;
-      /**
-       * The station on air — a row of the table, not a queued recording. There is
-       * no duration and no provider because a live stream has neither, and no
-       * queue because radio has nothing to queue.
-       */
-      station: {
-        key: string;
-        name: string;
-        genre: string;
-        language: string;
-        country: string;
-        /** The capital city, on the rows that substantiated it. Empty otherwise. */
-        capital: string;
-        icon: string;
-      } | null;
-      requester: string;
-      engine: string;
-      position: number;
-      volume: number;
-      /** Whether the channel is held until `/radio stop`. */
-      stay: boolean;
-      error?: string;
-    } | null;
-  };
   totals: {
     channels: number;
     text: number;

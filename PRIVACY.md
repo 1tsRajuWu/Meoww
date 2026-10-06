@@ -22,26 +22,19 @@ answers for it, and using a server that runs the Bot is agreement to it.
   `/warn` produces, with the same reason text.
 * **Tickets:** ticket configuration, the transcript a closed ticket produces, and
   the rating and comment a member leaves.
-* **Server settings:** enabled features, house-channel, log, starboard and market
+* **Server settings:** enabled features, house-channel, log and market
   configuration, and social data members opted into (marriages, zoo, quotes).
 * **Text a person deliberately submits:** quote text, a ticket subject and
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who
   queued them.
-* **Anonymous Q&A:** the question text, the answer given to it, and — written
-  beside them — **who asked**, as their Discord id and display name. The
-  question itself is posted to the server's chosen channel by a webhook, so no
-  member's name, mention or profile is on it: the channel sees the question and
-  the asker sees that it was received. The name is rendered in exactly two
-  places, both of which refuse anyone who is not the bot's owner — the one
-  account this deployment is configured with, which is the operator rather than
-  any administrator holding a permission: a DM to that account, and the
-  `/qna inbox` list. The name of the setting that points at it belongs in the
-  operator's own configuration reference rather than here, because this page is
-  public. The answer
-  is delivered to the asker by DM and is never posted. There is no expiry on
-  these rows — a question is kept until it is deleted, because an unanswered one
-  is the feature.
+* **Anonymous Q&A (retired):** the question text, the answer given to it, and —
+  written beside them — **who asked**, as their Discord id and display name. The
+  feature is no longer offered: `/qna` was archived on 2026-10-06 and the commands
+  are gone from the bot, while the rows it produced are deliberately left in
+  place rather than deleted so an unanswered question can still be answered by
+  hand. Nothing writes to them any more, and the questions they hold are covered
+  by the same deletion path as every other table below.
 * **The support bridge's conversation:** the message an operator sends from the
   dashboard or the console (with their display name), and what people write back
   in the one support channel the deployment names — the author's Discord id and
@@ -68,19 +61,17 @@ answers for it, and using a server that runs the Bot is agreement to it.
 * **Message text is not stored** to award XP or filter spam. With Message
   Content on, the Bot inspects invites, links, length and attachments in the
   moment, then discards the text; only counters and timestamps persist.
-* **A copy exists only where a server asked for one:** a starboard pin, a
-  mod-log entry, a ticket transcript, or submitted text.
+* **A copy exists only where a server asked for one:** a mod-log entry, a ticket
+  transcript, or submitted text.
 * **No voice audio is recorded or transmitted.** Voice activity is judged only
   from the presence states Discord exposes (joined/left, mute, deafen, camera,
   live). No audio is used for training anything, ever.
-* **No audio is stored, and nothing is kept about who listens to what.** A
-  station's stream is relayed from the station's own server straight into the
-  voice channel; the bot keeps no copy of it and writes down no listening history.
-  What *is* stored is a per-server preference, and only so the next `/radio` does
-  not start over: the station the server last chose, the language and advertising
-  setting it asked for, and which channel it asked to keep occupied — if it asked
-  at all. Nothing here is per member: there is no record of who started a station,
-  and no station's server is told anything about the room.
+* **The radio (retired) left no listening history.** `/radio` was archived on
+  2026-10-06, and what it stored was a per-server preference — the last station, a
+  language, an advertising setting, and the channel it was asked to keep occupied
+  — with no record of who started anything. Those four rows are kept, are read by
+  nothing, and hold nothing about a member; a stream itself was relayed straight
+  into the voice channel and never copied anywhere.
 * **No DMs are read**, and nothing is sold, rented or shared for advertising. No
   trackers, no analytics. The Bot requests no profile information itself — the
   exception below is optional and exists only so a server's administrators can
@@ -141,15 +132,12 @@ these services and cannot see what they do with what they receive.
   Yahoo Finance — the ticker symbol only, for example `BTC`.
 * **Fun content:** Reddit and meme-api (memes), Tenor (GIFs) and TheCatAPI (cat
   pictures).
-* **Radio:** the station being played — one of the several hundred broadcasters in
-  the table, from a genre station like SomaFM to a country's own national
-  broadcaster — sees the request for its stream, which is this host's address and
-  nothing about anybody in the channel. There is no search and no lookup: every
-  station in the table was fetched and verified *before* it was written down, so
-  nothing anyone types is sent anywhere, no directory or media platform is asked
-  for anything at play time, and the audio arrives at this host and is relayed into
-  the voice channel. What reaches the station is the stream request itself, which
-  carries no account, no identifier and nothing about who asked for it.
+* **The radio (retired)** was the one feature that reached a third party by
+  design: a station — a genre broadcaster like SomaFM or a country's own national
+  broadcaster — saw the stream request, which carried this host's address and
+  nothing about anybody in the channel, because every station in the table was
+  verified before it was written down and nothing anyone typed was sent anywhere at
+  play time. No account, no identifier, and nothing about who asked for it.
 * **The market chart page:** the visitor's browser loads the chart library from
   **unpkg.com**, falling back to **cdn.jsdelivr.net**, so those hosts see the
   visitor's IP and browser.
@@ -209,7 +197,7 @@ which is the third document in the same bundle.
 
 | What | Why | Basis |
 |---|---|---|
-| Counters, levels, economy, starboard, tickets | the feature itself, for the server that asked for it | performance of the agreement you are party to |
+| Counters, levels, economy, tickets | the feature itself, for the server that asked for it | performance of the agreement you are party to |
 | Activity and voice counters | the server's own activity view | the same, and a legitimate interest in a feature staff turned on |
 | Moderation cases, warnings | so a server can keep a record of its own mod actions | the same |
 | Bug reports, quote text, sticky settings | because somebody deliberately submitted them | consent, which is why submitting them is how they got there |

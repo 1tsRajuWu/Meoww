@@ -45,10 +45,13 @@ from . import db, modlog
 #: reads it. One table, because the web panel, the record and the tests all need
 #: the verb and three hand-written copies is how they drift.
 #:
-#: The structure actions at the end belong to ``utils.structure``, the second door
-#: onto server state. They live here because a *case* is one list: a server's
-#: moderation log drawing "Ban", "Kick" and "Channel deleted" from three tables
-#: would number them in three places, and `Case #12` has to mean one thing.
+#: The structure actions at the end were written for ``utils.structure``, the
+#: second door onto server state — archived on 2026-10-06, and their verbs stay
+#: here anyway: a numbered case that changed meaning because a feature was retired
+#: is a worse answer than an unused name. They live in this table for the reason
+#: they always did: a server's moderation log drawing "Ban", "Kick" and "Channel
+#: deleted" from three tables would number them in three places, and `Case #12`
+#: has to mean one thing.
 ACTIONS: dict[str, str] = {
     "warn": "Warn",
     "timeout": "Mute",

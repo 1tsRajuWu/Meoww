@@ -48,7 +48,6 @@ except Exception:  # pragma: no cover
     PAGES = (
         ("/", "index.html"),
         ("/systems", "systems.html"),
-        ("/radio", "radio.html"),
         ("/start", "start.html"),
         ("/pricing", "pricing.html"),
         ("/privacy", "privacy.html"),
@@ -569,7 +568,7 @@ class TheSpineIsATableOfContents(unittest.TestCase):
         the half of this decision that keeps the rail from shipping as a single
         dot that can never be the wrong one and can never be right either.
         """
-        for route in ("/", "/systems", "/start", "/radio"):
+        for route in ("/", "/systems", "/start"):
             with self.subTest(route=route):
                 self.assertIn('class="mw-spine"', page(route), f"{route} declares sections and draws no rail")
         for route in ("/privacy", "/terms", "/ai"):

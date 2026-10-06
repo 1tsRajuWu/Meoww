@@ -67,10 +67,6 @@ NEEDS: Mapping[str, tuple[tuple[str, str], ...]] = {
         ("ban_members", "ban one"),
         ("moderate_members", "time one out"),
     ),
-    "structure": (
-        ("manage_channels", "lock, unlock and slow a channel down"),
-        ("manage_roles", "give a member the roles its panels name"),
-    ),
     "tickets": (
         ("manage_channels", "open a channel for a ticket"),
     ),

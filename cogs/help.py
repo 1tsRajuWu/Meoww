@@ -64,16 +64,6 @@ HELP_MODULES = {
         "color": 0xEB459E,
         "emoji": "🎭"
     },
-    "starboard": {
-        "title": "⭐ Community Starboard",
-        "desc": (
-            "Pin the funniest and most memorable messages to a dedicated showcase channel!\n\n"
-            "> `/starboard set <channel> [threshold]` — Set showcase channel and star count (default: 3)\n"
-            "> `/starboard status` — Check active Starboard configuration"
-        ),
-        "color": 0xFEE75C,
-        "emoji": "⭐"
-    },
     "social": {
         "title": "Safari Pets & Social Roleplay",
         "desc": (
@@ -89,20 +79,6 @@ HELP_MODULES = {
         ),
         "color": 0xE91E63,
         "emoji": "🐱"
-    },
-    "company": {
-        "title": "🫂 Voice Company",
-        "desc": (
-            "When somebody is alone in a voice channel, the bot joins them — deafened "
-            "and muted, so it can neither hear the room nor speak into it — and says "
-            "hello. It leaves the moment somebody real arrives, and it never follows "
-            "somebody who walked out.\n\n"
-            "> `/company` — Auto (default) or Off for this server, and whether it says hi\n"
-            "> A bot cannot watch a Go Live stream: Discord has no API for it. What it "
-            "*can* see is that somebody is live, which the owner's dashboard shows."
-        ),
-        "color": 0x5865F2,
-        "emoji": "🫂"
     },
     "economy": {
         "title": "💰 Economy & Currency",
@@ -200,8 +176,8 @@ HELP_MODULES = {
         "desc": (
             "Staff and team meetings, booked from Discord and announced on a card "
             "people can reply to.\n\n"
-            "> `/meeting create <title> <when>` — Book one: when, where, who to "
-            "ping, and the notices\n"
+            "> `/meeting create` — Opens a private card: when, where, who to ping, "
+            "and the notices — announced only when you press **Book it**\n"
             "> `/meeting list` — What this server has coming up\n"
             "> `/meeting view <id>` — One in detail, with replies and notice status\n"
             "> `/meeting reschedule <id> <when>` — Move it and rebuild its notices\n"
@@ -274,57 +250,6 @@ HELP_MODULES = {
         "color": 0x95A5A6,
         "emoji": "⚙️"
     },
-    "structure": {
-        "title": "🧱 Server Structure",
-        "desc": (
-            "Channels and roles, made and cleared away from here. These are the "
-            "commands that can *destroy* something — a deleted channel takes every "
-            "message in it, and Discord keeps no copy — so they are built around "
-            "two rules rather than one permission bit.\n\n"
-            "**Size is checked first.** Deleting the one channel you named is what "
-            "you asked for; clearing a category or taking a role off everybody who "
-            "has it stops and asks *you*, by a press, with the number said out "
-            "loud. `/structure limits` shows what this server asks about.\n"
-            "**Everything is written down.** Each one opens a case in this "
-            "server's moderation log — what changed, who asked, and why — and a "
-            "refusal is written down too, because \"Discord said no\" is the thing "
-            "an administrator most needs to know.\n\n"
-            "> `/structure channel-create <name> [category] [private]`\n"
-            "> `/structure channel-delete <channel>`\n"
-            "> `/structure channel-archive <category> [keep]` — confirmed\n"
-            "> `/structure role-create <name> [colour]`\n"
-            "> `/structure role-delete <role>`\n"
-            "> `/structure role-purge <role>` — confirmed\n"
-            "> `/structure limits` — the ceilings for this server *(admin)*"
-        ),
-        "color": 0x2dd4bf,
-        "emoji": "🧱"
-    },
-    "legacy": {
-        "title": "📻 Radio & Anonymous Q&A",
-        "desc": (
-            "Off in every server to begin with: switched **off** until an "
-            "administrator asks for them, and one flag turns both on. A server "
-            "that relied on either turns it on once and keeps it.\n\n"
-            "> `/bot legacy state:on` — the switch, for this server only *(admin)*\n\n"
-            "**Radio** (📻) — 24/7 stations by genre, language, mood or country, "
-            "played as direct streams that ask no media platform for anything. "
-            "There is no song search, and a station that goes quiet is re-asked "
-            "rather than skipped, so it never looks like a short track.\n"
-            "> `/radio play [station] [language] [country] [ads] [stay] [volume]`\n"
-            "> `/radio stop` — end it and give the channel back\n"
-            "> `/radio doctor` — what this host can and cannot do for voice *(admin)*\n\n"
-            "**Anonymous Q&A** (❓) — a question box with nobody's name on it. What "
-            "you ask is posted by the bot's own webhook and the answer comes back "
-            "as a DM. Who asked is written down beside the question and shown to "
-            "**one** person, the bot's owner, who answers it: the question arrives "
-            "as the box, not as a member.\n"
-            "> `/qna ask` — ask something anonymously\n"
-            "> `/qna inbox` / `/qna reply` — the queue and the reply *(bot's own server)*"
-        ),
-        "color": 0x5865F2,
-        "emoji": "📻"
-    },
 
 }
 
@@ -343,14 +268,11 @@ HELP_HOME_BODY = (
     "- 🛡️ **Moderation & Logs** — warns, bans, timeouts, and the audit log every action lands in\n"
     "- 🤖 **Auto Moderation** — the invite, link and flood shields, each the server's own to tune\n"
     "- 🎭 **Reaction Roles** — an emoji on a message that hands out a role by itself\n"
-    "- ⭐ **Starboard** — community highlights\n"
     "- 💰 **Economy & Games** — bank, casino, minigames\n"
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
     "- 🎫 **Tickets** — private staff support\n"
-    "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
-    "- 🧱 **Server Structure** — channels and roles, with a confirmation on anything big\n"
-    "- 📻 **Radio & Anonymous Q&A** — stations by language and country, and a question box with no names"
+    "- 📊 **Activity Tracker** — per-channel msg & voice stats"
 )
 
 # The category *structure* comes from the feature registry; the prose below

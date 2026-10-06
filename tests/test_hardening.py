@@ -120,11 +120,6 @@ class ListenerHardening(unittest.TestCase):
         source = _read("cogs/leveling.py")
         self.assertIn("if len(self._chat_cooldowns) > 4096:", source)
 
-    def test_starboard_recovers_when_its_card_was_deleted(self):
-        source = _read("cogs/starboard.py")
-        self.assertIn("except discord.NotFound:", source)
-        self.assertIn("INSERT OR REPLACE INTO starboard_posts", source)
-
 
 class DmGuard(unittest.TestCase):
     def test_dm_allow_list_only_names_real_commands(self):

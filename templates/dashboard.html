@@ -205,16 +205,6 @@
         {% endif %}
       </div>
 
-      <div class="own-card">
-        <h3>The radio</h3>
-        {% if overview_live.radio %}
-        {{ facts('', overview_live.radio) }}
-        {% elif not overview_live.read %}
-        <p class="hint">{{ overview_live.why }}</p>
-        {% else %}
-        <p class="muted">Nothing is playing here right now.</p>
-        {% endif %}
-      </div>
     </div>
 
     {# The one card on this page that is about something being *wrong*.

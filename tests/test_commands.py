@@ -132,8 +132,11 @@ class TestCommandTree(unittest.IsolatedAsyncioTestCase):
             # that feature belonged to the operator rather than to any server's
             # members — and it left when Decat was archived, which is the same
             # budget seen from the other side: a slot given back, not spent.
+            # `legacy` left the same way on 2026-10-06, with the two systems it
+            # switched: the switch was a command, and a command for a system the
+            # bot no longer has is a slot spent on nothing.
             {
-                "avatar", "banner", "bug", "db", "dbstatus", "legacy",
+                "avatar", "banner", "bug", "db", "dbstatus",
                 "plan", "push", "status", "sync",
             },
         )
