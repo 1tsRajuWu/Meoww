@@ -563,11 +563,14 @@ class ServerControl(commands.Cog):
         name="check",
         description="Audit this server for permission holes: leaks, private channels, unenforced locks.",
     )
+    # Under Discord's 100-character cap for an option description, and measured:
+    # the first version ran to 204 and discord.py truncated it to "…It is required
+    # so the answer is…" in the live picker, mid-clause, with nothing to say so.
+    # `tests/test_static_health.py` now measures the source of every one.
     @app_commands.describe(
         fix=(
-            "True audits and repairs what can be repaired; False only reads. It is "
-            "required so the answer is always on the card: the two runs used to look "
-            "identical, and an option nobody set is an option nobody meant."
+            "True audits and repairs what can be repaired; False reads only. "
+            "Required, so every run says which."
         )
     )
     async def check(self, interaction: discord.Interaction, fix: bool):

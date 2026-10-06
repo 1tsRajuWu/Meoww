@@ -345,6 +345,62 @@ def over_long_component_text(path, src) -> list[str]:
     return found
 
 
+# The same measurement on the surface Discord caps next: a slash command's
+# description and each of its options' are both 100 characters, and at this one
+# Discord **truncates** rather than refusing — discord.py does it first, appending
+# an ellipsis — so the text that ships is a sentence stopping mid-clause and
+# nothing says so. `/check`'s `fix` option read *"…It is required so the answer
+# is…"* in the live picker out of a 204-character source string, which is how this
+# was found. Measured from the **source**, not from the tree: the tree's value is
+# the already-truncated one, so a law that walked the command objects would pass
+# on the very text that produced the ellipsis.
+COMMAND_TEXT_LIMIT = 100
+
+
+def over_long_command_text(path, src) -> list[str]:
+    found = []
+    tree = ast.parse(src)
+    constants = module_strings(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if _call_name(node.func) not in ("command", "describe", "Group"):
+            continue
+        for kw in node.keywords:
+            text = _static_text(kw.value, constants)
+            if not isinstance(text, str) or len(text) <= COMMAND_TEXT_LIMIT:
+                continue
+            what = "description" if kw.arg == "description" else f"the {kw.arg!r} option"
+            found.append(
+                f"{rel(path)}:{node.lineno} {_call_name(node.func)}({kw.arg}=…) {what} is "
+                f"{len(text)} characters (Discord allows {COMMAND_TEXT_LIMIT})"
+            )
+    return found
+
+
+class CommandTextLimits(unittest.TestCase):
+    def test_no_command_or_option_description_exceeds_its_discord_limit(self):
+        problems = []
+        for path in live_files():
+            problems += over_long_command_text(path, read(path))
+        self.assertEqual(
+            problems,
+            [],
+            "Discord truncates it, so the sentence reaches the picker cut in half",
+        )
+
+    def test_the_check_reads_a_constant_and_measures_it(self):
+        """The shape that broke: a value too long, passed by name."""
+        src = (
+            "FIX = %r\n"
+            "long = app_commands.describe(fix=FIX)\n"
+            "fine = app_commands.describe(fix='short')\n"
+        ) % ("x" * 101)
+        found = over_long_command_text("<synthetic>", src)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("101 characters (Discord allows 100)", found[0])
+
+
 class ComponentTextLimits(unittest.TestCase):
     def test_no_component_text_exceeds_its_discord_limit(self):
         problems = []
