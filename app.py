@@ -159,8 +159,31 @@ async def health_check(req: Request):
     # `scripts/ship.py` compares what this returns with `brand.GATEWAY_SERVICE`,
     # so a rename moves the check and the answer together instead of leaving a
     # literal here that a whole rebrand can miss.
+    #
+    # The backup rides along, and this is the one place it *must*: the monitor
+    # watches **this** address, and the route above is answered here rather than
+    # by Flask — so the two-field answer was the whole of what a stranger with a
+    # monitor could read, and a backup that has quietly stopped has no other
+    # symptom anywhere. The machine goes on answering `healthy` while the only
+    # copy of everybody's progress is weeks old, which is exactly how it gets
+    # discovered on the day it is needed. It is the same reader the dashboard's
+    # own `/health` uses, so the two surfaces cannot disagree about it.
+    #
+    # `keep_alive.backup_reading` is the same reader the dashboard's own
+    # `/health` draws from, it makes no request of its own — the figures are what
+    # the sync loop already recorded — and it cannot raise: a reading that breaks
+    # comes back as `unknown` rather than as a failure of the one endpoint the
+    # monitor watches. It deliberately does **not** move `status`: the process
+    # being healthy and the backup being broken are two claims about two things,
+    # and a monitor (or `scripts/ship.py`, which holds a release to
+    # `status == "healthy"`) must not be told this machine is down because nobody
+    # can write to a bucket.
     return Response(
-        content=json.dumps({"status": "healthy", "service": brand.GATEWAY_SERVICE}),
+        content=json.dumps({
+            "status": "healthy",
+            "service": brand.GATEWAY_SERVICE,
+            "backup": keep_alive.backup_reading(),
+        }),
         media_type="application/json",
     )
 

@@ -1618,6 +1618,46 @@
         {{ facts('', config_status) }}
         <p class="hint">{{ config_status.detail }}</p>
       </div>
+      {# The one card on this page that is about a *silent* failure. Everything
+         else on the Status page has a symptom somewhere — a dropped gateway
+         stops answering, a broken site check serves the wrong page, an unset
+         variable switches a feature off — while a backup that has stopped has
+         none at all: the bot runs, the pages render, and the only copy of
+         everybody's progress is quietly weeks old until the day it is needed.
+         So the card leads with when the backup last *succeeded* at anything
+         rather than with whether it is configured, and it prints the refusal
+         sentence itself, because "blocked" without the reason only tells a
+         reader to go and find the host log the reason lives in. #}
+      <div class="own-card">
+        <h3>The cloud backup</h3>
+        {{ chip('Backup', backup_status.headline, backup_status.tone) }}
+        {% if backup_status.reason %}
+        <p class="notice{{ ' notice--bad' if backup_status.tone == 'bad' else '' }}">
+          <strong>Why it is not uploading:</strong> {{ backup_status.reason }}.
+        </p>
+        {% endif %}
+        <dl class="own-facts">
+          <div class="own-fact">
+            <dt>Last upload</dt>
+            <dd class="mono">{{ backup_status.uploaded if backup_status.configured else '—' }}</dd>
+          </div>
+          <div class="own-fact">
+            <dt>Last restore</dt>
+            <dd class="mono">{{ backup_status.restored if backup_status.configured else '—' }}</dd>
+          </div>
+          <div class="own-fact">
+            <dt>Target last answered</dt>
+            <dd class="mono">{{ backup_status.contacted if backup_status.configured else '—' }}</dd>
+          </div>
+          {% if backup_status.failures %}
+          <div class="own-fact">
+            <dt>Uploads failed in a row</dt>
+            <dd class="mono">{{ backup_status.failures }}</dd>
+          </div>
+          {% endif %}
+        </dl>
+        <p class="hint">{{ backup_status.note }}</p>
+      </div>
       <div class="own-card">
         <h3>Out-of-band alerts</h3>
         {{ facts('', alert_state) }}

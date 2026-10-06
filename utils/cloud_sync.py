@@ -119,7 +119,10 @@ def _storage_list_raw() -> list[dict] | None:
         )
         with urllib.request.urlopen(req, timeout=20) as resp:
             payload = _json.loads(resp.read())
-            return payload if isinstance(payload, list) else None
+            if not isinstance(payload, list):
+                return None
+        _touch_contact()
+        return payload
     except Exception as exc:
         print(f"[CLOUD SYNC] ⚠️ Supabase list failed: {exc}", flush=True)
         return None
@@ -145,9 +148,14 @@ def _storage_download(name: str, quiet: bool = False) -> bytes | None:
             headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return _unpack_blob(resp.read())
+            data = _unpack_blob(resp.read())
+        _touch_contact()
+        return data
     except urllib.error.HTTPError as exc:
         if quiet and exc.code in (400, 404):
+            # A 404 is still the target answering: the object is not there, which
+            # is an answer, and proof that the thing that holds the backup is up.
+            _touch_contact()
             return b""
         if not quiet:
             print(f"[CLOUD SYNC] ⚠️ Supabase download '{name}' failed: {exc}", flush=True)
@@ -225,6 +233,8 @@ def _storage_upload(name: str, data: bytes) -> bool:
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
             ok = resp.status in (200, 201)
+        if ok:
+            _touch_contact()
         if ok and len(sent) != len(data):
             print(
                 f"[CLOUD SYNC] 🗜️ '{name}': {len(data):,} bytes sent as "
@@ -339,8 +349,26 @@ _lease_touched: float = 0.0
 _shrink_refusals: int = 0
 #: How many consecutive upload attempts have failed.
 _consecutive_upload_failures: int = 0
+#: When the object this process restored was installed, so a reader can age it.
+_restored_at: float = 0.0
+#: When the bucket last *answered this process* — a listing that came back, an
+#: object that downloaded, a write that landed. The heartbeat the state reading
+#: is built on, and the only figure here that notices a dead target on a quiet
+#: server: an idle database uploads nothing, so it never fails at anything, and
+#: a target that has stopped answering is otherwise completely silent.
+_last_contact_ts: float = 0.0
+#: The last answer :func:`upload_refusal_reason` gave the upload path. Recorded
+#: rather than re-asked, so a health check reports the block instead of spending
+#: a decision — and, on an endpoint a monitor polls, instead of a network call.
+_last_refusal_reason: str | None = None
 
 _warned: set[str] = set()
+
+
+def _touch_contact() -> None:
+    """Note that the bucket answered. Called at the one place each call returns."""
+    global _last_contact_ts
+    _last_contact_ts = time.time()
 
 
 def _warn_once(msg: str) -> None:
@@ -543,7 +571,7 @@ def _install(
     ``temp`` is the copy the caller already wrote and counted; reusing it keeps
     the counts that were verified and the bytes that are installed the same file.
     """
-    global _last_sync_hash, _restored_from, _restored_counts
+    global _last_sync_hash, _restored_from, _restored_counts, _restored_at
 
     temp = temp or f"{db_path()}.tmp"
     if not os.path.exists(temp):
@@ -559,6 +587,8 @@ def _install(
     _last_sync_hash = hashlib.sha256(data).hexdigest()
     _restored_from = name
     _restored_counts = counts
+    _restored_at = time.time()
+    _touch_contact()
     _clear_block()
     print(
         f"[CLOUD SYNC] ✅ Restored '{name}' ({len(data):,} bytes) — "
@@ -592,6 +622,101 @@ def restore_blocked_reason() -> str | None:
 def last_upload_ts() -> float:
     """Unix time of the last primary backup that landed, or 0 if none ever has."""
     return _last_upload_ts
+
+
+#: How long the bucket may stay silent before the backup is called *not
+#: answering* rather than merely idle. Two full ticks: the loop speaks to the
+#: bucket every :data:`SYNC_INTERVAL` even when nothing changed — that is what
+#: the lease refresh is for — so two missed ticks is not a slow network, it is a
+#: target that has stopped answering. A backup nobody notices has stopped is the
+#: exact failure this reading exists to make loud.
+SILENT_AFTER: int = 2 * SYNC_INTERVAL
+
+
+def backup_state(now: float | None = None) -> dict:
+    """What this process *already knows* about the backup, as one small mapping.
+
+    Read, never asked: no request, no write, no grace tick spent. That is the
+    point rather than an optimisation — this is rendered by ``/health``, which a
+    monitor may poll every minute, and a health check that reaches the network is
+    a health check that can hang while reporting on whether something else hangs.
+
+    The two questions it answers are the two that had no answer anywhere a human
+    looks: **when** the backup last did anything, and **why** it is not doing
+    anything now. A backup that has quietly stopped has no symptom at all — the
+    bot runs, the pages render, and the only copy of everybody's progress is
+    weeks old — so the last successful upload, the last successful restore and
+    the refusal sentence are stated here rather than left in a host log.
+
+    ``status`` is one word, and it is about the *target* rather than about the
+    file, because that is the question a monitor is asking:
+
+    * ``unconfigured`` — no Supabase URL or key, so there is no backup at all.
+    * ``blocked`` — a decision not to upload, with ``refusal`` holding why.
+    * ``failing`` — uploads have been *attempted* and are not landing.
+    * ``silent`` — the bucket answered before and has stopped answering. The one
+      state that a quiet server reaches, and the reason the reading tracks the
+      last *answer* rather than the last upload: an unchanged database uploads
+      nothing, so "no upload for an hour" is normal while "no answer for an
+      hour" is a dead backup target.
+    * ``unreachable`` — the bucket has been asked in this process and has never
+      answered: the listing or the download never came back. Separate from
+      ``unknown`` on purpose, and this is the distinction the whole reading is
+      for — *we have asked and heard nothing* used to read exactly like *nobody
+      has asked yet*, which is the shape of a machine that is quietly saving
+      nothing while its monitor stays green. (It was found by reading the
+      deployed answer rather than by reasoning: the Space's own ``/health``
+      served ``unknown`` while its bucket was refusing to answer.)
+    * ``waiting`` — the target answers and nothing has been saved **by this
+      process** yet. A restore counts as an answer, so a boot that picked the
+      backup up reads this until an upload of its own lands — which, on a server
+      whose database has not changed since, is the right answer rather than a
+      problem: there is nothing new to save.
+    * ``ok`` — the target answered recently and a backup of this process's own
+      has landed.
+    * ``unknown`` — nothing has been asked of the bucket in this process, and
+      nothing may be claimed about it either way.
+    """
+    moment = time.time() if now is None else float(now)
+    configured = bool(SUPABASE_URL and SUPABASE_KEY)
+    refusal = _restore_blocked_reason or _last_refusal_reason
+    contact_age = (moment - _last_contact_ts) if _last_contact_ts else None
+    if not configured:
+        word = "unconfigured"
+    elif refusal:
+        word = "blocked"
+    elif _consecutive_upload_failures:
+        word = "failing"
+    elif contact_age is not None and contact_age > SILENT_AFTER:
+        word = "silent"
+    elif contact_age is None:
+        # Asked and no answer is not the same claim as never asked. `checked` is
+        # set by the attempt itself, before the call that may fail.
+        word = "unreachable" if _remote_checked else "unknown"
+    elif _last_upload_ts:
+        word = "ok"
+    else:
+        word = "waiting"
+    return {
+        "status": word,
+        "configured": configured,
+        # Whether the bucket has been looked at at all — the difference between
+        # an unasked question and a clean answer.
+        "checked": bool(_remote_checked),
+        "refusal": refusal,
+        "failures": int(_consecutive_upload_failures),
+        # Ages rather than stamps, like the rest of ``/health``: a monitor that
+        # has to subtract two clocks is a monitor that will get it wrong.
+        "uploaded_seconds_ago": _age(_last_upload_ts, moment),
+        "contacted_seconds_ago": None if contact_age is None else max(0, int(contact_age)),
+        "restored_from": _restored_from,
+        "restored_rows": _total_rows(_restored_counts) if _restored_from else 0,
+        "restored_seconds_ago": _age(_restored_at, moment),
+    }
+
+
+def _age(stamp: float, moment: float) -> int | None:
+    return max(0, int(moment - stamp)) if stamp else None
 
 
 # --------------------------------------------------------------------------- #
@@ -1034,8 +1159,12 @@ def backup_to_cloud_sync() -> bool:
 
 def _backup_inner() -> bool:
     global _last_sync_hash, _last_snapshot_ts, _last_upload_ts, _consecutive_upload_failures
+    global _last_refusal_reason
 
     reason = upload_refusal_reason()
+    # Remembered, not merely logged: this is the sentence a reader needs when
+    # the uploads have quietly stopped, and a host log is where it used to live.
+    _last_refusal_reason = reason
     if reason:
         _warn_once(f"[CLOUD SYNC] 🛑 Not uploading: {reason}")
         return False

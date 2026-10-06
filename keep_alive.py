@@ -1953,6 +1953,17 @@ def health():
         # this also answers "is the live text the one people agreed to" — the
         # question a clickwrap exists to make answerable.
         "consent": consent.totals(),
+        # What the cloud backup is doing — and, more to the point, when it last
+        # did anything at all. This is the one claim on this endpoint whose
+        # failure has **no symptom anywhere else**: a backup that has quietly
+        # stopped leaves the bot running, the pages rendering and the only copy
+        # of everybody's progress weeks old, and nobody learns that until the day
+        # it is needed and is not there. A refusal sentence is published rather
+        # than the state word alone, because "blocked" without the reason is a
+        # monitor waking somebody who then has to go and find the host log the
+        # reason only exists in. It is this bot describing its own bucket and
+        # names nothing private, like the four blocks above it.
+        "backup": backup_reading(),
         "timestamp": int(time.time()),
     })
 
@@ -3744,6 +3755,11 @@ def api_status():
         },
         "site_guard": site_guard.health_json(),
         "uptime": uptime_status.health_json(),
+        # The fifth reading, and the one the hub's own Status page draws too —
+        # same function, same figures, so a monitor reading this JSON and an
+        # operator reading that page cannot be told two different stories about
+        # whether the backup is happening.
+        "backup": backup_reading(),
     })
 
 
@@ -4825,6 +4841,145 @@ def _site_note(reading) -> str:
     return ""
 
 
+def backup_reading() -> dict:
+    """The cloud backup's state, read from what the sync loop already recorded.
+
+    Never raises, and that is a rule rather than caution: this is called by
+    ``/health``, which is unauthenticated and polled, so a reading that threw
+    would turn "the backup is unwell" into "the whole service is down". A
+    deployment whose module cannot even be imported is reported as
+    ``unknown`` — the same claim as a bucket nobody has asked anything of —
+    rather than as a traceback.
+
+    No request leaves this process. The figures are the ones the backup loop
+    wrote down on its own last pass, which is what makes it safe here: a health
+    check that reaches the network is a health check that can hang while
+    reporting on whether something else hangs.
+    """
+    try:
+        from utils import cloud_sync
+
+        return cloud_sync.backup_state()
+    except Exception as exc:  # noqa: BLE001 — a reading is not worth a 500
+        print(f"[BACKUP] Could not read the backup state: {exc}", flush=True)
+        # The same shape as a real reading, so a consumer that reads a key is
+        # never reading one that only exists on the happy path.
+        return {
+            "status": "unknown",
+            "configured": False,
+            "checked": False,
+            "refusal": None,
+            "failures": 0,
+            "uploaded_seconds_ago": None,
+            "contacted_seconds_ago": None,
+            "restored_from": None,
+            "restored_rows": 0,
+            "restored_seconds_ago": None,
+        }
+
+
+#: What each backup state is called on a page, and how loudly. The words are
+#: ``utils.cloud_sync.backup_state``'s own; this table is why that module can stay
+#: free of page vocabulary and this page can stay free of the state machine.
+_BACKUP_STATES: dict[str, tuple[str, str]] = {
+    "ok": ("ok", "Backing up"),
+    "waiting": ("", "Target answering"),
+    "unknown": ("", "Not checked yet"),
+    "unconfigured": ("warn", "No cloud backup configured"),
+    "blocked": ("bad", "Uploads are blocked"),
+    "failing": ("bad", "Uploads are failing"),
+    "silent": ("bad", "The backup target has gone quiet"),
+    "unreachable": ("bad", "The backup target is not answering"),
+}
+
+
+#: The sentence a page adds under the headline, per state. Written here rather
+#: than in the template so the wording cannot drift per page — and the two
+#: alarming ones say what to *do*, because a card that only says "stopped" is a
+#: card that has moved the question rather than answered it.
+_BACKUP_NOTES: dict[str, str] = {
+    "ok": "Every backup this process uploaded landed, and the target is answering.",
+    "waiting": (
+        "The target is answering, and this process has not needed to save anything "
+        "of its own yet — a server whose database has not changed since the last "
+        "backup has nothing new to write."
+    ),
+    "unknown": (
+        "Nothing has been asked of the bucket since this process started, so there "
+        "is nothing to claim about it either way."
+    ),
+    "unconfigured": (
+        "Without SUPABASE_URL and the service-role key there is no off-host copy of "
+        "this database at all: the file on disk is the only one there is."
+    ),
+    "blocked": (
+        "Uploads are being refused on purpose, so the cloud copy is frozen at "
+        "whatever it held when the refusal began. Fix what the reason names, then "
+        "restart: the block is a decision this process made at startup and does not "
+        "lift by itself."
+    ),
+    "failing": (
+        "Uploads are being attempted and not landing, so progress since the last "
+        "successful one exists only on this host. Check the bucket's own health and "
+        "the service-role key, and watch the host log for the upload error beside "
+        "each attempt."
+    ),
+    "silent": (
+        "The bucket answered before and has stopped answering, which is what a dead "
+        "backup target looks like from here — no upload of an unchanged database "
+        "ever fails, so a target that has gone quiet says nothing anywhere except "
+        "in this figure."
+    ),
+    "unreachable": (
+        "This process has asked the bucket and had no answer — a listing, a download "
+        "or a write that never came back. Uploads cannot be allowed while the state "
+        "of the cloud copy is unknown, so nothing new is being saved until the "
+        "target answers again. This is not the same reading as *not checked yet*: "
+        "the question was asked, and the silence is the answer."
+    ),
+}
+
+
+def _backup_display(state) -> dict:
+    """The backup's state as a page states it, from the one reading of it.
+
+    One author for the card and the two payloads: every figure comes from
+    ``cloud_sync.backup_state()``, so the dashboard, ``/health`` and
+    ``/api/status`` cannot describe the same backup three ways. Ages come back as
+    words, exactly as the other deployment cards' do, because a pass runs every
+    few minutes and ``183s`` would be reporting a clock rather than an age.
+
+    Absences are said rather than drawn as zeroes: ``none`` restored and "0
+    seconds ago" restored are different claims, and only one of them is true on a
+    process that never restored.
+    """
+    state = state or {}
+    word = str(state.get("status") or "unknown")
+    tone, headline = _BACKUP_STATES.get(word, ("", "Unknown"))
+    restored_from = state.get("restored_from")
+    restored_rows = int(state.get("restored_rows") or 0)
+    restored_at = _checked_text(state.get("restored_seconds_ago"))
+    return {
+        "state": word,
+        "tone": tone,
+        "headline": headline,
+        "note": _BACKUP_NOTES.get(word, ""),
+        # The reason in this bot's own words — the half a state word cannot carry,
+        # and the whole point of publishing any of this at all.
+        "reason": str(state.get("refusal") or ""),
+        "uploaded": _checked_text(state.get("uploaded_seconds_ago")) or "not yet",
+        "contacted": _checked_text(state.get("contacted_seconds_ago")) or "never asked",
+        "restored": (
+            f"{restored_from} — {restored_rows:,} rows, {restored_at or 'just now'}"
+            if restored_from
+            else "nothing restored in this process"
+        ),
+        "failures": int(state.get("failures") or 0),
+        "checked": bool(state.get("checked")),
+        "configured": bool(state.get("configured")),
+    }
+
+
 def _health_display(*, uptime=None, site=None, config=None) -> dict:
     """The deployment's three health readings as a page states them.
 
@@ -5646,6 +5801,11 @@ def _dashboard_page(page: str, guild_id):
         system_status=uptime_status.snapshot(),
         site_guard_status=site_guard.health_json(),
         config_status=config_audit.health_json(),
+        # The fifth status card, and the one whose absence has no symptom until
+        # it is too late: a backup that has quietly stopped is invisible on every
+        # page in this project while the bot keeps running perfectly. Read from
+        # the sync loop's own memory, so drawing this page costs no request.
+        backup_status=_backup_display(backup_reading()),
         # What has been sent out of band, and whether anything can be. Read from
         # process state, so this panel costs no request on a page somebody is
         # waiting for — and it is deliberately the *same* ledger the sender writes,

@@ -876,6 +876,10 @@ def render_dashboard(**overrides) -> str:
         system_status={},
         site_guard_status={},
         config_status={},
+        # The cloud backup's card, built by the view's own display function from
+        # an empty reading — the "not checked yet" branch a fresh process shows.
+        # A page test that wants another state passes its own display.
+        backup_status=keep_alive._backup_display({}),
         alert_state={},
         server_now=1_700_000_000,
         schedule_repeat_choices=[

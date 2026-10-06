@@ -116,6 +116,13 @@ class TempDatabaseMixin:
         cloud_sync._cloud_has_data = False
         cloud_sync._shrink_refusals = 0
         cloud_sync._lease_touched = 0.0
+        # The backup reading's own memory, for the same reason: a test that
+        # restored, uploaded or refused must not decide the next one's answer.
+        cloud_sync._restored_at = 0.0
+        cloud_sync._last_contact_ts = 0.0
+        cloud_sync._last_refusal_reason = None
+        cloud_sync._last_upload_ts = 0.0
+        cloud_sync._consecutive_upload_failures = 0
         return path
 
     def release_temp_database(self) -> None:
@@ -128,4 +135,9 @@ class TempDatabaseMixin:
         cloud_sync._cloud_has_data = False
         cloud_sync._shrink_refusals = 0
         cloud_sync._lease_touched = 0.0
+        cloud_sync._restored_at = 0.0
+        cloud_sync._last_contact_ts = 0.0
+        cloud_sync._last_refusal_reason = None
+        cloud_sync._last_upload_ts = 0.0
+        cloud_sync._consecutive_upload_failures = 0
         shutil.rmtree(getattr(self, "_temp_dir", ""), ignore_errors=True)

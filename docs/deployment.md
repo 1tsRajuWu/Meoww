@@ -670,3 +670,17 @@ The bot includes automatic cloud sync:
 - `GET /health` -> `uptime`: monitor counts and the weakest 30-day ratio. Counts
   rather than names, because the endpoint is unauthenticated; the rows live in
   `/api/uptime` behind the dashboard's sign-in.
+- `GET /health` -> `backup` (also on `/api/status`, and drawn as a card on the
+  dashboard's Status page): whether the cloud backup is *happening* — one word
+  (`ok`, `waiting`, `unknown`, `unconfigured`, `blocked`, `failing`, `silent`,
+  `unreachable`),
+  when the last upload landed, when the last restore landed (and which object,
+  with how many verified rows), when the backup target last **answered**, how
+  many uploads have failed in a row, and the refusal sentence itself when there
+  is one. This is the one reading here whose failure has no other symptom, which
+  is why it is published rather than left to a host log: a backup that has
+  stopped leaves the bot running and every page correct until the day the copy
+  is needed. `silent` is the state an idle server reaches and the one to alert
+  on — an unchanged database uploads nothing, so only the last *answer* moves
+  (see `SILENT_AFTER` in `utils/cloud_sync.py`). None of it costs a request:
+  the figures are what the sync loop recorded on its own last pass.
