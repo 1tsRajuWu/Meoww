@@ -18,7 +18,7 @@ cogs stay thin.
 | `market.py` | Market | `/market board quote chart buy sell portfolio history` |
 | `meetings.py` | Meetings & Notices | `/meeting create list view reschedule ping cancel` + RSVP buttons |
 | `moderation.py` | Moderation & Logs | `/ban /kick /mute /warn /purge /modlog …` |
-| `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /slowmode /defaultrole …` |
+| `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /check /slowmode /defaultrole …` |
 | `social.py` | Social Roleplay | `/action /marry /ship /hunt /zoo /uwu …` |
 | `tickets.py` | Support Tickets | `/ticket setup` + panel buttons + ratings |
 | `tracker.py` | Activity Tracker | `/activity /activity-top /activity-channel` |

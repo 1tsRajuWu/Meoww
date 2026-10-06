@@ -3,7 +3,7 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import moderation_actions, modlog, permissions, server_control, db
+from utils import moderation_actions, modlog, permissions, security_check, server_control, db
 from utils.style import send_card, display_name
 
 
@@ -116,6 +116,111 @@ def _members_intent_warning(bot) -> str:
     )
 
 
+# ── the audit's card ────────────────────────────────────────────────────
+#
+# `/check` writes its findings into the card's own description, so the ceiling
+# that matters is the description's rather than the embed's, and the card is built
+# to it worst-first: what does not fit is **counted** rather than dropped, because
+# a card that reads as *nothing here* by running out of room is the exact failure
+# this command exists to answer.
+
+#: Discord caps a description at 4,096 characters; the card stops short of it so
+#: the closing *and N more* line always fits under it.
+_CHECK_CARD_LIMIT = 3900
+
+#: The colour the card takes from its worst finding: red for a hole somebody can
+#: walk through right now, amber for something broken, blurple for something worth
+#: knowing, and green only when there is nothing at all.
+_CHECK_COLORS = {
+    security_check.CRITICAL: 0xED4245,
+    security_check.WARNING: 0xFEE75C,
+    security_check.NOTE: 0x5865F2,
+}
+
+
+def _check_findings(report, spent: int) -> str:
+    """The findings the card can hold, worst first, and a count of what it cannot.
+
+    ``spent`` is what the summary above them already cost. Two ceilings apply and
+    either can stop the list: rows per level, so one kind of noise cannot fill the
+    card, and the description's own limit, so the card still sends on a server with
+    a hole in every channel.
+    """
+    parts: list[str] = []
+    omitted = 0
+    for level in security_check.LEVELS:
+        rows = report.of(level)
+        if not rows:
+            continue
+        budget = security_check.ROWS_PER_LEVEL
+        block: list[str] = []
+        for finding in rows:
+            if budget <= 0:
+                omitted += 1
+                continue
+            line = "• " + finding.line()
+            if spent + len(line) + 1 > _CHECK_CARD_LIMIT:
+                omitted += 1
+                continue
+            spent += len(line) + 1
+            budget -= 1
+            block.append(line)
+        if not block:
+            continue
+        heading = f"**{security_check.LEVEL_TITLES[level]}** · {len(rows)}"
+        spent += len(heading) + 1
+        parts.append(heading)
+        parts.extend(block)
+    if omitted:
+        parts.append(
+            f"…and **{omitted}** more — fix what is above, then run `/check` again."
+        )
+    return "\n".join(parts)
+
+
+def _repair_sentence(repaired: dict) -> str:
+    """What a `fix` did, in the same voice as the findings it repaired."""
+    said = []
+    if repaired["relocked"]:
+        said.append(f"wrote the deny again on **{repaired['relocked']}** channel(s)")
+    if repaired["adopted"]:
+        said.append(
+            f"adopted **{repaired['adopted']}** old lock(s) Discord's audit log proves "
+            "are mine"
+        )
+    if repaired["failed"]:
+        said.append(
+            f"**{repaired['failed']}** could not be repaired — I need **Manage Channels** there"
+        )
+    if not said:
+        return "🛠️ Nothing needed repairing: every lock I hold still holds."
+    return "🛠️ Repaired: " + "; ".join(said) + "."
+
+
+def _check_card(report, repaired=None) -> discord.Embed:
+    """The audit as one card: the summary, what a `fix` did, then the findings."""
+    if report.ok:
+        title = "🛡️ Security Check — No Holes Found"
+        color = 0x57F287
+    else:
+        title = f"🛡️ Security Check — {len(report.findings)} finding(s)"
+        color = _CHECK_COLORS[report.worst]
+    description = report.sentence()
+    if repaired is not None:
+        description += "\n\n" + _repair_sentence(repaired)
+    block = _check_findings(report, len(description))
+    if block:
+        description += "\n\n" + block
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_footer(text="DaCat Security")
+    return embed
+
+
 # ``_local_table_counts`` and ``_PLAIN_IDENTIFIER`` used to live here: they were
 # the body of ``/dbstatus``, which this cog happened to host. Both moved to
 # ``utils/dbstats`` when the command became ``/bot dbstatus`` — the report is a
@@ -140,15 +245,17 @@ class ServerControl(commands.Cog):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
             cmd_name = _root_command_name(interaction)
-            # These three belong on this list because asking what a server looks
+            # These four belong on this list because asking what a server looks
             # like has nothing to do with whether the *moderation* module is on —
             # and they are declared always-reachable in
             # ``features.ALWAYS_ALLOWED_COMMANDS``, so the per-server command rule
-            # and the enforcement must agree about them. (``dbstatus`` was a
-            # fourth until it moved under ``/bot``, which is always allowed as a
-            # group; the check below is by root name, so it stopped needing an
-            # entry the moment it stopped being a root.)
-            if cmd_name not in ["serverinfo", "userinfo", "defaultrole"]:
+            # and the enforcement must agree about them. `/check` is the strongest
+            # case of the four: the server whose every system is switched off is
+            # the one whose administrator most needs to read what that costs.
+            # (``dbstatus`` was a fifth until it moved under ``/bot``, which is
+            # always allowed as a group; the check below is by root name, so it
+            # stopped needing an entry the moment it stopped being a root.)
+            if cmd_name not in ["serverinfo", "userinfo", "defaultrole", "check"]:
                 if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                     await interaction.response.send_message(
                         "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
@@ -405,6 +512,65 @@ class ServerControl(commands.Cog):
         )
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
+
+    @app_commands.command(
+        name="check",
+        description="Audit this server for permission holes: leaks, private channels, unenforced locks.",
+    )
+    @app_commands.describe(
+        fix=(
+            "Also repair what can be repaired: write the deny again on the locks "
+            "that can be beaten or were opened by hand, and adopt the old locks "
+            "Discord's audit log proves are mine."
+        )
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def check(self, interaction: discord.Interaction, fix: bool = False):
+        # A read first: the scan walks every channel and asks the database for the
+        # ledger and the log setting, so the card goes up a beat later rather than
+        # inside Discord's three-second window. What `fix` may change is only what
+        # the ledger says was already locked — the two repair lists — plus the old
+        # locks the audit log can prove are this bot's, never a room by guesswork.
+        await interaction.response.defer()
+        guild = interaction.guild
+        report = await security_check.audit(guild, bot=self.bot)
+        repaired = await self._repair(guild, report, _actor(interaction)) if fix else None
+        await send_card(interaction, embed=_check_card(report, repaired))
+
+    async def _repair(self, guild, report, actor) -> dict:
+        """The one write `/check` can make, and it goes through the lock's own door.
+
+        Both lists are channels this server's ledger already holds, so this cannot
+        touch a room nobody asked to be shut: a beaten lock gets its deny back on
+        every overwrite that beat it, and one whose deny was removed by hand gets
+        the deny written again — `hide` follows the channel's own visibility, so a
+        private room is denied `View Channel` on the way past too. The third list —
+        the locks older than the ledger — is handed to the boot's own adoption
+        pass, which asks Discord's audit log who touched each overwrite before it
+        writes a row.
+        """
+        relocked = 0
+        failed = 0
+        for channel in [*report.beaten, *report.loose]:
+            outcome = await server_control.lock_channel(
+                guild, channel, actor, hide=security_check.claims_private(channel)
+            )
+            if outcome.ok:
+                relocked += 1
+            else:
+                failed += 1
+        adopted = []
+        try:
+            adopted = await server_control.adopt_legacy_locks(
+                guild, getattr(self.bot, "user", None)
+            )
+        except Exception as exc:  # noqa: BLE001 — a repair that fails is named, not raised
+            print(
+                f"[CHECK] the adoption pass failed in guild "
+                f"{getattr(guild, 'id', 0)}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+        return {"relocked": relocked, "failed": failed, "adopted": len(adopted)}
 
     # ── the locks older than the ledger ─────────────────────────────────────
     #

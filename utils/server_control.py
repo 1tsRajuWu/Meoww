@@ -131,6 +131,17 @@ def _is_text(channel) -> bool:
     return name in ("text", "news", "public_thread", "private_thread", "forum") or "text" in name
 
 
+def everyone_overwrite(channel):
+    """A channel's `@everyone` overwrite, or ``None`` when it has none.
+
+    Public because `/check` asks the same question the lock asks — *is this room
+    private*, *does this channel still hold its deny* — and a report that read the
+    overwrite its own way could disagree with the engine that writes it. One
+    reader, both callers.
+    """
+    return _everyone_overwrite(channel)
+
+
 def _everyone_overwrite(channel):
     guild = getattr(channel, "guild", None)
     everyone = getattr(guild, "default_role", None)
@@ -180,6 +191,19 @@ def _pair(overwrite):
         except Exception:  # noqa: BLE001 — an unreadable overwrite grants nothing
             return None, None
     return getattr(overwrite, "allow", None), getattr(overwrite, "deny", None)
+
+
+def overwrite_pair(overwrite):
+    """An overwrite's ``(allow, deny)`` bitfields; the one way to read one.
+
+    Public for the same reason :func:`everyone_overwrite` is: on Discord the
+    fields are not attributes but what ``pair()`` returns, and the first version
+    of this engine read them by name, got ``None``, and did nothing on a real
+    server while passing every law. A caller that reads an overwrite through this
+    cannot repeat that — and a stand-in in a test, shaped like Discord's object,
+    fails the same way the real one did.
+    """
+    return _pair(overwrite)
 
 
 def _allows(overwrite, names) -> bool:

@@ -241,6 +241,7 @@ HELP_MODULES = {
             "> `/userinfo [member]` — Member profile, roles, and join date\n"
             "> `/announce <channel> <message>` — Send formatted community announcements\n"
             "> `/lockdown [hide]` & `/unlock` — Emergency channel lockdown; what is sent while locked is removed, and `hide:True` makes the channel private while it is locked\n"
+            "> `/check [fix]` — Audit every channel for permission holes and unenforced locks; `fix:True` repairs the locks it can\n"
             "> `/slowmode <seconds>` — Adjust channel chat cooldown\n"
             "> `/bot sync` — Force re-sync all slash commands directly to this server\n"
             "> `/bot db` — Verify all database tables and default channels\n"

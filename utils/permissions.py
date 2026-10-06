@@ -231,6 +231,13 @@ COMMAND_ACCESS: dict[str, str] = {
     "slowmode": CHANNELS,
     "lockdown-server": ADMIN,
     "unlock-server": ADMIN,
+    # The audit reads every channel's overwrites — who can see a private room,
+    # where a lock can be typed through — and its `fix` may rewrite any channel
+    # the ledger holds, not only the one it was typed in. That is the server-wide
+    # audience `/lockdown-server` has rather than the per-channel one `/lockdown`
+    # has, and it is the audience that can read the answer without being told
+    # about holes they cannot act on.
+    "check": ADMIN,
     "addrole": ROLES,
     "removerole": ROLES,
     "defaultrole set": ADMIN,

@@ -556,6 +556,9 @@ FEATURES: tuple[Feature, ...] = (
             "/serverinfo", "/userinfo", "/bot sync", "/bot db",
             "/legal privacy", "/legal tos", "/bot dbstatus",
             "/defaultrole set", "/defaultrole view", "/defaultrole clear",
+            "/check — Audit every channel for permission holes: the allow that "
+            "beats a deny, the private channel a role can still see, and the lock "
+            "whose deny is gone",
         ),
         toggleable=False,
         help_key="system",
@@ -610,6 +613,11 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     # group it now lives under is core by this same list — `/bot` is always
     # reachable, and so is everything under it.
     "defaultrole",
+    # `/check` reads the server whether or not anything is switched on, and the
+    # server whose systems are all off is the one whose administrator most needs
+    # the reading — `fix` writes only what the lockdown ledger already holds, so
+    # the audit cannot be the thing that changes a room nobody asked to shut.
+    "check",
     # `/cmd` is the index under `/help`, and it has to work in a server where
     # *every* system is switched off: that is exactly the server whose
     # administrator needs to read what there is to switch on. It reads the module
