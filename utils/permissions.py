@@ -232,12 +232,14 @@ COMMAND_ACCESS: dict[str, str] = {
     "lockdown-server": ADMIN,
     "unlock-server": ADMIN,
     # The audit reads every channel's overwrites — who can see a private room,
-    # where a lock can be typed through — and its `fix` may rewrite any channel
-    # the ledger holds, not only the one it was typed in. That is the server-wide
-    # audience `/lockdown-server` has rather than the per-channel one `/lockdown`
-    # has, and it is the audience that can read the answer without being told
-    # about holes they cannot act on.
-    "check": ADMIN,
+    # where a lock can be typed through — and its `fix` may rewrite any channel the
+    # ledger holds, not only the one it was typed in. `ADMIN` was the first answer
+    # and is one rank too wide for it: an administrator is precisely who a security
+    # reading of the server might be *about*, and the report belongs to the one
+    # person Discord calls the owner. `OWNER` is a body check against
+    # `guild.owner_id`; the picker still declares Administrator, because the owner
+    # always holds it and everybody else has no business seeing the name.
+    "check": OWNER,
     "addrole": ROLES,
     "removerole": ROLES,
     "defaultrole set": ADMIN,

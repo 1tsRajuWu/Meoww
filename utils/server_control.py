@@ -131,6 +131,18 @@ def _is_text(channel) -> bool:
     return name in ("text", "news", "public_thread", "private_thread", "forum") or "text" in name
 
 
+def lock_applies(channel) -> bool:
+    """Whether a lockdown is about this channel at all.
+
+    :func:`_is_text` under a public name, because `/check` has to ask the same
+    question the server-wide lockdown asks when it decides what to walk. A voice
+    channel or a category is not a channel a lockdown holds, so a report that told
+    an administrator to run a `fix` on one was pointing at something the adoption
+    pass can never do — a dead end they could reach twice.
+    """
+    return _is_text(channel)
+
+
 def everyone_overwrite(channel):
     """A channel's `@everyone` overwrite, or ``None`` when it has none.
 
@@ -560,6 +572,16 @@ class Report:
         if not self.ok:
             return self.detail or "That did not happen."
         if self.action == "lockdown":
+            if not self.changed and self.already:
+                # A lock that found its own deny already in place changed nothing and
+                # succeeded. Saying so is the whole sentence: before this it read
+                # *Locked 0 channel(s)*, and the per-channel command's card said
+                # Discord had refused a permission nobody asked it for.
+                return (
+                    "Nothing needed changing: it already held this lock."
+                    if self.channels == 1
+                    else "Nothing needed changing: every channel that could be locked already was."
+                )
             said = f"Locked **{self.changed}** channel(s)."
             if self.already:
                 said += f" {self.already} were already locked."
@@ -871,6 +893,16 @@ async def lock_channel(
     if written:
         report.changed = 1
         report.evicted = closed
+        report.ok = True
+        return report
+    if not detail:
+        # Nothing to write, and nothing refused: `_lock_targets` came back empty
+        # because this channel already denies everything the lock denies and no
+        # overwrite hands it back — a second `/lockdown` on a channel that holds, or
+        # a repair whose leak somebody closed by hand a moment before the write. The
+        # row is written either way, which is what makes it mine from here on, so
+        # this is a success with no permission change and not a permission problem.
+        report.already = 1
         report.ok = True
         return report
     report.blocked = 1

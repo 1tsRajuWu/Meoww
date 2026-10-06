@@ -80,6 +80,24 @@ def _lock_warnings(guild, channel) -> str:
     return ("\n\n" + "\n".join(said)) if said else ""
 
 
+def _is_server_owner(interaction: discord.Interaction) -> bool:
+    """Whether the caller is **this server's owner** — the only person `/check` answers.
+
+    Discord has no "owner" permission bit, so this is a body check rather than a
+    decorator, and it is deliberately *not* the application owner's override that
+    `check_is_owner` in the economy cog carries: `/check` reads every overwrite in
+    a server and its `fix` rewrites them, and the person that report belongs to is
+    the one who owns the room it is about. Read from ``guild.owner_id`` rather than
+    ``guild.owner``, which is ``None`` without the Members intent — the check must
+    not depend on a cached member it does not need.
+    """
+    guild = getattr(interaction, "guild", None)
+    who = int(getattr(getattr(interaction, "user", None), "id", 0) or 0)
+    return bool(
+        guild is not None and who and who == int(getattr(guild, "owner_id", 0) or 0)
+    )
+
+
 def _is_staff(guild, member) -> bool:
     """Whether this member is an administrator or the server's owner.
 
@@ -179,7 +197,15 @@ def _check_findings(report, spent: int) -> str:
 
 
 def _repair_sentence(repaired: dict) -> str:
-    """What a `fix` did, in the same voice as the findings it repaired."""
+    """What a `fix` did — and, when it did nothing, **which** nothing it was.
+
+    Three of them look alike on a card and only one means the server is fine: every
+    lock holds, or the old locks it found are ones Discord's audit log says are
+    somebody else's, or the channels it may not touch are the ones that need it. A
+    sentence that folded the last two into *nothing needed repairing* is what a
+    server with an unenforced lock on screen was told, twice, by the report that
+    asked for this command in the first place.
+    """
     said = []
     if repaired["relocked"]:
         said.append(f"wrote the deny again on **{repaired['relocked']}** channel(s)")
@@ -192,8 +218,19 @@ def _repair_sentence(repaired: dict) -> str:
         said.append(
             f"**{repaired['failed']}** could not be repaired — I need **Manage Channels** there"
         )
+    refused = int(repaired.get("refused", 0) or 0)
+    if refused:
+        said.append(
+            f"left **{refused}** old lock(s) alone — they carry a lockdown's "
+            "overwrite and no row, and Discord's audit log names somebody else as "
+            "the last hand on them, so they are not mine to adopt"
+        )
     if not said:
         return "🛠️ Nothing needed repairing: every lock I hold still holds."
+    if not (repaired["relocked"] or repaired["adopted"] or repaired["failed"]):
+        # A refusal is not a repair, and opening the sentence with *Repaired* would
+        # say one had happened.
+        return "🛠️ Nothing was changed: " + "; ".join(said) + "."
     return "🛠️ Repaired: " + "; ".join(said) + "."
 
 
@@ -208,6 +245,15 @@ def _check_card(report, repaired=None) -> discord.Embed:
     description = report.sentence()
     if repaired is not None:
         description += "\n\n" + _repair_sentence(repaired)
+    else:
+        # Which half of the command this card is, said on the card. The two cards read
+        # alike otherwise, and an audit that changed nothing next to a screen full of
+        # holes is the report this command was rewritten for — *did `fix` run?* has to
+        # be answerable from the card itself.
+        description += (
+            "\n\n🔍 **Audit only** — nothing was changed. `/check fix:True` repairs "
+            "what can be repaired."
+        )
     block = _check_findings(report, len(description))
     if block:
         description += "\n\n" + block
@@ -519,13 +565,21 @@ class ServerControl(commands.Cog):
     )
     @app_commands.describe(
         fix=(
-            "Also repair what can be repaired: write the deny again on the locks "
-            "that can be beaten or were opened by hand, and adopt the old locks "
-            "Discord's audit log proves are mine."
+            "True audits and repairs what can be repaired; False only reads. It is "
+            "required so the answer is always on the card: the two runs used to look "
+            "identical, and an option nobody set is an option nobody meant."
         )
     )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def check(self, interaction: discord.Interaction, fix: bool = False):
+    async def check(self, interaction: discord.Interaction, fix: bool):
+        # The server's owner and nobody else: this reads every overwrite in the
+        # server and can rewrite them. Checked before the defer, so an outsider gets
+        # the refusal instead of the report.
+        if not _is_server_owner(interaction):
+            return await interaction.response.send_message(
+                "❌ Only **this server's owner** can run `/check` — it reads every "
+                "overwrite in the server and its `fix` rewrites them.",
+                ephemeral=True,
+            )
         # A read first: the scan walks every channel and asks the database for the
         # ledger and the log setting, so the card goes up a beat later rather than
         # inside Discord's three-second window. What `fix` may change is only what
@@ -570,7 +624,24 @@ class ServerControl(commands.Cog):
                 f"{getattr(guild, 'id', 0)}: {type(exc).__name__}: {exc}",
                 flush=True,
             )
-        return {"relocked": relocked, "failed": failed, "adopted": len(adopted)}
+        # The one line that says a `fix` ran at all, and what it did. Every other
+        # answer to *did it work?* is a card somebody has to scroll to, and the
+        # question this log line was written from is exactly that one asked from
+        # outside the server.
+        print(
+            f"[CHECK] guild {getattr(guild, 'id', 0)}: relocked {relocked}, failed "
+            f"{failed}, adopted {len(adopted)} of "
+            f"{len(getattr(report, 'orphans', []) or [])} old lock(s) considered.",
+            flush=True,
+        )
+        return {
+            "relocked": relocked,
+            "failed": failed,
+            "adopted": len(adopted),
+            # What the pass looked at and did not claim, from the audit's own list:
+            # the card explains a refusal instead of reporting silence.
+            "refused": max(0, len(getattr(report, "orphans", []) or []) - len(adopted)),
+        }
 
     # ── the locks older than the ledger ─────────────────────────────────────
     #

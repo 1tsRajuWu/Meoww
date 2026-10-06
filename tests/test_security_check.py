@@ -312,6 +312,49 @@ class TheLocksTheLedgerHolds(unittest.TestCase):
         self.assertEqual([f.title for f in found], ["looks locked and is not enforced"])
         self.assertEqual((beaten, loose), ([], []))
 
+    def test_an_old_lock_on_a_voice_channel_is_a_note_rather_than_a_repair_promise(self):
+        """A voice channel is not a channel a lockdown holds — `plan()` skips it.
+
+        The old server-wide lockdown wrote its overwrite on every channel it could,
+        voice ones included, so this shape is *evidence* of one and not a lock the
+        sweep can hold: the adoption pass walks text channels, which made a finding
+        that said *run `/check fix:True`* a dead end an administrator could reach
+        twice. It is reported as what it is, with the one command that would make it
+        mine on purpose.
+        """
+        everyone = Role("@everyone")
+        voice = Channel(
+            1, "plus-vc", kind="voice",
+            overwrites={everyone: Overwrite(deny=Bits.NAMES["send_messages"])},
+        )
+        guild = Guild(channels=[voice])
+        guild.default_role = everyone
+
+        found, beaten, loose = security_check.lockdown_findings(guild, [voice], {})
+
+        self.assertEqual((beaten, loose), ([], []))
+        self.assertEqual([f.level for f in found], [security_check.NOTE])
+        self.assertIn("old lockdown", found[0].title)
+        # The one command that *would* make it mine, named — and `fix` named as the
+        # one that will not, which is the whole difference from the warning this
+        # replaced.
+        self.assertIn("`/lockdown`", found[0].detail)
+        self.assertIn("leaves it alone", found[0].detail)
+
+    def test_an_old_lock_i_cannot_manage_names_the_permission_instead_of_fix(self):
+        everyone = Role("@everyone")
+        old = Channel(
+            1, "old", manage=False,
+            overwrites={everyone: Overwrite(deny=Bits.NAMES["send_messages"])},
+        )
+        guild = Guild(channels=[old])
+        guild.default_role = everyone
+
+        found, _beaten, _loose = security_check.lockdown_findings(guild, [old], {})
+
+        self.assertEqual([f.level for f in found], [security_check.WARNING])
+        self.assertIn("Manage Channels", found[0].title)
+
     def test_a_ledger_row_for_a_channel_discord_does_not_send_is_named(self):
         guild = Guild(channels=[Channel(1, "general")])
 
@@ -554,6 +597,37 @@ class TheAudit(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ordered, sorted(ordered))
         self.assertEqual(report.worst, security_check.WARNING)
 
+    async def test_the_audit_names_the_old_locks_adoption_can_consider(self):
+        """`fix` cannot adopt what the pass will not look at, and the card says which.
+
+        The repair sentence is built from this list: *nothing needed repairing* beside
+        a screen still full of unenforced locks is the answer that sent this server's
+        administrator round twice.
+        """
+        guild = self._clean()
+        # `@everyone` is the guild's own object: the engine reads a channel's
+        # overwrite for *that* role, so a fresh look-alike would be a channel with no
+        # overwrite at all and the law would pass for the wrong reason.
+        old = Channel(
+            9, "old",
+            overwrites={
+                guild.default_role: Overwrite(deny=Bits.NAMES["send_messages"])
+            },
+        )
+        guild.channels.append(old)
+        old.guild = guild
+
+        with mock.patch.object(
+            db, "get_setting", new=_settings({"log_channel_id": 5, "default_role_id": 9})
+        ):
+            report = await security_check.audit(guild, bot=_Bot())
+
+        self.assertEqual([channel.name for channel in report.orphans], ["old"])
+        self.assertEqual(
+            [finding.title for finding in report.of(security_check.WARNING)],
+            ["looks locked and is not enforced"],
+        )
+
     async def test_a_ledger_that_cannot_be_read_is_counted_not_swallowed(self):
         guild = self._clean()
 
@@ -612,6 +686,10 @@ class TheCommandAndItsRepair(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
         )
         self.guild = _hardened(Guild(channels=[self.channel]))
         self.guild.me = _me()
+        # The caller is the server's owner: `/check` answers the owner alone, and a
+        # fake that left `owner_id` unset would refuse every law below for a reason
+        # none of them is about.
+        self.guild.owner_id = 42
         self.interaction = _FakeCheck(self.guild, self.channel)
 
     def tearDown(self):
@@ -685,9 +763,14 @@ class TheCommandAndItsRepair(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
         before = await db.lockdown_rows(self.guild.id)
 
         with self._quiet_settings():
-            await ServerControl.check.callback(self.cog, self.interaction)
+            await ServerControl.check.callback(self.cog, self.interaction, False)
 
-        self.assertNotIn("Repaired", self._said())
+        said = self._said()
+        self.assertNotIn("Repaired", said)
+        # …and says that is what it was: a card that reads the same as the last one is
+        # indistinguishable from a `fix` that did nothing.
+        self.assertIn("Audit only", said)
+        self.assertIn("fix:True", said)
         self.assertTrue(self.channel.overwrites[self.normal].pair()[0].send_messages)
         self.assertEqual(await db.lockdown_rows(self.guild.id), before)
 
@@ -711,22 +794,94 @@ class TheCommandAndItsRepair(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
         from cogs.server_control import ServerControl
 
         with self._quiet_settings():
-            await ServerControl.check.callback(self.cog, self.interaction)
+            await ServerControl.check.callback(self.cog, self.interaction, False)
 
         said = self._said()
         self.assertIn("No holes found", said)
         self.assertNotIn("Repaired", said)
 
-    def test_the_audit_is_declared_admin_only_and_always_reachable(self):
+    async def test_old_locks_that_are_not_mine_are_named_rather_than_called_nothing(self):
+        """The pass refuses what Discord says somebody else wrote — and says so.
+
+        This is the answer that sent the report's author round twice: the card said
+        *nothing needed repairing* while channels still carried an old lockdown's
+        overwrite with no row, because the audit log names a person rather than the
+        bot. *Nothing to do* and *nothing I may do* are not the same sentence.
+        """
+        from cogs.server_control import ServerControl
+
+        old = Channel(
+            9, "old",
+            overwrites={self.guild.default_role: Overwrite(deny=Bits.NAMES["send_messages"])},
+        )
+        self.guild.channels.append(old)
+        old.guild = self.guild
+
+        with self._quiet_settings():
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        said = self._said()
+        self.assertNotIn("Nothing needed repairing", said)
+        self.assertIn("Nothing was changed", said)
+        self.assertIn("old lock(s)", said)
+        self.assertIn("audit log names somebody else", said)
+        self.assertEqual(await db.lockdown_rows(self.guild.id), [])
+
+    async def test_only_the_server_owner_can_run_it(self):
+        """An administrator who is not the owner is refused, and nothing is written.
+
+        `/check` reads every overwrite in a server and its `fix` rewrites them, so
+        the audience is the one person Discord's own UI calls the owner — and the
+        refusal has to happen before the defer, or the outsider gets the audit.
+        """
+        from cogs.server_control import ServerControl
+
+        await self._lock_then_leak()
+        before = await db.lockdown_rows(self.guild.id)
+        outsider = _FakeCheck(self.guild, self.channel, user_id=99)
+
+        with self._quiet_settings():
+            await ServerControl.check.callback(self.cog, outsider, True)
+
+        said = " ".join(_payload_text(payload) for payload in outsider.response.messages)
+        self.assertIn("this server's owner", said)
+        self.assertEqual(outsider.followup.messages, [])
+        self.assertTrue(
+            self.channel.overwrites[self.normal].pair()[0].send_messages,
+            "an administrator who is not the owner repaired the channel",
+        )
+        self.assertEqual(await db.lockdown_rows(self.guild.id), before)
+
+    def test_fix_is_a_required_choice_rather_than_a_default(self):
+        """Discord must ask, because a default is what nobody noticed was never set.
+
+        The option was an optional boolean defaulting to `False`: `/check` on its own
+        audited and changed nothing, and the card that came back read exactly like the
+        last one — which is the report this law is written from.
+        """
+        from cogs.server_control import ServerControl
+
+        parameters = {parameter.name: parameter for parameter in ServerControl.check.parameters}
+        self.assertIn("fix", parameters)
+        self.assertTrue(parameters["fix"].required, "fix can still be left unset")
+
+    def test_the_audit_is_declared_owner_only_and_always_reachable(self):
         from utils import features, permissions
 
-        self.assertEqual(permissions.COMMAND_ACCESS["check"], permissions.ADMIN)
+        self.assertEqual(permissions.COMMAND_ACCESS["check"], permissions.OWNER)
         self.assertIn("check", features.ALWAYS_ALLOWED_COMMANDS)
         self.assertIn("check", features.ROOT_COMMANDS)
 
 
 class _Response:
-    """What a deferred interaction's response looks like to `send_card`."""
+    """What a deferred interaction's response looks like to `send_card`.
+
+    ``send_message`` keeps Discord's own signature — the text is positional and the
+    flags are keywords — rather than the keywords-only shape that was convenient
+    here: the refusal `/check` answers an outsider with is a positional sentence,
+    and a stand-in that refused it would fail the law for being unlike the object
+    the bot really talks to.
+    """
 
     def __init__(self):
         self.messages = []
@@ -737,8 +892,8 @@ class _Response:
     async def defer(self, **_payload):
         return None
 
-    async def send_message(self, **payload):
-        self.messages.append(payload)
+    async def send_message(self, content=None, **payload):
+        self.messages.append({**payload, "content": content})
 
 
 class _Followup:

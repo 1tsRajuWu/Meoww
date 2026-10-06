@@ -609,6 +609,31 @@ class ThePerChannelLock(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         await server_control.lock_channel(guild, channel, Actor())
         self.assertEqual(await db.lockdown_rows(guild.id), original)
 
+    async def test_a_second_lock_on_a_channel_that_already_holds_is_not_a_refusal(self):
+        """Nothing to change is not Discord refusing the change.
+
+        The row is written either way — that is what makes the channel mine from
+        here on — so the red *Discord refused the permission change — I need Manage
+        Channels there* card was the command contradicting its own ledger. A
+        `/lockdown` on a channel that already carries the deny (which is how an
+        administrator closes one of the orphans `/check` reports) answered with a
+        permission problem nobody had.
+        """
+        channel = Channel(1, "quiet")
+        guild = Guild(channels=[channel])
+        await server_control.lock_channel(guild, channel, Actor())
+        written = len(channel.calls)
+
+        report = await server_control.lock_channel(guild, channel, Actor())
+
+        self.assertTrue(report.ok, report.sentence())
+        self.assertEqual(report.changed, 0)
+        self.assertEqual(report.already, 1)
+        self.assertEqual(len(channel.calls), written, "a second lock wrote a permission")
+        self.assertIn("Nothing needed changing", report.sentence())
+        self.assertNotIn("refused", report.sentence())
+        self.assertEqual(len(await db.lockdown_rows(guild.id)), 1)
+
     async def test_unlocking_one_channel_leaves_the_others_locked(self):
         first, second = Channel(1, "general"), Channel(2, "memes")
         guild = Guild(channels=[first, second])

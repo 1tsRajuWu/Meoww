@@ -136,6 +136,12 @@ class Audit:
     #: Locked channels whose deny is **gone** but whose row stayed: nothing reads as
     #: locked and the sweep still removes what is posted. `fix` writes the deny again.
     loose: list = field(default_factory=list)
+    #: Channels an old lockdown left its overwrite on with no row, in exactly the
+    #: shape the adoption pass will **consider** — the ones it is allowed to ask the
+    #: audit log about. The card's repair sentence is built from it, because
+    #: *nothing needed repairing* beside a screen still full of unenforced locks is
+    #: read as a bug, and *nothing I may adopt* is a different answer.
+    orphans: list = field(default_factory=list)
     #: Channels walked, so *no holes* can say what it looked at.
     checked: int = 0
     #: Checks that could not be read (a missing ledger, a guild without a member
@@ -342,7 +348,7 @@ def channel_power(guild, channels) -> list:
     return found
 
 
-def lockdown_findings(guild, channels, held) -> tuple[list, list, list]:
+def lockdown_findings(guild, channels, held, *, orphans=None) -> tuple[list, list, list]:
     """What the lockdown ledger looks like from outside, and which locks need repair.
 
     ``held`` is the ledger read once by the caller — ``{channel_id: scope}``, empty
@@ -354,9 +360,17 @@ def lockdown_findings(guild, channels, held) -> tuple[list, list, list]:
     down, so *this room is meant to be shut* is a fact rather than an assumption.
 
     A channel holding the shape of one of our locks with **no row** is the other
-    direction — a lock the sweep walks past — and it is reported rather than
-    repaired here, because only the audit log can say whether it was ours.
+    direction — a lock the sweep walks past. ``orphans`` is the list the adoption
+    pass itself will consider (``adoption_candidates``, asked by :func:`audit` and
+    asked here when it is not passed), and it is what keeps this report honest: a
+    finding may only promise the `fix` the pass can actually make. A voice channel
+    is not a channel a lockdown holds, and a channel I cannot manage is not one I
+    can adopt, so neither is reported under a sentence telling an administrator to
+    run `fix` — which is a dead end they can reach twice.
     """
+    if orphans is None:
+        orphans = server_control.adoption_candidates(guild, set(held))
+    adoptable = {int(getattr(channel, "id", 0) or 0) for channel in orphans}
     found: list = []
     beaten: list = []
     loose: list = []
@@ -416,19 +430,62 @@ def lockdown_findings(guild, channels, held) -> tuple[list, list, list]:
                 )
             )
     for channel in channels:
-        if int(getattr(channel, "id", 0) or 0) in held:
+        channel_id = int(getattr(channel, "id", 0) or 0)
+        if channel_id in held:
             continue
         if not server_control.looks_like_our_lock(server_control.everyone_overwrite(channel)):
+            continue
+        where = f"#{getattr(channel, 'name', '?')}"
+        if channel_id in adoptable:
+            found.append(
+                Finding(
+                    level=WARNING,
+                    where=where,
+                    title="looks locked and is not enforced",
+                    detail=(
+                        "It carries the overwrite one of my old lockdowns left and there is "
+                        "no row for it, so nothing removes what is posted. `/check fix:True` "
+                        "adopts the ones Discord's audit log proves are mine."
+                    ),
+                )
+            )
+            continue
+        if not server_control.lock_applies(channel):
+            # The old server-wide lockdown wrote its overwrite on everything it could,
+            # voice channels included, so this shape is evidence of one rather than a
+            # lock: a lockdown is about text, and this is not a channel one holds.
+            found.append(
+                Finding(
+                    level=NOTE,
+                    where=where,
+                    title=(
+                        "carries the overwrite of an old lockdown and is not a kind of "
+                        "channel one holds"
+                    ),
+                    detail=(
+                        "A lockdown is about text, so the old command left its mark here "
+                        "without ever being able to hold this room — which is why "
+                        "`/check fix:True` leaves it alone. If it should hold here too, "
+                        "`/lockdown` in it is the explicit way to make it mine, and "
+                        "`/unlock` opens it again."
+                    ),
+                )
+            )
             continue
         found.append(
             Finding(
                 level=WARNING,
-                where=f"#{getattr(channel, 'name', '?')}",
-                title="looks locked and is not enforced",
+                where=where,
+                title=(
+                    "looks locked, is not enforced, and I cannot adopt it — I need "
+                    "**Manage Channels** there"
+                ),
                 detail=(
                     "It carries the overwrite one of my old lockdowns left and there is "
-                    "no row for it, so nothing removes what is posted. `/check fix:True` "
-                    "adopts the ones Discord's audit log proves are mine."
+                    "no row for it, so nothing removes what is posted. Adopting one is a "
+                    "permission change of my own, and Discord does not allow me one here, "
+                    "so `/check fix:True` can only adopt the channels I can manage. "
+                    "Grant me **Manage Channels** there and run it again."
                 ),
             )
         )
@@ -661,10 +718,15 @@ async def audit(guild, *, bot=None) -> Audit:
     report.findings.extend(visibility_notes(guild, channels, locked=set(held)))
     report.findings.extend(everyone_power(guild))
     report.findings.extend(channel_power(guild, channels))
-    found, beaten, loose = lockdown_findings(guild, channels, held)
+    # Asked once and handed to the findings rather than asked twice: what a `fix` may
+    # claim is this list, and the report's own sentence about refusing them is built
+    # from the same answer.
+    orphans = server_control.adoption_candidates(guild, set(held))
+    found, beaten, loose = lockdown_findings(guild, channels, held, orphans=orphans)
     report.findings.extend(found)
     report.beaten = beaten
     report.loose = loose
+    report.orphans = orphans
     report.findings.extend(bot_standing(guild))
     report.findings.extend(await settings_findings(guild, bot=bot))
     report.findings.sort(key=lambda finding: LEVELS.index(finding.level))
