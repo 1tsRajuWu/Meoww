@@ -267,6 +267,46 @@ class TheRoomsACategoryOnlyThinksItHides(unittest.TestCase):
         self.assertIn("Sync with category", found[0].detail)
         self.assertIn(youtube.name, found[0].title)
 
+    def test_the_card_promises_the_undo_only_where_the_undo_will_happen(self):
+        """A promise the repair keeps: this room's mark is the old unlock's own.
+
+        The live server's nine rooms carry ``allow Send Messages, deny nothing``
+        exactly — an old `/unlock`'s mark, written 27 times on one September evening
+        — so `fix` can undo them by *removing* that overwrite. A card that told its
+        owner to press **Sync with category** in nine places would be leaving work
+        on the table the bot can do itself.
+        """
+        _guild, _youtube, _synced, edited, _masked = self._rooms()
+
+        found = security_check.hidden_rooms([edited])
+
+        self.assertIn("/check fix:True", found[0].detail)
+        self.assertIn("allow Send Messages, deny nothing", found[0].detail)
+        self.assertTrue(
+            found[0].detail.endswith("takes its category's permissions again."),
+            "the undo is not the repair the card names, so nothing promised it",
+        )
+        self.assertTrue(security_check._is_an_old_unlock(edited))
+
+    def test_a_mark_a_person_made_is_offered_discord_s_repair_and_not_mine(self):
+        """The fingerprint is exact, so somebody else's room is never de-synced.
+
+        A room allowed to send **and** react by hand is not a bug's leftover, and
+        removing its overwrite would be this pass taking away a permission a person
+        chose. It is still a finding — the category's deny does not hold there — but
+        the repair named is Discord's own.
+        """
+        guild, _youtube, _synced, edited, _masked = self._rooms()
+        edited.overwrites[guild.default_role] = Overwrite(
+            allow=Bits.NAMES["send_messages"] | Bits.NAMES["add_reactions"]
+        )
+
+        found = security_check.hidden_rooms([edited])
+
+        self.assertIn("Sync with category", found[0].detail)
+        self.assertNotIn("/check fix:True", found[0].detail)
+        self.assertFalse(security_check._is_an_old_unlock(edited))
+
     def test_a_room_the_category_hides_is_not_also_a_visibility_note(self):
         """One hole, one finding: `visibility_notes` asks the room's own overwrite."""
         guild, _youtube, _synced, edited, _masked = self._rooms()
@@ -864,6 +904,190 @@ class TheCommandAndItsRepair(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
 
         _allow, deny = self.channel.overwrites[self.normal].pair()
         self.assertTrue(deny.view_channel, "a role that could still see it still can")
+
+    async def test_the_old_unlock_is_undone_on_the_server_it_was_written_on(self):
+        """The repair half, driven through the real command callback.
+
+        The shape under test is the live one: a category that denies `@everyone`
+        View Channel, and a room inside it whose own `@everyone` overwrite is
+        exactly what a pre-ledger `/unlock` wrote. `fix` removes that overwrite, the
+        room takes its category's permissions again, and the ledger is not touched —
+        this room was never a lock, so there is no row to move.
+        """
+        from cogs.server_control import ServerControl
+
+        category = Channel(70, "Youtube", kind="category")
+        category.overwrites[self.guild.default_role] = Overwrite(
+            deny=Bits.NAMES["view_channel"]
+        )
+        room = Channel(71, "video-idea")
+        room.overwrites[self.guild.default_role] = Overwrite(
+            allow=Bits.NAMES["send_messages"]
+        )
+        self.guild.channels.extend([category, room])
+        category.guild = self.guild
+        room.guild = self.guild
+        room.category = category
+        before = await db.lockdown_rows(self.guild.id)
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            self.assertEqual(
+                [channel.name for channel in report.strays], ["video-idea"],
+                "the room the pass may undo is not the one the card names",
+            )
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        said = self._said()
+        self.assertIn("Repaired", said)
+        self.assertIn("put **1** room(s) back under their category", said)
+        self.assertNotIn(
+            self.guild.default_role, room.overwrites,
+            "the old unlock's overwrite is still there, so the room is still de-synced",
+        )
+        self.assertIn(
+            self.guild.default_role, category.overwrites,
+            "the category's own deny was touched",
+        )
+        self.assertEqual(
+            await db.lockdown_rows(self.guild.id), before,
+            "undone a stray unlock by rewriting the lockdown ledger",
+        )
+
+    async def test_the_leftover_on_a_public_room_is_named_and_taken_back(self):
+        """The live `#general`: the mark with no category hiding anything — yet.
+
+        Five rooms on the server this was written for are in exactly this state, and
+        none of them is a hole *today*: they are as talkable as their category leaves
+        them. What the mark costs is the future — an overwrite of its own is what
+        stops a room taking its category's permissions, so the next person to hide
+        `Main` watches the deny not hold, which is the report this file was written
+        from. It is a note rather than a critical row, and `fix` still takes it back.
+        """
+        from cogs.server_control import ServerControl
+
+        room = Channel(72, "general-ish")
+        room.overwrites[self.guild.default_role] = Overwrite(
+            allow=Bits.NAMES["send_messages"]
+        )
+        self.guild.channels.append(room)
+        room.guild = self.guild
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            named = [
+                finding
+                for finding in report.findings
+                if finding.level == security_check.NOTE and "general-ish" in finding.where
+            ]
+            self.assertTrue(named, "the leftover was not named at all")
+            self.assertIn("never taken back", named[0].title)
+            self.assertEqual(
+                [channel.name for channel in report.strays], ["general-ish"]
+            )
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        self.assertIn("put **1** room(s) back under their category", self._said())
+        self.assertNotIn(
+            self.guild.default_role, room.overwrites,
+            "the leftover is still there, so the next category change will miss it",
+        )
+
+    async def test_a_room_that_speaks_only_through_the_overwrite_keeps_it(self):
+        """The guard, driven through the command: named on the card, left to a person.
+
+        Where `@everyone`'s own role denies Send Messages, the overlay an old
+        `/unlock` wrote is that room's only source of the permission — so removing it
+        would silence a room rather than put one back. The room is still reported,
+        and the card says the pass will not touch it and what to press instead: a
+        row that promised a repair which then did not happen is the dead end this
+        command was written against.
+        """
+        from cogs.server_control import ServerControl
+
+        self.guild.default_role.permissions = Perms(manage_channels=False, send_messages=False)
+        category = Channel(70, "Youtube", kind="category")
+        category.overwrites[self.guild.default_role] = Overwrite(
+            deny=Bits.NAMES["view_channel"]
+        )
+        room = Channel(71, "video-idea")
+        room.overwrites[self.guild.default_role] = Overwrite(
+            allow=Bits.NAMES["send_messages"]
+        )
+        self.guild.channels.extend([category, room])
+        category.guild = self.guild
+        room.guild = self.guild
+        room.category = category
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            self.assertEqual(
+                report.strays, [], "a room that would go quiet was listed as undoable"
+            )
+            rows = [
+                finding
+                for finding in report.findings
+                if finding.level == security_check.CRITICAL and "video-idea" in finding.where
+            ]
+            self.assertTrue(rows, "the hidden room stopped being a critical finding")
+            self.assertIn("*only* through it", rows[0].detail)
+            self.assertIn("I will not remove it", rows[0].detail)
+            self.assertIn("Sync with category", rows[0].detail)
+            self.assertNotIn(
+                "fix:True` removes it", rows[0].detail,
+                "the card promised a repair the pass will refuse to make",
+            )
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        said = self._said()
+        self.assertNotIn("put **", said)
+        self.assertIn(
+            self.guild.default_role, room.overwrites,
+            "the pass took away the only thing letting that room be spoken in",
+        )
+
+    async def test_a_person_s_own_overwrite_is_never_removed_by_the_pass(self):
+        """A room hidden by its category with a *lock's* deny on it is left alone.
+
+        It is a finding — `@everyone` can still see it — but the overwrite is not the
+        bug's mark, so the pass may not remove it: what the pass undoes is one shape
+        and nothing else.
+        """
+        from cogs.server_control import ServerControl
+
+        category = Channel(70, "Youtube", kind="category")
+        category.overwrites[self.guild.default_role] = Overwrite(
+            deny=Bits.NAMES["view_channel"]
+        )
+        room = Channel(71, "video-idea")
+        room.overwrites[self.guild.default_role] = Overwrite(
+            deny=Bits.NAMES["send_messages"] | Bits.NAMES["create_public_threads"]
+        )
+        self.guild.channels.extend([category, room])
+        category.guild = self.guild
+        room.guild = self.guild
+        room.category = category
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            self.assertEqual(
+                report.strays, [],
+                "a mark the old command never wrote was listed as a stray",
+            )
+            self.assertIn(
+                "video-idea",
+                " ".join(finding.where for finding in report.findings),
+                "the room stopped being a finding, so the list proves nothing",
+            )
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        said = self._said()
+        self.assertNotIn("put **", said, "the pass removed somebody else's overwrite")
+        self.assertIn(self.guild.default_role, room.overwrites)
+        self.assertTrue(
+            room.overwrites[self.guild.default_role].pair()[1].send_messages,
+            "a deny the pass had no business touching was changed",
+        )
 
     async def test_the_reading_alone_changes_nothing(self):
         from cogs.server_control import ServerControl

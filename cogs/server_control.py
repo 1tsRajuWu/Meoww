@@ -209,6 +209,12 @@ def _repair_sentence(repaired: dict) -> str:
     said = []
     if repaired["relocked"]:
         said.append(f"wrote the deny again on **{repaired['relocked']}** channel(s)")
+    released = int(repaired.get("released", 0) or 0)
+    if released:
+        said.append(
+            f"put **{released}** room(s) back under their category, by removing the "
+            "`@everyone` overwrite an old `/unlock` left on them"
+        )
     if repaired["adopted"]:
         said.append(
             f"adopted **{repaired['adopted']}** old lock(s) Discord's audit log proves "
@@ -217,6 +223,15 @@ def _repair_sentence(repaired: dict) -> str:
     if repaired["failed"]:
         said.append(
             f"**{repaired['failed']}** could not be repaired — I need **Manage Channels** there"
+        )
+    strays_refused = int(repaired.get("strays_refused", 0) or 0)
+    if strays_refused:
+        said.append(
+            f"left **{strays_refused}** old `/unlock` overwrite(s) where they are — "
+            + (
+                repaired.get("stray_reason")
+                or "I need **Manage Channels** there to remove them"
+            )
         )
     refused = int(repaired.get("refused", 0) or 0)
     if refused:
@@ -227,9 +242,15 @@ def _repair_sentence(repaired: dict) -> str:
         )
     if not said:
         return "🛠️ Nothing needed repairing: every lock I hold still holds."
-    if not (repaired["relocked"] or repaired["adopted"] or repaired["failed"]):
+    if not (
+        repaired["relocked"]
+        or repaired["adopted"]
+        or repaired["failed"]
+        or released
+    ):
         # A refusal is not a repair, and opening the sentence with *Repaired* would
-        # say one had happened.
+        # say one had happened. An undo of the old unlock *is* a repair, and the only
+        # one here that puts a permission back rather than taking one away.
         return "🛠️ Nothing was changed: " + "; ".join(said) + "."
     return "🛠️ Repaired: " + "; ".join(said) + "."
 
@@ -604,7 +625,10 @@ class ServerControl(commands.Cog):
         private room is denied `View Channel` on the way past too. The third list —
         the locks older than the ledger — is handed to the boot's own adoption
         pass, which asks Discord's audit log who touched each overwrite before it
-        writes a row.
+        writes a row. Its fourth is the only undo here and it is a **bug's**: a room
+        an old `/unlock` de-synced from a category that hides it is returned to the
+        category by removing that overwrite, and nothing is removed unless the
+        overwrite is the old unlock's exact mark.
         """
         relocked = 0
         failed = 0
@@ -616,6 +640,22 @@ class ServerControl(commands.Cog):
                 relocked += 1
             else:
                 failed += 1
+        released = 0
+        strays_refused = 0
+        # The first refusal, kept for the card: *I left one alone* without the reason
+        # is the same dead end the report this command came from was about.
+        stray_reason = ""
+        for channel in list(getattr(report, "strays", None) or []):
+            done, why = await server_control.undo_stray_unlock(guild, channel, actor)
+            if done:
+                released += 1
+            else:
+                strays_refused += 1
+                stray_reason = stray_reason or why
+                print(
+                    f"[CHECK] left #{getattr(channel, 'name', '?')} alone: {why}",
+                    flush=True,
+                )
         adopted = []
         try:
             adopted = await server_control.adopt_legacy_locks(
@@ -633,13 +673,17 @@ class ServerControl(commands.Cog):
         # outside the server.
         print(
             f"[CHECK] guild {getattr(guild, 'id', 0)}: relocked {relocked}, failed "
-            f"{failed}, adopted {len(adopted)} of "
+            f"{failed}, released {released}, strays refused {strays_refused}, adopted "
+            f"{len(adopted)} of "
             f"{len(getattr(report, 'orphans', []) or [])} old lock(s) considered.",
             flush=True,
         )
         return {
             "relocked": relocked,
             "failed": failed,
+            "released": released,
+            "strays_refused": strays_refused,
+            "stray_reason": stray_reason,
             "adopted": len(adopted),
             # What the pass looked at and did not claim, from the audit's own list:
             # the card explains a refusal instead of reporting silence.

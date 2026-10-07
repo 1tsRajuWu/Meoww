@@ -154,6 +154,14 @@ class Audit:
     #: *nothing needed repairing* beside a screen still full of unenforced locks is
     #: read as a bug, and *nothing I may adopt* is a different answer.
     orphans: list = field(default_factory=list)
+    #: Rooms carrying the **exact** mark an old `/unlock` left — *allow Send
+    #: Messages, deny nothing* on `@everyone` — where removing it is an undo.
+    #: This is the one hole a `fix` may undo rather than re-lock, and it can undo it
+    #: because the room had no overwrite of its own before the bug wrote one:
+    #: removing it is what puts the room back under its category. Built from the
+    #: same predicate the pass itself asks (:func:`stray_unlock_is_undoable`), so the
+    #: rooms the card promises to put back are the rooms it puts back.
+    strays: list = field(default_factory=list)
     #: Channels walked, so *no holes* can say what it looked at.
     checked: int = 0
     #: Checks that could not be read (a missing ledger, a guild without a member
@@ -309,12 +317,14 @@ def _keeps(channel) -> str:
     return ", ".join(held)
 
 
-def hidden_rooms(channels) -> list:
+def hidden_rooms(channels, guild=None) -> list:
     """Rooms a category hides and the rooms themselves do not — `@everyone` gets in.
 
     Each one is a **critical** finding rather than a note, and the level is the
     module's own definition of it: the server set a permission it believes is in
-    force, and this room never had it. What the card says about the repair is the
+    force, and this room never had it. What the card says about the repair is what
+    actually repairs it: a room carrying an old `/unlock`'s own mark is put back
+    under its category by `fix`, which removes that overwrite; anything else is the
     repair Discord itself offers — **Sync with category** on the room, or the same
     deny written on the room's own `@everyone` overwrite — because that is what
     makes the deny a fact about the room rather than about its parent.
@@ -324,6 +334,34 @@ def hidden_rooms(channels) -> list:
         if not hidden_by_its_category(channel):
             continue
         parent = category_of(channel)
+        if _is_an_old_unlock(channel):
+            # The one case the bot's own pass can repair: the overwrite that made
+            # this room speak for itself is *its* old unlock's, so removing it
+            # returns the room to the state it was in before the bot wrote it.
+            # Asked of the guild when the caller has one, because on a server whose
+            # `@everyone` cannot send at all that overwrite is this room's only
+            # source of the permission, and the pass refuses to take it away — a
+            # promise the repair cannot keep is the dead end this command was
+            # written against.
+            if guild is not None and not server_control.everyone_can_send(guild):
+                repair = (
+                    "That overwrite is **exactly** the one an old `/unlock` of mine "
+                    "left — *allow Send Messages, deny nothing* — and `@everyone` "
+                    "can send in this room *only* through it, so I will not remove "
+                    "it: **Sync with category** on the room makes the deny hold "
+                    "without silencing anybody."
+                )
+            else:
+                repair = (
+                    "That overwrite is **exactly** the one an old `/unlock` of mine "
+                    "left — *allow Send Messages, deny nothing* — so `/check fix:True` "
+                    "removes it and this room takes its category's permissions again."
+                )
+        else:
+            repair = (
+                "**Sync with category** on the room, or deny `View Channel` on the "
+                "room's own `@everyone` overwrite, is what makes the deny hold."
+            )
         found.append(
             Finding(
                 level=CRITICAL,
@@ -337,13 +375,79 @@ def hidden_rooms(channels) -> list:
                     "why the client's *Sync with category* copies the category's "
                     "permissions **into** the room. The deny is on the category and "
                     f"`@everyone` keeps **{_keeps(channel)}** here, because that is what "
-                    "the server's default permissions leave. **Sync with category** on "
-                    "the room, or deny `View Channel` on the room's own `@everyone` "
-                    "overwrite, is what makes the deny hold."
+                    f"the server's default permissions leave. {repair}"
                 ),
             )
         )
     return found
+
+
+def stray_marks(guild, channels) -> list:
+    """Rooms an old `/unlock` de-synced where **nothing is hidden yet** — the next bug.
+
+    A room the category currently hides is :func:`hidden_rooms`' critical finding, and
+    the same overwrite is what the next complaint will be about: Discord applies a
+    category's permissions to a room that has none of its own, an overlay is what
+    stops that being true, and this one is the bot's own leftover. On the server this
+    was written for, five rooms still carry it — `#general`, `#off-topic`,
+    `#bot-cmd`, `#color-chan-cmd` and `#control-panel` — which is why hiding `Main`
+    or `Voice` one day will quietly not hold, and why the report that asked for this
+    module arrived a week after the command that wrote them.
+
+    A **note** rather than a critical row: nothing is open right now that would be
+    shut, and the room is exactly as talkable as its category leaves it. What is
+    missing is that the category is no longer in charge of it.
+    """
+    found = []
+    for channel in channels:
+        if not _is_an_old_unlock(channel):
+            continue
+        if hidden_by_its_category(channel):
+            # Already a critical finding above, with its own repair sentence.
+            continue
+        parent = category_of(channel)
+        if server_control.stray_unlock_is_undoable(guild, channel):
+            closing = (
+                "Nothing is taken away by removing it here: `@everyone` can already "
+                "send server-wide and nothing else is granted, which is why "
+                "`/check fix:True` removes it."
+            )
+        else:
+            closing = (
+                "`@everyone` can send in this room *only* through it, so I will not "
+                "remove it — **Sync with category** on the room makes its category "
+                "apply again without silencing anybody."
+            )
+        consequence = (
+            f"the next change to **#{getattr(parent, 'name', '?')}** will not reach "
+            "this room"
+            if parent is not None
+            else "this room will not follow the category it is moved into"
+        )
+        found.append(
+            Finding(
+                level=NOTE,
+                where=f"#{getattr(channel, 'name', '?')}",
+                title="carries an old `/unlock` of mine that was never taken back",
+                detail=(
+                    "Its `@everyone` overwrite is exactly what that command wrote — "
+                    "*allow Send Messages, deny nothing* — and an overwrite of its "
+                    "own is what stops a room taking its category's permissions, so "
+                    f"{consequence}. {closing}"
+                ),
+            )
+        )
+    return found
+
+
+def _is_an_old_unlock(channel) -> bool:
+    """Whether this room's own `@everyone` overwrite is an old `/unlock`'s mark.
+
+    Read through the lock engine's own fingerprint (:func:`is_stray_unlock`), so the
+    audit and the undo cannot disagree about which rooms the bug wrote — and so a
+    promise the card makes is the promise the repair keeps.
+    """
+    return server_control.is_stray_unlock(server_control.everyone_overwrite(channel))
 
 
 def _denies(channel, names) -> bool:
@@ -825,7 +929,14 @@ async def audit(guild, *, bot=None) -> Audit:
     held, unread = await _ledger(guild)
     report.unread += unread
     report.findings.extend(visibility_notes(guild, channels, locked=set(held)))
-    report.findings.extend(hidden_rooms(channels))
+    report.findings.extend(hidden_rooms(channels, guild))
+    report.findings.extend(stray_marks(guild, channels))
+    # The rooms a `fix` may put back under their category, from the same predicate the
+    # pass itself asks: the old unlock's exact mark, where removing it takes nothing
+    # away from `@everyone`.
+    report.strays = [
+        channel for channel in channels if server_control.stray_unlock_is_undoable(guild, channel)
+    ]
     report.findings.extend(everyone_power(guild))
     report.findings.extend(channel_power(guild, channels))
     # Asked once and handed to the findings rather than asked twice: what a `fix` may

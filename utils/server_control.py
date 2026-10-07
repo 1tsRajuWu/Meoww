@@ -937,6 +937,57 @@ async def lock_channel(
     return report
 
 
+async def undo_stray_unlock(
+    guild, channel, actor: moderation_actions.Actor | None = None
+) -> tuple[bool, str]:
+    """Take back the `@everyone` overwrite an old `/unlock` left on one room.
+
+    **This is the undo of a bug, not a permission change.** `/unlock` and
+    `/unlock-server` before the ledger opened a room by *allowing* `@everyone` to
+    send — ``set_permissions(everyone, send_messages=True)`` — where the room had
+    no overwrite of its own (the live server shows 27 of them, written minutes
+    apart on one evening in September). Discord stores that as an overwrite in its
+    own right, and an overwrite in its own right is the **de-synced** case: the room
+    stops taking its category's permissions, so a category that hides the room
+    stops hiding it. Removing the overwrite is the only honest undo, because the
+    two states are the same one — the room had no `@everyone` overwrite before.
+
+    Only the exact fingerprint is removed (:func:`is_stray_unlock`), read through
+    the same reader every lock is read through, so this can never take away a
+    lock's deny, an "everything off" mask somebody drew by hand, or a permission a
+    person chose.
+    """
+    overwrite = everyone_overwrite(channel)
+    if overwrite is None:
+        # No overwrite of its own: this room takes its category's permissions
+        # already, which is the state this function exists to reach.
+        return True, ""
+    if not is_stray_unlock(overwrite):
+        return False, (
+            "that room's `@everyone` overwrite is not the one an old `/unlock` "
+            "left — it is not exactly *allow Send Messages, deny nothing*"
+        )
+    if not everyone_can_send(guild):
+        return False, (
+            "`@everyone` can send in that room *only* through this overwrite, so "
+            "removing it would take the permission away rather than put one back"
+        )
+    everyone = getattr(guild, "default_role", None)
+    if everyone is None:
+        return False, "that server has no default role to change"
+    label = actor.label if actor else "the website"
+    try:
+        await channel.set_permissions(
+            everyone,
+            overwrite=None,
+            reason=f"a stray unlock from before the ledger removed by {label}",
+        )
+    except Exception as exc:  # noqa: BLE001 — a refusal is reported, not raised
+        return False, f"{type(exc).__name__}: {exc}"[:200]
+    forget_lock_cache(report_guild_id(guild))
+    return True, ""
+
+
 async def unlock_channel(
     guild, channel, actor: moderation_actions.Actor | None = None
 ) -> Report:
@@ -1099,6 +1150,51 @@ def looks_like_our_lock(overwrite) -> bool:
     if _mask(allow):
         return False
     return _only_lock_bits(deny) and _hide_is_whole(deny)
+
+
+#: The one permission an old `/unlock` ever wrote: ``set_permissions(everyone,
+#: send_messages=True)``. Read off Discord's own enum rather than typed beside it,
+#: the way :data:`LOCK_MASK` is, so the bit and the name cannot drift apart.
+STRAY_UNLOCK_ALLOW: int = int(discord.Permissions.send_messages.flag)
+
+
+def is_stray_unlock(overwrite) -> bool:
+    """Whether an overwrite is exactly what an old `/unlock` left behind.
+
+    ``/unlock`` before the ledger opened a room by *allowing* `@everyone` to send,
+    which Discord writes as an overwrite in its own right — and an overwrite in its
+    own right is the **de-synced** case, so a category that hides the room stops
+    hiding it. The fingerprint is exact rather than a taste: *allow Send Messages
+    and nothing else, deny nothing at all*. A lock's deny fails the first half, any
+    other allowed permission fails it too, and a role's or a member's allow is not
+    `@everyone`'s to begin with.
+    """
+    allow, deny = _pair(overwrite)
+    return _mask(allow) == STRAY_UNLOCK_ALLOW and _mask(deny) == 0
+
+
+def everyone_can_send(guild) -> bool:
+    """Whether `@everyone`'s **own role** allows Send Messages server-wide.
+
+    Every channel's permissions start from this floor. So an overlay that grants a
+    permission the role already grants takes nothing away when it is removed — and
+    where the role does *not* grant it, that overlay is the room's only source of
+    the permission, and removing it would silence the room rather than put one back.
+    On the server this was written for the role grants it, which is why the
+    leftovers there can be undone rather than argued about.
+    """
+    role = getattr(getattr(guild, "default_role", None), "permissions", None)
+    return bool(getattr(role, "send_messages", False))
+
+
+def stray_unlock_is_undoable(guild, channel) -> bool:
+    """Whether this room carries the old unlock's mark **and** removing it is an undo.
+
+    Two facts under one predicate, because a list the card says `fix` will put back
+    has to be exactly the list `fix` puts back: the mark is the bug's, and the
+    removal has to leave `@everyone` able to do everything it could do before.
+    """
+    return is_stray_unlock(everyone_overwrite(channel)) and everyone_can_send(guild)
 
 
 def adoption_candidates(guild, recorded) -> list:

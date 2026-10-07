@@ -134,6 +134,11 @@ class Guild:
         self.id = guild_id
         self.name = "Test Server"
         self.default_role = Role("@everyone")
+        # The server-wide floor, and the one permission of it `@everyone`'s leftover
+        # overwrites are read against: a stand-in that granted nothing would make
+        # every removal look like it took Send Messages away, which is the opposite
+        # of what these laws are about.
+        self.default_role.permissions.send_messages = True
         # My own member, under the id the bot's user carries: a lock never touches
         # it, so a fake where it collided with `@everyone` could not tell.
         self.me = Role("Meow", id=424242)
@@ -713,7 +718,12 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         server_control.forget_spam()
 
     def _everyone(self):
-        return Role("@everyone")
+        # `@everyone` can talk server-wide here, which is the floor every channel's
+        # permissions start from: an overwrite that grants Send Messages where the
+        # role already grants it takes nothing away when it is removed.
+        role = Role("@everyone")
+        role.permissions.send_messages = True
+        return role
 
     def _old_lock(self, everyone, channel_id=1, *, name="quiet", allow=0, kind="text", manage=True):
         """A channel holding exactly the overwrite a pre-ledger `/lockdown` left."""
@@ -844,6 +854,121 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
             ),
             "an allow on Discord's own object did not read as one",
         )
+
+    async def test_the_mark_the_old_unlock_left_is_recognised_and_only_it(self):
+        """The fingerprint of the bug, exact: *allow Send Messages, deny nothing*.
+
+        `/unlock` before the ledger opened a room by ``set_permissions(everyone,
+        send_messages=True)`` — an overwrite in its own right, which is the shape
+        that makes Discord stop applying the room's category to it. The mark is
+        read off Discord's own enum rather than typed beside it, and every other
+        shape is somebody's decision rather than a leftover.
+        """
+        import discord
+
+        send = Bits.NAMES["send_messages"]
+        self.assertTrue(server_control.is_stray_unlock(Overwrite(allow=send)))
+        self.assertFalse(
+            server_control.is_stray_unlock(Overwrite(allow=send, deny=send)),
+            "a mark that also denies something is not what that command wrote",
+        )
+        self.assertFalse(
+            server_control.is_stray_unlock(Overwrite(allow=send | Bits.NAMES["add_reactions"])),
+            "a permission the old command never wrote is a person's choice",
+        )
+        self.assertFalse(
+            server_control.is_stray_unlock(Overwrite(deny=send)), "a lock is not a stray"
+        )
+        self.assertFalse(server_control.is_stray_unlock(Overwrite()))
+        self.assertFalse(server_control.is_stray_unlock(None))
+        self.assertTrue(
+            server_control.is_stray_unlock(discord.PermissionOverwrite(send_messages=True)),
+            "Discord's own object is the shape this has to recognise",
+        )
+
+    async def test_a_room_the_old_unlock_opened_is_returned_to_its_category(self):
+        """The undo: the overwrite is **removed**, which is the state before the bug.
+
+        Nothing else about the room is written — no deny, no allow, no ledger row —
+        because the room had no overwrite at all before that command ran, so
+        removing one *is* the restore.
+        """
+        everyone = self._everyone()
+        channel = Channel(
+            1,
+            "video-idea",
+            overwrites={everyone: Overwrite(allow=Bits.NAMES["send_messages"])},
+        )
+        guild = self._server(everyone, channel)
+
+        done, why = await server_control.undo_stray_unlock(guild, channel, Actor())
+
+        self.assertTrue(done, why)
+        self.assertEqual(why, "")
+        self.assertNotIn(everyone, channel.overwrites, "the old unlock's overwrite is still there")
+        self.assertEqual([call[0] for call in channel.calls], ["set_permissions"])
+        _name, target, overwrite, reason = channel.calls[0]
+        self.assertIs(target, everyone)
+        self.assertIsNone(overwrite)
+        self.assertIn("stray unlock", reason)
+
+    async def test_no_other_overwrite_is_ever_taken_away(self):
+        """Every other shape is somebody's decision, and this is not its undo."""
+        everyone = self._everyone()
+        send = Bits.NAMES["send_messages"]
+        for name, mark in (
+            ("a lock's deny", Overwrite(deny=send)),
+            ("a room allowed to react as well", Overwrite(allow=send | Bits.NAMES["add_reactions"])),
+            ("an overwrite that grants and denies nothing", Overwrite()),
+            ("an administrator's hide", Overwrite(deny=Bits.NAMES["view_channel"] | (1 << 4))),
+        ):
+            with self.subTest(name):
+                channel = Channel(1, "general", overwrites={everyone: mark})
+                guild = self._server(everyone, channel)
+
+                done, why = await server_control.undo_stray_unlock(guild, channel, Actor())
+
+                self.assertFalse(done, f"{name} was removed as a stray unlock")
+                self.assertTrue(why, "a refusal that says nothing is not a refusal")
+                self.assertIn(everyone, channel.overwrites)
+                self.assertEqual(channel.calls, [], f"{name}: a permission was changed")
+
+    async def test_a_server_where_only_that_overwrite_allows_speech_keeps_it(self):
+        """The guard: an undo must not silence a room on the way past.
+
+        Where `@everyone`'s own role denies Send Messages and channels opt in one by
+        one, the overlay an old `/unlock` wrote is that room's **only** source of the
+        permission. Removing it there would take it away rather than put anything
+        back, so it is named and left to a person.
+        """
+        everyone = self._everyone()
+        channel = Channel(
+            1,
+            "video-idea",
+            overwrites={everyone: Overwrite(allow=Bits.NAMES["send_messages"])},
+        )
+        guild = self._server(everyone, channel)
+        everyone.permissions.send_messages = False
+
+        self.assertFalse(server_control.everyone_can_send(guild))
+        self.assertFalse(server_control.stray_unlock_is_undoable(guild, channel))
+        done, why = await server_control.undo_stray_unlock(guild, channel, Actor())
+
+        self.assertFalse(done, "the room was silenced by its own undo")
+        self.assertIn("only", why)
+        self.assertIn(everyone, channel.overwrites)
+        self.assertEqual(channel.calls, [])
+
+    async def test_a_room_with_no_overwrite_of_its_own_is_already_at_rest(self):
+        """The synced case: the category applies, and there is nothing to undo."""
+        everyone = self._everyone()
+        channel = Channel(1, "video-idea")
+        guild = self._server(everyone, channel)
+
+        done, why = await server_control.undo_stray_unlock(guild, channel, Actor())
+
+        self.assertTrue(done, why)
+        self.assertEqual(channel.calls, [], "a permission was changed on a synced room")
 
     async def test_an_administrators_own_deny_is_left_exactly_where_it_is(self):
         everyone = self._everyone()
