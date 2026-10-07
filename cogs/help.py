@@ -242,6 +242,7 @@ HELP_MODULES = {
             "> `/announce <channel> <message>` — Send formatted community announcements\n"
             "> `/lockdown [hide]` & `/unlock` — Emergency channel lockdown; what is sent while locked is removed, and `hide:True` makes the channel private while it is locked\n"
             "> `/check <fix>` — Audit every channel for permission holes and unenforced locks (the server owner's command); `fix:True` repairs the locks it can, `fix:False` only reads\n"
+            "> `/hide [target] [show]` & `/hidden` — Take a room, a category or **the whole server** off every list including the administrators' (the server owner's command), read back what is hidden and who can still see it, and put all of it back\n"
             "> `/claim` — One-time top-up of your own coins and level, once per member; it fills the gap up to 25,000 🪙 and Level 25 and never past them\n"
             "> `/slowmode <seconds>` — Adjust channel chat cooldown\n"
             "> `/bot sync` — Force re-sync all slash commands directly to this server\n"

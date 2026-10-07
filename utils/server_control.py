@@ -1356,6 +1356,15 @@ async def show_channels(guild, channels, actor: moderation_actions.Actor | None 
             report.failures.append(
                 (str(getattr(channel, "name", getattr(channel, "id", "?"))), detail)
             )
+    # A row for a room that no longer exists can never be put back by anybody, and
+    # left standing it would hold the seal **shut**: the ranks come back when the
+    # ledger empties, so a row nothing can release is a row that keeps every new
+    # administrator stripped for good. Deleting it is the only honest reading of
+    # "restore this" for a room that is gone, and the card below says how many.
+    get_channel = getattr(guild, "get_channel", None)
+    for channel_id in list(rows):
+        if callable(get_channel) and get_channel(channel_id) is None:
+            released.append(channel_id)
     report.blocked = len(report.failures)
     try:
         await db.forget_lockdown(report_guild_id(guild), released)
@@ -1383,6 +1392,73 @@ async def show_channels(guild, channels, actor: moderation_actions.Actor | None 
         report.unsealed = outcome["released"]
         report.ranks = outcome["refused"]
     return report
+
+
+async def hide_state(guild) -> dict:
+    """Everything a reading of a server's hides needs, in one pass.
+
+    The three answers a person actually asks for, and each comes from the place
+    that can answer it rather than from the shape of a channel:
+
+    * **what is hidden** — the ledger, not the overwrites. A room whose deny
+      somebody edited back by hand is still *ours to open again*, and a page that
+      read the permissions instead would report the one room the undo can still
+      fix as though nothing had happened to it.
+    * **which rows name a room that is gone** — nothing can release those, and
+      saying so is the difference between *nothing is hidden* and *I am holding a
+      row for a channel you deleted*.
+    * **who can still see it** — the ranks that hold `Administrator` (the ones no
+      overwrite reaches) **and** the ranks a hide has stripped, because a sealed
+      server otherwise reads as *no rank has Administrator any more, apparently*,
+      which is the state the seal exists to create and the one nobody should have
+      to infer.
+    * **whether that is the whole server** — *every channel and every category is
+      off the list* is a different answer from *three rooms are*, and only the
+      guild can say which one it is: a ledger of every room that exists is the
+      whole server, and a ledger of every room but one is not. Computed rather
+      than remembered, so a room added after a bare `/hide` turns a whole server
+      back into a count on its own.
+    """
+    guild_id = report_guild_id(guild)
+    get_channel = getattr(guild, "get_channel", None)
+    try:
+        rows = await db.hide_rows(guild_id)
+    except Exception as exc:  # noqa: BLE001 — the card reports it rather than crashing
+        return {
+            "readable": False,
+            "detail": str(exc),
+            "hidden": [],
+            "gone": [],
+            "whole": False,
+            "sealed": [],
+            "bypass": [],
+        }
+    hidden, gone = [], []
+    for row in rows:
+        channel = get_channel(int(row[0])) if callable(get_channel) else None
+        if channel is None:
+            gone.append(int(row[0]))
+            continue
+        hidden.append(channel)
+    server = [one for one in (getattr(guild, "channels", []) or []) if one is not None]
+    hidden_ids = {int(one.id) for one in hidden}
+    # *Every room that exists is hidden* — and there is at least one room, since an
+    # empty server hides nothing and must not read as *all of it*.
+    whole = bool(server) and all(int(one.id) in hidden_ids for one in server)
+    get_role = getattr(guild, "get_role", None)
+    sealed = []
+    for role_id in await sealed_ranks(guild):
+        role = get_role(role_id) if callable(get_role) else None
+        sealed.append(str(getattr(role, "name", role_id)))
+    return {
+        "readable": True,
+        "detail": "",
+        "hidden": hidden,
+        "gone": gone,
+        "whole": whole,
+        "sealed": sorted(sealed),
+        "bypass": sorted(str(getattr(role, "name", "?")) for role in ranks_that_bypass(guild)),
+    }
 
 
 async def lock_channel(

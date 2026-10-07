@@ -406,8 +406,94 @@ class TheHide(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(everyone, hidden.overwrites, "the hide was not lifted")
         self.assertEqual(
             [row[0] for row in await db.hide_rows(guild.id)],
-            [2],
-            "the row left behind is the room that is gone, and only that one",
+            [],
+            "a row for a room that is gone was left standing, and that is the row "
+            "that holds the seal shut",
+        )
+
+    async def test_a_hidden_room_being_deleted_does_not_hold_the_ranks_shut(self):
+        """The undo's own trap, and the reason a dead row has to go with it: the seal
+        lifts when the ledger empties, so a row nothing can release — a room deleted
+        while it was hidden — would keep every administrator stripped for good."""
+        everyone = Role("@everyone")
+        staff = Role("Staff", id=8, administrator=True)
+        hidden, deleted = Channel(1, "secrets"), Channel(2, "old-room")
+        guild = self._server(hidden, deleted, roles=[staff])
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [hidden, deleted], Actor())
+        guild.gone.add(2)  # deleted while the hide held it
+
+        report = await server_control.show_channels(guild, [hidden], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(await db.hide_rows(guild.id), [], "the dead row stayed")
+        self.assertEqual(
+            report.unsealed, ["Staff"], "the rank was left stripped with nothing to wait for"
+        )
+        self.assertEqual(int(staff.permissions.value), 0x8)
+
+    async def test_the_reading_says_what_is_hidden_and_who_can_still_see_it(self):
+        """`/hidden`: the ledger's answer, not the overwrites' — and both halves of
+        *who can see it*, since a sealed server otherwise reads as *no rank has
+        Administrator any more, apparently*."""
+        everyone = Role("@everyone")
+        staff = Role("Staff", id=8, administrator=True)
+        mine = Role("Meow", id=424242, administrator=True)
+        category = Channel(1, "archive", kind="category")
+        inside = Channel(2, "notes")
+        inside.category = category
+        category.channels = [inside]
+        loose = Channel(3, "general")
+        guild = self._server(category, inside, loose, roles=[staff, mine])
+        guild.default_role = everyone
+        guild.me.roles = [mine]  # the rank the undo needs to keep its own
+
+        before = await server_control.hide_state(guild)
+        self.assertTrue(before["readable"])
+        self.assertEqual(before["hidden"], [])
+        self.assertEqual(before["sealed"], [])
+        self.assertEqual(before["bypass"], ["Meow", "Staff"])
+        self.assertFalse(before["whole"], "a server with nothing hidden read as all of it")
+
+        await server_control.hide_channels(guild, [category, inside], Actor())
+        state = await server_control.hide_state(guild)
+        self.assertEqual([one.id for one in state["hidden"]], [1, 2])
+        self.assertEqual(
+            state["sealed"], ["Staff"], "the stripped rank is missing from the reading"
+        )
+        self.assertEqual(
+            state["bypass"], ["Meow"], "the rank that can still see it is not named"
+        )
+        self.assertEqual(state["gone"], [])
+        self.assertFalse(
+            state["whole"], "two of three rooms read as though the whole server were off"
+        )
+
+    async def test_a_ledger_of_every_room_reads_as_the_whole_server(self):
+        """*Every channel and every category is off the list* is a different answer
+        from *two rooms are*, and only the server can say which one it is — so the
+        reading asks the guild rather than remembering what the hide was called. A
+        room that arrives afterwards turns the whole server back into a count on its
+        own, because a whole server that no longer is one must not keep saying so."""
+        everyone = Role("@everyone")
+        room, second = Channel(1, "general"), Channel(2, "notes")
+        guild = self._server(room, second)
+        guild.default_role = everyone
+
+        await server_control.hide_channels(guild, [room], Actor())
+        half = await server_control.hide_state(guild)
+        self.assertFalse(half["whole"], "one of two rooms read as the whole server")
+
+        await server_control.hide_channels(guild, [second], Actor())
+        whole = await server_control.hide_state(guild)
+        self.assertTrue(
+            whole["whole"], "a ledger holding every room did not read as all of it"
+        )
+
+        arrived = Channel(3, "new-room")
+        guild.channels.append(arrived)
+        self.assertFalse(
+            (await server_control.hide_state(guild))["whole"],
+            "a room that arrived after the hide was counted among the hidden ones",
         )
 
     async def test_a_second_hide_is_not_a_refusal(self):
@@ -2367,6 +2453,33 @@ class TheHideHasThreeWaysIn(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase)
         self.assertIn("stripped of it", said)
         self.assertIn("**Admin**", said, "the card does not name the rank that lost it")
         self.assertIn("everything:True show:True", said)
+
+    async def test_the_reading_names_what_is_hidden_and_the_rank_that_lost_its_sight(self):
+        from cogs.server_control import ServerControl
+
+        await self._hide()
+        self.interaction.response.messages.clear()
+        self.interaction.followup.messages.clear()
+
+        await ServerControl.hidden.callback(self.cog, self.interaction)
+        said = self._said()
+        self.assertIn("off the list", said)
+        self.assertIn(
+            "Every channel and every category",
+            said,
+            "a bare hide of the whole server reads as a count of some rooms",
+        )
+        self.assertIn("**3** in all", said, "the reading does not count what it took")
+        self.assertIn("**Admin**", said, "the reading does not name the stripped rank")
+        self.assertIn("show:True", said, "the reading does not carry the undo")
+
+    async def test_the_reading_is_refused_to_anybody_but_the_owner(self):
+        from cogs.server_control import ServerControl
+
+        self.guild.owner_id = 999  # somebody else owns this server
+        await ServerControl.hidden.callback(self.cog, self.interaction)
+        self.assertIn("Only **this server's owner**", self._said())
+        self.assertEqual(await db.hide_rows(self.guild.id), [])
 
     async def test_showing_it_all_gives_the_rank_its_permissions_back(self):
         await self._hide()

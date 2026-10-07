@@ -253,6 +253,10 @@ COMMAND_ACCESS: dict[str, str] = {
     # back, so it answers to the same person `/check` does and for the same reason:
     # it rewrites the overwrites of a room the report is about.
     "hide": OWNER,
+    # `/hidden` is the same audience as `/hide` for the same reason: it reports which
+    # rooms are off every list and which ranks were stripped to keep them there, and
+    # that describes the server's privacy rather than acting on a member.
+    "hidden": OWNER,
     "addrole": ROLES,
     "removerole": ROLES,
     "defaultrole set": ADMIN,

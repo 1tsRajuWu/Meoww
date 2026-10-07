@@ -230,6 +230,106 @@ def _hide_card(
     return embed
 
 
+def _hidden_card(guild, state) -> discord.Embed:
+    """What is hidden here *right now*, and who can still see it.
+
+    The facts are the ledger's, not the overwrites': a room whose deny somebody put
+    back by hand is still one the undo can open, and a page that read permissions
+    instead would report the one room `/hide show:True` can still fix as though
+    nothing had ever happened to it. Alongside them go the two rank lists that
+    answer *who can see this* — the ranks still holding **Administrator** (the
+    permission no overwrite reaches) and the ranks a hide has stripped, because a
+    sealed server otherwise reads as *apparently no rank has Administrator any
+    more*, which is exactly the state the seal exists to create and the one nobody
+    should have to infer from an absence.
+
+    The undo is on the card too, in the words that would run it: a reading whose
+    reader's next question is always *and how do I put it back* should answer it.
+    """
+    if not state["readable"]:
+        embed = discord.Embed(
+            title="🕶️ What Is Hidden",
+            description=f"I could not read what is hidden here ({state['detail']}).",
+            color=0xED4245,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_footer(text="DaCat Security")
+        return embed
+
+    hidden = list(state["hidden"])
+    # Categories first: a category is why its rooms are off the list, so reading it
+    # first is reading the answer before its parts. Discord's own order inside each
+    # half, untouched.
+    ordered = sorted(
+        hidden,
+        key=lambda one: (not server_control.is_category(one), str(getattr(one, "name", ""))),
+    )
+    lines = []
+    if hidden:
+        if state.get("whole"):
+            # The bare `/hide` case, and the one worth saying out loud: a count of
+            # every room reads as *some rooms* to somebody who was not the one who
+            # ran it, and *the whole server is off the list* is the reading they
+            # actually need. `whole` comes from the ledger meeting the guild, so it
+            # is true only while every room that exists is one of ours.
+            lines.append(
+                "**Every channel and every category** here is off the list — "
+                f"**{len(hidden)}** in all:"
+            )
+        else:
+            lines.append(
+                f"**{len(hidden)}** "
+                + ("room is" if len(hidden) == 1 else "channels and categories are")
+                + " off the list:"
+            )
+        for channel in ordered[:20]:
+            name = str(getattr(channel, "name", "?"))
+            lines.append(
+                f"• **{name}** — a category, with the rooms under it"
+                if server_control.is_category(channel)
+                else f"• #{name}"
+            )
+        if len(ordered) > 20:
+            lines.append(f"• …and {len(ordered) - 20} more.")
+    else:
+        lines.append(
+            "Nothing here is hidden: no room has a row of mine, so every channel "
+            "and category is on everybody's list."
+        )
+    if state["gone"]:
+        lines.append(
+            f"**{len(state['gone'])}** row(s) name a room that no longer exists: there "
+            "is nothing left to put back, and the next undo drops them."
+        )
+    if state["sealed"]:
+        lines.append(
+            "**Administrator** is stripped from "
+            + ", ".join(f"**{one}**" for one in state["sealed"])
+            + " — that is what makes a hidden room hidden from them, since the "
+            "permission itself walks past every overwrite. It comes back when the "
+            "last hidden room does."
+        )
+    if state["bypass"]:
+        lines.append(
+            "Still visible to whoever holds "
+            + ", ".join(f"**{one}**" for one in state["bypass"])
+            + " — a rank an app owns, a rank above mine, or my own rank: the "
+            "permission no overwrite reaches, and the one the undo needs in order to "
+            "work at all. **Server Settings → Roles** can put my rank above theirs, "
+            "and the next `/hide` seals them too."
+        )
+    if hidden:
+        lines.append("Run `/hide show:True` to put all of it back, exactly as it was.")
+    embed = discord.Embed(
+        title="🕶️ What Is Hidden",
+        description="\n\n".join(lines),
+        color=0x5865F2 if hidden else 0x57F287,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_footer(text="DaCat Security")
+    return embed
+
+
 def _is_server_owner(interaction: discord.Interaction) -> bool:
     """Whether the caller is **this server's owner** — the only person `/check` answers.
 
@@ -495,7 +595,15 @@ class ServerControl(commands.Cog):
             # (``dbstatus`` was a fifth until it moved under ``/bot``, which is
             # always allowed as a group; the check below is by root name, so it
             # stopped needing an entry the moment it stopped being a root.)
-            if cmd_name not in ["serverinfo", "userinfo", "defaultrole", "check", "hide"]:
+            if cmd_name not in [
+                "serverinfo", "userinfo", "defaultrole",
+                # `/check` and `/hidden` are one question asked two ways — what this
+                # server's permissions are doing, and what is hidden here — and both
+                # read rather than act, so neither can be the thing a switch hides:
+                # a server whose systems are all off is the one whose owner most
+                # needs the reading.
+                "check", "hide", "hidden",
+            ]:
                 if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                     await interaction.response.send_message(
                         "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
@@ -890,6 +998,30 @@ class ServerControl(commands.Cog):
                 everything=everything,
                 named=str(name or "").strip(),
             ),
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="hidden",
+        description="Read what is hidden here right now, and which ranks can still see it.",
+    )
+    async def hidden(self, interaction: discord.Interaction):
+        """The state rather than the change: what `/hide` is holding, and who sees it.
+
+        Owner-only for the same reason `/check` and `/hide` are — this is the reading
+        of a room's privacy, and the person it belongs to is the one who owns the
+        server. Read-only, so there is no option and no defer: two reads and a card.
+        """
+        if not _is_server_owner(interaction):
+            return await interaction.response.send_message(
+                "❌ Only **this server's owner** can run `/hidden` — it reports what "
+                "is hidden here, and which ranks can still see it.",
+                ephemeral=True,
+            )
+        state = await server_control.hide_state(interaction.guild)
+        await send_card(
+            interaction,
+            embed=_hidden_card(interaction.guild, state),
             ephemeral=True,
         )
 

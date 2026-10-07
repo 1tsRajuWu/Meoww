@@ -624,6 +624,12 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     # the reading — `fix` writes only what the lockdown ledger already holds, so
     # the audit cannot be the thing that changes a room nobody asked to shut.
     "check",
+    # `/hidden` is `/check`'s question asked about the hides specifically — what is
+    # off every list here, and which ranks can still see it — and it reads the ledger
+    # rather than changing anything, so it belongs beside `/check` for the same
+    # reason: the server whose systems are all switched off is the one whose owner
+    # most needs the reading, and a reading a switch can hide is a reading that lies.
+    "hidden",
     # `/cmd` is the index under `/help`, and it has to work in a server where
     # *every* system is switched off: that is exactly the server whose
     # administrator needs to read what there is to switch on. It reads the module
