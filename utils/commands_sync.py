@@ -33,6 +33,18 @@ DEFAULTED_KEYS = frozenset({"options", "required", "nsfw"})
 #: us is never a change.
 RESOLVED_KEYS = frozenset({"contexts", "integration_types"})
 
+#: Keys whose list Discord **stores in its own order** rather than the order we
+#: send it. discord.py declares a ``GuildChannel`` parameter's types in its own
+#: union order — ``/hide``'s ``target`` goes out as ``[13, 2, 0, 5, 4, 15, 16]``
+#: — and Discord hands them back sorted (``[0, 2, 4, 5, 13, 15, 16]``). Every
+#: other list is compared element-wise and order-sensitively, which is right for
+#: options and subcommands, so without this rule a command carrying one reads
+#: back as stale on **every** boot and re-uploads itself forever, spending the
+#: daily write budget on a change that can never be made. That is exactly the
+#: permanently-out-of-date shape ``/structure`` was reported with (see
+#: ``CHANGELOG.md``); ``/hide`` is the only command left that carries one.
+UNORDERED_KEYS = frozenset({"channel_types"})
+
 #: Deprecated fields discord.py still sends but Discord no longer returns.
 IGNORED_KEYS = frozenset({"dm_permission"})
 
@@ -83,13 +95,31 @@ def _same_value(local, remote) -> bool:
     return False
 
 
+def _same_unordered(local, remote) -> bool:
+    """Whether two lists hold the same items, in any order.
+
+    For the keys in :data:`UNORDERED_KEYS` alone — everywhere else a list is
+    compared element-wise, because that is how Discord stores options and
+    subcommands. ``key=repr`` rather than a plain sort so a list that ever mixes
+    types cannot raise where an answer of yes or no is the whole contract.
+    """
+    if not isinstance(local, (list, tuple)) or not isinstance(remote, (list, tuple)):
+        return False
+    if len(local) != len(remote):
+        return False
+    left = sorted(local, key=repr)
+    right = sorted(remote, key=repr)
+    return all(_same_value(one, two) for one, two in zip(left, right))
+
+
 def matches(local, remote) -> bool:
     """Whether one locally-defined command matches its registered counterpart.
 
     Every key we *send* must be present and equal on the server; keys the server
     adds on its own, drops when default, or no longer returns at all are ignored
     (see the constants above). Lists are compared element-wise and
-    order-sensitively, which is how Discord stores options and subcommands.
+    order-sensitively, which is how Discord stores options and subcommands —
+    except the keys in :data:`UNORDERED_KEYS`, which Discord sorts itself.
     """
     if isinstance(local, dict):
         if not isinstance(remote, dict):
@@ -108,7 +138,12 @@ def matches(local, remote) -> bool:
                 if remote.get(key) is None:
                     continue
                 return False
-            if key not in remote or not matches(value, remote[key]):
+            if key not in remote:
+                return False
+            if key in UNORDERED_KEYS:
+                if not _same_unordered(value, remote[key]):
+                    return False
+            elif not matches(value, remote[key]):
                 return False
         return True
     if isinstance(local, list):

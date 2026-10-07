@@ -827,6 +827,33 @@ class CommandComparison(unittest.TestCase):
 
         self.assertEqual(commands_sync.diff(local, reordered), ([], ["eco-admin"]))
 
+    def test_channel_types_are_compared_without_their_order(self):
+        """Discord stores ``channel_types`` sorted; discord.py declares its own order.
+
+        ``/hide``'s ``target`` is a ``GuildChannel`` union, written as
+        ``[13, 2, 0, 5, 4, 15, 16]`` and read back as ``[0, 2, 4, 5, 13, 15,
+        16]``. Compared element-wise that is a difference that can never be
+        removed, so the command re-uploads on every boot (``UNORDERED_KEYS``).
+        """
+        local = [{"name": "hide", "description": "d", "options": [
+            {"name": "target", "type": 7, "channel_types": [13, 2, 0, 5, 4, 15, 16]}]}]
+        remote = [{"name": "hide", "description": "d", "options": [
+            {"name": "target", "type": 7, "channel_types": [0, 2, 4, 5, 13, 15, 16]}]}]
+
+        self.assertEqual(commands_sync.diff(local, remote), ([], []))
+
+    def test_a_channel_type_that_really_changed_is_still_a_change(self):
+        """Order-insensitive is not order-blind: a different set still differs."""
+        local = [{"name": "hide", "description": "d", "options": [
+            {"name": "target", "type": 7, "channel_types": [0, 2]}]}]
+        other_type = [{"name": "hide", "description": "d", "options": [
+            {"name": "target", "type": 7, "channel_types": [0, 5]}]}]
+        fewer_types = [{"name": "hide", "description": "d", "options": [
+            {"name": "target", "type": 7, "channel_types": [0]}]}]
+
+        self.assertEqual(commands_sync.diff(local, other_type), ([], ["hide"]))
+        self.assertEqual(commands_sync.diff(local, fewer_types), ([], ["hide"]))
+
     def test_the_summary_names_what_changed(self):
         local = [{"name": "beg", "description": "d"}, {"name": "loan", "description": "new"}]
         remote = [{"name": "loan", "description": "old"}]
@@ -851,6 +878,64 @@ class TheRealTreeRoundTrips(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(
                 commands_sync.is_up_to_date(local, echo),
                 f"our own payload would trigger a rewrite: "
+                f"{commands_sync.summary(local, echo)}",
+            )
+        finally:
+            await bot.close()
+
+    async def test_discord_sorting_our_channel_types_needs_no_rewrite(self):
+        """The echo Discord actually sends for a channel option is not a change.
+
+        The law above adds only the keys the server attaches; this one also
+        applies Discord's own normalisation — ``channel_types`` come back
+        ascending — because without it ``/hide`` (the command that carries a
+        ``GuildChannel`` union) read back as stale on every read and re-uploaded
+        itself on every boot. Pinned on the real tree, not a hand-written pair,
+        so a future channel parameter cannot quietly reintroduce it.
+        """
+
+        def as_discord_stores(payload):
+            if isinstance(payload, dict):
+                echo = {key: as_discord_stores(value) for key, value in payload.items()}
+                types = echo.get("channel_types")
+                if isinstance(types, list):
+                    echo["channel_types"] = sorted(types)
+                return echo
+            if isinstance(payload, list):
+                return [as_discord_stores(item) for item in payload]
+            return payload
+
+        def carries_channel_types(payload) -> bool:
+            stack = [payload]
+            while stack:
+                node = stack.pop()
+                if isinstance(node, dict):
+                    if "channel_types" in node:
+                        return True
+                    stack.extend(node.values())
+                elif isinstance(node, list):
+                    stack.extend(node)
+            return False
+
+        bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+        for cog in features.cog_paths():
+            await bot.load_extension(cog)
+        try:
+            local = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
+            carrying = [c["name"] for c in local if carries_channel_types(c)]
+            self.assertIn(
+                "hide", carrying,
+                "no command carries a channel option any more — this law has "
+                "nothing left to prove and should be retired with its reason",
+            )
+            echo = [
+                dict(as_discord_stores(payload), id=str(index), application_id="1",
+                     guild_id="2", version="3")
+                for index, payload in enumerate(local)
+            ]
+            self.assertTrue(
+                commands_sync.is_up_to_date(local, echo),
+                f"Discord's own echo would trigger a rewrite: "
                 f"{commands_sync.summary(local, echo)}",
             )
         finally:
