@@ -957,6 +957,26 @@ def hidden_scope(guild, target) -> list:
     return channels
 
 
+def whole_server_scope(guild) -> list:
+    """Every channel one `/hide everything` covers: the categories and the rooms.
+
+    The one scope with no target to read, because the command was asked for all of
+    them. Containers are in here beside their contents on purpose: a category is a
+    room like any other to a permission overwrite, and a hide that took only the
+    rooms would leave every heading on the sidebar standing over nothing.
+
+    Discord's own order is kept rather than sorted into containers first, and the
+    list is not filtered by what the bot may manage: a channel it cannot change is
+    a refusal on the card — *what did not happen* is part of the answer — while a
+    channel quietly dropped from the loop is a room the reader believes is hidden.
+    """
+    return [
+        channel
+        for channel in (getattr(guild, "channels", []) or [])
+        if channel is not None
+    ]
+
+
 def ranks_that_bypass(guild) -> list:
     """The roles whose members still see a hidden room, because Discord says so.
 
@@ -1053,6 +1073,31 @@ async def hide_channels(guild, channels, actor: moderation_actions.Actor | None 
     if not report.ok:
         report.detail = "Discord refused every channel — I need **Manage Channels** there."
     return report
+
+
+async def hidden_channels(guild) -> list:
+    """The channels this server's own hide ledger is holding, live ones only.
+
+    The undo's scope, and it deliberately **cannot** be the server's channel list:
+    `/hide everything show:True` is an undo, and a room the ledger never hid has
+    nothing to put back — walking all of them would answer a room that was never
+    hidden with *nothing of mine is hidden here* once per room and bury the ones
+    that were. Read from the ledger and resolved through the guild, so a room
+    deleted while it was hidden costs nothing, and a ledger nobody can read is a
+    report on the card rather than a crash.
+    """
+    try:
+        rows = await db.hide_rows(report_guild_id(guild))
+    except Exception as exc:  # noqa: BLE001 — an unreadable ledger is reported by the caller
+        print(f"[CONTROL] could not read the hide ledger: {exc}", flush=True)
+        return []
+    get_channel = getattr(guild, "get_channel", None)
+    found = []
+    for row in rows:
+        channel = get_channel(int(row[0])) if callable(get_channel) else None
+        if channel is not None:
+            found.append(channel)
+    return found
 
 
 async def show_channels(guild, channels, actor: moderation_actions.Actor | None = None) -> Report:

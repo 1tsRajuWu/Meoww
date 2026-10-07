@@ -3,7 +3,15 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from utils import moderation_actions, modlog, permissions, security_check, server_control, db
+from utils import (
+    bot_channels,
+    db,
+    moderation_actions,
+    modlog,
+    permissions,
+    security_check,
+    server_control,
+)
 from utils.style import send_card, display_name
 
 
@@ -80,7 +88,9 @@ def _lock_warnings(guild, channel) -> str:
     return ("\n\n" + "\n".join(said)) if said else ""
 
 
-def _hide_card(guild, report, target, *, show: bool) -> discord.Embed:
+def _hide_card(
+    guild, report, target, *, show: bool, everything: bool = False, named: str = ""
+) -> discord.Embed:
     """What `/hide` did, and the one fact it cannot change.
 
     The paragraph about rank is not boilerplate, it is Discord's rule: **the
@@ -91,45 +101,80 @@ def _hide_card(guild, report, target, *, show: bool) -> discord.Embed:
     hold it instead — read off their own permissions, so a server that calls the
     rank something else is answered the same way and a server whose rank is not an
     administrator is told plainly that this hides it from them too.
+
+    Three ways in reach this card — one `target`, one `name` the picker would not
+    reach, and `everything` — so the **undo is written in the words that would run
+    it**. A reader who has just taken thirty rooms off the list is not going to work
+    the syntax back out from a hint, and the three are not interchangeable: a
+    `name:` undo is the one route that does not need the picker at all.
     """
-    name = str(getattr(target, "name", "that channel"))
-    holder = "category" if server_control.is_category(target) else "channel"
+    if everything:
+        name = str(getattr(guild, "name", "this server"))
+        holder = "server"
+        undo = "Run `/hide everything:True show:True` to put every one of them back."
+    else:
+        name = str(getattr(target, "name", "that channel"))
+        holder = "category" if server_control.is_category(target) else "channel"
+        undo = (
+            f"Run `/hide name: {named} show:True` to put the visibility back."
+            if named
+            else f"Run `/hide target: {name} show:True` to put the visibility back."
+        )
     if show:
         title = "👁️ Visibility Restored"
         body = report.sentence()
-        tail = (
-            f"{name} is back exactly as it was: every overwrite the hide rewrote, "
-            "for a role or a member as much as for `@everyone`, is what the ledger "
-            "says was there before."
-        )
+        if everything:
+            tail = (
+                "Every room the ledger held is back exactly as it was: every "
+                "overwrite the hide rewrote, for a role or a member as much as for "
+                "`@everyone`, is what the ledger says was there before."
+            )
+        else:
+            tail = (
+                f"{name} is back exactly as it was: every overwrite the hide rewrote, "
+                "for a role or a member as much as for `@everyone`, is what the ledger "
+                "says was there before."
+            )
     else:
         title = "🙈 Hidden"
         body = report.sentence()
         ranks = server_control.ranks_that_bypass(guild)
-        named = sorted({f"**{getattr(role, 'name', '?')}**" for role in ranks})
+        shown = sorted({f"**{getattr(role, 'name', '?')}**" for role in ranks})
+        # One subject, three scopes: a whole server cannot be called *this
+        # channel*, and the sentence that follows a category and the sentence that
+        # follows one room differ only in that word.
+        subject = (
+            "Every channel and every category in this server is off every role's list"
+            if everything
+            else f"This {holder} is off every role's list"
+        )
         if ranks:
             tail = (
-                f"This {holder} is off every role's list, and off the `@everyone` "
-                f"everyone here has: no member without **Administrator** can see it, "
-                f"and nobody can post in it. Still visible to whoever holds "
-                f"{', '.join(named)}, and to this server's owner — Discord exempts "
-                "that permission from channel overwrites, so no overwrite can take "
-                "it from them. Remove **Administrator** from those ranks and they "
-                "lose it too.\n\n"
-                f"Run `/hide target: {name} show:True` to put the visibility back."
+                f"{subject}, and off the `@everyone` everyone here has: no member "
+                f"without **Administrator** can see it, and nobody can post in it. "
+                f"Still visible to whoever holds {', '.join(shown)}, and to this "
+                "server's owner — Discord exempts that permission from channel "
+                "overwrites, so no overwrite can take it from them. Remove "
+                "**Administrator** from those ranks and they lose it too.\n\n"
+                f"{undo}"
             )
         else:
             tail = (
-                f"This {holder} is off every role's list and off `@everyone`: nobody "
-                "here holds **Administrator**, so no role and no member can see or "
-                "post in it now — only you, because this server's owner is exempt "
-                "from channel overwrites by Discord's own rule.\n\n"
-                f"Run `/hide target: {name} show:True` to put the visibility back."
+                f"{subject} and off `@everyone`: nobody here holds "
+                "**Administrator**, so no role and no member can see or post in it "
+                "now — only you, because this server's owner is exempt from channel "
+                "overwrites by Discord's own rule.\n\n"
+                f"{undo}"
             )
     if report.failures:
         listed = "\n".join(
             f"• **{str(one)[:80]}** — {str(why)[:160]}" for one, why in report.failures[:8]
         )
+        if len(report.failures) > 8:
+            # Only reachable from a whole-server run: eight rooms named and the
+            # rest counted, because a list that stops without saying so reads as
+            # the whole answer.
+            listed += f"\n• …and {len(report.failures) - 8} more."
         tail += f"\n\nWhat did not happen:\n{listed}"
     embed = discord.Embed(
         title=title,
@@ -705,12 +750,16 @@ class ServerControl(commands.Cog):
     )
     @app_commands.describe(
         target="The channel or category to hide. A category takes its rooms with it.",
+        name="A channel or category by name, <#id> or id, for one the picker will not reach.",
+        everything="Hide every channel and category in this server, not just one target.",
         show="True puts the visibility back instead of hiding the target.",
     )
     async def hide(
         self,
         interaction: discord.Interaction,
-        target: discord.abc.GuildChannel,
+        target: discord.abc.GuildChannel | None = None,
+        name: str | None = None,
+        everything: bool = False,
         show: bool = False,
     ):
         # The server's owner and nobody else, for the same reason `/check` is:
@@ -723,18 +772,81 @@ class ServerControl(commands.Cog):
                 "off every role's list, and puts it back.",
                 ephemeral=True,
             )
+        # Three ways to say what to hide and only ever one of them, refused before
+        # the defer because there is no work to wait for: `everything` is already
+        # an answer about the whole list, so a target beside it is two different
+        # answers to one question, and `target` with `name` is the picker and the
+        # typewriter disagreeing. A card would imply something had happened.
+        given = [
+            label
+            for label, said in (
+                ("target", target is not None),
+                ("name", bool(str(name or "").strip())),
+                ("everything", bool(everything)),
+            )
+            if said
+        ]
+        if len(given) > 1:
+            return await interaction.response.send_message(
+                "❌ One way in at a time — "
+                + ", ".join(f"`{one}`" for one in given)
+                + " were all given, and each names something different. "
+                "`everything:True` already covers every channel and category there is.",
+                ephemeral=True,
+            )
+        if not given:
+            return await interaction.response.send_message(
+                "❌ Say what to hide: a `target` from the picker, a `name`, or "
+                "`everything:True` for every channel and category in this server.",
+                ephemeral=True,
+            )
+        guild = interaction.guild
+        if name:
+            # The second way in, and it exists because the picker's list is a long
+            # one: it is ordered by position across the whole server, so a server
+            # with twenty-odd rooms puts its categories past the bottom of what
+            # anybody scrolls to, and the category they wanted reads as missing.
+            # The binder's own resolver, so the name a server gave a channel is
+            # read here exactly as `/add` reads it.
+            target = bot_channels.find_channel(
+                list(getattr(guild, "channels", []) or []), name
+            )
+            if target is None:
+                return await interaction.response.send_message(
+                    f"❌ Nothing here is called `{name}` — a channel or category "
+                    "name (decorations ignored), a `<#id>` or an id all work.",
+                    ephemeral=True,
+                )
         # A category hides its rooms too, so the work is a loop over channels and
         # the card goes up a beat later rather than inside Discord's three-second
         # window.
         await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
-        rooms = server_control.hidden_scope(guild, target)
+        if everything:
+            # Two different scopes wearing one answer: hiding everything is the
+            # server's own channel list, and putting it back is the ledger's, so a
+            # room that was never hidden is not reported as a refusal.
+            rooms = (
+                await server_control.hidden_channels(guild)
+                if show
+                else server_control.whole_server_scope(guild)
+            )
+        else:
+            rooms = server_control.hidden_scope(guild, target)
         if show:
             report = await server_control.show_channels(guild, rooms, _actor(interaction))
         else:
             report = await server_control.hide_channels(guild, rooms, _actor(interaction))
         await send_card(
-            interaction, embed=_hide_card(guild, report, target, show=show), ephemeral=True
+            interaction,
+            embed=_hide_card(
+                guild,
+                report,
+                target,
+                show=show,
+                everything=everything,
+                named=str(name or "").strip(),
+            ),
+            ephemeral=True,
         )
 
     async def _repair(self, guild, report, actor) -> dict:

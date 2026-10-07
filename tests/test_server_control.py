@@ -336,6 +336,64 @@ class TheHide(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
             [room.id for room in server_control.hidden_scope(guild, elsewhere)], [3]
         )
 
+    async def test_a_whole_server_hide_covers_the_categories_and_the_rooms(self):
+        """`everything` has no target to read, so the scope is the server itself.
+
+        Containers belong in the loop beside their contents — a category is a room
+        like any other to an overwrite, and hiding only the rooms would leave every
+        heading standing over nothing — and a channel the bot cannot change stays
+        **in** it: that is a refusal named on the card, where a channel quietly
+        dropped out of the loop is a room the reader believes is hidden.
+        """
+        everyone = Role("@everyone")
+        category = Channel(1, "archive", kind="category")
+        inside = Channel(2, "notes")
+        inside.category = category
+        blocked = Channel(3, "theirs", manage=False)
+        category.channels = [inside]
+        guild = self._server(category, inside, blocked)
+        guild.default_role = everyone
+        self.assertEqual(
+            [room.id for room in server_control.whole_server_scope(guild)], [1, 2, 3]
+        )
+        report = await server_control.hide_channels(
+            guild, server_control.whole_server_scope(guild), Actor()
+        )
+        self.assertEqual(report.changed, 3, report.detail)
+        for channel in (category, inside, blocked):
+            self.assertIs(
+                channel.overwrites[everyone].view_channel, False, channel.name
+            )
+
+    async def test_the_undo_of_a_whole_server_hide_is_the_ledger_not_the_list(self):
+        """`show` over everything reads what was hidden, not what exists.
+
+        A room the ledger never hid has nothing to put back, so walking the
+        server's own channel list would answer *nothing of mine is hidden here*
+        once per room and bury the ones that were hidden — and a room deleted while
+        the hide held it costs nothing at all.
+        """
+        everyone = Role("@everyone")
+        hidden = Channel(1, "secrets")
+        deleted = Channel(2, "old-room")
+        never = Channel(3, "general")
+        guild = self._server(hidden, deleted, never)
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [hidden, deleted], Actor())
+        guild.gone.add(2)
+        held = await server_control.hidden_channels(guild)
+        self.assertEqual([room.id for room in held], [1], "the ledger was not read")
+        report = await server_control.show_channels(guild, held, Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.restored, 1)
+        self.assertEqual(report.failures, [], "a room that was never hidden was walked")
+        self.assertNotIn(everyone, hidden.overwrites, "the hide was not lifted")
+        self.assertEqual(
+            [row[0] for row in await db.hide_rows(guild.id)],
+            [2],
+            "the row left behind is the room that is gone, and only that one",
+        )
+
     async def test_a_second_hide_is_not_a_refusal(self):
         everyone = Role("@everyone")
         channel = Channel(1, "secrets")
@@ -514,20 +572,30 @@ class _AuditLog:
 class _Response:
     def __init__(self):
         self.messages = []
+        self.deferred = 0
 
     def is_done(self):
         return False
 
-    async def send_message(self, **payload):
-        self.messages.append(payload)
+    async def defer(self, **_kwargs):
+        # A deferred reply is still a reply: `/hide` defers because its work is a
+        # loop over every room in the server, and a fake without this would answer
+        # the three-second window with an ``AttributeError`` instead of a card.
+        self.deferred += 1
+
+    async def send_message(self, content=None, **payload):
+        # Discord's own signature is positional-first, and a fake that took only
+        # keyword arguments answered a refusal with a ``TypeError`` — the shape of
+        # fake that turns a law into a statement about the fake.
+        self.messages.append({"content": content, **payload})
 
 
 class _Followup:
     def __init__(self):
         self.messages = []
 
-    async def send(self, **payload):
-        self.messages.append(payload)
+    async def send(self, content=None, **payload):
+        self.messages.append({"content": content, **payload})
 
 
 class _FakeInteraction:
@@ -2040,6 +2108,101 @@ class TheCommandAndTheListenerAreOnePath(TempDatabaseMixin, unittest.IsolatedAsy
         self.assertIn("hidden", said, "the card does not say the channel was hidden")
         self.assertIn("unlock", said, "the card does not say how to bring it back")
         self.assertIs(self.channel.overwrites[self.guild.default_role].view_channel, False)
+
+
+class TheHideHasThreeWaysIn(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """`/hide` driven through its real callback, for the two ways in that are new.
+
+    The complaint this came from is not a permission and not a deny that failed to
+    land: *"it doesn't have the category that I wanna hide or all the channels"*.
+    The picker is one long list ordered by position across the whole server, so a
+    server with twenty-odd rooms puts its **categories** past the bottom of what
+    anybody scrolls to, and the one a reader wanted reads as missing. So there are
+    three ways to say what to hide — the picker (`target`), a name (`name`) and all
+    of them (`everything`) — and **one at a time**: two answers to one question is a
+    command that cannot say which one it followed, and that has to be a refusal
+    before anything is written rather than a card implying work happened.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+        from cogs.server_control import ServerControl
+
+        self.everyone = Role("@everyone")
+        # Named the way a server names one, because the point of the name path is
+        # that the decoration is not something a person types.
+        self.category = Channel(1, "📁・archive", kind="category")
+        self.inside = Channel(2, "notes")
+        self.inside.category = self.category
+        self.category.channels = [self.inside]
+        self.loose = Channel(3, "general")
+        self.guild = Guild(channels=[self.category, self.inside, self.loose])
+        # The person who owns this server, which is the only one `/hide` answers.
+        self.guild.owner_id = 42
+        self.guild.default_role = self.everyone
+        self.cog = ServerControl(bot=_FakeBot(enabled=True))
+        self.interaction = _FakeInteraction(self.guild, self.loose)
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def _said(self) -> str:
+        payloads = self.interaction.response.messages + self.interaction.followup.messages
+        return " ".join(_payload_text(payload) for payload in payloads)
+
+    async def _hide(self, target=None, name=None, everything=False, show=False):
+        from cogs.server_control import ServerControl
+
+        await ServerControl.hide.callback(
+            self.cog, self.interaction, target, name, everything, show
+        )
+
+    async def test_everything_takes_the_categories_with_the_rooms(self):
+        await self._hide(everything=True)
+        for channel in (self.category, self.inside, self.loose):
+            self.assertIs(
+                channel.overwrites[self.everyone].view_channel, False, channel.name
+            )
+        self.assertIn(
+            "everything:True show:True",
+            self._said(),
+            "the card does not say how to put a whole server back",
+        )
+
+    async def test_a_name_hides_the_category_the_picker_would_not_reach(self):
+        """The decorated name a server actually uses, read by the binder's own rule."""
+        await self._hide(name="archive")
+        self.assertIs(self.category.overwrites[self.everyone].view_channel, False)
+        self.assertIs(
+            self.inside.overwrites[self.everyone].view_channel,
+            False,
+            "a category takes its rooms with it through a name as well as a picker",
+        )
+        self.assertNotIn(self.everyone, self.loose.overwrites)
+        self.assertIn("name: archive show:True", self._said())
+
+    async def test_two_ways_in_at_once_are_refused_without_hiding_anything(self):
+        await self._hide(self.loose, everything=True)
+        self.assertIn("One way in at a time", self._said())
+        self.assertEqual(self.loose.overwrites, {}, "a refused command changed a room")
+        self.assertEqual(
+            await db.hide_rows(self.guild.id), [], "a refused command wrote a row"
+        )
+
+    async def test_no_way_in_at_all_is_refused_before_anything_happens(self):
+        await self._hide()
+        self.assertIn("Say what to hide", self._said())
+        self.assertEqual(await db.hide_rows(self.guild.id), [])
+
+    async def test_a_name_nothing_answers_to_is_refused(self):
+        await self._hide(name="not-a-channel")
+        self.assertIn("Nothing here is called", self._said())
+        self.assertEqual(await db.hide_rows(self.guild.id), [])
 
 
 class TheLockedChannelsAreCached(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
