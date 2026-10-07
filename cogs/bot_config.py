@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import config_audit, db, dbstats
+from utils import bot_channels, config_audit, db, dbstats
 
 
 def _schedule_backup() -> None:
@@ -315,6 +315,91 @@ class BotConfig(commands.Cog):
             await interaction.followup.send(f"Failed to update banner: {e.text}")
         except Exception as e:
             await interaction.followup.send(f"An unexpected error occurred: {e}")
+
+    # ── where the bot talks, per server ────────────────────────────────────
+
+    @app_commands.command(
+        name="add",
+        description="Point one of the bot's own channels — logs, rank-up cards — at a channel here.",
+    )
+    @app_commands.describe(
+        channel="The channel to use, by name (or a #mention, or its id).",
+        thing="What this channel is for: logs, rank-up cards, updates, errors, reports.",
+    )
+    @app_commands.choices(
+        thing=[
+            app_commands.Choice(name=bot_channels.label(role), value=role)
+            for role in bot_channels.ROLES
+        ]
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def add(self, interaction: discord.Interaction, channel: str, thing: str):
+        """Bind one of the bot's house channels to a channel in this server.
+
+        The binding **is** the setting — `log_channel_id` is what writes a
+        moderation case, `bot_cmd_channel_id` is where a rank-up card is allowed to
+        appear — so this command and the boot binder write the same rows, and a
+        server can be configured from either door without the two disagreeing.
+
+        The reply carries the whole board rather than the row just written. *Did
+        that work* and *what is bound where* are one question, and a server that has
+        to run a second command to read the second half of it is a server that will
+        get it wrong.
+        """
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message(
+                "This binds a channel, so it needs a server to run in.", ephemeral=True
+            )
+        role = str(thing or "").strip().lower()
+        allowed = bot_channels.roles_for(guild.id)
+        if role not in allowed:
+            listed = ", ".join(f"`{one}`" for one in allowed)
+            return await interaction.response.send_message(
+                f"❌ `{thing}` is not one of my channels to bind here. This server "
+                f"can bind: {listed}.",
+                ephemeral=True,
+            )
+        text_channels = [
+            one for one in guild.channels if isinstance(one, discord.TextChannel)
+        ]
+        found = bot_channels.find_channel(text_channels, channel)
+        if found is None:
+            return await interaction.response.send_message(
+                f"❌ I cannot find a text channel called `{channel}` here — try its "
+                "name, with or without the decoration, or a #mention.",
+                ephemeral=True,
+            )
+        before = await bot_channels.bound(guild.id, role)
+        await db.set_setting(guild.id, bot_channels.setting_key(role), int(found.id))
+        _schedule_backup()
+        board = await bot_channels.all_bound(guild.id)
+        lines = []
+        for one in allowed:
+            channel_id = board.get(one)
+            where = "*not set*"
+            if channel_id:
+                target = guild.get_channel(channel_id)
+                where = target.mention if target is not None else f"`{channel_id}` (gone)"
+            lines.append(f"• {bot_channels.label(one)} → {where}")
+        moved = ""
+        if before and before != int(found.id):
+            was = guild.get_channel(before)
+            moved = (
+                f" It was {was.mention}." if was is not None
+                else " It was a channel that is gone."
+            )
+        embed = discord.Embed(
+            title="📍 Bound",
+            description=(
+                f"{found.mention} is where this server's "
+                f"**{bot_channels.short(role)}** go.{moved}\n\n"
+                "**What my channels are bound to here:**\n" + "\n".join(lines)
+            ),
+            color=0x57F287,
+            timestamp=discord.utils.utcnow(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── the bot's own machinery ────────────────────────────────────────────
 

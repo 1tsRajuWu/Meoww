@@ -187,6 +187,189 @@ class Actor:
     label = "Admin (website)"
 
 
+class TheHide(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """`/hide`: a room off everybody's list, with the same ledger underneath.
+
+    Three facts have to hold together, and each is a way this is quietly wrong:
+    the deny has to reach the **leaks** (an allow on a role beats a deny on
+    `@everyone`, which is the defect the lock engine was built around), the row it
+    writes has to be a real **undo** rather than an allow nobody granted, and the
+    row must **not** be a lock — the message sweep reads the same table, and a
+    hidden room read as a locked one would have everything posted in it deleted
+    for as long as nobody could see it.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def _server(self, *channels, roles=()):
+        guild = Guild(channels=list(channels), roles=list(roles))
+        for channel in channels:
+            channel.guild = guild
+        return guild
+
+    async def test_it_denies_view_channel_and_nothing_else(self):
+        """A hidden room is not a quiet one: `/hide` writes one bit."""
+        everyone = Role("@everyone")
+        channel = Channel(1, "secrets")
+        guild = self._server(channel)
+        guild.default_role = everyone
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.changed, 1)
+        written = channel.overwrites[everyone]
+        self.assertIs(written.view_channel, False)
+        self.assertIsNot(
+            written.send_messages, False, "a hide started deleting what people write"
+        )
+
+    async def test_a_role_that_was_let_in_loses_its_sight_too(self):
+        """An allow on a role is applied after `@everyone`'s deny, so it wins."""
+        everyone = Role("@everyone")
+        onlookers = Role("Onlookers", id=9)
+        channel = Channel(
+            1,
+            "secrets",
+            overwrites={onlookers: Overwrite(allow=Bits.NAMES["view_channel"])},
+        )
+        guild = self._server(channel, roles=[onlookers])
+        guild.default_role = everyone
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertIs(channel.overwrites[everyone].view_channel, False)
+        self.assertIs(
+            channel.overwrites[onlookers].view_channel,
+            False,
+            "the room stayed on the list of a role that had been let in",
+        )
+
+    async def test_showing_puts_back_the_overwrite_that_was_there(self):
+        everyone = Role("@everyone")
+        channel = Channel(
+            1,
+            "secrets",
+            overwrites={everyone: Overwrite(allow=Bits.NAMES["view_channel"])},
+        )
+        guild = self._server(channel)
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [channel], Actor())
+        self.assertIs(channel.overwrites[everyone].view_channel, False)
+        report = await server_control.show_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.restored, 1)
+        self.assertIs(
+            channel.overwrites[everyone].view_channel,
+            True,
+            "the allow that was there before the hide was not put back",
+        )
+        self.assertEqual(await db.hide_rows(guild.id), [], "the undo row is left behind")
+
+    async def test_a_hidden_room_is_not_a_lock(self):
+        """The sweep reads the same table, so the difference has to be a fact."""
+        everyone = Role("@everyone")
+        channel = Channel(1, "secrets")
+        guild = self._server(channel)
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [channel], Actor())
+        self.assertEqual(len(await db.hide_rows(guild.id)), 1, "no undo was written")
+        self.assertEqual(await db.lockdown_locks(guild.id), [])
+        self.assertEqual(await server_control.locked_channel_ids(guild.id), frozenset())
+        self.assertFalse(await server_control.is_locked(guild.id, channel))
+
+    async def test_unlocking_a_server_does_not_unhide_a_room(self):
+        everyone = Role("@everyone")
+        hidden, locked = Channel(1, "secrets"), Channel(2, "general")
+        guild = self._server(hidden, locked)
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [hidden], Actor())
+        await server_control.lock_channel(guild, locked, Actor())
+        report = await server_control.unlock(guild, Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.restored, 1, "the lockdown was not the only thing lifted")
+        self.assertIs(
+            hidden.overwrites[everyone].view_channel,
+            False,
+            "a room somebody hid on purpose was put back on every list",
+        )
+        self.assertEqual(len(await db.hide_rows(guild.id)), 1)
+
+    async def test_a_locked_room_is_refused_rather_than_converted(self):
+        """One channel has one row, and a hide must not spend the lock's undo."""
+        everyone = Role("@everyone")
+        channel = Channel(1, "general")
+        guild = self._server(channel)
+        guild.default_role = everyone
+        await server_control.lock_channel(guild, channel, Actor())
+        row = await db.lockdown_rows(guild.id)
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertFalse(report.ok)
+        self.assertEqual(report.changed, 0)
+        self.assertIn("lockdown", report.failures[0][1])
+        self.assertEqual(await db.lockdown_rows(guild.id), row)
+
+    async def test_a_category_takes_the_rooms_under_it(self):
+        """Discord's rule decides it: a room with overwrites no longer follows
+        its parent, so hiding the container alone leaves those rooms on the list.
+
+        The stand-in is handed a ``channels`` list to make it a category, because
+        that is the one attribute the question is asked about — a real
+        ``discord.CategoryChannel`` cannot be built without a gateway state.
+        """
+        category = Channel(1, "archive", kind="category")
+        inside = Channel(2, "notes")
+        inside.category = category
+        elsewhere = Channel(3, "general")
+        category.channels = [inside]
+        guild = self._server(category, inside, elsewhere)
+        self.assertEqual(
+            [room.id for room in server_control.hidden_scope(guild, category)], [1, 2]
+        )
+        self.assertEqual(
+            [room.id for room in server_control.hidden_scope(guild, elsewhere)], [3]
+        )
+
+    async def test_a_second_hide_is_not_a_refusal(self):
+        everyone = Role("@everyone")
+        channel = Channel(1, "secrets")
+        guild = self._server(channel)
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [channel], Actor())
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.already, 1)
+        self.assertEqual(report.failures, [])
+        self.assertIn("already", report.sentence())
+
+    async def test_it_names_the_ranks_discord_still_lets_in(self):
+        """`Administrator` bypasses channel overwrites; the card says who has it."""
+        plain = Role("Members", id=7)
+        staff = Role("Staff", id=8, manage_channels=True)
+        staff.permissions.administrator = True
+        guild = self._server(roles=[plain, staff])
+        named = [
+            getattr(role, "name", "") for role in server_control.ranks_that_bypass(guild)
+        ]
+        self.assertEqual(named, ["Staff"])
+
+    async def test_showing_a_room_that_was_never_hidden_says_so(self):
+        everyone = Role("@everyone")
+        channel = Channel(1, "secrets")
+        guild = self._server(channel)
+        guild.default_role = everyone
+        report = await server_control.show_channels(guild, [channel], Actor())
+        self.assertFalse(report.ok)
+        self.assertIn("nothing of mine is hidden here", report.failures[0][1])
+        self.assertEqual(channel.calls, [], "it changed a permission anyway")
+
+
 class _FakeBot:
     """As much of a bot as the cog touches: the gate, the guilds, and readiness.
 

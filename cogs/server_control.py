@@ -80,6 +80,67 @@ def _lock_warnings(guild, channel) -> str:
     return ("\n\n" + "\n".join(said)) if said else ""
 
 
+def _hide_card(guild, report, target, *, show: bool) -> discord.Embed:
+    """What `/hide` did, and the one fact it cannot change.
+
+    The paragraph about rank is not boilerplate, it is Discord's rule: **the
+    `Administrator` permission bypasses channel overwrites entirely**, and the
+    server's owner is exempt the same way. So a room denied to every role is still
+    readable by whoever holds that rank, and a card promising nobody else could see
+    it would be a claim the platform does not honour. The card names the ranks that
+    hold it instead — read off their own permissions, so a server that calls the
+    rank something else is answered the same way and a server whose rank is not an
+    administrator is told plainly that this hides it from them too.
+    """
+    name = str(getattr(target, "name", "that channel"))
+    holder = "category" if server_control.is_category(target) else "channel"
+    if show:
+        title = "👁️ Visibility Restored"
+        body = report.sentence()
+        tail = (
+            f"{name} is back exactly as it was: every overwrite the hide rewrote, "
+            "for a role or a member as much as for `@everyone`, is what the ledger "
+            "says was there before."
+        )
+    else:
+        title = "🙈 Hidden"
+        body = report.sentence()
+        ranks = server_control.ranks_that_bypass(guild)
+        named = sorted({f"**{getattr(role, 'name', '?')}**" for role in ranks})
+        if ranks:
+            tail = (
+                f"This {holder} is off every role's list, and off the `@everyone` "
+                f"everyone here has: no member without **Administrator** can see it, "
+                f"and nobody can post in it. Still visible to whoever holds "
+                f"{', '.join(named)}, and to this server's owner — Discord exempts "
+                "that permission from channel overwrites, so no overwrite can take "
+                "it from them. Remove **Administrator** from those ranks and they "
+                "lose it too.\n\n"
+                f"Run `/hide target: {name} show:True` to put the visibility back."
+            )
+        else:
+            tail = (
+                f"This {holder} is off every role's list and off `@everyone`: nobody "
+                "here holds **Administrator**, so no role and no member can see or "
+                "post in it now — only you, because this server's owner is exempt "
+                "from channel overwrites by Discord's own rule.\n\n"
+                f"Run `/hide target: {name} show:True` to put the visibility back."
+            )
+    if report.failures:
+        listed = "\n".join(
+            f"• **{str(one)[:80]}** — {str(why)[:160]}" for one, why in report.failures[:8]
+        )
+        tail += f"\n\nWhat did not happen:\n{listed}"
+    embed = discord.Embed(
+        title=title,
+        description=f"{body}\n\n{tail}",
+        color=0x57F287 if show else 0xED4245,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_footer(text="DaCat Security")
+    return embed
+
+
 def _is_server_owner(interaction: discord.Interaction) -> bool:
     """Whether the caller is **this server's owner** — the only person `/check` answers.
 
@@ -335,7 +396,7 @@ class ServerControl(commands.Cog):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
             cmd_name = _root_command_name(interaction)
-            # These four belong on this list because asking what a server looks
+            # These five belong on this list because asking what a server looks
             # like has nothing to do with whether the *moderation* module is on —
             # and they are declared always-reachable in
             # ``features.ALWAYS_ALLOWED_COMMANDS``, so the per-server command rule
@@ -345,7 +406,7 @@ class ServerControl(commands.Cog):
             # (``dbstatus`` was a fifth until it moved under ``/bot``, which is
             # always allowed as a group; the check below is by root name, so it
             # stopped needing an entry the moment it stopped being a root.)
-            if cmd_name not in ["serverinfo", "userinfo", "defaultrole", "check"]:
+            if cmd_name not in ["serverinfo", "userinfo", "defaultrole", "check", "hide"]:
                 if not self.bot.is_module_enabled(interaction.guild_id, "moderation"):
                     await interaction.response.send_message(
                         "⚠️ The **Moderation** system is currently **turned off** on this server.\n"
@@ -637,6 +698,44 @@ class ServerControl(commands.Cog):
         report = await security_check.audit(guild, bot=self.bot)
         repaired = await self._repair(guild, report, _actor(interaction)) if fix else None
         await send_card(interaction, embed=_check_card(report, repaired))
+
+    @app_commands.command(
+        name="hide",
+        description="Hide a channel or category from every role and member but you.",
+    )
+    @app_commands.describe(
+        target="The channel or category to hide. A category takes its rooms with it.",
+        show="True puts the visibility back instead of hiding the target.",
+    )
+    async def hide(
+        self,
+        interaction: discord.Interaction,
+        target: discord.abc.GuildChannel,
+        show: bool = False,
+    ):
+        # The server's owner and nobody else, for the same reason `/check` is:
+        # this rewrites every overwrite in the room, and the person a hidden room
+        # belongs to is the one who owns the server it is in. Checked before the
+        # defer, so an outsider is refused rather than made to wait for a card.
+        if not _is_server_owner(interaction):
+            return await interaction.response.send_message(
+                "❌ Only **this server's owner** can run `/hide` — it takes a room "
+                "off every role's list, and puts it back.",
+                ephemeral=True,
+            )
+        # A category hides its rooms too, so the work is a loop over channels and
+        # the card goes up a beat later rather than inside Discord's three-second
+        # window.
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        rooms = server_control.hidden_scope(guild, target)
+        if show:
+            report = await server_control.show_channels(guild, rooms, _actor(interaction))
+        else:
+            report = await server_control.hide_channels(guild, rooms, _actor(interaction))
+        await send_card(
+            interaction, embed=_hide_card(guild, report, target, show=show), ephemeral=True
+        )
 
     async def _repair(self, guild, report, actor) -> dict:
         """The one write `/check` can make, and it goes through the lock's own door.

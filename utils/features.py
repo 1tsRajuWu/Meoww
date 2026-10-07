@@ -636,6 +636,13 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
     # server where the command matters most. Its own latch makes it once ever, so
     # nothing is lost by leaving the door open.
     "claim",
+    # `/add` and `/hide` are the server's own furniture rather than features:
+    # binding which channel a system reports into, and taking a room off
+    # everybody's list, are both things an owner may need in a server where every
+    # switch is off — and neither is governed by a switch, which is what this list
+    # says. `/hide` answers to the server's owner, exactly as `/check` does.
+    "add",
+    "hide",
 })
 
 # Commands that are safe to run in a DM (or that handle their own guild check).

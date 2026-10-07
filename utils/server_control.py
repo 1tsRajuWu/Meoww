@@ -624,6 +624,24 @@ class Report:
             if self.blocked:
                 said += f" {self.blocked} could not be managed."
             return said
+        if self.action == "hide":
+            if not self.changed and self.already:
+                return (
+                    "Nothing needed hiding: it is already off every role's list."
+                    if self.channels == 1
+                    else "Nothing needed hiding: every channel that could be hidden already was."
+                )
+            said = f"Hid **{self.changed}** channel(s) from every role and member."
+            if self.already:
+                said += f" {self.already} were already hidden."
+            if self.blocked:
+                said += f" {self.blocked} could not be managed."
+            return said
+        if self.action == "show":
+            said = f"Put **{self.restored}** channel(s) back on the list, as they were."
+            if self.blocked:
+                said += f" {self.blocked} could not be managed."
+            return said
         return f"Set slowmode on **{self.changed}** channel(s)."
 
     def to_dict(self) -> dict:
@@ -673,7 +691,10 @@ async def _apply_lock(
     return written, closed, ""
 
 
-async def _restore(guild, channel, previous: str, actor: moderation_actions.Actor | None) -> tuple[bool, str]:
+async def _restore(
+    guild, channel, previous: str, actor: moderation_actions.Actor | None,
+    *, lifting: str = "lockdown",
+) -> tuple[bool, str]:
     """Put back **every overwrite** the lock changed, from the row that recorded them.
 
     A row written before the lock could touch more than `@everyone` holds one
@@ -688,7 +709,7 @@ async def _restore(guild, channel, previous: str, actor: moderation_actions.Acto
     everyone = getattr(guild, "default_role", None)
     if everyone is None:
         return False, "that server has no default role to change"
-    reason = f"lockdown lifted by {actor.label if actor else 'the website'}"
+    reason = f"{lifting} lifted by {actor.label if actor else 'the website'}"
     recorded = _ledger_previous(previous)
     if not recorded:
         existing, _overwrite = _overwrite_for(channel, _target_id(everyone))
@@ -768,7 +789,9 @@ async def _record(
     try:
         held = {
             int(channel_id)
-            for channel_id, _previous, _at in await db.lockdown_rows(report_guild_id(guild))
+            for channel_id, _previous, _at in await db.lockdown_rows(
+                report_guild_id(guild), hides=False
+            )
         }
     except Exception as exc:  # noqa: BLE001
         # A ledger that cannot be read reads as empty, and the write below is the
@@ -852,7 +875,7 @@ async def unlock(guild, actor: moderation_actions.Actor | None = None) -> Report
     """Put back exactly what a lockdown changed, and forget the ledger."""
     report = Report(action="unlock")
     try:
-        rows = await db.lockdown_rows(report_guild_id(guild))
+        rows = await db.lockdown_rows(report_guild_id(guild), hides=False)
     except Exception as exc:  # noqa: BLE001
         report.detail = f"I could not read what the lockdown changed ({exc})."
         return report
@@ -890,6 +913,191 @@ async def unlock(guild, actor: moderation_actions.Actor | None = None) -> Report
     report.ok = report.restored > 0 or not report.failures
     if not report.ok:
         report.detail = "Discord refused the restore — I need **Manage Channels** in those channels."
+    return report
+
+
+# ── /hide: a room off everybody's list, with the same undo ───────────────────
+#
+# The visibility half of this module, borrowed rather than rewritten: hiding is
+# an overwrite the bot writes, so it needs the same two things a lock needs — the
+# row that says what was here first, and the record that says this was us. What it
+# deliberately does **not** borrow is the sweep: a hidden room holds no messages,
+# and `/hide` denies `View Channel` and nothing else.
+
+
+def is_category(target) -> bool:
+    """Whether this object is a **category** rather than a room.
+
+    Asked by attribute rather than by ``isinstance``, and the reason is a test's
+    worth of honesty: ``discord.CategoryChannel`` cannot be built without a live
+    gateway state, so an ``isinstance`` check is a branch no stand-in server can
+    reach — the whole category half of `/hide` would then be lawless. A category is
+    the only guild channel that holds other channels, and that is exactly the fact
+    this asks about.
+    """
+    return getattr(target, "channels", None) is not None
+
+
+def hidden_scope(guild, target) -> list:
+    """The channels one `/hide` covers: a category covers the rooms under it too.
+
+    Discord's own rule decides this. A channel carrying overwrites of its own no
+    longer follows its category — its permissions are its own — so hiding the
+    category alone leaves every room that was ever configured on its own still on
+    everybody's list, which reads as the command not working. The container and its
+    contents are one answer, and the card says how many rooms that was.
+    """
+    channels = [target]
+    if not is_category(target):
+        return channels
+    for channel in getattr(guild, "channels", []) or []:
+        holder = getattr(channel, "category", None)
+        if holder is not None and _target_id(holder) == _target_id(target):
+            channels.append(channel)
+    return channels
+
+
+def ranks_that_bypass(guild) -> list:
+    """The roles whose members still see a hidden room, because Discord says so.
+
+    **Administrator bypasses channel overwrites entirely** — that is Discord's
+    rule, not this bot's choice — so a room denied to every role is still visible to
+    anybody holding it, and to the server's owner, who is exempt the same way. The
+    honest answer to *who else can see this* is therefore a list of ranks rather
+    than a promise that nobody can: this is that list, read off the roles' own
+    permissions instead of from their names.
+    """
+    roles = []
+    for role in getattr(guild, "roles", []) or []:
+        if bool(getattr(getattr(role, "permissions", None), "administrator", False)):
+            roles.append(role)
+    return roles
+
+
+async def _locked_channels_now(guild) -> set:
+    """The channels a lockdown holds, for the one question `/hide` asks first."""
+    try:
+        return {
+            int(row[0])
+            for row in await db.lockdown_rows(report_guild_id(guild), hides=False)
+        }
+    except Exception as exc:  # noqa: BLE001 — an unreadable ledger is reported by the caller
+        print(f"[CONTROL] could not read the lockdown ledger: {exc}", flush=True)
+        return set()
+
+
+async def hide_channels(guild, channels, actor: moderation_actions.Actor | None = None) -> Report:
+    """Take rooms off everybody's list, and write down how to put them back.
+
+    Denies `View Channel` and nothing else, for `@everyone` and for every overwrite
+    that was **letting somebody in** — an allow beats a deny, which is the same
+    defect the lock engine exists around. Administrators and the owner still see
+    the room, because Discord exempts them from channel overwrites entirely; the
+    card names them rather than pretending otherwise.
+
+    A room a lockdown already holds is **refused**, not converted. One channel has
+    one row in the ledger, and a hide that took the lock's row would leave the lock
+    with no undo — one command quietly spending another's ability to be reversed.
+    """
+    report = Report(action="hide")
+    channels = [channel for channel in channels if channel is not None]
+    report.channels = len(channels)
+    if not channels:
+        report.detail = "There is nothing to hide."
+        return report
+
+    held = await _locked_channels_now(guild)
+    work = [
+        channel for channel in channels
+        if int(getattr(channel, "id", 0) or 0) not in held
+    ]
+    for channel in channels:
+        if int(getattr(channel, "id", 0) or 0) in held:
+            report.failures.append(
+                (
+                    str(getattr(channel, "name", getattr(channel, "id", "?"))),
+                    "this room holds a lockdown, and one room has one undo — "
+                    "run `/unlock` there first",
+                )
+            )
+    if not work:
+        report.blocked = len(report.failures)
+        report.detail = "Nothing was hidden."
+        return report
+
+    refusal = await _record(
+        guild, work, actor, scope=db.HIDE_SCOPE, names=HIDDEN_PERMISSIONS
+    )
+    if refusal:
+        report.detail = refusal
+        return report
+
+    for channel in work:
+        written, _closed, detail = await _apply_lock(
+            guild, channel, actor, names=HIDDEN_PERMISSIONS
+        )
+        if written:
+            report.changed += 1
+            continue
+        if detail:
+            report.failures.append(
+                (str(getattr(channel, "name", getattr(channel, "id", "?"))), detail)
+            )
+            continue
+        # No refusal and nothing written: the deny is already there, which is not
+        # Discord saying no. The row is written either way, so the room is ours to
+        # open again from here on.
+        report.already += 1
+    report.blocked = len(report.failures)
+    report.ok = report.changed > 0 or report.already > 0
+    if not report.ok:
+        report.detail = "Discord refused every channel — I need **Manage Channels** there."
+    return report
+
+
+async def show_channels(guild, channels, actor: moderation_actions.Actor | None = None) -> Report:
+    """Put back the visibility a `/hide` took, from the row that recorded it."""
+    report = Report(action="show")
+    channels = [channel for channel in channels if channel is not None]
+    report.channels = len(channels)
+    if not channels:
+        report.detail = "There is nothing to put back."
+        return report
+    try:
+        rows = {int(row[0]): row[1] for row in await db.hide_rows(report_guild_id(guild))}
+    except Exception as exc:  # noqa: BLE001
+        report.detail = f"I could not read what was hidden ({exc})."
+        return report
+
+    released: list[int] = []
+    for channel in channels:
+        channel_id = int(getattr(channel, "id", 0) or 0)
+        if channel_id not in rows:
+            report.failures.append(
+                (
+                    str(getattr(channel, "name", getattr(channel, "id", "?"))),
+                    "nothing of mine is hidden here",
+                )
+            )
+            continue
+        ok, detail = await _restore(
+            guild, channel, rows[channel_id], actor, lifting="hide"
+        )
+        if ok:
+            report.restored += 1
+            released.append(channel_id)
+        else:
+            report.failures.append(
+                (str(getattr(channel, "name", getattr(channel, "id", "?"))), detail)
+            )
+    report.blocked = len(report.failures)
+    try:
+        await db.forget_lockdown(report_guild_id(guild), released)
+    except Exception as exc:  # noqa: BLE001 — the permissions are back; this is bookkeeping
+        print(f"[CONTROL] could not tidy the hide ledger: {exc}", flush=True)
+    report.ok = report.restored > 0 or not report.failures
+    if not report.ok:
+        report.detail = "Discord refused every restore — I need **Manage Channels** there."
     return report
 
 
@@ -1174,7 +1382,7 @@ async def unlock_channel(
     report.channels = 1
     channel_id = int(getattr(channel, "id", 0) or 0)
     try:
-        rows = await db.lockdown_rows(report_guild_id(guild))
+        rows = await db.lockdown_rows(report_guild_id(guild), hides=False)
     except Exception as exc:  # noqa: BLE001
         report.detail = f"I could not read what the lockdown changed ({exc})."
         return report

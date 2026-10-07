@@ -2284,6 +2284,15 @@ async def save_lockdown(
     return len(rows)
 
 
+#: The scope a `/hide` row carries: the one scope in this table that is **not** a
+#: lockdown. The two share ``lockdown_state`` because they share its rule — write
+#: down what was here before the change — and the difference is stated here rather
+#: than remembered at each reader. A lock's row means *sweep this room*; a hidden
+#: room holds nothing, which is why :func:`lockdown_locks` is the reader that has
+#: to know: it is the one the message listener asks.
+HIDE_SCOPE: str = "hide"
+
+
 async def lockdown_locks(guild_id) -> list[tuple[int, str]]:
     """``(channel_id, scope)`` for every channel a lockdown holds.
 
@@ -2291,24 +2300,57 @@ async def lockdown_locks(guild_id) -> list[tuple[int, str]]:
     the undo asks *what was here before*, the sweep asks *who is this held for*,
     and neither should have to carry the other's fields around. A row from before
     the column existed answers ``channel`` — the strict answer.
+
+    A room ``/hide`` took off everybody's list is deliberately **not** here. A
+    hidden room holds no sweep: reading one as a lock would delete every message
+    posted in it for as long as nobody could see it, which is the opposite of
+    leaving somebody's private room alone.
     """
     async with aiosqlite.connect(DB_PATH) as db:
         await ensure_lockdown_schema(db)
         async with db.execute(
-            'SELECT channel_id, scope FROM lockdown_state WHERE guild_id = ?',
-            (int(guild_id),),
+            "SELECT channel_id, scope FROM lockdown_state WHERE guild_id = ? "
+            "AND COALESCE(scope, '') != ?",
+            (int(guild_id), HIDE_SCOPE),
         ) as cursor:
             rows = await cursor.fetchall()
     return [(int(row[0]), str(row[1] or "channel")) for row in rows]
 
 
-async def lockdown_rows(guild_id) -> list[tuple[int, str, float]]:
-    """``(channel_id, previous, locked_at)`` for every channel a lockdown holds."""
+async def lockdown_rows(guild_id, *, hides: bool = True) -> list[tuple[int, str, float]]:
+    """``(channel_id, previous, locked_at)`` for every channel a lockdown holds.
+
+    ``hides=False`` asks for the **locks** alone, and the undo door is why: 
+    `/unlock` puts back what a lockdown changed, while a room somebody hid on
+    purpose was hidden for a reason — lifting that by accident would put a room
+    back on everybody's list that a person had deliberately taken off it.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_lockdown_schema(db)
+        condition = "" if hides else " AND COALESCE(scope, '') != ?"
+        params: tuple = (int(guild_id),) if hides else (int(guild_id), HIDE_SCOPE)
+        async with db.execute(
+            "SELECT channel_id, previous, locked_at FROM lockdown_state "
+            f"WHERE guild_id = ?{condition}",
+            params,
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [(int(row[0]), str(row[1] or ""), float(row[2] or 0)) for row in rows]
+
+
+async def hide_rows(guild_id) -> list[tuple[int, str, float]]:
+    """``(channel_id, previous, hidden_at)`` for every room ``/hide`` covers.
+
+    The same table read from the other side, and that is the point rather than a
+    shortcut: the write-down-what-was-here rule is one rule, and a second table
+    would be a second chance to forget it.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         await ensure_lockdown_schema(db)
         async with db.execute(
-            'SELECT channel_id, previous, locked_at FROM lockdown_state WHERE guild_id = ?',
-            (int(guild_id),),
+            "SELECT channel_id, previous, locked_at FROM lockdown_state "
+            "WHERE guild_id = ? AND COALESCE(scope, '') = ?",
+            (int(guild_id), HIDE_SCOPE),
         ) as cursor:
             rows = await cursor.fetchall()
     return [(int(row[0]), str(row[1] or ""), float(row[2] or 0)) for row in rows]

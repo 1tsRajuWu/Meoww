@@ -164,6 +164,9 @@ COMMAND_ACCESS: dict[str, str] = {
     "levelroles add": ROLES,
     "levelroles remove": ROLES,
     "levelsettings": GUILD,
+    # `/add` binds which channel a system reports into — a decision about the
+    # server's own furniture, so the audience that may change its settings.
+    "add": GUILD,
     "setlevel": ADMIN,
     "givexp": ADMIN,
     "resetlevels": OWNER,
@@ -246,6 +249,10 @@ COMMAND_ACCESS: dict[str, str] = {
     # `guild.owner_id`; the picker still declares Administrator, because the owner
     # always holds it and everybody else has no business seeing the name.
     "check": OWNER,
+    # `/hide` takes a room off every role's list and writes the ledger that puts it
+    # back, so it answers to the same person `/check` does and for the same reason:
+    # it rewrites the overwrites of a room the report is about.
+    "hide": OWNER,
     "addrole": ROLES,
     "removerole": ROLES,
     "defaultrole set": ADMIN,

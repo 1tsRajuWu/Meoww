@@ -205,6 +205,96 @@ def candidates(role: str) -> tuple[str, ...]:
     return _NAMES.get(role, ())
 
 
+#: What each role is called **when it is put in front of a person**. It lives
+#: here, beside the roles themselves, because the two would otherwise drift: a role
+#: added to :data:`ROLES` with no label is a picker entry reading ``cmdlog``, and
+#: `tests/test_bot_channels.py` fails on exactly that rather than letting it ship.
+LABELS: dict[str, str] = {
+    "update": "updates — release notes",
+    "error": "errors — the bot's own failures",
+    "bug": "reports — where a bug report is filed",
+    "commands": "rank-up cards — level-ups and other bot messages",
+    "log": "logs — moderation cases",
+    "test": "test ground — where the operator tries things",
+    "guilds": "servers — who adds or removes the bot",
+    "cmdlog": "commands used — every command anyone runs",
+}
+
+
+#: One word for each role, for a sentence that names one in passing.
+SHORT: dict[str, str] = {
+    "update": "updates",
+    "error": "errors",
+    "bug": "bug reports",
+    "commands": "rank-up cards",
+    "log": "moderation logs",
+    "test": "the test ground",
+    "guilds": "the server log",
+    "cmdlog": "the command log",
+}
+
+
+def label(role: str) -> str:
+    """The words a person is shown for this role, in a picker."""
+    return LABELS.get(role, role)
+
+
+def short(role: str) -> str:
+    """The role in one word, for saying what a binding now means."""
+    return SHORT.get(role, role)
+
+
+def _id_of(channel) -> int:
+    try:
+        return int(getattr(channel, "id", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def find_channel(channels, wanted):
+    """The channel somebody meant by ``wanted``, or ``None``.
+
+    Four ways of naming one channel, which are the four things people actually
+    type: its id, a ``<#id>`` mention, its exact name, and its name with the
+    decoration stripped — ``💬・bot-cmd`` is how a server spells ``bot-cmd`` — read
+    with the same :func:`normalize` the boot binder uses, so the command and the
+    binder can never disagree about what a channel's name is.
+
+    A name two channels share answers with whichever Discord lists first. That is
+    deliberate: Discord permits two channels to be called the same thing, and the
+    alternatives are refusing a server for a name it is allowed to have, or
+    guessing a *different* one. The card says which channel it bound, so the
+    choice is visible rather than silent.
+
+    An id Discord does not know is ``None`` rather than a name to fall back on: a
+    number that matched nothing is a wrong channel, not a name that happens to be
+    digits.
+    """
+    raw = str(wanted or "").strip()
+    if not raw:
+        return None
+    bare = raw.lstrip("<").rstrip(">")
+    if bare.startswith("#"):
+        bare = bare[1:]
+    if bare.isdigit():
+        wanted_id = int(bare)
+        for channel in channels or ():
+            if _id_of(channel) == wanted_id:
+                return channel
+        return None
+    by_name: dict[str, object] = {}
+    by_normal: dict[str, object] = {}
+    for channel in channels or ():
+        name = (getattr(channel, "name", "") or "").lower()
+        if not name:
+            continue
+        by_name.setdefault(name, channel)
+        normal = normalize(name)
+        if normal:
+            by_normal.setdefault(normal, channel)
+    return by_name.get(raw.lower()) or by_normal.get(normalize(raw))
+
+
 def normalize(name: str) -> str:
     """A channel or role name reduced to its letters and digits.
 
