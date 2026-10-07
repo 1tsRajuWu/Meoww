@@ -41,11 +41,19 @@ class Bits:
     statement about itself.
     """
 
-    #: Discord's own bit for each permission the lockdown engine reads.
+    #: Discord's own bit for each permission the lockdown engine reads — and the
+    #: **docs'** numbering rather than a remembered one: `create_public_threads` sat
+    #: at ``1 << 34`` here, which is Discord's MANAGE_THREADS. Nothing caught it while
+    #: every law compared these bits to each other, and it stopped being harmless the
+    #: moment the engine compared a deny against Discord's own mask: every real lock
+    #: in this file would have been judged somebody else's mask. Cross-checked against
+    #: the published table (`CREATE_PUBLIC_THREADS 0x0000000800000000`, `1 << 35`) and
+    #: against what the live bot writes — the deny Discord holds for a `/lockdown` is
+    #: `0x800000840`.
     NAMES = {
         "view_channel": 1 << 10,
         "send_messages": 1 << 11,
-        "create_public_threads": 1 << 34,
+        "create_public_threads": 1 << 35,
         "add_reactions": 1 << 6,
     }
 
@@ -751,6 +759,56 @@ class TheLocksOlderThanTheLedger(TempDatabaseMixin, unittest.IsolatedAsyncioTest
         self.assertFalse(server_control.looks_like_our_lock(Overwrite(allow=send)))
         self.assertFalse(server_control.looks_like_our_lock(Overwrite()))
         self.assertFalse(server_control.looks_like_our_lock(None))
+
+    async def test_a_mask_a_person_made_is_not_our_lock(self):
+        """The live server this was written from, on the screen its owner sent.
+
+        A *private* category carries a wall — the one in the screenshot denies
+        **39** permissions, View Channels among them — and it denies Send Messages
+        and allows nothing, which is the two facts the old signature asked for. The
+        card therefore told its owner that the bot's own old lockdown was sitting on
+        a category he had configured by hand, and that `fix` would leave it alone:
+        a wrong claim and a dead end in one sentence. The signature now also asks
+        *what else* is denied, because a lockdown only ever writes the bits a
+        lockdown writes.
+        """
+        wall = (
+            Bits.NAMES["view_channel"]
+            | Bits.NAMES["send_messages"]
+            | (1 << 4)   # Manage Channels
+            | (1 << 29)  # Manage Webhooks
+            | (1 << 0)   # Create Invite
+        )
+
+        self.assertFalse(server_control.looks_like_our_lock(Overwrite(deny=wall)))
+        self.assertFalse(
+            server_control.looks_like_our_lock(
+                Overwrite(deny=Bits.NAMES["send_messages"] | (1 << 4))
+            ),
+            "one permission a lockdown never denies is enough to tell the two apart",
+        )
+
+    async def test_a_hide_that_is_not_the_whole_lock_is_not_ours(self):
+        """`View Channel` has only ever been denied *beside* the three.
+
+        The hidden lockdown arrived in one commit with `LOCKED_PERMISSIONS` already
+        there, so a mask of Send Messages + View Channel and nothing else is
+        somebody's own room: the Admin category on the live server, where the owner
+        hid a category by hand. Staff hiding a room among themselves is not a lock
+        of ours to claim, and the pass that adopts old locks must not adopt it.
+        """
+        send, threads, reactions, view = (
+            Bits.NAMES["send_messages"],
+            Bits.NAMES["create_public_threads"],
+            Bits.NAMES["add_reactions"],
+            Bits.NAMES["view_channel"],
+        )
+
+        self.assertFalse(server_control.looks_like_our_lock(Overwrite(deny=send | view)))
+        self.assertTrue(
+            server_control.looks_like_our_lock(Overwrite(deny=send | threads | reactions | view)),
+            "the hidden lockdown writes the whole mask, and is ours",
+        )
 
     async def test_the_shape_is_read_from_discords_object_and_not_an_attribute_it_lacks(self):
         """`discord.PermissionOverwrite` has ``pair()`` and **no** ``allow``/

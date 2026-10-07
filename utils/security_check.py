@@ -37,6 +37,18 @@ wrong:
   named in the sentence, not one finding per role; a channel in the lockdown ledger
   — hidden or not — is answered by the lock check and left out of the visibility
   list, because *who can see it* is exactly the question the repair acts on.
+* **The deny can live on the category, and Discord does not apply it to a room
+  that was edited.** Permissions are computed *from the channel*; the category is
+  the template a channel is copied from, which is Discord's own word for it —
+  *Permission Syncing*: a channel with overwrites of its own is **de-synced**, and
+  "its permissions will no longer change with changes to its parent category". So a
+  category that denies `@everyone` **View Channel** hides every room that is
+  synced to it and **none of the rooms that carry an `@everyone` overwrite of their
+  own** — and the second shape is the one Discord's panel draws as a red X on the
+  category while the room is open to everybody. It is a finding, not a note, because
+  the server believes it made those rooms private. The reader asks the room's own
+  overwrite for that bit, so the room that *does* carry the category's deny — a
+  `➕ Create A VC` that was given the mask by hand — is correctly quiet.
 
 Pure over a guild apart from the two reads it deliberately borrows, so a law can
 drive it with fakes and the card can be asserted word for word.
@@ -235,6 +247,103 @@ def claims_private(channel) -> bool:
     """
     _allow, deny = _everyone_of(channel)
     return bool(deny is not None and getattr(deny, "view_channel", False))
+
+
+def category_of(channel):
+    """The category this channel sits in, or ``None``.
+
+    Read as the attribute Discord puts on every channel rather than by walking the
+    guild: a stand-in in a test without one is a channel in no category, and a
+    channel in no category is a channel with nothing above it to be hidden by.
+    """
+    return getattr(channel, "category", None)
+
+
+def speaks_for_itself(channel) -> bool:
+    """Whether this room's **own** overwrites are what Discord applies to `@everyone`.
+
+    A room with an `@everyone` overwrite of its own is the *de-synced* case, and it
+    is the whole reason the category's deny is not a fact about the room: Discord
+    computes a channel from the channel, and the category is the template it was
+    copied from (its own documentation, *Permission Syncing* — which is also why
+    the client's **Sync with category** button copies the category's permissions
+    *into* the room rather than the other way round). A room with no `@everyone`
+    overwrite of its own is the synced case, and the category's deny *is* applied
+    to it — which is why `#general` beside a hidden category is quiet.
+    """
+    return server_control.everyone_overwrite(channel) is not None
+
+
+def hidden_by_its_category(channel) -> bool:
+    """Whether a category hides this room and the room itself does not.
+
+    The hole one level up from :func:`claims_private`, and the same sentence: *a
+    room that reads as private and is not*. Both halves are asked of the readers
+    the lock writes through, so the audit and the engine cannot disagree about
+    which rooms a category actually hides.
+    """
+    parent = category_of(channel)
+    if parent is None or not claims_private(parent):
+        return False
+    return speaks_for_itself(channel) and not claims_private(channel)
+
+
+def _keeps(channel) -> str:
+    """What `@everyone` can still do in a room its category was meant to hide.
+
+    Named in the client's own vocabulary, because the card is read beside Discord's
+    screens: the red X on the category and the green check on the room, with
+    nothing anywhere saying that only the second one applies.
+    """
+    allow, _deny = _everyone_of(channel)
+    held = ["View Channels"]
+    for name, label in (
+        ("send_messages", "Send Messages"),
+        ("add_reactions", "Add Reactions"),
+        ("create_public_threads", "Create Public Threads"),
+        ("manage_webhooks", "Manage Webhooks"),
+        ("create_instant_invite", "Create Invite"),
+    ):
+        if bool(getattr(allow, name, False)):
+            held.append(label)
+    return ", ".join(held)
+
+
+def hidden_rooms(channels) -> list:
+    """Rooms a category hides and the rooms themselves do not — `@everyone` gets in.
+
+    Each one is a **critical** finding rather than a note, and the level is the
+    module's own definition of it: the server set a permission it believes is in
+    force, and this room never had it. What the card says about the repair is the
+    repair Discord itself offers — **Sync with category** on the room, or the same
+    deny written on the room's own `@everyone` overwrite — because that is what
+    makes the deny a fact about the room rather than about its parent.
+    """
+    found = []
+    for channel in channels:
+        if not hidden_by_its_category(channel):
+            continue
+        parent = category_of(channel)
+        found.append(
+            Finding(
+                level=CRITICAL,
+                where=f"#{getattr(channel, 'name', '?')}",
+                title=(f"is hidden by its category **#{getattr(parent, 'name', '?')}** and is not"),
+                detail=(
+                    "Discord computes a channel's permissions **from the channel**: "
+                    "the category is the template it was copied from, and a room that "
+                    "has overwrites of its own is de-synced — its own documentation "
+                    "says such a room stops taking the category's permissions, which is "
+                    "why the client's *Sync with category* copies the category's "
+                    "permissions **into** the room. The deny is on the category and "
+                    f"`@everyone` keeps **{_keeps(channel)}** here, because that is what "
+                    "the server's default permissions leave. **Sync with category** on "
+                    "the room, or deny `View Channel` on the room's own `@everyone` "
+                    "overwrite, is what makes the deny hold."
+                ),
+            )
+        )
+    return found
 
 
 def _denies(channel, names) -> bool:
@@ -716,6 +825,7 @@ async def audit(guild, *, bot=None) -> Audit:
     held, unread = await _ledger(guild)
     report.unread += unread
     report.findings.extend(visibility_notes(guild, channels, locked=set(held)))
+    report.findings.extend(hidden_rooms(channels))
     report.findings.extend(everyone_power(guild))
     report.findings.extend(channel_power(guild, channels))
     # Asked once and handed to the findings rather than asked twice: what a `fix` may

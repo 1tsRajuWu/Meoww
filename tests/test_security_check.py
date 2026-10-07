@@ -180,6 +180,115 @@ class TheVisibilityNobodyDraws(unittest.TestCase):
         self.assertFalse(security_check.claims_private(vault))
 
 
+#: Discord's own *private category* wall, the one its permission panel writes when
+#: somebody turns a category off: a deny far outside anything a lockdown denies. The
+#: mask on the live server this pass was written from is **39** bits; five are enough
+#: to make the point and keep the law readable.
+PRIVATE_CATEGORY_WALL = (
+    Bits.NAMES["view_channel"] | Bits.NAMES["send_messages"] | (1 << 4) | (1 << 29) | (1 << 0)
+)
+
+
+class TheRoomsACategoryOnlyThinksItHides(unittest.TestCase):
+    """The deny that lives on the category and reaches none of the rooms.
+
+    Discord's own model, and the report this class was written from: *"The Youtube
+    category perms it denies, still the ice person can see and even send msg."*
+    Permissions are computed **from the channel** — the category is the template a
+    channel was copied from, and a room carrying an `@everyone` overwrite of its own
+    is de-synced and stops taking it (Discord's *Permission Syncing*, and the reason
+    its **Sync with category** button copies the category's permissions *into* the
+    room). So the category draws a red X that applies to nothing, and the room is
+    open exactly as the guild's own default permissions leave it.
+    """
+
+    def _rooms(self):
+        """A category that denies `@everyone` View Channel, and three rooms inside it."""
+        guild = Guild(guild_id=GUILD)
+        youtube = Channel(10, "Youtube", kind="category")
+        youtube.overwrites[guild.default_role] = Overwrite(deny=PRIVATE_CATEGORY_WALL)
+        # No overwrite of its own: synced, and the category's deny *is* applied.
+        synced = Channel(11, "synced")
+        # The live shape: its own `@everyone` overwrite, which allows Send Messages.
+        edited = Channel(12, "edited")
+        edited.overwrites[guild.default_role] = Overwrite(allow=Bits.NAMES["send_messages"])
+        # Carries the category's own mask by hand: hidden, and correctly so.
+        masked = Channel(13, "masked")
+        masked.overwrites[guild.default_role] = Overwrite(deny=PRIVATE_CATEGORY_WALL)
+        guild.channels = [youtube, synced, edited, masked]
+        for channel in guild.channels:
+            channel.guild = guild
+            channel.category = None if channel is youtube else youtube
+        guild.me = _me()
+        return guild, youtube, synced, edited, masked
+
+    def test_a_room_the_category_hides_and_the_room_does_not_is_critical(self):
+        guild, _youtube, _synced, edited, _masked = self._rooms()
+
+        found = security_check.hidden_rooms(guild.channels)
+
+        self.assertEqual(len(found), 1, "only the room with an overwrite of its own")
+        self.assertEqual(found[0].level, security_check.CRITICAL)
+        self.assertEqual(found[0].where, "#edited")
+        self.assertIn("@everyone", found[0].detail)
+
+    def test_a_room_with_no_overwrite_of_its_own_is_hidden_for_real(self):
+        """The synced case — Discord applies the category to it, so there is no hole."""
+        guild, *_rest = self._rooms()
+        synced = guild.channels[1]
+
+        self.assertEqual(security_check.hidden_rooms([synced]), [])
+        self.assertFalse(security_check.hidden_by_its_category(synced))
+
+    def test_a_room_carrying_the_category_s_own_mask_is_left_alone(self):
+        """A `➕ Create A VC` given the mask by hand is hidden, and is not a finding."""
+        guild, *_rest = self._rooms()
+        masked = guild.channels[3]
+
+        self.assertEqual(security_check.hidden_rooms([masked]), [])
+
+    def test_a_category_that_hides_nothing_is_nobody_s_business(self):
+        guild, youtube, _synced, edited, _masked = self._rooms()
+        youtube.overwrites.clear()
+
+        self.assertEqual(security_check.hidden_rooms([youtube, edited]), [])
+
+    def test_the_finding_names_the_category_and_what_everyone_keeps(self):
+        """The card is read beside Discord's screens: the red X, the green check, and
+        nothing anywhere saying that only the room's own overwrite is applied."""
+        guild, youtube, _synced, edited, _masked = self._rooms()
+
+        found = security_check.hidden_rooms([edited])
+
+        self.assertIn("#Youtube", found[0].title)
+        self.assertIn("hidden by its category", found[0].title)
+        self.assertIn("View Channels", found[0].detail)
+        self.assertIn("Send Messages", found[0].detail)
+        self.assertIn("Sync with category", found[0].detail)
+        self.assertIn(youtube.name, found[0].title)
+
+    def test_a_room_the_category_hides_is_not_also_a_visibility_note(self):
+        """One hole, one finding: `visibility_notes` asks the room's own overwrite."""
+        guild, _youtube, _synced, edited, _masked = self._rooms()
+
+        self.assertEqual(security_check.visibility_notes(guild, [edited]), [])
+
+
+class TheScanCarriesThem(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """The finding is on the card `/check` draws, not only in a reader."""
+
+    async def test_a_room_the_category_only_thinks_it_hides_reaches_the_card(self):
+        guild, *_rest = TheRoomsACategoryOnlyThinksItHides()._rooms()
+
+        report = await security_check.audit(guild, bot=_Bot())
+
+        rows = [f for f in report.of(security_check.CRITICAL) if f.where == "#edited"]
+        self.assertEqual(len(rows), 1)
+        # The card's own sentence, so a scan that found it cannot report *no holes*
+        # beside the row it found.
+        self.assertIn("**1** critical", report.sentence())
+
+
 class TheEveryonePower(unittest.TestCase):
     """What `@everyone` may do, server-wide and in one room."""
 

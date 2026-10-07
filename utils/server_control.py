@@ -77,6 +77,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Iterable
 
+import discord
+
 # ``moderation_actions`` is imported for its `Actor` rather than for a function:
 # the same object the member panel builds is what names the person in a
 # lockdown's audit reason (``utils.moderation_actions.Actor``). Annotating it is
@@ -94,6 +96,30 @@ LOCKED_PERMISSIONS: tuple[str, ...] = ("send_messages", "create_public_threads",
 #: ordinary one, because a lock that also took the room off everybody's list would
 #: be a different decision wearing the same name.
 HIDDEN_PERMISSIONS: tuple[str, ...] = ("view_channel",)
+
+#: Every bit a lockdown command ever writes, as one mask: the four names above,
+#: read off Discord's own enum so the bits and the names cannot drift apart. Used
+#: by :func:`looks_like_our_lock` to tell a lock from a mask somebody made by hand
+#: — Discord's own deny-everything toggle denies the same Send Messages a lock
+#: does, and it is not this bot's overwrite.
+LOCK_MASK: int = sum(
+    int(getattr(discord.Permissions, name).flag)
+    for name in ("send_messages", "create_public_threads", "add_reactions", "view_channel")
+)
+
+
+def _only_lock_bits(deny) -> bool:
+    """Whether every bit this deny holds is one a lockdown command writes.
+
+    The vocabulary is :func:`lock_names` in full — the three a `/lockdown` denies
+    and the fourth a hidden one adds — read off Discord's own enum rather than
+    typed beside it. Anything else denied means a **person** made this mask: the
+    wall a "private" category carries in Discord's own panel, or a server's
+    everything-off toggle. That is a different decision wearing the lock's clothes,
+    and crediting it to this bot tells an administrator their hand-made privacy is
+    the bot's old lockdown *and* that the pass will not touch it.
+    """
+    return (_mask(deny) & ~LOCK_MASK) == 0
 
 #: Who a lock holds, as the ledger records it. ``channel`` is the per-channel
 #: `/lockdown`: held for everyone, administrators and the owner included, which is
@@ -1033,17 +1059,36 @@ def _entry_id(entry) -> int:
     return int(getattr(entry, "id", 0) or 0)
 
 
+def _hide_is_whole(deny) -> bool:
+    """Whether a deny that hides is the **whole** lock, which is the only shape written.
+
+    `View Channel` has only ever been denied *beside* the three: the hidden
+    lockdown arrived with them (one commit introduced both, and nothing older in
+    this tree denies a view). So a mask of Send Messages + View Channel and nothing
+    else was written by somebody else, and a room hidden by hand is staff talking
+    among themselves rather than a lock of ours to claim.
+    """
+    if not bool(getattr(deny, "view_channel", False)):
+        return True
+    return bool(getattr(deny, "create_public_threads", False)) and bool(
+        getattr(deny, "add_reactions", False)
+    )
+
+
 def looks_like_our_lock(overwrite) -> bool:
     """Whether an overwrite has the shape the lockdown commands write.
 
     The per-channel `/lockdown` before this module kept a ledger called
     ``set_permissions(everyone, send_messages=False)``, which Discord stores as
-    *allow nothing, deny Send Messages*. So the signature is two facts: Send
-    Messages is denied, and **nothing is granted** — the old command replaced the
+    *allow nothing, deny Send Messages*. So the signature is three facts: Send
+    Messages is denied, **nothing is granted** — the old command replaced the
     overwrite rather than editing it, so any allow bit at all means somebody has
-    been here since and this is no longer only its lock. The server-wide lockdown
-    denies two more permissions and still matches, because the test is about what
-    is denied rather than about what is not.
+    been here since and this is no longer only its lock — and **nothing outside the
+    bits a lockdown writes is denied either** (:func:`_only_lock_bits`, with a hide
+    held to its whole shape by :func:`_hide_is_whole`). The server-wide lockdown
+    denies two more permissions and still matches, because the test is about what is
+    denied rather than about what is not — but the *vocabulary* is the lock's own,
+    which is what stops a hand-made mask being reported as this bot's.
 
     Matching the shape makes a channel a **candidate**, never a lock: only
     :func:`adopt_legacy_locks` decides, and it asks the audit log first.
@@ -1051,7 +1096,9 @@ def looks_like_our_lock(overwrite) -> bool:
     allow, deny = _pair(overwrite)
     if not bool(getattr(deny, "send_messages", False)):
         return False
-    return not _mask(allow)
+    if _mask(allow):
+        return False
+    return _only_lock_bits(deny) and _hide_is_whole(deny)
 
 
 def adoption_candidates(guild, recorded) -> list:
